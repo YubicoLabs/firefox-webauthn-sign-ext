@@ -237,6 +237,8 @@ impl UserVerification for MakeCredentialsOptions {
 pub struct MakeCredentialsExtensions {
     #[serde(skip_serializing)]
     pub cred_props: Option<bool>,
+    #[serde(rename = "sign", skip_serializing_if = "Option::is_none")]
+    pub sign: Option<MakeCredentialsSignExtensionInput>,
     #[serde(rename = "credProtect", skip_serializing_if = "Option::is_none")]
     pub cred_protect: Option<CredentialProtectionPolicy>,
     #[serde(rename = "hmac-secret", skip_serializing_if = "Option::is_none")]
@@ -247,7 +249,10 @@ pub struct MakeCredentialsExtensions {
 
 impl MakeCredentialsExtensions {
     fn has_content(&self) -> bool {
-        self.cred_protect.is_some() || self.hmac_secret.is_some() || self.min_pin_length.is_some()
+        self.cred_protect.is_some()
+            || self.hmac_secret.is_some()
+            || self.min_pin_length.is_some()
+            || self.sign.is_some()
     }
 }
 
@@ -258,8 +263,24 @@ impl From<AuthenticationExtensionsClientInputs> for MakeCredentialsExtensions {
             cred_protect: input.credential_protection_policy,
             hmac_secret: input.hmac_create_secret,
             min_pin_length: input.min_pin_length,
+            sign: input
+                .sign
+                .and_then(|sign| sign.generate_key)
+                .map(|generate_key| MakeCredentialsSignExtensionInput {
+                    data_tbs: generate_key.tbs,
+                }),
         }
     }
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct MakeCredentialsSignExtensionInput {
+    #[serde(
+        rename = "tbs",
+        with = "serde_bytes",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub data_tbs: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone)]

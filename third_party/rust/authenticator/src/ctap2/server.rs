@@ -9,6 +9,7 @@ use serde::{
 };
 use serde_bytes::{ByteBuf, Bytes};
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::convert::{Into, TryFrom};
 use std::fmt;
 
@@ -365,11 +366,30 @@ pub struct AuthenticationExtensionsClientInputs {
     pub enforce_credential_protection_policy: Option<bool>,
     pub hmac_create_secret: Option<bool>,
     pub min_pin_length: Option<bool>,
+    pub sign: Option<AuthenticationExtensionsSignInputs>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct CredentialProperties {
     pub rk: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct AuthenticationExtensionsSignInputs {
+    pub generate_key: Option<AuthenticationExtensionsSignGenerateKeyInputs>,
+    pub sign: Option<AuthenticationExtensionsSignSignInputs>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct AuthenticationExtensionsSignGenerateKeyInputs {
+    pub num_keys: u32,
+    pub tbs: Option<Vec<u8>>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct AuthenticationExtensionsSignSignInputs {
+    pub tbs: Vec<u8>,
+    pub key_handle_by_credential: HashMap<Vec<u8>, Vec<u8>>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]

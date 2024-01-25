@@ -394,6 +394,23 @@ already_AddRefed<Promise> WebAuthnManager::MakeCredential(
     }
   }
 
+  if (aOptions.mExtensions.mSign.WasPassed()) {
+    const AuthenticationExtensionsSignInputs& sign = aOptions.mExtensions.mSign.Value();
+
+    Maybe<WebAuthnExtensionSignGenerateKeyInputs> generateKey = Nothing();
+    if (sign.mGenerateKey.WasPassed()) {
+      const AuthenticationExtensionsSignGenerateKeyInputs& gk = sign.mGenerateKey.Value();
+      CryptoBuffer tbs;
+      if (gk.mTbs.WasPassed()) {
+        tbs.Assign(gk.mTbs.Value());
+      }
+      generateKey = Some(WebAuthnExtensionSignGenerateKeyInputs(gk.mNumKeys, tbs));
+    }
+
+    WebAuthnExtensionSign el(generateKey, Nothing());
+    extensions.AppendElement(el);
+  }
+
   const auto& selection = aOptions.mAuthenticatorSelection;
   const auto& attachment = selection.mAuthenticatorAttachment;
   const nsString& attestation = aOptions.mAttestation;
@@ -616,6 +633,29 @@ already_AddRefed<Promise> WebAuthnManager::GetAssertion(
 
     // Append the hash and send it to the backend.
     extensions.AppendElement(WebAuthnExtensionAppId(appId));
+  }
+
+  if (aOptions.mExtensions.mSign.WasPassed()) {
+    const AuthenticationExtensionsSignInputs& sign = aOptions.mExtensions.mSign.Value();
+
+    if (sign.mSign.WasPassed()) {
+      const AuthenticationExtensionsSignSignInputs& si = sign.mSign.Value();
+      CryptoBuffer tbs;
+      tbs.Assign(si.mTbs);
+      nsTArray<WebAuthnExtensionSignSignInputsKeyHandleByCredentialEntry> keyHandleByCredential;
+      for (const auto& entry : si.mKeyHandleByCredential.Entries()) {
+        CryptoBuffer keyHandle;
+        keyHandle.Assign(entry.mValue);
+        keyHandleByCredential.AppendElement(
+          WebAuthnExtensionSignSignInputsKeyHandleByCredentialEntry(
+            NS_ConvertUTF16toUTF8(entry.mKey), keyHandle));
+      }
+
+      WebAuthnExtensionSignSignInputs sii(tbs, keyHandleByCredential);
+
+      WebAuthnExtensionSign el(Nothing(), Some(sii));
+      extensions.AppendElement(el);
+    }
   }
 
   BrowsingContext* context = mParent->GetBrowsingContext();

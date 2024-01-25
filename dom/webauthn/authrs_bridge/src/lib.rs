@@ -11,12 +11,16 @@ extern crate xpcom;
 use authenticator::{
     authenticatorservice::{RegisterArgs, SignArgs},
     ctap2::attestation::AttestationObject,
-    ctap2::commands::{get_info::AuthenticatorVersion, PinUvAuthResult},
     ctap2::server::{
-        AuthenticationExtensionsClientInputs, AuthenticatorAttachment,
+        AuthenticationExtensionsClientInputs, AuthenticationExtensionsSignInputs,
+        AuthenticationExtensionsSignSignInputs, AuthenticatorAttachment,
         PublicKeyCredentialDescriptor, PublicKeyCredentialParameters,
         PublicKeyCredentialUserEntity, RelyingParty, ResidentKeyRequirement,
         UserVerificationRequirement,
+    },
+    ctap2::{
+        commands::{get_info::AuthenticatorVersion, PinUvAuthResult},
+        server::AuthenticationExtensionsSignGenerateKeyInputs,
     },
     errors::AuthenticatorError,
     statecallback::StateCallback,
@@ -28,16 +32,17 @@ use cstr::cstr;
 use moz_task::{get_main_thread, RunnableBuilder};
 use nserror::{
     nsresult, NS_ERROR_DOM_ABORT_ERR, NS_ERROR_DOM_INVALID_STATE_ERR, NS_ERROR_DOM_NOT_ALLOWED_ERR,
-    NS_ERROR_DOM_OPERATION_ERR, NS_ERROR_FAILURE, NS_ERROR_INVALID_ARG, NS_ERROR_NOT_AVAILABLE,
-    NS_ERROR_NOT_IMPLEMENTED, NS_ERROR_NULL_POINTER, NS_OK,
+    NS_ERROR_DOM_NOT_SUPPORTED_ERR, NS_ERROR_DOM_OPERATION_ERR, NS_ERROR_FAILURE,
+    NS_ERROR_INVALID_ARG, NS_ERROR_NOT_AVAILABLE, NS_ERROR_NOT_IMPLEMENTED, NS_ERROR_NULL_POINTER,
+    NS_OK,
 };
 use nsstring::{nsACString, nsAString, nsCString, nsString};
 use serde::Serialize;
 use serde_cbor;
 use serde_json::json;
-use std::fmt::Write;
 use std::sync::mpsc::{channel, Receiver, RecvError, Sender};
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::{collections::HashMap, fmt::Write};
 use thin_vec::{thin_vec, ThinVec};
 use xpcom::interfaces::{
     nsICredentialParameters, nsIObserverService, nsIWebAuthnAttObj, nsIWebAuthnAutoFillEntry,
@@ -727,6 +732,54 @@ impl AuthrsService {
         let mut min_pin_length = false;
         unsafe { args.GetMinPinLength(&mut min_pin_length) }.to_result()?;
 
+        let mut sign_extension: bool = false;
+        let sign_extension_input: Option<AuthenticationExtensionsSignInputs> = match unsafe {
+            args.GetSignExtension(&mut sign_extension)
+        }
+        .to_result()
+        {
+            Ok(_) => {
+                debug!("sign_extension: {sign_extension}");
+                if sign_extension {
+                    let mut sign_extension_input = AuthenticationExtensionsSignGenerateKeyInputs {
+                        num_keys: 1,
+                        tbs: None,
+                    };
+
+                    let mut sign_extension_num_keys: u32 = 1;
+                    match unsafe {
+                        args.GetSignExtensionGenerateKeyNumKeys(&mut sign_extension_num_keys)
+                    }
+                    .to_result()
+                    {
+                        Ok(_) => {
+                            sign_extension_input.num_keys = sign_extension_num_keys;
+                        }
+                        _ => {}
+                    }
+
+                    let mut sign_extension_tbs: ThinVec<u8> = ThinVec::new();
+                    match unsafe { args.GetSignExtensionGenerateKeyTbs(&mut sign_extension_tbs) }
+                        .to_result()
+                    {
+                        Ok(_) => {
+                            sign_extension_input.tbs = Some(sign_extension_tbs.to_vec());
+                        }
+                        _ => {}
+                    }
+
+                    Some(AuthenticationExtensionsSignInputs {
+                        generate_key: Some(sign_extension_input),
+                        sign: None,
+                    })
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+        debug!("Parsed sign extension: {sign_extension_input:?}");
+
         // TODO(Bug 1593571) - Add this to the extensions
         // let mut hmac_create_secret = None;
         // let mut maybe_hmac_create_secret = false;
@@ -755,6 +808,7 @@ impl AuthrsService {
             extensions: AuthenticationExtensionsClientInputs {
                 cred_props: cred_props.then_some(true),
                 min_pin_length: min_pin_length.then_some(true),
+                sign: sign_extension_input,
                 ..Default::default()
             },
             pin: None,
@@ -943,6 +997,67 @@ impl AuthrsService {
             _ => (),
         }
 
+        let mut sign_extension: bool = false;
+        let sign_extension_input: Option<AuthenticationExtensionsSignInputs> =
+            match unsafe { args.GetSignExtension(&mut sign_extension) }.to_result() {
+                Ok(_) => {
+                    debug!("sign_extension: {sign_extension}");
+                    if sign_extension {
+                        let mut sign_extension_tbs: ThinVec<u8> = ThinVec::new();
+                        let tbs: Vec<u8> =
+                            match unsafe { args.GetSignExtensionSignTbs(&mut sign_extension_tbs) }
+                                .to_result()
+                            {
+                                Ok(_) => Ok(sign_extension_tbs.to_vec()),
+                                _ => Err(NS_ERROR_DOM_NOT_SUPPORTED_ERR),
+                            }?;
+
+                        let mut sign_extension_credential_ids: ThinVec<nsCString> = ThinVec::new();
+                        let mut sign_extension_key_handles: ThinVec<ThinVec<u8>> = ThinVec::new();
+                        let key_handle_by_credential: HashMap<Vec<u8>, Vec<u8>> = match (
+                            unsafe {
+                                args.GetSignExtensionSignKeyHandleByCredentialCredentialIdBase64url(
+                                    &mut sign_extension_credential_ids,
+                                )
+                            }
+                            .to_result(),
+                            unsafe {
+                                args.GetSignExtensionSignKeyHandleByCredentialKeyHandle(
+                                    &mut sign_extension_key_handles,
+                                )
+                            }
+                            .to_result(),
+                        ) {
+                            (Ok(_), Ok(_)) => sign_extension_credential_ids
+                                .into_iter()
+                                .zip(sign_extension_key_handles.into_iter().map(|v| v.to_vec()))
+                                .map(|(credential_id, key_handle)| {
+                                    base64::engine::general_purpose::URL_SAFE_NO_PAD
+                                        .decode(credential_id)
+                                        .map(|credential_id| (credential_id, key_handle))
+                                        .or(Err(NS_ERROR_INVALID_ARG))
+                                })
+                                .collect(),
+                            _ => Err(NS_ERROR_DOM_NOT_SUPPORTED_ERR),
+                        }?;
+                        //TODO: Validate keyHandleByCredential against allowCredentials
+
+                        let sign_extension_input = AuthenticationExtensionsSignInputs {
+                            generate_key: None,
+                            sign: Some(AuthenticationExtensionsSignSignInputs {
+                                tbs,
+                                key_handle_by_credential,
+                            }),
+                        };
+                        Some(sign_extension_input)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+        debug!("Parsed sign extension: {sign_extension_input:?}");
+
         let mut conditionally_mediated = false;
         unsafe { args.GetConditionallyMediated(&mut conditionally_mediated) }.to_result()?;
 
@@ -955,6 +1070,7 @@ impl AuthrsService {
             user_presence_req: true,
             extensions: AuthenticationExtensionsClientInputs {
                 app_id,
+                sign: sign_extension_input,
                 ..Default::default()
             },
             pin: None,

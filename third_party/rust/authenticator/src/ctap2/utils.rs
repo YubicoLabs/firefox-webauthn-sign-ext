@@ -37,3 +37,20 @@ pub fn read_byte<R: Read, E: de::Error>(data: &mut R) -> Result<u8, E> {
         _ => Err(serde_parse_err("u8")),
     }
 }
+
+pub mod serde_seq_bytes {
+    use serde::Serializer;
+
+    pub fn serialize<'item, I, S, T>(value: I, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        I: IntoIterator<Item = &'item T>,
+        S: Serializer,
+        T: AsRef<[u8]> + 'item,
+    {
+        serializer.collect_seq(
+            value
+                .into_iter()
+                .map(|item| serde_bytes::Bytes::new(item.as_ref())),
+        )
+    }
+}

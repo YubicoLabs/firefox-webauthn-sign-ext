@@ -318,3 +318,40 @@ partial dictionary AuthenticationExtensionsClientInputs {
 partial dictionary AuthenticationExtensionsClientInputsJSON {
   boolean minPinLength;
 };
+
+partial dictionary AuthenticationExtensionsClientInputs {
+    AuthenticationExtensionsSignInputs sign;
+};
+
+dictionary AuthenticationExtensionsSignInputs {
+    AuthenticationExtensionsSignGenerateKeyInputs generateKey;
+    AuthenticationExtensionsSignSignInputs sign;
+};
+
+dictionary AuthenticationExtensionsSignGenerateKeyInputs {
+    unsigned long numKeys = 1;
+    BufferSource tbs;
+};
+
+dictionary AuthenticationExtensionsSignSignInputs {
+    required BufferSource tbs;
+    required record<USVString, BufferSource> keyHandleByCredential;
+};
+
+// partial dictionary AuthenticationExtensionsClientOutputs {
+//     AuthenticationExtensionsSignOutputs sign;
+// };
+
+// dictionary AuthenticationExtensionsSignOutputs {
+//     sequence<AuthenticationExtensionsSignGenerateKeyOutputs> generatedKeys;
+//     ArrayBuffer signature;
+// };
+
+// dictionary AuthenticationExtensionsSignGenerateKeyOutputs {
+//     required ArrayBuffer attestationObject;
+//     required ArrayBuffer clientDataJSON;
+
+//     required ArrayBuffer publicKey;
+//     required ArrayBuffer keyHandle;
+//     ArrayBuffer signature;
+// };

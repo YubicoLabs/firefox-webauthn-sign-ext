@@ -48,11 +48,32 @@ struct WebAuthnExtensionMinPinLength {
   bool minPinLength;
 };
 
+struct WebAuthnExtensionSign {
+  WebAuthnExtensionSignGenerateKeyInputs? generateKey;
+  WebAuthnExtensionSignSignInputs? sign;
+};
+
+struct WebAuthnExtensionSignGenerateKeyInputs {
+    uint32_t numKeys;
+    uint8_t[] tbs;
+};
+
+struct WebAuthnExtensionSignSignInputs {
+    uint8_t[] tbs;
+    WebAuthnExtensionSignSignInputsKeyHandleByCredentialEntry[] keyHandleByCredential;
+};
+
+struct WebAuthnExtensionSignSignInputsKeyHandleByCredentialEntry {
+    nsCString credentialId;
+    uint8_t[] keyHandle;
+};
+
 union WebAuthnExtension {
   WebAuthnExtensionAppId;
   WebAuthnExtensionCredProps;
   WebAuthnExtensionHmacSecret;
   WebAuthnExtensionMinPinLength;
+  WebAuthnExtensionSign;
 };
 
 struct WebAuthnExtensionResultAppId {

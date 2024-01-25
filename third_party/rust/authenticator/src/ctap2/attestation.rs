@@ -66,6 +66,34 @@ impl<'de> Deserialize<'de> for HmacSecretResponse {
     }
 }
 
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum SignExtensionOutput {
+    MakeCred {
+        #[serde(rename = "kh", with = "serde_bytes")]
+        /// Key handle for public key
+        key_handle: Vec<u8>,
+
+        #[serde(rename = "pk", with = "serde_bytes")]
+        /// Generated signing public key
+        public_key: Vec<u8>,
+
+        #[serde(
+            rename = "sig",
+            with = "serde_bytes",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
+        /// Signature over tbs input (if requested)
+        signature: Option<Vec<u8>>,
+    },
+    GetAssertion {
+        #[serde(rename = "sig", with = "serde_bytes")]
+        /// Signature over tbs input
+        signature: Vec<u8>,
+    },
+}
+
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct Extension {
     #[serde(rename = "credProtect", skip_serializing_if = "Option::is_none")]
@@ -74,11 +102,16 @@ pub struct Extension {
     pub hmac_secret: Option<HmacSecretResponse>,
     #[serde(rename = "minPinLength", skip_serializing_if = "Option::is_none")]
     pub min_pin_length: Option<u64>,
+    #[serde(rename = "sign", skip_serializing_if = "Option::is_none")]
+    pub sign: Option<SignExtensionOutput>,
 }
 
 impl Extension {
     pub fn has_some(&self) -> bool {
-        self.min_pin_length.is_some() || self.hmac_secret.is_some() || self.cred_protect.is_some()
+        self.min_pin_length.is_some()
+            || self.hmac_secret.is_some()
+            || self.cred_protect.is_some()
+            || self.sign.is_some()
     }
 }
 

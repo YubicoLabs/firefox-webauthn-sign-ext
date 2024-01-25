@@ -43,6 +43,9 @@ interface nsIWebAuthnRegisterArgs : nsISupports {
     [must_use] readonly attribute bool credProps;
     [must_use] readonly attribute bool hmacCreateSecret;
     [must_use] readonly attribute bool minPinLength;
+    [must_use] readonly attribute bool signExtension;
+    [must_use] readonly attribute Array<octet> signExtensionGenerateKeyTbs;
+    [must_use] readonly attribute uint32_t signExtensionGenerateKeyNumKeys;
 
     // Options.
     readonly attribute AString residentKey;
@@ -85,6 +88,10 @@ interface nsIWebAuthnSignArgs : nsISupports {
     // return code to signal presence.
     [must_use] readonly attribute bool hmacCreateSecret;
     [must_use] readonly attribute AString appId;
+    [must_use] readonly attribute bool signExtension;
+    [must_use] readonly attribute Array<octet> signExtensionSignTbs;
+    [must_use] readonly attribute Array<ACString> signExtensionSignKeyHandleByCredentialCredentialIdBase64url;
+    [must_use] readonly attribute Array<Array<octet> > signExtensionSignKeyHandleByCredentialKeyHandle;
 
     // Options
     [must_use] readonly attribute AString userVerification;

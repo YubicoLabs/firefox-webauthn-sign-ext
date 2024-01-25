@@ -134,10 +134,21 @@ impl Serialize for HmacSecretExtension {
     }
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct GetAssertionSignExtensionInput {
+    #[serde(rename = "kh", with = "crate::ctap2::utils::serde_seq_bytes")]
+    /// MUST have length equal to that of allowCredentials and MUST be in corresponding order
+    pub key_handles: Vec<Vec<u8>>,
+    #[serde(rename = "tbs", with = "serde_bytes")]
+    pub data_tbs: Vec<u8>,
+}
+
 #[derive(Debug, Default, Clone, Serialize)]
 pub struct GetAssertionExtensions {
     #[serde(skip_serializing)]
     pub app_id: Option<String>,
+    #[serde(rename = "sign", skip_serializing_if = "Option::is_none")]
+    pub sign: Option<GetAssertionSignExtensionInput>,
     #[serde(rename = "hmac-secret", skip_serializing_if = "Option::is_none")]
     pub hmac_secret: Option<HmacSecretExtension>,
 }
@@ -146,6 +157,21 @@ impl From<AuthenticationExtensionsClientInputs> for GetAssertionExtensions {
     fn from(input: AuthenticationExtensionsClientInputs) -> Self {
         Self {
             app_id: input.app_id,
+            sign: input
+                .sign
+                .and_then(|sign_input| sign_input.sign)
+                .map(|sign_input| {
+                    GetAssertionSignExtensionInput {
+                        key_handles:
+                        // TODO: Reduce to intersection with allowCredentials
+                        sign_input
+                            .key_handle_by_credential
+                            .values()
+                            .cloned()
+                            .collect(),
+                        data_tbs: sign_input.tbs,
+                    }
+                }),
             ..Default::default()
         }
     }
@@ -153,7 +179,7 @@ impl From<AuthenticationExtensionsClientInputs> for GetAssertionExtensions {
 
 impl GetAssertionExtensions {
     fn has_content(&self) -> bool {
-        self.hmac_secret.is_some()
+        self.hmac_secret.is_some() || self.sign.is_some()
     }
 }
 
