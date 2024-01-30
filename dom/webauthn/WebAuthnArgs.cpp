@@ -142,7 +142,7 @@ WebAuthnRegisterArgs::GetSignExtensionGenerateKeyTbs(nsTArray<uint8_t>& aTbs) {
   for (const WebAuthnExtension& ext : mInfo.Extensions()) {
     if (ext.type() == WebAuthnExtension::TWebAuthnExtensionSign) {
       Maybe<WebAuthnExtensionSignGenerateKeyInputs> generateKey = ext.get_WebAuthnExtensionSign().generateKey();
-      if (generateKey.isSome()) {
+      if (generateKey.isSome() && generateKey->tbsMaybe()) {
         aTbs.Assign(generateKey->tbs());
         return NS_OK;
       }

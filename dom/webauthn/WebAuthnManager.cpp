@@ -404,7 +404,7 @@ already_AddRefed<Promise> WebAuthnManager::MakeCredential(
       if (gk.mTbs.WasPassed()) {
         tbs.Assign(gk.mTbs.Value());
       }
-      generateKey = Some(WebAuthnExtensionSignGenerateKeyInputs(gk.mNumKeys, tbs));
+      generateKey = Some(WebAuthnExtensionSignGenerateKeyInputs(gk.mNumKeys, gk.mTbs.WasPassed(), tbs));
     }
 
     WebAuthnExtensionSign el(generateKey, Nothing());

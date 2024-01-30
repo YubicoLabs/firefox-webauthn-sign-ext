@@ -55,6 +55,7 @@ struct WebAuthnExtensionSign {
 
 struct WebAuthnExtensionSignGenerateKeyInputs {
     uint32_t numKeys;
+    bool tbsMaybe;
     uint8_t[] tbs;
 };
 
