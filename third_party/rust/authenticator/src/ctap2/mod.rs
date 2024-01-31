@@ -672,6 +672,10 @@ pub fn sign<Dev: FidoDevice>(
             return false;
         }
 
+        if let Some(sign_extension_input) = get_assertion.extensions.sign.as_mut() {
+            sign_extension_input.filter_key_handles(&get_assertion.allow_list)
+        }
+
         debug!("------------------------------------------------------------------");
         debug!("{get_assertion:?} using {pin_uv_auth_result:?}");
         debug!("------------------------------------------------------------------");

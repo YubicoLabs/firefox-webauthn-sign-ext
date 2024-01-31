@@ -54,3 +54,16 @@ pub mod serde_seq_bytes {
         )
     }
 }
+
+pub mod serde_values_bytes {
+    use serde::Serializer;
+
+    pub fn serialize<'item, I, K, V, S>(values: I, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        I: IntoIterator<Item = (K, &'item V)>,
+        S: Serializer,
+        V: AsRef<[u8]> + 'item,
+    {
+        super::serde_seq_bytes::serialize(values.into_iter().map(|(_, v)| v), serializer)
+    }
+}

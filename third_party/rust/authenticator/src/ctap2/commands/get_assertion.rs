@@ -29,6 +29,7 @@ use serde::{
 };
 use serde_bytes::ByteBuf;
 use serde_cbor::{de::from_slice, ser, Value};
+use std::collections::HashMap;
 use std::fmt;
 use std::io::Cursor;
 
@@ -136,11 +137,17 @@ impl Serialize for HmacSecretExtension {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct GetAssertionSignExtensionInput {
-    #[serde(rename = "kh", with = "crate::ctap2::utils::serde_seq_bytes")]
-    /// MUST have length equal to that of allowCredentials and MUST be in corresponding order
-    pub key_handles: Vec<Vec<u8>>,
+    #[serde(rename = "kh", with = "crate::ctap2::utils::serde_values_bytes")]
+    pub key_handle_by_credential: HashMap<Vec<u8>, Vec<u8>>,
     #[serde(rename = "tbs", with = "serde_bytes")]
     pub data_tbs: Vec<u8>,
+}
+
+impl GetAssertionSignExtensionInput {
+    pub fn filter_key_handles(&mut self, allow_list: &[PublicKeyCredentialDescriptor]) {
+        self.key_handle_by_credential
+            .retain(|id, _| allow_list.iter().any(|pkcd| &pkcd.id == id));
+    }
 }
 
 #[derive(Debug, Default, Clone, Serialize)]
@@ -162,13 +169,7 @@ impl From<AuthenticationExtensionsClientInputs> for GetAssertionExtensions {
                 .and_then(|sign_input| sign_input.sign)
                 .map(|sign_input| {
                     GetAssertionSignExtensionInput {
-                        key_handles:
-                        // TODO: Reduce to intersection with allowCredentials
-                        sign_input
-                            .key_handle_by_credential
-                            .values()
-                            .cloned()
-                            .collect(),
+                        key_handle_by_credential: sign_input.key_handle_by_credential,
                         data_tbs: sign_input.tbs,
                     }
                 }),
