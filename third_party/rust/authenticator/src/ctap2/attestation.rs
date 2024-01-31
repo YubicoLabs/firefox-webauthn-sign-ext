@@ -74,9 +74,9 @@ pub enum SignExtensionOutput {
         /// Key handle for public key
         key_handle: Vec<u8>,
 
-        #[serde(rename = "pk", with = "serde_bytes")]
+        #[serde(rename = "pk")]
         /// Generated signing public key
-        public_key: Vec<u8>,
+        public_key: COSEKey,
 
         #[serde(
             rename = "sig",
