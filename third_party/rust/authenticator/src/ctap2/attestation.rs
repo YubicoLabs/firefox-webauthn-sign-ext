@@ -67,31 +67,28 @@ impl<'de> Deserialize<'de> for HmacSecretResponse {
 }
 
 #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(untagged)]
-pub enum SignExtensionOutput {
-    MakeCred {
-        #[serde(rename = "kh", with = "serde_bytes")]
-        /// Key handle for public key
-        key_handle: Vec<u8>,
+pub struct SignExtensionOutput {
+    #[serde(
+        rename = "kh",
+        with = "serde_bytes",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    /// Key handle for public key
+    key_handle: Option<Vec<u8>>,
 
-        #[serde(rename = "pk")]
-        /// Generated signing public key
-        public_key: COSEKey,
+    #[serde(rename = "pk", default, skip_serializing_if = "Option::is_none")]
+    /// Generated signing public key
+    public_key: Option<COSEKey>,
 
-        #[serde(
-            rename = "sig",
-            with = "serde_bytes",
-            default,
-            skip_serializing_if = "Option::is_none"
-        )]
-        /// Signature over tbs input (if requested)
-        signature: Option<Vec<u8>>,
-    },
-    GetAssertion {
-        #[serde(rename = "sig", with = "serde_bytes")]
-        /// Signature over tbs input
-        signature: Vec<u8>,
-    },
+    #[serde(
+        rename = "sig",
+        with = "serde_bytes",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    /// Signature over tbs input (if requested)
+    signature: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
