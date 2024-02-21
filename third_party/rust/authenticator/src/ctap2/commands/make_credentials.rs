@@ -30,6 +30,7 @@ use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
 };
 use serde_cbor::{self, de::from_slice, ser, Value};
+use std::collections::HashMap;
 use std::fmt;
 use std::io::{Cursor, Read};
 
@@ -267,7 +268,21 @@ impl From<AuthenticationExtensionsClientInputs> for MakeCredentialsExtensions {
                 .sign
                 .and_then(|sign| sign.generate_key)
                 .map(|generate_key| MakeCredentialsSignExtensionInput {
-                    algorithms: generate_key.algorithms.into_iter().map(|a| a.alg).collect(),
+                    algorithms: generate_key.algorithms.iter().map(|a| a.alg).collect(),
+                    num_keys: Some(
+                        generate_key
+                            .algorithms
+                            .into_iter()
+                            .flat_map(|a| {
+                                if a.num_keys != 1 {
+                                    Some((a.alg, a.num_keys))
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect(),
+                    )
+                    .filter(|nk: &HashMap<i32, u32>| !nk.is_empty()),
                     data_tbs: generate_key.tbs,
                 }),
         }
@@ -276,7 +291,11 @@ impl From<AuthenticationExtensionsClientInputs> for MakeCredentialsExtensions {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct MakeCredentialsSignExtensionInput {
+    #[serde(rename = "alg")]
     pub algorithms: Vec<i32>,
+
+    #[serde(rename = "num", skip_serializing_if = "Option::is_none")]
+    pub num_keys: Option<HashMap<i32, u32>>,
 
     #[serde(
         rename = "tbs",
