@@ -329,8 +329,13 @@ dictionary AuthenticationExtensionsSignInputs {
 };
 
 dictionary AuthenticationExtensionsSignGenerateKeyInputs {
-    unsigned long numKeys = 1;
+    required sequence<AuthenticationExtensionsSignGenerateKeyInputsAlgorithmEntry> algorithms;
     BufferSource tbs;
+};
+
+dictionary AuthenticationExtensionsSignGenerateKeyInputsAlgorithmEntry {
+    required long alg;
+    unsigned long numKeys = 1;
 };
 
 dictionary AuthenticationExtensionsSignSignInputs {

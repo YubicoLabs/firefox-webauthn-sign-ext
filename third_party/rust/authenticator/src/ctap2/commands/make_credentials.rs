@@ -267,6 +267,7 @@ impl From<AuthenticationExtensionsClientInputs> for MakeCredentialsExtensions {
                 .sign
                 .and_then(|sign| sign.generate_key)
                 .map(|generate_key| MakeCredentialsSignExtensionInput {
+                    algorithms: generate_key.algorithms.into_iter().map(|a| a.alg).collect(),
                     data_tbs: generate_key.tbs,
                 }),
         }
@@ -275,6 +276,8 @@ impl From<AuthenticationExtensionsClientInputs> for MakeCredentialsExtensions {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct MakeCredentialsSignExtensionInput {
+    pub algorithms: Vec<i32>,
+
     #[serde(
         rename = "tbs",
         with = "serde_bytes",

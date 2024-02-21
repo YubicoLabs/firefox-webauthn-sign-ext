@@ -54,9 +54,14 @@ struct WebAuthnExtensionSign {
 };
 
 struct WebAuthnExtensionSignGenerateKeyInputs {
-    uint32_t numKeys;
+    WebAuthnExtensionSignGenerateKeyAlgorithmsEntry[] algorithms;
     bool tbsMaybe;
     uint8_t[] tbs;
+};
+
+struct WebAuthnExtensionSignGenerateKeyAlgorithmsEntry {
+    int32_t alg;
+    uint32_t numKeys;
 };
 
 struct WebAuthnExtensionSignSignInputs {

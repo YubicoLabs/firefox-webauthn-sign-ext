@@ -45,7 +45,8 @@ interface nsIWebAuthnRegisterArgs : nsISupports {
     [must_use] readonly attribute bool minPinLength;
     [must_use] readonly attribute bool signExtension;
     [must_use] readonly attribute Array<octet> signExtensionGenerateKeyTbs;
-    [must_use] readonly attribute uint32_t signExtensionGenerateKeyNumKeys;
+    [must_use] readonly attribute Array<int32_t> signExtensionGenerateKeyAlgorithmsAlg;
+    [must_use] readonly attribute Array<uint32_t> signExtensionGenerateKeyAlgorithmsNumKeys;
 
     // Options.
     readonly attribute AString residentKey;

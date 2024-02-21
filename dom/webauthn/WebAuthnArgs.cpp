@@ -122,12 +122,32 @@ WebAuthnRegisterArgs::GetSignExtension(bool* aSignExtension) {
 }
 
 NS_IMETHODIMP
-WebAuthnRegisterArgs::GetSignExtensionGenerateKeyNumKeys(uint32_t* aNumKeys) {
+WebAuthnRegisterArgs::GetSignExtensionGenerateKeyAlgorithmsAlg(nsTArray<int32_t>& algorithmsAlg) {
   for (const WebAuthnExtension& ext : mInfo.Extensions()) {
     if (ext.type() == WebAuthnExtension::TWebAuthnExtensionSign) {
       Maybe<WebAuthnExtensionSignGenerateKeyInputs> generateKey = ext.get_WebAuthnExtensionSign().generateKey();
       if (generateKey.isSome()) {
-        *aNumKeys = generateKey->numKeys();
+        for (const WebAuthnExtensionSignGenerateKeyAlgorithmsEntry& algorithm : generateKey->algorithms()) {
+          algorithmsAlg.AppendElement(algorithm.alg());
+        }
+        return NS_OK;
+      }
+      break;
+    }
+  }
+
+  return NS_ERROR_NOT_AVAILABLE;
+}
+
+NS_IMETHODIMP
+WebAuthnRegisterArgs::GetSignExtensionGenerateKeyAlgorithmsNumKeys(nsTArray<uint32_t>& algorithmsNumKeys) {
+  for (const WebAuthnExtension& ext : mInfo.Extensions()) {
+    if (ext.type() == WebAuthnExtension::TWebAuthnExtensionSign) {
+      Maybe<WebAuthnExtensionSignGenerateKeyInputs> generateKey = ext.get_WebAuthnExtensionSign().generateKey();
+      if (generateKey.isSome()) {
+        for (const WebAuthnExtensionSignGenerateKeyAlgorithmsEntry& algorithm : generateKey->algorithms()) {
+          algorithmsNumKeys.AppendElement(algorithm.numKeys());
+        }
         return NS_OK;
       }
       break;

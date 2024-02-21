@@ -404,7 +404,14 @@ already_AddRefed<Promise> WebAuthnManager::MakeCredential(
       if (gk.mTbs.WasPassed()) {
         tbs.Assign(gk.mTbs.Value());
       }
-      generateKey = Some(WebAuthnExtensionSignGenerateKeyInputs(gk.mNumKeys, gk.mTbs.WasPassed(), tbs));
+
+      nsTArray<WebAuthnExtensionSignGenerateKeyAlgorithmsEntry> algorithms;
+      for (const AuthenticationExtensionsSignGenerateKeyInputsAlgorithmEntry& algorithm : gk.mAlgorithms) {
+        algorithms.AppendElement(
+            WebAuthnExtensionSignGenerateKeyAlgorithmsEntry(algorithm.mAlg, algorithm.mNumKeys));
+      }
+
+      generateKey = Some(WebAuthnExtensionSignGenerateKeyInputs(algorithms, gk.mTbs.WasPassed(), tbs));
     }
 
     WebAuthnExtensionSign el(generateKey, Nothing());

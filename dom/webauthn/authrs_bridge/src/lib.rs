@@ -12,9 +12,10 @@ use authenticator::{
     authenticatorservice::{RegisterArgs, SignArgs},
     ctap2::attestation::AttestationObject,
     ctap2::server::{
-        AuthenticationExtensionsClientInputs, AuthenticationExtensionsSignInputs,
-        AuthenticationExtensionsSignSignInputs, AuthenticatorAttachment,
-        PublicKeyCredentialDescriptor, PublicKeyCredentialParameters,
+        AuthenticationExtensionsClientInputs,
+        AuthenticationExtensionsSignGenerateKeyInputsAlgorithmsEntry,
+        AuthenticationExtensionsSignInputs, AuthenticationExtensionsSignSignInputs,
+        AuthenticatorAttachment, PublicKeyCredentialDescriptor, PublicKeyCredentialParameters,
         PublicKeyCredentialUserEntity, RelyingParty, ResidentKeyRequirement,
         UserVerificationRequirement,
     },
@@ -742,18 +743,37 @@ impl AuthrsService {
                 debug!("sign_extension: {sign_extension}");
                 if sign_extension {
                     let mut sign_extension_input = AuthenticationExtensionsSignGenerateKeyInputs {
-                        num_keys: 1,
+                        algorithms: Vec::new(),
                         tbs: None,
                     };
 
-                    let mut sign_extension_num_keys: u32 = 1;
-                    match unsafe {
-                        args.GetSignExtensionGenerateKeyNumKeys(&mut sign_extension_num_keys)
-                    }
-                    .to_result()
-                    {
-                        Ok(_) => {
-                            sign_extension_input.num_keys = sign_extension_num_keys;
+                    let mut sign_extension_algorithms_alg: ThinVec<i32> = ThinVec::new();
+                    let mut sign_extension_algorithms_num_keys: ThinVec<u32> = ThinVec::new();
+                    match (
+                        unsafe {
+                            args.GetSignExtensionGenerateKeyAlgorithmsAlg(
+                                &mut sign_extension_algorithms_alg,
+                            )
+                        }
+                        .to_result(),
+                        unsafe {
+                            args.GetSignExtensionGenerateKeyAlgorithmsNumKeys(
+                                &mut sign_extension_algorithms_num_keys,
+                            )
+                        }
+                        .to_result(),
+                    ) {
+                        (Ok(_), Ok(_)) => {
+                            sign_extension_input.algorithms = sign_extension_algorithms_alg
+                                .into_iter()
+                                .zip(sign_extension_algorithms_num_keys)
+                                .map(|(alg, num_keys)| {
+                                    AuthenticationExtensionsSignGenerateKeyInputsAlgorithmsEntry {
+                                        alg,
+                                        num_keys,
+                                    }
+                                })
+                                .collect();
                         }
                         _ => {}
                     }

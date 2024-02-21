@@ -382,8 +382,14 @@ pub struct AuthenticationExtensionsSignInputs {
 
 #[derive(Clone, Debug, Default)]
 pub struct AuthenticationExtensionsSignGenerateKeyInputs {
-    pub num_keys: u32,
+    pub algorithms: Vec<AuthenticationExtensionsSignGenerateKeyInputsAlgorithmsEntry>,
     pub tbs: Option<Vec<u8>>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct AuthenticationExtensionsSignGenerateKeyInputsAlgorithmsEntry {
+    pub alg: i32,
+    pub num_keys: u32,
 }
 
 #[derive(Clone, Debug, Default)]
