@@ -652,10 +652,20 @@ already_AddRefed<Promise> WebAuthnManager::GetAssertion(
       nsTArray<WebAuthnExtensionSignSignInputsKeyHandleByCredentialEntry> keyHandleByCredential;
       for (const auto& entry : si.mKeyHandleByCredential.Entries()) {
         CryptoBuffer keyHandle;
-        keyHandle.Assign(entry.mValue);
+        keyHandle.Assign(entry.mValue.mKid);
+        CryptoBuffer args;
+        if (entry.mValue.mArgs.WasPassed()) {
+          args.Assign(entry.mValue.mArgs.Value());
+        } else {
+          args.Clear();
+        }
         keyHandleByCredential.AppendElement(
           WebAuthnExtensionSignSignInputsKeyHandleByCredentialEntry(
-            NS_ConvertUTF16toUTF8(entry.mKey), keyHandle));
+            NS_ConvertUTF16toUTF8(entry.mKey),
+            keyHandle,
+            entry.mValue.mArgs.WasPassed(),
+            args
+        ));
       }
 
       WebAuthnExtensionSignSignInputs sii(tbs, keyHandleByCredential);

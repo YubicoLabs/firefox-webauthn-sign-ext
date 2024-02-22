@@ -92,7 +92,9 @@ interface nsIWebAuthnSignArgs : nsISupports {
     [must_use] readonly attribute bool signExtension;
     [must_use] readonly attribute Array<octet> signExtensionSignTbs;
     [must_use] readonly attribute Array<ACString> signExtensionSignKeyHandleByCredentialCredentialIdBase64url;
-    [must_use] readonly attribute Array<Array<octet> > signExtensionSignKeyHandleByCredentialKeyHandle;
+    [must_use] readonly attribute Array<Array<octet> > signExtensionSignKeyHandleByCredentialKeyHandleKid;
+    [must_use] readonly attribute Array<bool > signExtensionSignKeyHandleByCredentialKeyHandleArgsMaybe;
+    [must_use] readonly attribute Array<Array<octet> > signExtensionSignKeyHandleByCredentialKeyHandleArgs;
 
     // Options
     [must_use] readonly attribute AString userVerification;

@@ -395,7 +395,15 @@ pub struct AuthenticationExtensionsSignGenerateKeyInputsAlgorithmsEntry {
 #[derive(Clone, Debug, Default)]
 pub struct AuthenticationExtensionsSignSignInputs {
     pub tbs: Vec<u8>,
-    pub key_handle_by_credential: HashMap<Vec<u8>, Vec<u8>>,
+    pub key_handle_by_credential: HashMap<Vec<u8>, AuthenticationExtensionsSignSignInputsKeyHandle>,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct AuthenticationExtensionsSignSignInputsKeyHandle {
+    #[serde(with = "serde_bytes")]
+    pub kid: Vec<u8>,
+    #[serde(with = "serde_bytes", skip_serializing_if = "Option::is_none")]
+    pub args: Option<Vec<u8>>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]

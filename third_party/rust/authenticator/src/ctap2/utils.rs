@@ -55,15 +55,47 @@ pub mod serde_seq_bytes {
     }
 }
 
-pub mod serde_values_bytes {
-    use serde::Serializer;
+pub mod serde_values {
+    use serde::{Serialize, Serializer};
 
-    pub fn serialize<'item, I, K, V, S>(values: I, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<'item, I, S, K, V>(value: I, serializer: S) -> Result<S::Ok, S::Error>
     where
         I: IntoIterator<Item = (K, &'item V)>,
         S: Serializer,
+        V: Serialize + 'item,
+    {
+        serializer.collect_seq(value.into_iter().map(|(_, value)| value))
+    }
+}
+
+pub mod serde_values_bytes {
+    use serde::Serializer;
+
+    pub fn serialize<'item, I, S, K, V>(values: I, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        I: IntoIterator<Item = &'item (K, V)>,
+        S: Serializer,
+        K: 'item,
         V: AsRef<[u8]> + 'item,
     {
         super::serde_seq_bytes::serialize(values.into_iter().map(|(_, v)| v), serializer)
+    }
+}
+
+pub mod serde_values_bytes_option {
+    use serde::Serializer;
+
+    pub fn serialize<'item, I, S, K, V>(values: I, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        I: IntoIterator<Item = &'item (K, Option<V>)>,
+        S: Serializer,
+        K: 'item,
+        V: AsRef<[u8]> + 'item,
+    {
+        serializer.collect_seq(
+            values
+                .into_iter()
+                .map(|(_, v)| v.as_ref().map(|v| serde_bytes::Bytes::new(v.as_ref()))),
+        )
     }
 }

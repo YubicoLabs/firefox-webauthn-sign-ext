@@ -337,13 +337,53 @@ WebAuthnSignArgs::GetSignExtensionSignKeyHandleByCredentialCredentialIdBase64url
 }
 
 NS_IMETHODIMP
-WebAuthnSignArgs::GetSignExtensionSignKeyHandleByCredentialKeyHandle(nsTArray<nsTArray<uint8_t>>& aKeyHandles) {
+WebAuthnSignArgs::GetSignExtensionSignKeyHandleByCredentialKeyHandleKid(nsTArray<nsTArray<uint8_t>>& aKeyHandleKids) {
   for (const WebAuthnExtension& ext : mInfo.Extensions()) {
     if (ext.type() == WebAuthnExtension::TWebAuthnExtensionSign) {
       Maybe<WebAuthnExtensionSignSignInputs> sign = ext.get_WebAuthnExtensionSign().sign();
       if (sign.isSome()) {
         for (const WebAuthnExtensionSignSignInputsKeyHandleByCredentialEntry& entry : sign->keyHandleByCredential()) {
-          aKeyHandles.AppendElement(entry.keyHandle().Clone());
+          aKeyHandleKids.AppendElement(entry.kid().Clone());
+        }
+        return NS_OK;
+      }
+      break;
+    }
+  }
+
+  return NS_ERROR_NOT_AVAILABLE;
+}
+
+NS_IMETHODIMP
+WebAuthnSignArgs::GetSignExtensionSignKeyHandleByCredentialKeyHandleArgsMaybe(nsTArray<bool>& aKeyHandleArgsMaybe) {
+  for (const WebAuthnExtension& ext : mInfo.Extensions()) {
+    if (ext.type() == WebAuthnExtension::TWebAuthnExtensionSign) {
+      Maybe<WebAuthnExtensionSignSignInputs> sign = ext.get_WebAuthnExtensionSign().sign();
+      if (sign.isSome()) {
+        for (const WebAuthnExtensionSignSignInputsKeyHandleByCredentialEntry& entry : sign->keyHandleByCredential()) {
+          aKeyHandleArgsMaybe.AppendElement(entry.argsMaybe());
+        }
+        return NS_OK;
+      }
+      break;
+    }
+  }
+
+  return NS_ERROR_NOT_AVAILABLE;
+}
+
+NS_IMETHODIMP
+WebAuthnSignArgs::GetSignExtensionSignKeyHandleByCredentialKeyHandleArgs(nsTArray<nsTArray<uint8_t>>& aKeyHandleArgs) {
+  for (const WebAuthnExtension& ext : mInfo.Extensions()) {
+    if (ext.type() == WebAuthnExtension::TWebAuthnExtensionSign) {
+      Maybe<WebAuthnExtensionSignSignInputs> sign = ext.get_WebAuthnExtensionSign().sign();
+      if (sign.isSome()) {
+        for (const WebAuthnExtensionSignSignInputsKeyHandleByCredentialEntry& entry : sign->keyHandleByCredential()) {
+          if (entry.argsMaybe()) {
+            aKeyHandleArgs.AppendElement(entry.args().Clone());
+          } else {
+            aKeyHandleArgs.AppendElement(nsTArray<uint8_t>());
+          }
         }
         return NS_OK;
       }

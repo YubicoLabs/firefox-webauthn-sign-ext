@@ -340,7 +340,12 @@ dictionary AuthenticationExtensionsSignGenerateKeyInputsAlgorithmEntry {
 
 dictionary AuthenticationExtensionsSignSignInputs {
     required BufferSource tbs;
-    required record<USVString, BufferSource> keyHandleByCredential;
+    required record<USVString, AuthenticationExtensionsSignSignInputsKeyHandle> keyHandleByCredential;
+};
+
+dictionary AuthenticationExtensionsSignSignInputsKeyHandle {
+    required BufferSource kid;
+    BufferSource args;
 };
 
 // partial dictionary AuthenticationExtensionsClientOutputs {

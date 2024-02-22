@@ -71,7 +71,9 @@ struct WebAuthnExtensionSignSignInputs {
 
 struct WebAuthnExtensionSignSignInputsKeyHandleByCredentialEntry {
     nsCString credentialId;
-    uint8_t[] keyHandle;
+    uint8_t[] kid;
+    bool argsMaybe;
+    uint8_t[] args;
 };
 
 union WebAuthnExtension {

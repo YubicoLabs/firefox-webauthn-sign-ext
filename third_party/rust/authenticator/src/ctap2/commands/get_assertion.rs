@@ -29,7 +29,6 @@ use serde::{
 };
 use serde_bytes::ByteBuf;
 use serde_cbor::{de::from_slice, ser, Value};
-use std::collections::HashMap;
 use std::fmt;
 use std::io::Cursor;
 
@@ -137,16 +136,34 @@ impl Serialize for HmacSecretExtension {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct GetAssertionSignExtensionInput {
-    #[serde(rename = "kh", with = "crate::ctap2::utils::serde_values_bytes")]
-    pub key_handle_by_credential: HashMap<Vec<u8>, Vec<u8>>,
+    #[serde(rename = "kid", with = "crate::ctap2::utils::serde_values_bytes")]
+    pub key_handle_kid_by_credential: Vec<(Vec<u8>, Vec<u8>)>,
+
     #[serde(rename = "tbs", with = "serde_bytes")]
     pub data_tbs: Vec<u8>,
+
+    #[serde(
+        rename = "args",
+        with = "crate::ctap2::utils::serde_values_bytes_option"
+    )]
+    pub key_handle_args_by_credential: Vec<(Vec<u8>, Option<Vec<u8>>)>,
 }
 
 impl GetAssertionSignExtensionInput {
-    pub fn filter_key_handles(&mut self, allow_list: &[PublicKeyCredentialDescriptor]) {
-        self.key_handle_by_credential
-            .retain(|id, _| allow_list.iter().any(|pkcd| &pkcd.id == id));
+    pub fn filter_and_order_key_handles(&mut self, allow_list: &[PublicKeyCredentialDescriptor]) {
+        self.key_handle_kid_by_credential
+            .retain(|(id, _)| allow_list.iter().any(|pkcd| &pkcd.id == id));
+        self.key_handle_kid_by_credential
+            .sort_by_cached_key(|(id, _)| {
+                allow_list.iter().take_while(|pkcd| pkcd.id == *id).count()
+            });
+
+        self.key_handle_args_by_credential
+            .retain(|(id, _)| allow_list.iter().any(|pkcd| &pkcd.id == id));
+        self.key_handle_args_by_credential
+            .sort_by_cached_key(|(id, _)| {
+                allow_list.iter().take_while(|pkcd| pkcd.id == *id).count()
+            });
     }
 }
 
@@ -169,7 +186,16 @@ impl From<AuthenticationExtensionsClientInputs> for GetAssertionExtensions {
                 .and_then(|sign_input| sign_input.sign)
                 .map(|sign_input| {
                     GetAssertionSignExtensionInput {
-                        key_handle_by_credential: sign_input.key_handle_by_credential,
+                        key_handle_kid_by_credential: sign_input
+                            .key_handle_by_credential
+                            .iter()
+                            .map(|(id, kh)| (id.clone(), kh.kid.clone()))
+                            .collect(),
+                        key_handle_args_by_credential: sign_input
+                            .key_handle_by_credential
+                            .into_iter()
+                            .map(|(id, kh)| (id, kh.args))
+                            .collect(),
                         data_tbs: sign_input.tbs,
                     }
                 }),
