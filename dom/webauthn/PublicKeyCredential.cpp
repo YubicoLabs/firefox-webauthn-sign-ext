@@ -144,8 +144,45 @@ already_AddRefed<Promise> PublicKeyCredential::IsConditionalMediationAvailable(
 }
 
 void PublicKeyCredential::GetClientExtensionResults(
+    JSContext* cx,
     AuthenticationExtensionsClientOutputs& aResult) {
-  aResult = mClientExtensionOutputs;
+  if (mClientExtensionOutputs.mAppid.WasPassed()) {
+    aResult.mAppid.Construct(mClientExtensionOutputs.mAppid.Value());
+  }
+
+  if (mClientExtensionOutputs.mCredProps.WasPassed()) {
+    aResult.mCredProps.Construct(mClientExtensionOutputs.mCredProps.Value());
+  }
+
+  if (mClientExtensionOutputs.mHmacCreateSecret.WasPassed()) {
+    aResult.mHmacCreateSecret.Construct(mClientExtensionOutputs.mHmacCreateSecret.Value());
+  }
+
+  if (mClientExtensionOutputs.mPrf.WasPassed() || mPrfResultsFirst.isSome()) {
+    if (!mClientExtensionOutputs.mPrf.WasPassed()) {
+      mClientExtensionOutputs.mPrf.Construct();
+    }
+    aResult.mPrf.Construct();
+    AuthenticationExtensionsPRFOutputs& dest = aResult.mPrf.Value();
+
+    if (mClientExtensionOutputs.mPrf.Value().mEnabled.WasPassed()) {
+      dest.mEnabled.Construct(mClientExtensionOutputs.mPrf.Value().mEnabled.Value());
+    }
+
+    if (mPrfResultsFirst.isSome()) {
+      dest.mResults.Construct();
+      AuthenticationExtensionsPRFValues& destResults = dest.mResults.Value();
+
+      destResults.mFirst.SetAsArrayBuffer().Init(
+        TypedArrayCreator<ArrayBuffer>(mPrfResultsFirst.ref()).Create(cx));
+
+      if (mPrfResultsSecond.isSome()) {
+        destResults.mSecond.Construct();
+        destResults.mSecond.Value().SetAsArrayBuffer().Init(
+          TypedArrayCreator<ArrayBuffer>(mPrfResultsSecond.ref()).Create(cx));
+      }
+    }
+  }
 }
 
 void PublicKeyCredential::ToJSON(JSContext* aCx,
@@ -193,6 +230,10 @@ void PublicKeyCredential::ToJSON(JSContext* aCx,
       json.mClientExtensionResults.mAppid.Construct(
           mClientExtensionOutputs.mAppid.Value());
     }
+    // if (mClientExtensionOutputs.mHmacGetSecret.WasPassed()) {
+      // json.mClientExtensionResults.mHmacGetSecret.Construct();
+          // mClientExtensionOutputs.mHmacGetSecret.Value());
+    // }
     json.mType.Assign(u"public-key"_ns);
     if (!ToJSValue(aCx, json, &value)) {
       aError.StealExceptionFromJSContext(aCx);
@@ -217,10 +258,27 @@ void PublicKeyCredential::SetClientExtensionResultCredPropsRk(bool aResult) {
   mClientExtensionOutputs.mCredProps.Value().mRk.Value() = aResult;
 }
 
-void PublicKeyCredential::SetClientExtensionResultHmacSecret(
+void PublicKeyCredential::SetClientExtensionResultHmacCreateSecret(
     bool aHmacCreateSecret) {
   mClientExtensionOutputs.mHmacCreateSecret.Construct();
   mClientExtensionOutputs.mHmacCreateSecret.Value() = aHmacCreateSecret;
+}
+
+void PublicKeyCredential::SetClientExtensionResultPrfEnabled(bool aPrfEnabled) {
+  if (!mClientExtensionOutputs.mPrf.WasPassed()) {
+    mClientExtensionOutputs.mPrf.Construct();
+  }
+  mClientExtensionOutputs.mPrf.Value().mEnabled.Construct(aPrfEnabled);
+}
+
+void PublicKeyCredential::SetClientExtensionResultPrfResultsFirst(const nsTArray<uint8_t>& aPrfResultsFirst) {
+  mPrfResultsFirst.emplace(32);
+  mPrfResultsFirst->Assign(aPrfResultsFirst);
+}
+
+void PublicKeyCredential::SetClientExtensionResultPrfResultsSecond(const nsTArray<uint8_t>& aPrfResultsSecond) {
+  mPrfResultsSecond.emplace(32);
+  mPrfResultsSecond->Assign(aPrfResultsSecond);
 }
 
 bool Base64DecodeToArrayBuffer(GlobalObject& aGlobal, const nsAString& aString,
@@ -363,10 +421,10 @@ void PublicKeyCredential::ParseRequestOptionsFromJSON(
       aResult.mExtensions.mCredProps.Construct(
           aOptions.mExtensions.Value().mCredProps.Value());
     }
-    if (aOptions.mExtensions.Value().mHmacCreateSecret.WasPassed()) {
-      aResult.mExtensions.mHmacCreateSecret.Construct(
-          aOptions.mExtensions.Value().mHmacCreateSecret.Value());
-    }
+    // if (aOptions.mExtensions.Value().mHmacGetSecret.WasPassed()) {
+    //   aResult.mExtensions.mHmacGetSecret.Construct(
+    //       aOptions.mExtensions.Value().mHmacGetSecret.Value());
+    // }
     if (aOptions.mExtensions.Value().mMinPinLength.WasPassed()) {
       aResult.mExtensions.mMinPinLength.Construct(
           aOptions.mExtensions.Value().mMinPinLength.Value());

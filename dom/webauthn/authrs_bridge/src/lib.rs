@@ -12,7 +12,8 @@ use authenticator::{
     authenticatorservice::{RegisterArgs, SignArgs},
     ctap2::attestation::AttestationObject,
     ctap2::server::{
-        AuthenticationExtensionsClientInputs,
+        AuthenticationExtensionsClientInputs, AuthenticationExtensionsPRFInputs,
+        AuthenticationExtensionsPRFOutputs, AuthenticationExtensionsPRFValues,
         AuthenticationExtensionsSignGenerateKeyInputsAlgorithmsEntry,
         AuthenticationExtensionsSignInputs, AuthenticationExtensionsSignSignInputs,
         AuthenticationExtensionsSignSignInputsKeyHandle, AuthenticatorAttachment,
@@ -34,17 +35,17 @@ use cstr::cstr;
 use moz_task::{get_main_thread, RunnableBuilder};
 use nserror::{
     nsresult, NS_ERROR_DOM_ABORT_ERR, NS_ERROR_DOM_INVALID_STATE_ERR, NS_ERROR_DOM_NOT_ALLOWED_ERR,
-    NS_ERROR_DOM_NOT_SUPPORTED_ERR, NS_ERROR_DOM_OPERATION_ERR, NS_ERROR_FAILURE,
-    NS_ERROR_INVALID_ARG, NS_ERROR_NOT_AVAILABLE, NS_ERROR_NOT_IMPLEMENTED, NS_ERROR_NULL_POINTER,
-    NS_OK,
+    NS_ERROR_DOM_NOT_SUPPORTED_ERR, NS_ERROR_DOM_OPERATION_ERR, NS_ERROR_DOM_SYNTAX_ERR,
+    NS_ERROR_FAILURE, NS_ERROR_INVALID_ARG, NS_ERROR_NOT_AVAILABLE, NS_ERROR_NOT_IMPLEMENTED,
+    NS_ERROR_NULL_POINTER, NS_OK,
 };
 use nsstring::{nsACString, nsAString, nsCString, nsString};
 use serde::Serialize;
 use serde_cbor;
 use serde_json::json;
-use std::fmt::Write;
 use std::sync::mpsc::{channel, Receiver, RecvError, Sender};
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::{collections::HashMap, fmt::Write};
 use thin_vec::{thin_vec, ThinVec};
 use xpcom::interfaces::{
     nsICredentialParameters, nsIObserverService, nsIWebAuthnAttObj, nsIWebAuthnAutoFillEntry,
@@ -221,6 +222,46 @@ impl WebAuthnRegisterResult {
         Ok(hmac_create_secret)
     }
 
+    xpcom_method!(get_prf_enabled => GetPrfEnabled() -> bool);
+    fn get_prf_enabled(&self) -> Result<bool, nsresult> {
+        let Some(AuthenticationExtensionsPRFOutputs {
+            enabled: Some(prf_enabled),
+            ..
+        }) = self.result.extensions.prf
+        else {
+            return Err(NS_ERROR_NOT_AVAILABLE);
+        };
+        Ok(prf_enabled)
+    }
+
+    xpcom_method!(get_prf_results_first => GetPrfResultsFirst() -> ThinVec<u8>);
+    fn get_prf_results_first(&self) -> Result<ThinVec<u8>, nsresult> {
+        let Some(AuthenticationExtensionsPRFOutputs {
+            results: Some(AuthenticationExtensionsPRFValues { first, .. }),
+            ..
+        }) = &self.result.extensions.prf
+        else {
+            return Err(NS_ERROR_NOT_AVAILABLE);
+        };
+        Ok(first.as_slice().into())
+    }
+
+    xpcom_method!(get_prf_results_second => GetPrfResultsSecond() -> ThinVec<u8>);
+    fn get_prf_results_second(&self) -> Result<ThinVec<u8>, nsresult> {
+        let Some(AuthenticationExtensionsPRFOutputs {
+            results:
+                Some(AuthenticationExtensionsPRFValues {
+                    second: Some(second),
+                    ..
+                }),
+            ..
+        }) = &self.result.extensions.prf
+        else {
+            return Err(NS_ERROR_NOT_AVAILABLE);
+        };
+        Ok(second.as_slice().into())
+    }
+
     xpcom_method!(get_cred_props_rk => GetCredPropsRk() -> bool);
     fn get_cred_props_rk(&self) -> Result<bool, nsresult> {
         let Some(cred_props) = &self.result.extensions.cred_props else {
@@ -350,6 +391,34 @@ impl WebAuthnSignResult {
     xpcom_method!(set_used_app_id => SetUsedAppId(aUsedAppId: bool));
     fn set_used_app_id(&self, _used_app_id: bool) -> Result<(), nsresult> {
         Err(NS_ERROR_NOT_IMPLEMENTED)
+    }
+
+    xpcom_method!(get_prf_results_first => GetPrfResultsFirst() -> ThinVec<u8>);
+    fn get_prf_results_first(&self) -> Result<ThinVec<u8>, nsresult> {
+        let Some(AuthenticationExtensionsPRFOutputs {
+            results: Some(AuthenticationExtensionsPRFValues { first, .. }),
+            ..
+        }) = &self.result.extensions.prf
+        else {
+            return Err(NS_ERROR_NOT_AVAILABLE);
+        };
+        Ok(first.as_slice().into())
+    }
+
+    xpcom_method!(get_prf_results_second => GetPrfResultsSecond() -> ThinVec<u8>);
+    fn get_prf_results_second(&self) -> Result<ThinVec<u8>, nsresult> {
+        let Some(AuthenticationExtensionsPRFOutputs {
+            results:
+                Some(AuthenticationExtensionsPRFValues {
+                    second: Some(second),
+                    ..
+                }),
+            ..
+        }) = &self.result.extensions.prf
+        else {
+            return Err(NS_ERROR_NOT_AVAILABLE);
+        };
+        Ok(second.as_slice().into())
     }
 }
 
@@ -734,6 +803,107 @@ impl AuthrsService {
         let mut min_pin_length = false;
         unsafe { args.GetMinPinLength(&mut min_pin_length) }.to_result()?;
 
+        let mut prf: bool = false;
+        let prf_input: Option<AuthenticationExtensionsPRFInputs> =
+            match unsafe { args.GetPrf(&mut prf) }.to_result() {
+                Ok(_) => {
+                    debug!("prf: {prf}");
+                    if prf {
+                        let mut prf_eval_first: ThinVec<u8> = ThinVec::new();
+                        let mut prf_eval_second: ThinVec<u8> = ThinVec::new();
+                        let eval = unsafe { args.GetPrfEvalFirst(&mut prf_eval_first) }
+                            .to_result()
+                            .ok()
+                            .map(|_| AuthenticationExtensionsPRFValues {
+                                first: prf_eval_first.to_vec(),
+                                second: unsafe { args.GetPrfEvalSecond(&mut prf_eval_second) }
+                                    .to_result()
+                                    .ok()
+                                    .map(|_| prf_eval_second.to_vec()),
+                            });
+
+                        let mut prf_eval_by_credential_credential_ids: ThinVec<nsCString> =
+                            ThinVec::new();
+                        let mut prf_eval_by_credential_eval_firsts: ThinVec<ThinVec<u8>> =
+                            ThinVec::new();
+                        let mut prf_eval_by_credential_eval_second_maybes: ThinVec<bool> =
+                            ThinVec::new();
+                        let mut prf_eval_by_credential_eval_seconds: ThinVec<ThinVec<u8>> =
+                            ThinVec::new();
+                        let eval_by_credential = match (
+                            unsafe {
+                                args.GetPrfEvalByCredentialCredentialIdBase64url(
+                                    &mut prf_eval_by_credential_credential_ids,
+                                )
+                            }
+                            .to_result(),
+                            unsafe {
+                                args.GetPrfEvalByCredentialEvalFirst(
+                                    &mut prf_eval_by_credential_eval_firsts,
+                                )
+                            }
+                            .to_result(),
+                            unsafe {
+                                args.GetPrfEvalByCredentialEvalSecondMaybe(
+                                    &mut prf_eval_by_credential_eval_second_maybes,
+                                )
+                            }
+                            .to_result(),
+                            unsafe {
+                                args.GetPrfEvalByCredentialEvalSecond(
+                                    &mut prf_eval_by_credential_eval_seconds,
+                                )
+                            }
+                            .to_result(),
+                        ) {
+                            (Ok(_), Ok(_), Ok(_), Ok(_)) => Some(
+                                prf_eval_by_credential_credential_ids
+                                    .into_iter()
+                                    .zip(
+                                        prf_eval_by_credential_eval_firsts
+                                            .into_iter()
+                                            .map(|v| v.to_vec()),
+                                    )
+                                    .zip(prf_eval_by_credential_eval_second_maybes.into_iter())
+                                    .zip(
+                                        prf_eval_by_credential_eval_seconds
+                                            .into_iter()
+                                            .map(|v| v.to_vec()),
+                                    )
+                                    .map(|(((credential_id, first), second_maybe), second)| {
+                                        base64::engine::general_purpose::URL_SAFE_NO_PAD
+                                            .decode(credential_id)
+                                            .map(|credential_id| {
+                                                (
+                                                    credential_id,
+                                                    AuthenticationExtensionsPRFValues {
+                                                        first,
+                                                        second: if second_maybe {
+                                                            Some(second)
+                                                        } else {
+                                                            None
+                                                        },
+                                                    },
+                                                )
+                                            })
+                                            .or(Err(NS_ERROR_DOM_SYNTAX_ERR))
+                                    })
+                                    .collect::<Result<HashMap<_, _>, _>>()?,
+                            ),
+                            _ => None,
+                        };
+
+                        Some(AuthenticationExtensionsPRFInputs {
+                            eval,
+                            eval_by_credential,
+                        })
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+
         let mut sign_extension: bool = false;
         let sign_extension_input: Option<AuthenticationExtensionsSignInputs> = match unsafe {
             args.GetSignExtension(&mut sign_extension)
@@ -802,12 +972,12 @@ impl AuthrsService {
         debug!("Parsed sign extension: {sign_extension_input:?}");
 
         // TODO(Bug 1593571) - Add this to the extensions
-        // let mut hmac_create_secret = None;
-        // let mut maybe_hmac_create_secret = false;
-        // match unsafe { args.GetHmacCreateSecret(&mut maybe_hmac_create_secret) }.to_result() {
-        //     Ok(_) => hmac_create_secret = Some(maybe_hmac_create_secret),
-        //     _ => (),
-        // }
+        let mut hmac_create_secret = None;
+        let mut maybe_hmac_create_secret = false;
+        match unsafe { args.GetHmacCreateSecret(&mut maybe_hmac_create_secret) }.to_result() {
+            Ok(_) => hmac_create_secret = Some(maybe_hmac_create_secret),
+            _ => (),
+        }
 
         let origin = origin.to_string();
         let info = RegisterArgs {
@@ -828,7 +998,9 @@ impl AuthrsService {
             resident_key_req,
             extensions: AuthenticationExtensionsClientInputs {
                 cred_props: cred_props.then_some(true),
+                hmac_create_secret,
                 min_pin_length: min_pin_length.then_some(true),
+                prf: prf_input,
                 sign: sign_extension_input,
                 ..Default::default()
             },
@@ -1018,6 +1190,107 @@ impl AuthrsService {
             _ => (),
         }
 
+        let mut prf: bool = false;
+        let prf_input: Option<AuthenticationExtensionsPRFInputs> =
+            match unsafe { args.GetPrf(&mut prf) }.to_result() {
+                Ok(_) => {
+                    debug!("prf: {prf}");
+                    if prf {
+                        let mut prf_eval_first: ThinVec<u8> = ThinVec::new();
+                        let mut prf_eval_second: ThinVec<u8> = ThinVec::new();
+                        let eval = unsafe { args.GetPrfEvalFirst(&mut prf_eval_first) }
+                            .to_result()
+                            .ok()
+                            .map(|_| AuthenticationExtensionsPRFValues {
+                                first: prf_eval_first.to_vec(),
+                                second: unsafe { args.GetPrfEvalSecond(&mut prf_eval_second) }
+                                    .to_result()
+                                    .ok()
+                                    .map(|_| prf_eval_second.to_vec()),
+                            });
+
+                        let mut prf_eval_by_credential_credential_ids: ThinVec<nsCString> =
+                            ThinVec::new();
+                        let mut prf_eval_by_credential_eval_firsts: ThinVec<ThinVec<u8>> =
+                            ThinVec::new();
+                        let mut prf_eval_by_credential_eval_second_maybes: ThinVec<bool> =
+                            ThinVec::new();
+                        let mut prf_eval_by_credential_eval_seconds: ThinVec<ThinVec<u8>> =
+                            ThinVec::new();
+                        let eval_by_credential = match (
+                            unsafe {
+                                args.GetPrfEvalByCredentialCredentialIdBase64url(
+                                    &mut prf_eval_by_credential_credential_ids,
+                                )
+                            }
+                            .to_result(),
+                            unsafe {
+                                args.GetPrfEvalByCredentialEvalFirst(
+                                    &mut prf_eval_by_credential_eval_firsts,
+                                )
+                            }
+                            .to_result(),
+                            unsafe {
+                                args.GetPrfEvalByCredentialEvalSecondMaybe(
+                                    &mut prf_eval_by_credential_eval_second_maybes,
+                                )
+                            }
+                            .to_result(),
+                            unsafe {
+                                args.GetPrfEvalByCredentialEvalSecond(
+                                    &mut prf_eval_by_credential_eval_seconds,
+                                )
+                            }
+                            .to_result(),
+                        ) {
+                            (Ok(_), Ok(_), Ok(_), Ok(_)) => Some(
+                                prf_eval_by_credential_credential_ids
+                                    .into_iter()
+                                    .zip(
+                                        prf_eval_by_credential_eval_firsts
+                                            .into_iter()
+                                            .map(|v| v.to_vec()),
+                                    )
+                                    .zip(prf_eval_by_credential_eval_second_maybes.into_iter())
+                                    .zip(
+                                        prf_eval_by_credential_eval_seconds
+                                            .into_iter()
+                                            .map(|v| v.to_vec()),
+                                    )
+                                    .map(|(((credential_id, first), second_maybe), second)| {
+                                        base64::engine::general_purpose::URL_SAFE_NO_PAD
+                                            .decode(credential_id)
+                                            .map(|credential_id| {
+                                                (
+                                                    credential_id,
+                                                    AuthenticationExtensionsPRFValues {
+                                                        first,
+                                                        second: if second_maybe {
+                                                            Some(second)
+                                                        } else {
+                                                            None
+                                                        },
+                                                    },
+                                                )
+                                            })
+                                            .or(Err(NS_ERROR_DOM_SYNTAX_ERR))
+                                    })
+                                    .collect::<Result<HashMap<_, _>, _>>()?,
+                            ),
+                            _ => None,
+                        };
+
+                        Some(AuthenticationExtensionsPRFInputs {
+                            eval,
+                            eval_by_credential,
+                        })
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+
         let mut sign_extension: bool = false;
         let sign_extension_input: Option<AuthenticationExtensionsSignInputs> = match unsafe {
             args.GetSignExtension(&mut sign_extension)
@@ -1126,6 +1399,7 @@ impl AuthrsService {
             user_presence_req: true,
             extensions: AuthenticationExtensionsClientInputs {
                 app_id,
+                prf: prf_input,
                 sign: sign_extension_input,
                 ..Default::default()
             },

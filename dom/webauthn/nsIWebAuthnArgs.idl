@@ -43,6 +43,13 @@ interface nsIWebAuthnRegisterArgs : nsISupports {
     [must_use] readonly attribute bool credProps;
     [must_use] readonly attribute bool hmacCreateSecret;
     [must_use] readonly attribute bool minPinLength;
+    [must_use] readonly attribute bool prf;
+    [must_use] readonly attribute Array<octet> prfEvalFirst;
+    [must_use] readonly attribute Array<octet> prfEvalSecond;
+    [must_use] readonly attribute Array<ACString> prfEvalByCredentialCredentialIdBase64url;
+    [must_use] readonly attribute Array<Array<octet> > prfEvalByCredentialEvalFirst;
+    [must_use] readonly attribute Array<bool> prfEvalByCredentialEvalSecondMaybe;
+    [must_use] readonly attribute Array<Array<octet> > prfEvalByCredentialEvalSecond;
     [must_use] readonly attribute bool signExtension;
     [must_use] readonly attribute Array<octet> signExtensionGenerateKeyTbs;
     [must_use] readonly attribute Array<int32_t> signExtensionGenerateKeyAlgorithmsAlg;
@@ -89,6 +96,13 @@ interface nsIWebAuthnSignArgs : nsISupports {
     // return code to signal presence.
     [must_use] readonly attribute bool hmacCreateSecret;
     [must_use] readonly attribute AString appId;
+    [must_use] readonly attribute bool prf;
+    [must_use] readonly attribute Array<octet> prfEvalFirst;
+    [must_use] readonly attribute Array<octet> prfEvalSecond;
+    [must_use] readonly attribute Array<ACString> prfEvalByCredentialCredentialIdBase64url;
+    [must_use] readonly attribute Array<Array<octet> > prfEvalByCredentialEvalFirst;
+    [must_use] readonly attribute Array<bool> prfEvalByCredentialEvalSecondMaybe;
+    [must_use] readonly attribute Array<Array<octet> > prfEvalByCredentialEvalSecond;
     [must_use] readonly attribute bool signExtension;
     [must_use] readonly attribute Array<octet> signExtensionSignTbs;
     [must_use] readonly attribute Array<ACString> signExtensionSignKeyHandleByCredentialCredentialIdBase64url;

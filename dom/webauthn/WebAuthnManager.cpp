@@ -376,7 +376,9 @@ already_AddRefed<Promise> WebAuthnManager::MakeCredential(
   if (aOptions.mExtensions.mHmacCreateSecret.WasPassed()) {
     bool hmacCreateSecret = aOptions.mExtensions.mHmacCreateSecret.Value();
     if (hmacCreateSecret) {
-      extensions.AppendElement(WebAuthnExtensionHmacSecret(hmacCreateSecret));
+      extensions.AppendElement(
+        WebAuthnExtensionHmacSecret(hmacCreateSecret)
+      );
     }
   }
 
@@ -392,6 +394,48 @@ already_AddRefed<Promise> WebAuthnManager::MakeCredential(
     if (minPinLength) {
       extensions.AppendElement(WebAuthnExtensionMinPinLength(minPinLength));
     }
+  }
+
+  // <https://w3c.github.io/webauthn/#prf-extension>
+  if (aOptions.mExtensions.mPrf.WasPassed()) {
+    const AuthenticationExtensionsPRFInputs& prf = aOptions.mExtensions.mPrf.Value();
+
+    Maybe<WebAuthnExtensionPrfValues> eval = Nothing();
+    if (prf.mEval.WasPassed()) {
+      CryptoBuffer first;
+      first.Assign(prf.mEval.Value().mFirst);
+      const bool secondMaybe = prf.mEval.Value().mSecond.WasPassed();
+      CryptoBuffer second;
+      if (secondMaybe) {
+        second.Assign(prf.mEval.Value().mSecond.Value());
+      } else {
+        second.Clear();
+      }
+      eval = Some(WebAuthnExtensionPrfValues(first, secondMaybe, second));
+    }
+
+    const bool evalByCredentialMaybe = prf.mEvalByCredential.WasPassed();
+    nsTArray<WebAuthnExtensionPrfEvalByCredentialEntry> evalByCredential;
+    if (evalByCredentialMaybe) {
+      for (const auto& entry : prf.mEvalByCredential.Value().Entries()) {
+        CryptoBuffer first;
+        first.Assign(entry.mValue.mFirst);
+        const bool secondMaybe = entry.mValue.mSecond.WasPassed();
+        CryptoBuffer second;
+        if (secondMaybe) {
+          second.Assign(entry.mValue.mSecond.Value());
+        } else {
+          second.Clear();
+        }
+        evalByCredential.AppendElement(
+          WebAuthnExtensionPrfEvalByCredentialEntry(
+            NS_ConvertUTF16toUTF8(entry.mKey),
+            WebAuthnExtensionPrfValues(first, secondMaybe, second)
+        ));
+      }
+    }
+
+    extensions.AppendElement(WebAuthnExtensionPrf(eval, evalByCredentialMaybe, evalByCredential));
   }
 
   if (aOptions.mExtensions.mSign.WasPassed()) {
@@ -642,6 +686,56 @@ already_AddRefed<Promise> WebAuthnManager::GetAssertion(
     extensions.AppendElement(WebAuthnExtensionAppId(appId));
   }
 
+  // <https://w3c.github.io/webauthn/#prf-extension>
+  if (aOptions.mExtensions.mPrf.WasPassed()) {
+    const AuthenticationExtensionsPRFInputs& prf = aOptions.mExtensions.mPrf.Value();
+
+    Maybe<WebAuthnExtensionPrfValues> eval = Nothing();
+    if (prf.mEval.WasPassed()) {
+      CryptoBuffer first;
+      first.Assign(prf.mEval.Value().mFirst);
+      const bool secondMaybe = prf.mEval.Value().mSecond.WasPassed();
+      CryptoBuffer second;
+      if (secondMaybe) {
+        second.Assign(prf.mEval.Value().mSecond.Value());
+      } else {
+        second.Clear();
+      }
+      eval = Some(WebAuthnExtensionPrfValues(first, secondMaybe, second));
+    }
+
+    const bool evalByCredentialMaybe = prf.mEvalByCredential.WasPassed();
+    nsTArray<WebAuthnExtensionPrfEvalByCredentialEntry> evalByCredential;
+    if (evalByCredentialMaybe) {
+      for (const auto& entry : prf.mEvalByCredential.Value().Entries()) {
+        CryptoBuffer first;
+        first.Assign(entry.mValue.mFirst);
+        const bool secondMaybe = entry.mValue.mSecond.WasPassed();
+        CryptoBuffer second;
+        if (secondMaybe) {
+          second.Assign(entry.mValue.mSecond.Value());
+        } else {
+          second.Clear();
+        }
+        evalByCredential.AppendElement(
+          WebAuthnExtensionPrfEvalByCredentialEntry(
+            NS_ConvertUTF16toUTF8(entry.mKey),
+            WebAuthnExtensionPrfValues(first, secondMaybe, second)
+        ));
+      }
+    }
+
+    extensions.AppendElement(WebAuthnExtensionPrf(eval, evalByCredentialMaybe, evalByCredential));
+  }
+
+  // // <https://fidoalliance.org/specs/fido-v2.0-ps-20190130/fido-client-to-authenticator-protocol-v2.0-ps-20190130.html#sctn-hmac-secret-extension>
+  // if (aOptions.mExtensions.mPrf.WasPassed()) {
+  //   bool prf = aOptions.mExtensions.mPrf.Value();
+  //   if (prf) {
+  //     extensions.AppendElement(WebAuthnExtensionHmacSecret(prf));
+  //   }
+  // }
+
   if (aOptions.mExtensions.mSign.WasPassed()) {
     const AuthenticationExtensionsSignInputs& sign = aOptions.mExtensions.mSign.Value();
 
@@ -810,7 +904,14 @@ void WebAuthnManager::FinishMakeCredential(
         WebAuthnExtensionResult::TWebAuthnExtensionResultHmacSecret) {
       bool hmacCreateSecret =
           ext.get_WebAuthnExtensionResultHmacSecret().hmacCreateSecret();
-      credential->SetClientExtensionResultHmacSecret(hmacCreateSecret);
+      credential->SetClientExtensionResultHmacCreateSecret(hmacCreateSecret);
+    }
+    if (ext.type() ==
+        WebAuthnExtensionResult::TWebAuthnExtensionResultPrf) {
+      const Maybe<bool> prfEnabled = ext.get_WebAuthnExtensionResultPrf().enabled();
+      if (prfEnabled.isSome()) {
+        credential->SetClientExtensionResultPrfEnabled(prfEnabled.value());
+      }
     }
   }
 
@@ -858,6 +959,16 @@ void WebAuthnManager::FinishGetAssertion(
     if (ext.type() == WebAuthnExtensionResult::TWebAuthnExtensionResultAppId) {
       bool appid = ext.get_WebAuthnExtensionResultAppId().AppId();
       credential->SetClientExtensionResultAppId(appid);
+    }
+    if (ext.type() ==
+        WebAuthnExtensionResult::TWebAuthnExtensionResultPrf) {
+      Maybe<WebAuthnExtensionPrfValues> prfResults = ext.get_WebAuthnExtensionResultPrf().results();
+      if (prfResults.isSome()) {
+        credential->SetClientExtensionResultPrfResultsFirst(prfResults.value().first());
+        if (prfResults.value().secondMaybe()) {
+          credential->SetClientExtensionResultPrfResultsSecond(prfResults.value().second());
+        }
+      }
     }
   }
 

@@ -8,14 +8,15 @@ use crate::consts::{
     U2F_REQUEST_USER_PRESENCE,
 };
 use crate::crypto::{COSEKey, CryptoError, PinUvAuthParam, PinUvAuthToken, SharedSecret};
-use crate::ctap2::attestation::{AuthenticatorData, AuthenticatorDataFlags};
+use crate::ctap2::attestation::{AuthenticatorData, AuthenticatorDataFlags, HmacSecretResponse};
 use crate::ctap2::client_data::ClientDataHash;
 use crate::ctap2::commands::get_next_assertion::GetNextAssertion;
 use crate::ctap2::commands::make_credentials::UserVerification;
 use crate::ctap2::server::{
     AuthenticationExtensionsClientInputs, AuthenticationExtensionsClientOutputs,
-    AuthenticatorAttachment, PublicKeyCredentialDescriptor, PublicKeyCredentialUserEntity,
-    RelyingParty, RpIdHash, UserVerificationRequirement,
+    AuthenticationExtensionsPRFInputs, AuthenticationExtensionsPRFOutputs,
+    AuthenticationExtensionsPRFValues, AuthenticatorAttachment, PublicKeyCredentialDescriptor,
+    PublicKeyCredentialUserEntity, RelyingParty, RpIdHash, UserVerificationRequirement,
 };
 use crate::ctap2::utils::{read_be_u32, read_byte};
 use crate::errors::AuthenticatorError;
@@ -175,29 +176,30 @@ pub struct GetAssertionExtensions {
     pub sign: Option<GetAssertionSignExtensionInput>,
     #[serde(rename = "hmac-secret", skip_serializing_if = "Option::is_none")]
     pub hmac_secret: Option<HmacSecretExtension>,
+    #[serde(skip)]
+    pub prf: Option<AuthenticationExtensionsPRFInputs>,
 }
 
 impl From<AuthenticationExtensionsClientInputs> for GetAssertionExtensions {
     fn from(input: AuthenticationExtensionsClientInputs) -> Self {
         Self {
             app_id: input.app_id,
+            prf: input.prf,
             sign: input
                 .sign
                 .and_then(|sign_input| sign_input.sign)
-                .map(|sign_input| {
-                    GetAssertionSignExtensionInput {
-                        key_handle_kid_by_credential: sign_input
-                            .key_handle_by_credential
-                            .iter()
-                            .map(|(id, kh)| (id.clone(), kh.kid.clone()))
-                            .collect(),
-                        key_handle_args_by_credential: sign_input
-                            .key_handle_by_credential
-                            .into_iter()
-                            .map(|(id, kh)| (id, kh.args))
-                            .collect(),
-                        data_tbs: sign_input.tbs,
-                    }
+                .map(|sign_input| GetAssertionSignExtensionInput {
+                    key_handle_kid_by_credential: sign_input
+                        .key_handle_by_credential
+                        .iter()
+                        .map(|(id, kh)| (id.clone(), kh.kid.clone()))
+                        .collect(),
+                    key_handle_args_by_credential: sign_input
+                        .key_handle_by_credential
+                        .into_iter()
+                        .map(|(id, kh)| (id, kh.args))
+                        .collect(),
+                    data_tbs: sign_input.tbs,
                 }),
             ..Default::default()
         }
@@ -257,6 +259,26 @@ impl GetAssertion {
         if let Some(app_id) = &self.extensions.app_id {
             result.extensions.app_id =
                 Some(result.assertion.auth_data.rp_id_hash == RelyingParty::from(app_id).hash());
+        }
+
+        // 2. prf
+        if let (Some(_), Some(HmacSecretResponse::Secret(hmac_outputs)), Some(shared_secret)) = (
+            &self.extensions.prf,
+            &result.assertion.auth_data.extensions.hmac_secret,
+            dev.get_shared_secret(),
+        ) {
+            if let Ok(secrets) = shared_secret.decrypt(&hmac_outputs) {
+                let (first, second) = secrets.split_at(32);
+                result.extensions.prf = Some(AuthenticationExtensionsPRFOutputs {
+                    enabled: None,
+                    results: Some(AuthenticationExtensionsPRFValues {
+                        first: first.to_vec(),
+                        second: Some(second)
+                            .filter(|second| !second.is_empty())
+                            .map(|second| second.to_vec()),
+                    }),
+                });
+            }
         }
     }
 }

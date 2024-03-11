@@ -23,6 +23,7 @@ class WebAuthnRegisterArgs final : public nsIWebAuthnRegisterArgs {
         mCredProps(false),
         mHmacCreateSecret(false),
         mMinPinLength(false),
+        mPrf(false),
         mSignExtension(false) {
     for (const WebAuthnExtension& ext : mInfo.Extensions()) {
       switch (ext.type()) {
@@ -38,6 +39,10 @@ class WebAuthnRegisterArgs final : public nsIWebAuthnRegisterArgs {
               ext.get_WebAuthnExtensionMinPinLength().minPinLength();
           break;
         case WebAuthnExtension::TWebAuthnExtensionAppId:
+          break;
+
+        case WebAuthnExtension::TWebAuthnExtensionPrf:
+          mPrf = true;
           break;
 
         case WebAuthnExtension::TWebAuthnExtensionSign:
@@ -60,6 +65,7 @@ class WebAuthnRegisterArgs final : public nsIWebAuthnRegisterArgs {
   bool mCredProps;
   bool mHmacCreateSecret;
   bool mMinPinLength;
+  bool mPrf;
   bool mSignExtension;
 };
 
@@ -70,6 +76,7 @@ class WebAuthnSignArgs final : public nsIWebAuthnSignArgs {
 
   explicit WebAuthnSignArgs(const WebAuthnGetAssertionInfo& aInfo)
       : mInfo(aInfo),
+        mPrf(false),
         mSignExtension(false) {
 
     for (const WebAuthnExtension& ext : mInfo.Extensions()) {
@@ -82,6 +89,10 @@ class WebAuthnSignArgs final : public nsIWebAuthnSignArgs {
         case WebAuthnExtension::TWebAuthnExtensionHmacSecret:
           break;
         case WebAuthnExtension::TWebAuthnExtensionMinPinLength:
+          break;
+        case WebAuthnExtension::TWebAuthnExtensionPrf:
+          mPrf = ext.get_WebAuthnExtensionPrf().eval().isSome()
+            || ext.get_WebAuthnExtensionPrf().evalByCredentialMaybe();
           break;
         case WebAuthnExtension::TWebAuthnExtensionSign:
           mSignExtension = ext.get_WebAuthnExtensionSign().sign().isSome();
@@ -97,6 +108,7 @@ class WebAuthnSignArgs final : public nsIWebAuthnSignArgs {
 
   const WebAuthnGetAssertionInfo mInfo;
   Maybe<nsString> mAppId;
+  bool mPrf;
   bool mSignExtension;
 };
 

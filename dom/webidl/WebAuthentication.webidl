@@ -290,8 +290,6 @@ partial dictionary AuthenticationExtensionsClientOutputsJSON {
 
 // hmac-secret
 // <https://fidoalliance.org/specs/fido-v2.1-ps-20210615/fido-client-to-authenticator-protocol-v2.1-ps-errata-20220621.html#sctn-hmac-secret-extension>
-// note: we don't support hmac-secret in get(), so we only define the create()
-// inputs and outputs here.
 
 partial dictionary AuthenticationExtensionsClientInputs {
     boolean hmacCreateSecret;
@@ -309,6 +307,7 @@ partial dictionary AuthenticationExtensionsClientOutputsJSON {
     boolean hmacCreateSecret;
 };
 
+
 // minPinLength
 // <https://fidoalliance.org/specs/fido-v2.1-ps-20210615/fido-client-to-authenticator-protocol-v2.1-ps-errata-20220621.html#sctn-minpinlength-extension>
 partial dictionary AuthenticationExtensionsClientInputs {
@@ -318,6 +317,33 @@ partial dictionary AuthenticationExtensionsClientInputs {
 partial dictionary AuthenticationExtensionsClientInputsJSON {
   boolean minPinLength;
 };
+
+
+// prf
+// <https://w3c.github.io/webauthn/#prf-extension>
+dictionary AuthenticationExtensionsPRFValues {
+  required BufferSource first;
+  BufferSource second;
+};
+
+dictionary AuthenticationExtensionsPRFInputs {
+  AuthenticationExtensionsPRFValues eval;
+  record<USVString, AuthenticationExtensionsPRFValues> evalByCredential;
+};
+
+partial dictionary AuthenticationExtensionsClientInputs {
+  AuthenticationExtensionsPRFInputs prf;
+};
+
+dictionary AuthenticationExtensionsPRFOutputs {
+  boolean enabled;
+  AuthenticationExtensionsPRFValues results;
+};
+
+partial dictionary AuthenticationExtensionsClientOutputs {
+  AuthenticationExtensionsPRFOutputs prf;
+};
+
 
 partial dictionary AuthenticationExtensionsClientInputs {
     AuthenticationExtensionsSignInputs sign;

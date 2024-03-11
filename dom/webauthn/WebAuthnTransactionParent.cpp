@@ -143,6 +143,50 @@ mozilla::ipc::IPCResult WebAuthnTransactionParent::RecvRequestRegister(
                   WebAuthnExtensionResultHmacSecret(hmacCreateSecret));
             }
 
+            {
+              Maybe<bool> prfEnabledMaybe = Nothing();
+              Maybe<WebAuthnExtensionPrfValues> prfResults = Nothing();
+
+              bool prfEnabled;
+              rv = aValue->GetPrfEnabled(&prfEnabled);
+              if (rv != NS_ERROR_NOT_AVAILABLE) {
+                if (NS_WARN_IF(NS_FAILED(rv))) {
+                  Unused << parent->SendAbort(aTransactionId,
+                                              NS_ERROR_DOM_NOT_ALLOWED_ERR);
+                  return;
+                }
+                prfEnabledMaybe = Some(prfEnabled);
+              }
+
+              nsTArray<uint8_t> prfResultsFirst;
+              rv = aValue->GetPrfResultsFirst(prfResultsFirst);
+              if (rv != NS_ERROR_NOT_AVAILABLE) {
+                if (NS_WARN_IF(NS_FAILED(rv))) {
+                  Unused << parent->SendAbort(aTransactionId,
+                                              NS_ERROR_DOM_NOT_ALLOWED_ERR);
+                  return;
+                }
+
+                bool prfResultsSecondMaybe;
+                nsTArray<uint8_t> prfResultsSecond;
+                rv = aValue->GetPrfResultsSecond(prfResultsSecond);
+                if (rv != NS_ERROR_NOT_AVAILABLE) {
+                  if (NS_WARN_IF(NS_FAILED(rv))) {
+                    Unused << parent->SendAbort(aTransactionId,
+                                                NS_ERROR_DOM_NOT_ALLOWED_ERR);
+                    return;
+                  }
+                  prfResultsSecondMaybe = true;
+                }
+
+                prfResults = Some(WebAuthnExtensionPrfValues(prfResultsFirst, prfResultsSecondMaybe, prfResultsSecond));
+              }
+
+              if (prfEnabledMaybe.isSome() || prfResults.isSome()) {
+                extensions.AppendElement(WebAuthnExtensionResultPrf(prfEnabledMaybe, prfResults));
+              }
+            }
+
             WebAuthnMakeCredentialResult result(
                 clientData, attObj, credentialId, transports, extensions,
                 authenticatorAttachment);
@@ -259,6 +303,38 @@ mozilla::ipc::IPCResult WebAuthnTransactionParent::RecvRequestSign(
                 return;
               }
               extensions.AppendElement(WebAuthnExtensionResultAppId(usedAppId));
+            }
+
+            {
+              nsTArray<uint8_t> prfResultsFirst;
+              rv = aValue->GetPrfResultsFirst(prfResultsFirst);
+              if (rv != NS_ERROR_NOT_AVAILABLE) {
+                if (NS_WARN_IF(NS_FAILED(rv))) {
+                  Unused << parent->SendAbort(aTransactionId,
+                                              NS_ERROR_DOM_NOT_ALLOWED_ERR);
+                  return;
+                }
+
+                bool prfResultsSecondMaybe;
+                nsTArray<uint8_t> prfResultsSecond;
+                rv = aValue->GetPrfResultsSecond(prfResultsSecond);
+                if (rv != NS_ERROR_NOT_AVAILABLE) {
+                  if (NS_WARN_IF(NS_FAILED(rv))) {
+                    Unused << parent->SendAbort(aTransactionId,
+                                                NS_ERROR_DOM_NOT_ALLOWED_ERR);
+                    return;
+                  }
+                  prfResultsSecondMaybe = true;
+                }
+
+                extensions.AppendElement(
+                  WebAuthnExtensionResultPrf(
+                    Nothing(),
+                    Some(WebAuthnExtensionPrfValues(
+                      prfResultsFirst,
+                      prfResultsSecondMaybe,
+                      prfResultsSecond))));
+              }
             }
 
             WebAuthnGetAssertionResult result(
