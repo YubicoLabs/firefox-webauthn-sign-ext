@@ -309,7 +309,7 @@ partial dictionary AuthenticationExtensionsClientOutputsJSON {
     boolean hmacCreateSecret;
 };
 
-// hmac-secret
+// minPinLength
 // <https://fidoalliance.org/specs/fido-v2.1-ps-20210615/fido-client-to-authenticator-protocol-v2.1-ps-errata-20220621.html#sctn-minpinlength-extension>
 partial dictionary AuthenticationExtensionsClientInputs {
   boolean minPinLength;
