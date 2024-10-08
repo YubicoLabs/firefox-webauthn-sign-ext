@@ -1,7 +1,6 @@
 <html>
   <head>
     <title>WebMIDI Listener Test</title>
-    <script type="text/javascript" src="/MochiKit/MochiKit.js"></script>
     <script src="/tests/SimpleTest/SimpleTest.js"></script>
     <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css" />
     <script type="application/javascript" src="MIDITestUtils.js"></script>
@@ -16,7 +15,7 @@
          is(await props[prop], obj[prop], type + " property value " + prop + " is " + props[prop]);
        }
      };
-     let failOnCall = (event) => {
+     let failOnCall = () => {
        ok(false, "No connect/state events should be received on startup!");
      };
      async function runTests () {

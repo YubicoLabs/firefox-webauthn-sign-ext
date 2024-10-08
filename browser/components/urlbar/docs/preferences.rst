@@ -173,7 +173,7 @@ browser.urlbar.quicksuggest.enabled (boolean, default: false)
 browser.urlbar.quicksuggest.dataCollection.enabled (boolean, default: false)
   Whether data collection is enabled for quick suggest results.
 
-browser.urlbar.quicksuggest.shouldShowOnboardingDialog (boolean, default: true)
+browser.urlbar.quicksuggest.shouldShowOnboardingDialog (boolean, default: false)
   Whether to show the quick suggest onboarding dialog.
 
 browser.urlbar.richSuggestions.tail (boolean, default: true)
@@ -238,9 +238,6 @@ browser.urlbar.unitConversion.suggestedIndex (integer, default: 1)
 browser.urlbar.experimental.expandTextOnFocus (boolean, default: false)
   Whether we expand the font size when the urlbar is focused.
 
-browser.urlbar.experimental.searchButton (boolean, default: false)
-  Whether to displays a permanent search button before the urlbar.
-
 browser.urlbar.keepPanelOpenDuringImeComposition (boolean, default: false)
   Whether the results panel should be kept open during IME composition. The
   panel may overlap with the IME compositor panel.
@@ -248,7 +245,3 @@ browser.urlbar.keepPanelOpenDuringImeComposition (boolean, default: false)
 browser.urlbar.restyleSearches (boolean, default: false)
   When true, URLs in the user's history that look like search result pages
   are restyled to look like search engine results instead of history results.
-
-browser.urlbar.update2.emptySearchBehavior (integer, default: 0)
-  Controls the empty search behavior in Search Mode: 0. Show nothing, 1. Show
-  search history, 2. Show search and browsing history

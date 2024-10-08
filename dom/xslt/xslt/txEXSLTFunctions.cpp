@@ -23,7 +23,6 @@
 #include "nsImportModule.h"
 #include "nsPrintfCString.h"
 #include "nsComponentManagerUtils.h"
-#include "nsContentCID.h"
 #include "nsContentCreatorFunctions.h"
 #include "nsIContent.h"
 #include "txMozillaXMLOutput.h"
@@ -189,8 +188,8 @@ struct txEXSLTFunctionDescriptor {
   int32_t mNamespaceID;
 };
 
-static EnumeratedArray<txEXSLTType, txEXSLTType::_LIMIT,
-                       txEXSLTFunctionDescriptor>
+static EnumeratedArray<txEXSLTType, txEXSLTFunctionDescriptor,
+                       size_t(txEXSLTType::_LIMIT)>
     descriptTable;
 
 class txEXSLTFunctionCall : public FunctionCall {
@@ -591,7 +590,22 @@ nsresult txEXSLTFunctionCall::evaluate(txIEvalContext* aContext,
       // http://exslt.org/date/functions/date-time/
 
       PRExplodedTime prtime;
-      PR_ExplodeTime(PR_Now(), PR_LocalTimeParameters, &prtime);
+      Document* sourceDoc = getSourceDocument(aContext);
+      NS_ENSURE_STATE(sourceDoc);
+
+      PRTimeParamFn timezone =
+          sourceDoc->ShouldResistFingerprinting(RFPTarget::JSDateTimeUTC)
+              ? PR_GMTParameters
+              : PR_LocalTimeParameters;
+
+      PRTime time =
+          sourceDoc->ShouldResistFingerprinting(RFPTarget::ReduceTimerPrecision)
+              ? (PRTime)nsRFPService::ReduceTimePrecisionAsSecs(
+                    (double)PR_Now() / PR_USEC_PER_SEC, 0,
+                    RTPCallerType::ResistFingerprinting) *
+                    PR_USEC_PER_SEC
+              : PR_Now();
+      PR_ExplodeTime(time, timezone, &prtime);
 
       int32_t offset =
           (prtime.tm_params.tp_gmt_offset + prtime.tm_params.tp_dst_offset) /
@@ -635,7 +649,7 @@ Expr::ResultType txEXSLTFunctionCall::getReturnType() {
 
 bool txEXSLTFunctionCall::isSensitiveTo(ContextSensitivity aContext) {
   if (mType == txEXSLTType::NODE_SET || mType == txEXSLTType::SPLIT ||
-      mType == txEXSLTType::TOKENIZE) {
+      mType == txEXSLTType::TOKENIZE || mType == txEXSLTType::DATE_TIME) {
     return (aContext & PRIVATE_CONTEXT) || argsSensitiveTo(aContext);
   }
   return argsSensitiveTo(aContext);

@@ -63,6 +63,7 @@
 #include "mozilla/AbstractThread.h"
 #include "mozilla/FilePreferences.h"
 #include "mozilla/IOInterposer.h"
+#include "mozilla/NeverDestroyed.h"
 #include "mozilla/ProcessType.h"
 #include "mozilla/RDDProcessImpl.h"
 #include "mozilla/ipc/UtilityProcessImpl.h"
@@ -140,6 +141,7 @@ using mozilla::ipc::ProcessChild;
 
 using mozilla::dom::ContentParent;
 using mozilla::dom::ContentProcess;
+using mozilla::dom::UniqueContentParentKeepAlive;
 
 using mozilla::gmp::GMPProcessChild;
 
@@ -191,10 +193,6 @@ void XRE_SetAndroidChildFds(JNIEnv* env, const XRE_AndroidChildFds& fds) {
 }
 #endif  // defined(MOZ_WIDGET_ANDROID)
 
-void XRE_SetProcessType(const char* aProcessTypeString) {
-  SetGeckoProcessType(aProcessTypeString);
-}
-
 #if defined(XP_WIN)
 void SetTaskbarGroupId(const nsString& aId) {
   if (FAILED(SetCurrentProcessExplicitAppUserModelID(aId.get()))) {
@@ -207,13 +205,13 @@ void SetTaskbarGroupId(const nsString& aId) {
 #if defined(MOZ_SANDBOX)
 void AddContentSandboxLevelAnnotation() {
   if (XRE_GetProcessType() == GeckoProcessType_Content) {
-    int level = GetEffectiveContentSandboxLevel();
-    CrashReporter::AnnotateCrashReport(
-        CrashReporter::Annotation::ContentSandboxLevel, level);
+    uint32_t contentSandboxLevel = GetEffectiveContentSandboxLevel();
+    CrashReporter::RecordAnnotationU32(
+        CrashReporter::Annotation::ContentSandboxLevel, contentSandboxLevel);
   } else if (XRE_GetProcessType() == GeckoProcessType_GPU) {
-    int level = GetEffectiveGpuSandboxLevel();
-    CrashReporter::AnnotateCrashReport(
-        CrashReporter::Annotation::GpuSandboxLevel, level);
+    uint32_t gpuSandboxLevel = GetEffectiveGpuSandboxLevel();
+    CrashReporter::RecordAnnotationU32(
+        CrashReporter::Annotation::GpuSandboxLevel, gpuSandboxLevel);
   }
 }
 #endif /* MOZ_SANDBOX */
@@ -383,15 +381,6 @@ nsresult XRE_InitChildProcess(int aArgc, char* aArgv[],
 
   bool exceptionHandlerIsSet = false;
   if (!CrashReporter::IsDummy()) {
-#if defined(XP_WIN)
-    if (aArgc < 1) {
-      return NS_ERROR_FAILURE;
-    }
-    // Pop the first argument, this is used by the WER runtime exception module
-    // which reads it from the command-line so we can just discard it here.
-    --aArgc;
-#endif
-
     if (aArgc < 1) return NS_ERROR_FAILURE;
     const char* const crashReporterArg = aArgv[--aArgc];
 
@@ -534,7 +523,7 @@ nsresult XRE_InitChildProcess(int aArgc, char* aArgv[],
 #if defined(XP_WIN)
 #  if defined(MOZ_SANDBOX)
   if (aChildData->sandboxBrokerServices) {
-    SandboxBroker::Initialize(aChildData->sandboxBrokerServices);
+    SandboxBroker::Initialize(aChildData->sandboxBrokerServices, u""_ns);
     SandboxBroker::GeckoDependentInitialize();
   }
 #  endif  // defined(MOZ_SANDBOX)
@@ -748,22 +737,25 @@ void XRE_ShutdownChildProcess() {
 }
 
 namespace {
-ContentParent* gContentParent;  // long-lived, manually refcounted
+UniqueContentParentKeepAlive& TestShellContentParent() {
+  static NeverDestroyed<UniqueContentParentKeepAlive> sContentParent;
+  return *sContentParent;
+}
+
 TestShellParent* GetOrCreateTestShellParent() {
-  if (!gContentParent) {
+  if (!TestShellContentParent()) {
     // Use a "web" child process by default.  File a bug if you don't like
     // this and you're sure you wouldn't be better off writing a "browser"
     // chrome mochitest where you can have multiple types of content
     // processes.
-    RefPtr<ContentParent> parent =
+    TestShellContentParent() =
         ContentParent::GetNewOrUsedBrowserProcess(DEFAULT_REMOTE_TYPE);
-    parent.forget(&gContentParent);
-  } else if (gContentParent->IsShuttingDown()) {
+  } else if (TestShellContentParent()->IsShuttingDown()) {
     return nullptr;
   }
-  TestShellParent* tsp = gContentParent->GetTestShellSingleton();
+  TestShellParent* tsp = TestShellContentParent()->GetTestShellSingleton();
   if (!tsp) {
-    tsp = gContentParent->CreateTestShell();
+    tsp = TestShellContentParent()->CreateTestShell();
   }
   return tsp;
 }
@@ -793,15 +785,15 @@ bool XRE_SendTestShellCommand(JSContext* aCx, JSString* aCommand,
 }
 
 bool XRE_ShutdownTestShell() {
-  if (!gContentParent) {
+  if (!TestShellContentParent()) {
     return true;
   }
   bool ret = true;
-  if (gContentParent->IsAlive()) {
-    ret = gContentParent->DestroyTestShell(
-        gContentParent->GetTestShellSingleton());
+  if (TestShellContentParent()->IsAlive()) {
+    ret = TestShellContentParent()->DestroyTestShell(
+        TestShellContentParent()->GetTestShellSingleton());
   }
-  NS_RELEASE(gContentParent);
+  TestShellContentParent().reset();
   return ret;
 }
 

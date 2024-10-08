@@ -513,7 +513,7 @@ void VectorImage::SendInvalidationNotifications() {
   mHasPendingInvalidation = false;
 
   if (SurfaceCache::InvalidateImage(ImageKey(this))) {
-    // If we still have recordings in the cache, make sure we handle future
+    // If we had any surface providers in the cache, make sure we handle future
     // invalidations.
     MOZ_ASSERT(mRenderingObserver, "Should have a rendering observer by now");
     mRenderingObserver->ResumeHonoringInvalidations();
@@ -1557,12 +1557,7 @@ void VectorImage::InvalidateObserversOnNextRefreshDriverTick() {
   // set by InvalidateFrameInternal in layout/generic/nsFrame.cpp. These bits
   // get cleared when we repaint the SVG into a surface by
   // nsIFrame::ClearInvalidationStateBits in nsDisplayList::PaintRoot.
-  nsCOMPtr<nsIEventTarget> eventTarget;
-  if (mProgressTracker) {
-    eventTarget = mProgressTracker->GetEventTarget();
-  } else {
-    eventTarget = do_GetMainThread();
-  }
+  nsCOMPtr<nsIEventTarget> eventTarget = do_GetMainThread();
 
   RefPtr<VectorImage> self(this);
   nsCOMPtr<nsIRunnable> ev(NS_NewRunnableFunction(

@@ -23,10 +23,10 @@
 #include "logging/rtc_event_log/events/rtc_event_rtp_packet_outgoing.h"
 #include "modules/rtp_rtcp/include/rtp_cvo.h"
 #include "modules/rtp_rtcp/source/byte_io.h"
+#include "modules/rtp_rtcp/source/ntp_time_util.h"
 #include "modules/rtp_rtcp/source/rtp_generic_frame_descriptor_extension.h"
 #include "modules/rtp_rtcp/source/rtp_header_extensions.h"
 #include "modules/rtp_rtcp/source/rtp_packet_to_send.h"
-#include "modules/rtp_rtcp/source/time_util.h"
 #include "rtc_base/arraysize.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/experiments/field_trial_parser.h"
@@ -89,7 +89,7 @@ constexpr RtpExtensionSize kVideoExtensionSizes[] = {
 constexpr RtpExtensionSize kAudioExtensionSizes[] = {
     CreateExtensionSize<AbsoluteSendTime>(),
     CreateExtensionSize<AbsoluteCaptureTimeExtension>(),
-    CreateExtensionSize<AudioLevel>(),
+    CreateExtensionSize<AudioLevelExtension>(),
     CreateExtensionSize<InbandComfortNoiseExtension>(),
     CreateExtensionSize<TransmissionOffset>(),
     CreateExtensionSize<TransportSequenceNumber>(),
@@ -299,6 +299,7 @@ int32_t RTPSender::ReSendPacket(uint16_t packet_id) {
             if (retransmit_packet) {
               retransmit_packet->set_retransmitted_sequence_number(
                   stored_packet.SequenceNumber());
+              retransmit_packet->set_original_ssrc(stored_packet.Ssrc());
             }
             return retransmit_packet;
           });

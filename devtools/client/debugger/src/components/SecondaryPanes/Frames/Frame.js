@@ -7,7 +7,7 @@ import PropTypes from "devtools/client/shared/vendor/react-prop-types";
 
 import AccessibleImage from "../../shared/AccessibleImage";
 import { formatDisplayName } from "../../../utils/pause/frames/index";
-import { getFilename, getFileURL } from "../../../utils/source";
+import { getFileURL } from "../../../utils/source";
 import FrameIndent from "./FrameIndent";
 const classnames = require("resource://devtools/client/shared/classnames.js");
 
@@ -26,7 +26,6 @@ FrameTitle.propTypes = {
   frame: PropTypes.object.isRequired,
   options: PropTypes.object.isRequired,
   l10n: PropTypes.object.isRequired,
-  showFrameContextMenu: PropTypes.func.isRequired,
 };
 
 function getFrameLocation(frame, shouldDisplayOriginalLocation) {
@@ -52,7 +51,7 @@ const FrameLocation = memo(
     const location = getFrameLocation(frame, shouldDisplayOriginalLocation);
     const filename = displayFullUrl
       ? getFileURL(location.source, false)
-      : getFilename(location.source);
+      : location.source.shortName;
     return React.createElement(
       "span",
       {
@@ -102,6 +101,7 @@ export default class FrameComponent extends Component {
       panel: PropTypes.oneOf(["debugger", "webconsole"]).isRequired,
       selectFrame: PropTypes.func.isRequired,
       selectedFrame: PropTypes.object,
+      isTracerFrameSelected: PropTypes.bool.isRequired,
       shouldMapDisplayName: PropTypes.bool.isRequired,
       shouldDisplayOriginalLocation: PropTypes.bool.isRequired,
       showFrameContextMenu: PropTypes.func.isRequired,
@@ -124,7 +124,7 @@ export default class FrameComponent extends Component {
     this.props.showFrameContextMenu(event, frame);
   }
 
-  onMouseDown(e, frame, selectedFrame) {
+  onMouseDown(e, frame) {
     if (e.button !== 0) {
       return;
     }
@@ -132,7 +132,7 @@ export default class FrameComponent extends Component {
     this.props.selectFrame(frame);
   }
 
-  onKeyUp(event, frame, selectedFrame) {
+  onKeyUp(event, frame) {
     if (event.key != "Enter") {
       return;
     }
@@ -144,6 +144,7 @@ export default class FrameComponent extends Component {
     const {
       frame,
       selectedFrame,
+      isTracerFrameSelected,
       hideLocation,
       shouldMapDisplayName,
       displayFullUrl,
@@ -155,7 +156,15 @@ export default class FrameComponent extends Component {
     const { l10n } = this.context;
 
     const className = classnames("frame", {
-      selected: selectedFrame && selectedFrame.id === frame.id,
+      selected:
+        !isTracerFrameSelected &&
+        selectedFrame &&
+        selectedFrame.id === frame.id,
+      // When a JS Tracer frame is selected, the frame will still be considered as selected,
+      // and switch from a blue to a grey background. It will still be considered as selected
+      // from the point of view of stepping buttons.
+      inactive:
+        isTracerFrameSelected && selectedFrame && selectedFrame.id === frame.id,
     });
 
     const location = getFrameLocation(frame, shouldDisplayOriginalLocation);
@@ -167,12 +176,12 @@ export default class FrameComponent extends Component {
       {
         role: "listitem",
         key: frame.id,
-        className: className,
+        className,
         onMouseDown: e => this.onMouseDown(e, frame, selectedFrame),
         onKeyUp: e => this.onKeyUp(e, frame, selectedFrame),
         onContextMenu: disableContextMenu ? null : e => this.onContextMenu(e),
         tabIndex: 0,
-        title: title,
+        title,
       },
       frame.asyncCause &&
         React.createElement(

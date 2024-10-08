@@ -37,7 +37,6 @@
 #include "mozilla/TimeStamp.h"
 
 #include "mozilla/gfx/2D.h"
-#include "mozilla/gfx/Scale.h"
 #include "nsComponentManagerUtils.h"
 #include "nsError.h"
 #include "nsIConsoleService.h"
@@ -480,12 +479,7 @@ void RasterImage::OnSurfaceDiscarded(const SurfaceKey& aSurfaceKey) {
   bool animatedFramesDiscarded =
       mAnimationState && aSurfaceKey.Playback() == PlaybackType::eAnimated;
 
-  nsCOMPtr<nsIEventTarget> eventTarget;
-  if (mProgressTracker) {
-    eventTarget = mProgressTracker->GetEventTarget();
-  } else {
-    eventTarget = do_GetMainThread();
-  }
+  nsCOMPtr<nsIEventTarget> eventTarget = do_GetMainThread();
 
   RefPtr<RasterImage> image = this;
   nsCOMPtr<nsIRunnable> ev =
@@ -707,6 +701,9 @@ bool RasterImage::SetMetadata(const ImageMetadata& aMetadata,
     }
     StoreHasSize(true);
   }
+
+  MOZ_ASSERT_IF(mAnimationState && !aFromMetadataDecode,
+                mAnimationState->LoopCount() == aMetadata.GetLoopCount());
 
   if (LoadHasSize() && aMetadata.HasAnimation() && !mAnimationState) {
     // We're becoming animated, so initialize animation stuff.
@@ -1732,15 +1729,13 @@ void RasterImage::ReportDecoderError() {
 
   if (consoleService && errorObject) {
     nsAutoString msg(u"Image corrupt or truncated."_ns);
-    nsAutoString src;
+    nsAutoCString src;
     if (GetURI()) {
-      nsAutoCString uri;
-      if (!GetSpecTruncatedTo1k(uri)) {
+      if (!GetSpecTruncatedTo1k(src)) {
         msg += u" URI in this note truncated due to length."_ns;
       }
-      CopyUTF8toUTF16(uri, src);
     }
-    if (NS_SUCCEEDED(errorObject->InitWithWindowID(msg, src, u""_ns, 0, 0,
+    if (NS_SUCCEEDED(errorObject->InitWithWindowID(msg, src, 0, 0,
                                                    nsIScriptError::errorFlag,
                                                    "Image", InnerWindowID()))) {
       consoleService->LogMessage(errorObject);

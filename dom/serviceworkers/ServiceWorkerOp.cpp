@@ -34,7 +34,6 @@
 #include "mozilla/OwningNonNull.h"
 #include "mozilla/SchedulerGroup.h"
 #include "mozilla/ScopeExit.h"
-#include "mozilla/Telemetry.h"
 #include "mozilla/Unused.h"
 #include "mozilla/dom/BindingDeclarations.h"
 #include "mozilla/dom/Client.h"
@@ -278,8 +277,7 @@ class ServiceWorkerOp::ServiceWorkerOpRunnable final
 
   ServiceWorkerOpRunnable(RefPtr<ServiceWorkerOp> aOwner,
                           WorkerPrivate* aWorkerPrivate)
-      : WorkerDebuggeeRunnable(aWorkerPrivate, "ServiceWorkerOpRunnable",
-                               WorkerThread),
+      : WorkerDebuggeeRunnable("ServiceWorkerOpRunnable"),
         mOwner(std::move(aOwner)) {
     AssertIsOnMainThread();
     MOZ_ASSERT(mOwner);
@@ -320,7 +318,7 @@ class ServiceWorkerOp::ServiceWorkerOpRunnable final
 };
 
 NS_IMPL_ISUPPORTS_INHERITED0(ServiceWorkerOp::ServiceWorkerOpRunnable,
-                             WorkerRunnable)
+                             WorkerThreadRunnable)
 
 bool ServiceWorkerOp::MaybeStart(RemoteWorkerChild* aOwner,
                                  RemoteWorkerChild::State& aState) {
@@ -403,10 +401,11 @@ void ServiceWorkerOp::StartOnMainThread(RefPtr<RemoteWorkerChild>& aOwner) {
     auto lock = aOwner->mState.Lock();
     MOZ_ASSERT(lock->is<Running>());
 
-    RefPtr<WorkerRunnable> workerRunnable =
+    RefPtr<WorkerThreadRunnable> workerRunnable =
         GetRunnable(lock->as<Running>().mWorkerPrivate);
 
-    if (NS_WARN_IF(!workerRunnable->Dispatch())) {
+    if (NS_WARN_IF(
+            !workerRunnable->Dispatch(lock->as<Running>().mWorkerPrivate))) {
       RejectAll(NS_ERROR_FAILURE);
     }
   }
@@ -452,7 +451,7 @@ bool ServiceWorkerOp::IsTerminationOp() const {
          ServiceWorkerOpArgs::TServiceWorkerTerminateWorkerOpArgs;
 }
 
-RefPtr<WorkerRunnable> ServiceWorkerOp::GetRunnable(
+RefPtr<WorkerThreadRunnable> ServiceWorkerOp::GetRunnable(
     WorkerPrivate* aWorkerPrivate) {
   AssertIsOnMainThread();
   MOZ_ASSERT(aWorkerPrivate);
@@ -522,7 +521,7 @@ class UpdateServiceWorkerStateOp final : public ServiceWorkerOp {
 
     UpdateStateOpRunnable(RefPtr<UpdateServiceWorkerStateOp> aOwner,
                           WorkerPrivate* aWorkerPrivate)
-        : MainThreadWorkerControlRunnable(aWorkerPrivate),
+        : MainThreadWorkerControlRunnable("UpdateStateOpRunnable"),
           mOwner(std::move(aOwner)) {
       AssertIsOnMainThread();
       MOZ_ASSERT(mOwner);
@@ -559,7 +558,8 @@ class UpdateServiceWorkerStateOp final : public ServiceWorkerOp {
 
   ~UpdateServiceWorkerStateOp() = default;
 
-  RefPtr<WorkerRunnable> GetRunnable(WorkerPrivate* aWorkerPrivate) override {
+  RefPtr<WorkerThreadRunnable> GetRunnable(
+      WorkerPrivate* aWorkerPrivate) override {
     AssertIsOnMainThread();
     MOZ_ASSERT(aWorkerPrivate);
     MOZ_ASSERT(mArgs.type() ==
@@ -674,6 +674,9 @@ class PushEventOp final : public ExtendableEventOp {
       const auto& bytes = args.data().get_ArrayOfuint8_t();
       JSObject* data = Uint8Array::Create(aCx, bytes, result);
 
+      // The ScopeExit above will deal with the exceptions (through
+      // StealNSResult).
+      result.WouldReportJSException();
       if (result.Failed()) {
         return false;
       }
@@ -1428,8 +1431,7 @@ void FetchEventOp::ResolvedCallback(JSContext* aCx,
 
   if (response->Type() == ResponseType::Opaque &&
       requestMode != RequestMode::No_cors) {
-    NS_ConvertASCIItoUTF16 modeString(
-        RequestModeValues::GetString(requestMode));
+    NS_ConvertASCIItoUTF16 modeString(GetEnumString(requestMode));
 
     nsAutoString requestURL;
     GetRequestURL(requestURL);
@@ -1478,8 +1480,6 @@ void FetchEventOp::ResolvedCallback(JSContext* aCx,
 
   if (requestMode == RequestMode::Same_origin &&
       response->Type() == ResponseType::Cors) {
-    Telemetry::ScalarAdd(Telemetry::ScalarID::SW_CORS_RES_FOR_SO_REQ_COUNT, 1);
-
     // XXXtt: Will have a pref to enable the quirk response in bug 1419684.
     // The variadic template provided by StringArrayAppender requires exactly
     // an nsString.

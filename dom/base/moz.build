@@ -50,7 +50,6 @@ EXPORTS += [
     "nsAttrValueInlines.h",
     "nsCaseTreatment.h",
     "nsChildContentList.h",
-    "nsContentCID.h",
     "nsContentCreatorFunctions.h",
     "nsContentList.h",
     "nsContentListDeclarations.h",
@@ -127,7 +126,9 @@ EXPORTS.mozilla += [
     "ContentIterator.h",
     "CORSMode.h",
     "FlushType.h",
+    "FocusModel.h",
     "FullscreenChange.h",
+    "GlobalFreezeObserver.h",
     "GlobalTeardownObserver.h",
     "IdentifierMapEntry.h",
     "PointerLockManager.h",
@@ -136,6 +137,7 @@ EXPORTS.mozilla += [
     "ScriptableContentIterator.h",
     "ScrollingMetrics.h",
     "SelectionChangeEventDispatcher.h",
+    "SourceLocation.h",
     "TextInputProcessor.h",
     "UseCounter.h",
 ]
@@ -155,6 +157,7 @@ EXPORTS.mozilla.dom += [
     "BodyConsumer.h",
     "BodyUtil.h",
     "BorrowedAttrInfo.h",
+    "CacheExpirationTime.h",
     "CCGCScheduler.h",
     "CharacterData.h",
     "ChildIterator.h",
@@ -167,6 +170,7 @@ EXPORTS.mozilla.dom += [
     "CompressionStream.h",
     "ContentFrameMessageManager.h",
     "ContentProcessMessageManager.h",
+    "CrossShadowBoundaryRange.h",
     "CustomElementRegistry.h",
     "DecompressionStream.h",
     "DirectionalityUtils.h",
@@ -195,6 +199,7 @@ EXPORTS.mozilla.dom += [
     "External.h",
     "FilteredNodeIterator.h",
     "FormData.h",
+    "FragmentDirective.h",
     "FragmentOrElement.h",
     "FromParser.h",
     "GeneratedImageContent.h",
@@ -205,6 +210,7 @@ EXPORTS.mozilla.dom += [
     "IDTracker.h",
     "ImageEncoder.h",
     "ImageTracker.h",
+    "InteractiveWidget.h",
     "IntlUtils.h",
     "JSExecutionContext.h",
     "Link.h",
@@ -238,6 +244,7 @@ EXPORTS.mozilla.dom += [
     "PlacesBookmarkTitle.h",
     "PlacesBookmarkUrl.h",
     "PlacesEvent.h",
+    "PlacesEventCounts.h",
     "PlacesFavicon.h",
     "PlacesHistoryCleared.h",
     "PlacesObservers.h",
@@ -253,6 +260,7 @@ EXPORTS.mozilla.dom += [
     "PostMessageEvent.h",
     "ProcessMessageManager.h",
     "RadioGroupContainer.h",
+    "RequestCallbackManager.h",
     "ResizeObserver.h",
     "ResponsiveImageSelector.h",
     "SameProcessMessageQueue.h",
@@ -284,6 +292,7 @@ EXPORTS.mozilla.dom += [
     "UnbindContext.h",
     "UseCounterMetrics.h",
     "UserActivation.h",
+    "VideoFrameProvider.h",
     "ViewportMetaData.h",
     "VisualViewport.h",
     "WindowFeatures.h",
@@ -297,6 +306,7 @@ if CONFIG["FUZZING"]:
 
 if CONFIG["COMPILE_ENVIRONMENT"]:
     EXPORTS.mozilla.dom += [
+        "!fragmentdirectives_ffi_generated.h",
         "!GeneratedElementDocumentState.h",
         "RustTypes.h",
     ]
@@ -304,6 +314,11 @@ if CONFIG["COMPILE_ENVIRONMENT"]:
     CbindgenHeader(
         "GeneratedElementDocumentState.h",
         inputs=["rust"],
+    )
+
+    CbindgenHeader(
+        "fragmentdirectives_ffi_generated.h",
+        inputs=["fragmentdirectives"],
     )
 
 UNIFIED_SOURCES += [
@@ -329,6 +344,7 @@ UNIFIED_SOURCES += [
     "ContentFrameMessageManager.cpp",
     "ContentIterator.cpp",
     "ContentProcessMessageManager.cpp",
+    "CrossShadowBoundaryRange.cpp",
     "Crypto.cpp",
     "CustomElementRegistry.cpp",
     "DirectionalityUtils.cpp",
@@ -350,6 +366,7 @@ UNIFIED_SOURCES += [
     "EventSourceEventService.cpp",
     "External.cpp",
     "FormData.cpp",
+    "FragmentDirective.cpp",
     "FragmentOrElement.cpp",
     "GeneratedImageContent.cpp",
     "GlobalTeardownObserver.cpp",
@@ -449,6 +466,7 @@ UNIFIED_SOURCES += [
     "SelectionChangeEventDispatcher.cpp",
     "SerializedStackHolder.cpp",
     "ShadowRoot.cpp",
+    "SourceLocation.cpp",
     "StaticRange.cpp",
     "StorageAccessPermissionRequest.cpp",
     "StructuredCloneBlob.cpp",
@@ -490,6 +508,7 @@ if CONFIG["FUZZING"]:
 if CONFIG["MOZ_PLACES"]:
     UNIFIED_SOURCES += [
         "PlacesEvent.cpp",
+        "PlacesEventCounts.cpp",
         "PlacesObservers.cpp",
         "PlacesWeakCallbackWrapper.cpp",
     ]
@@ -545,7 +564,6 @@ EXTRA_JS_MODULES += [
     "ContentAreaDropListener.sys.mjs",
     "IndexedDBHelper.sys.mjs",
     "LocationHelper.sys.mjs",
-    "ProcessSelector.sys.mjs",
     "SlowScriptDebug.sys.mjs",
 ]
 
@@ -588,6 +606,7 @@ LOCAL_INCLUDES += [
     "/security/manager/ssl",
     "/third_party/xsimd/include",
     "/widget",
+    "/xpcom/build",
     "/xpcom/ds",
 ]
 

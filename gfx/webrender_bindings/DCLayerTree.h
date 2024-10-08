@@ -44,6 +44,10 @@ struct IDCompositionVirtualSurface;
 
 namespace mozilla {
 
+namespace gfx {
+color::ColorProfileDesc QueryOutputColorProfile();
+}
+
 namespace gl {
 class GLContext;
 }
@@ -59,6 +63,7 @@ class DCSurface;
 class DCSurfaceVideo;
 class DCSurfaceHandle;
 class RenderTextureHost;
+class RenderTextureHostUsageInfo;
 class RenderDcompSurfaceTextureHost;
 
 struct GpuOverlayInfo {
@@ -70,6 +75,9 @@ struct GpuOverlayInfo {
   UINT mYuy2OverlaySupportFlags = 0;
   UINT mBgra8OverlaySupportFlags = 0;
   UINT mRgb10a2OverlaySupportFlags = 0;
+
+  bool mSupportsVpSuperResolution = false;
+  bool mSupportsVpAutoHDR = false;
 };
 
 // -
@@ -113,7 +121,7 @@ class DCLayerTree {
 
   explicit DCLayerTree(gl::GLContext* aGL, EGLConfig aEGLConfig,
                        ID3D11Device* aDevice, ID3D11DeviceContext* aCtx,
-                       IDCompositionDevice2* aCompositionDevice);
+                       HWND aHwnd, IDCompositionDevice2* aCompositionDevice);
   ~DCLayerTree();
 
   void SetDefaultSwapChain(IDXGISwapChain1* aSwapChain);
@@ -159,6 +167,8 @@ class DCLayerTree {
 
   DCSurface* GetSurface(wr::NativeSurfaceId aId) const;
 
+  HWND GetHwnd() const { return mHwnd; }
+
   // Get or create an FBO with depth buffer suitable for specified dimensions
   GLuint GetOrCreateFbo(int aWidth, int aHeight);
 
@@ -187,6 +197,7 @@ class DCLayerTree {
 
   RefPtr<ID3D11Device> mDevice;
   RefPtr<ID3D11DeviceContext> mCtx;
+  HWND mHwnd;
 
   RefPtr<IDCompositionDevice2> mCompositionDevice;
   RefPtr<IDCompositionTarget> mCompositionTarget;
@@ -245,8 +256,6 @@ class DCLayerTree {
 
   bool mPendingCommit;
 
-  static color::ColorProfileDesc QueryOutputColorProfile();
-
   mutable Maybe<color::ColorProfileDesc> mOutputColorProfile;
 
   DCompOverlayTypes mUsedOverlayTypesInFrame = DCompOverlayTypes::NO_OVERLAY;
@@ -255,7 +264,7 @@ class DCLayerTree {
  public:
   const color::ColorProfileDesc& OutputColorProfile() const {
     if (!mOutputColorProfile) {
-      mOutputColorProfile = Some(QueryOutputColorProfile());
+      mOutputColorProfile = Some(gfx::QueryOutputColorProfile());
     }
     return *mOutputColorProfile;
   }
@@ -386,11 +395,13 @@ class DCSurfaceVideo : public DCSurface {
 
   DCSurfaceVideo* AsDCSurfaceVideo() override { return this; }
 
+  void DisableVideoOverlay();
+
  protected:
   virtual ~DCSurfaceVideo();
 
-  DXGI_FORMAT GetSwapChainFormat();
-  bool CreateVideoSwapChain();
+  DXGI_FORMAT GetSwapChainFormat(bool aUseVpAutoHDR);
+  bool CreateVideoSwapChain(DXGI_FORMAT aFormat);
   bool CallVideoProcessorBlt();
   void ReleaseDecodeSwapChainResources();
 
@@ -406,9 +417,13 @@ class DCSurfaceVideo : public DCSurface {
   bool mFailedYuvSwapChain = false;
   RefPtr<RenderTextureHost> mRenderTextureHost;
   RefPtr<RenderTextureHost> mPrevTexture;
+  RefPtr<RenderTextureHostUsageInfo> mRenderTextureHostUsageInfo;
   int mSlowPresentCount = 0;
   bool mFirstPresent = true;
   const UINT mSwapChainBufferCount;
+  bool mUseVpAutoHDR = false;
+  bool mVpAutoHDRFailed = false;
+  bool mVpSuperResolutionFailed = false;
 };
 
 /**

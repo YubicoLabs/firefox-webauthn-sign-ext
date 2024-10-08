@@ -78,7 +78,7 @@ def generate_tasks(params=None, full=False, disable_target_task_filter=False):
             "target_tasks_method": target_tasks_method,
         },
     )
-    root = os.path.join(build.topsrcdir, "taskcluster", "ci")
+    root = os.path.join(build.topsrcdir, "taskcluster")
     taskgraph.fast = True
     generator = TaskGraphGenerator(root_dir=root, parameters=params)
 
@@ -152,9 +152,28 @@ def generate_tasks(params=None, full=False, disable_target_task_filter=False):
     return tg_target
 
 
-def filter_tasks_by_paths(tasks, paths):
+def filter_tasks_by_worker_type(tasks, params):
+    worker_types = params.get("try_task_config", {}).get("worker-types", [])
+    if worker_types:
+        retVal = {}
+        for t in tasks:
+            if tasks[t].task["workerType"] in worker_types:
+                retVal[t] = tasks[t]
+        return retVal
+    return tasks
+
+
+def filter_tasks_by_paths(tasks, paths=[], tag=""):
     resolver = TestResolver.from_environment(cwd=here, loader_cls=TestManifestLoader)
-    run_suites, run_tests = resolver.resolve_metadata(paths)
+
+    if paths:
+        run_suites, run_tests = resolver.resolve_metadata(paths)
+    elif not paths and tag:
+        run_tests = list(resolver.resolve_tests(paths=[], tags=tag))
+
+    if not run_tests:
+        return {}
+
     flavors = {(t["flavor"], t.get("subsuite")) for t in run_tests}
 
     task_regexes = set()

@@ -16,7 +16,6 @@
 #include "nsScrollbarButtonFrame.h"
 #include "nsContentCreatorFunctions.h"
 #include "nsGkAtoms.h"
-#include "nsIScrollableFrame.h"
 #include "nsIScrollbarMediator.h"
 #include "nsStyleConsts.h"
 #include "nsIContent.h"
@@ -25,6 +24,7 @@
 #include "mozilla/PresShell.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/MutationEventBinding.h"
+#include "mozilla/ScrollContainerFrame.h"
 #include "mozilla/StaticPrefs_apz.h"
 
 using namespace mozilla;
@@ -56,6 +56,45 @@ void nsScrollbarFrame::Init(nsIContent* aContent, nsContainerFrame* aParent,
   // move the slider and will thus not change anything outside of the
   // scrollbar or change the size of the scrollbar frame.
   AddStateBits(NS_FRAME_REFLOW_ROOT);
+}
+
+nsScrollbarFrame* nsScrollbarFrame::GetOppositeScrollbar() const {
+  ScrollContainerFrame* sc = do_QueryFrame(GetParent());
+  if (!sc) {
+    return nullptr;
+  }
+  auto* vScrollbar = sc->GetScrollbarBox(/* aVertical= */ true);
+  if (vScrollbar == this) {
+    return sc->GetScrollbarBox(/* aVertical= */ false);
+  }
+  MOZ_ASSERT(sc->GetScrollbarBox(/* aVertical= */ false) == this,
+             "Which scrollbar are we?");
+  return vScrollbar;
+}
+
+void nsScrollbarFrame::ElementStateChanged(dom::ElementState aStates) {
+  if (!aStates.HasState(dom::ElementState::HOVER)) {
+    return;
+  }
+  // Hover state on the scrollbar changes both the scrollbar and potentially
+  // descendants too, so invalidate when it changes.
+  InvalidateFrameSubtree();
+  if (!mContent->AsElement()->State().HasState(dom::ElementState::HOVER)) {
+    return;
+  }
+  mHasBeenHovered = true;
+  // When hovering over one scrollbar, remove the sticky hover effect from the
+  // opposite scrollbar, if needed.
+  if (auto* opposite = GetOppositeScrollbar();
+      opposite && opposite->mHasBeenHovered) {
+    opposite->mHasBeenHovered = false;
+    opposite->InvalidateFrameSubtree();
+  }
+}
+
+void nsScrollbarFrame::WillBecomeActive() {
+  // Reset our sticky hover state before becoming active.
+  mHasBeenHovered = false;
 }
 
 void nsScrollbarFrame::Destroy(DestroyContext& aContext) {
@@ -160,19 +199,19 @@ nsresult nsScrollbarFrame::AttributeChanged(int32_t aNameSpaceID,
   // Update value in our children
   UpdateChildrenAttributeValue(aAttribute, true);
 
-  // if the current position changes, notify any nsGfxScrollFrame
+  // if the current position changes, notify any ScrollContainerFrame
   // parent we may have
   if (aAttribute != nsGkAtoms::curpos) {
     return rv;
   }
 
-  nsIScrollableFrame* scrollable = do_QueryFrame(GetParent());
-  if (!scrollable) {
+  ScrollContainerFrame* scrollContainerFrame = do_QueryFrame(GetParent());
+  if (!scrollContainerFrame) {
     return rv;
   }
 
   nsCOMPtr<nsIContent> content(mContent);
-  scrollable->CurPosAttributeChanged(content);
+  scrollContainerFrame->CurPosAttributeChanged(content);
   return rv;
 }
 
@@ -214,11 +253,11 @@ nsIScrollbarMediator* nsScrollbarFrame::GetScrollbarMediator() {
     return nullptr;
   }
   nsIFrame* f = mScrollbarMediator->GetPrimaryFrame();
-  nsIScrollableFrame* scrollFrame = do_QueryFrame(f);
+  ScrollContainerFrame* scrollContainerFrame = do_QueryFrame(f);
   nsIScrollbarMediator* sbm;
 
-  if (scrollFrame) {
-    nsIFrame* scrolledFrame = scrollFrame->GetScrolledFrame();
+  if (scrollContainerFrame) {
+    nsIFrame* scrolledFrame = scrollContainerFrame->GetScrolledFrame();
     sbm = do_QueryFrame(scrolledFrame);
     if (sbm) {
       return sbm;
@@ -226,7 +265,7 @@ nsIScrollbarMediator* nsScrollbarFrame::GetScrollbarMediator() {
   }
   sbm = do_QueryFrame(f);
   if (f && !sbm) {
-    f = f->PresShell()->GetRootScrollFrame();
+    f = f->PresShell()->GetRootScrollContainerFrame();
     if (f && f->GetContent() == mScrollbarMediator) {
       return do_QueryFrame(f);
     }

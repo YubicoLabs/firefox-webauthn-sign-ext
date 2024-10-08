@@ -32,12 +32,13 @@ async function run_test() {
   writeVersionFile("0.9");
   // Try to switch the application to the fake staged application.
   await runUpdateUsingApp(STATE_AFTER_STAGE);
-  standardInit();
+  await reloadUpdateManagerData();
+  await testPostUpdateProcessing();
   checkPostUpdateRunningFile(false);
   setTestFilesAndDirsForFailure();
   checkFilesAfterUpdateFailure(getApplyDirFile);
   await waitForUpdateXMLFiles();
-  checkUpdateManager(
+  await checkUpdateManager(
     STATE_NONE,
     false,
     STATE_FAILED,
@@ -60,5 +61,5 @@ async function run_test() {
   log = getUpdateDirFile(FILE_BACKUP_UPDATE_LOG);
   Assert.ok(!log.exists(), MSG_SHOULD_NOT_EXIST + getMsgPath(log.path));
 
-  waitForFilesInUse();
+  await waitForFilesInUse();
 }

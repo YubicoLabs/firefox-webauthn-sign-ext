@@ -2,7 +2,7 @@
 name = "malloc_size_of"
 version = "0.0.1"
 authors = ["The Servo Project Developers"]
-license = "MIT/Apache-2.0"
+license = "MIT OR Apache-2.0"
 publish = false
 
 [lib]
@@ -13,29 +13,29 @@ servo = [
     "accountable-refcell",
     "content-security-policy",
     "crossbeam-channel",
-    "hyper",
-    "hyper_serde",
+    "http",
+    "indexmap",
     "keyboard-types",
     "serde",
     "serde_bytes",
     "string_cache",
-    "time",
     "url",
     "uuid",
     "webrender_api",
     "xml5ever",
 ]
+gecko = []
 
 [dependencies]
 accountable-refcell = { version = "0.2.0", optional = true }
 app_units = "0.7"
 content-security-policy = { version = "0.4.0", features = ["serde"], optional = true }
 crossbeam-channel = { version = "0.4", optional = true }
-cssparser = "0.33"
+cssparser = "0.34"
 dom = { path = "../../../dom/base/rust" }
 euclid = "0.22"
-hyper = { version = "0.12", optional = true }
-hyper_serde = { version = "0.11", optional = true }
+http = { version = "0.2", optional = true }
+indexmap = { version = "2.2", optional = true }
 keyboard-types = { version = "0.4.3", optional = true }
 selectors = { path = "../selectors" }
 serde = { version = "1.0.27", optional = true }
@@ -45,7 +45,6 @@ smallbitvec = "2.3.0"
 smallvec = "1.0"
 string_cache = { version = "0.8", optional = true }
 thin-vec = { version = "0.2.1", features = ["gecko-ffi"] }
-time = { version = "0.1.17", optional = true }
 url = { version = "2.4", optional = true }
 uuid = { version = "0.8", features = ["v4"], optional = true }
 void = "1.0.2"

@@ -31,11 +31,12 @@
  * A note about GUIDs and item-ids
  * -------------------------------
  * There's an ongoing effort (see bug 1071511) to deprecate item-ids in Places
- * in favor of GUIDs.  Both because new APIs (e.g. Bookmark.jsm) expose them to
- * the minimum necessary, and because GUIDs play much better with implementing
- * |redo|, this API doesn't support item-ids at all, and only accepts bookmark
- * GUIDs, both for input (e.g. for setting the parent folder for a new bookmark)
- * and for output (when the GUID for such a bookmark is propagated).
+ * in favor of GUIDs.  Both because new APIs (e.g. Bookmarks.sys.mjs) expose them
+ * to the minimum necessary, and because GUIDs play much better with
+ * implementing |redo|, this API doesn't support item-ids at all, and only
+ * accepts bookmark GUIDs, both for input (e.g. for setting the parent folder
+ * for a new bookmark) and for output (when the GUID for such a bookmark is
+ * propagated).
  *
  * Constructing transactions
  * -------------------------
@@ -1458,7 +1459,7 @@ PT.SortByName.prototype = {
     // This is not great, since it does main-thread IO.
     // PromiseBookmarksTree can't be used, since it' won't stop at the first level'.
     let root = PlacesUtils.getFolderContents(guid, false, false).root;
-    for (let i = 0; i < root.childCount; ++i) {
+    for (let i = 0, count = root.childCount; i < count; ++i) {
       let node = root.getChild(i);
       oldOrderGuids.push(node.bookmarkGuid);
       if (PlacesUtils.nodeIsSeparator(node)) {

@@ -35,6 +35,8 @@ prefs = [
 
 ["browser_inprogress_analysis.js"]
 
+["browser_integrated_sidebar.js"]
+
 ["browser_keep_close_message_bar.js"]
 
 ["browser_network_offline.js"]
@@ -70,9 +72,6 @@ prefs = [
 ["browser_stale_product.js"]
 
 ["browser_ui_telemetry.js"]
-skip-if = [
-  "os == 'linux' && os_version == '18.04'"
-]
 
 ["browser_unanalyzed_product.js"]
 

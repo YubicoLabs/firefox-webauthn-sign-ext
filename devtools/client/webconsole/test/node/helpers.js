@@ -58,7 +58,7 @@ function setupStore(
   }
   const store = configureStore(webConsoleUI, {
     ...storeOptions,
-    thunkArgs: { toolbox: {} },
+    thunkArgs: { toolbox: {}, webConsoleUI },
     telemetry: new Telemetry(),
   });
 
@@ -127,9 +127,8 @@ function clearPrefs() {
 
 function getPrivatePacket(key) {
   const packet = clonePacket(stubPackets.get(key));
-  if (packet.message) {
-    packet.message.private = true;
-  } else if (packet.pageError) {
+  packet.private = true;
+  if (packet.pageError) {
     packet.pageError.private = true;
   }
   if (Object.getOwnPropertyNames(packet).includes("private")) {
@@ -143,16 +142,12 @@ function getWebConsoleUiMock(hud) {
     emit: () => {},
     emitForTests: () => {},
     hud: {
-      // @backward-compat { version 123 } A new Objects Manager front has a new "releaseActors" method.
-      // Once 123 is release, supportsReleaseActors could be removed.
       commands: {
         client: {
-          mainRoot: {
-            supportsReleaseActors: true,
-          },
+          mainRoot: {},
         },
         objectCommand: {
-          releaseObjects: async frontsToRelease => {},
+          releaseObjects: async () => {},
         },
       },
       ...hud,

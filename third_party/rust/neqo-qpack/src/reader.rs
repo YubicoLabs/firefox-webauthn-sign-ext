@@ -4,7 +4,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::{convert::TryInto, mem, str};
+use std::{mem, str};
 
 use neqo_common::{qdebug, qerror};
 use neqo_transport::{Connection, StreamId};
@@ -79,11 +79,11 @@ impl<'a> ReadByte for ReceiverBufferWrapper<'a> {
 }
 
 impl<'a> ReceiverBufferWrapper<'a> {
-    pub fn new(buf: &'a [u8]) -> Self {
+    pub const fn new(buf: &'a [u8]) -> Self {
         Self { buf, offset: 0 }
     }
 
-    pub fn peek(&self) -> Res<u8> {
+    pub const fn peek(&self) -> Res<u8> {
         if self.offset == self.buf.len() {
             Err(Error::DecompressionFailed)
         } else {
@@ -91,7 +91,7 @@ impl<'a> ReceiverBufferWrapper<'a> {
         }
     }
 
-    pub fn done(&self) -> bool {
+    pub const fn done(&self) -> bool {
         self.offset == self.buf.len()
     }
 
@@ -223,18 +223,17 @@ impl IntReader {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 enum LiteralReaderState {
+    #[default]
     ReadHuffman,
-    ReadLength { reader: IntReader },
-    ReadLiteral { offset: usize },
+    ReadLength {
+        reader: IntReader,
+    },
+    ReadLiteral {
+        offset: usize,
+    },
     Done,
-}
-
-impl Default for LiteralReaderState {
-    fn default() -> Self {
-        Self::ReadHuffman
-    }
 }
 
 /// This is decoder of a literal with a prefix:
@@ -279,6 +278,7 @@ impl LiteralReader {
     ///  1) `NeedMoreData` if the reader needs more data,
     ///  2) `IntegerOverflow`
     ///  3) Any `ReadByte`'s error
+    ///
     /// It returns value if reading the literal is done or None if it needs more data.
     ///
     /// # Panics

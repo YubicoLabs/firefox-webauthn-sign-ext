@@ -14,6 +14,10 @@ const {
   VIEW_NODE_SHAPE_POINT_TYPE,
 } = require("resource://devtools/client/inspector/shared/node-types.js");
 
+const { TYPES } = ChromeUtils.importESModule(
+  "resource://devtools/shared/highlighters.mjs"
+);
+
 loader.lazyRequireGetter(
   this,
   "parseURL",
@@ -52,16 +56,6 @@ loader.lazyGetter(this, "HighlightersBundle", () => {
 
 const DEFAULT_HIGHLIGHTER_COLOR = "#9400FF";
 const SUBGRID_PARENT_ALPHA = 0.5;
-
-const TYPES = {
-  BOXMODEL: "BoxModelHighlighter",
-  FLEXBOX: "FlexboxHighlighter",
-  GEOMETRY: "GeometryEditorHighlighter",
-  GRID: "CssGridHighlighter",
-  SHAPES: "ShapesHighlighter",
-  SELECTOR: "SelectorHighlighter",
-  TRANSFORM: "CssTransformHighlighter",
-};
 
 /**
  * While refactoring to an abstracted way to show and hide highlighters,
@@ -793,13 +787,8 @@ class HighlightersOverlay {
 
   /**
    * Called after the shapes highlighter was hidden.
-   *
-   * @param  {Object} data
-   *         Data associated with the event.
-   *         Contains:
-   *         - {NodeFront} node: The NodeFront of the element that was highlighted.
    */
-  onShapesHighlighterHidden(data) {
+  onShapesHighlighterHidden() {
     this.emit(
       "shapes-highlighter-hidden",
       this.shapesHighlighterShown,
@@ -1178,7 +1167,7 @@ class HighlightersOverlay {
   async restoreParentGridHighlighter(node) {
     // Find the highlighter map entry for the subgrid whose parent grid is the given node.
     const entry = Array.from(this.gridHighlighters.entries()).find(
-      ([key, value]) => {
+      ([, value]) => {
         return value?.parentGridNode === node;
       }
     );
@@ -1296,7 +1285,7 @@ class HighlightersOverlay {
    */
   async showGeometryEditor(node) {
     const highlighter = await this._getHighlighterTypeForNode(
-      "GeometryEditorHighlighter",
+      TYPES.GEOMETRY,
       node
     );
     if (!highlighter) {
@@ -1322,7 +1311,7 @@ class HighlightersOverlay {
 
     const highlighter =
       this.geometryEditorHighlighterShown.inspectorFront.getKnownHighlighter(
-        "GeometryEditorHighlighter"
+        TYPES.GEOMETRY
       );
 
     if (!highlighter) {
@@ -1440,7 +1429,7 @@ class HighlightersOverlay {
     switch (type) {
       case "shapesEditor":
         const highlighter = await this._getHighlighterTypeForNode(
-          "ShapesHighlighter",
+          TYPES.SHAPES,
           node
         );
         if (!highlighter) {
@@ -1598,7 +1587,7 @@ class HighlightersOverlay {
    */
   _isRuleViewShapeSwatch(node) {
     return (
-      this.isRuleView(node) && node.classList.contains("ruleview-shapeswatch")
+      this.isRuleView(node) && node.classList.contains("inspector-shapeswatch")
     );
   }
 
@@ -1737,7 +1726,7 @@ class HighlightersOverlay {
       this._isRuleViewTransform(nodeInfo) ||
       this._isComputedViewTransform(nodeInfo)
     ) {
-      type = "CssTransformHighlighter";
+      type = TYPES.TRANSFORM;
     }
 
     if (type) {

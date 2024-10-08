@@ -1,3 +1,4 @@
+/* eslint-disable no-shadow */
 import { ContextMenu } from "content-src/components/ContextMenu/ContextMenu";
 import { _LinkMenu as LinkMenu } from "content-src/components/LinkMenu/LinkMenu";
 import React from "react";
@@ -415,9 +416,15 @@ describe("<LinkMenu>", () => {
         {
           url: FAKE_SITE.url,
           pocket_id: FAKE_SITE.pocket_id,
-          isSponsoredTopSite: undefined,
-          position: 3,
           tile_id: 12345,
+          recommendation_id: undefined,
+          scheduled_corpus_item_id: undefined,
+          recommended_at: undefined,
+          received_rank: undefined,
+          isSponsoredTopSite: undefined,
+          type: "bookmark",
+          card_type: undefined,
+          position: 3,
           is_pocket_card: false,
         },
       ],
@@ -616,8 +623,15 @@ describe("<LinkMenu>", () => {
       const expected = {
         url: site.url,
         pocket_id: undefined,
+        tile_id: undefined,
+        recommendation_id: undefined,
+        scheduled_corpus_item_id: undefined,
+        recommended_at: undefined,
+        received_rank: undefined,
         advertiser_name: site.hostname,
         isSponsoredTopSite: 1,
+        type: "bookmark",
+        card_type: undefined,
         position: 3,
         is_pocket_card: false,
       };
@@ -657,7 +671,14 @@ describe("<LinkMenu>", () => {
       const expected = {
         url: site.url,
         pocket_id: undefined,
+        tile_id: undefined,
+        recommendation_id: undefined,
+        scheduled_corpus_item_id: undefined,
+        recommended_at: undefined,
+        received_rank: undefined,
         isSponsoredTopSite: undefined,
+        type: "CardGrid",
+        card_type: undefined,
         position: 3,
         is_pocket_card: true,
       };

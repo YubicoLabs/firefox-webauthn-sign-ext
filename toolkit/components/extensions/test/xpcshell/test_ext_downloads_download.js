@@ -192,6 +192,17 @@ add_task(async function test_downloads() {
     "source and filename with existing subdirs"
   );
 
+  // Regression test for https://bugzilla.mozilla.org/show_bug.cgi?id=1903780
+  await testDownload(
+    {
+      url: FILE_URL,
+      filename: "sub/1. organized/file2",
+    },
+    ["sub", "1. organized", "file2"],
+    FILE_LEN,
+    "Directory containing invalid file name"
+  );
+
   // Only run Windows path separator test on Windows.
   if (WINDOWS) {
     // Call download() with a filename with Windows path separator.
@@ -453,7 +464,7 @@ async function testHttpErrors(allowHttpErrors) {
     response.write(content);
   });
 
-  function background(code) {
+  function background() {
     let dlid = 0;
     let expectedState;
     browser.test.onMessage.addListener(async options => {

@@ -18,6 +18,8 @@ const { XPCOMUtils } = ChromeUtils.importESModule(
 ChromeUtils.defineESModuleGetters(this, {
   UpdateUtils: "resource://gre/modules/UpdateUtils.sys.mjs",
   ctypes: "resource://gre/modules/ctypes.sys.mjs",
+  TelemetryArchiveTesting:
+    "resource://testing-common/TelemetryArchiveTesting.sys.mjs",
 });
 
 const PREF_APP_UPDATE_AUTO = "app.update.auto";
@@ -71,17 +73,20 @@ const FILE_ACTIVE_UPDATE_XML = "active-update.xml";
 const FILE_ACTIVE_UPDATE_XML_TMP = "active-update.xml.tmp";
 const FILE_APPLICATION_INI = "application.ini";
 const FILE_BACKUP_UPDATE_CONFIG_JSON = "backup-update-config.json";
-const FILE_BACKUP_UPDATE_LOG = "backup-update.log";
 const FILE_BACKUP_UPDATE_ELEVATED_LOG = "backup-update-elevated.log";
-const FILE_BT_RESULT = "bt.result";
-const FILE_LAST_UPDATE_LOG = "last-update.log";
+const FILE_BACKUP_UPDATE_LOG = "backup-update.log";
+const FILE_CHANNEL_PREFS =
+  AppConstants.platform == "macosx" ? "ChannelPrefs" : "channel-prefs.js";
+const FILE_INFO_PLIST = "Info.plist";
 const FILE_LAST_UPDATE_ELEVATED_LOG = "last-update-elevated.log";
+const FILE_LAST_UPDATE_LOG = "last-update.log";
 const FILE_PRECOMPLETE = "precomplete";
 const FILE_PRECOMPLETE_BAK = "precomplete.bak";
 const FILE_UPDATE_CONFIG_JSON = "update-config.json";
-const FILE_UPDATE_LOG = "update.log";
 const FILE_UPDATE_ELEVATED_LOG = "update-elevated.log";
+const FILE_UPDATE_LOG = "update.log";
 const FILE_UPDATE_MAR = "update.mar";
+const FILE_UPDATE_SETTINGS_FRAMEWORK = "UpdateSettings";
 const FILE_UPDATE_SETTINGS_INI = "update-settings.ini";
 const FILE_UPDATE_SETTINGS_INI_BAK = "update-settings.ini.bak";
 const FILE_UPDATE_STATUS = "update.status";
@@ -94,6 +99,9 @@ const FILE_UPDATES_XML_TMP = "updates.xml.tmp";
 const UPDATE_SETTINGS_CONTENTS =
   "[Settings]\nACCEPTED_MAR_CHANNEL_IDS=xpcshell-test\n";
 const PRECOMPLETE_CONTENTS = 'rmdir "nonexistent_dir/"\n';
+
+const DIR_APP_INFO_PLIST_FILE_CONTENTS =
+  '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleDevelopmentRegion</key><string>English</string><key>CFBundleDisplayName</key><string>dir</string><key>CFBundleExecutable</key><string>firefox</string><key>CFBundleIdentifier</key><string>org.mozilla.firefox</string><key>CFBundleInfoDictionaryVersion</key><string>6.0</string><key>CFBundleName</key><string>dir</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleSignature</key><string>????</string><key>CFBundleVersion</key><string>1.0</string></dict></plist>';
 
 const PR_RDWR = 0x04;
 const PR_CREATE_FILE = 0x08;
@@ -173,15 +181,16 @@ function waitForEvent(topic, status = null) {
 }
 
 /* Triggers post-update processing */
-function testPostUpdateProcessing() {
-  gAUS.observe(null, "test-post-update-processing", "");
+async function testPostUpdateProcessing() {
+  await gAUS.internal.postUpdateProcessing();
 }
 
 /* Initializes the update service stub */
-function initUpdateServiceStub() {
-  Cc["@mozilla.org/updates/update-service-stub;1"].createInstance(
-    Ci.nsISupports
-  );
+async function initUpdateServiceStub() {
+  const updateServiceStub = Cc[
+    "@mozilla.org/updates/update-service-stub;1"
+  ].getService(Ci.nsIApplicationUpdateServiceStub);
+  await updateServiceStub.init();
 }
 
 /**
@@ -192,11 +201,8 @@ function initUpdateServiceStub() {
  *         be reset. If false (the default), the update xml files will be read
  *         to populate the update metadata.
  */
-function reloadUpdateManagerData(skipFiles = false) {
-  let observeData = skipFiles ? "skip-files" : "";
-  gUpdateManager
-    .QueryInterface(Ci.nsIObserver)
-    .observe(null, "um-reload-update-data", observeData);
+async function reloadUpdateManagerData(skipFiles = false) {
+  await gUpdateManager.internal.reload(skipFiles);
 }
 
 const observer = {
@@ -223,6 +229,7 @@ function setUpdateChannel(aChannel) {
   debugDump(
     "setting default pref " + PREF_APP_UPDATE_CHANNEL + " to " + gChannel
   );
+  gDefaultPrefBranch.unlockPref(PREF_APP_UPDATE_CHANNEL);
   gDefaultPrefBranch.setCharPref(PREF_APP_UPDATE_CHANNEL, gChannel);
   gPrefRoot.addObserver(PREF_APP_UPDATE_CHANNEL, observer);
 }
@@ -362,17 +369,6 @@ function readStatusFailedCode() {
 }
 
 /**
- * Returns whether or not applying the current update resulted in an error
- * verifying binary transparency information.
- *
- * @return true if there was an error result and false otherwise
- */
-function updateHasBinaryTransparencyErrorResult() {
-  let file = getUpdateDirFile(FILE_BT_RESULT);
-  return file.exists();
-}
-
-/**
  * Reads text from a file and returns the string.
  *
  * @param  aFile
@@ -461,7 +457,6 @@ function getUpdateDirFile(aLeafName, aWhichDir = null) {
       file.append(DIR_UPDATES);
       file.append(aLeafName);
       return file;
-    case FILE_BT_RESULT:
     case FILE_UPDATE_LOG:
     case FILE_UPDATE_ELEVATED_LOG:
     case FILE_UPDATE_MAR:
@@ -533,7 +528,6 @@ function removeUpdateFiles(aRemoveLogFiles) {
   let files = [
     [FILE_ACTIVE_UPDATE_XML],
     [FILE_UPDATES_XML],
-    [FILE_BT_RESULT],
     [FILE_UPDATE_STATUS],
     [FILE_UPDATE_VERSION],
     [FILE_UPDATE_MAR],
@@ -922,7 +916,7 @@ async function continueFileHandler(leafName) {
     "Waiting for file to be deleted, path: " + continueFile.path,
     interval,
     retries
-  ).catch(e => {
+  ).catch(_e => {
     logTestInfo(
       "Continue file was not removed after checking " +
         retries +
@@ -930,4 +924,25 @@ async function continueFileHandler(leafName) {
         continueFile.path
     );
   });
+}
+
+async function waitForUpdatePing(archiveChecker, expectedProperties) {
+  // We cannot control when the ping will be generated/archived after we trigger
+  // an update, so let's make sure to have one before moving on with validation.
+  let updatePing;
+  await TestUtils.waitForCondition(
+    async function () {
+      // Check that the ping made it into the Telemetry archive.
+      // The test data is defined in ../data/sharedUpdateXML.js
+      updatePing = await archiveChecker.promiseFindPing(
+        "update",
+        expectedProperties
+      );
+      return !!updatePing;
+    },
+    "Wait for Update Ping to be generated",
+    500,
+    100
+  );
+  return updatePing;
 }

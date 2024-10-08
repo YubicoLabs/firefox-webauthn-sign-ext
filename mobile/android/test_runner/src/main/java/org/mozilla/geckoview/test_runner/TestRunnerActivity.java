@@ -163,7 +163,10 @@ public class TestRunnerActivity extends Activity {
       new GeckoSession.NavigationDelegate() {
         @Override
         public void onLocationChange(
-            final GeckoSession session, final String url, final List<ContentPermission> perms) {
+            final GeckoSession session,
+            final String url,
+            final List<ContentPermission> perms,
+            final Boolean hasUserGesture) {
           getActionBar().setSubtitle(url);
         }
 
@@ -171,7 +174,7 @@ public class TestRunnerActivity extends Activity {
         public GeckoResult<AllowOrDeny> onLoadRequest(
             final GeckoSession session, final LoadRequest request) {
           // Allow Gecko to load all URIs
-          return GeckoResult.fromValue(AllowOrDeny.ALLOW);
+          return GeckoResult.allow();
         }
 
         @Override
@@ -293,7 +296,7 @@ public class TestRunnerActivity extends Activity {
         public GeckoResult<AllowOrDeny> onCloseTab(
             @Nullable final WebExtension source, @NonNull final GeckoSession session) {
           closeSession(session);
-          return GeckoResult.fromValue(AllowOrDeny.ALLOW);
+          return GeckoResult.allow();
         }
 
         @Override
@@ -307,7 +310,7 @@ public class TestRunnerActivity extends Activity {
             mOwnedSessions.addFirst(session);
           }
 
-          return GeckoResult.fromValue(AllowOrDeny.ALLOW);
+          return GeckoResult.allow();
         }
       };
 

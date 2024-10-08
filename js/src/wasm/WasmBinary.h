@@ -26,6 +26,7 @@
 
 #include "js/WasmFeatures.h"
 
+#include "wasm/WasmBinaryTypes.h"
 #include "wasm/WasmCompile.h"
 #include "wasm/WasmCompileArgs.h"
 #include "wasm/WasmConstants.h"
@@ -35,11 +36,6 @@
 
 namespace js {
 namespace wasm {
-
-using mozilla::DebugOnly;
-using mozilla::Maybe;
-
-struct ModuleEnvironment;
 
 // The Opcode compactly and safely represents the primary opcode plus any
 // extension, with convenient predicates and accessors.
@@ -72,12 +68,18 @@ class Opcode {
     static_assert(size_t(SimdOp::Limit) <= 0xFFFFFF, "fits");
     MOZ_ASSERT(size_t(op) < size_t(SimdOp::Limit));
   }
+  MOZ_IMPLICIT Opcode(GcOp op)
+      : bits_((uint32_t(op) << 8) | uint32_t(Op::GcPrefix)) {
+    static_assert(size_t(SimdOp::Limit) <= 0xFFFFFF, "fits");
+    MOZ_ASSERT(size_t(op) < size_t(SimdOp::Limit));
+  }
 
   bool isOp() const { return bits_ < uint32_t(Op::FirstPrefix); }
   bool isMisc() const { return (bits_ & 255) == uint32_t(Op::MiscPrefix); }
   bool isThread() const { return (bits_ & 255) == uint32_t(Op::ThreadPrefix); }
   bool isMoz() const { return (bits_ & 255) == uint32_t(Op::MozPrefix); }
   bool isSimd() const { return (bits_ & 255) == uint32_t(Op::SimdPrefix); }
+  bool isGc() const { return (bits_ & 255) == uint32_t(Op::GcPrefix); }
 
   Op asOp() const {
     MOZ_ASSERT(isOp());
@@ -99,6 +101,10 @@ class Opcode {
     MOZ_ASSERT(isSimd());
     return SimdOp(bits_ >> 8);
   }
+  GcOp asGc() const {
+    MOZ_ASSERT(isGc());
+    return GcOp(bits_ >> 8);
+  }
 
   uint32_t bits() const { return bits_; }
 
@@ -106,27 +112,13 @@ class Opcode {
   bool operator!=(const Opcode& that) const { return bits_ != that.bits_; }
 };
 
-// This struct captures the bytecode offset of a section's payload (so not
-// including the header) and the size of the payload.
-
-struct SectionRange {
-  uint32_t start;
-  uint32_t size;
-
-  uint32_t end() const { return start + size; }
-  bool operator==(const SectionRange& rhs) const {
-    return start == rhs.start && size == rhs.size;
-  }
-};
-
-using MaybeSectionRange = Maybe<SectionRange>;
-
 // The Encoder class appends bytes to the Bytes object it is given during
 // construction. The client is responsible for the Bytes's lifetime and must
 // keep the Bytes alive as long as the Encoder is used.
 
 class Encoder {
   Bytes& bytes_;
+  const TypeContext* types_;
 
   template <class T>
   [[nodiscard]] bool write(const T& v) {
@@ -201,7 +193,13 @@ class Encoder {
   }
 
  public:
-  explicit Encoder(Bytes& bytes) : bytes_(bytes) { MOZ_ASSERT(empty()); }
+  explicit Encoder(Bytes& bytes) : bytes_(bytes), types_(nullptr) {
+    MOZ_ASSERT(empty());
+  }
+  explicit Encoder(Bytes& bytes, const TypeContext& types)
+      : bytes_(bytes), types_(&types) {
+    MOZ_ASSERT(empty());
+  }
 
   size_t currentOffset() const { return bytes_.length(); }
   bool empty() const { return currentOffset() == 0; }
@@ -226,9 +224,17 @@ class Encoder {
   [[nodiscard]] bool writeVarS64(int64_t i) { return writeVarS<int64_t>(i); }
   [[nodiscard]] bool writeValType(ValType type) {
     static_assert(size_t(TypeCode::Limit) <= UINT8_MAX, "fits");
-    // writeValType is only used by asm.js, which doesn't use type
-    // references
-    MOZ_RELEASE_ASSERT(!type.isTypeRef(), "NYI");
+    if (type.isTypeRef()) {
+      MOZ_RELEASE_ASSERT(types_,
+                         "writeValType is used, but types were not specified.");
+      if (!writeFixedU8(uint8_t(type.isNullable() ? TypeCode::NullableRef
+                                                  : TypeCode::Ref))) {
+        return false;
+      }
+      uint32_t typeIndex = types_->indexOf(*type.typeDef());
+      // Encode positive LEB S33 as S64.
+      return writeVarS64(typeIndex);
+    }
     TypeCode tc = type.packed().typeCode();
     MOZ_ASSERT(size_t(tc) < size_t(TypeCode::Limit));
     return writeFixedU8(uint8_t(tc));
@@ -331,7 +337,7 @@ class Decoder {
 
   template <typename UInt>
   [[nodiscard]] bool readVarU(UInt* out) {
-    DebugOnly<const uint8_t*> before = cur_;
+    mozilla::DebugOnly<const uint8_t*> before = cur_;
     const unsigned numBits = sizeof(UInt) * CHAR_BIT;
     const unsigned remainderBits = numBits % 7;
     const unsigned numBitsInSevens = numBits - remainderBits;
@@ -549,7 +555,7 @@ class Decoder {
 
   [[nodiscard]] bool readSectionHeader(uint8_t* id, SectionRange* range);
 
-  [[nodiscard]] bool startSection(SectionId id, ModuleEnvironment* env,
+  [[nodiscard]] bool startSection(SectionId id, CodeMetadata* codeMeta,
                                   MaybeSectionRange* range,
                                   const char* sectionName);
   [[nodiscard]] bool finishSection(const SectionRange& range,
@@ -560,26 +566,26 @@ class Decoder {
 
   [[nodiscard]] bool startCustomSection(const char* expected,
                                         size_t expectedLength,
-                                        ModuleEnvironment* env,
+                                        CodeMetadata* codeMeta,
                                         MaybeSectionRange* range);
 
   template <size_t NameSizeWith0>
   [[nodiscard]] bool startCustomSection(const char (&name)[NameSizeWith0],
-                                        ModuleEnvironment* env,
+                                        CodeMetadata* codeMeta,
                                         MaybeSectionRange* range) {
     MOZ_ASSERT(name[NameSizeWith0 - 1] == '\0');
-    return startCustomSection(name, NameSizeWith0 - 1, env, range);
+    return startCustomSection(name, NameSizeWith0 - 1, codeMeta, range);
   }
 
   void finishCustomSection(const char* name, const SectionRange& range);
   void skipAndFinishCustomSection(const SectionRange& range);
 
-  [[nodiscard]] bool skipCustomSection(ModuleEnvironment* env);
+  [[nodiscard]] bool skipCustomSection(CodeMetadata* codeMeta);
 
   // The Name section has its own optional subsections.
 
   [[nodiscard]] bool startNameSubsection(NameType nameType,
-                                         Maybe<uint32_t>* endOffset);
+                                         mozilla::Maybe<uint32_t>* endOffset);
   [[nodiscard]] bool finishNameSubsection(uint32_t endOffset);
   [[nodiscard]] bool skipNameSubsection();
 
@@ -684,7 +690,8 @@ inline bool Decoder::readPackedType(const TypeContext& types,
       *type = RefType::fromTypeCode(TypeCode(code), true);
       return true;
     }
-    case uint8_t(TypeCode::ExnRef): {
+    case uint8_t(TypeCode::ExnRef):
+    case uint8_t(TypeCode::NullExnRef): {
       if (!features.exnref) {
         return fail("exnref not enabled");
       }
@@ -693,9 +700,9 @@ inline bool Decoder::readPackedType(const TypeContext& types,
     }
     case uint8_t(TypeCode::Ref):
     case uint8_t(TypeCode::NullableRef): {
-#ifdef ENABLE_WASM_FUNCTION_REFERENCES
-      if (!features.functionReferences) {
-        return fail("(ref T) types not enabled");
+#ifdef ENABLE_WASM_GC
+      if (!features.gc) {
+        return fail("gc not enabled");
       }
       bool nullable = code == uint8_t(TypeCode::NullableRef);
       RefType refType;
@@ -718,7 +725,7 @@ inline bool Decoder::readPackedType(const TypeContext& types,
     case uint8_t(TypeCode::NullAnyRef): {
 #ifdef ENABLE_WASM_GC
       if (!features.gc) {
-        return fail("gc types not enabled");
+        return fail("gc not enabled");
       }
       *type = RefType::fromTypeCode(TypeCode(code), true);
       return true;
@@ -767,7 +774,8 @@ inline bool Decoder::readHeapType(const TypeContext& types,
       case uint8_t(TypeCode::ExternRef):
         *type = RefType::fromTypeCode(TypeCode(code), nullable);
         return true;
-      case uint8_t(TypeCode::ExnRef): {
+      case uint8_t(TypeCode::ExnRef):
+      case uint8_t(TypeCode::NullExnRef): {
         if (!features.exnref) {
           return fail("exnref not enabled");
         }
@@ -784,7 +792,7 @@ inline bool Decoder::readHeapType(const TypeContext& types,
       case uint8_t(TypeCode::NullExternRef):
       case uint8_t(TypeCode::NullAnyRef):
         if (!features.gc) {
-          return fail("gc types not enabled");
+          return fail("gc not enabled");
         }
         *type = RefType::fromTypeCode(TypeCode(code), nullable);
         return true;
@@ -794,8 +802,8 @@ inline bool Decoder::readHeapType(const TypeContext& types,
     }
   }
 
-#ifdef ENABLE_WASM_FUNCTION_REFERENCES
-  if (features.functionReferences) {
+#ifdef ENABLE_WASM_GC
+  if (features.gc) {
     int32_t x;
     if (!readVarS32(&x) || x < 0 || uint32_t(x) >= types.length()) {
       return fail("invalid heap type index");

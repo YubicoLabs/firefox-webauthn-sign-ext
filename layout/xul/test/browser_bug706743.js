@@ -8,9 +8,7 @@ add_task(async function () {
   let tab = await BrowserTestUtils.openNewForegroundTab(gBrowser, url);
   let browser = gBrowser.selectedBrowser;
 
-  await new Promise(resolve => {
-    SpecialPowers.pushPrefEnv({ set: [["ui.tooltipDelay", 0]] }, resolve);
-  });
+  await SpecialPowers.pushPrefEnv({ set: [["ui.tooltip.delay_ms", 0]] });
 
   // Send a mousemove at a known position to start the test.
   await BrowserTestUtils.synthesizeMouse(
@@ -63,6 +61,7 @@ add_task(async function () {
     Ci.nsIDragService
   );
   dragService.startDragSessionForTests(
+    window,
     Ci.nsIDragService.DRAGDROP_ACTION_MOVE |
       Ci.nsIDragService.DRAGDROP_ACTION_COPY |
       Ci.nsIDragService.DRAGDROP_ACTION_LINK
@@ -80,7 +79,7 @@ add_task(async function () {
     await new Promise(resolve => setTimeout(resolve, 100));
   } finally {
     removeEventListener("popupshown", tooltipNotExpected, true);
-    dragService.endDragSession(true);
+    dragService.getCurrentSession().endDragSession(true);
   }
 
   await BrowserTestUtils.synthesizeMouse(

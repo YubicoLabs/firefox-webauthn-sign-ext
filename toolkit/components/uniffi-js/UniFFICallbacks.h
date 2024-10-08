@@ -39,14 +39,6 @@ struct CallbackInterfaceInfo {
   CallbackInitFunc mInitForeignCallback;
 };
 
-Maybe<CallbackInterfaceInfo> UniFFIGetCallbackInterfaceInfo(
-    uint64_t aInterfaceId);
-
-#ifdef MOZ_UNIFFI_FIXTURES
-Maybe<CallbackInterfaceInfo> UniFFIFixturesGetCallbackInterfaceInfo(
-    uint64_t aInterfaceId);
-#endif
-
 /**
  * Register the JS handler for a callback interface
  */
@@ -67,7 +59,7 @@ void DeregisterCallbackHandler(uint64_t aInterfaceId, ErrorResult& aError);
  * good use case for this is logging.
  */
 MOZ_CAN_RUN_SCRIPT
-void QueueCallback(size_t aInterfaceId, uint64_t aHandle, uint32_t aMethod,
+void QueueCallback(uint64_t aInterfaceId, uint64_t aHandle, uint32_t aMethod,
                    const uint8_t* aArgsData, int32_t aArgsLen);
 
 }  // namespace mozilla::uniffi

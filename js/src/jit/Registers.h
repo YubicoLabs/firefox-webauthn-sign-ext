@@ -195,7 +195,9 @@ struct Register64 {
   constexpr bool operator==(Register64 other) const { return reg == other.reg; }
   constexpr bool operator!=(Register64 other) const { return reg != other.reg; }
   Register scratchReg() { return reg; }
-  static Register64 Invalid() { return Register64(Register::Invalid()); }
+  static constexpr Register64 Invalid() {
+    return Register64(Register::Invalid());
+  }
 #else
   constexpr Register64(Register h, Register l) : high(h), low(l) {}
   constexpr bool operator==(Register64 other) const {
@@ -205,7 +207,8 @@ struct Register64 {
     return high != other.high || low != other.low;
   }
   Register scratchReg() { return high; }
-  static Register64 Invalid() {
+  Register secondScratchReg() { return low; }
+  static constexpr Register64 Invalid() {
     return Register64(Register::Invalid(), Register::Invalid());
   }
 #endif
@@ -213,10 +216,9 @@ struct Register64 {
 
 class RegisterDump {
  public:
-  typedef mozilla::Array<Registers::RegisterContent, Registers::Total> GPRArray;
-  typedef mozilla::Array<FloatRegisters::RegisterContent,
-                         FloatRegisters::TotalPhys>
-      FPUArray;
+  using GPRArray = mozilla::Array<Registers::RegisterContent, Registers::Total>;
+  using FPUArray = mozilla::Array<FloatRegisters::RegisterContent,
+                                  FloatRegisters::TotalPhys>;
 
  protected:  // Silence Clang warning.
   GPRArray regs_;

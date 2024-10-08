@@ -35,7 +35,6 @@
 #include "mozilla/Logging.h"
 #include "mozilla/MiscEvents.h"
 #include "mozilla/Preferences.h"
-#include "mozilla/Telemetry.h"
 #include "mozilla/TextEvents.h"
 #include "mozilla/StaticMutex.h"
 #include "mozilla/StaticPrefs_media.h"
@@ -295,7 +294,7 @@ BOOL nsCocoaUtils::WasLaunchedAtLogin() {
   return NO;
 }
 
-BOOL nsCocoaUtils::ShouldRestoreStateDueToLaunchAtLoginImpl() {
+BOOL nsCocoaUtils::ShouldRestoreStateDueToLaunchAtLogin() {
   // Check if we were launched by macOS as a result of having
   // "Reopen windows..." selected during a restart.
   if (!WasLaunchedAtLogin()) {
@@ -319,13 +318,6 @@ BOOL nsCocoaUtils::ShouldRestoreStateDueToLaunchAtLoginImpl() {
   }
 
   return NO;
-}
-
-BOOL nsCocoaUtils::ShouldRestoreStateDueToLaunchAtLogin() {
-  BOOL shouldRestore = ShouldRestoreStateDueToLaunchAtLoginImpl();
-  Telemetry::ScalarSet(Telemetry::ScalarID::STARTUP_IS_RESTORED_BY_MACOS,
-                       !!shouldRestore);
-  return shouldRestore;
 }
 
 void nsCocoaUtils::PrepareForNativeAppModalDialog() {
@@ -515,11 +507,27 @@ nsresult nsCocoaUtils::CreateNSImageFromCGImage(CGImageRef aInputImage,
 nsresult nsCocoaUtils::CreateNSImageFromImageContainer(
     imgIContainer* aImage, uint32_t aWhichFrame,
     const nsPresContext* aPresContext, const ComputedStyle* aComputedStyle,
-    NSImage** aResult, CGFloat scaleFactor, bool* aIsEntirelyBlack) {
+    const NSSize& aPreferredSize, NSImage** aResult, CGFloat scaleFactor,
+    bool* aIsEntirelyBlack) {
   RefPtr<SourceSurface> surface;
-  int32_t width = 0, height = 0;
-  aImage->GetWidth(&width);
-  aImage->GetHeight(&height);
+  int32_t width = 0;
+  int32_t height = 0;
+  {
+    const bool gotWidth = NS_SUCCEEDED(aImage->GetWidth(&width));
+    const bool gotHeight = NS_SUCCEEDED(aImage->GetHeight(&height));
+    if (auto ratio = aImage->GetIntrinsicRatio()) {
+      if (gotWidth != gotHeight) {
+        if (gotWidth) {
+          height = ratio->Inverted().ApplyTo(width);
+        } else {
+          width = ratio->ApplyTo(height);
+        }
+      } else if (!gotWidth) {
+        height = std::ceil(aPreferredSize.height);
+        width = ratio->ApplyTo(height);
+      }
+    }
+  }
 
   // Render a vector image at the correct resolution on a retina display
   if (aImage->GetType() == imgIContainer::TYPE_VECTOR) {
@@ -582,21 +590,18 @@ nsresult nsCocoaUtils::CreateNSImageFromImageContainer(
 nsresult nsCocoaUtils::CreateDualRepresentationNSImageFromImageContainer(
     imgIContainer* aImage, uint32_t aWhichFrame,
     const nsPresContext* aPresContext, const ComputedStyle* aComputedStyle,
-    NSImage** aResult, bool* aIsEntirelyBlack) {
-  int32_t width = 0, height = 0;
-  aImage->GetWidth(&width);
-  aImage->GetHeight(&height);
-  NSSize size = NSMakeSize(width, height);
-  *aResult = [[NSImage alloc] init];
-  [*aResult setSize:size];
-
+    const NSSize& aPreferredSize, NSImage** aResult, bool* aIsEntirelyBlack) {
   NSImage* newRepresentation = nil;
   nsresult rv = CreateNSImageFromImageContainer(
-      aImage, aWhichFrame, aPresContext, aComputedStyle, &newRepresentation,
-      1.0f, aIsEntirelyBlack);
+      aImage, aWhichFrame, aPresContext, aComputedStyle, aPreferredSize,
+      &newRepresentation, 1.0f, aIsEntirelyBlack);
   if (NS_FAILED(rv) || !newRepresentation) {
     return NS_ERROR_FAILURE;
   }
+
+  NSSize size = newRepresentation.size;
+  *aResult = [[NSImage alloc] init];
+  [*aResult setSize:size];
 
   [[[newRepresentation representations] objectAtIndex:0] setSize:size];
   [*aResult
@@ -604,9 +609,9 @@ nsresult nsCocoaUtils::CreateDualRepresentationNSImageFromImageContainer(
   [newRepresentation release];
   newRepresentation = nil;
 
-  rv = CreateNSImageFromImageContainer(aImage, aWhichFrame, aPresContext,
-                                       aComputedStyle, &newRepresentation, 2.0f,
-                                       aIsEntirelyBlack);
+  rv = CreateNSImageFromImageContainer(
+      aImage, aWhichFrame, aPresContext, aComputedStyle, aPreferredSize,
+      &newRepresentation, 2.0f, aIsEntirelyBlack);
   if (NS_FAILED(rv) || !newRepresentation) {
     return NS_ERROR_FAILURE;
   }
@@ -616,43 +621,6 @@ nsresult nsCocoaUtils::CreateDualRepresentationNSImageFromImageContainer(
       addRepresentation:[[newRepresentation representations] objectAtIndex:0]];
   [newRepresentation release];
   return NS_OK;
-}
-
-// static
-void nsCocoaUtils::GetStringForNSString(const NSString* aSrc,
-                                        nsAString& aDist) {
-  NS_OBJC_BEGIN_TRY_IGNORE_BLOCK;
-
-  if (!aSrc) {
-    aDist.Truncate();
-    return;
-  }
-
-  aDist.SetLength([aSrc length]);
-  [aSrc getCharacters:reinterpret_cast<unichar*>(aDist.BeginWriting())
-                range:NSMakeRange(0, [aSrc length])];
-
-  NS_OBJC_END_TRY_IGNORE_BLOCK;
-}
-
-// static
-NSString* nsCocoaUtils::ToNSString(const nsAString& aString) {
-  if (aString.IsEmpty()) {
-    return [NSString string];
-  }
-  return [NSString stringWithCharacters:reinterpret_cast<const unichar*>(
-                                            aString.BeginReading())
-                                 length:aString.Length()];
-}
-
-// static
-NSString* nsCocoaUtils::ToNSString(const nsACString& aCString) {
-  if (aCString.IsEmpty()) {
-    return [NSString string];
-  }
-  return [[[NSString alloc] initWithBytes:aCString.BeginReading()
-                                   length:aCString.Length()
-                                 encoding:NSUTF8StringEncoding] autorelease];
 }
 
 // static
@@ -959,12 +927,11 @@ struct KeyConversionData {
 
 static const KeyConversionData gKeyConversions[] = {
 
-#define KEYCODE_ENTRY(aStr, aCode) \
-  { #aStr, sizeof(#aStr) - 1, NS_##aStr, aCode }
+#define KEYCODE_ENTRY(aStr, aCode) {#aStr, sizeof(#aStr) - 1, NS_##aStr, aCode}
 
 // Some keycodes may have different name in KeyboardEvent from its key name.
 #define KEYCODE_ENTRY2(aStr, aNSName, aCode) \
-  { #aStr, sizeof(#aStr) - 1, NS_##aNSName, aCode }
+  {#aStr, sizeof(#aStr) - 1, NS_##aNSName, aCode}
 
     KEYCODE_ENTRY(VK_CANCEL, 0x001B),
     KEYCODE_ENTRY(VK_DELETE, NSDeleteFunctionKey),
@@ -1408,6 +1375,19 @@ nsresult nsCocoaUtils::GetScreenCapturePermissionState(
     CFStringRef windowName = reinterpret_cast<CFStringRef>(
         CFDictionaryGetValue(windowDict, kCGWindowName));
     if (!windowName) {
+      continue;
+    }
+
+    // macOS versions 12.2 (Monterey) or later have a status indicator when the
+    // microphone is in use (an orange dot). This is implemented as a window
+    // owned by the window server process. The permission check logic queries
+    // window server for all windows and assumes it has the required permission
+    // if it can read any window name that is at dock or normal level.
+    // The StatusIndicator window is an exception and needs to be skipped
+    // because it is owned by window server process and therefore when querying
+    // the window server, the name is always readable.
+    if (kCFCompareEqualTo ==
+        CFStringCompare(windowName, CFSTR("StatusIndicator"), 0)) {
       continue;
     }
 

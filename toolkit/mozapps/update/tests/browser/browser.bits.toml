@@ -88,6 +88,8 @@ prefs = [
 
 ["browser_aboutPrefs_fc_patch_partialBadSize_completeBadSize.js"]
 
+["browser_discardUpdateNotif.js"]
+
 # Doorhanger Application Update Tests
 
 ["browser_doorhanger_bc_downloadAutoFailures.js"]
@@ -127,6 +129,8 @@ prefs = [
 ["browser_doorhanger_sp_patch_partialApplyFailure_completeBadSize.js"]
 
 ["browser_doorhanger_sp_patch_partialApplyFailure_complete_staging.js"]
+
+["browser_showWhatsNewPageTest.js"]
 
 # Telemetry Update Ping Tests
 

@@ -369,13 +369,6 @@ struct nsTArray_SafeElementAtHelper<mozilla::OwningNonNull<E>, Derived>
     : public nsTArray_SafeElementAtSmartPtrHelper<mozilla::OwningNonNull<E>,
                                                   Derived> {};
 
-// Servo bindings.
-extern "C" void Gecko_EnsureTArrayCapacity(void* aArray, size_t aCapacity,
-                                           size_t aElementSize);
-extern "C" void Gecko_ClearPODTArray(void* aArray, size_t aElementSize,
-                                     size_t aElementAlign);
-
-//
 // This class serves as a base class for nsTArray.  It shouldn't be used
 // directly.  It holds common implementation code that does not depend on the
 // element type of the nsTArray.
@@ -392,11 +385,6 @@ class nsTArray_base {
   // calls ShiftData.
   template <class E, class XAlloc>
   friend class nsTArray_Impl;
-
-  friend void Gecko_EnsureTArrayCapacity(void* aArray, size_t aCapacity,
-                                         size_t aElemSize);
-  friend void Gecko_ClearPODTArray(void* aTArray, size_t aElementSize,
-                                   size_t aElementAlign);
 
  protected:
   typedef nsTArrayHeader Header;
@@ -2379,9 +2367,10 @@ class nsTArray_Impl
     static_assert(std::is_move_constructible_v<value_type>);
 
     ::detail::CompareWrapper<Comparator, value_type> comp(aComp);
-    std::sort(begin(), end(), [&comp](const auto& left, const auto& right) {
-      return comp.LessThan(left, right);
-    });
+    std::sort(Elements(), Elements() + Length(),
+              [&comp](const auto& left, const auto& right) {
+                return comp.LessThan(left, right);
+              });
   }
 
   // A variation on the Sort method defined above that assumes that
@@ -2485,11 +2474,9 @@ auto nsTArray_Impl<E, Alloc>::AssignInternal(const Item* aArray,
 
 template <typename E, class Alloc>
 template <typename ActualAlloc, class Item>
-auto nsTArray_Impl<E, Alloc>::ReplaceElementsAtInternal(index_type aStart,
-                                                        size_type aCount,
-                                                        const Item* aArray,
-                                                        size_type aArrayLen)
-    -> value_type* {
+auto nsTArray_Impl<E, Alloc>::ReplaceElementsAtInternal(
+    index_type aStart, size_type aCount, const Item* aArray,
+    size_type aArrayLen) -> value_type* {
   if (MOZ_UNLIKELY(aStart > Length())) {
     mozilla::detail::InvalidArrayIndex_CRASH(aStart, Length());
   }
@@ -2587,10 +2574,8 @@ auto nsTArray_Impl<E, Alloc>::RemoveElementsBy(Predicate aPredicate)
 
 template <typename E, class Alloc>
 template <typename ActualAlloc, class Item>
-auto nsTArray_Impl<E, Alloc>::InsertElementsAtInternal(index_type aIndex,
-                                                       size_type aCount,
-                                                       const Item& aItem)
-    -> value_type* {
+auto nsTArray_Impl<E, Alloc>::InsertElementsAtInternal(
+    index_type aIndex, size_type aCount, const Item& aItem) -> value_type* {
   if (!ActualAlloc::Successful(this->template InsertSlotsAt<ActualAlloc>(
           aIndex, aCount, sizeof(value_type), MOZ_ALIGNOF(value_type)))) {
     return nullptr;
@@ -2628,9 +2613,8 @@ auto nsTArray_Impl<E, Alloc>::InsertElementAtInternal(index_type aIndex)
 
 template <typename E, class Alloc>
 template <typename ActualAlloc, class Item>
-auto nsTArray_Impl<E, Alloc>::InsertElementAtInternal(index_type aIndex,
-                                                      Item&& aItem)
-    -> value_type* {
+auto nsTArray_Impl<E, Alloc>::InsertElementAtInternal(
+    index_type aIndex, Item&& aItem) -> value_type* {
   if (MOZ_UNLIKELY(aIndex > Length())) {
     mozilla::detail::InvalidArrayIndex_CRASH(aIndex, Length());
   }
@@ -2649,9 +2633,8 @@ auto nsTArray_Impl<E, Alloc>::InsertElementAtInternal(index_type aIndex,
 
 template <typename E, class Alloc>
 template <typename ActualAlloc, class Item>
-auto nsTArray_Impl<E, Alloc>::AppendElementsInternal(const Item* aArray,
-                                                     size_type aArrayLen)
-    -> value_type* {
+auto nsTArray_Impl<E, Alloc>::AppendElementsInternal(
+    const Item* aArray, size_type aArrayLen) -> value_type* {
   if (!ActualAlloc::Successful(this->template ExtendCapacity<ActualAlloc>(
           Length(), aArrayLen, sizeof(value_type)))) {
     return nullptr;

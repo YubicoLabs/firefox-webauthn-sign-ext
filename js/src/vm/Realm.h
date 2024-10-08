@@ -17,6 +17,7 @@
 #include <stddef.h>
 
 #include "builtin/Array.h"
+#include "ds/IdValuePair.h"
 #include "gc/Barrier.h"
 #include "js/GCVariant.h"
 #include "js/RealmOptions.h"
@@ -129,7 +130,7 @@ class NewPlainObjectWithPropsCache {
  public:
   NewPlainObjectWithPropsCache() { purge(); }
 
-  SharedShape* lookup(IdValuePair* properties, size_t nproperties) const;
+  SharedShape* lookup(Handle<IdValueVector> properties) const;
   void add(SharedShape* shape);
 
   void purge() {
@@ -223,7 +224,9 @@ struct IteratorHashPolicy {
 };
 
 class DebugEnvironments;
+class NonSyntacticVariablesObject;
 class ObjectWeakMap;
+class WithEnvironmentObject;
 
 // ObjectRealm stores various tables and other state associated with particular
 // objects in a realm. To make sure the correct ObjectRealm is used for an
@@ -239,7 +242,7 @@ class ObjectRealm {
 
  public:
   // Map from array buffers to views sharing that storage.
-  WeakCache<js::InnerViewTable> innerViews;
+  JS::WeakCache<js::InnerViewTable> innerViews;
 
   // Keep track of the metadata objects which can be associated with each JS
   // object. Both keys and values are in this realm.
@@ -263,15 +266,28 @@ class ObjectRealm {
                               size_t* objectMetadataTablesArg,
                               size_t* nonSyntacticLexicalEnvironmentsArg);
 
-  js::NonSyntacticLexicalEnvironmentObject*
+  NonSyntacticLexicalEnvironmentObject*
+  getOrCreateNonSyntacticLexicalEnvironment(
+      JSContext* cx, Handle<NonSyntacticVariablesObject*> enclosing);
+
+  NonSyntacticLexicalEnvironmentObject*
+  getOrCreateNonSyntacticLexicalEnvironment(
+      JSContext* cx, Handle<WithEnvironmentObject*> enclosing);
+
+  NonSyntacticLexicalEnvironmentObject*
+  getOrCreateNonSyntacticLexicalEnvironment(
+      JSContext* cx, Handle<WithEnvironmentObject*> enclosing,
+      Handle<NonSyntacticVariablesObject*> key);
+
+ private:
+  NonSyntacticLexicalEnvironmentObject*
   getOrCreateNonSyntacticLexicalEnvironment(JSContext* cx,
-                                            js::HandleObject enclosing);
-  js::NonSyntacticLexicalEnvironmentObject*
-  getOrCreateNonSyntacticLexicalEnvironment(JSContext* cx,
-                                            js::HandleObject enclosing,
-                                            js::HandleObject key,
-                                            js::HandleObject thisv);
-  js::NonSyntacticLexicalEnvironmentObject* getNonSyntacticLexicalEnvironment(
+                                            HandleObject enclosing,
+                                            HandleObject key,
+                                            HandleObject thisv);
+
+ public:
+  NonSyntacticLexicalEnvironmentObject* getNonSyntacticLexicalEnvironment(
       JSObject* key) const;
 };
 
@@ -435,9 +451,6 @@ class JS::Realm : public JS::shadow::Realm {
   // alternative for making the global a debuggee, when no actual debugging
   // features are required.
   bool isUnlimitedStacksCapturingEnabled = false;
-
-  // Whether or not the deprecation warning for bug 1873186 has been shown.
-  bool warnedAboutDateLateWeekday = false;
 
  private:
   void updateDebuggerObservesFlag(unsigned flag);

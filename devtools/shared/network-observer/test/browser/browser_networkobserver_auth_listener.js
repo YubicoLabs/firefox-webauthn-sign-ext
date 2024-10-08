@@ -71,7 +71,7 @@ add_task(async function testAuthRequestWithoutListener() {
   const events = [];
   const networkObserver = new NetworkObserver({
     ignoreChannelFunction: channel => channel.URI.spec !== AUTH_URL,
-    onNetworkEvent: event => {
+    onNetworkEvent: () => {
       const owner = new AuthForwardingOwner();
       events.push(owner);
       return owner;
@@ -115,7 +115,7 @@ add_task(async function testAuthRequestWithForwardingListener() {
   const events = [];
   const networkObserver = new NetworkObserver({
     ignoreChannelFunction: channel => channel.URI.spec !== AUTH_URL,
-    onNetworkEvent: event => {
+    onNetworkEvent: () => {
       info("waitForNetworkEvents received a new event");
       const owner = new AuthForwardingOwner();
       events.push(owner);
@@ -167,7 +167,7 @@ add_task(async function testAuthRequestWithCancellingListener() {
   const events = [];
   const networkObserver = new NetworkObserver({
     ignoreChannelFunction: channel => channel.URI.spec !== AUTH_URL,
-    onNetworkEvent: event => {
+    onNetworkEvent: () => {
       const owner = new AuthCancellingOwner();
       events.push(owner);
       return owner;
@@ -262,6 +262,11 @@ add_task(async function testAuthRequestWithWrongCredentialsListener() {
 });
 
 add_task(async function testAuthRequestWithCredentialsListener() {
+  // Force use_redirect_for_retries on all channels for this specific test.
+  await SpecialPowers.pushPrefEnv({
+    set: [["network.auth.use_redirect_for_retries", true]],
+  });
+
   cleanupAuthManager();
   const tab = await addTab(TEST_URL);
 

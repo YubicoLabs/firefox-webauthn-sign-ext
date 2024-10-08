@@ -20,6 +20,29 @@
 
 namespace mozilla::dom {
 
+double PositionState::CurrentPlaybackPosition(TimeStamp aNow) const {
+  // https://w3c.github.io/mediasession/#current-playback-position
+
+  // Set time elapsed to the system time in seconds minus the last position
+  // updated time.
+  auto timeElapsed = aNow - mPositionUpdatedTime;
+  // Mutliply time elapsed with actual playback rate.
+  timeElapsed = timeElapsed.MultDouble(mPlaybackRate);
+  // Set position to time elapsed added to last reported playback position.
+  auto position = timeElapsed.ToSeconds() + mLastReportedPlaybackPosition;
+
+  // If position is less than zero, return zero.
+  if (position < 0.0) {
+    return 0.0;
+  }
+  // If position is greater than duration, return duration.
+  if (position > mDuration) {
+    return mDuration;
+  }
+  // Return position.
+  return position;
+}
+
 // We don't use NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE because we need to
 // unregister MediaSession from document's activity listeners.
 NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE_CLASS(MediaSession)
@@ -117,10 +140,10 @@ void MediaSession::SetActionHandler(MediaSessionAction aAction,
   // this information to the chrome process in order to run the media session
   // actions update algorithm.
   // https://w3c.github.io/mediasession/#supported-media-session-actions
-  RefPtr<MediaSessionActionHandler>& hanlder = mActionHandlers[aAction];
-  if (!hanlder && aHandler) {
+  RefPtr<MediaSessionActionHandler>& handler = mActionHandlers[aAction];
+  if (!handler && aHandler) {
     NotifyEnableSupportedAction(aAction);
-  } else if (hanlder && !aHandler) {
+  } else if (handler && !aHandler) {
     NotifyDisableSupportedAction(aAction);
   }
   mActionHandlers[aAction] = aHandler;
@@ -138,6 +161,7 @@ void MediaSession::SetPositionState(const MediaPositionState& aState,
   // If the state is an empty dictionary then clear the position state.
   if (!aState.IsAnyMemberPresent()) {
     mPositionState.reset();
+    NotifyPositionStateChanged();
     return;
   }
 
@@ -175,8 +199,8 @@ void MediaSession::SetPositionState(const MediaPositionState& aState,
 
   // Update the position state and last position updated time.
   MOZ_ASSERT(aState.mDuration.WasPassed());
-  mPositionState =
-      Some(PositionState(aState.mDuration.Value(), playbackRate, position));
+  mPositionState = Some(PositionState(aState.mDuration.Value(), playbackRate,
+                                      position, TimeStamp::Now()));
   NotifyPositionStateChanged();
 }
 
@@ -328,7 +352,7 @@ void MediaSession::NotifyPositionStateChanged() {
   RefPtr<BrowsingContext> currentBC = GetParentObject()->GetBrowsingContext();
   MOZ_ASSERT(currentBC, "Update action after context destroyed!");
   if (RefPtr<IMediaInfoUpdater> updater = ContentMediaAgent::Get(currentBC)) {
-    updater->UpdatePositionState(currentBC->Id(), *mPositionState);
+    updater->UpdatePositionState(currentBC->Id(), mPositionState);
   }
 }
 

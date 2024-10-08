@@ -50,7 +50,7 @@ function moduleEnvVarPresent() {
  *   as markers.
  *
  * [1]: The keys of the `presets` object defined in
- * https://searchfox.org/mozilla-central/source/devtools/client/performance-new/shared/background.jsm.js
+ * https://searchfox.org/mozilla-central/source/devtools/client/performance-new/shared/background.sys.mjs
  */
 
 const gOsSpecificLoggingPresets = (() => {
@@ -74,7 +74,7 @@ const gOsSpecificLoggingPresets = (() => {
 const gLoggingPresets = {
   networking: {
     modules:
-      "timestamp,sync,nsHttp:5,cache2:5,nsSocketTransport:5,nsHostResolver:5",
+      "timestamp,sync,nsHttp:5,cache2:5,nsSocketTransport:5,nsHostResolver:5,EarlyHint:5",
     l10nIds: {
       label: "about-logging-preset-networking-label",
       description: "about-logging-preset-networking-description",
@@ -114,7 +114,7 @@ const gLoggingPresets = {
   },
   "media-playback": {
     modules:
-      "HTMLMediaElement:4,HTMLMediaElementEvents:4,cubeb:5,PlatformDecoderModule:5,AudioSink:5,AudioSinkWrapper:5,MediaDecoderStateMachine:4,MediaDecoder:4,MediaFormatReader:5,GMP:5",
+      "HTMLMediaElement:4,HTMLMediaElementEvents:4,cubeb:5,PlatformDecoderModule:5,AudioSink:5,AudioSinkWrapper:5,MediaDecoderStateMachine:4,MediaDecoder:4,MediaFormatReader:5,GMP:5,EME:5,MediaSource:5,MediaSourceSamples:5,Autoplay:5",
     l10nIds: {
       label: "about-logging-preset-media-playback-label",
       description: "about-logging-preset-media-playback-description",
@@ -123,7 +123,7 @@ const gLoggingPresets = {
   },
   webrtc: {
     modules:
-      "jsep:5,sdp:5,signaling:5,mtransport:5,RTCRtpReceiver:5,RTCRtpSender:5,RTCDMTFSender:5,VideoFrameConverter:5,WebrtcTCPSocket:5,CamerasChild:5,CamerasParent:5,VideoEngine:5,ShmemPool:5,TabShare:5,MediaChild:5,MediaParent:5,MediaManager:5,MediaTrackGraph:5,cubeb:5,MediaStream:5,MediaStreamTrack:5,DriftCompensator:5,ForwardInputTrack:5,MediaRecorder:5,MediaEncoder:5,TrackEncoder:5,VP8TrackEncoder:5,Muxer:5,GetUserMedia:5,MediaPipeline:5,PeerConnectionImpl:5,WebAudioAPI:5,webrtc_trace:5,RTCRtpTransceiver:5,ForwardedInputTrack:5,HTMLMediaElement:5,HTMLMediaElementEvents:5",
+      "jsep:5,sdp:5,signaling:5,mtransport:5,nicer:5,RTCRtpReceiver:5,RTCRtpSender:5,RTCDMTFSender:5,VideoFrameConverter:5,WebrtcTCPSocket:5,CamerasChild:5,CamerasParent:5,VideoEngine:5,ShmemPool:5,TabShare:5,MediaChild:5,MediaParent:5,MediaManager:5,MediaTrackGraph:5,cubeb:5,MediaStream:5,MediaStreamTrack:5,DriftCompensator:5,ForwardInputTrack:5,MediaRecorder:5,MediaEncoder:5,TrackEncoder:5,VP8TrackEncoder:5,Muxer:5,GetUserMedia:5,MediaPipeline:5,PeerConnectionImpl:5,WebAudioAPI:5,webrtc_trace:5,RTCRtpTransceiver:5,ForwardedInputTrack:5,HTMLMediaElement:5,HTMLMediaElementEvents:5",
     l10nIds: {
       label: "about-logging-preset-webrtc-label",
       description: "about-logging-preset-webrtc-description",
@@ -228,14 +228,13 @@ function populatePresets() {
       $("#log-modules").value = gLoggingPresets[dropdown.value].modules;
     }
     setPresetAndDescription(dropdown.value);
-    setLogModules();
     Services.prefs.setCharPref("logging.config.preset", dropdown.value);
   };
 
   $("#log-modules").value = gLoggingPresets[dropdown.value].modules;
   setPresetAndDescription(dropdown.value);
   // When changing the list switch to custom.
-  $("#log-modules").oninput = e => {
+  $("#log-modules").oninput = () => {
     dropdown.value = "custom";
   };
 }
@@ -376,7 +375,6 @@ function parseURL() {
     $("#set-log-modules-button").disabled = true;
     $("#logging-preset-dropdown").disabled = true;
     someElementsDisabled = true;
-    setLogModules();
     updateLogModules();
   }
   if (outputTypeOverriden) {
@@ -536,7 +534,7 @@ function updateLogFile(file) {
 
     if (file.exists()) {
       openLogFileButton.disabled = false;
-      openLogFileButton.onclick = function (e) {
+      openLogFileButton.onclick = function () {
         file.reveal();
       };
     }
@@ -691,10 +689,16 @@ function startLogging() {
   if (gLoggingSettings.loggingOutputType === "profiler") {
     const pageContext = "aboutlogging";
     const supportedFeatures = Services.profiler.GetFeatures();
-    if (gLoggingSettings.loggingPreset != "custom") {
+    if (
+      gLoggingSettings.loggingPreset != "custom" ||
+      gLoggingSettings.profilerPreset
+    ) {
       // Change the preset before starting the profiler, so that the
       // underlying profiler code picks up the right configuration.
+      // If a profiler preset has been explicitely provided (via URL parameters),
+      // pick it. Otherwise, pick the preset for this particular logging preset.
       const profilerPreset =
+        gLoggingSettings.profilerPreset ??
         gLoggingPresets[gLoggingSettings.loggingPreset].profilerPreset;
       ProfilerPopupBackground.changePreset(
         "aboutlogging",

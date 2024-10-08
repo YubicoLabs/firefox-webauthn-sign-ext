@@ -122,11 +122,7 @@ async function checkColorPickerConstrastData({
   expectedContrastValueScore,
   expectContrastRange = false,
   expectedMinContrastValueResult,
-  expectedMinContrastValueTitle,
-  expectedMinContrastValueScore,
   expectedMaxContrastValueResult,
-  expectedMaxContrastValueTitle,
-  expectedMaxContrastValueScore,
 }) {
   info(`Checking color picker: "${label}"`);
   const cPicker = view.tooltips.getTooltip("colorPicker");
@@ -135,7 +131,7 @@ async function checkColorPickerConstrastData({
   ok(cPickerPanel, "The XUL panel for the color picker exists");
 
   const colorSwatch = ruleViewPropertyEl.valueSpan.querySelectorAll(
-    ".ruleview-colorswatch"
+    ".inspector-colorswatch"
   )[swatchIndex];
 
   const onColorPickerReady = cPicker.once("ready");

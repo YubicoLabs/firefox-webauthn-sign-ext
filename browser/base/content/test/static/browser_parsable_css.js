@@ -14,12 +14,6 @@ let ignoreList = [
   { sourceName: /codemirror\.css$/i, isFromDevTools: true },
   // UA-only media features.
   {
-    sourceName: /\b(autocomplete-item)\.css$/,
-    errorMessage: /Expected media feature name but found \u2018-moz.*/i,
-    isFromDevTools: false,
-    platforms: ["windows"],
-  },
-  {
     sourceName:
       /\b(contenteditable|EditorOverride|svg|forms|html|mathml|ua)\.css$/i,
     errorMessage: /Unknown pseudo-class.*-moz-/i,
@@ -27,7 +21,7 @@ let ignoreList = [
   },
   {
     sourceName:
-      /\b(scrollbars|xul|html|mathml|ua|forms|svg|manageDialog|autocomplete-item-shared|formautofill)\.css$/i,
+      /\b(scrollbars|xul|html|mathml|ua|forms|svg|manageDialog|formautofill)\.css$/i,
     errorMessage: /Unknown property.*-moz-/i,
     isFromDevTools: false,
   },
@@ -36,10 +30,10 @@ let ignoreList = [
     errorMessage: /Unknown pseudo-class.*-moz-/i,
     isFromDevTools: false,
   },
-  // Reserved to UA sheets unless layout.css.overflow-clip-box.enabled flipped to true.
+  // content: -moz-alt-content is UA-only.
   {
-    sourceName: /(?:res|gre-resources)\/forms\.css$/i,
-    errorMessage: /Unknown property.*overflow-clip-box/i,
+    sourceName: /\b(html)\.css$/i,
+    errorMessage: /Error in parsing value for ‘content’/i,
     isFromDevTools: false,
   },
   // These variables are declared somewhere else, and error when we load the
@@ -51,7 +45,6 @@ let ignoreList = [
     errorMessage: /Property contained reference to invalid variable.*color/i,
     isFromDevTools: true,
   },
-  // PDF.js uses a property that is currently only supported in chrome.
   {
     sourceName: /web\/viewer\.css$/i,
     errorMessage:
@@ -59,6 +52,13 @@ let ignoreList = [
     isFromDevTools: false,
   },
 ];
+
+if (AppConstants.platform != "macosx") {
+  ignoreList.push({
+    errorMessage: /Unknown property.*-moz-osx-font-smoothing/i,
+    isFromDevTools: false,
+  });
+}
 
 if (!Services.prefs.getBoolPref("layout.css.zoom.enabled")) {
   ignoreList.push({
@@ -68,47 +68,11 @@ if (!Services.prefs.getBoolPref("layout.css.zoom.enabled")) {
   });
 }
 
-if (!Services.prefs.getBoolPref("layout.css.math-depth.enabled")) {
-  // mathml.css UA sheet rule for math-depth.
-  ignoreList.push({
-    sourceName: /\b(scrollbars|mathml)\.css$/i,
-    errorMessage: /Unknown property .*\bmath-depth\b/i,
-    isFromDevTools: false,
-  });
-}
-
-if (!Services.prefs.getBoolPref("layout.css.math-style.enabled")) {
-  // mathml.css UA sheet rule for math-style.
-  ignoreList.push({
-    sourceName: /(?:res|gre-resources)\/mathml\.css$/i,
-    errorMessage: /Unknown property .*\bmath-style\b/i,
-    isFromDevTools: false,
-  });
-}
-
 if (!Services.prefs.getBoolPref("layout.css.scroll-anchoring.enabled")) {
   ignoreList.push({
     sourceName: /webconsole\.css$/i,
     errorMessage: /Unknown property .*\boverflow-anchor\b/i,
     isFromDevTools: true,
-  });
-}
-
-if (!Services.prefs.getBoolPref("layout.css.forced-colors.enabled")) {
-  ignoreList.push({
-    sourceName: /pdf\.js\/web\/viewer\.css$/,
-    errorMessage: /Expected media feature name but found ‘forced-colors’*/i,
-    isFromDevTools: false,
-  });
-}
-
-if (!Services.prefs.getBoolPref("layout.css.forced-color-adjust.enabled")) {
-  // PDF.js uses a property that is currently not enabled.
-  ignoreList.push({
-    sourceName: /web\/viewer\.css$/i,
-    errorMessage:
-      /Unknown property ‘forced-color-adjust’\. {2}Declaration dropped\./i,
-    isFromDevTools: false,
   });
 }
 
@@ -150,6 +114,25 @@ let propNameAllowlist = [
   { propName: "--panel-border-color", isFromDevTools: true },
   { propName: "--panel-shadow", isFromDevTools: true },
   { propName: "--panel-shadow-margin", isFromDevTools: true },
+
+  // These variable are used in JS in WaterfallBackground.js
+  {
+    propName: "--timing-marker-dom-content-loaded-color",
+    isFromDevTools: true,
+  },
+  {
+    propName: "--timing-marker-load-color",
+    isFromDevTools: true,
+  },
+  // These variables are used in JS in viewer.mjs (PDF.js).
+  {
+    propName: "--scale-round-x",
+    isFromDevTools: false,
+  },
+  {
+    propName: "--scale-round-y",
+    isFromDevTools: false,
+  },
 ];
 
 // Add suffix to stylesheets' URI so that we always load them here and
@@ -452,13 +435,13 @@ add_task(async function checkAllTheCSS() {
   let loadCSS = chromeUri =>
     new Promise(resolve => {
       let linkEl, onLoad, onError;
-      onLoad = e => {
+      onLoad = () => {
         processCSSRules(linkEl.sheet);
         resolve();
         linkEl.removeEventListener("load", onLoad);
         linkEl.removeEventListener("error", onError);
       };
-      onError = e => {
+      onError = () => {
         ok(
           false,
           "Loading " + linkEl.getAttribute("href") + " threw an error!"

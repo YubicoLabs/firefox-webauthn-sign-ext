@@ -116,6 +116,7 @@ bool nsTransitionManager::DoUpdateTransitions(
       continue;
     }
 
+    const auto behavior = aStyle.GetTransitionBehavior(i);
     ExpandTransitionProperty(aStyle.GetTransitionProperty(i),
                              [&](const AnimatedPropertyID& aProperty) {
                                // We might have something to transition.  See if
@@ -123,8 +124,9 @@ bool nsTransitionManager::DoUpdateTransitions(
                                // are animatable.
                                startedAny |= ConsiderInitiatingTransition(
                                    aProperty, aStyle, i, delay, duration,
-                                   aElement, aPseudoType, aElementTransitions,
-                                   aOldStyle, aNewStyle, propertiesChecked);
+                                   behavior, aElement, aPseudoType,
+                                   aElementTransitions, aOldStyle, aNewStyle,
+                                   propertiesChecked);
                              });
   }
 
@@ -199,10 +201,12 @@ static nsTArray<Keyframe> GetTransitionKeyframes(
   return keyframes;
 }
 
-static Maybe<CSSTransition::ReplacedTransitionProperties>
-GetReplacedTransitionProperties(const CSSTransition* aTransition,
-                                const DocumentTimeline* aTimelineToMatch) {
-  Maybe<CSSTransition::ReplacedTransitionProperties> result;
+using ReplacedTransitionProperties =
+    CSSTransition::ReplacedTransitionProperties;
+static Maybe<ReplacedTransitionProperties> GetReplacedTransitionProperties(
+    const CSSTransition* aTransition,
+    const DocumentTimeline* aTimelineToMatch) {
+  Maybe<ReplacedTransitionProperties> result;
 
   // Transition needs to be currently running on the compositor to be
   // replaceable.
@@ -237,7 +241,7 @@ GetReplacedTransitionProperties(const CSSTransition* aTransition,
   const AnimationPropertySegment& segment =
       keyframeEffect->Properties()[0].mSegments[0];
 
-  result.emplace(CSSTransition::ReplacedTransitionProperties(
+  result.emplace(ReplacedTransitionProperties(
       {aTransition->GetStartTime().Value(), aTransition->PlaybackRate(),
        keyframeEffect->SpecifiedTiming(), segment.mTimingFunction,
        segment.mFromValue, segment.mToValue}));
@@ -248,8 +252,8 @@ GetReplacedTransitionProperties(const CSSTransition* aTransition,
 bool nsTransitionManager::ConsiderInitiatingTransition(
     const AnimatedPropertyID& aProperty, const nsStyleUIReset& aStyle,
     uint32_t aTransitionIndex, float aDelay, float aDuration,
-    dom::Element* aElement, PseudoStyleType aPseudoType,
-    CSSTransitionCollection*& aElementTransitions,
+    mozilla::StyleTransitionBehavior aBehavior, dom::Element* aElement,
+    PseudoStyleType aPseudoType, CSSTransitionCollection*& aElementTransitions,
     const ComputedStyle& aOldStyle, const ComputedStyle& aNewStyle,
     AnimatedPropertyIDSet& aPropertiesChecked) {
   // IsShorthand itself will assert if aProperty is not a property.
@@ -291,12 +295,58 @@ bool nsTransitionManager::ConsiderInitiatingTransition(
     return nullptr;
   }();
 
+  // For compositor animations, |aOldStyle| may have out-of-date transition
+  // rules, and it may be equal to the |endValue| of a reversing transition by
+  // accidentally. This causes Servo_ComputedValues_ShouldTransition() returns
+  // an incorrect result. Therefore, we have to recompute the current value if
+  // this transition is running on the compositor, to make sure we create the
+  // transition properly. Here, we precompute the progress and collect the
+  // necessary info, so Servo_ComputedValues_ShouldTransition() could compute
+  // the current value if needed.
+  // FIXME: Bug 1634945. We should use the last value from the compositor as the
+  // current value.
+  Maybe<ReplacedTransitionProperties> replacedTransitionProperties;
+  Maybe<double> progress;
+  if (oldTransition) {
+    // If this new transition is replacing an existing transition that is
+    // running on the compositor, we store select parameters from the replaced
+    // transition so that later, once all scripts have run, we can update the
+    // start value of the transition using TimeStamp::Now(). This allows us to
+    // avoid a large jump when starting a new transition when the main thread
+    // lags behind the compositor.
+    //
+    // Note: We compute this before calling
+    // Servo_ComputedValues_ShouldTransition() so we can reuse it for computing
+    // the current value and setting the replaced transition properties later in
+    // this function. Also, |replacedTransitionProperties| is Nothing() if the
+    // running transition is not on the compositor.
+    const dom::DocumentTimeline* timeline = aElement->OwnerDoc()->Timeline();
+    replacedTransitionProperties =
+        GetReplacedTransitionProperties(oldTransition, timeline);
+    progress = replacedTransitionProperties.andThen(
+        [&](const ReplacedTransitionProperties& aProperties) {
+          const dom::AnimationTimeline* timeline = oldTransition->GetTimeline();
+          MOZ_ASSERT(timeline);
+          return CSSTransition::ComputeTransformedProgress(*timeline,
+                                                           aProperties);
+        });
+  }
+
   AnimationValue startValue, endValue;
   const StyleShouldTransitionResult result =
       Servo_ComputedValues_ShouldTransition(
-          &aOldStyle, &aNewStyle, &property,
+          &aOldStyle, &aNewStyle, &property, aBehavior,
           oldTransition ? oldTransition->ToValue().mServo.get() : nullptr,
-          &startValue.mServo, &endValue.mServo);
+          replacedTransitionProperties
+              ? replacedTransitionProperties->mFromValue.mServo.get()
+              : nullptr,
+          // Note: It's possible to replace the keyframes by Web Animations API,
+          // so we have to pass the mToValue from the keyframe segment, to make
+          // sure this value is aligned with mFromValue.
+          replacedTransitionProperties
+              ? replacedTransitionProperties->mToValue.mServo.get()
+              : nullptr,
+          progress.ptrOr(nullptr), &startValue.mServo, &endValue.mServo);
 
   // If we got a style change that changed the value to the endpoint
   // of the currently running transition, we don't want to interrupt
@@ -375,7 +425,7 @@ bool nsTransitionManager::ConsiderInitiatingTransition(
   }
 
   TimingParams timing = TimingParamsFromCSSParams(
-      aDuration, aDelay, 1.0 /* iteration count */,
+      Some(aDuration), aDelay, 1.0 /* iteration count */,
       StyleAnimationDirection::Normal, StyleAnimationFillMode::Backwards);
 
   const StyleComputedTimingFunction& tf =
@@ -401,15 +451,6 @@ bool nsTransitionManager::ConsiderInitiatingTransition(
   }
 #endif
   if (oldTransition) {
-    // If this new transition is replacing an existing transition that is
-    // running on the compositor, we store select parameters from the replaced
-    // transition so that later, once all scripts have run, we can update the
-    // start value of the transition using TimeStamp::Now(). This allows us to
-    // avoid a large jump when starting a new transition when the main thread
-    // lags behind the compositor.
-    const dom::DocumentTimeline* timeline = aElement->OwnerDoc()->Timeline();
-    auto replacedTransitionProperties =
-        GetReplacedTransitionProperties(oldTransition, timeline);
     if (replacedTransitionProperties) {
       transition->SetReplacedTransition(
           std::move(replacedTransitionProperties.ref()));
@@ -439,7 +480,7 @@ already_AddRefed<CSSTransition> nsTransitionManager::DoCreateTransition(
     AnimationValue&& aStartForReversingTest, double aReversePortion) {
   dom::DocumentTimeline* timeline = aElement->OwnerDoc()->Timeline();
   KeyframeEffectParams effectOptions;
-  RefPtr<KeyframeEffect> keyframeEffect = new KeyframeEffect(
+  auto keyframeEffect = MakeRefPtr<KeyframeEffect>(
       aElement->OwnerDoc(), OwningAnimationTarget(aElement, aPseudoType),
       std::move(aTiming), effectOptions);
 
@@ -452,8 +493,8 @@ already_AddRefed<CSSTransition> nsTransitionManager::DoCreateTransition(
     return nullptr;
   }
 
-  RefPtr<CSSTransition> animation =
-      new CSSTransition(mPresContext->Document()->GetScopeObject(), aProperty);
+  auto animation = MakeRefPtr<CSSTransition>(
+      mPresContext->Document()->GetScopeObject(), aProperty);
   animation->SetOwningElement(OwningElementRef(*aElement, aPseudoType));
   animation->SetTimelineNoUpdate(timeline);
   animation->SetCreationSequence(

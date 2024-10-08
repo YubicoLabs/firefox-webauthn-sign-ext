@@ -166,9 +166,11 @@ class MuxerUnifiedComplete extends UrlbarMuxer {
     }
 
     // Show Top Sites above trending results.
-    let showSearchSuggestionsFirst = !(
-      lazy.UrlbarPrefs.get("suggest.trending") && !context.searchString
-    );
+    let showSearchSuggestionsFirst =
+      context.searchString ||
+      (!lazy.UrlbarPrefs.get("suggest.trending") &&
+        !lazy.UrlbarPrefs.get("suggest.recentsearches"));
+
     // Determine the result groups to use for this sort.  In search mode with
     // an engine, show search suggestions first.
     let rootGroup =
@@ -281,28 +283,31 @@ class MuxerUnifiedComplete extends UrlbarMuxer {
     let suggestedIndexAvailableSpan = 0;
     let suggestedIndexAvailableCount = 0;
     if ("group" in group) {
-      suggestedIndexResults = state.suggestedIndexResultsByGroup.get(
-        group.group
-      );
-      if (suggestedIndexResults) {
+      let results = state.suggestedIndexResultsByGroup.get(group.group);
+      if (results) {
         // Subtract them from the group's limits so there will be room for them
-        // later. Create a new `limits` object so we don't modify the caller's.
-        let [span, resultCount] = suggestedIndexResults.reduce(
-          ([sum, count], result) => {
+        // later. Discard results that can't be added.
+        let span = 0;
+        let resultCount = 0;
+        for (let result of results) {
+          if (this._canAddResult(result, state)) {
+            suggestedIndexResults ??= [];
+            suggestedIndexResults.push(result);
             const spanSize = UrlbarUtils.getSpanForResult(result);
-            sum += spanSize;
+            span += spanSize;
             if (spanSize) {
-              count++;
+              resultCount++;
             }
-            return [sum, count];
-          },
-          [0, 0]
-        );
+          }
+        }
+
         suggestedIndexAvailableSpan = Math.min(limits.availableSpan, span);
         suggestedIndexAvailableCount = Math.min(
           limits.maxResultCount,
           resultCount
         );
+
+        // Create a new `limits` object so we don't modify the caller's.
         limits = { ...limits };
         limits.availableSpan -= suggestedIndexAvailableSpan;
         limits.maxResultCount -= suggestedIndexAvailableCount;
@@ -682,13 +687,22 @@ class MuxerUnifiedComplete extends UrlbarMuxer {
   // error or increase the complexity threshold.
   // eslint-disable-next-line complexity
   _canAddResult(result, state) {
-    // QuickSuggest results are shown unless a weather result is also present
-    // or they are navigational suggestions that duplicate the heuristic.
+    // Typically the first visible Suggest result is always added.
     if (result.providerName == lazy.UrlbarProviderQuickSuggest.name) {
-      if (state.weatherResult) {
+      if (result.isHiddenExposure) {
+        // Always allow hidden exposure Suggest results.
+        return true;
+      }
+
+      if (
+        state.weatherResult ||
+        (state.quickSuggestResult && state.quickSuggestResult != result)
+      ) {
+        // A Suggest result was already added.
         return false;
       }
 
+      // Don't add navigational suggestions that dupe the heuristic.
       let heuristicUrl = state.context.heuristicResult?.payload.url;
       if (
         heuristicUrl &&
@@ -706,6 +720,7 @@ class MuxerUnifiedComplete extends UrlbarMuxer {
           UrlbarUtils.stripPrefixAndTrim(result.payload.url, opts)[0];
         return !result.payload.dupedHeuristic;
       }
+
       return true;
     }
 
@@ -814,10 +829,10 @@ class MuxerUnifiedComplete extends UrlbarMuxer {
           return false;
         }
 
-        // For tab-to-search results, result.payload.url is the engine's domain
-        // with the public suffix already stripped, for example "www.mozilla.".
+        // `searchUrlDomainWithoutSuffix` is the engine's domain with the public
+        // suffix already stripped, for example "www.mozilla.".
         let [engineDomain] = UrlbarUtils.stripPrefixAndTrim(
-          result.payload.url,
+          result.payload.searchUrlDomainWithoutSuffix,
           {
             stripWww: true,
           }
@@ -1028,9 +1043,11 @@ class MuxerUnifiedComplete extends UrlbarMuxer {
    *   Global state that we use to make decisions during this sort.
    */
   _updateStatePreAdd(result, state) {
-    // check if this result should trigger an exposure
-    // if so mark the result properties and skip the rest of the state setting.
-    if (this._checkAndSetExposureProperties(result)) {
+    // Check whether the result should trigger exposure telemetry. If it will
+    // not be visible because it's a hidden exposure, it should not affect the
+    // muxer's state, so bail now.
+    this.#setExposureTelemetryProperty(result);
+    if (result.isHiddenExposure) {
       return;
     }
 
@@ -1125,7 +1142,7 @@ class MuxerUnifiedComplete extends UrlbarMuxer {
     }
 
     if (result.providerName == lazy.UrlbarProviderQuickSuggest.name) {
-      state.quickSuggestResult = result;
+      state.quickSuggestResult ??= result;
     }
 
     if (result.providerName == lazy.UrlbarProviderWeather.name) {
@@ -1154,7 +1171,7 @@ class MuxerUnifiedComplete extends UrlbarMuxer {
    */
   _updateStatePostAdd(result, state) {
     // bail early if the result will be hidden from the final view.
-    if (result.exposureResultHidden) {
+    if (result.isHiddenExposure) {
       return;
     }
 
@@ -1201,18 +1218,6 @@ class MuxerUnifiedComplete extends UrlbarMuxer {
     // TODO (Bug 1670185): figure out better strategies to manage this case.
     if (result.providerName == lazy.UrlbarProviderTabToSearch.name) {
       state.canAddTabToSearch = false;
-      // We want to record in urlbar.tips once per engagement per engine. Since
-      // whether these results are shown is dependent on the Muxer, we must
-      // add to `enginesShown` here.
-      if (result.payload.dynamicType) {
-        lazy.UrlbarProviderTabToSearch.enginesShown.onboarding.add(
-          result.payload.engine
-        );
-      } else {
-        lazy.UrlbarProviderTabToSearch.enginesShown.regular.add(
-          result.payload.engine
-        );
-      }
     }
 
     // Sync will send us duplicate remote tabs if multiple copies of a tab are
@@ -1386,32 +1391,22 @@ class MuxerUnifiedComplete extends UrlbarMuxer {
 
   /**
    * Checks exposure eligibility and visibility for the given result.
-   * If the result passes the exposure check, we set two properties
-   * on the UrlbarResult: `result.exposureResultType` a string containing
-   * the results of `UrlbarUtils.searchEngagementTelemetryType` and
-   * `result.exposureResultHidden` a boolean which indicates whether the
-   * result should be hidden from the view.
-   *
+   * If the result passes the exposure check, we set `result.exposureTelemetry`
+   * to the appropriate `UrlbarUtils.EXPOSURE_TELEMETRY` value.
    *
    * @param {UrlbarResult} result
    *   The result.
-   * @returns {boolean}
-   *   A boolean indicating if this is a hidden exposure result.
    */
-  _checkAndSetExposureProperties(result) {
-    const exposureResultsPref = lazy.UrlbarPrefs.get("exposureResults");
-    const exposureResults = exposureResultsPref?.split(",");
-    if (exposureResults) {
+  #setExposureTelemetryProperty(result) {
+    const exposureResults = lazy.UrlbarPrefs.get("exposureResults");
+    if (exposureResults.size) {
       const telemetryType = UrlbarUtils.searchEngagementTelemetryType(result);
-      if (exposureResults.includes(telemetryType)) {
-        result.exposureResultType = telemetryType;
-        result.exposureResultHidden = !lazy.UrlbarPrefs.get(
-          "showExposureResults"
-        );
+      if (exposureResults.has(telemetryType)) {
+        result.exposureTelemetry = lazy.UrlbarPrefs.get("showExposureResults")
+          ? UrlbarUtils.EXPOSURE_TELEMETRY.SHOWN
+          : UrlbarUtils.EXPOSURE_TELEMETRY.HIDDEN;
       }
     }
-
-    return result.exposureResultHidden;
   }
 }
 

@@ -20,8 +20,10 @@
 #include "jit/BacktrackingAllocator.h"
 #include "jit/BaselineFrame.h"
 #include "jit/BaselineJIT.h"
+#include "jit/BranchHinting.h"
 #include "jit/CodeGenerator.h"
 #include "jit/CompileInfo.h"
+#include "jit/DominatorTree.h"
 #include "jit/EdgeCaseAnalysis.h"
 #include "jit/EffectiveAddressAnalysis.h"
 #include "jit/ExecutableAllocator.h"
@@ -29,6 +31,7 @@
 #include "jit/InlineScriptTree.h"
 #include "jit/InstructionReordering.h"
 #include "jit/Invalidation.h"
+#include "jit/InvalidationScriptSet.h"
 #include "jit/IonAnalysis.h"
 #include "jit/IonCompileTask.h"
 #include "jit/IonIC.h"
@@ -253,6 +256,10 @@ bool JitRuntime::generateTrampolines(JSContext* cx) {
   generateIonGenericCallStub(masm, IonGenericCallKind::Construct);
   rangeRecorder.recordOffset("Trampoline: IonGenericConstruct");
 
+  JitSpew(JitSpew_Codegen, "# Emitting trampoline natives");
+  TrampolineNativeJitEntryOffsets nativeOffsets;
+  generateTrampolineNatives(masm, nativeOffsets, rangeRecorder);
+
   Linker linker(masm);
   trampolineCode_ = linker.newCode(cx, CodeKind::Other);
   if (!trampolineCode_) {
@@ -263,6 +270,14 @@ bool JitRuntime::generateTrampolines(JSContext* cx) {
 #ifdef MOZ_VTUNE
   vtune::MarkStub(trampolineCode_, "Trampolines");
 #endif
+
+  // Initialize TrampolineNative JitEntry array.
+  for (size_t i = 0; i < size_t(TrampolineNative::Count); i++) {
+    TrampolineNative native = TrampolineNative(i);
+    uint32_t offset = nativeOffsets[native];
+    MOZ_ASSERT(offset > 0 && offset < trampolineCode_->instructionsSize());
+    trampolineNativeJitEntries_[native] = trampolineCode_->raw() + offset;
+  }
 
   return true;
 }
@@ -1211,6 +1226,19 @@ bool OptimizeMIR(MIRGenerator* mir) {
     }
   }
 
+  if (mir->branchHintingEnabled()) {
+    JitSpewCont(JitSpew_BranchHint, "\n");
+    if (!BranchHinting(mir, graph)) {
+      return false;
+    }
+    gs.spewPass("BranchHinting");
+    AssertBasicGraphCoherency(graph);
+
+    if (mir->shouldCancel("BranchHinting")) {
+      return false;
+    }
+  }
+
   // LICM can hoist instructions from conditional branches and
   // trigger bailouts. Disable it if bailing out of a hoisted
   // instruction has previously invalidated this script.
@@ -1638,8 +1666,8 @@ static AbortReason IonCompile(JSContext* cx, HandleScript script,
                               jsbytecode* osrPc) {
   cx->check(script);
 
-  auto alloc =
-      cx->make_unique<LifoAlloc>(TempAllocator::PreferredLifoChunkSize);
+  auto alloc = cx->make_unique<LifoAlloc>(TempAllocator::PreferredLifoChunkSize,
+                                          js::MallocArena);
   if (!alloc) {
     return AbortReason::Error;
   }
@@ -1686,6 +1714,9 @@ static AbortReason IonCompile(JSContext* cx, HandleScript script,
     return AbortReason::Alloc;
   }
 
+  auto clearDependencies =
+      mozilla::MakeScopeExit([mirGen]() { mirGen->tracker.reset(); });
+
   MOZ_ASSERT(!script->baselineScript()->hasPendingIonCompileTask());
   MOZ_ASSERT(!script->hasIonScript());
   MOZ_ASSERT(script->canIonCompile());
@@ -1725,6 +1756,7 @@ static AbortReason IonCompile(JSContext* cx, HandleScript script,
     // The allocator and associated data will be destroyed after being
     // processed in the finishedOffThreadCompilations list.
     (void)alloc.release();
+    clearDependencies.release();
 
     return AbortReason::NoAbort;
   }
@@ -2299,18 +2331,13 @@ static void InvalidateActivation(JS::GCContext* gcx,
 
   for (OnlyJSJitFrameIter iter(activations); !iter.done(); ++iter, ++frameno) {
     const JSJitFrameIter& frame = iter.frame();
-    MOZ_ASSERT_IF(frameno == 1, frame.isExitFrame() ||
-                                    frame.type() == FrameType::Bailout ||
-                                    frame.type() == FrameType::JSJitToWasm);
+    MOZ_ASSERT_IF(frameno == 1,
+                  frame.isExitFrame() || frame.type() == FrameType::Bailout);
 
 #ifdef JS_JITSPEW
     switch (frame.type()) {
       case FrameType::Exit:
         JitSpew(JitSpew_IonInvalidate, "#%zu exit frame @ %p", frameno,
-                frame.fp());
-        break;
-      case FrameType::JSJitToWasm:
-        JitSpew(JitSpew_IonInvalidate, "#%zu wasm exit frame @ %p", frameno,
                 frame.fp());
         break;
       case FrameType::BaselineJS:
@@ -2345,6 +2372,10 @@ static void InvalidateActivation(JS::GCContext* gcx,
       case FrameType::Rectifier:
         JitSpew(JitSpew_IonInvalidate, "#%zu rectifier frame @ %p", frameno,
                 frame.fp());
+        break;
+      case FrameType::TrampolineNative:
+        JitSpew(JitSpew_IonInvalidate, "#%zu TrampolineNative frame @ %p",
+                frameno, frame.fp());
         break;
       case FrameType::IonICCall:
         JitSpew(JitSpew_IonInvalidate, "#%zu ion IC call frame @ %p", frameno,
@@ -2485,6 +2516,18 @@ static void ClearIonScriptAfterInvalidation(JSContext* cx, JSScript* script,
   }
 }
 
+// Remove this script from pending invalidation script caches.
+//
+// This is done to avoid an invalidation leaving behind dependencies which
+// may not actually be real on a recompilation, causing superflous invalidation
+// of recompiled code.
+//
+// Note: This must be kept in sync with the various WeakScriptCaches.
+static void ClearPendingInvalidationDependencies(JSScript* script) {
+  script->realm()->zone()->fuseDependencies.removeScript(script);
+  script->realm()->realmFuses.fuseDependencies.removeScript(script);
+}
+
 void jit::Invalidate(JSContext* cx, const RecompileInfoVector& invalid,
                      bool resetUses, bool cancelOffThread) {
   JitSpew(JitSpew_IonInvalidate, "Start invalidation.");
@@ -2505,6 +2548,8 @@ void jit::Invalidate(JSContext* cx, const RecompileInfoVector& invalid,
     JitSpew(JitSpew_IonInvalidate, " Invalidate %s:%u:%u, IonScript %p",
             info.script()->filename(), info.script()->lineno(),
             info.script()->column().oneOriginValue(), ionScript);
+
+    ClearPendingInvalidationDependencies(info.script());
 
     // Keep the ion script alive during the invalidation and flag this
     // ionScript as being invalidated.  This increment is removed by the

@@ -29,6 +29,27 @@ class Debugger;
 extern JS_PUBLIC_API bool JS_DefineDebuggerObject(JSContext* cx,
                                                   JS::HandleObject obj);
 
+// If the JS execution tracer is running, this will generate a
+// ENTRY_KIND_LABEL_ENTER entry with the specified label.
+// The consumer of the trace can then, for instance, correlate all code running
+// after this entry and before the corresponding ENTRY_KIND_LABEL_LEAVE with the
+// provided label.
+// If the tracer is not running, this does nothing.
+extern JS_PUBLIC_API void JS_TracerEnterLabelLatin1(JSContext* cx,
+                                                    const char* label);
+extern JS_PUBLIC_API void JS_TracerEnterLabelTwoByte(JSContext* cx,
+                                                     const char16_t* label);
+
+// If the JS execution tracer is running, this will generate a
+// ENTRY_KIND_LABEL_LEAVE entry with the specified label.
+// It is up to the consumer to decide what to do with a ENTRY_KIND_LABEL_LEAVE
+// entry is encountered without a corresponding ENTRY_KIND_LABEL_ENTER.
+// If the tracer is not running, this does nothing.
+extern JS_PUBLIC_API void JS_TracerLeaveLabelLatin1(JSContext* cx,
+                                                    const char* label);
+extern JS_PUBLIC_API void JS_TracerLeaveLabelTwoByte(JSContext* cx,
+                                                     const char16_t* label);
+
 namespace JS {
 namespace dbg {
 
@@ -347,6 +368,36 @@ class MOZ_STACK_CLASS JS_PUBLIC_API AutoEntryMonitor {
   // Execution of the function or script has ended.
   virtual void Exit(JSContext* cx) {}
 };
+
+// Returns true if there's any debugger attached to the given context where
+// the debugger's "shouldAvoidSideEffects" property is true.
+//
+// This is supposed to be used by native code that performs side-effectful
+// operations where the debugger cannot hook it.
+//
+// If this function returns true, the native function should throw an
+// uncatchable exception by returning `false` without setting any pending
+// exception. The debugger will handle this exception by aborting the eager
+// evaluation.
+//
+// The native code can opt into this behavior to help the debugger performing
+// the side-effect-free evaluation.
+//
+// Expected consumers of this API include JSClassOps.resolve hooks which have
+// any side-effect other than just resolving the property.
+//
+// Example:
+//   static bool ResolveHook(JSContext* cx, HandleObject obj, HandleId id,
+//                           bool* resolvedp) {
+//     *resolvedp = false;
+//     if (JS::dbg::ShouldAvoidSideEffects()) {
+//       return false;
+//     }
+//     // Resolve the property with the side-effect.
+//     ...
+//     return true;
+//   }
+bool ShouldAvoidSideEffects(JSContext* cx);
 
 }  // namespace dbg
 }  // namespace JS

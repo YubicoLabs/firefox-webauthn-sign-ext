@@ -81,19 +81,13 @@ appmenu-remote-tabs-turn-on-sync =
 
 # This is shown after the tabs list if we can display more tabs by clicking on the button
 appmenu-remote-tabs-showmore =
-  .label = Show More Tabs
+  .label = Show more tabs
   .tooltiptext = Show more tabs from this device
 
-# This is shown when there are inactive tabs which are not being shown.
-# Variables
-# $count (Number) - The number of inactive tabs which are not being shown (at least 1)
-appmenu-remote-tabs-showinactive =
-  .label =
-    { $count ->
-        [one] Show one inactive tab
-       *[other] Show { $count } inactive tabs
-    }
-  .tooltiptext = Show the inactive tabs on this device
+# This is shown as the label for an element to show inactive tabs from this device.
+appmenu-remote-tabs-show-inactive-tabs =
+  .label = Inactive tabs
+  .tooltiptext = See inactive tabs on this device
 
 # This is shown beneath the name of a device when that device has no open tabs
 appmenu-remote-tabs-notabs = No open tabs
@@ -231,6 +225,10 @@ profiler-popup-presets-power-description = Preset for investigating power use bu
 # "Power" is used in the sense of energy (electricity used by the computer).
 profiler-popup-presets-power-label =
   .label = Power
+
+profiler-popup-presets-debug-description = Preset for debugging in { -brand-shorter-name }. High overhead, do not use for performance work but use for focusing on understanding browser behavior.
+profiler-popup-presets-debug-label =
+  .label = Debug
 
 profiler-popup-presets-custom-label =
   .label = Custom

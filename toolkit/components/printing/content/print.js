@@ -46,7 +46,7 @@ var logger = (function () {
   return _logger;
 })();
 
-function serializeSettings(settings, logPrefix) {
+function serializeSettings(settings) {
   let re = /^(k[A-Z]|resolution)/; // accessing settings.resolution throws an exception?
   let types = new Set(["string", "boolean", "number", "undefined"]);
   let nameValues = {};
@@ -80,12 +80,17 @@ function cancelDeferredTasks() {
 
 document.addEventListener(
   "DOMContentLoaded",
-  e => {
+  () => {
+    const dialogBox = ourBrowser.closest(".dialogBox");
+    if (!dialogBox) {
+      return;
+    }
+
     window._initialized = PrintEventHandler.init().catch(e => console.error(e));
     ourBrowser.setAttribute("flex", "0");
     ourBrowser.setAttribute("constrainpopups", "false");
     ourBrowser.classList.add("printSettingsBrowser");
-    ourBrowser.closest(".dialogBox")?.classList.add("printDialogBox");
+    dialogBox.classList.add("printDialogBox");
   },
   { once: true }
 );
@@ -96,7 +101,7 @@ window.addEventListener("dialogclosing", () => {
 
 window.addEventListener(
   "unload",
-  e => {
+  () => {
     document.textContent = "";
   },
   { once: true }
@@ -827,19 +832,6 @@ var PrintEventHandler = {
   async _updatePrintPreview() {
     let { settings } = this;
 
-    const isFirstCall = !this.printInitiationTime;
-    if (isFirstCall) {
-      let params = new URLSearchParams(location.search);
-      this.printInitiationTime = parseInt(
-        params.get("printInitiationTime"),
-        10
-      );
-      const elapsed = Date.now() - this.printInitiationTime;
-      Services.telemetry
-        .getHistogramById("PRINT_INIT_TO_PLATFORM_SENT_SETTINGS_MS")
-        .add(elapsed);
-    }
-
     let totalPageCount, sheetCount, isEmpty, orientation, pageWidth, pageHeight;
     try {
       // This resolves with a PrintPreviewSuccessInfo dictionary.
@@ -917,13 +909,6 @@ var PrintEventHandler = {
         detail: { sheetCount, totalPages: totalPageCount },
       })
     );
-
-    if (isFirstCall) {
-      const elapsed = Date.now() - this.printInitiationTime;
-      Services.telemetry
-        .getHistogramById("PRINT_INIT_TO_PREVIEW_DOC_SHOWN_MS")
-        .add(elapsed);
-    }
   },
 
   async getPrintDestinations() {
@@ -1608,7 +1593,7 @@ function PrintUIControlMixin(superClass) {
 
     render() {}
 
-    update(settings) {}
+    update() {}
 
     dispatchSettingsChange(changedSettings) {
       this.dispatchEvent(
@@ -1628,7 +1613,7 @@ function PrintUIControlMixin(superClass) {
       );
     }
 
-    handleEvent(event) {}
+    handleEvent() {}
   };
 }
 
@@ -1863,7 +1848,7 @@ class PrintSettingCheckbox extends PrintUIControlMixin(HTMLInputElement) {
     this.checked = settings[this.settingName];
   }
 
-  handleEvent(e) {
+  handleEvent() {
     this.dispatchSettingsChange({
       [this.settingName]: this.checked,
     });
@@ -1884,7 +1869,7 @@ class PrintSettingRadio extends PrintUIControlMixin(HTMLInputElement) {
     this.checked = settings[this.settingName] == this.value;
   }
 
-  handleEvent(e) {
+  handleEvent() {
     this.dispatchSettingsChange({
       [this.settingName]: this.value,
     });
@@ -2020,7 +2005,7 @@ class CopiesInput extends PrintUIControlMixin(HTMLElement) {
     this._copiesError.hidden = true;
   }
 
-  handleEvent(e) {
+  handleEvent() {
     this._copiesError.hidden = this._copiesInput.checkValidity();
   }
 }
@@ -2679,7 +2664,7 @@ class TwistySummary extends PrintUIControlMixin(HTMLElement) {
     this.updateSummary(shouldOpen);
   }
 
-  handleEvent(e) {
+  handleEvent() {
     let willOpen = !this.isOpen;
     Services.prefs.setBoolPref("print.more-settings.open", willOpen);
     this.updateSummary(willOpen);
@@ -2811,7 +2796,7 @@ async function pickFileName(contentTitle, currentURI) {
   filename = DownloadPaths.sanitize(filename);
 
   picker.init(
-    window.docShell.chromeEventHandler.ownerGlobal,
+    window.docShell.chromeEventHandler.ownerGlobal.browsingContext,
     title,
     Ci.nsIFilePicker.modeSave
   );

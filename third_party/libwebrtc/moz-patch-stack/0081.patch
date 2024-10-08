@@ -1,33 +1,39 @@
-From: Nico Grunbaum <na-g@nostrum.com>
-Date: Thu, 22 Jun 2023 16:23:00 +0000
-Subject: Bug 1837918 - libwebrtc update broke the build on
- OpenBSD;r=mjf,webrtc-reviewers
+From: Byron Campen <docfaraday@gmail.com>
+Date: Thu, 20 Jul 2023 14:24:00 +0000
+Subject: Bug 1838080: Work around a race in
+ ChannelSendFrameTransformerDelegate. r=pehrsons,webrtc-reviewers
 
-Differential Revision: https://phabricator.services.mozilla.com/D181791
-Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/2a6a838b7021bb285f9485c2ceda6ba2543e0d6f
+This variable can be null when a ChannelSendFrameTransformerDelegate is in use,
+because that does an async dispatch to the encoder queue in the handling for
+transformed frames. If this is unset while that dispatch is in flight, we
+nullptr crash.
+
+Differential Revision: https://phabricator.services.mozilla.com/D180735
+Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/56555ecee7f36ae73abff1cbbd06807c2b65fc19
 ---
- modules/video_capture/video_capture_options.h | 4 ++--
- 1 file changed, 2 insertions(+), 2 deletions(-)
+ audio/channel_send.cc | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
 
-diff --git a/modules/video_capture/video_capture_options.h b/modules/video_capture/video_capture_options.h
-index 6f72f7927e..37965305d9 100644
---- a/modules/video_capture/video_capture_options.h
-+++ b/modules/video_capture/video_capture_options.h
-@@ -55,7 +55,7 @@ class RTC_EXPORT VideoCaptureOptions {
+diff --git a/audio/channel_send.cc b/audio/channel_send.cc
+index 9eb35b3d50..d753613a90 100644
+--- a/audio/channel_send.cc
++++ b/audio/channel_send.cc
+@@ -284,12 +284,16 @@ class RtpPacketSenderProxy : public RtpPacketSender {
+   void EnqueuePackets(
+       std::vector<std::unique_ptr<RtpPacketToSend>> packets) override {
+     MutexLock lock(&mutex_);
+-    rtp_packet_pacer_->EnqueuePackets(std::move(packets));
++    if (rtp_packet_pacer_) {
++      rtp_packet_pacer_->EnqueuePackets(std::move(packets));
++    }
+   }
  
-   void Init(Callback* callback);
- 
--#if defined(WEBRTC_LINUX)
-+#if defined(WEBRTC_LINUX) || defined(WEBRTC_BSD)
-   bool allow_v4l2() const { return allow_v4l2_; }
-   void set_allow_v4l2(bool allow) { allow_v4l2_ = allow; }
- #endif
-@@ -68,7 +68,7 @@ class RTC_EXPORT VideoCaptureOptions {
- #endif
+   void RemovePacketsForSsrc(uint32_t ssrc) override {
+     MutexLock lock(&mutex_);
+-    rtp_packet_pacer_->RemovePacketsForSsrc(ssrc);
++    if (rtp_packet_pacer_) {
++      rtp_packet_pacer_->RemovePacketsForSsrc(ssrc);
++    }
+   }
  
   private:
--#if defined(WEBRTC_LINUX)
-+#if defined(WEBRTC_LINUX) || defined(WEBRTC_BSD)
-   bool allow_v4l2_ = false;
- #endif
- #if defined(WEBRTC_USE_PIPEWIRE)

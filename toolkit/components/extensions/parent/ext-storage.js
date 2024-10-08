@@ -192,8 +192,8 @@ this.storage = class extends ExtensionAPIPersistent {
         extension,
         onStorageSyncChanged
       );
-      // May be void if ExtensionStorageSyncKinto.jsm was not used.
-      // ExtensionStorageSync.jsm does not use the context.
+      // May be void if ExtensionStorageSyncKinto.sys.mjs was not used.
+      // ExtensionStorageSync.sys.mjs does not use the context.
       closeCallback?.();
     };
   }
@@ -283,17 +283,35 @@ this.storage = class extends ExtensionAPIPersistent {
         },
 
         session: {
+          get QUOTA_BYTES() {
+            return extensionStorageSession.QUOTA_BYTES;
+          },
           get(items) {
             return extensionStorageSession.get(extension, items);
           },
-          set(items) {
-            extensionStorageSession.set(extension, items);
+          set(items, { callerLocation } = {}) {
+            const { warningError } =
+              extensionStorageSession.set(extension, items) ?? {};
+            if (warningError) {
+              context.logConsoleScriptError({
+                message: warningError.message,
+                fileName: callerLocation?.source,
+                lineNumber: callerLocation?.line,
+                columnNumber: callerLocation?.column,
+                flags: Ci.nsIScriptError.warningFlag,
+                innerWindowID:
+                  context.browsingContext.currentWindowContext.innerWindowId,
+              });
+            }
           },
           remove(keys) {
             extensionStorageSession.remove(extension, keys);
           },
           clear() {
             extensionStorageSession.clear(extension);
+          },
+          getBytesInUse(keys) {
+            return extensionStorageSession.getBytesInUse(extension, keys);
           },
           onChanged: new EventManager({
             context,

@@ -24,8 +24,8 @@ const ENABLED_AUTOFILL_ADDRESSES_SUPPORTED_COUNTRIES_PREF =
   "extensions.formautofill.addresses.supportedCountries";
 const ENABLED_AUTOFILL_CREDITCARDS_PREF =
   "extensions.formautofill.creditCards.enabled";
-const ENABLED_AUTOFILL_CREDITCARDS_REAUTH_PREF =
-  "extensions.formautofill.reauth.enabled";
+const AUTOFILL_CREDITCARDS_REAUTH_PREF =
+  "extensions.formautofill.creditCards.reauth.optout";
 const AUTOFILL_CREDITCARDS_HIDE_UI_PREF =
   "extensions.formautofill.creditCards.hideui";
 const FORM_AUTOFILL_SUPPORT_RTL_PREF = "extensions.formautofill.supportRTL";
@@ -37,14 +37,17 @@ const ENABLED_AUTOFILL_CAPTURE_ON_FORM_REMOVAL_PREF =
   "extensions.formautofill.heuristics.captureOnFormRemoval";
 const ENABLED_AUTOFILL_CAPTURE_ON_PAGE_NAVIGATION_PREF =
   "extensions.formautofill.heuristics.captureOnPageNavigation";
+const ENABLED_AUTOFILL_SAME_ORIGIN_WITH_TOP =
+  "extensions.formautofill.heuristics.autofillSameOriginWithTop";
 
 export const FormAutofill = {
   ENABLED_AUTOFILL_ADDRESSES_PREF,
   ENABLED_AUTOFILL_ADDRESSES_CAPTURE_PREF,
   ENABLED_AUTOFILL_CAPTURE_ON_FORM_REMOVAL_PREF,
   ENABLED_AUTOFILL_CAPTURE_ON_PAGE_NAVIGATION_PREF,
+  ENABLED_AUTOFILL_SAME_ORIGIN_WITH_TOP,
   ENABLED_AUTOFILL_CREDITCARDS_PREF,
-  ENABLED_AUTOFILL_CREDITCARDS_REAUTH_PREF,
+  AUTOFILL_CREDITCARDS_REAUTH_PREF,
   AUTOFILL_CREDITCARDS_AUTOCOMPLETE_OFF_PREF,
   AUTOFILL_ADDRESSES_AUTOCOMPLETE_OFF_PREF,
 
@@ -81,7 +84,9 @@ export const FormAutofill = {
     return false;
   },
   isAutofillAddressesAvailableInCountry(country) {
-    return FormAutofill._addressAutofillSupportedCountries.includes(country);
+    return FormAutofill._addressAutofillSupportedCountries.includes(
+      country.toUpperCase()
+    );
   },
   get isAutofillEnabled() {
     return this.isAutofillAddressesEnabled || this.isAutofillCreditCardsEnabled;
@@ -96,6 +101,29 @@ export const FormAutofill = {
     return this._isSupportedRegion(
       FormAutofill._isAutofillCreditCardsAvailable,
       FormAutofill._creditCardAutofillSupportedCountries
+    );
+  },
+  /**
+   * Determines if the address autofill feature is available to use in the browser.
+   * If the feature is not available, then there are no user facing ways to enable it.
+   * Two conditions must be met for the autofill feature to be considered available:
+   *   1. Address autofill support is confirmed when:
+   *      - `extensions.formautofill.addresses.supported` is set to `on`.
+   *      - The user is located in a region supported by the feature
+   *        (`extensions.formautofill.creditCards.supportedCountries`).
+   *   2. Address autofill is enabled through a Nimbus experiment:
+   *      - The experiment pref `extensions.formautofill.addresses.experiments.enabled` is set to true.
+   *
+   * @returns {boolean} `true` if address autofill is available
+   */
+  get isAutofillAddressesAvailable() {
+    const isUserInSupportedRegion = this._isSupportedRegion(
+      FormAutofill._isAutofillAddressesAvailable,
+      FormAutofill._addressAutofillSupportedCountries
+    );
+    return (
+      isUserInSupportedRegion ||
+      FormAutofill._isAutofillAddressesAvailableInExperiment
     );
   },
   /**
@@ -259,10 +287,15 @@ XPCOMUtils.defineLazyPreferenceGetter(
   null,
   val => val?.split(",").filter(v => !!v)
 );
+XPCOMUtils.defineLazyPreferenceGetter(
+  FormAutofill,
+  "autofillSameOriginWithTop",
+  ENABLED_AUTOFILL_SAME_ORIGIN_WITH_TOP
+);
 
 XPCOMUtils.defineLazyPreferenceGetter(
   FormAutofill,
-  "isAutofillAddressesAvailable",
+  "_isAutofillAddressesAvailableInExperiment",
   "extensions.formautofill.addresses.experiments.enabled"
 );
 

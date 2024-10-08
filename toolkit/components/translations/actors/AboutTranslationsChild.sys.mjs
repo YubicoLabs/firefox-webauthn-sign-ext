@@ -53,7 +53,7 @@ export class AboutTranslationsChild extends JSWindowActorChild {
 
   receiveMessage({ name, data }) {
     switch (name) {
-      case "AboutTranslations:SendTranslationsPort":
+      case "AboutTranslations:SendTranslationsPort": {
         const { fromLanguage, toLanguage, port } = data;
         const transferables = [port];
         this.contentWindow.postMessage(
@@ -67,6 +67,7 @@ export class AboutTranslationsChild extends JSWindowActorChild {
           transferables
         );
         break;
+      }
       default:
         throw new Error("Unknown AboutTranslations message: " + name);
     }
@@ -183,6 +184,7 @@ export class AboutTranslationsChild extends JSWindowActorChild {
 
   /**
    * Does this device support the translation engine?
+   *
    * @returns {Promise<boolean>}
    */
   AT_isTranslationEngineSupported() {

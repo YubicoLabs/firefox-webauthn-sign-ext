@@ -69,13 +69,12 @@ function SPConsoleListener(callback, contentWindow) {
 SPConsoleListener.prototype = {
   // Overload the observe method for both nsIConsoleListener and nsIObserver.
   // The topic will be null for nsIConsoleListener.
-  observe(msg, topic) {
+  observe(msg) {
     let m = {
       message: msg.message,
       errorMessage: null,
       cssSelectors: null,
       sourceName: null,
-      sourceLine: null,
       lineNumber: null,
       columnNumber: null,
       category: null,
@@ -88,7 +87,6 @@ SPConsoleListener.prototype = {
       m.errorMessage = msg.errorMessage;
       m.cssSelectors = msg.cssSelectors;
       m.sourceName = msg.sourceName;
-      m.sourceLine = msg.sourceLine;
       m.lineNumber = msg.lineNumber;
       m.columnNumber = msg.columnNumber;
       m.category = msg.category;
@@ -162,7 +160,7 @@ export class SpecialPowersChild extends JSWindowActorChild {
     );
   }
 
-  observe(aSubject, aTopic, aData) {
+  observe() {
     // Ignore the "{chrome/content}-document-global-created" event. It
     // is only observed to force creation of the actor.
   }
@@ -473,7 +471,7 @@ export class SpecialPowersChild extends JSWindowActorChild {
   }
 
   async registeredServiceWorkers() {
-    // Please see the comment in SpecialPowersObserver.jsm above
+    // Please see the comment in SpecialPowersParent.sys.mjs above
     // this._serviceWorkerListener's assignment for what this returns.
     if (this._serviceWorkerRegistered) {
       // This test registered at least one service worker. Send a synchronous
@@ -825,14 +823,14 @@ export class SpecialPowersChild extends JSWindowActorChild {
    * This function should be used when specialpowers is in content process but
    * it want to get the notification from chrome space.
    *
-   * This function will call Services.obs.addObserver in SpecialPowersObserver
+   * This function will call Services.obs.addObserver in SpecialPowersParent
    * (that is in chrome process) and forward the data received to SpecialPowers
    * via messageManager.
    * You can use this._addMessageListener("specialpowers-YOUR_TOPIC") to fire
    * the callback.
    *
    * To get the expected data, you should modify
-   * SpecialPowersObserver.prototype._registerObservers.observe. Or the message
+   * SpecialPowersParent.prototype._registerObservers.observe. Or the message
    * you received from messageManager will only contain 'aData' from Service.obs.
    */
   registerObservers(topic) {
@@ -1089,7 +1087,7 @@ export class SpecialPowersChild extends JSWindowActorChild {
     }
     return val;
   }
-  _getPref(prefName, prefType, { defaultValue }) {
+  _getPref(prefName, prefType) {
     switch (prefType) {
       case "BOOL":
         return Services.prefs.getBoolPref(prefName);
@@ -1132,19 +1130,10 @@ export class SpecialPowersChild extends JSWindowActorChild {
   removeAutoCompletePopupEventListener(window, eventname, listener) {
     this._getAutoCompletePopup(window).removeEventListener(eventname, listener);
   }
-  getFormFillController(window) {
+  getFormFillController() {
     return Cc["@mozilla.org/satchel/form-fill-controller;1"].getService(
       Ci.nsIFormFillController
     );
-  }
-  attachFormFillControllerTo(window) {
-    this.getFormFillController().attachPopupElementToDocument(
-      window.document,
-      this._getAutoCompletePopup(window)
-    );
-  }
-  detachFormFillControllerFrom(window) {
-    this.getFormFillController().detachFromDocument(window.document);
   }
   isBackButtonEnabled(window) {
     return !this._getTopChromeWindow(window)
@@ -1448,13 +1437,6 @@ export class SpecialPowersChild extends JSWindowActorChild {
       return this.ISOLATION_STRATEGY.IsolateNothing;
     }
     return this.getIntPref("fission.webContentIsolationStrategy");
-  }
-
-  addSystemEventListener(target, type, listener, useCapture) {
-    Services.els.addSystemEventListener(target, type, listener, useCapture);
-  }
-  removeSystemEventListener(target, type, listener, useCapture) {
-    Services.els.removeSystemEventListener(target, type, listener, useCapture);
   }
 
   // helper method to check if the event is consumed by either default group's
@@ -1927,11 +1909,11 @@ export class SpecialPowersChild extends JSWindowActorChild {
     return this.sendQuery("SPRemoveServiceWorkerDataForExampleDomain", {});
   }
 
-  cleanUpSTSData(origin, flags) {
+  cleanUpSTSData(origin) {
     return this.sendQuery("SPCleanUpSTSData", { origin });
   }
 
-  async requestDumpCoverageCounters(cb) {
+  async requestDumpCoverageCounters() {
     // We want to avoid a roundtrip between child and parent.
     if (!lazy.PerTestCoverageUtils.enabled) {
       return;
@@ -1940,7 +1922,7 @@ export class SpecialPowersChild extends JSWindowActorChild {
     await this.sendQuery("SPRequestDumpCoverageCounters", {});
   }
 
-  async requestResetCoverageCounters(cb) {
+  async requestResetCoverageCounters() {
     // We want to avoid a roundtrip between child and parent.
     if (!lazy.PerTestCoverageUtils.enabled) {
       return;
@@ -2275,7 +2257,7 @@ SpecialPowersChild.prototype._proxiedObservers = {
     );
   },
 
-  "specialpowers-service-worker-shutdown": function (aMessage) {
+  "specialpowers-service-worker-shutdown": function () {
     Services.obs.notifyObservers(null, "specialpowers-service-worker-shutdown");
   },
 

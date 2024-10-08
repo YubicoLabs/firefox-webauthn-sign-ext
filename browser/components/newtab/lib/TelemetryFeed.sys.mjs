@@ -2,14 +2,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-// We use importESModule here instead of static import so that
-// the Karma test environment won't choke on these module. This
-// is because the Karma test environment already stubs out
-// XPCOMUtils, and overrides importESModule to be a no-op (which
-// can't be done for a static import statement). MESSAGE_TYPES_HASH / msg
-// isn't something that the tests for this module seem to rely on in the
-// Karma environment, but if that ever becomes the case, we should import
-// those into unit-entry like we do for the ASRouter tests.
+// We use importESModule here instead of static import so that the Karma test
+// environment won't choke on these module. This is because the Karma test
+// environment already stubs out XPCOMUtils, AppConstants and RemoteSettings,
+// and overrides importESModule to be a no-op (which can't be done for a static
+// import statement). MESSAGE_TYPE_HASH / msg isn't something that the tests
+// for this module seem to rely on in the Karma environment, but if that ever
+// becomes the case, we should import those into unit-entry like we do for the
+// ASRouter tests.
 
 // eslint-disable-next-line mozilla/use-static-import
 const { XPCOMUtils } = ChromeUtils.importESModule(
@@ -18,13 +18,13 @@ const { XPCOMUtils } = ChromeUtils.importESModule(
 
 // eslint-disable-next-line mozilla/use-static-import
 const { MESSAGE_TYPE_HASH: msg } = ChromeUtils.importESModule(
-  "resource:///modules/asrouter/ActorConstants.sys.mjs"
+  "resource:///modules/asrouter/ActorConstants.mjs"
 );
 
 import {
   actionTypes as at,
   actionUtils as au,
-} from "resource://activity-stream/common/Actions.sys.mjs";
+} from "resource://activity-stream/common/Actions.mjs";
 import { Prefs } from "resource://activity-stream/lib/ActivityStreamPrefs.sys.mjs";
 import { classifySite } from "resource://activity-stream/lib/SiteClassifier.sys.mjs";
 
@@ -75,6 +75,8 @@ export const USER_PREFS_ENCODING = {
 export const PREF_IMPRESSION_ID = "impressionId";
 export const TELEMETRY_PREF = "telemetry";
 export const EVENTS_TELEMETRY_PREF = "telemetry.ut.events";
+export const PREF_UNIFIED_ADS_ENABLED = "unifiedAds.enabled";
+const PREF_UPLOAD_ENABLED = "datareporting.healthreport.uploadEnabled";
 
 // Used as the missing value for timestamps in the session ping
 const TIMESTAMP_MISSING_VALUE = -1;
@@ -114,6 +116,8 @@ const NEWTAB_PING_PREFS = {
   "feeds.section.topstories": Glean.pocket.enabled,
   showSponsored: Glean.pocket.sponsoredStoriesEnabled,
   topSitesRows: Glean.topsites.rows,
+  showWeather: Glean.newtab.weatherEnabled,
+  "discoverystream.topicSelection.selectedTopics": Glean.newtab.selectedTopics,
 };
 const TOP_SITES_BLOCKED_SPONSORS_PREF = "browser.topsites.blockedSponsors";
 
@@ -133,6 +137,18 @@ export class TelemetryFeed {
 
   get eventTelemetryEnabled() {
     return this._prefs.get(EVENTS_TELEMETRY_PREF);
+  }
+
+  get canSendUnifiedAdsCallbacks() {
+    const unifiedAdsEnabled = this._prefs.get(PREF_UNIFIED_ADS_ENABLED);
+
+    // Check PREF_UPLOAD_ENABLED if data reporting is allowed
+    const uploadEnabled = Services.prefs.getBoolPref(
+      PREF_UPLOAD_ENABLED,
+      false
+    );
+
+    return unifiedAdsEnabled && uploadEnabled;
   }
 
   get telemetryClientId() {
@@ -454,8 +470,7 @@ export class TelemetryFeed {
         event = await this.applyCFRPolicy(event);
         break;
       case "badge_user_event":
-      case "whats-new-panel_user_event":
-        event = await this.applyWhatsNewPolicy(event);
+        event = await this.applyToolbarBadgePolicy(event);
         break;
       case "infobar_user_event":
         event = await this.applyInfoBarPolicy(event);
@@ -509,12 +524,12 @@ export class TelemetryFeed {
    * Per Bug 1482134, all the metrics for What's New panel use client_id in
    * all the release channels
    */
-  async applyWhatsNewPolicy(ping) {
+  async applyToolbarBadgePolicy(ping) {
     ping.client_id = await this.telemetryClientId;
     ping.browser_session_id = lazy.browserSessionId;
     // Attach page info to `event_context` if there is a session associated with this ping
     delete ping.action;
-    return { ping, pingType: "whats-new-panel" };
+    return { ping, pingType: "toolbar-badge" };
   }
 
   async applyInfoBarPolicy(ping) {
@@ -614,6 +629,8 @@ export class TelemetryFeed {
     // Legacy telemetry expects 1-based tile positions.
     const legacyTelemetryPosition = position + 1;
 
+    const unifiedAdsEnabled = this._prefs.get(PREF_UNIFIED_ADS_ENABLED);
+
     let pingType;
 
     const session = this.sessions.get(au.getPortIdOfSender(action));
@@ -658,12 +675,20 @@ export class TelemetryFeed {
     Glean.topSites.position.set(legacyTelemetryPosition);
     Glean.topSites.source.set(source);
     Glean.topSites.tileId.set(tile_id);
-    if (data.reporting_url) {
+    if (data.reporting_url && !unifiedAdsEnabled) {
       Glean.topSites.reportingUrl.set(data.reporting_url);
     }
     Glean.topSites.advertiser.set(advertiser_name);
     Glean.topSites.contextId.set(lazy.contextId);
     GleanPings.topSites.submit();
+
+    if (data.reporting_url && this.canSendUnifiedAdsCallbacks) {
+      // Send callback events to MARS unified ads api
+      this.sendUnifiedAdsCallbackEvent({
+        url: data.reporting_url,
+        position,
+      });
+    }
   }
 
   handleTopSitesOrganicImpressionStats(action) {
@@ -714,9 +739,23 @@ export class TelemetryFeed {
     });
     const session = this.sessions.get(au.getPortIdOfSender(action));
     switch (action.data?.event) {
-      case "CLICK":
-        const { card_type, topic, recommendation_id, tile_id, shim } =
-          action.data.value ?? {};
+      case "CLICK": {
+        const {
+          card_type,
+          topic,
+          recommendation_id,
+          tile_id,
+          shim,
+          fetchTimestamp,
+          firstVisibleTimestamp,
+          feature,
+          scheduled_corpus_item_id,
+          received_rank,
+          recommended_at,
+          matches_selected_topic,
+          selected_topics,
+          is_list_card,
+        } = action.data.value ?? {};
         if (
           action.data.source === "POPULAR_TOPICS" ||
           card_type === "topics_widget"
@@ -725,33 +764,133 @@ export class TelemetryFeed {
             newtab_visit_id: session.session_id,
             topic,
           });
+        } else if (action.data.source === "FEATURE_HIGHLIGHT") {
+          Glean.newtab.tooltipClick.record({
+            newtab_visit_id: session.session_id,
+            feature,
+          });
         } else if (["spoc", "organic"].includes(card_type)) {
           Glean.pocket.click.record({
             newtab_visit_id: session.session_id,
             is_sponsored: card_type === "spoc",
+            matches_selected_topic,
+            selected_topics,
+            topic,
+            is_list_card,
             position: action.data.action_position,
-            recommendation_id,
             tile_id,
+            ...(scheduled_corpus_item_id
+              ? {
+                  scheduled_corpus_item_id,
+                  received_rank,
+                  recommended_at,
+                }
+              : {
+                  recommendation_id,
+                }),
           });
           if (shim) {
-            Glean.pocket.shim.set(shim);
-            GleanPings.spoc.submit("click");
+            if (this.canSendUnifiedAdsCallbacks) {
+              // Send unified ads callback event
+              this.sendUnifiedAdsCallbackEvent({
+                url: shim,
+                position: action.data.action_position,
+              });
+            } else {
+              Glean.pocket.shim.set(shim);
+              if (fetchTimestamp) {
+                Glean.pocket.fetchTimestamp.set(fetchTimestamp * 1000);
+              }
+              if (firstVisibleTimestamp) {
+                Glean.pocket.newtabCreationTimestamp.set(
+                  firstVisibleTimestamp * 1000
+                );
+              }
+              GleanPings.spoc.submit("click");
+            }
           }
         }
         break;
-      case "SAVE_TO_POCKET":
+      }
+      case "POCKET_THUMBS_DOWN":
+      case "POCKET_THUMBS_UP": {
+        const {
+          tile_id,
+          recommendation_id,
+          scheduled_corpus_item_id,
+          received_rank,
+          recommended_at,
+          thumbs_up,
+          thumbs_down,
+          topic,
+        } = action.data.value ?? {};
+        Glean.pocket.thumbVotingInteraction.record({
+          newtab_visit_id: session.session_id,
+          tile_id,
+          ...(scheduled_corpus_item_id
+            ? {
+                scheduled_corpus_item_id,
+                received_rank,
+                recommended_at,
+              }
+            : {
+                recommendation_id,
+              }),
+          thumbs_up,
+          thumbs_down,
+          topic,
+        });
+        break;
+      }
+      case "SAVE_TO_POCKET": {
+        const {
+          tile_id,
+          recommendation_id,
+          newtabCreationTimestamp,
+          fetchTimestamp,
+          shim,
+          card_type,
+          scheduled_corpus_item_id,
+          received_rank,
+          recommended_at,
+          topic,
+          matches_selected_topic,
+          selected_topics,
+          is_list_card,
+        } = action.data.value ?? {};
         Glean.pocket.save.record({
           newtab_visit_id: session.session_id,
-          is_sponsored: action.data.value?.card_type === "spoc",
+          is_sponsored: card_type === "spoc",
+          topic,
+          matches_selected_topic,
+          selected_topics,
           position: action.data.action_position,
-          recommendation_id: action.data.value?.recommendation_id,
-          tile_id: action.data.value?.tile_id,
+          tile_id,
+          is_list_card,
+          ...(scheduled_corpus_item_id
+            ? {
+                scheduled_corpus_item_id,
+                received_rank,
+                recommended_at,
+              }
+            : {
+                recommendation_id,
+              }),
         });
-        if (action.data.value?.shim) {
-          Glean.pocket.shim.set(action.data.value.shim);
+        if (shim) {
+          Glean.pocket.shim.set(shim);
+          if (fetchTimestamp) {
+            Glean.pocket.fetchTimestamp.set(fetchTimestamp * 1000);
+          }
+          if (newtabCreationTimestamp) {
+            Glean.pocket.newtabCreationTimestamp.set(
+              newtabCreationTimestamp * 1000
+            );
+          }
           GleanPings.spoc.submit("save");
         }
         break;
+      }
     }
   }
 
@@ -765,6 +904,34 @@ export class TelemetryFeed {
     // Now that the action has become a ping, we can echo it to Glean.
     if (this.telemetryEnabled) {
       lazy.Telemetry.submitGleanPingForPing({ ...ping, pingType });
+    }
+  }
+
+  /**
+   * This function submits callback events to the MARS unified ads service.
+   */
+
+  async sendUnifiedAdsCallbackEvent(data = { url: null, position: null }) {
+    if (!data.url) {
+      throw new Error(
+        `[Unified ads callback] Missing argument (No url). Cannot send telemetry event.`
+      );
+    }
+
+    // data.position can be 0 (0)
+    if (!data.position && data.position !== 0) {
+      throw new Error(
+        `[Unified ads callback] Missing argument (No position). Cannot send telemetry event.`
+      );
+    }
+
+    const url = new URL(data.url);
+    url.searchParams.append("position", data.position);
+
+    try {
+      await fetch(url.toString());
+    } catch (error) {
+      console.error("Error:", error);
     }
   }
 
@@ -867,25 +1034,6 @@ export class TelemetryFeed {
       case at.TELEMETRY_USER_EVENT:
         this.handleUserEvent(action);
         break;
-      // The next few action types come from ASRouter, which doesn't use
-      // Actions from Actions.jsm, but uses these other custom strings.
-      case msg.TOOLBAR_BADGE_TELEMETRY:
-      // Intentional fall-through
-      case msg.TOOLBAR_PANEL_TELEMETRY:
-      // Intentional fall-through
-      case msg.MOMENTS_PAGE_TELEMETRY:
-      // Intentional fall-through
-      case msg.DOORHANGER_TELEMETRY:
-      // Intentional fall-through
-      case msg.INFOBAR_TELEMETRY:
-      // Intentional fall-through
-      case msg.SPOTLIGHT_TELEMETRY:
-      // Intentional fall-through
-      case msg.TOAST_NOTIFICATION_TELEMETRY:
-      // Intentional fall-through
-      case at.AS_ROUTER_TELEMETRY_USER_EVENT:
-        this.handleASRouterUserEvent(action);
-        break;
       case at.TOP_SITES_SPONSORED_IMPRESSION_STATS:
         this.handleTopSitesSponsoredImpressionStats(action);
         break;
@@ -900,6 +1048,162 @@ export class TelemetryFeed {
         break;
       case at.BLOCK_URL:
         this.handleBlockUrl(action);
+        break;
+      case at.WALLPAPER_CATEGORY_CLICK:
+      case at.WALLPAPER_CLICK:
+      case at.WALLPAPERS_FEATURE_HIGHLIGHT_DISMISSED:
+      case at.WALLPAPERS_FEATURE_HIGHLIGHT_CTA_CLICKED:
+        this.handleWallpaperUserEvent(action);
+        break;
+      case at.SET_PREF:
+        this.handleSetPref(action);
+        break;
+      case at.WEATHER_IMPRESSION:
+      case at.WEATHER_LOAD_ERROR:
+      case at.WEATHER_OPEN_PROVIDER_URL:
+      case at.WEATHER_LOCATION_DATA_UPDATE:
+        this.handleWeatherUserEvent(action);
+        break;
+      case at.TOPIC_SELECTION_USER_OPEN:
+      case at.TOPIC_SELECTION_USER_DISMISS:
+      case at.TOPIC_SELECTION_USER_SAVE:
+        this.handleTopicSelectionUserEvent(action);
+        break;
+      // The remaining action types come from ASRouter, which doesn't use
+      // Actions from Actions.mjs, but uses these other custom strings.
+      case msg.TOOLBAR_BADGE_TELEMETRY:
+      // Intentional fall-through
+      case msg.TOOLBAR_PANEL_TELEMETRY:
+      // Intentional fall-through
+      case msg.MOMENTS_PAGE_TELEMETRY:
+      // Intentional fall-through
+      case msg.DOORHANGER_TELEMETRY:
+      // Intentional fall-through
+      case msg.INFOBAR_TELEMETRY:
+      // Intentional fall-through
+      case msg.SPOTLIGHT_TELEMETRY:
+      // Intentional fall-through
+      case msg.TOAST_NOTIFICATION_TELEMETRY:
+      // Intentional fall-through
+      case msg.AS_ROUTER_TELEMETRY_USER_EVENT:
+        this.handleASRouterUserEvent(action);
+        break;
+    }
+  }
+
+  handleTopicSelectionUserEvent(action) {
+    const session = this.sessions.get(au.getPortIdOfSender(action));
+    if (session) {
+      switch (action.type) {
+        case "TOPIC_SELECTION_USER_OPEN":
+          Glean.newtab.topicSelectionOpen.record({
+            newtab_visit_id: session.session_id,
+          });
+          break;
+        case "TOPIC_SELECTION_USER_DISMISS":
+          Glean.newtab.topicSelectionDismiss.record({
+            newtab_visit_id: session.session_id,
+          });
+          break;
+        case "TOPIC_SELECTION_USER_SAVE":
+          Glean.newtab.topicSelectionTopicsSaved.record({
+            newtab_visit_id: session.session_id,
+            topics: action.data.topics,
+            previous_topics: action.data.previous_topics,
+            first_save: action.data.first_save,
+          });
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
+  handleSetPref(action) {
+    const session = this.sessions.get(au.getPortIdOfSender(action));
+    if (action.data.name === "weather.display") {
+      if (!session) {
+        return;
+      }
+      Glean.newtab.weatherChangeDisplay.record({
+        newtab_visit_id: session.session_id,
+        weather_display_mode: action.data.value,
+      });
+    }
+  }
+
+  handleWeatherUserEvent(action) {
+    const session = this.sessions.get(au.getPortIdOfSender(action));
+
+    if (!session) {
+      return;
+    }
+
+    // Weather specific telemtry events can be added and parsed here.
+    switch (action.type) {
+      case "WEATHER_IMPRESSION":
+        Glean.newtab.weatherImpression.record({
+          newtab_visit_id: session.session_id,
+        });
+        break;
+      case "WEATHER_LOAD_ERROR":
+        Glean.newtab.weatherLoadError.record({
+          newtab_visit_id: session.session_id,
+        });
+        break;
+      case "WEATHER_OPEN_PROVIDER_URL":
+        Glean.newtab.weatherOpenProviderUrl.record({
+          newtab_visit_id: session.session_id,
+        });
+        break;
+      case "WEATHER_LOCATION_DATA_UPDATE":
+        Glean.newtab.weatherLocationSelected.record({
+          newtab_visit_id: session.session_id,
+        });
+        break;
+      default:
+        break;
+    }
+  }
+
+  handleWallpaperUserEvent(action) {
+    const session = this.sessions.get(au.getPortIdOfSender(action));
+
+    if (!session) {
+      return;
+    }
+
+    // Wallpaper specific telemtry events can be added and parsed here.
+    switch (action.type) {
+      case "WALLPAPER_CATEGORY_CLICK":
+        Glean.newtab.wallpaperCategoryClick.record({
+          newtab_visit_id: session.session_id,
+          selected_category: action.data,
+        });
+        break;
+      case "WALLPAPER_CLICK":
+        {
+          const { data } = action;
+          const { selected_wallpaper, hadPreviousWallpaper } = data;
+          // if either of the wallpaper prefs are truthy, they had a previous wallpaper
+          Glean.newtab.wallpaperClick.record({
+            newtab_visit_id: session.session_id,
+            selected_wallpaper,
+            hadPreviousWallpaper,
+          });
+        }
+        break;
+      case "WALLPAPERS_FEATURE_HIGHLIGHT_CTA_CLICKED":
+        Glean.newtab.wallpaperHighlightCtaClick.record({
+          newtab_visit_id: session.session_id,
+        });
+        break;
+      case "WALLPAPERS_FEATURE_HIGHLIGHT_DISMISSED":
+        Glean.newtab.wallpaperHighlightDismissed.record({
+          newtab_visit_id: session.session_id,
+        });
+        break;
+      default:
         break;
     }
   }
@@ -916,7 +1220,21 @@ export class TelemetryFeed {
     const { data } = action;
     for (const datum of data) {
       if (datum.is_pocket_card) {
-        // There is no instrumentation for Pocket dismissals (yet).
+        Glean.pocket.dismiss.record({
+          newtab_visit_id: session.session_id,
+          is_sponsored: datum.card_type === "spoc",
+          position: datum.pos,
+          tile_id: datum.id || datum.tile_id,
+          ...(datum.scheduled_corpus_item_id
+            ? {
+                scheduled_corpus_item_id: datum.scheduled_corpus_item_id,
+                received_rank: datum.received_rank,
+                recommended_at: datum.recommended_at,
+              }
+            : {
+                recommendation_id: datum.recommendation_id,
+              }),
+        });
         continue;
       }
       const { position, advertiser_name, tile_id, isSponsoredTopSite } = datum;
@@ -965,12 +1283,38 @@ export class TelemetryFeed {
         newtab_visit_id: session.session_id,
         is_sponsored: tile.type === "spoc",
         position: tile.pos,
-        recommendation_id: tile.recommendation_id,
         tile_id: tile.id,
+        topic: tile.topic,
+        selected_topics: tile.selectedTopics,
+        ...(tile.scheduled_corpus_item_id
+          ? {
+              scheduled_corpus_item_id: tile.scheduled_corpus_item_id,
+              received_rank: tile.received_rank,
+              recommended_at: tile.recommended_at,
+            }
+          : {
+              recommendation_id: tile.recommendation_id,
+            }),
       });
       if (tile.shim) {
-        Glean.pocket.shim.set(tile.shim);
-        GleanPings.spoc.submit("impression");
+        if (this.canSendUnifiedAdsCallbacks) {
+          // Send unified ads callback event
+          this.sendUnifiedAdsCallbackEvent({
+            url: tile.shim,
+            position: tile.pos,
+          });
+        } else {
+          Glean.pocket.shim.set(tile.shim);
+          if (tile.fetchTimestamp) {
+            Glean.pocket.fetchTimestamp.set(tile.fetchTimestamp * 1000);
+          }
+          if (data.firstVisibleTimestamp) {
+            Glean.pocket.newtabCreationTimestamp.set(
+              data.firstVisibleTimestamp * 1000
+            );
+          }
+          GleanPings.spoc.submit("impression");
+        }
       }
     });
   }
@@ -1029,6 +1373,8 @@ export class TelemetryFeed {
       Glean.newtab.opened.record({
         newtab_visit_id: session.session_id,
         source,
+        window_inner_height: data.window_inner_height,
+        window_inner_width: data.window_inner_width,
       });
     }
   }

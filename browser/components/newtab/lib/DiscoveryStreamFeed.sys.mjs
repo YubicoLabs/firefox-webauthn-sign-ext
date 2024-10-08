@@ -11,6 +11,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   PersistentCache: "resource://activity-stream/lib/PersistentCache.sys.mjs",
   Region: "resource://gre/modules/Region.sys.mjs",
   RemoteSettings: "resource://services-settings/remote-settings.sys.mjs",
+  ProfileAge: "resource://gre/modules/ProfileAge.sys.mjs",
 });
 
 // We use importESModule here instead of static import so that
@@ -26,7 +27,18 @@ const { setTimeout, clearTimeout } = ChromeUtils.importESModule(
 import {
   actionTypes as at,
   actionCreators as ac,
-} from "resource://activity-stream/common/Actions.sys.mjs";
+} from "resource://activity-stream/common/Actions.mjs";
+
+// `contextId` is a unique identifier used by Contextual Services
+const CONTEXT_ID_PREF = "browser.contextual-services.contextId";
+ChromeUtils.defineLazyGetter(lazy, "contextId", () => {
+  let _contextId = Services.prefs.getStringPref(CONTEXT_ID_PREF, null);
+  if (!_contextId) {
+    _contextId = String(Services.uuid.generateUUID());
+    Services.prefs.setStringPref(CONTEXT_ID_PREF, _contextId);
+  }
+  return _contextId;
+});
 
 const CACHE_KEY = "discovery_stream";
 const STARTUP_CACHE_EXPIRE_TIME = 7 * 24 * 60 * 60 * 1000; // 1 week
@@ -34,13 +46,29 @@ const COMPONENT_FEEDS_UPDATE_TIME = 30 * 60 * 1000; // 30 minutes
 const SPOCS_FEEDS_UPDATE_TIME = 30 * 60 * 1000; // 30 minutes
 const DEFAULT_RECS_EXPIRE_TIME = 60 * 60 * 1000; // 1 hour
 const MAX_LIFETIME_CAP = 500; // Guard against misconfiguration on the server
+const SPOCS_CAP_DURATION = 24 * 60 * 60; // 1 day in seconds.
 const FETCH_TIMEOUT = 45 * 1000;
+const TOPIC_LOADING_TIMEOUT = 1 * 1000;
+const TOPIC_SELECTION_DISPLAY_COUNT =
+  "discoverystream.topicSelection.onboarding.displayCount";
+const TOPIC_SELECTION_LAST_DISPLAYED =
+  "discoverystream.topicSelection.onboarding.lastDisplayed";
+const TOPIC_SELECTION_DISPLAY_TIMEOUT =
+  "discoverystream.topicSelection.onboarding.displayTimeout";
+
 const SPOCS_URL = "https://spocs.getpocket.com/spocs";
 const FEED_URL =
   "https://getpocket.cdn.mozilla.net/v3/firefox/global-recs?version=3&consumer_key=$apiKey&locale_lang=$locale&region=$region&count=30";
 const PREF_CONFIG = "discoverystream.config";
 const PREF_ENDPOINTS = "discoverystream.endpoints";
 const PREF_IMPRESSION_ID = "browser.newtabpage.activity-stream.impressionId";
+const PREF_LAYOUT_EXPERIMENT_A = "newtabLayouts.variant-a";
+const PREF_LAYOUT_EXPERIMENT_B = "newtabLayouts.variant-b";
+const PREF_SPOC_PLACEMENTS = "discoverystream.placements.spocs";
+const PREF_SPOC_COUNTS = "discoverystream.placements.spocs.counts";
+const PREF_SPOC_POSITIONS = "discoverystream.spoc-positions";
+const PREF_MERINO_FEED_EXPERIMENT =
+  "browser.newtabpage.activity-stream.discoverystream.merino-feed-experiment";
 const PREF_ENABLED = "discoverystream.enabled";
 const PREF_HARDCODED_BASIC_LAYOUT = "discoverystream.hardcoded-basic-layout";
 const PREF_SPOCS_ENDPOINT = "discoverystream.spocs-endpoint";
@@ -48,8 +76,11 @@ const PREF_SPOCS_ENDPOINT_QUERY = "discoverystream.spocs-endpoint-query";
 const PREF_REGION_BASIC_LAYOUT = "discoverystream.region-basic-layout";
 const PREF_USER_TOPSTORIES = "feeds.section.topstories";
 const PREF_SYSTEM_TOPSTORIES = "feeds.system.topstories";
-const PREF_USER_TOPSITES = "feeds.topsites";
 const PREF_SYSTEM_TOPSITES = "feeds.system.topsites";
+const PREF_UNIFIED_ADS_BLOCKED_LIST = "unifiedAds.blockedAds";
+const PREF_UNIFIED_ADS_ENABLED = "unifiedAds.enabled";
+const PREF_UNIFIED_ADS_ENDPOINT = "unifiedAds.endpoint";
+const PREF_USER_TOPSITES = "feeds.topsites";
 const PREF_SPOCS_CLEAR_ENDPOINT = "discoverystream.endpointSpocsClear";
 const PREF_SHOW_SPONSORED = "showSponsored";
 const PREF_SYSTEM_SHOW_SPONSORED = "system.showSponsored";
@@ -63,6 +94,20 @@ const PREF_COLLECTIONS_ENABLED =
   "discoverystream.sponsored-collections.enabled";
 const PREF_POCKET_BUTTON = "extensions.pocket.enabled";
 const PREF_COLLECTION_DISMISSIBLE = "discoverystream.isCollectionDismissible";
+const PREF_SELECTED_TOPICS = "discoverystream.topicSelection.selectedTopics";
+const PREF_TOPIC_SELECTION_ENABLED = "discoverystream.topicSelection.enabled";
+const PREF_TOPIC_SELECTION_PREVIOUS_SELECTED =
+  "discoverystream.topicSelection.hasBeenUpdatedPreviously";
+const PREF_SPOCS_CACHE_TIMEOUT = "discoverystream.spocs.cacheTimeout";
+const PREF_SPOCS_STARTUP_CACHE_ENABLED =
+  "discoverystream.spocs.startupCache.enabled";
+const PREF_CONTEXTUAL_CONTENT_ENABLED =
+  "discoverystream.contextualContent.enabled";
+const PREF_CONTEXTUAL_CONTENT_FEEDS = "discoverystream.contextualContent.feeds";
+const PREF_CONTEXTUAL_CONTENT_SELECTED_FEED =
+  "discoverystream.contextualContent.selectedFeed";
+const PREF_CONTEXTUAL_CONTENT_LISTFEED_TITLE =
+  "discoverystream.contextualContent.listFeedTitle";
 
 let getHardcodedLayout;
 
@@ -139,6 +184,17 @@ export class DiscoveryStreamFeed {
     }
 
     return this._isBff;
+  }
+
+  get isMerino() {
+    if (this._isMerino === undefined) {
+      const pocketConfig =
+        this.store.getState().Prefs.values?.pocketConfig || {};
+
+      this._isMerino = pocketConfig.merinoProviderEnabled;
+    }
+
+    return this._isMerino;
   }
 
   get showSpocs() {
@@ -331,7 +387,7 @@ export class DiscoveryStreamFeed {
               },
             });
           },
-          error(error) {},
+          error() {},
         });
       }
     }
@@ -400,8 +456,8 @@ export class DiscoveryStreamFeed {
   }
 
   setupSpocsCacheUpdateTime() {
-    const nimbusConfig = this.store.getState().Prefs.values?.pocketConfig || {};
-    const { spocsCacheTimeout } = nimbusConfig;
+    const spocsCacheTimeout =
+      this.store.getState().Prefs.values[PREF_SPOCS_CACHE_TIMEOUT];
     const MAX_TIMEOUT = 30;
     const MIN_TIMEOUT = 5;
     // We do a bit of min max checking the the configured value is between
@@ -563,11 +619,22 @@ export class DiscoveryStreamFeed {
     return gridPositions;
   }
 
-  generateFeedUrl(isBff) {
-    if (isBff) {
-      return `https://${lazy.NimbusFeatures.saveToPocket.getVariable(
-        "bffApi"
-      )}/desktop/v1/recommendations?locale=$locale&region=$region&count=30`;
+  generateFeedUrl() {
+    // check for experiment parameters
+    const hasParameters = lazy.NimbusFeatures.pocketNewtab.getVariable(
+      "pocketFeedParameters"
+    );
+
+    if (this.isMerino) {
+      return `https://${Services.prefs.getStringPref(
+        "browser.newtabpage.activity-stream.discoverystream.merino-provider.endpoint"
+      )}/api/v1/curated-recommendations`;
+    } else if (this.isBff) {
+      return `https://${Services.prefs.getStringPref(
+        "extensions.pocket.bffApi"
+      )}/desktop/v1/recommendations?locale=$locale&region=$region&count=30${
+        hasParameters || ""
+      }`;
     }
     return FEED_URL;
   }
@@ -589,8 +656,16 @@ export class DiscoveryStreamFeed {
       this.isBff && pocketConfig.onboardingExperience;
     const { spocTopsitesPlacementEnabled } = pocketConfig;
 
+    const layoutExperiment =
+      this.store.getState().Prefs.values[PREF_LAYOUT_EXPERIMENT_A] ||
+      this.store.getState().Prefs.values[PREF_LAYOUT_EXPERIMENT_B];
+
     let items = isBasicLayout ? 3 : 21;
-    if (pocketConfig.fourCardLayout || pocketConfig.hybridLayout) {
+    if (
+      pocketConfig.fourCardLayout ||
+      pocketConfig.hybridLayout ||
+      layoutExperiment
+    ) {
       items = isBasicLayout ? 4 : 24;
     }
 
@@ -605,6 +680,30 @@ export class DiscoveryStreamFeed {
       pocketConfig.ctaButtonVariant === "variant-b"
     ) {
       ctaButtonVariant = pocketConfig.ctaButtonVariant;
+    }
+
+    const topicSelectionHasBeenUpdatedPreviously =
+      this.store.getState().Prefs.values[
+        PREF_TOPIC_SELECTION_PREVIOUS_SELECTED
+      ];
+
+    const selectedTopics =
+      this.store.getState().Prefs.values[PREF_SELECTED_TOPICS];
+
+    // Note: This requires a cache update to react to a pref update
+    const pocketStoriesHeadlineId =
+      topicSelectionHasBeenUpdatedPreviously || selectedTopics
+        ? "newtab-section-header-todays-picks"
+        : "newtab-section-header-stories";
+
+    pocketConfig.pocketStoriesHeadlineId = pocketStoriesHeadlineId;
+
+    let spocMessageVariant = "";
+    if (
+      pocketConfig.spocMessageVariant === "variant-a" ||
+      pocketConfig.spocMessageVariant === "variant-b"
+    ) {
+      spocMessageVariant = pocketConfig.spocMessageVariant;
     }
 
     const prepConfArr = arr => {
@@ -643,7 +742,7 @@ export class DiscoveryStreamFeed {
       spocsUrl = newUrl.href;
     }
 
-    let feedUrl = this.generateFeedUrl(this.isBff);
+    let feedUrl = this.generateFeedUrl();
 
     // Set layout config.
     // Changing values in this layout in memory object is unnecessary.
@@ -656,7 +755,7 @@ export class DiscoveryStreamFeed {
       spocTopsitesPlacementEnabled,
       spocTopsitesPlacementData,
       spocPositions: this.parseGridPositions(
-        pocketConfig.spocPositions?.split(`,`)
+        this.store.getState().Prefs.values[PREF_SPOC_POSITIONS]?.split(`,`)
       ),
       spocTopsitesPositions: this.parseGridPositions(
         pocketConfig.spocTopsitesPositions?.split(`,`)
@@ -681,6 +780,10 @@ export class DiscoveryStreamFeed {
       // For now button variants are for experimentation and English only.
       ctaButtonSponsors: this.locale.startsWith("en-") ? ctaButtonSponsors : [],
       ctaButtonVariant: this.locale.startsWith("en-") ? ctaButtonVariant : "",
+      spocMessageVariant: this.locale.startsWith("en-")
+        ? spocMessageVariant
+        : "",
+      pocketStoriesHeadlineId: pocketConfig.pocketStoriesHeadlineId,
     });
 
     sendUpdate({
@@ -784,6 +887,7 @@ export class DiscoveryStreamFeed {
       const { data: recommendations } = this.filterBlocked(
         feed.data.recommendations
       );
+
       return {
         ...feed,
         data: {
@@ -877,7 +981,40 @@ export class DiscoveryStreamFeed {
   // For ths reason, we want to ensure if we don't find an items array,
   // we use the previous array placement, and then stub out title and context to empty strings.
   // We need to do this *after* both fresh fetches and cached data to reduce repetition.
+
+  // Bug 1916488 introduced a new data stricture from the unified ads API.
+  // We want to maintain both implementations until we're done rollout out,
+  // so for now we are going to normlaize the new data to match the old data props,
+  // so we can change as little as possible. Once we commit to one, we can remove all this.
   normalizeSpocsItems(spocs) {
+    const unifiedAdsEnabled =
+      this.store.getState().Prefs.values[PREF_UNIFIED_ADS_ENABLED];
+    if (unifiedAdsEnabled) {
+      return {
+        items: spocs.map(spoc => ({
+          id: spoc.caps.cap_key,
+          flight_id: spoc.block_key,
+          block_key: spoc.block_key,
+          shim: spoc.callbacks,
+          caps: {
+            flight: {
+              count: spoc.caps.day,
+              period: SPOCS_CAP_DURATION,
+            },
+          },
+          domain: spoc.domain,
+          excerpt: spoc.excerpt,
+          raw_image_src: spoc.image_url,
+          priority: spoc.ranking.priority,
+          personalization_models: spoc.ranking.personalization_models,
+          item_score: spoc.ranking.item_score,
+          sponsor: spoc.sponsor,
+          title: spoc.title,
+          url: spoc.url,
+        })),
+      };
+    }
+
     const items = spocs.items || spocs;
     const title = spocs.title || "";
     const context = spocs.context || "";
@@ -913,6 +1050,8 @@ export class DiscoveryStreamFeed {
 
   async loadSpocs(sendUpdate, isStartup) {
     const cachedData = (await this.cache.get()) || {};
+    const unifiedAdsEnabled =
+      this.store.getState().Prefs.values[PREF_UNIFIED_ADS_ENABLED];
     let spocsState = cachedData.spocs;
     let placements = this.getPlacements();
 
@@ -928,7 +1067,8 @@ export class DiscoveryStreamFeed {
       if (
         lazy.NimbusFeatures.pocketNewtab.getVariable(
           NIMBUS_VARIABLE_CONTILE_SOV_ENABLED
-        )
+        ) &&
+        !unifiedAdsEnabled
       ) {
         let { positions, ready } = this.store.getState().TopSites.sov;
         if (ready) {
@@ -948,36 +1088,64 @@ export class DiscoveryStreamFeed {
       }
 
       // We can filter out the topsite placement from the fetch.
-      if (!useTopsitesPlacement) {
+      if (!useTopsitesPlacement && !unifiedAdsEnabled) {
         placements = placements.filter(
           placement => placement.name !== "sponsored-topsites"
         );
       }
 
       if (placements?.length) {
-        const endpoint =
-          this.store.getState().DiscoveryStream.spocs.spocs_endpoint;
+        const apiKeyPref = this.config.api_key_pref;
+        const apiKey = Services.prefs.getCharPref(apiKeyPref, "");
+        const state = this.store.getState();
+        let endpoint = state.DiscoveryStream.spocs.spocs_endpoint;
+        let body = {
+          pocket_id: this._impressionId,
+          version: 2,
+          consumer_key: apiKey,
+          ...(placements.length ? { placements } : {}),
+        };
+
+        if (unifiedAdsEnabled) {
+          const endpointBaseUrl = state.Prefs.values[PREF_UNIFIED_ADS_ENDPOINT];
+          endpoint = `${endpointBaseUrl}v1/ads`;
+
+          const placementsArray = state.Prefs.values[
+            PREF_SPOC_PLACEMENTS
+          ]?.split(`,`)
+            .map(s => s.trim())
+            .filter(item => item);
+          const countsArray = state.Prefs.values[PREF_SPOC_COUNTS]?.split(`,`)
+            .map(s => s.trim())
+            .filter(item => item)
+            .map(item => parseInt(item, 10));
+
+          const blockedSponsors =
+            this.store.getState().Prefs.values[PREF_UNIFIED_ADS_BLOCKED_LIST];
+
+          body = {
+            context_id: lazy.contextId,
+            placements: placementsArray.map((placement, index) => ({
+              placement,
+              count: countsArray[index],
+            })),
+            blocks: blockedSponsors.split(","),
+          };
+        }
 
         const headers = new Headers();
         headers.append("content-type", "application/json");
 
-        const apiKeyPref = this.config.api_key_pref;
-        const apiKey = Services.prefs.getCharPref(apiKeyPref, "");
-
         const spocsResponse = await this.fetchFromEndpoint(endpoint, {
           method: "POST",
           headers,
-          body: JSON.stringify({
-            pocket_id: this._impressionId,
-            version: 2,
-            consumer_key: apiKey,
-            ...(placements.length ? { placements } : {}),
-          }),
+          body: JSON.stringify(body),
         });
 
         if (spocsResponse) {
+          const fetchTimestamp = Date.now();
           spocsState = {
-            lastUpdated: Date.now(),
+            lastUpdated: fetchTimestamp,
             spocs: {
               ...spocsResponse,
             },
@@ -1040,8 +1208,13 @@ export class DiscoveryStreamFeed {
 
               const { data: blockedResults } = this.filterBlocked(capResult);
 
+              const { data: spocsWithFetchTimestamp } = this.addFetchTimestamp(
+                blockedResults,
+                fetchTimestamp
+              );
+
               const { data: scoredResults, personalized } =
-                await this.scoreItems(blockedResults, "spocs");
+                await this.scoreItems(spocsWithFetchTimestamp, "spocs");
 
               spocsState.spocs = {
                 ...spocsState.spocs,
@@ -1094,8 +1267,23 @@ export class DiscoveryStreamFeed {
   }
 
   async clearSpocs() {
-    const endpoint =
-      this.store.getState().Prefs.values[PREF_SPOCS_CLEAR_ENDPOINT];
+    const state = this.store.getState();
+    let endpoint = state.Prefs.values[PREF_SPOCS_CLEAR_ENDPOINT];
+
+    const unifiedAdsEnabled = state.Prefs.values[PREF_UNIFIED_ADS_ENABLED];
+
+    let body = {
+      pocket_id: this._impressionId,
+    };
+
+    if (unifiedAdsEnabled) {
+      const endpointBaseUrl = state.Prefs.values[PREF_UNIFIED_ADS_ENDPOINT];
+      endpoint = `${endpointBaseUrl}v1/ads`;
+      body = {
+        context_id: lazy.contextId,
+      };
+    }
+
     if (!endpoint) {
       return;
     }
@@ -1105,9 +1293,7 @@ export class DiscoveryStreamFeed {
     await this.fetchFromEndpoint(endpoint, {
       method: "DELETE",
       headers,
-      body: JSON.stringify({
-        pocket_id: this._impressionId,
-      }),
+      body: JSON.stringify(body),
     });
   }
 
@@ -1197,6 +1383,22 @@ export class DiscoveryStreamFeed {
       return { data: filteredItems };
     }
     return { data };
+  }
+
+  // Add the fetch timestamp property to each spoc returned to communicate how
+  // old the spoc is in telemetry when it is used by the client
+  addFetchTimestamp(spocs, fetchTimestamp) {
+    if (spocs && spocs.length) {
+      return {
+        data: spocs.map(s => {
+          return {
+            ...s,
+            fetchTimestamp,
+          };
+        }),
+      };
+    }
+    return { data: spocs };
   }
 
   // For backwards compatibility, older spoc endpoint don't have flight_id,
@@ -1315,17 +1517,80 @@ export class DiscoveryStreamFeed {
     );
   }
 
+  getExperimentInfo() {
+    const pocketNewtabExperiment = lazy.ExperimentAPI.getExperimentMetaData({
+      featureId: "pocketNewtab",
+    });
+
+    const pocketNewtabRollout = lazy.ExperimentAPI.getRolloutMetaData({
+      featureId: "pocketNewtab",
+    });
+
+    // We want to know if the user is in an experiment or rollout,
+    // but we prioritize experiments over rollouts.
+    const experimentMetaData = pocketNewtabExperiment || pocketNewtabRollout;
+
+    let experimentName = experimentMetaData?.slug || "";
+    let experimentBranch = experimentMetaData?.branch?.slug || "";
+
+    return {
+      experimentName,
+      experimentBranch,
+    };
+  }
+
   async getComponentFeed(feedUrl, isStartup) {
     const cachedData = (await this.cache.get()) || {};
+    let contextualContentFeeds;
     const { feeds } = cachedData;
 
     let feed = feeds ? feeds[feedUrl] : null;
     if (this.isExpired({ cachedData, key: "feed", url: feedUrl, isStartup })) {
       let options = {};
-      if (this.isBff) {
-        const headers = new Headers();
-        const oAuthConsumerKey = lazy.NimbusFeatures.saveToPocket.getVariable(
-          "oAuthConsumerKeyBff"
+      const headers = new Headers();
+      if (this.isMerino) {
+        const topicSelectionEnabled =
+          this.store.getState().Prefs.values[PREF_TOPIC_SELECTION_ENABLED];
+        const topicsString =
+          this.store.getState().Prefs.values[PREF_SELECTED_TOPICS];
+        const topics = topicSelectionEnabled
+          ? topicsString
+              .split(",")
+              .map(s => s.trim())
+              .filter(item => item)
+          : [];
+
+        // Should we pass the experiment branch and slug to the Merino feed request.
+        const prefMerinoFeedExperiment = Services.prefs.getBoolPref(
+          PREF_MERINO_FEED_EXPERIMENT
+        );
+
+        // Should we pass the feed param to the merino request
+        const contextualContentEnabled =
+          this.store.getState().Prefs.values[PREF_CONTEXTUAL_CONTENT_ENABLED];
+        contextualContentFeeds = this.store
+          .getState()
+          .Prefs.values[PREF_CONTEXTUAL_CONTENT_FEEDS]?.split(",")
+          .map(t => t.trim())
+          .filter(item => item);
+
+        headers.append("content-type", "application/json");
+        options = {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            ...(prefMerinoFeedExperiment ? this.getExperimentInfo() : {}),
+            locale: this.locale,
+            region: this.region,
+            topics,
+            ...(contextualContentEnabled
+              ? { feeds: contextualContentFeeds || [] }
+              : {}),
+          }),
+        };
+      } else if (this.isBff) {
+        const oAuthConsumerKey = Services.prefs.getStringPref(
+          "extensions.pocket.oAuthConsumerKeyBff"
         );
         headers.append("consumer_key", oAuthConsumerKey);
         options = {
@@ -1335,10 +1600,59 @@ export class DiscoveryStreamFeed {
       }
 
       const feedResponse = await this.fetchFromEndpoint(feedUrl, options);
+
       if (feedResponse) {
         const { settings = {} } = feedResponse;
         let { recommendations } = feedResponse;
-        if (this.isBff) {
+        if (this.isMerino) {
+          recommendations = feedResponse.data.map(item => ({
+            id: item.tileId,
+            scheduled_corpus_item_id: item.scheduledCorpusItemId,
+            url: item.url,
+            title: item.title,
+            topic: item.topic,
+            excerpt: item.excerpt,
+            publisher: item.publisher,
+            raw_image_src: item.imageUrl,
+            received_rank: item.receivedRank,
+            recommended_at: feedResponse.recommendedAt,
+          }));
+          if (feedResponse.feeds && contextualContentFeeds?.length) {
+            contextualContentFeeds.forEach(feedName => {
+              feedResponse.feeds[feedName]?.recommendations.forEach(item =>
+                recommendations.push({
+                  id: item.tileId,
+                  scheduled_corpus_item_id: item.scheduledCorpusItemId,
+                  url: item.url,
+                  title: item.title,
+                  topic: item.topic,
+                  excerpt: item.excerpt,
+                  publisher: item.publisher,
+                  raw_image_src: item.imageUrl,
+                  received_rank: item.receivedRank,
+                  recommended_at: feedResponse.recommendedAt,
+                  // property to determine if rec is used in ListFeed or not
+                  feedName,
+                })
+              );
+            });
+            const selectedFeed =
+              this.store.getState().Prefs.values[
+                PREF_CONTEXTUAL_CONTENT_SELECTED_FEED
+              ];
+            const prevTitle =
+              this.store.getState().Prefs.values[
+                PREF_CONTEXTUAL_CONTENT_LISTFEED_TITLE
+              ];
+            const feedTitle = feedResponse.feeds[selectedFeed].title;
+
+            if (feedTitle && feedTitle !== prevTitle) {
+              this.store.dispatch(
+                ac.SetPref(PREF_CONTEXTUAL_CONTENT_LISTFEED_TITLE, feedTitle)
+              );
+            }
+          }
+        } else if (this.isBff) {
           recommendations = feedResponse.data.map(item => ({
             id: item.tileId,
             url: item.url,
@@ -1496,11 +1810,17 @@ export class DiscoveryStreamFeed {
 
     this.loadLayout(dispatch, isStartup);
     if (this.showStories || this.showTopsites) {
+      const spocsStartupCacheEnabled =
+        this.store.getState().Prefs.values[PREF_SPOCS_STARTUP_CACHE_ENABLED];
       const promises = [];
+
       // We could potentially have either or both sponsored topsites or stories.
       // We only make one fetch, and control which to request when we fetch.
       // So for now we only care if we need to make this request at all.
-      const spocsPromise = this.loadSpocs(dispatch, isStartup).catch(error =>
+      const spocsPromise = this.loadSpocs(
+        dispatch,
+        spocsStartupCacheEnabled
+      ).catch(error =>
         console.error("Error trying to load spocs feeds:", error)
       );
       promises.push(spocsPromise);
@@ -1575,10 +1895,15 @@ export class DiscoveryStreamFeed {
     await this.cache.set("sov", {});
   }
 
+  async resetContentFeed() {
+    await this.cache.set("feeds", {});
+  }
+
   async resetAllCache() {
     await this.resetContentCache();
     // Reset in-memory caches.
     this._isBff = undefined;
+    this._isMerino = undefined;
     this._spocsCacheUpdateTime = undefined;
   }
 
@@ -1639,10 +1964,34 @@ export class DiscoveryStreamFeed {
   }
 
   recordBlockFlightId(flightId) {
+    const unifiedAdsEnabled =
+      this.store.getState().Prefs.values[PREF_UNIFIED_ADS_ENABLED];
+
     const flights = this.readDataPref(PREF_FLIGHT_BLOCKS);
     if (!flights[flightId]) {
       flights[flightId] = 1;
       this.writeDataPref(PREF_FLIGHT_BLOCKS, flights);
+
+      if (unifiedAdsEnabled) {
+        let blockList =
+          this.store.getState().Prefs.values[PREF_UNIFIED_ADS_BLOCKED_LIST];
+
+        let blockedAdsArray = [];
+
+        // If prev ads have been blocked, convert CSV string to array
+        if (blockList !== "") {
+          blockedAdsArray = blockList
+            .split(",")
+            .map(s => s.trim())
+            .filter(item => item);
+        }
+
+        blockedAdsArray.push(flightId);
+
+        this.store.dispatch(
+          ac.SetPref(PREF_UNIFIED_ADS_BLOCKED_LIST, blockedAdsArray.join(","))
+        );
+      }
     }
   }
 
@@ -1714,6 +2063,38 @@ export class DiscoveryStreamFeed {
     this.loadLayout(dispatch, false);
   }
 
+  async retreiveProfileAge() {
+    let profileAccessor = await lazy.ProfileAge();
+    let profileCreateTime = await profileAccessor.created;
+    let timeNow = new Date().getTime();
+    let profileAge = timeNow - profileCreateTime;
+    // Convert milliseconds to days
+    return profileAge / 1000 / 60 / 60 / 24;
+  }
+
+  topicSelectionImpressionEvent() {
+    let counter =
+      this.store.getState().Prefs.values[TOPIC_SELECTION_DISPLAY_COUNT];
+
+    const newCount = counter + 1;
+    this.store.dispatch(ac.SetPref(TOPIC_SELECTION_DISPLAY_COUNT, newCount));
+    this.store.dispatch(
+      ac.SetPref(TOPIC_SELECTION_LAST_DISPLAYED, `${new Date().getTime()}`)
+    );
+  }
+
+  topicSelectionMaybeLaterEvent() {
+    const age = this.retreiveProfileAge();
+    const newProfile = age <= 1;
+    const day = 24 * 60 * 60 * 1000;
+    this.store.dispatch(
+      ac.SetPref(
+        TOPIC_SELECTION_DISPLAY_TIMEOUT,
+        newProfile ? 3 * day : 7 * day
+      )
+    );
+  }
+
   async onPrefChangedAction(action) {
     switch (action.data.name) {
       case PREF_CONFIG:
@@ -1723,11 +2104,46 @@ export class DiscoveryStreamFeed {
       case PREF_SPOCS_ENDPOINT_QUERY:
       case PREF_SPOCS_CLEAR_ENDPOINT:
       case PREF_ENDPOINTS:
+      case PREF_LAYOUT_EXPERIMENT_A:
+      case PREF_LAYOUT_EXPERIMENT_B:
+      case PREF_SPOC_POSITIONS:
+      case PREF_UNIFIED_ADS_ENABLED:
+      case PREF_CONTEXTUAL_CONTENT_ENABLED:
         // This is a config reset directly related to Discovery Stream pref.
         this.configReset();
         break;
       case PREF_COLLECTIONS_ENABLED:
         this.onCollectionsChanged();
+        break;
+      case PREF_SELECTED_TOPICS:
+        this.store.dispatch(
+          ac.BroadcastToContent({ type: at.DISCOVERY_STREAM_LAYOUT_RESET })
+        );
+        // Ensure at least a little bit of loading is seen, if this is too fast,
+        // it's not clear to the user what just happened.
+        this.store.dispatch(
+          ac.BroadcastToContent({
+            type: at.DISCOVERY_STREAM_TOPICS_LOADING,
+            data: true,
+          })
+        );
+        setTimeout(() => {
+          this.store.dispatch(
+            ac.BroadcastToContent({
+              type: at.DISCOVERY_STREAM_TOPICS_LOADING,
+              data: false,
+            })
+          );
+        }, TOPIC_LOADING_TIMEOUT);
+        this.loadLayout(
+          a => this.store.dispatch(ac.BroadcastToContent(a)),
+          false
+        );
+
+        // when topics have been updated, make a new request from merino and clear impression cap
+        this.writeDataPref(PREF_REC_IMPRESSIONS, {});
+        await this.resetContentFeed();
+        this.refreshAll({ updateOpenTabs: true });
         break;
       case PREF_USER_TOPSITES:
       case PREF_SYSTEM_TOPSITES:
@@ -1758,7 +2174,7 @@ export class DiscoveryStreamFeed {
         break;
       // Check if spocs was disabled. Remove them if they were.
       case PREF_SHOW_SPONSORED:
-      case PREF_SHOW_SPONSORED_TOPSITES:
+      case PREF_SHOW_SPONSORED_TOPSITES: {
         const dispatch = update =>
           this.store.dispatch(ac.BroadcastToContent(update));
         // We refresh placements data because one of the spocs were turned off.
@@ -1772,7 +2188,7 @@ export class DiscoveryStreamFeed {
         if (
           !(
             (this.showSponsoredStories ||
-              (this.showTopSites && this.showSponsoredTopSites)) &&
+              (this.showTopsites && this.showSponsoredTopsites)) &&
             (this.showSponsoredTopsites ||
               (this.showStories && this.showSponsoredStories))
           )
@@ -1784,6 +2200,7 @@ export class DiscoveryStreamFeed {
         await this.cache.set("spocs", {});
         await this.loadSpocs(dispatch);
         break;
+      }
     }
   }
 
@@ -1799,6 +2216,9 @@ export class DiscoveryStreamFeed {
           await this.enable({ updateOpenTabs: true, isStartup: true });
         }
         Services.prefs.addObserver(PREF_POCKET_BUTTON, this);
+        break;
+      case at.TOPIC_SELECTION_MAYBE_LATER:
+        this.topicSelectionMaybeLaterEvent();
         break;
       case at.DISCOVERY_STREAM_DEV_SYSTEM_TICK:
       case at.SYSTEM_TICK:
@@ -1819,6 +2239,17 @@ export class DiscoveryStreamFeed {
         // we want to be able to expire just content to trigger the earlier expire times.
         await this.resetContentCache();
         break;
+      case at.DISCOVERY_STREAM_DEV_SHOW_PLACEHOLDER: {
+        // We want to display the loading state permanently, for dev purposes.
+        // We do this by resetting everything, loading the layout, and nothing else.
+        // This essentially hangs because we never triggered the content load.
+        await this.reset();
+        this.loadLayout(
+          a => this.store.dispatch(ac.BroadcastToContent(a)),
+          false
+        );
+        break;
+      }
       case at.DISCOVERY_STREAM_CONFIG_SET_VALUE:
         // Use the original string pref to then set a value instead of
         // this.config which has some modifications
@@ -2012,6 +2443,9 @@ export class DiscoveryStreamFeed {
           this.setupPrefs(false /* isStartup */);
         }
         break;
+      case at.TOPIC_SELECTION_IMPRESSION:
+        this.topicSelectionImpressionEvent();
+        break;
     }
   }
 }
@@ -2040,6 +2474,7 @@ export class DiscoveryStreamFeed {
      `onboardingExperience` Show new users some UI explaining Pocket above the Pocket section.
      `ctaButtonSponsors` An array of sponsors we want to show a cta button on the card for.
      `ctaButtonVariant` Sets the variant for the cta sponsor button.
+     `spocMessageVariant` Sets the variant for the sponsor message dialog.
 */
 getHardcodedLayout = ({
   spocsUrl = SPOCS_URL,
@@ -2063,6 +2498,8 @@ getHardcodedLayout = ({
   onboardingExperience = false,
   ctaButtonSponsors = [],
   ctaButtonVariant = "",
+  spocMessageVariant = "",
+  pocketStoriesHeadlineId = "newtab-section-header-stories",
 }) => ({
   lastUpdate: Date.now(),
   spocs: {
@@ -2135,16 +2572,18 @@ getHardcodedLayout = ({
           editorsPicksHeader,
           header: {
             title: {
-              id: "newtab-section-header-stories",
+              id: pocketStoriesHeadlineId,
             },
             subtitle: "",
             link_text: {
               id: "newtab-pocket-learn-more",
             },
-            link_url: "https://getpocket.com/firefox/new_tab_learn_more",
+            link_url: "",
             icon: "chrome://global/skin/icons/pocket.svg",
           },
-          properties: {},
+          properties: {
+            spocMessageVariant,
+          },
           styles: {
             ".ds-message": "margin-bottom: -20px",
           },
@@ -2162,6 +2601,7 @@ getHardcodedLayout = ({
             onboardingExperience,
             ctaButtonSponsors,
             ctaButtonVariant,
+            spocMessageVariant,
           },
           widgets: {
             positions: widgetPositions.map(position => {
@@ -2174,7 +2614,7 @@ getHardcodedLayout = ({
             title: "",
           },
           placement: {
-            name: "spocs",
+            name: "newtab_spocs",
             ad_types: spocPlacementData.ad_types,
             zone_ids: spocPlacementData.zone_ids,
           },

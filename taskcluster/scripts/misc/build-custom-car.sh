@@ -22,6 +22,10 @@ CUSTOM_CAR_DIR=$PWD
 # Setup depot_tools
 git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
 export PATH="$PATH:$CUSTOM_CAR_DIR/depot_tools"
+# Bug 1901936 changes to config upstream for depot tools path
+if [[ $(uname -s) == "Linux" ]]; then
+  export XDG_CONFIG_HOME=$CUSTOM_CAR_DIR
+fi
 
 # Log the current revision of depot tools for easier tracking in the future
 DEPOT_TOOLS_REV=$(cd depot_tools && git rev-parse HEAD && cd ..)
@@ -55,7 +59,7 @@ fi
 # Logic for macosx64
 if [[ $(uname -s) == "Darwin" ]]; then
   # Modify the config with fetched sdk path
-  export MACOS_SYSROOT="$MOZ_FETCHES_DIR/MacOSX14.2.sdk"
+  export MACOS_SYSROOT="$MOZ_FETCHES_DIR/MacOSX15.0.sdk"
 
   # Avoid mixing up the system python and toolchain python in the
   # python path configuration
@@ -106,7 +110,7 @@ if [[ $(uname -o) == "Msys" ]]; then
   pushd "$WINDOWSSDKDIR"
   mkdir -p Debuggers/x64/
   popd
-  mv $MOZ_FETCHES_DIR/VS/VC/Redist/MSVC/14.38.33130/x64/Microsoft.VC143.CRT/* chrome_dll/system32/
+  mv $MOZ_FETCHES_DIR/VS/VC/Redist/MSVC/14.38.33135/x64/Microsoft.VC143.CRT/* chrome_dll/system32/
   mv "$WINDOWSSDKDIR/App Certification Kit/"* "$WINDOWSSDKDIR"/Debuggers/x64/
   export WINDIR="$PWD/chrome_dll"
 

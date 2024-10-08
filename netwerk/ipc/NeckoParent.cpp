@@ -7,6 +7,7 @@
 
 #include "nsHttp.h"
 #include "mozilla/BasePrincipal.h"
+#include "mozilla/Components.h"
 #include "mozilla/ContentPrincipal.h"
 #include "mozilla/ipc/IPCStreamUtils.h"
 #include "mozilla/net/ExtensionProtocolHandler.h"
@@ -85,7 +86,7 @@ NeckoParent::NeckoParent() : mSocketProcessBridgeInited(false) {
 static PBOverrideStatus PBOverrideStatusFromLoadContext(
     const SerializedLoadContext& aSerialized) {
   if (!aSerialized.IsNotNull() && aSerialized.IsPrivateBitValid()) {
-    return (aSerialized.mOriginAttributes.mPrivateBrowsingId > 0)
+    return aSerialized.mOriginAttributes.IsPrivateBrowsing()
                ? kPBOverride_Private
                : kPBOverride_NotPrivate;
   }
@@ -123,7 +124,7 @@ const char* NeckoParent::GetValidatedOriginAttributes(
   if (!aSerialized.IsNotNull()) {
     // If serialized is null, we cannot validate anything. We have to assume
     // that this requests comes from a SystemPrincipal.
-    aAttrs = OriginAttributes(false);
+    aAttrs = OriginAttributes();
   } else {
     aAttrs = aSerialized.mOriginAttributes;
   }
@@ -145,7 +146,7 @@ const char* NeckoParent::CreateChannelLoadContext(
   // the common case for most xpcshell tests.
   if (aSerialized.IsNotNull()) {
     attrs.SyncAttributesWithPrivateBrowsing(
-        aSerialized.mOriginAttributes.mPrivateBrowsingId > 0);
+        aSerialized.mOriginAttributes.IsPrivateBrowsing());
 
     RefPtr<BrowserParent> browserParent = BrowserParent::GetFrom(aBrowser);
     dom::Element* topFrameElement = nullptr;
@@ -286,7 +287,7 @@ mozilla::ipc::IPCResult NeckoParent::RecvPDocumentChannelConstructor(
 }
 
 PCookieServiceParent* NeckoParent::AllocPCookieServiceParent() {
-  return new CookieServiceParent();
+  return new CookieServiceParent(static_cast<ContentParent*>(Manager()));
 }
 
 bool NeckoParent::DeallocPCookieServiceParent(PCookieServiceParent* cs) {
@@ -337,17 +338,13 @@ bool NeckoParent::DeallocPWebSocketEventListenerParent(
   return true;
 }
 
-already_AddRefed<PDataChannelParent> NeckoParent::AllocPDataChannelParent(
-    const uint32_t& channelId) {
+already_AddRefed<PDataChannelParent> NeckoParent::AllocPDataChannelParent() {
   RefPtr<DataChannelParent> p = new DataChannelParent();
   return p.forget();
 }
 
 mozilla::ipc::IPCResult NeckoParent::RecvPDataChannelConstructor(
-    PDataChannelParent* actor, const uint32_t& channelId) {
-  DataChannelParent* p = static_cast<DataChannelParent*>(actor);
-  DebugOnly<bool> rv = p->Init(channelId);
-  MOZ_ASSERT(rv);
+    PDataChannelParent* actor) {
   return IPC_OK();
 }
 
@@ -572,8 +569,8 @@ mozilla::ipc::IPCResult NeckoParent::RecvPredPredict(
     const OriginAttributes& aOriginAttributes, const bool& hasVerifier) {
   // Get the current predictor
   nsresult rv = NS_OK;
-  nsCOMPtr<nsINetworkPredictor> predictor =
-      do_GetService("@mozilla.org/network/predictor;1", &rv);
+  nsCOMPtr<nsINetworkPredictor> predictor;
+  predictor = mozilla::components::Predictor::Service(&rv);
   NS_ENSURE_SUCCESS(rv, IPC_OK());
 
   nsCOMPtr<nsINetworkPredictorVerifier> verifier;
@@ -590,8 +587,8 @@ mozilla::ipc::IPCResult NeckoParent::RecvPredLearn(
     const OriginAttributes& aOriginAttributes) {
   // Get the current predictor
   nsresult rv = NS_OK;
-  nsCOMPtr<nsINetworkPredictor> predictor =
-      do_GetService("@mozilla.org/network/predictor;1", &rv);
+  nsCOMPtr<nsINetworkPredictor> predictor;
+  predictor = mozilla::components::Predictor::Service(&rv);
   NS_ENSURE_SUCCESS(rv, IPC_OK());
 
   predictor->LearnNative(aTargetURI, aSourceURI, aReason, aOriginAttributes);
@@ -601,8 +598,8 @@ mozilla::ipc::IPCResult NeckoParent::RecvPredLearn(
 mozilla::ipc::IPCResult NeckoParent::RecvPredReset() {
   // Get the current predictor
   nsresult rv = NS_OK;
-  nsCOMPtr<nsINetworkPredictor> predictor =
-      do_GetService("@mozilla.org/network/predictor;1", &rv);
+  nsCOMPtr<nsINetworkPredictor> predictor;
+  predictor = mozilla::components::Predictor::Service(&rv);
   NS_ENSURE_SUCCESS(rv, IPC_OK());
 
   predictor->Reset();
@@ -739,7 +736,7 @@ mozilla::ipc::IPCResult NeckoParent::RecvInitSocketProcessBridge(
       return;
     }
 
-    SocketProcessParent* parent = SocketProcessParent::GetSingleton();
+    RefPtr<SocketProcessParent> parent = SocketProcessParent::GetSingleton();
     if (NS_WARN_IF(!parent)) {
       resolver(std::move(invalidEndpoint));
       return;
@@ -748,7 +745,8 @@ mozilla::ipc::IPCResult NeckoParent::RecvInitSocketProcessBridge(
     Endpoint<PSocketProcessBridgeParent> parentEndpoint;
     Endpoint<PSocketProcessBridgeChild> childEndpoint;
     if (NS_WARN_IF(NS_FAILED(PSocketProcessBridge::CreateEndpoints(
-            parent->OtherPid(), self->Manager()->OtherPid(), &parentEndpoint,
+            parent->OtherEndpointProcInfo(),
+            self->Manager()->OtherEndpointProcInfo(), &parentEndpoint,
             &childEndpoint)))) {
       resolver(std::move(invalidEndpoint));
       return;

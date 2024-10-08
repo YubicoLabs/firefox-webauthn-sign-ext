@@ -38,7 +38,6 @@
 #include "nsFocusManager.h"
 #include "nsGkAtoms.h"
 #include "nsHTMLDocument.h"
-#include "nsIFormControlFrame.h"
 #include "nsInterfaceHashtable.h"
 #include "nsPresContext.h"
 #include "nsQueryObject.h"
@@ -164,7 +163,7 @@ NS_IMPL_ISUPPORTS_CYCLE_COLLECTION_INHERITED_0(HTMLFormElement,
 void HTMLFormElement::AsyncEventRunning(AsyncEventDispatcher* aEvent) {
   if (aEvent->mEventType == u"DOMFormHasPassword"_ns) {
     mHasPendingPasswordEvent = false;
-  } else if (aEvent->mEventType == u"DOMFormHasPossibleUsername"_ns) {
+  } else if (aEvent->mEventType == u"DOMPossibleUsernameInputAdded"_ns) {
     mHasPendingPossibleUsernameEvent = false;
   }
 }
@@ -209,22 +208,16 @@ void HTMLFormElement::GetMethod(nsAString& aValue) {
   GetEnumAttr(nsGkAtoms::method, kFormDefaultMethod->tag, aValue);
 }
 
-void HTMLFormElement::ReportInvalidUnfocusableElements() {
+void HTMLFormElement::ReportInvalidUnfocusableElements(
+    const nsTArray<RefPtr<Element>>&& aInvalidElements) {
   RefPtr<nsFocusManager> focusManager = nsFocusManager::GetFocusManager();
   MOZ_ASSERT(focusManager);
 
-  // This shouldn't be called recursively, so use a rather large value
-  // for the preallocated buffer.
-  AutoTArray<RefPtr<nsGenericHTMLFormElement>, 100> sortedControls;
-  if (NS_FAILED(mControls->GetSortedControls(sortedControls))) {
-    return;
-  }
-
-  for (auto& _e : sortedControls) {
-    // MOZ_CAN_RUN_SCRIPT requires explicit copy, Bug 1620312
-    RefPtr<nsGenericHTMLFormElement> element = _e;
+  for (const auto& element : aInvalidElements) {
     bool isFocusable = false;
-    focusManager->ElementIsFocusable(element, 0, &isFocusable);
+    // MOZ_KnownLive because 'aInvalidElements' is guaranteed to keep it alive.
+    // This can go away once bug 1620312 is fixed.
+    focusManager->ElementIsFocusable(MOZ_KnownLive(element), 0, &isFocusable);
     if (!isFocusable) {
       nsTArray<nsString> params;
       nsAutoCString messageName("InvalidFormControlUnfocusable");
@@ -239,7 +232,7 @@ void HTMLFormElement::ReportInvalidUnfocusableElements() {
       nsContentUtils::ReportToConsole(
           nsIScriptError::errorFlag, "DOM"_ns, element->GetOwnerDocument(),
           nsContentUtils::eDOM_PROPERTIES, messageName.get(), params,
-          element->GetBaseURI());
+          SourceLocation(element->GetBaseURI()));
     }
   }
 }
@@ -248,7 +241,7 @@ void HTMLFormElement::ReportInvalidUnfocusableElements() {
 void HTMLFormElement::MaybeSubmit(Element* aSubmitter) {
 #ifdef DEBUG
   if (aSubmitter) {
-    nsCOMPtr<nsIFormControl> fc = do_QueryInterface(aSubmitter);
+    const auto* fc = nsIFormControl::FromNode(aSubmitter);
     MOZ_ASSERT(fc);
     MOZ_ASSERT(fc->IsSubmitControl(), "aSubmitter is not a submit control?");
   }
@@ -291,7 +284,6 @@ void HTMLFormElement::MaybeSubmit(Element* aSubmitter) {
       HasAttr(nsGkAtoms::novalidate) ||
       (aSubmitter && aSubmitter->HasAttr(nsGkAtoms::formnovalidate));
   if (!noValidateState && !CheckValidFormSubmission()) {
-    ReportInvalidUnfocusableElements();
     return;
   }
 
@@ -345,7 +337,7 @@ void HTMLFormElement::RequestSubmit(nsGenericHTMLElement* aSubmitter,
                                     ErrorResult& aRv) {
   // 1. If submitter is not null, then:
   if (aSubmitter) {
-    nsCOMPtr<nsIFormControl> fc = do_QueryObject(aSubmitter);
+    const auto* fc = nsIFormControl::FromNodeOrNull(aSubmitter);
 
     // 1.1. If submitter is not a submit button, then throw a TypeError.
     if (!fc || !fc->IsSubmitControl()) {
@@ -435,7 +427,7 @@ static void CollectOrphans(nsINode* aRemovalRoot,
     if (node->HasFlag(MAYBE_ORPHAN_FORM_ELEMENT)) {
       node->UnsetFlags(MAYBE_ORPHAN_FORM_ELEMENT);
       if (!node->IsInclusiveDescendantOf(aRemovalRoot)) {
-        nsCOMPtr<nsIFormControl> fc = do_QueryInterface(node);
+        nsCOMPtr<nsIFormControl> fc = nsIFormControl::FromNode(node);
         MOZ_ASSERT(fc);
         fc->ClearForm(true, false);
 #ifdef DEBUG
@@ -446,7 +438,7 @@ static void CollectOrphans(nsINode* aRemovalRoot,
 
 #ifdef DEBUG
     if (!removed) {
-      nsCOMPtr<nsIFormControl> fc = do_QueryInterface(node);
+      const auto* fc = nsIFormControl::FromNode(node);
       MOZ_ASSERT(fc);
       HTMLFormElement* form = fc->GetForm();
       NS_ASSERTION(form == aThisForm, "How did that happen?");
@@ -652,7 +644,7 @@ nsresult HTMLFormElement::DoReset() {
   uint32_t numElements = mControls->Length();
   for (uint32_t elementX = 0; elementX < numElements; ++elementX) {
     // Hold strong ref in case the reset does something weird
-    nsCOMPtr<nsIFormControl> controlNode = do_QueryInterface(
+    nsCOMPtr<nsIFormControl> controlNode = nsIFormControl::FromNodeOrNull(
         mControls->mElements->SafeElementAt(elementX, nullptr));
     if (controlNode) {
       controlNode->Reset();
@@ -881,6 +873,13 @@ nsresult HTMLFormElement::SubmitSubmission(
     loadState->SetCsp(GetCsp());
     loadState->SetAllowFocusMove(UserActivation::IsHandlingUserInput());
 
+    const bool hasValidUserGestureActivation =
+        doc->HasValidTransientUserGestureActivation();
+    loadState->SetHasValidUserGestureActivation(hasValidUserGestureActivation);
+    loadState->SetTextDirectiveUserActivation(
+        doc->ConsumeTextDirectiveUserActivation() ||
+        hasValidUserGestureActivation);
+
     nsCOMPtr<nsIPrincipal> nodePrincipal = NodePrincipal();
     rv = container->OnLinkClickSync(this, loadState, false, nodePrincipal);
     NS_ENSURE_SUBMIT_SUCCESS(rv);
@@ -1067,7 +1066,7 @@ nsresult HTMLFormElement::ConstructEntryList(FormData* aFormData) {
   for (nsGenericHTMLFormElement* control : sortedControls) {
     // Disabled elements don't submit
     if (!control->IsDisabled()) {
-      nsCOMPtr<nsIFormControl> fc = do_QueryInterface(control);
+      nsCOMPtr<nsIFormControl> fc = nsIFormControl::FromNode(control);
       MOZ_ASSERT(fc);
       // Tell the control to submit its name/value pairs to the submission
       fc->SubmitNamesValues(aFormData);
@@ -1186,7 +1185,7 @@ nsresult HTMLFormElement::AddElement(nsGenericHTMLFormElement* aChild,
   // a parent and still be in the form.
   NS_ASSERTION(aChild->HasAttr(nsGkAtoms::form) || aChild->GetParent(),
                "Form control should have a parent");
-  nsCOMPtr<nsIFormControl> fc = do_QueryObject(aChild);
+  nsCOMPtr<nsIFormControl> fc = nsIFormControl::FromNode(aChild);
   MOZ_ASSERT(fc);
   // Determine whether to add the new element to the elements or
   // the not-in-elements list.
@@ -1288,7 +1287,7 @@ nsresult HTMLFormElement::RemoveElement(nsGenericHTMLFormElement* aChild,
   // Remove it from the radio group if it's a radio button
   //
   nsresult rv = NS_OK;
-  nsCOMPtr<nsIFormControl> fc = do_QueryInterface(aChild);
+  nsCOMPtr<nsIFormControl> fc = nsIFormControl::FromNode(aChild);
   MOZ_ASSERT(fc);
   if (fc->ControlType() == FormControlType::InputRadio) {
     RefPtr<HTMLInputElement> radio = static_cast<HTMLInputElement*>(aChild);
@@ -1317,8 +1316,8 @@ nsresult HTMLFormElement::RemoveElement(nsGenericHTMLFormElement* aChild,
     // We are removing the first submit in this list, find the new first submit
     uint32_t length = controls->Length();
     for (uint32_t i = index; i < length; ++i) {
-      nsCOMPtr<nsIFormControl> currentControl =
-          do_QueryInterface(controls->ElementAt(i));
+      const auto* currentControl =
+          nsIFormControl::FromNode(controls->ElementAt(i));
       MOZ_ASSERT(currentControl);
       if (currentControl->IsSubmitControl()) {
         *firstSubmitSlot = controls->ElementAt(i);
@@ -1554,8 +1553,7 @@ nsresult HTMLFormElement::GetActionURL(nsIURI** aActionURL,
   if (aOriginatingElement &&
       aOriginatingElement->HasAttr(nsGkAtoms::formaction)) {
 #ifdef DEBUG
-    nsCOMPtr<nsIFormControl> formControl =
-        do_QueryInterface(aOriginatingElement);
+    const auto* formControl = nsIFormControl::FromNode(aOriginatingElement);
     NS_ASSERTION(formControl && formControl->IsSubmitControl(),
                  "The originating element must be a submit form control!");
 #endif  // DEBUG
@@ -1661,13 +1659,13 @@ nsresult HTMLFormElement::GetActionURL(nsIURI** aActionURL,
 
     CSP_LogLocalizedStr(
         "upgradeInsecureRequest", params,
-        u""_ns,  // aSourceFile
+        ""_ns,   // aSourceFile
         u""_ns,  // aScriptSample
         0,       // aLineNumber
         1,       // aColumnNumber
         nsIScriptError::warningFlag, "upgradeInsecureRequest"_ns,
         document->InnerWindowID(),
-        !!document->NodePrincipal()->OriginAttributesRef().mPrivateBrowsingId);
+        document->NodePrincipal()->OriginAttributesRef().IsPrivateBrowsing());
   }
 
   //
@@ -1676,6 +1674,22 @@ nsresult HTMLFormElement::GetActionURL(nsIURI** aActionURL,
   actionURL.forget(aActionURL);
 
   return rv;
+}
+
+void HTMLFormElement::GetSubmissionTarget(nsGenericHTMLElement* aSubmitter,
+                                          nsAString& aTarget) {
+  // https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#form-submission-algorithm
+  // 19. If the submitter element is a submit button and it has a formtarget
+  // attribute, then set formTarget to the formtarget attribute value.
+  // 20. Let target be the result of getting an element's target given
+  // submitter's form owner and formTarget.
+  //
+  // Note: Falling back to the base target is part of "get an element's target".
+  if (!(aSubmitter && aSubmitter->GetAttr(nsGkAtoms::formtarget, aTarget)) &&
+      !GetAttr(nsGkAtoms::target, aTarget)) {
+    GetBaseTarget(aTarget);
+  }
+  SanitizeLinkOrFormTarget(aTarget);
 }
 
 nsGenericHTMLFormElement* HTMLFormElement::GetDefaultSubmitElement() const {
@@ -1691,8 +1705,8 @@ bool HTMLFormElement::ImplicitSubmissionIsDisabled() const {
   uint32_t numDisablingControlsFound = 0;
   uint32_t length = mControls->mElements->Length();
   for (uint32_t i = 0; i < length && numDisablingControlsFound < 2; ++i) {
-    nsCOMPtr<nsIFormControl> fc =
-        do_QueryInterface(mControls->mElements->ElementAt(i));
+    const auto* fc =
+        nsIFormControl::FromNode(mControls->mElements->ElementAt(i));
     MOZ_ASSERT(fc);
     if (fc->IsSingleLineTextControl(false)) {
       numDisablingControlsFound++;
@@ -1706,7 +1720,7 @@ bool HTMLFormElement::IsLastActiveElement(
   MOZ_ASSERT(aElement, "Unexpected call");
 
   for (auto* element : Reversed(mControls->mElements.AsList())) {
-    nsCOMPtr<nsIFormControl> fc = do_QueryInterface(element);
+    const auto* fc = nsIFormControl::FromNode(element);
     MOZ_ASSERT(fc);
     // XXX How about date/time control?
     if (fc->IsTextControl(false) && !element->IsDisabled()) {
@@ -1759,7 +1773,8 @@ bool HTMLFormElement::CheckValidFormSubmission() {
   /**
    * Check for form validity: do not submit a form if there are unhandled
    * invalid controls in the form.
-   * This should not be done if the form has been submitted with .submit().
+   * This should not be done if the form has been submitted with .submit() or
+   * has been submitted and novalidate/formnovalidate is used.
    *
    * NOTE: for the moment, we are also checking that whether the MozInvalidForm
    * event gets prevented default so it will prevent blocking form submission if
@@ -1769,9 +1784,6 @@ bool HTMLFormElement::CheckValidFormSubmission() {
    * Forms will be spread enough and authors will assume forms can't be
    * submitted when invalid. See bug 587671.
    */
-
-  NS_ASSERTION(!HasAttr(nsGkAtoms::novalidate),
-               "We shouldn't be there if novalidate is set!");
 
   AutoTArray<RefPtr<Element>, 32> invalidElements;
   if (CheckFormValidity(&invalidElements)) {
@@ -1796,6 +1808,8 @@ bool HTMLFormElement::CheckValidFormSubmission() {
   event->WidgetEventPtr()->mFlags.mOnlyChromeDispatch = true;
 
   DispatchEvent(*event);
+
+  ReportInvalidUnfocusableElements(std::move(invalidElements));
 
   return !event->DefaultPrevented();
 }

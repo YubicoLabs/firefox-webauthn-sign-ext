@@ -5,6 +5,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "FFmpegAudioDecoder.h"
+#include "FFmpegUtils.h"
 #include "AudioSampleFormat.h"
 #include "FFmpegLog.h"
 #include "TimeUnits.h"
@@ -47,8 +48,6 @@ FFmpegAudioDecoder<LIBAV_VER>::FFmpegAudioDecoder(
   }
 
   if (mCodecID == AV_CODEC_ID_FLAC) {
-    MOZ_DIAGNOSTIC_ASSERT(
-        mAudioInfo.mCodecSpecificConfig.is<FlacCodecSpecificData>());
     // Gracefully handle bad data. If don't hit the preceding assert once this
     // has been shipped for awhile, we can remove it and make the following code
     // non-conditional.
@@ -69,7 +68,8 @@ FFmpegAudioDecoder<LIBAV_VER>::FFmpegAudioDecoder(
     }
   }
 
-  // Vorbis and Opus are handled by this case.
+  // Vorbis, Opus are handled by this case, as well as any codec that has
+  // non-tagged variant, because the data comes from Web Codecs.
   RefPtr<MediaByteBuffer> audioCodecSpecificBinaryBlob =
       GetAudioCodecSpecificBlob(mAudioInfo.mCodecSpecificConfig);
   if (audioCodecSpecificBinaryBlob && audioCodecSpecificBinaryBlob->Length()) {
@@ -96,6 +96,17 @@ RefPtr<MediaDataDecoder::InitPromise> FFmpegAudioDecoder<LIBAV_VER>::Init() {
     if (mDefaultPlaybackDeviceMono ||
         DecideAudioPlaybackChannels(mAudioInfo) == 1) {
       mLib->av_dict_set(&options, "apply_phase_inv", "false", 0);
+    }
+    // extradata is required for Opus when the number of channels is > 2.
+    // FFmpeg will happily (but incorrectly) initialize a decoder without a
+    // description, but it will have only two channels.
+    if (mAudioInfo.mChannels > 2 &&
+        (!mExtraData || mExtraData->Length() < 10)) {
+      FFMPEG_LOG(
+          "Cannot initialize decoder with %d channels without extradata of at "
+          "least 10 bytes",
+          mAudioInfo.mChannels);
+      return InitPromise::CreateAndReject(NS_ERROR_FAILURE, __func__);
     }
   }
 
@@ -164,7 +175,7 @@ static AlignedAudioBuffer CopyAndPackAudio(AVFrame* aFrame,
     int16_t* data = reinterpret_cast<int16_t**>(aFrame->data)[0];
     for (uint32_t frame = 0; frame < aNumAFrames; frame++) {
       for (uint32_t channel = 0; channel < aNumChannels; channel++) {
-        *tmp++ = AudioSampleToFloat(*data++);
+        *tmp++ = ConvertAudioSample<float>(*data++);
       }
     }
   } else if (aFrame->format == AV_SAMPLE_FMT_S16P) {
@@ -174,7 +185,7 @@ static AlignedAudioBuffer CopyAndPackAudio(AVFrame* aFrame,
     int16_t** data = reinterpret_cast<int16_t**>(aFrame->data);
     for (uint32_t frame = 0; frame < aNumAFrames; frame++) {
       for (uint32_t channel = 0; channel < aNumChannels; channel++) {
-        *tmp++ = AudioSampleToFloat(data[channel][frame]);
+        *tmp++ = ConvertAudioSample<float>(data[channel][frame]);
       }
     }
   } else if (aFrame->format == AV_SAMPLE_FMT_S32) {
@@ -183,7 +194,7 @@ static AlignedAudioBuffer CopyAndPackAudio(AVFrame* aFrame,
     int32_t* data = reinterpret_cast<int32_t**>(aFrame->data)[0];
     for (uint32_t frame = 0; frame < aNumAFrames; frame++) {
       for (uint32_t channel = 0; channel < aNumChannels; channel++) {
-        *tmp++ = AudioSampleToFloat(*data++);
+        *tmp++ = ConvertAudioSample<float>(*data++);
       }
     }
   } else if (aFrame->format == AV_SAMPLE_FMT_S32P) {
@@ -193,7 +204,7 @@ static AlignedAudioBuffer CopyAndPackAudio(AVFrame* aFrame,
     int32_t** data = reinterpret_cast<int32_t**>(aFrame->data);
     for (uint32_t frame = 0; frame < aNumAFrames; frame++) {
       for (uint32_t channel = 0; channel < aNumChannels; channel++) {
-        *tmp++ = AudioSampleToFloat(data[channel][frame]);
+        *tmp++ = ConvertAudioSample<float>(data[channel][frame]);
       }
     }
   } else if (aFrame->format == AV_SAMPLE_FMT_U8) {
@@ -202,7 +213,7 @@ static AlignedAudioBuffer CopyAndPackAudio(AVFrame* aFrame,
     uint8_t* data = reinterpret_cast<uint8_t**>(aFrame->data)[0];
     for (uint32_t frame = 0; frame < aNumAFrames; frame++) {
       for (uint32_t channel = 0; channel < aNumChannels; channel++) {
-        *tmp++ = UInt8bitToAudioSample<AudioDataValue>(*data++);
+        *tmp++ = ConvertAudioSample<float>(*data++);
       }
     }
   } else if (aFrame->format == AV_SAMPLE_FMT_U8P) {
@@ -212,7 +223,7 @@ static AlignedAudioBuffer CopyAndPackAudio(AVFrame* aFrame,
     uint8_t** data = reinterpret_cast<uint8_t**>(aFrame->data);
     for (uint32_t frame = 0; frame < aNumAFrames; frame++) {
       for (uint32_t channel = 0; channel < aNumChannels; channel++) {
-        *tmp++ = UInt8bitToAudioSample<AudioDataValue>(data[channel][frame]);
+        *tmp++ = ConvertAudioSample<float>(data[channel][frame]);
       }
     }
   }
@@ -250,7 +261,7 @@ MediaResult FFmpegAudioDecoder<LIBAV_VER>::PostProcessOutput(
              aSample->mDuration.ToString().get(),
              mLib->av_get_sample_fmt_name(mFrame->format));
 
-  uint32_t numChannels = mCodecContext->channels;
+  uint32_t numChannels = ChannelCount(mCodecContext);
   uint32_t samplingRate = mCodecContext->sample_rate;
   if (!numChannels) {
     numChannels = mAudioInfo.mChannels;
@@ -284,7 +295,7 @@ MediaResult FFmpegAudioDecoder<LIBAV_VER>::PostProcessOutput(
 
   RefPtr<AudioData> data =
       new AudioData(aSample->mOffset, pts, std::move(audio), numChannels,
-                    samplingRate, mCodecContext->channel_layout);
+                    samplingRate, mAudioInfo.mChannelMap);
   MOZ_ASSERT(duration == data->mDuration, "must be equal");
   aResults.AppendElement(std::move(data));
 
@@ -395,16 +406,23 @@ MediaResult FFmpegAudioDecoder<LIBAV_VER>::DoDecode(MediaRawData* aSample,
                                                     DecodedData& aResults) {
   MOZ_ASSERT(mTaskQueue->IsOnCurrentThread());
   PROCESS_DECODE_LOG(aSample);
-  AVPacket packet;
-  mLib->av_init_packet(&packet);
+  AVPacket* packet;
+#if LIBAVCODEC_VERSION_MAJOR >= 61
+  packet = mLib->av_packet_alloc();
+  auto freePacket = MakeScopeExit([&] { mLib->av_packet_free(&packet); });
+#else
+  AVPacket packet_mem;
+  packet = &packet_mem;
+  mLib->av_init_packet(packet);
+#endif
 
   FFMPEG_LOG("FFmpegAudioDecoder::DoDecode: %d bytes, [%s,%s] (Duration: %s)",
              aSize, aSample->mTime.ToString().get(),
              aSample->GetEndTime().ToString().get(),
              aSample->mDuration.ToString().get());
 
-  packet.data = const_cast<uint8_t*>(aData);
-  packet.size = aSize;
+  packet->data = const_cast<uint8_t*>(aData);
+  packet->size = aSize;
 
   if (aGotFrame) {
     *aGotFrame = false;
@@ -418,8 +436,9 @@ MediaResult FFmpegAudioDecoder<LIBAV_VER>::DoDecode(MediaRawData* aSample,
   }
 
   bool decoded = false;
-  auto rv = DecodeUsingFFmpeg(&packet, decoded, aSample, aResults, aGotFrame);
+  auto rv = DecodeUsingFFmpeg(packet, decoded, aSample, aResults, aGotFrame);
   NS_ENSURE_SUCCESS(rv, rv);
+
   return NS_OK;
 }
 

@@ -18,19 +18,23 @@ async function run_test() {
   writeUpdatesToXMLFile(getLocalUpdatesXMLString(updates), true);
   writeStatusFile(STATE_DOWNLOADING);
 
-  standardInit();
+  await standardInit();
 
   Assert.ok(
-    !gUpdateManager.downloadingUpdate,
+    !(await gUpdateManager.getDownloadingUpdate()),
     "there should not be a downloading update"
   );
-  Assert.ok(!gUpdateManager.readyUpdate, "there should not be a ready update");
+  Assert.ok(
+    !(await gUpdateManager.getReadyUpdate()),
+    "there should not be a ready update"
+  );
+  const history = await gUpdateManager.getHistory();
   Assert.equal(
-    gUpdateManager.getUpdateCount(),
+    history.length,
     1,
     "the update manager update count" + MSG_SHOULD_EQUAL
   );
-  let update = gUpdateManager.getUpdateAt(0);
+  let update = history[0];
   Assert.equal(
     update.state,
     STATE_FAILED,
@@ -54,5 +58,5 @@ async function run_test() {
   let statusFile = getUpdateDirFile(FILE_UPDATE_STATUS);
   Assert.ok(!statusFile.exists(), MSG_SHOULD_NOT_EXIST);
 
-  doTestFinish();
+  await doTestFinish();
 }

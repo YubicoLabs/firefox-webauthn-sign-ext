@@ -168,17 +168,13 @@ class nsBaseWidget : public nsIWidget, public nsSupportsWeakReference {
   nsIWidgetListener* GetWidgetListener() const override;
   void SetWidgetListener(nsIWidgetListener* alistener) override;
   void Destroy() override;
-  void SetParent(nsIWidget* aNewParent) override{};
+  void SetParent(nsIWidget* aNewParent) override {};
   nsIWidget* GetParent() override;
   nsIWidget* GetTopLevelWidget() override;
   nsIWidget* GetSheetWindowParent(void) override;
   float GetDPI() override;
   void AddChild(nsIWidget* aChild) override;
   void RemoveChild(nsIWidget* aChild) override;
-
-  void SetZIndex(int32_t aZIndex) override;
-  void PlaceBehind(nsTopLevelWidgetZPlacement aPlacement, nsIWidget* aWidget,
-                   bool aActivate) override {}
 
   void GetWorkspaceID(nsAString& workspaceID) override;
   void MoveToWorkspace(const nsAString& workspaceID) override;
@@ -264,7 +260,7 @@ class nsBaseWidget : public nsIWidget, public nsSupportsWeakReference {
   [[nodiscard]] nsresult GetRestoredBounds(LayoutDeviceIntRect& aRect) override;
   nsresult SetNonClientMargins(const LayoutDeviceIntMargin&) override;
   LayoutDeviceIntPoint GetClientOffset() override;
-  void EnableDragDrop(bool aEnable) override{};
+  void EnableDragDrop(bool aEnable) override {};
   nsresult AsyncEnableDragDrop(bool aEnable) override;
   void SetResizeMargin(mozilla::LayoutDeviceIntCoord aResizeMargin) override;
   [[nodiscard]] nsresult GetAttention(int32_t aCycleCount) override {
@@ -351,8 +347,11 @@ class nsBaseWidget : public nsIWidget, public nsSupportsWeakReference {
                          ByMoveToRect = ByMoveToRect::No);
 
   // Should be called by derived implementations to notify on system color and
-  // theme changes.
+  // theme changes. (Only one invocation per change is needed, not one
+  // invocation per change per window.)
   void NotifyThemeChanged(mozilla::widget::ThemeChangeKind);
+
+  void NotifyAPZOfDPIChange();
 
 #ifdef ACCESSIBILITY
   // Get the accessible for the window.
@@ -364,13 +363,6 @@ class nsBaseWidget : public nsIWidget, public nsSupportsWeakReference {
   bool IsSmallPopup() const;
 
   PopupLevel GetPopupLevel() { return mPopupLevel; }
-
-  // return true if this is a popup widget with a native titlebar
-  bool IsPopupWithTitleBar() const {
-    return (mWindowType == WindowType::Popup &&
-            mBorderStyle != BorderStyle::Default &&
-            mBorderStyle & BorderStyle::Title);
-  }
 
   void ReparentNativeWidget(nsIWidget* aNewParent) override {}
 
@@ -426,9 +418,9 @@ class nsBaseWidget : public nsIWidget, public nsSupportsWeakReference {
 #if defined(MOZ_WIDGET_ANDROID)
   void RecvToolbarAnimatorMessageFromCompositor(int32_t) override{};
   void UpdateRootFrameMetrics(const ScreenPoint& aScrollOffset,
-                              const CSSToScreenScale& aZoom) override{};
+                              const CSSToScreenScale& aZoom) override {};
   void RecvScreenPixels(mozilla::ipc::Shmem&& aMem, const ScreenIntSize& aSize,
-                        bool aNeedsYFlip) override{};
+                        bool aNeedsYFlip) override {};
 #endif
 
   virtual void LocalesChanged() {}
@@ -715,6 +707,7 @@ class nsBaseWidget : public nsIWidget, public nsSupportsWeakReference {
   bool mUseAttachedEvents;
   bool mIMEHasFocus;
   bool mIMEHasQuit;
+  // if the window is fully occluded (rendering may be paused in response)
   bool mIsFullyOccluded;
   bool mNeedFastSnaphot;
   // This flag is only used when APZ is off. It indicates that the current pan

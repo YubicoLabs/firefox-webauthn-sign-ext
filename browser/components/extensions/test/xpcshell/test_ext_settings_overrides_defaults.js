@@ -23,6 +23,95 @@ const { sinon } = ChromeUtils.importESModule(
   "resource://testing-common/Sinon.sys.mjs"
 );
 
+const CONFIG = [
+  {
+    identifier: "MozParamsTest",
+    base: {
+      name: "MozParamsTest",
+      urls: {
+        search: {
+          base: "https://example.com/",
+          params: [
+            {
+              name: "test-0",
+              searchAccessPoint: {
+                contextmenu: "0",
+              },
+            },
+            {
+              name: "test-1",
+              searchAccessPoint: {
+                searchbar: "1",
+              },
+            },
+            {
+              name: "test-2",
+              searchAccessPoint: {
+                homepage: "2",
+              },
+            },
+            {
+              name: "test-3",
+              searchAccessPoint: {
+                addressbar: "3",
+              },
+            },
+            {
+              name: "test-4",
+              searchAccessPoint: {
+                newtab: "4",
+              },
+            },
+            {
+              name: "simple",
+              value: "5",
+            },
+            {
+              name: "term",
+              value: "{searchTerms}",
+            },
+            {
+              name: "lang",
+              value: "{language}",
+            },
+            {
+              name: "prefval",
+              experimentConfig: "code",
+            },
+            {
+              name: "experimenter-1",
+              experimentConfig: "nimbus-key-1",
+            },
+            {
+              name: "experimenter-2",
+              experimentConfig: "nimbus-key-2",
+            },
+          ],
+          searchTermParamName: "q",
+        },
+      },
+    },
+  },
+  {
+    identifier: "MozParamsTest2",
+    base: {
+      name: "MozParamsTest2",
+      urls: {
+        search: {
+          base: "https://example.com/2/",
+          params: [
+            {
+              name: "simple2",
+              value: "5",
+            },
+          ],
+          searchTermParamName: "q",
+        },
+      },
+    },
+  },
+];
+
 const URLTYPE_SUGGEST_JSON = "application/x-suggestions+json";
 
 AddonTestUtils.init(this);
@@ -43,29 +132,7 @@ add_task(async function setup() {
   AddonTestUtils.usePrivilegedSignatures = false;
   AddonTestUtils.overrideCertDB();
   await AddonTestUtils.promiseStartupManager();
-  await SearchTestUtils.useTestEngines("data", null, [
-    {
-      webExtension: {
-        id: "test@search.mozilla.org",
-      },
-      appliesTo: [
-        {
-          included: { everywhere: true },
-          default: "yes",
-        },
-      ],
-    },
-    {
-      webExtension: {
-        id: "test2@search.mozilla.org",
-      },
-      appliesTo: [
-        {
-          included: { everywhere: true },
-        },
-      ],
-    },
-  ]);
+  await SearchTestUtils.setRemoteSettingsConfig(CONFIG);
   await Services.search.init();
   registerCleanupFunction(async () => {
     await AddonTestUtils.promiseShutdownManager();
@@ -124,7 +191,7 @@ add_task(async function test_extension_changing_to_app_provided_default() {
 
   assertEngineParameters({
     name: "MozParamsTest2",
-    searchURL: "https://example.com/2/?q={searchTerms}&simple2=5",
+    searchURL: "https://example.com/2/?simple2=5&q={searchTerms}",
     messageSnippet: "left unchanged",
   });
 
@@ -147,7 +214,7 @@ add_task(async function test_extension_overriding_app_provided_default() {
   sinon.stub(settings, "get").returns([
     {
       thirdPartyId: "test@thirdparty.example.com",
-      overridesId: "test2@search.mozilla.org",
+      overridesAppIdv2: "MozParamsTest2",
       urls: [
         {
           search_url: "https://example.com/?q={searchTerms}&foo=myparams",
@@ -213,7 +280,7 @@ add_task(async function test_extension_overriding_app_provided_default() {
   );
   assertEngineParameters({
     name: "MozParamsTest2",
-    searchURL: "https://example.com/2/?q={searchTerms}&simple2=5",
+    searchURL: "https://example.com/2/?simple2=5&q={searchTerms}",
     messageSnippet: "reverted",
   });
 
@@ -256,7 +323,7 @@ add_task(async function test_extension_overriding_app_provided_default() {
 
   assertEngineParameters({
     name: "MozParamsTest2",
-    searchURL: "https://example.com/2/?q={searchTerms}&simple2=5",
+    searchURL: "https://example.com/2/?simple2=5&q={searchTerms}",
     messageSnippet: "reverted",
   });
   sinon.restore();

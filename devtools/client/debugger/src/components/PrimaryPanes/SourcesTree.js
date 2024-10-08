@@ -52,14 +52,14 @@ class SourcesTree extends Component {
 
   static get propTypes() {
     return {
-      mainThreadHost: PropTypes.string.isRequired,
+      mainThreadHost: PropTypes.string,
       expanded: PropTypes.object.isRequired,
       focusItem: PropTypes.func.isRequired,
       focused: PropTypes.object,
       projectRoot: PropTypes.string.isRequired,
       selectSource: PropTypes.func.isRequired,
       setExpandedState: PropTypes.func.isRequired,
-      rootItems: PropTypes.object.isRequired,
+      rootItems: PropTypes.array.isRequired,
       clearProjectDirectoryRoot: PropTypes.func.isRequired,
       projectRootName: PropTypes.string.isRequired,
       setHideOrShowIgnoredSources: PropTypes.func.isRequired,
@@ -236,9 +236,10 @@ class SourcesTree extends Component {
     );
   }
 
-  renderItem = (item, depth, focused, _, expanded) => {
+  renderItem = (item, depth, focused, arrow, expanded) => {
     const { mainThreadHost } = this.props;
     return React.createElement(SourcesTreeItem, {
+      arrow,
       item,
       depth,
       focused,

@@ -18,6 +18,7 @@ class PictureInPictureVideoWrapper {
       video.play();
     });
   }
+
   /**
    * Seeking large amounts of time can cause the video readyState to
    * HAVE_METADATA (1) and it will throw an error when trying to play the video.
@@ -52,12 +53,13 @@ class PictureInPictureVideoWrapper {
         });
     }
   }
+
   setCaptionContainerObserver(video, updateCaptionsFunction) {
     let container = document?.querySelector("#dv-web-player");
 
     if (container) {
       updateCaptionsFunction("");
-      const callback = function (mutationsList, observer) {
+      const callback = function (mutationsList) {
         // eslint-disable-next-line no-unused-vars
         for (const mutation of mutationsList) {
           let text;
@@ -85,14 +87,18 @@ class PictureInPictureVideoWrapper {
       // immediately invoke the callback function to add subtitles to the PiP window
       callback([1], null);
 
-      let captionsObserver = new MutationObserver(callback);
+      this.captionsObserver = new MutationObserver(callback);
 
-      captionsObserver.observe(container, {
+      this.captionsObserver.observe(container, {
         attributes: true,
         childList: true,
         subtree: true,
       });
     }
+  }
+
+  removeCaptionContainerObserver() {
+    this.captionsObserver?.disconnect();
   }
 
   shouldHideToggle(video) {

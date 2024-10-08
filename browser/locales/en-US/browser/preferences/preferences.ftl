@@ -38,6 +38,8 @@ search-input-box2 =
     .placeholder = Find in Settings
 
 managed-notice = Your browser is being managed by your organization.
+managed-notice-info-icon =
+    .alt = Information
 
 category-list =
     .aria-label = Categories
@@ -62,12 +64,10 @@ pane-sync-title3 = Sync
 category-sync3 =
     .tooltiptext = { pane-sync-title3 }
 
-pane-experimental-title = { -brand-short-name } Experiments
-category-experimental =
-    .tooltiptext = { -brand-short-name } Experiments
-pane-experimental-subtitle = Proceed with Caution
-pane-experimental-search-results-header = { -brand-short-name } Experiments: Proceed with Caution
-pane-experimental-description2 = Changing advanced configuration settings can impact { -brand-short-name } performance or security.
+settings-pane-labs-title = { -firefoxlabs-brand-name }
+settings-category-labs =
+    .tooltiptext = { -firefoxlabs-brand-name }
+pane-experimental-description3 = Give our experimental features a try! They’re in development and evolving, which could impact how { -brand-short-name } works.
 
 pane-experimental-reset =
   .label = Restore Defaults
@@ -287,7 +287,8 @@ preferences-web-appearance-choice-input-dark =
 
 # This can appear when using windows HCM or "Override colors: always" without
 # system colors.
-preferences-web-appearance-override-warning = Your color selections are overriding website appearance. <a data-l10n-name="colors-link">Manage colors</a>
+preferences-web-appearance-override-warning2 =
+    .message = Your color selections are overriding website appearance.
 
 # This message contains one link. It can be moved within the sentence as needed
 # to adapt to your language, but should not be changed.
@@ -618,7 +619,7 @@ browsing-search-on-start-typing =
     .accesskey = x
 
 browsing-picture-in-picture-toggle-enabled =
-    .label = Enable picture-in-picture video controls
+    .label = Enable Picture-in-Picture video controls
     .accesskey = E
 
 browsing-picture-in-picture-learn-more = Learn more
@@ -731,6 +732,10 @@ home-prefs-highlights-option-saved-to-pocket =
 home-prefs-recent-activity-header =
     .label = Recent activity
 home-prefs-recent-activity-description = A selection of recent sites and content
+home-prefs-weather-header =
+  .label = Weather
+home-prefs-weather-description = Today’s forecast at a glance
+home-prefs-weather-learn-more-link = Learn more
 
 # Variables:
 #   $num (number) - Number of rows displayed
@@ -852,8 +857,15 @@ sync-mobile-promo = Download Firefox for <img data-l10n-name="android-icon"/> <a
 
 ## Firefox account - Signed in
 
-sync-profile-picture =
+sync-profile-picture-with-alt =
     .tooltiptext = Change profile picture
+    .alt = Change profile picture
+
+sync-profile-picture-account-problem =
+    .alt = Account profile picture
+
+fxa-login-rejected-warning =
+    .alt = Warning
 
 sync-sign-out =
     .label = Sign Out…
@@ -1026,6 +1038,9 @@ forms-saved-passwords =
 forms-primary-pw-use =
     .label = Use a Primary Password
     .accesskey = U
+# This operation requires the user to authenticate with the operating system (device sign-in)
+forms-os-reauth =
+    .label = Require device sign in to fill and manage passwords
 forms-primary-pw-learn-more-link = Learn more
 # This string uses the former name of the Primary Password feature
 # ("Master Password" in English) so that the preferences can be found
@@ -1062,6 +1077,13 @@ primary-password-os-auth-dialog-message-win = To create a Primary Password, ente
 primary-password-os-auth-dialog-message-macosx = create a Primary Password
 master-password-os-auth-dialog-caption = { -brand-full-name }
 
+# The macOS string is preceded by the operating system with "Firefox is trying to ".
+autofill-creditcard-os-dialog-message = { PLATFORM () ->
+    [macos] change the settings for payment methods
+    *[other] { -brand-short-name } is trying to change the settings for payment methods. Use your device sign in to allow this.
+}
+autofill-creditcard-os-auth-dialog-caption = { -brand-full-name }
+
 ## Privacy section - Autofill
 
 pane-privacy-autofill-header = Autofill
@@ -1075,12 +1097,9 @@ autofill-payment-methods-checkbox-submessage = Includes credit and debit cards
     .accesskey = I
 autofill-saved-payment-methods-button = Saved payment methods
     .accesskey = v
-autofill-reauth-checkbox = { PLATFORM() ->
-            [macos] Require macOS authentication to fill and edit payment methods.
-            [windows] Require Windows authentication to fill and edit payment methods.
-            [linux] Require Linux authentication to fill and edit payment methods.
-           *[other] Require authentication to fill and edit payment methods.
-        }
+
+# This operation requires the user to authenticate with the operating system (device sign-in)
+autofill-reauth-payment-methods-checkbox = Require device sign in to fill and manage payment methods
     .accesskey = o
 
 ## Privacy Section - History
@@ -1194,7 +1213,7 @@ sitedata-cookies-exceptions =
 
 cookie-banner-blocker-header = Cookie Banner Blocker
 cookie-banner-blocker-description = When a site asks if they can use cookies in private browsing mode, { -brand-short-name } automatically refuses for you. Only on supported sites.
-cookie-banner-learn-more = Learn More
+cookie-banner-learn-more = Learn more
 cookie-banner-blocker-checkbox-label =
     .label = Automatically refuse cookie banners
 
@@ -1232,6 +1251,9 @@ addressbar-locbar-quickactions-option =
 addressbar-locbar-showrecentsearches-option =
     .label = Show recent searches
     .accesskey = r
+addressbar-locbar-showtrendingsuggestions-option =
+    .label = Show trending search suggestions
+    .accesskey = t
 
 addressbar-quickactions-learn-more = Learn more
 
@@ -1441,7 +1463,7 @@ addon-recommendations-link = Learn more
 # or builds with no Telemetry support available.
 collection-health-report-disabled = Data reporting is disabled for this build configuration
 
-collection-backlogged-crash-reports-with-link = Allow { -brand-short-name } to send backlogged crash reports on your behalf <a data-l10n-name="crash-reports-link">Learn more</a>
+collection-backlogged-crash-reports = Allow { -brand-short-name } to send backlogged crash reports on your behalf
     .accesskey = c
 
 privacy-segmentation-section-header = New features that enhance your browsing
@@ -1453,6 +1475,16 @@ privacy-segmentation-radio-off =
 
 privacy-segmentation-radio-on =
     .label = Show detailed information
+
+## Privacy Section - Website Advertising Preferences
+
+website-advertising-header = Website Advertising Preferences
+
+website-advertising-private-attribution =
+    .label = Allow websites to perform privacy-preserving ad measurement
+    .accesskey = a
+
+website-advertising-private-attribution-description = This helps sites understand how their ads perform without collecting data about you.
 
 ## Privacy Section - Security
 ##
@@ -1508,18 +1540,24 @@ space-alert-under-5gb-message2 = <strong>{ -brand-short-name } is running out of
 
 httpsonly-header = HTTPS-Only Mode
 
-httpsonly-description = HTTPS provides a secure, encrypted connection between { -brand-short-name } and the websites you visit. Most websites support HTTPS, and if HTTPS-Only Mode is enabled, then { -brand-short-name } will upgrade all connections to HTTPS.
+httpsonly-description2 = { -brand-short-name } creates secure and encrypted connections to sites you visit. { -brand-short-name } will warn you if a connection isn’t secure when HTTPS-Only is on.
 
 httpsonly-learn-more = Learn more
 
 httpsonly-radio-enabled =
     .label = Enable HTTPS-Only Mode in all windows
+httpsonly-radio-enabled2 =
+    .label = Only use HTTPS in all windows
 
 httpsonly-radio-enabled-pbm =
     .label = Enable HTTPS-Only Mode in private windows only
+httpsonly-radio-enabled-pbm2 =
+    .label = Only use HTTPS in private windows
 
 httpsonly-radio-disabled =
     .label = Don’t enable HTTPS-Only Mode
+httpsonly-radio-disabled2 =
+    .label = Try HTTPS first, but allow connections that are not secure
 
 ## DoH Section
 
@@ -1584,8 +1622,6 @@ preferences-doh-checkbox-warn =
     .accesskey = W
 
 preferences-doh-select-resolver = Choose provider:
-
-preferences-doh-exceptions-description = { -brand-short-name } won’t use secure DNS on these sites
 
 preferences-doh-manage-exceptions =
     .label = Manage Exceptions…

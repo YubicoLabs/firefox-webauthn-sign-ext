@@ -106,8 +106,8 @@ class LoadListener {
   }
 
   // nsIProgressEventSink
-  onProgress(request, progress, progressMax) {}
-  onStatus(request, status, statusArg) {}
+  onProgress() {}
+  onStatus() {}
 }
 
 export var SearchUtils = {
@@ -126,56 +126,16 @@ export var SearchUtils = {
   SETTINGS_ALLOWLIST_KEY: "search-default-override-allowlist",
 
   /**
-   * This is the Remote Settings key for getting the older search engine
-   * configuration. Tests may use `SETTINGS_KEY` if they want to get the key
-   * for the current configuration according to the preference.
-   */
-  OLD_SETTINGS_KEY: "search-config",
-
-  /**
-   * This is the Remote Settings key for getting the newer search engine
-   * configuration. Tests may use `SETTINGS_KEY` if they want to get the key
-   * for the current configuration according to the preference.
-   */
-  NEW_SETTINGS_KEY: "search-config-v2",
-
-  /**
-   * This is the Remote Settings key for getting the overrides for the
-   * older search engine configuration. Tests may use `SETTINGS_OVERRIDES_KEY`
-   * for the current configuration according to the preference.
-   */
-  OLD_SETTINGS_OVERRIDES_KEY: "search-config-overrides",
-
-  /**
-   * This is the Remote Settings key for getting the overrides for the
-   * newer search engine configuration. Tests may use `SETTINGS_OVERRIDES_KEY`
-   * for the current configuration according to the preference.
-   */
-  NEW_SETTINGS_OVERRIDES_KEY: "search-config-overrides-v2",
-
-  /**
    * This is the Remote Settings key that we use to get the search engine
    * configurations.
-   *
-   * @returns {string}
    */
-  get SETTINGS_KEY() {
-    return SearchUtils.newSearchConfigEnabled
-      ? SearchUtils.NEW_SETTINGS_KEY
-      : SearchUtils.OLD_SETTINGS_KEY;
-  },
+  SETTINGS_KEY: "search-config-v2",
 
   /**
    * This is the Remote Settings key that we use to get the search engine
    * configuration overrides.
-   *
-   * @returns {string}
    */
-  get SETTINGS_OVERRIDES_KEY() {
-    return SearchUtils.newSearchConfigEnabled
-      ? SearchUtils.NEW_SETTINGS_OVERRIDES_KEY
-      : SearchUtils.OLD_SETTINGS_OVERRIDES_KEY;
-  },
+  SETTINGS_OVERRIDES_KEY: "search-config-overrides-v2",
 
   /**
    * Topic used for events involving the service itself.
@@ -186,6 +146,7 @@ export var SearchUtils = {
   TOPIC_ENGINE_MODIFIED: "browser-search-engine-modified",
   MODIFIED_TYPE: {
     CHANGED: "engine-changed",
+    ICON_CHANGED: "engine-icon-changed",
     REMOVED: "engine-removed",
     ADDED: "engine-added",
     DEFAULT: "engine-default",
@@ -222,10 +183,6 @@ export var SearchUtils = {
   // A tag to denote when we are using the "default_locale" of an engine.
   DEFAULT_TAG: "default",
 
-  MOZ_PARAM: {
-    LOCALE: "moz:locale",
-  },
-
   // Query parameters can have the property "purpose", whose value
   // indicates the context that initiated a search. This list contains
   // defined search contexts.
@@ -238,25 +195,6 @@ export var SearchUtils = {
   },
 
   LoadListener,
-
-  // This is a list of search engines that we currently consider to be "General"
-  // search, as opposed to a vertical search engine such as one used for
-  // shopping, book search, etc.
-  //
-  // Currently these are a list of hard-coded application provided ones. At some
-  // point in the future we expect to allow WebExtensions to specify by themselves,
-  // however this needs more definition on the "vertical" search terms, and the
-  // effects before we enable it.
-  GENERAL_SEARCH_ENGINE_IDS: new Set([
-    "google@search.mozilla.org",
-    "ddg@search.mozilla.org",
-    "bing@search.mozilla.org",
-    "baidu@search.mozilla.org",
-    "ecosia@search.mozilla.org",
-    "qwant@search.mozilla.org",
-    "yahoo-jp@search.mozilla.org",
-    "yandex@search.mozilla.org",
-  ]),
 
   /**
    * Notifies watchers of SEARCH_ENGINE_TOPIC about changes to an engine or to
@@ -338,7 +276,7 @@ export var SearchUtils = {
    *   The current settings version.
    */
   get SETTINGS_VERSION() {
-    return 9;
+    return 10;
   },
 
   /**
@@ -378,7 +316,7 @@ export var SearchUtils = {
     return result.substring(0, maxLength);
   },
 
-  getVerificationHash(name) {
+  getVerificationHash(name, profileDir = PathUtils.profileDir) {
     let disclaimer =
       "By modifying this file, I agree that I am doing so " +
       "only within $appName itself, using official, user-driven search " +
@@ -388,7 +326,7 @@ export var SearchUtils = {
       "to accordingly.";
 
     let salt =
-      PathUtils.filename(PathUtils.profileDir) +
+      PathUtils.filename(profileDir) +
       name +
       disclaimer.replace(/\$appName/g, Services.appinfo.name);
 
@@ -425,19 +363,92 @@ export var SearchUtils = {
       uri.host.toLowerCase().endsWith(".onion")
     );
   },
+
+  /**
+   * Sorts engines by the default settings. The sort order is:
+   *
+   * Application Default Engine
+   * Application Private Default Engine (if specified)
+   * Engines sorted by orderHint (if specified)
+   * Remaining engines in alphabetical order by locale.
+   *
+   * This is implemented here as it is used in searchengine-devtools as well as
+   * the search service.
+   *
+   * @param {object} options
+   *   The options for this function.
+   * @param {object[]} options.engines
+   *   An array of engine objects to sort. These should have the `name` and
+   *   `orderHint` fields as top-level properties.
+   * @param {object} options.appDefaultEngine
+   *   The application default engine.
+   * @param {object} [options.appPrivateDefaultEngine]
+   *   The application private default engine, if any.
+   * @param {string} [options.locale]
+   *   The current application locale, or the locale to use for the sorting.
+   * @returns {object[]}
+   *   The sorted array of engine objects.
+   */
+  sortEnginesByDefaults({
+    engines,
+    appDefaultEngine,
+    appPrivateDefaultEngine,
+    locale = Services.locale.appLocaleAsBCP47,
+  }) {
+    const sortedEngines = [];
+    const addedEngines = new Set();
+
+    function maybeAddEngineToSort(engine) {
+      if (!engine || addedEngines.has(engine.name)) {
+        return;
+      }
+
+      sortedEngines.push(engine);
+      addedEngines.add(engine.name);
+    }
+
+    // The app default engine should always be first in the list (except
+    // for distros, that we should respect).
+    const appDefault = appDefaultEngine;
+    maybeAddEngineToSort(appDefault);
+
+    // If there's a private default, and it is different to the normal
+    // default, then it should be second in the list.
+    const appPrivateDefault = appPrivateDefaultEngine;
+    if (appPrivateDefault && appPrivateDefault != appDefault) {
+      maybeAddEngineToSort(appPrivateDefault);
+    }
+
+    let remainingEngines;
+    const collator = new Intl.Collator(locale);
+
+    remainingEngines = engines.filter(e => !addedEngines.has(e.name));
+
+    // We sort by highest orderHint first, then alphabetically by name.
+    remainingEngines.sort((a, b) => {
+      if (a._orderHint && b.orderHint) {
+        if (a._orderHint == b.orderHint) {
+          return collator.compare(a.name, b.name);
+        }
+        return b.orderHint - a.orderHint;
+      }
+      if (a.orderHint) {
+        return -1;
+      }
+      if (b.orderHint) {
+        return 1;
+      }
+      return collator.compare(a.name, b.name);
+    });
+
+    return [...sortedEngines, ...remainingEngines];
+  },
 };
 
 XPCOMUtils.defineLazyPreferenceGetter(
   SearchUtils,
   "loggingEnabled",
   BROWSER_SEARCH_PREF + "log",
-  false
-);
-
-XPCOMUtils.defineLazyPreferenceGetter(
-  SearchUtils,
-  "newSearchConfigEnabled",
-  "browser.search.newSearchConfig.enabled",
   false
 );
 

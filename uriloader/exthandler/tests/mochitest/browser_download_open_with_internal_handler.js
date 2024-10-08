@@ -23,7 +23,7 @@ const HandlerSvc = Cc["@mozilla.org/uriloader/handler-service;1"].getService(
 );
 
 let MockFilePicker = SpecialPowers.MockFilePicker;
-MockFilePicker.init(window);
+MockFilePicker.init(window.browsingContext);
 
 function waitForAcceptButtonToGetEnabled(doc) {
   let dialog = doc.querySelector("#unknownContentType");
@@ -207,7 +207,7 @@ add_task(async function test_check_open_with_internal_handler() {
     await SpecialPowers.spawn(newTab.linkedBrowser, [], async () => {
       let downloadButton;
       await ContentTaskUtils.waitForCondition(() => {
-        downloadButton = content.document.querySelector("#download");
+        downloadButton = content.document.querySelector("#downloadButton");
         return !!downloadButton;
       });
       ok(downloadButton, "Download button should be present in pdf.js");

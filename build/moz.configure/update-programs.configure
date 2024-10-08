@@ -7,9 +7,11 @@
 
 # Updater
 # ==============================================================
-@depends(build_project)
-def updater_default(build_project):
-    return build_project != "mobile/android"
+@depends(build_project, target)
+def updater_default(build_project, target):
+    if build_project == "tools/update-programs":
+        return True
+    return build_project != "mobile/android" and target.os != "iOS"
 
 
 option(
@@ -53,6 +55,22 @@ set_config(
     "DISABLE_UPDATER_AUTHENTICODE_CHECK",
     True,
     depends_if("--enable-unverified-updates")(lambda _: True),
+)
+
+option(env="MAR_CHANNEL_ID", nargs=1, help="MAR channel identifier")
+
+set_config(
+    "MAR_CHANNEL_ID",
+    depends_if("MAR_CHANNEL_ID")(lambda channel: channel[0]),
+)
+
+option(
+    env="ACCEPTED_MAR_CHANNEL_IDS", nargs="+", help="Accepted MAR channel identifiers"
+)
+
+set_config(
+    "ACCEPTED_MAR_CHANNEL_IDS",
+    depends_if("ACCEPTED_MAR_CHANNEL_IDS")(lambda channels: ",".join(channels)),
 )
 
 # Use NSS for MAR signatures even on platforms where system libraries are

@@ -13,59 +13,42 @@ const { EnterprisePolicyTesting } = ChromeUtils.importESModule(
 
 const CONFIG = [
   {
-    webExtension: {
-      id: "engine@search.mozilla.org",
-      name: "Test search engine",
-      search_url: "https://www.google.com/search",
-      params: [
-        {
-          name: "q",
-          value: "{searchTerms}",
-        },
-        {
-          name: "channel",
-          condition: "purpose",
-          purpose: "contextmenu",
-          value: "rcs",
-        },
-        {
-          name: "channel",
-          condition: "purpose",
-          purpose: "keyword",
-          value: "fflb",
-        },
-      ],
-      suggest_url:
-        "https://suggestqueries.google.com/complete/search?output=firefox&client=firefox&hl={moz:locale}&q={searchTerms}",
-    },
-    appliesTo: [
-      {
-        included: { everywhere: true },
-        default: "yes",
-      },
-    ],
+    identifier: "appDefault",
+    base: { name: "Application Default" },
   },
 ];
 
 add_setup(async function () {
-  useHttpServer("opensearch");
-  await SearchTestUtils.useTestEngines("data", null, CONFIG);
-  await AddonTestUtils.promiseStartupManager();
+  useHttpServer();
+  SearchTestUtils.setRemoteSettingsConfig(CONFIG);
   await Services.search.init();
 });
 
-add_task(async function test_add_on_engine_id() {
-  let addOnEngine = Services.search.defaultEngine;
+add_task(async function test_app_provided_engine_id() {
+  let appDefault = Services.search.defaultEngine;
 
   Assert.equal(
-    addOnEngine.name,
-    "Test search engine",
-    "Should have installed the Test search engine as default."
+    appDefault.name,
+    "Application Default",
+    "Should have installed the application engine as default."
   );
-  Assert.ok(addOnEngine.id, "The Addon Search Engine should have an id.");
   Assert.equal(
-    addOnEngine.id,
-    "engine@search.mozilla.orgdefault",
+    appDefault.id,
+    "appDefault",
+    "The application id should match the configuration."
+  );
+});
+
+add_task(async function test_addon_engine_id() {
+  await SearchTestUtils.installSearchExtension({
+    name: "AddonEngine",
+    id: "addon@tests.mozilla.org",
+  });
+
+  let addonEngine = Services.search.getEngineByName("AddonEngine");
+  Assert.equal(
+    addonEngine.id,
+    "addon@tests.mozilla.orgdefault",
     "The Addon Search Engine id should be the webextension id + the locale."
   );
 });
@@ -95,8 +78,8 @@ add_task(async function test_user_engine_id() {
 });
 
 add_task(async function test_open_search_engine_id() {
-  let openSearchEngine = await SearchTestUtils.promiseNewSearchEngine({
-    url: gDataUrl + "simple.xml",
+  let openSearchEngine = await SearchTestUtils.installOpenSearchEngine({
+    url: `${gHttpURL}/opensearch/simple.xml`,
   });
 
   Assert.ok(openSearchEngine, "Should have installed the Open Search Engine.");

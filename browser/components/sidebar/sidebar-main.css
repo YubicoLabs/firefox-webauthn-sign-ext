@@ -1,0 +1,69 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
+.wrapper {
+  display: grid;
+  grid-template-rows: auto min-content min-content;
+  box-sizing: border-box;
+  height: 100%;
+  min-width: 50px;
+  padding-block: var(--space-small);
+  padding-inline: 0;
+
+  /* stylelint-disable-next-line media-query-no-invalid */
+  @media (-moz-bool-pref: "sidebar.verticalTabs") {
+    :host([expanded]) & {
+      min-width: 280px;
+    }
+  }
+}
+
+.actions-list {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+
+  > moz-button {
+    --button-outer-padding-inline: var(--space-medium);
+  }
+}
+
+.tools-and-extensions > moz-button:first-of-type {
+  --button-outer-padding-block-start: var(--space-small);
+}
+
+.bottom-actions > moz-button:last-of-type {
+  --button-outer-padding-block-end: var(--space-small);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  moz-button::part(label) {
+    opacity: 0;
+    transition: opacity 300ms ease-in-out;
+  }
+}
+
+.expanded-button {
+  width: 100%;
+
+  &::part(button) {
+    font-size: var(--font-size-large);
+    font-weight: var(--font-weight);
+    justify-content: flex-start;
+    padding-inline-start: 8px;
+  }
+
+  &::part(label) {
+    opacity: 1;
+  }
+}
+
+.tools-and-extensions {
+  align-self: start;
+}
+
+.bottom-actions {
+  align-self: end;
+}

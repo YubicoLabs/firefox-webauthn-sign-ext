@@ -10,13 +10,13 @@
 #include "mozilla/dom/CSSImportRule.h"
 #include "mozilla/dom/CSSRuleBinding.h"
 #include "mozilla/dom/CSSStyleRule.h"
+#include "mozilla/dom/CSSNestedDeclarations.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/ShadowRoot.h"
 #include "mozilla/IntegerRange.h"
 #include "mozilla/ServoStyleSet.h"
 #include "mozilla/StyleSheetInlines.h"
-#include "nsStyleSheetService.h"
 
 using namespace mozilla::dom;
 
@@ -81,12 +81,16 @@ void ServoStyleRuleMap::RuleRemoved(StyleSheet& aStyleSheet,
 
   switch (aStyleRule.Type()) {
     case StyleCssRuleType::Style:
+    case StyleCssRuleType::NestedDeclarations:
     case StyleCssRuleType::Import:
     case StyleCssRuleType::Media:
     case StyleCssRuleType::Supports:
     case StyleCssRuleType::LayerBlock:
     case StyleCssRuleType::Container:
-    case StyleCssRuleType::Document: {
+    case StyleCssRuleType::Document:
+    case StyleCssRuleType::Scope:
+    case StyleCssRuleType::StartingStyle:
+    case StyleCssRuleType::PositionTry: {
       // See the comment in SheetRemoved.
       mTable.Clear();
       break;
@@ -115,16 +119,23 @@ size_t ServoStyleRuleMap::SizeOfIncludingThis(
 
 void ServoStyleRuleMap::FillTableFromRule(css::Rule& aRule) {
   switch (aRule.Type()) {
+    case StyleCssRuleType::NestedDeclarations: {
+      auto& rule = static_cast<CSSNestedDeclarations&>(aRule);
+      mTable.InsertOrUpdate(rule.RawStyle(), &rule);
+      break;
+    }
     case StyleCssRuleType::Style: {
       auto& rule = static_cast<CSSStyleRule&>(aRule);
-      mTable.InsertOrUpdate(rule.Raw(), &rule);
+      mTable.InsertOrUpdate(rule.RawStyle(), &rule);
       [[fallthrough]];
     }
     case StyleCssRuleType::LayerBlock:
     case StyleCssRuleType::Media:
     case StyleCssRuleType::Supports:
     case StyleCssRuleType::Container:
-    case StyleCssRuleType::Document: {
+    case StyleCssRuleType::Document:
+    case StyleCssRuleType::Scope:
+    case StyleCssRuleType::StartingStyle: {
       auto& rule = static_cast<css::GroupRule&>(aRule);
       FillTableFromRuleList(*rule.CssRules());
       break;
@@ -147,6 +158,7 @@ void ServoStyleRuleMap::FillTableFromRule(css::Rule& aRule) {
     case StyleCssRuleType::CounterStyle:
     case StyleCssRuleType::FontFeatureValues:
     case StyleCssRuleType::FontPaletteValues:
+    case StyleCssRuleType::PositionTry:
       break;
   }
 }

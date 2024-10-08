@@ -11,15 +11,12 @@ MOCHITEST_MANIFESTS += ["test/mochitest.toml"]
 MOCHITEST_CHROME_MANIFESTS += ["test/chrome.toml"]
 
 EXPORTS += [
-    "nsIFormControlFrame.h",
     "nsISelectControlFrame.h",
-    "nsITextControlFrame.h",
 ]
 
 UNIFIED_SOURCES += [
     "HTMLSelectEventListener.cpp",
     "ListMutationObserver.cpp",
-    "nsButtonFrameRenderer.cpp",
     "nsCheckboxRadioFrame.cpp",
     "nsColorControlFrame.cpp",
     "nsComboboxControlFrame.cpp",

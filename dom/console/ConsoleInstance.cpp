@@ -65,13 +65,28 @@ ConsoleInstance::ConsoleInstance(JSContext* aCx,
 
   if (!aOptions.mMaxLogLevelPref.IsEmpty()) {
     if (!NS_IsMainThread()) {
-      NS_WARNING("Console.maxLogLevelPref is not supported on workers!");
       // Set the log level based on what we have.
       SetLogLevel();
+
+      // Flag an error to the console.
+      JS::Rooted<JS::Value> msg(aCx);
+      if (!ToJSValue(
+              aCx,
+              nsLiteralCString(
+                  "Console.maxLogLevelPref is not supported within workers!"),
+              &msg)) {
+        JS_ClearPendingException(aCx);
+        return;
+      }
+
+      AutoTArray<JS::Value, 1> sequence;
+      SequenceRooter rootedSequence(aCx, &sequence);
+      sequence.AppendElement(std::move(msg));
+      this->Error(aCx, std::move(sequence));
       return;
     }
 
-    CopyUTF16toUTF8(aOptions.mMaxLogLevelPref, mMaxLogLevelPref);
+    mMaxLogLevelPref = aOptions.mMaxLogLevelPref;
 
     Preferences::RegisterCallback(MaxLogLevelPrefChangedCallback,
                                   mMaxLogLevelPref, this);
@@ -80,8 +95,9 @@ ConsoleInstance::ConsoleInstance(JSContext* aCx,
 }
 
 ConsoleInstance::~ConsoleInstance() {
-  AssertIsOnMainThread();
-  if (!mMaxLogLevelPref.IsEmpty()) {
+  // We should only ever have set `mMaxLogLevelPref` when on the main thread,
+  // but check it here to be safe.
+  if (!mMaxLogLevelPref.IsEmpty() && NS_IsMainThread()) {
     Preferences::UnregisterCallback(MaxLogLevelPrefChangedCallback,
                                     mMaxLogLevelPref, this);
   }
@@ -106,9 +122,8 @@ ConsoleLogLevel PrefToValue(const nsACString& aPref,
     return aLevel;
   }
 
-  int index = FindEnumStringIndexImpl(value.get(), value.Length(),
-                                      ConsoleLogLevelValues::strings);
-  if (NS_WARN_IF(index < 0)) {
+  Maybe<ConsoleLogLevel> level = StringToEnum<ConsoleLogLevel>(value);
+  if (NS_WARN_IF(level.isNothing())) {
     nsString message;
     message.AssignLiteral("Invalid Console.maxLogLevelPref value: ");
     message.Append(NS_ConvertUTF8toUTF16(value));
@@ -118,8 +133,7 @@ ConsoleLogLevel PrefToValue(const nsACString& aPref,
     return aLevel;
   }
 
-  MOZ_ASSERT(index < (int)ConsoleLogLevelValues::Count);
-  return static_cast<ConsoleLogLevel>(index);
+  return level.value();
 }
 
 void ConsoleInstance::SetLogLevel() {
@@ -130,7 +144,6 @@ void ConsoleInstance::SetLogLevel() {
 // static
 void ConsoleInstance::MaxLogLevelPrefChangedCallback(
     const char* /* aPrefName */, void* aSelf) {
-  AssertIsOnMainThread();
   auto* instance = static_cast<ConsoleInstance*>(aSelf);
   if (MOZ_UNLIKELY(!instance->mConsole)) {
     // We've been unlinked already but not destroyed yet. Bail.
@@ -255,7 +268,7 @@ bool ConsoleInstance::ShouldLog(ConsoleLogLevel aLevel) {
 
 void ConsoleInstance::ReportForServiceWorkerScope(const nsAString& aScope,
                                                   const nsAString& aMessage,
-                                                  const nsAString& aFilename,
+                                                  const nsACString& aFilename,
                                                   uint32_t aLineNumber,
                                                   uint32_t aColumnNumber,
                                                   ConsoleLevel aLevel) {

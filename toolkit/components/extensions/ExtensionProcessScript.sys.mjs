@@ -11,6 +11,7 @@
 
 import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
 
+/** @type {Lazy} */
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
@@ -49,7 +50,7 @@ ChromeUtils.defineLazyGetter(lazy, "isContentScriptProcess", () => {
 });
 
 var extensions = new DefaultWeakMap(policy => {
-  return new lazy.ExtensionChild.BrowserExtensionContent(policy);
+  return new lazy.ExtensionChild(policy);
 });
 
 var pendingExtensions = new Map();
@@ -58,7 +59,7 @@ var ExtensionManager;
 
 ExtensionManager = {
   // WeakMap<WebExtensionPolicy, Map<number, WebExtensionContentScript>>
-  registeredContentScripts: new DefaultWeakMap(policy => new Map()),
+  registeredContentScripts: new DefaultWeakMap(() => new Map()),
 
   init() {
     Services.cpmm.addMessageListener("Extension:Startup", this);
@@ -325,7 +326,7 @@ ExtensionManager = {
           if (!policy) {
             break;
           }
-          // In the parent process, Extension.jsm updates the policy.
+          // In the parent process, Extension.sys.mjs updates the policy.
           if (lazy.isContentProcess) {
             lazy.ExtensionCommon.updateAllowedOrigins(
               policy,
@@ -342,7 +343,7 @@ ExtensionManager = {
                   perms.delete(perm);
                 }
               }
-              policy.permissions = perms;
+              policy.permissions = Array.from(perms);
             }
           }
 

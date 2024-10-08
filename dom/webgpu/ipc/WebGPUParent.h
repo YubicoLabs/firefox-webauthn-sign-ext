@@ -48,12 +48,11 @@ class WebGPUParent final : public PWebGPUParent, public SupportsWeakPtr {
   explicit WebGPUParent();
 
   ipc::IPCResult RecvInstanceRequestAdapter(
-      const dom::GPURequestAdapterOptions& aOptions,
-      const nsTArray<RawId>& aTargetIds,
+      const dom::GPURequestAdapterOptions& aOptions, RawId aAdapterId,
       InstanceRequestAdapterResolver&& resolver);
   ipc::IPCResult RecvAdapterRequestDevice(
       RawId aAdapterId, const ipc::ByteBuf& aByteBuf, RawId aDeviceId,
-      AdapterRequestDeviceResolver&& resolver);
+      RawId aQueueId, AdapterRequestDeviceResolver&& resolver);
   ipc::IPCResult RecvAdapterDrop(RawId aAdapterId);
   ipc::IPCResult RecvDeviceDestroy(RawId aDeviceId);
   ipc::IPCResult RecvDeviceDrop(RawId aDeviceId);
@@ -118,6 +117,10 @@ class WebGPUParent final : public PWebGPUParent, public SupportsWeakPtr {
                                    const ipc::ByteBuf& aByteBuf);
   ipc::IPCResult RecvCommandEncoderAction(RawId aEncoderId, RawId aDeviceId,
                                           const ipc::ByteBuf& aByteBuf);
+  ipc::IPCResult RecvRenderPass(RawId aEncoderId, RawId aDeviceId,
+                                const ipc::ByteBuf& aByteBuf);
+  ipc::IPCResult RecvComputePass(RawId aEncoderId, RawId aDeviceId,
+                                 const ipc::ByteBuf& aByteBuf);
   ipc::IPCResult RecvBumpImplicitBindGroupLayout(RawId aPipelineId,
                                                  bool aIsCompute,
                                                  uint32_t aIndex,
@@ -219,7 +222,7 @@ class WebGPUParent final : public PWebGPUParent, public SupportsWeakPtr {
   nsTHashSet<RawId> mLostDeviceIds;
 
   // Shared handle of wgpu device's fence.
-  RefPtr<gfx::FileHandleWrapper> mFenceHandle;
+  std::unordered_map<RawId, RefPtr<gfx::FileHandleWrapper>> mDeviceFenceHandles;
 
   // Store DeviceLostRequest structs for each device as unique_ptrs mapped
   // to their device ids. We keep these unique_ptrs alive as long as the

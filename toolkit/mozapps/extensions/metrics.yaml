@@ -29,8 +29,12 @@ addons_manager:
             - https://bugzilla.mozilla.org/1781974
             - https://bugzilla.mozilla.org/1817100
             - https://bugzilla.mozilla.org/1820153
+            - https://bugzilla.mozilla.org/1912166
         data_reviews:
+            - https://bugzilla.mozilla.org/show_bug.cgi?id=1433335#c8
             - https://bugzilla.mozilla.org/show_bug.cgi?id=1820153#c3
+        data_sensitivity:
+            - interaction
         notification_emails:
             - addons-dev-internal@mozilla.com
         extra_keys:
@@ -102,7 +106,7 @@ addons_manager:
                     site_warning, site_blocked,install_disabled_warning,
                     download_started, download_completed, download_failed
                 type: string
-        expires: 132
+        expires: 140
 
     update: *install_update_event
 
@@ -117,7 +121,10 @@ addons_manager:
             - https://bugzilla.mozilla.org/1699225
             - https://bugzilla.mozilla.org/1820153
         data_reviews:
+            - https://bugzilla.mozilla.org/show_bug.cgi?id=1653020#c6
             - https://bugzilla.mozilla.org/show_bug.cgi?id=1820153#c3
+        data_sensitivity:
+            - interaction
         notification_emails:
             - addons-dev-internal@mozilla.com
         extra_keys:
@@ -174,8 +181,12 @@ addons_manager:
             - https://bugzilla.mozilla.org/1781974
             - https://bugzilla.mozilla.org/1817100
             - https://bugzilla.mozilla.org/1820153
+            - https://bugzilla.mozilla.org/1912166
         data_reviews:
+            - https://bugzilla.mozilla.org/show_bug.cgi?id=1433335#c8
             - https://bugzilla.mozilla.org/show_bug.cgi?id=1820153#c3
+        data_sensitivity:
+            - interaction
         notification_emails:
             - addons-dev-internal@mozilla.com
         extra_keys:
@@ -206,51 +217,7 @@ addons_manager:
                     The number of permission description strings in the
                     extension permission doorhanger.
                 type: quantity
-        expires: 132
-
-    report:
-        type: event
-        description: An abuse report submitted by a user for a given extension.
-        bugs:
-            - https://bugzilla.mozilla.org/1544927
-            - https://bugzilla.mozilla.org/1580561
-            - https://bugzilla.mozilla.org/1590736
-            - https://bugzilla.mozilla.org/1630596
-            - https://bugzilla.mozilla.org/1672570
-            - https://bugzilla.mozilla.org/1714251
-            - https://bugzilla.mozilla.org/1749878
-            - https://bugzilla.mozilla.org/1780746
-            - https://bugzilla.mozilla.org/1781974
-            - https://bugzilla.mozilla.org/1817100
-            - https://bugzilla.mozilla.org/1820153
-        data_reviews:
-            - https://bugzilla.mozilla.org/show_bug.cgi?id=1820153#c3
-        notification_emails:
-            - addons-dev-internal@mozilla.com
-        extra_keys:
-            addon_id:
-                description: Id of the addon being reported.
-                type: string
-            addon_type:
-                description: |
-                    The type of the add-on being reported (missing on
-                    ERROR_ADDON_NOT_FOUND, ERROR_AMODETAILS_NOTFOUND
-                    and ERROR_AMODETAILS_FAILURE).
-                type: string
-            entry_point:
-                description: |
-                    Report entry point, one of: amo, menu,
-                    toolbar_context_menu, unified_context_menu, uninstall.
-                type: string
-            error_type:
-                description: |
-                    AbuseReport Error Type (included in case of submission
-                    failures). The error types include ERROR_ABORTED_SUBMIT,
-                    ERROR_ADDON_NOT_FOUND, ERROR_CLIENT, ERROR_NETWORK,
-                    ERROR_UNKNOWN, ERROR_RECENT_SUBMIT, ERROR_SERVER,
-                    ERROR_AMODETAILS_NOTFOUND, ERROR_AMODETAILS_FAILURE.
-                type: string
-        expires: 132
+        expires: 140
 
     report_suspicious_site:
         type: event
@@ -261,15 +228,19 @@ addons_manager:
             - https://bugzilla.mozilla.org/1806056
             - https://bugzilla.mozilla.org/1817100
             - https://bugzilla.mozilla.org/1820153
+            - https://bugzilla.mozilla.org/1912166
         data_reviews:
+            - https://bugzilla.mozilla.org/show_bug.cgi?id=1806056#c3
             - https://bugzilla.mozilla.org/show_bug.cgi?id=1820153#c3
+        data_sensitivity:
+            - stored_content
         notification_emails:
             - addons-dev-internal@mozilla.com
         extra_keys:
             suspicious_site:
                 description: The domain of the site that was reported.
                 type: string
-        expires: 132
+        expires: 140
 
 blocklist:
     last_modified_rs_addons_mblf:
@@ -288,9 +259,11 @@ blocklist:
             - https://bugzilla.mozilla.org/show_bug.cgi?id=1811159
             - https://bugzilla.mozilla.org/show_bug.cgi?id=1820155
             - https://bugzilla.mozilla.org/show_bug.cgi?id=1861296
+            - https://bugzilla.mozilla.org/show_bug.cgi?id=1912167
         data_reviews:
             - https://bugzilla.mozilla.org/show_bug.cgi?id=1607744#c11
             - https://bugzilla.mozilla.org/show_bug.cgi?id=1861296#c5
+            - https://bugzilla.mozilla.org/show_bug.cgi?id=1912167#c4
         data_sensitivity:
             - technical
         metadata:
@@ -299,7 +272,7 @@ blocklist:
         notification_emails:
             - addons-dev-internal@mozilla.com
             - rwu@mozilla.com
-        expires: 132
+        expires: never
     mlbf_source:
         type: string
         description: >
@@ -330,9 +303,11 @@ blocklist:
             - https://bugzilla.mozilla.org/show_bug.cgi?id=1811159
             - https://bugzilla.mozilla.org/show_bug.cgi?id=1820155
             - https://bugzilla.mozilla.org/show_bug.cgi?id=1861296
+            - https://bugzilla.mozilla.org/show_bug.cgi?id=1912167
         data_reviews:
             - https://bugzilla.mozilla.org/show_bug.cgi?id=1662857#c11
             - https://bugzilla.mozilla.org/show_bug.cgi?id=1861296#c5
+            - https://bugzilla.mozilla.org/show_bug.cgi?id=1912167#c4
         data_sensitivity:
             - technical
         metadata:
@@ -341,8 +316,11 @@ blocklist:
         notification_emails:
             - addons-dev-internal@mozilla.com
             - rwu@mozilla.com
-        expires: 132
+        expires: never
         telemetry_mirror: BLOCKLIST_MLBF_SOURCE
+        no_lint:
+          - GIFFT_NON_PING_LIFETIME
+
     mlbf_generation_time:
         type: datetime
         description: >
@@ -361,9 +339,11 @@ blocklist:
             - https://bugzilla.mozilla.org/show_bug.cgi?id=1811159
             - https://bugzilla.mozilla.org/show_bug.cgi?id=1820155
             - https://bugzilla.mozilla.org/show_bug.cgi?id=1861296
+            - https://bugzilla.mozilla.org/show_bug.cgi?id=1912167
         data_reviews:
             - https://bugzilla.mozilla.org/show_bug.cgi?id=1633466#c3
             - https://bugzilla.mozilla.org/show_bug.cgi?id=1861296#c5
+            - https://bugzilla.mozilla.org/show_bug.cgi?id=1912167#c4
         data_sensitivity:
             - technical
         metadata:
@@ -372,7 +352,7 @@ blocklist:
         notification_emails:
             - addons-dev-internal@mozilla.com
             - rwu@mozilla.com
-        expires: 132
+        expires: never
     mlbf_stash_time_oldest:
         type: datetime
         description: >
@@ -388,15 +368,17 @@ blocklist:
             - https://bugzilla.mozilla.org/show_bug.cgi?id=1811159
             - https://bugzilla.mozilla.org/show_bug.cgi?id=1820155
             - https://bugzilla.mozilla.org/show_bug.cgi?id=1861296
+            - https://bugzilla.mozilla.org/show_bug.cgi?id=1912167
         data_reviews:
             - https://bugzilla.mozilla.org/show_bug.cgi?id=1633466#c9
             - https://bugzilla.mozilla.org/show_bug.cgi?id=1861296#c5
+            - https://bugzilla.mozilla.org/show_bug.cgi?id=1912167#c4
         data_sensitivity:
             - technical
         notification_emails:
             - addons-dev-internal@mozilla.com
             - rwu@mozilla.com
-        expires: 132
+        expires: never
     mlbf_stash_time_newest:
         type: datetime
         description: >
@@ -412,9 +394,11 @@ blocklist:
             - https://bugzilla.mozilla.org/show_bug.cgi?id=1811159
             - https://bugzilla.mozilla.org/show_bug.cgi?id=1820155
             - https://bugzilla.mozilla.org/show_bug.cgi?id=1861296
+            - https://bugzilla.mozilla.org/show_bug.cgi?id=1912167
         data_reviews:
             - https://bugzilla.mozilla.org/show_bug.cgi?id=1633466#c9
             - https://bugzilla.mozilla.org/show_bug.cgi?id=1861296#c5
+            - https://bugzilla.mozilla.org/show_bug.cgi?id=1912167#c4
         data_sensitivity:
             - technical
         metadata:
@@ -423,7 +407,7 @@ blocklist:
         notification_emails:
             - addons-dev-internal@mozilla.com
             - rwu@mozilla.com
-        expires: 132
+        expires: never
     addon_block_change:
         type: event
         description: >
@@ -513,9 +497,11 @@ blocklist:
             - https://bugzilla.mozilla.org/show_bug.cgi?id=1811159
             - https://bugzilla.mozilla.org/show_bug.cgi?id=1820155
             - https://bugzilla.mozilla.org/show_bug.cgi?id=1861296
+            - https://bugzilla.mozilla.org/show_bug.cgi?id=1912167
         data_reviews:
             - https://bugzilla.mozilla.org/show_bug.cgi?id=1662857#c11
             - https://bugzilla.mozilla.org/show_bug.cgi?id=1861296#c5
+            - https://bugzilla.mozilla.org/show_bug.cgi?id=1912167#c4
         data_sensitivity:
             - technical
         metadata:
@@ -524,4 +510,4 @@ blocklist:
         notification_emails:
             - addons-dev-internal@mozilla.com
             - rwu@mozilla.com
-        expires: 132
+        expires: never

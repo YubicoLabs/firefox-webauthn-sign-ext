@@ -46,6 +46,7 @@ let wasmGlobalInterfaces = [
   { name: "Function", insecureContext: true, nightly: true },
   { name: "Exception", insecureContext: true },
   { name: "Tag", insecureContext: true },
+  { name: "JSTag", insecureContext: true },
   { name: "compile", insecureContext: true },
   { name: "compileStreaming", insecureContext: true },
   { name: "instantiate", insecureContext: true },
@@ -68,6 +69,7 @@ let ecmaGlobals = [
   { name: "Error", insecureContext: true },
   { name: "EvalError", insecureContext: true },
   { name: "FinalizationRegistry", insecureContext: true },
+  { name: "Float16Array", insecureContext: true },
   { name: "Float32Array", insecureContext: true },
   { name: "Float64Array", insecureContext: true },
   { name: "Function", insecureContext: true },
@@ -77,10 +79,10 @@ let ecmaGlobals = [
   { name: "Int8Array", insecureContext: true },
   { name: "InternalError", insecureContext: true },
   { name: "Intl", insecureContext: true },
+  { name: "Iterator", insecureContext: true },
   { name: "JSON", insecureContext: true },
   { name: "Map", insecureContext: true },
   { name: "MediaCapabilities", insecureContext: true },
-  { name: "MediaCapabilitiesInfo", insecureContext: true },
   { name: "Math", insecureContext: true },
   { name: "NaN", insecureContext: true },
   { name: "Number", insecureContext: true },
@@ -95,7 +97,7 @@ let ecmaGlobals = [
   {
     name: "SharedArrayBuffer",
     insecureContext: true,
-    crossOringinIsolated: true,
+    crossOriginIsolated: true,
   },
   { name: "String", insecureContext: true },
   { name: "Symbol", insecureContext: true },
@@ -133,6 +135,12 @@ let interfaceNamesInGlobalScope = [
   { name: "AbortController", insecureContext: true },
   // IMPORTANT: Do not change this list without review from a DOM peer!
   { name: "AbortSignal", insecureContext: true },
+  // IMPORTANT: Do not change this list without review from a DOM peer!
+  { name: "AudioData", insecureContext: true, nightlyAndroid: true },
+  // IMPORTANT: Do not change this list without review from a DOM peer!
+  { name: "AudioDecoder", nightlyAndroid: true },
+  // IMPORTANT: Do not change this list without review from a DOM peer!
+  { name: "AudioEncoder", nightlyAndroid: true },
   // IMPORTANT: Do not change this list without review from a DOM peer!
   { name: "Blob", insecureContext: true },
   // IMPORTANT: Do not change this list without review from a DOM peer!
@@ -184,7 +192,9 @@ let interfaceNamesInGlobalScope = [
   // IMPORTANT: Do not change this list without review from a DOM peer!
   { name: "DOMStringList", insecureContext: true },
   // IMPORTANT: Do not change this list without review from a DOM peer!
-  { name: "EncodedVideoChunk", insecureContext: true, nightly: true },
+  { name: "EncodedAudioChunk", insecureContext: true, nightlyAndroid: true },
+  // IMPORTANT: Do not change this list without review from a DOM peer!
+  { name: "EncodedVideoChunk", insecureContext: true, nightlyAndroid: true },
   // IMPORTANT: Do not change this list without review from a DOM peer!
   { name: "ErrorEvent", insecureContext: true },
   // IMPORTANT: Do not change this list without review from a DOM peer!
@@ -249,6 +259,12 @@ let interfaceNamesInGlobalScope = [
   { name: "ImageBitmapRenderingContext", insecureContext: true },
   // IMPORTANT: Do not change this list without review from a DOM peer!
   { name: "ImageData", insecureContext: true },
+  // IMPORTANT: Do not change this list without review from a DOM peer!
+  { name: "ImageDecoder", nightly: true },
+  // IMPORTANT: Do not change this list without review from a DOM peer!
+  { name: "ImageTrack", nightly: true },
+  // IMPORTANT: Do not change this list without review from a DOM peer!
+  { name: "ImageTrackList", nightly: true },
   // IMPORTANT: Do not change this list without review from a DOM peer!
   "Lock",
   // IMPORTANT: Do not change this list without review from a DOM peer!
@@ -354,13 +370,13 @@ let interfaceNamesInGlobalScope = [
   // IMPORTANT: Do not change this list without review from a DOM peer!
   { name: "URLSearchParams", insecureContext: true },
   // IMPORTANT: Do not change this list without review from a DOM peer!
-  { name: "VideoColorSpace", insecureContext: true, nightly: true },
+  { name: "VideoColorSpace", insecureContext: true, nightlyAndroid: true },
   // IMPORTANT: Do not change this list without review from a DOM peer!
-  { name: "VideoDecoder", nightly: true },
+  { name: "VideoDecoder", nightlyAndroid: true },
   // IMPORTANT: Do not change this list without review from a DOM peer!
-  { name: "VideoEncoder", nightly: true },
+  { name: "VideoEncoder", nightlyAndroid: true },
   // IMPORTANT: Do not change this list without review from a DOM peer!
-  { name: "VideoFrame", insecureContext: true, nightly: true },
+  { name: "VideoFrame", insecureContext: true, nightlyAndroid: true },
   // IMPORTANT: Do not change this list without review from a DOM peer!
   { name: "WebGL2RenderingContext", insecureContext: true },
   // IMPORTANT: Do not change this list without review from a DOM peer!
@@ -487,7 +503,7 @@ function entryDisabled(
     // only in secure contexts.
     (isInsecureContext && !entry.insecureContext) ||
     entry.earlyBetaOrEarlier === !isEarlyBetaOrEarlier ||
-    entry.crossOringinIsolated === !isCrossOringinIsolated ||
+    entry.crossOriginIsolated === !isCrossOringinIsolated ||
     entry.disabled
   );
 }

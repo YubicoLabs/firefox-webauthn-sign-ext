@@ -22,6 +22,12 @@
 
 namespace js {
 
+enum class ArraySortResult : uint32_t;
+
+namespace jit {
+class TrampolineNativeFrameLayout;
+}
+
 /*
  * TypedArrayObject
  *
@@ -69,27 +75,30 @@ class TypedArrayObject : public ArrayBufferViewObject {
   static bool ensureHasBuffer(JSContext* cx,
                               Handle<TypedArrayObject*> typedArray);
 
- protected:
-  size_t rawByteLength() const { return rawLength() * bytesPerElement(); }
-
-  size_t rawLength() const {
-    return size_t(getFixedSlot(LENGTH_SLOT).toPrivate());
+ public:
+  /**
+   * Return the current length, or |Nothing| if the TypedArray is detached or
+   * out-of-bounds.
+   */
+  mozilla::Maybe<size_t> length() const {
+    return ArrayBufferViewObject::length();
   }
 
- public:
-  mozilla::Maybe<size_t> byteOffset() const;
-
+  /**
+   * Return the current byteLength, or |Nothing| if the TypedArray is detached
+   * or out-of-bounds.
+   */
   mozilla::Maybe<size_t> byteLength() const {
     return length().map(
         [this](size_t value) { return value * bytesPerElement(); });
   }
 
-  mozilla::Maybe<size_t> length() const;
-
   // Self-hosted TypedArraySubarray function needs to read [[ByteOffset]], even
   // when it's currently out-of-bounds.
   size_t byteOffsetMaybeOutOfBounds() const {
-    return ArrayBufferViewObject::byteOffset();
+    // dataPointerOffset() returns the [[ByteOffset]] spec value, except when
+    // the buffer is detached. (bug 1840991)
+    return ArrayBufferViewObject::dataPointerOffset();
   }
 
   template <AllowGC allowGC>
@@ -98,11 +107,11 @@ class TypedArrayObject : public ArrayBufferViewObject {
   bool getElementPure(size_t index, Value* vp);
 
   /*
-   * Copy all elements from this typed array to vp. vp must point to rooted
-   * memory.
+   * Copy |length| elements from this typed array to vp. vp must point to rooted
+   * memory. |length| must not exceed the typed array's current length.
    */
   static bool getElements(JSContext* cx, Handle<TypedArrayObject*> tarray,
-                          Value* vp);
+                          size_t length, Value* vp);
 
   static bool GetTemplateObjectForNative(JSContext* cx, Native native,
                                          const JS::HandleValueArray args,
@@ -128,6 +137,7 @@ class TypedArrayObject : public ArrayBufferViewObject {
 
   static bool set(JSContext* cx, unsigned argc, Value* vp);
   static bool copyWithin(JSContext* cx, unsigned argc, Value* vp);
+  static bool sort(JSContext* cx, unsigned argc, Value* vp);
 
   bool convertValue(JSContext* cx, HandleValue v,
                     MutableHandleValue result) const;
@@ -146,13 +156,16 @@ class FixedLengthTypedArrayObject : public TypedArrayObject {
   static constexpr uint32_t INLINE_BUFFER_LIMIT =
       (NativeObject::MAX_FIXED_SLOTS - FIXED_DATA_START) * sizeof(Value);
 
+  inline gc::AllocKind allocKindForTenure() const;
   static inline gc::AllocKind AllocKindForLazyBuffer(size_t nbytes);
 
-  size_t byteOffset() const { return ArrayBufferViewObject::byteOffset(); }
+  size_t byteOffset() const {
+    return ArrayBufferViewObject::byteOffsetSlotValue();
+  }
 
-  size_t byteLength() const { return rawByteLength(); }
+  size_t byteLength() const { return length() * bytesPerElement(); }
 
-  size_t length() const { return rawLength(); }
+  size_t length() const { return ArrayBufferViewObject::lengthSlotValue(); }
 
   bool hasInlineElements() const;
   void setInlineElements();
@@ -176,13 +189,7 @@ class FixedLengthTypedArrayObject : public TypedArrayObject {
 
 class ResizableTypedArrayObject : public TypedArrayObject {
  public:
-  static const uint8_t AUTO_LENGTH_SLOT = TypedArrayObject::RESERVED_SLOTS;
-
-  static const uint8_t RESERVED_SLOTS = TypedArrayObject::RESERVED_SLOTS + 1;
-
-  bool isAutoLength() const {
-    return getFixedSlot(AUTO_LENGTH_SLOT).toBoolean();
-  }
+  static const uint8_t RESERVED_SLOTS = RESIZABLE_RESERVED_SLOTS;
 };
 
 extern TypedArrayObject* NewTypedArrayWithTemplateAndLength(
@@ -294,11 +301,6 @@ bool SetTypedArrayElement(JSContext* cx, Handle<TypedArrayObject*> obj,
                           uint64_t index, HandleValue v,
                           ObjectOpResult& result);
 
-bool SetTypedArrayElementOutOfBounds(JSContext* cx,
-                                     Handle<TypedArrayObject*> obj,
-                                     uint64_t index, HandleValue v,
-                                     ObjectOpResult& result);
-
 /*
  * Implements [[DefineOwnProperty]] for TypedArrays when the property
  * key is a TypedArray index.
@@ -306,10 +308,6 @@ bool SetTypedArrayElementOutOfBounds(JSContext* cx,
 bool DefineTypedArrayElement(JSContext* cx, Handle<TypedArrayObject*> obj,
                              uint64_t index, Handle<PropertyDescriptor> desc,
                              ObjectOpResult& result);
-
-// Sort a typed array in ascending order. The typed array may be wrapped, but
-// must not be detached.
-bool intrinsic_TypedArrayNativeSort(JSContext* cx, unsigned argc, Value* vp);
 
 static inline constexpr unsigned TypedArrayShift(Scalar::Type viewType) {
   switch (viewType) {
@@ -319,6 +317,7 @@ static inline constexpr unsigned TypedArrayShift(Scalar::Type viewType) {
       return 0;
     case Scalar::Int16:
     case Scalar::Uint16:
+    case Scalar::Float16:
       return 1;
     case Scalar::Int32:
     case Scalar::Uint32:
@@ -337,6 +336,9 @@ static inline constexpr unsigned TypedArrayShift(Scalar::Type viewType) {
 static inline constexpr unsigned TypedArrayElemSize(Scalar::Type viewType) {
   return 1u << TypedArrayShift(viewType);
 }
+
+extern ArraySortResult TypedArraySortFromJit(
+    JSContext* cx, jit::TrampolineNativeFrameLayout* frame);
 
 }  // namespace js
 

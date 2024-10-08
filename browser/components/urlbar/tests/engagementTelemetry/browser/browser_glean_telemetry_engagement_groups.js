@@ -59,9 +59,9 @@ add_task(async function recent_search() {
     assert: () =>
       assertEngagementTelemetry([
         {
-          groups: "recent_search,suggested_index",
-          results: "recent_search,action",
-          n_results: 2,
+          groups: "recent_search",
+          results: "recent_search",
+          n_results: 1,
         },
       ]),
   });
@@ -114,9 +114,9 @@ add_task(async function top_site() {
     assert: () =>
       assertEngagementTelemetry([
         {
-          groups: "top_site,suggested_index",
-          results: "top_site,action",
-          n_results: 2,
+          groups: "top_site",
+          results: "top_site",
+          n_results: 1,
         },
       ]),
   });
@@ -128,9 +128,9 @@ add_task(async function clipboard() {
     assert: () =>
       assertEngagementTelemetry([
         {
-          groups: "general,suggested_index",
-          results: "clipboard,action",
-          n_results: 2,
+          groups: "general",
+          results: "clipboard",
+          n_results: 1,
         },
       ]),
   });
@@ -170,9 +170,9 @@ add_task(async function general() {
     assert: () =>
       assertEngagementTelemetry([
         {
-          groups: "heuristic,suggested_index,general",
-          results: "search_engine,action,bookmark",
-          n_results: 3,
+          groups: "heuristic,general",
+          results: "search_engine,bookmark",
+          n_results: 2,
         },
       ]),
   });
@@ -188,6 +188,40 @@ add_task(async function general() {
         },
       ]),
   });
+});
+
+add_task(async function restrict_keywords() {
+  const telemetryTemplate = {
+    groups:
+      "general,general,general,general,general,general,restrict_keyword," +
+      "restrict_keyword,restrict_keyword,restrict_keyword",
+    results:
+      "search_engine,search_engine,search_engine,search_engine," +
+      "search_engine,search_engine,restrict_keyword_bookmarks," +
+      "restrict_keyword_tabs,restrict_keyword_history,restrict_keyword_actions",
+    n_results: 10,
+  };
+  let telemetry = [];
+  await doRestrictKeywordsTest({
+    trigger: async (rowToSelect, category) => {
+      await triggerKeywordTest(rowToSelect, category);
+    },
+    assert: () => assertEngagementTelemetry(telemetry),
+  });
+
+  async function triggerKeywordTest(rowToSelect, category) {
+    EventUtils.synthesizeMouseAtCenter(rowToSelect, {});
+    await UrlbarTestUtils.exitSearchMode(window);
+    await UrlbarTestUtils.promisePopupClose(window, () => {
+      EventUtils.synthesizeKey("KEY_Escape");
+    });
+
+    const telemetryItem = {
+      ...telemetryTemplate,
+      selected_result: `restrict_keyword_${category}`,
+    };
+    telemetry.push(telemetryItem);
+  }
 });
 
 add_task(async function suggest() {
@@ -247,14 +281,15 @@ add_task(async function always_empty_if_drop_go() {
     },
   ];
 
-  await doTest(async browser => {
+  await doTest(async () => {
     await doDropAndGo("example.com");
 
     assertEngagementTelemetry(expected);
   });
 
-  await doTest(async browser => {
+  await doTest(async () => {
     // Open the results view once.
+    await addTopSites("https://example.com/");
     await showResultByArrowDown();
     await UrlbarTestUtils.promisePopupClose(window);
 
@@ -274,14 +309,15 @@ add_task(async function always_empty_if_paste_go() {
     },
   ];
 
-  await doTest(async browser => {
+  await doTest(async () => {
     await doPasteAndGo("example.com");
 
     assertEngagementTelemetry(expected);
   });
 
-  await doTest(async browser => {
+  await doTest(async () => {
     // Open the results view once.
+    await addTopSites("https://example.com/");
     await showResultByArrowDown();
     await UrlbarTestUtils.promisePopupClose(window);
 

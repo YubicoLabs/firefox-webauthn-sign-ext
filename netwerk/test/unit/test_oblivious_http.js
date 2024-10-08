@@ -57,6 +57,19 @@ add_task(async function test_oblivious_http() {
     ),
     new ObliviousHttpTestCase(
       new ObliviousHttpTestRequest(
+        "PUT",
+        NetUtil.newURI("http://example.test"),
+        { "X-Some-Header": "header value", "X-Some-Other-Header": "25" },
+        "Putting some content..."
+      ),
+      new ObliviousHttpTestResponse(
+        418,
+        { "X-Teapot": "teapot" },
+        "I'm a teapot"
+      )
+    ),
+    new ObliviousHttpTestCase(
+      new ObliviousHttpTestRequest(
         "GET",
         NetUtil.newURI("http://example.test/404"),
         { "X-Some-Header": "header value", "X-Some-Other-Header": "25" },
@@ -147,7 +160,7 @@ async function run_one_testcase(testcase) {
       false
     );
   }
-  if (testcase.request.method == "POST") {
+  if (testcase.request.method == "POST" || testcase.request.method == "PUT") {
     let uploadChannel = obliviousHttpChannel.QueryInterface(
       Ci.nsIUploadChannel2
     );
@@ -167,8 +180,8 @@ async function run_one_testcase(testcase) {
       false
     );
   }
-  let response = await new Promise((resolve, reject) => {
-    NetUtil.asyncFetch(obliviousHttpChannel, function (inputStream, result) {
+  let response = await new Promise(resolve => {
+    NetUtil.asyncFetch(obliviousHttpChannel, function (inputStream) {
       let scriptableInputStream = Cc[
         "@mozilla.org/scriptableinputstream;1"
       ].createInstance(Ci.nsIScriptableInputStream);
@@ -200,7 +213,7 @@ async function run_one_testcase(testcase) {
     ).relayChannel;
     equal(relayChannel.responseStatus, 404);
   }
-  await new Promise((resolve, reject) => {
+  await new Promise(resolve => {
     httpServer.stop(resolve);
   });
 }

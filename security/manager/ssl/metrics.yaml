@@ -9,6 +9,22 @@ $schema: moz://mozilla.org/schemas/glean/metrics/2-0-0
 $tags:
   - 'Core :: Security: PSM'
 
+cert_storage:
+  memory:
+    type: memory_distribution
+    memory_unit: byte
+    description: >
+      Heap memory used by cert_storage.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1910500
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1910500
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - jschanck@mozilla.com
+    expires: 142
+
 data_storage:
   alternate_services:
     type: quantity
@@ -53,26 +69,6 @@ data_storage:
     expires: never
     unit: entries
 
-oskeystore:
-  self_test:
-    type: labeled_boolean
-    description:
-      Whether or not each step of the OSKeyStore self test succeeded.
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1855759
-    data_reviews:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1855759
-    data_sensitivity:
-      - interaction
-    notification_emails:
-      - dkeeler@mozilla.com
-    expires: 126
-    labels:
-      - generate
-      - available
-      - encrypt
-      - decrypt
-
 tls:
   certificate_verifications:
     type: counter
@@ -88,7 +84,7 @@ tls:
   xyber_intolerance_reason:
     type: labeled_counter
     description: >
-      The error that was returned from a failed TLS 1.3 handshake in which the client sent a Xyber key share (see tlsIntoleranceTelemetryBucket() in nsNSSIOLayer.cpp).
+      The error that was returned from a failed TLS 1.3 handshake in which the client sent a mlkem768x25519 key share (see tlsIntoleranceTelemetryBucket() in nsNSSIOLayer.cpp).
     data_sensitivity:
       - technical
     bugs:
@@ -116,6 +112,94 @@ tls:
       - SSL_ERROR_RX_UNEXPECTED_RECORD_TYPE
       - SSL_ERROR_RX_MALFORMED_HYBRID_KEY_SHARE
       - SSL_ERROR_UNSUPPORTED_VERSION
+
+cert_compression:
+    used:
+      type: labeled_counter
+      description:
+        The number of times each certificate compression algorithm was used.
+      data_sensitivity:
+        - interaction
+      bugs:
+        - https://bugzilla.mozilla.org/1881027
+      data_reviews:
+        - https://bugzilla.mozilla.org/1881027
+      notification_emails:
+        - anna.weine@mozilla.com
+      expires: 136
+      labels:
+        - zlib
+        - brotli
+        - zstd
+
+    failures:
+      type: labeled_counter
+      description:
+        The number of times each certificate compression algorithm returned an error.
+      data_sensitivity:
+        - interaction
+      bugs:
+        - https://bugzilla.mozilla.org/1881027
+      data_reviews:
+        - https://bugzilla.mozilla.org/1881027
+      notification_emails:
+        - anna.weine@mozilla.com
+      expires: 136
+      labels:
+        - zlib
+        - brotli
+        - zstd
+
+    zlib_saved_bytes:
+      type: custom_distribution
+      description:
+        The difference between the length of encoded certificate vs the actual certificate.
+      data_sensitivity:
+        - interaction
+      bugs:
+        - https://bugzilla.mozilla.org/1881027
+      data_reviews:
+        - https://bugzilla.mozilla.org/1881027
+      notification_emails:
+        - anna.weine@mozilla.com
+      histogram_type: exponential
+      range_max: 65536
+      bucket_count: 100
+      expires: 136
+
+    brotli_saved_bytes:
+      type: custom_distribution
+      description:
+        The difference between the length of encoded certificate vs the actual certificate.
+      data_sensitivity:
+        - interaction
+      bugs:
+        - https://bugzilla.mozilla.org/1885138
+      data_reviews:
+        - https://bugzilla.mozilla.org/1885138
+      notification_emails:
+        - anna.weine@mozilla.com
+      histogram_type: exponential
+      range_max: 65536
+      bucket_count: 100
+      expires: 136
+
+    zstd_saved_bytes:
+      type: custom_distribution
+      description:
+        The difference between the length of encoded certificate vs the actual certificate.
+      data_sensitivity:
+        - interaction
+      bugs:
+        - https://bugzilla.mozilla.org/1904125
+      data_reviews:
+        - https://bugzilla.mozilla.org/1904125
+      notification_emails:
+        - anna.weine@mozilla.com
+      histogram_type: exponential
+      range_max: 65536
+      bucket_count: 100
+      expires: 136
 
 verification_used_cert_from:
   tls_handshake:
@@ -178,3 +262,111 @@ verification_used_cert_from:
       - dkeeler@mozilla.com
     expires: never
     denominator_metric: tls.certificate_verifications
+
+pkcs11:
+  third_party_modules_loaded:
+    type: quantity
+    description:
+      The number of third-party PKCS#11 modules loaded.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1905453
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1905453
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - dkeeler@mozilla.com
+    expires: never
+    unit: modules
+
+cert_verification_time:
+  success:
+    type: timing_distribution
+    time_unit: microsecond
+    description: >
+      The time it takes to successfully verify a certificate in a TLS handshake.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1862062
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1913794
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1862062
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1913794
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - seceng-telemetry@mozilla.com
+      - dkeeler@mozilla.com
+    expires: never
+
+  failure:
+    type: timing_distribution
+    time_unit: microsecond
+    description: >
+      The time it takes to fail to verify a certificate in a TLS handshake.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1862062
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1913794
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1862062
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1913794
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - seceng-telemetry@mozilla.com
+      - dkeeler@mozilla.com
+    expires: never
+
+ocsp_request_time:
+  success:
+    type: timing_distribution
+    time_unit: millisecond
+    description: >
+      The time it takes to make an OCSP request that succeeded.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1862062
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1913794
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1862062
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1913794
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - seceng-telemetry@mozilla.com
+      - dkeeler@mozilla.com
+    expires: never
+
+  failure:
+    type: timing_distribution
+    time_unit: millisecond
+    description: >
+      The time it takes to make an OCSP request that failed.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1862062
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1913794
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1862062
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1913794
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - seceng-telemetry@mozilla.com
+      - dkeeler@mozilla.com
+    expires: never
+
+  cancel:
+    type: timing_distribution
+    time_unit: millisecond
+    description: >
+      The time it takes to make an OCSP request that was cancelled.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1862062
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1913794
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1862062
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1913794
+    data_sensitivity:
+      - technical
+    notification_emails:
+      - seceng-telemetry@mozilla.com
+      - dkeeler@mozilla.com
+    expires: never

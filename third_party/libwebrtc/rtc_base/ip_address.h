@@ -82,13 +82,6 @@ class RTC_EXPORT IPAddress {
   bool operator<(const IPAddress& other) const;
   bool operator>(const IPAddress& other) const;
 
-#ifdef WEBRTC_UNIT_TEST
-  inline std::ostream& operator<<(  // no-presubmit-check TODO(webrtc:8982)
-      std::ostream& os) {           // no-presubmit-check TODO(webrtc:8982)
-    return os << ToString();
-  }
-#endif  // WEBRTC_UNIT_TEST
-
   int family() const { return family_; }
   in_addr ipv4_address() const;
   in6_addr ipv6_address() const;
@@ -162,8 +155,8 @@ RTC_EXPORT bool IPFromString(absl::string_view str,
                              int flags,
                              InterfaceAddress* out);
 bool IPIsAny(const IPAddress& ip);
-bool IPIsLoopback(const IPAddress& ip);
-bool IPIsLinkLocal(const IPAddress& ip);
+RTC_EXPORT bool IPIsLoopback(const IPAddress& ip);
+RTC_EXPORT bool IPIsLinkLocal(const IPAddress& ip);
 // Identify a private network address like "192.168.111.222"
 // (see https://en.wikipedia.org/wiki/Private_network )
 bool IPIsPrivateNetwork(const IPAddress& ip);

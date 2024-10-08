@@ -155,14 +155,48 @@ class TextInputDelegateTest : BaseSessionTest() {
             ic.commitText(text, newCursorPosition)
             return
         }
+        // InputConnection.commitText might not dispatch composition event if no composition.
+        // So we look both input event and compositionend event for the completion.
         val promise = mainSession.evaluatePromiseJS(
             when (id) {
-                "#designmode" -> "new Promise(r => document.querySelector('$id').contentDocument.addEventListener('compositionend', r, { once: true }))"
-                else -> "new Promise(r => document.querySelector('$id').addEventListener('compositionend', r, { once: true }))"
+                "#designmode" -> """(function() {
+                      const doc = document.querySelector('$id').contentDocument;
+                      const p1 = new Promise(r => doc.addEventListener('compositionend', r, { once: true }));
+                      const p2 = new Promise(
+                          r => doc.addEventListener('input',
+                              function handler(e) {
+                                if (!e.isComposing) {
+                                  r();
+                                  doc.removeEventListener('input', handler);
+                                }
+                              }));
+                      return Promise.any([p1, p2]);
+                    })()
+                """.trimIndent()
+                else -> """(function() {
+                      const element = document.querySelector('$id');
+                      const p1 = new Promise(r => element.addEventListener('compositionend', r, { once: true }));
+                      const p2 = new Promise(
+                          r => element.addEventListener('input',
+                              function handler(e) {
+                                if (!e.isComposing) {
+                                  r();
+                                  element.removeEventListener('input', handler);
+                                }
+                              }));
+                      return Promise.any([p1, p2]);
+                    })()
+                """.trimIndent()
             },
         )
         ic.commitText(text, newCursorPosition)
         promise.value
+
+        // In Gecko, commit text always set caret position to the end of committed text.
+        // So if the newCursorPosition isn't 1, Gecko may notify new position after committing text.
+        if (newCursorPosition != 1) {
+            mainSession.waitForJS("new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
+        }
     }
 
     private fun deleteSurroundingText(ic: InputConnection, before: Int, after: Int) {
@@ -537,7 +571,8 @@ class TextInputDelegateTest : BaseSessionTest() {
             "Can commit text (select before)",
             ic,
             "foobarfoo",
-            5, /* checkGecko */
+            5,
+            /* checkGecko */
             false,
         )
     }
@@ -641,7 +676,8 @@ class TextInputDelegateTest : BaseSessionTest() {
             "Can set new composing region text",
             ic,
             "frabar",
-            6, /* checkGecko */
+            6,
+            /* checkGecko */
             false,
         )
 
@@ -678,6 +714,7 @@ class TextInputDelegateTest : BaseSessionTest() {
 
     @WithDisplay(width = 512, height = 512)
     // Child process updates require having a display.
+    @Ignore("Failing frequently, see: https://bugzilla.mozilla.org/show_bug.cgi?id=1741790")
     @Test
     fun inputConnection_selectionByArrowKey() {
         setupContent("")
@@ -826,7 +863,13 @@ class TextInputDelegateTest : BaseSessionTest() {
         }.joinToString("")
         setupContent(content)
         val ic = mainSession.textInput.onCreateInputConnection(EditorInfo())!!
-        assertText("Can set large initial text", ic, content, /* checkGecko */ false)
+        assertText(
+            "Can set large initial text",
+            ic,
+            content,
+            /* checkGecko */
+            false,
+        )
     }
 
     @SdkSuppress(minSdkVersion = Build.VERSION_CODES.N_MR1)
@@ -1279,6 +1322,51 @@ class TextInputDelegateTest : BaseSessionTest() {
         assertText("commit abc", ic, "abc")
     }
 
+    // Bug 1837931 - When 2nd commitText uses -1 as newCursorPosition into batch mode, text
+    // cannot insert correct position.
+    @WithDisplay(width = 512, height = 512)
+    // Child process updates require having a display.
+    @Test
+    fun inputConnection_multiple_commitText_into_batchEdit() {
+        setupContent("")
+        val ic = mainSession.textInput.onCreateInputConnection(EditorInfo())!!
+
+        val promise = mainSession.evaluatePromiseJS(
+            when (id) {
+                "#designmode" -> """
+                      new Promise(
+                          r => document.querySelector('$id').contentDocument.addEventListener('keyup', function handler(e) {
+                                if (e.key == "c") {
+                                  r();
+                                  document.querySelector('$id').contentDocument.removeEventListener('keyup', handler);
+                                }
+                              }))
+                """.trimIndent()
+
+                else -> """
+                      new Promise(
+                          r => document.querySelector('$id').addEventListener('keyup', function handler(e) {
+                                if (e.key == "c") {
+                                  r();
+                                  document.querySelector('$id').removeEventListener('keyup', handler);
+                                }
+                              }))
+                """.trimIndent()
+            },
+        )
+
+        // Emulate GBoard's InputConnection API calls
+        ic.beginBatchEdit()
+        ic.commitText("ab", 1)
+        ic.commitText("c", -1)
+        ic.endBatchEdit()
+
+        promise.value
+        processChildEvents()
+
+        assertText("committed text is \"abc\"", ic, "abc")
+    }
+
     // Bug 1593683 - Cursor is jumping when using the arrow keys in input field on GBoard
     @WithDisplay(width = 512, height = 512)
     // Child process updates require having a display.
@@ -1294,7 +1382,14 @@ class TextInputDelegateTest : BaseSessionTest() {
         pressKey(ic, KeyEvent.KEYCODE_DPAD_LEFT)
         pressKey(ic, KeyEvent.KEYCODE_DPAD_LEFT)
         pressKey(ic, KeyEvent.KEYCODE_DPAD_LEFT)
-        assertSelection("IME caret is moved to top", ic, 0, 0, /* checkGecko */ false)
+        assertSelection(
+            "IME caret is moved to top",
+            ic,
+            0,
+            0,
+            /* checkGecko */
+            false,
+        )
 
         setComposingText(ic, "bar", 1)
         finishComposingText(ic)

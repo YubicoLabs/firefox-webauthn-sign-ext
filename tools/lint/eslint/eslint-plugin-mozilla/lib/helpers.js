@@ -191,13 +191,13 @@ module.exports = {
     let parents = [];
 
     estraverse.traverse(ast, {
-      enter(node, parent) {
+      enter(node) {
         listener(node.type, node, parents);
 
         parents.push(node);
       },
 
-      leave(node, parent) {
+      leave() {
         if (!parents.length) {
           throw new Error("Left more nodes than entered.");
         }
@@ -285,7 +285,7 @@ module.exports = {
    * @return {Object}
    *         Espree compatible permissive config.
    */
-  getPermissiveConfig({ useBabel = true } = {}) {
+  getPermissiveConfig() {
     return {
       range: true,
       loc: true,
@@ -511,7 +511,7 @@ module.exports = {
             manifest,
           });
         } catch (e) {
-          console.log(
+          console.error(
             "TOML ERROR: " +
               e.message +
               " @line: " +
@@ -634,17 +634,23 @@ module.exports = {
 
   /**
    * Gets the root directory of the repository by walking up directories from
-   * this file until a .eslintignore file is found. If this fails, the same
-   * procedure will be attempted from the current working dir.
+   * this file until the top-level mozilla-central package.json file is found.
+   * If this fails, the same procedure will be attempted from the current
+   * working dir.
+   *
    * @return {String} The absolute path of the repository directory
    */
   get rootDir() {
     if (!gRootDir) {
-      function searchUpForIgnore(dirName, filename) {
+      function searchUpForPackage(dirName) {
         let parsed = path.parse(dirName);
         while (parsed.root !== dirName) {
-          if (fs.existsSync(path.join(dirName, filename))) {
-            return dirName;
+          let possibleFile = path.join(dirName, "package.json");
+          if (fs.existsSync(possibleFile)) {
+            let packageData = require(possibleFile);
+            if (packageData.name == "mozilla-central") {
+              return dirName;
+            }
           }
           // Move up a level
           dirName = parsed.dir;
@@ -653,15 +659,9 @@ module.exports = {
         return null;
       }
 
-      let possibleRoot = searchUpForIgnore(
-        path.dirname(module.filename),
-        ".eslintignore"
-      );
+      let possibleRoot = searchUpForPackage(path.dirname(module.filename));
       if (!possibleRoot) {
-        possibleRoot = searchUpForIgnore(path.resolve(), ".eslintignore");
-      }
-      if (!possibleRoot) {
-        possibleRoot = searchUpForIgnore(path.resolve(), "package.json");
+        possibleRoot = searchUpForPackage(path.resolve());
       }
       if (!possibleRoot) {
         // We've couldn't find a root from the module or CWD, so lets just go
@@ -793,5 +793,39 @@ module.exports = {
       return node.name;
     }
     return null;
+  },
+
+  /**
+   * Gets the scope for a node taking account of where the scope function
+   * is available (supports node versions earlier than 8.37.0).
+   *
+   * @param {object} context
+   *   The context passed from ESLint.
+   * @param {object} node
+   *   The node to get the scope for.
+   * returns {function}
+   *   The getScope function object.
+   */
+  getScope(context, node) {
+    return context.sourceCode?.getScope
+      ? context.sourceCode.getScope(node)
+      : context.getScope();
+  },
+
+  /**
+   * Gets the ancestors for a node taking account of where the ancestors function
+   * is available (supports node versions earlier than 8.38.0).
+   *
+   * @param {object} context
+   *   The context passed from ESLint.
+   * @param {object} node
+   *   The node to get the scope for.
+   * returns {function}
+   *   The getScope function object.
+   */
+  getAncestors(context, node) {
+    return context.sourceCode?.getAncestors
+      ? context.sourceCode.getAncestors(node)
+      : context.getAncestors();
   },
 };

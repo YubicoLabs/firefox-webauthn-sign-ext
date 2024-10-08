@@ -111,6 +111,7 @@ interface GleanCounter : GleanMetric {
 
 dictionary GleanDistributionData {
   required unsigned long long sum;
+  required unsigned long long count;
   required record<UTF8String, unsigned long long> values;
 };
 
@@ -219,6 +220,16 @@ interface GleanCustomDistribution : GleanMetric {
    * and report an `ErrorType::InvalidValue` for each of them.
    */
   undefined accumulateSamples(sequence<long long> aSamples);
+
+  /**
+   * Accumulates the provided single signed sample in the metric.
+   *
+   * @param aSample - The sample to be recorded by the metric.
+   *
+   * Notes: Discards any negative value of `sample` and reports an
+   * `ErrorType::InvalidValue`.
+   */
+  undefined accumulateSingleSample(long long aSample);
 
   /**
    * **Test-only API**
@@ -641,4 +652,36 @@ interface GleanText : GleanMetric {
    */
   [Throws, ChromeOnly]
   UTF8String? testGetValue(optional UTF8String aPingName = "");
+};
+
+[Func="nsGlobalWindowInner::IsGleanNeeded", Exposed=Window]
+interface GleanObject : GleanMetric {
+  /**
+   * Set to the specified object.
+   *
+   * The structure of the metric is validated against the predefined structure.
+   *
+   * @param object The object to set the metric to.
+   */
+  undefined set(object value);
+
+  /**
+   * **Test-only API**
+   *
+   * Gets the currently stored value as an object.
+   *
+   * This function will attempt to await the last parent-process task (if any)
+   * writing to the the metric's storage engine before returning a value.
+   * This function will not wait for data from child processes.
+   *
+   * This doesn't clear the stored value.
+   * Parent process only. Panics in child processes.
+   *
+   * @param aPingName The (optional) name of the ping to retrieve the metric
+   *        for. Defaults to the first value in `send_in_pings`.
+   *
+   * @return value of the stored metric, or undefined if there is no value.
+   */
+  [Throws, ChromeOnly]
+  object? testGetValue(optional UTF8String aPingName = "");
 };

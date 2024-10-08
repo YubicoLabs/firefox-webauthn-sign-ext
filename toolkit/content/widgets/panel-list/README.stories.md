@@ -6,9 +6,10 @@ children and optional `hr` elements as separators. The `panel-list` will anchor
 itself to the target of the initiating event when opened with
 `panelList.toggle(event)`.
 
-Note: Nested menus are not currently supported. XUL is currently required to
+Note: XUL is currently required to
 support accesskey underlining (although using `moz-label` could change that).
 Shortcuts are not displayed automatically in the `panel-item`.
+This XUL requirement affects the "With Accesskeys" story, enabling or disabling accesskeys will not show any visual change in the story.
 
 ```html story
 <panel-list stay-open open>
@@ -157,6 +158,27 @@ menuButton.addEventListener("mousedown", openMenu);
 menuButton.addEventListener("click", openMenu);
 ```
 
+
+### Checkbox
+
+Items may be used as a checkbox by setting the `type` attribute.
+This allows checkmark icon to be automatically rendered and removed via the item's `checked` attribute.
+Note: this item does not have its own click handler for adding or removing the checkmark, you must handle that.
+
+```html story
+<panel-list stay-open open>
+  <panel-item action="toggle-setting" type="checkbox" checked="">Toggle Setting</panel-item>
+  <panel-item action="toggle-panel" type="checkbox">Toggle Panel</panel-item>
+</panel-list>
+```
+
+```html
+<panel-list>
+  <panel-item action="toggle-setting" type="checkbox" checked="">Toggle Setting</panel-item>
+  <panel-item action="toggle-panel" type="checkbox">Toggle Panel</panel-item>
+</panel-list>
+```
+
 ### Icons
 
 Icons can be added to the `panel-item`s by setting a `background-image` on
@@ -229,3 +251,23 @@ grow larger than its containing window if needed.
   </html:panel-list>
 </panel>
 ```
+
+### Submenus
+
+`panel-list` supports nested submenus. Submenus can be created by nesting a second `panel-list` in a `panel-item`'s `submenu` slot and specifying a `submenu` attribute on that `panel-item` that points to the nested list's ID. For example:
+
+```html
+<panel-list>
+  <panel-item>No submenu</panel-item>
+  <panel-item>No submenu</panel-item>
+  <panel-item submenu="example-submenu">
+    Has a submenu
+    <panel-list slot="submenu" id="example-submenu">
+      <panel-item>I'm a submenu item!</panel-item>
+      <panel-item>I'm also a submenu item!</panel-item>
+    </panel-list>
+  </panel-item>
+</panel-list>
+```
+
+As of February 2024 submenus are only in use in Firefox View and support for nesting beyond one submenu may be limited.

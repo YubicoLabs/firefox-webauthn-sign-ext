@@ -34,29 +34,31 @@ if CONFIG["MOZ_WIDGET_TOOLKIT"] == "windows":
     UNIFIED_SOURCES += [
         "IMFYCbCrImage.cpp",
     ]
-    if CONFIG["MOZ_ENABLE_D3D10_LAYER"]:
-        EXPORTS.mozilla.layers += [
-            "d3d11/CompositorD3D11.h",
-            "d3d11/DeviceAttachmentsD3D11.h",
-            "d3d11/FenceD3D11.h",
-            "d3d11/GpuProcessD3D11QueryMap.h",
-            "d3d11/GpuProcessD3D11TextureMap.h",
-            "d3d11/HelpersD3D11.h",
-            "d3d11/ShaderDefinitionsD3D11.h",
-            "d3d11/TextureD3D11.h",
-            "d3d11/TextureHostWrapperD3D11.h",
-        ]
-        UNIFIED_SOURCES += [
-            "d3d11/FenceD3D11.cpp",
-            "d3d11/GpuProcessD3D11QueryMap.cpp",
-            "d3d11/GpuProcessD3D11TextureMap.cpp",
-            "d3d11/TextureD3D11.cpp",
-            "d3d11/TextureHostWrapperD3D11.cpp",
-        ]
-        SOURCES += [
-            "d3d11/CompositorD3D11.cpp",
-            "d3d11/DeviceAttachmentsD3D11.cpp",
-        ]
+    EXPORTS.mozilla.layers += [
+        "d3d11/CompositorD3D11.h",
+        "d3d11/DeviceAttachmentsD3D11.h",
+        "d3d11/FenceD3D11.h",
+        "d3d11/GpuProcessD3D11QueryMap.h",
+        "d3d11/GpuProcessD3D11TextureMap.h",
+        "d3d11/HelpersD3D11.h",
+        "d3d11/ShaderDefinitionsD3D11.h",
+        "d3d11/TextureD3D11.h",
+        "d3d11/TextureHostWrapperD3D11.h",
+        "d3d11/VideoProcessorD3D11.h",
+    ]
+    UNIFIED_SOURCES += [
+        "d3d11/FenceD3D11.cpp",
+        "d3d11/GpuProcessD3D11QueryMap.cpp",
+        "d3d11/GpuProcessD3D11TextureMap.cpp",
+        "d3d11/TextureD3D11.cpp",
+        "d3d11/TextureHostWrapperD3D11.cpp",
+        "d3d11/VideoProcessorD3D11.cpp",
+    ]
+    SOURCES += [
+        "d3d11/CompositorD3D11.cpp",
+        "d3d11/DeviceAttachmentsD3D11.cpp",
+    ]
+
     if CONFIG["MOZ_WMF_MEDIA_ENGINE"]:
         EXPORTS.mozilla.layers += [
             "DcompSurfaceImage.h",
@@ -125,7 +127,6 @@ EXPORTS.mozilla.layers += [
     "client/GPUVideoTextureClient.h",
     "client/ImageClient.h",
     "client/TextureClient.h",
-    "client/TextureClientPool.h",
     "client/TextureClientRecycleAllocator.h",
     "client/TextureClientSharedSurface.h",
     "client/TextureRecorded.h",
@@ -260,7 +261,7 @@ if CONFIG["MOZ_WAYLAND"]:
         "SurfacePoolWayland.cpp",
     ]
 
-if CONFIG["MOZ_WIDGET_TOOLKIT"] == "cocoa":
+if CONFIG["MOZ_WIDGET_TOOLKIT"] in ("cocoa", "uikit"):
     EXPORTS.mozilla.layers += [
         "NativeLayerCA.h",
         "SurfacePoolCA.h",
@@ -354,7 +355,6 @@ UNIFIED_SOURCES += [
     "client/CompositableClient.cpp",
     "client/GPUVideoTextureClient.cpp",
     "client/ImageClient.cpp",
-    "client/TextureClientPool.cpp",
     "client/TextureClientRecycleAllocator.cpp",
     "client/TextureClientSharedSurface.cpp",
     "client/TextureRecorded.cpp",
@@ -458,7 +458,7 @@ DEFINES["GOOGLE_PROTOBUF_NO_RTTI"] = True
 DEFINES["GOOGLE_PROTOBUF_NO_STATIC_INITIALIZER"] = True
 DEFINES["MOZ_APP_VERSION"] = CONFIG["MOZ_APP_VERSION"]
 
-if CONFIG["MOZ_WIDGET_TOOLKIT"] == "cocoa":
+if CONFIG["MOZ_WIDGET_TOOLKIT"] in ("cocoa", "uikit"):
     SOURCES += [
         "opengl/MacIOSurfaceTextureClientOGL.cpp",
         "opengl/MacIOSurfaceTextureHostOGL.cpp",
@@ -505,15 +505,15 @@ FINAL_LIBRARY = "xul"
 if CONFIG["MOZ_DEBUG"]:
     DEFINES["D3D_DEBUG_INFO"] = True
 
-if CONFIG["MOZ_ENABLE_D3D10_LAYER"]:
-    DEFINES["MOZ_ENABLE_D3D10_LAYER"] = True
-
 if CONFIG["ENABLE_TESTS"]:
     DIRS += ["apz/test/gtest"]
     DIRS += ["apz/test/gtest/mvm"]
 
 MOCHITEST_MANIFESTS += ["apz/test/mochitest/mochitest.toml"]
-BROWSER_CHROME_MANIFESTS += ["apz/test/mochitest/browser.toml"]
+BROWSER_CHROME_MANIFESTS += [
+    "apz/test/mochitest/browser.toml",
+    "apz/test/mochitest/browserSidebarRevamp.toml",
+]
 
 if CONFIG["MOZ_WIDGET_TOOLKIT"] == "gtk":
     CXXFLAGS += CONFIG["MOZ_GTK3_CFLAGS"]

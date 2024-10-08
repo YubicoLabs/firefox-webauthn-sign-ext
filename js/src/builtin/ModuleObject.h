@@ -43,24 +43,56 @@ namespace js {
 
 class ArrayObject;
 class CyclicModuleFields;
+class SyntheticModuleFields;
 class ListObject;
 class ModuleEnvironmentObject;
 class ModuleObject;
 class PromiseObject;
 class ScriptSourceObject;
 
+class ImportAttribute {
+  const HeapPtr<JSAtom*> key_;
+  const HeapPtr<JSString*> value_;
+
+ public:
+  ImportAttribute(Handle<JSAtom*> key, Handle<JSString*> value);
+
+  JSAtom* key() const { return key_; }
+  JSString* value() const { return value_; }
+
+  void trace(JSTracer* trc);
+};
+
+using ImportAttributeVector = GCVector<ImportAttribute, 0, SystemAllocPolicy>;
+
 class ModuleRequestObject : public NativeObject {
  public:
-  enum { SpecifierSlot = 0, AssertionSlot, SlotCount };
+  enum {
+    SpecifierSlot = 0,
+    FirstUnsupportedAttributeKeySlot,
+    ModuleTypeSlot,
+    SlotCount
+  };
 
   static const JSClass class_;
   static bool isInstance(HandleValue value);
   [[nodiscard]] static ModuleRequestObject* create(
       JSContext* cx, Handle<JSAtom*> specifier,
-      Handle<ArrayObject*> maybeAssertions);
+      Handle<ImportAttributeVector> maybeAttributes);
+  [[nodiscard]] static ModuleRequestObject* create(JSContext* cx,
+                                                   Handle<JSAtom*> specifier,
+                                                   JS::ModuleType moduleType);
 
   JSAtom* specifier() const;
-  ArrayObject* assertions() const;
+  JS::ModuleType moduleType() const;
+
+  // We process import attributes earlier in the process, but according to the
+  // spec, we should error during module evaluation if we encounter an
+  // unsupported attribute. We want to generate a nice error message, so we need
+  // to keep track of the first unsupported key we encounter.
+  void setFirstUnsupportedAttributeKey(Handle<JSAtom*> key);
+  bool hasFirstUnsupportedAttributeKey() const;
+  JSAtom* getFirstUnsupportedAttributeKey() const;
 };
 
 using ModuleRequestVector =
@@ -309,6 +341,10 @@ constexpr uint32_t ASYNC_EVALUATING_POST_ORDER_INIT = 1;
 // Value that the field is set to after being cleared.
 constexpr uint32_t ASYNC_EVALUATING_POST_ORDER_CLEARED = 0;
 
+// Currently, the ModuleObject class is used to represent both the Source Text
+// Module Record and the Synthetic Module Record. Ideally, this is something
+// that should be refactored to follow the same hierarchy as in the spec.
+// TODO: See Bug 1880519.
 class ModuleObject : public NativeObject {
  public:
   // Module fields including those for AbstractModuleRecords described by:
@@ -318,6 +354,8 @@ class ModuleObject : public NativeObject {
     EnvironmentSlot,
     NamespaceSlot,
     CyclicModuleFieldsSlot,
+    // `SyntheticModuleFields` if a synthetic module. Otherwise `undefined`.
+    SyntheticModuleFieldsSlot,
     SlotCount
   };
 
@@ -326,6 +364,9 @@ class ModuleObject : public NativeObject {
   static bool isInstance(HandleValue value);
 
   static ModuleObject* create(JSContext* cx);
+
+  static ModuleObject* createSynthetic(
+      JSContext* cx, MutableHandle<ExportNameVector> exportNames);
 
   // Initialize the slots on this object that are dependent on the script.
   void initScriptSlots(HandleScript script);
@@ -346,6 +387,7 @@ class ModuleObject : public NativeObject {
 
   JSScript* maybeScript() const;
   JSScript* script() const;
+  const char* filename() const;
   ModuleEnvironmentObject& initialEnvironment() const;
   ModuleEnvironmentObject* environment() const;
   ModuleNamespaceObject* namespace_();
@@ -364,6 +406,8 @@ class ModuleObject : public NativeObject {
   mozilla::Span<const ExportEntry> localExportEntries() const;
   mozilla::Span<const ExportEntry> indirectExportEntries() const;
   mozilla::Span<const ExportEntry> starExportEntries() const;
+  const ExportNameVector& syntheticExportNames() const;
+
   IndirectBindingMap& importBindings();
 
   void setStatus(ModuleStatus newStatus);
@@ -390,6 +434,8 @@ class ModuleObject : public NativeObject {
   void clearAsyncEvaluatingPostOrder();
   void setCycleRoot(ModuleObject* cycleRoot);
   ModuleObject* getCycleRoot() const;
+  bool hasCyclicModuleFields() const;
+  bool hasSyntheticModuleFields() const;
 
   static void onTopLevelEvaluationFinished(ModuleObject* module);
 
@@ -413,6 +459,9 @@ class ModuleObject : public NativeObject {
       MutableHandle<UniquePtr<ExportNameVector>> exports);
 
   static bool createEnvironment(JSContext* cx, Handle<ModuleObject*> self);
+  static bool createSyntheticEnvironment(JSContext* cx,
+                                         Handle<ModuleObject*> self,
+                                         Handle<GCVector<Value>> values);
 
   void initAsyncSlots(JSContext* cx, bool hasTopLevelAwait,
                       Handle<ListObject*> asyncParentModules);
@@ -423,9 +472,11 @@ class ModuleObject : public NativeObject {
   static void trace(JSTracer* trc, JSObject* obj);
   static void finalize(JS::GCContext* gcx, JSObject* obj);
 
-  bool hasCyclicModuleFields() const;
   CyclicModuleFields* cyclicModuleFields();
   const CyclicModuleFields* cyclicModuleFields() const;
+
+  SyntheticModuleFields* syntheticModuleFields();
+  const SyntheticModuleFields* syntheticModuleFields() const;
 };
 
 JSObject* GetOrCreateModuleMetaObject(JSContext* cx, HandleObject module);

@@ -257,9 +257,10 @@ nsresult nsHtml5TreeOperation::Append(nsIContent* aNode, nsIContent* aParent,
   MOZ_ASSERT(aBuilder);
   MOZ_ASSERT(aBuilder->IsInDocUpdate());
   ErrorResult rv;
-  nsHtml5OtherDocUpdate update(aParent->OwnerDoc(), aBuilder->GetDocument());
+  Document* ownerDoc = aParent->OwnerDoc();
+  nsHtml5OtherDocUpdate update(ownerDoc, aBuilder->GetDocument());
   aParent->AppendChildTo(aNode, false, rv);
-  if (!rv.Failed()) {
+  if (!rv.Failed() && !ownerDoc->DOMNotificationsSuspended()) {
     aNode->SetParserHasNotified();
     MutationObservers::NotifyContentAppended(aParent, aNode);
   }
@@ -303,8 +304,10 @@ nsresult nsHtml5TreeOperation::AppendToDocument(
     return rv.StealNSResult();
   }
 
-  aNode->SetParserHasNotified();
-  MutationObservers::NotifyContentInserted(doc, aNode);
+  if (!doc->DOMNotificationsSuspended()) {
+    aNode->SetParserHasNotified();
+    MutationObservers::NotifyContentInserted(doc, aNode);
+  }
 
   NS_ASSERTION(!nsContentUtils::IsSafeToRunScript(),
                "Someone forgot to block scripts");
@@ -622,16 +625,17 @@ nsIContent* nsHtml5TreeOperation::CreateMathMLElement(
   return newContent;
 }
 
-void nsHtml5TreeOperation::SetFormElement(nsIContent* aNode,
+void nsHtml5TreeOperation::SetFormElement(nsIContent* aNode, nsIContent* aForm,
                                           nsIContent* aParent) {
-  RefPtr formElement = HTMLFormElement::FromNodeOrNull(aParent);
+  RefPtr formElement = HTMLFormElement::FromNodeOrNull(aForm);
   NS_ASSERTION(formElement,
                "The form element doesn't implement HTMLFormElement.");
-  nsCOMPtr<nsIFormControl> formControl(do_QueryInterface(aNode));
+  nsCOMPtr<nsIFormControl> formControl = nsIFormControl::FromNodeOrNull(aNode);
   if (formControl &&
       formControl->ControlType() !=
           FormControlType::FormAssociatedCustomElement &&
-      !aNode->AsElement()->HasAttr(nsGkAtoms::form)) {
+      !aNode->AsElement()->HasAttr(nsGkAtoms::form) &&
+      aForm->SubtreeRoot() == aParent->SubtreeRoot()) {
     formControl->SetForm(formElement);
   } else if (auto* image = HTMLImageElement::FromNodeOrNull(aNode)) {
     image->SetForm(formElement);
@@ -874,7 +878,8 @@ nsresult nsHtml5TreeOperation::Perform(nsHtml5TreeOpExecutor* aBuilder,
     }
 
     nsresult operator()(const opSetFormElement& aOperation) {
-      SetFormElement(*(aOperation.mContent), *(aOperation.mFormElement));
+      SetFormElement(*(aOperation.mContent), *(aOperation.mFormElement),
+                     *(aOperation.mIntendedParent));
       return NS_OK;
     }
 
@@ -930,6 +935,8 @@ nsresult nsHtml5TreeOperation::Perform(nsHtml5TreeOpExecutor* aBuilder,
     nsresult operator()(const opGetShadowRootFromHost& aOperation) {
       nsIContent* root = nsContentUtils::AttachDeclarativeShadowRoot(
           *aOperation.mHost, aOperation.mShadowRootMode,
+          aOperation.mShadowRootIsClonable,
+          aOperation.mShadowRootIsSerializable,
           aOperation.mShadowRootDelegatesFocus);
       if (root) {
         *aOperation.mFragHandle = root;

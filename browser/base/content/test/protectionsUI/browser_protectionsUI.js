@@ -73,85 +73,16 @@ add_task(async function testToggleSwitch() {
   console.log(buttonEvents);
   is(buttonEvents.length, 1, "recorded telemetry for opening the popup");
 
-  // Check the visibility of the "Site not working?" link.
-  ok(
-    BrowserTestUtils.isVisible(
-      gProtectionsHandler._protectionsPopupTPSwitchBreakageLink
-    ),
-    "The 'Site not working?' link should be visible."
-  );
+  let browserLoadedPromise = BrowserTestUtils.browserLoaded(tab.linkedBrowser);
 
-  // The 'Site Fixed?' link should be hidden.
-  ok(
-    BrowserTestUtils.isHidden(
-      gProtectionsHandler._protectionsPopupTPSwitchBreakageFixedLink
-    ),
-    "The 'Site Fixed?' link should be hidden."
-  );
-
-  // Navigate through the 'Site Not Working?' flow and back to the main view,
-  // checking for telemetry on the way.
-  let siteNotWorkingView = document.getElementById(
-    "protections-popup-siteNotWorkingView"
-  );
-  let viewShown = BrowserTestUtils.waitForEvent(
-    siteNotWorkingView,
-    "ViewShown"
-  );
-  gProtectionsHandler._protectionsPopupTPSwitchBreakageLink.click();
-  await viewShown;
-
-  checkClickTelemetry("sitenotworking_link");
-
-  let sendReportButton = document.getElementById(
-    "protections-popup-siteNotWorkingView-sendReport"
-  );
-  let sendReportView = document.getElementById(
-    "protections-popup-sendReportView"
-  );
-  viewShown = BrowserTestUtils.waitForEvent(sendReportView, "ViewShown");
-  sendReportButton.click();
-  await viewShown;
-
-  checkClickTelemetry("send_report_link");
-
-  viewShown = BrowserTestUtils.waitForEvent(siteNotWorkingView, "ViewShown");
-  sendReportView.querySelector(".subviewbutton-back").click();
-  await viewShown;
-
-  let mainView = document.getElementById("protections-popup-mainView");
-
-  viewShown = BrowserTestUtils.waitForEvent(mainView, "ViewShown");
-  siteNotWorkingView.querySelector(".subviewbutton-back").click();
-  await viewShown;
-
-  ok(
-    gProtectionsHandler._protectionsPopupTPSwitch.hasAttribute("pressed"),
-    "TP Switch should be on"
-  );
   let popuphiddenPromise = BrowserTestUtils.waitForEvent(
     gProtectionsHandler._protectionsPopup,
     "popuphidden"
   );
-  let browserLoadedPromise = BrowserTestUtils.browserLoaded(tab.linkedBrowser);
+
   await clickToggle(gProtectionsHandler._protectionsPopupTPSwitch);
-
-  // The 'Site not working?' link should be hidden after clicking the TP switch.
-  ok(
-    BrowserTestUtils.isHidden(
-      gProtectionsHandler._protectionsPopupTPSwitchBreakageLink
-    ),
-    "The 'Site not working?' link should be hidden after TP switch turns to off."
-  );
-  // Same for the 'Site Fixed?' link
-  ok(
-    BrowserTestUtils.isHidden(
-      gProtectionsHandler._protectionsPopupTPSwitchBreakageFixedLink
-    ),
-    "The 'Site Fixed?' link should be hidden."
-  );
-
   await popuphiddenPromise;
+
   checkClickTelemetry("etp_toggle_off");
 
   // We need to wait toast's popup shown and popup hidden events. It won't fire
@@ -164,41 +95,13 @@ add_task(async function testToggleSwitch() {
   // Wait until the ETP state confirmation toast is shown and hides itself.
   await toastShown;
 
+  // Re-open the protections panel and confirm that the toggle is off, then toggle it back on.
   await openProtectionsPanel();
   ok(
     !gProtectionsHandler._protectionsPopupTPSwitch.hasAttribute("pressed"),
     "TP Switch should be off"
   );
 
-  // The 'Site not working?' link should be hidden if the TP is off.
-  ok(
-    BrowserTestUtils.isHidden(
-      gProtectionsHandler._protectionsPopupTPSwitchBreakageLink
-    ),
-    "The 'Site not working?' link should be hidden if TP is off."
-  );
-
-  // The 'Site Fixed?' link should be shown if TP is off.
-  ok(
-    BrowserTestUtils.isVisible(
-      gProtectionsHandler._protectionsPopupTPSwitchBreakageFixedLink
-    ),
-    "The 'Site Fixed?' link should be visible."
-  );
-
-  // Check telemetry for 'Site Fixed?' link.
-  viewShown = BrowserTestUtils.waitForEvent(sendReportView, "ViewShown");
-  gProtectionsHandler._protectionsPopupTPSwitchBreakageFixedLink.click();
-  await viewShown;
-
-  checkClickTelemetry("sitenotworking_link", "sitefixed");
-
-  viewShown = BrowserTestUtils.waitForEvent(mainView, "ViewShown");
-  sendReportView.querySelector(".subviewbutton-back").click();
-  await viewShown;
-
-  // Click the TP switch again and check the visibility of the 'Site not
-  // Working?'. It should be hidden after toggling the TP switch.
   browserLoadedPromise = BrowserTestUtils.browserLoaded(tab.linkedBrowser);
 
   popuphiddenPromise = BrowserTestUtils.waitForEvent(
@@ -207,20 +110,6 @@ add_task(async function testToggleSwitch() {
   );
 
   await clickToggle(gProtectionsHandler._protectionsPopupTPSwitch);
-
-  ok(
-    BrowserTestUtils.isHidden(
-      gProtectionsHandler._protectionsPopupTPSwitchBreakageLink
-    ),
-    `The 'Site not working?' link should be still hidden after toggling TP
-     switch to on from off.`
-  );
-  ok(
-    BrowserTestUtils.isHidden(
-      gProtectionsHandler._protectionsPopupTPSwitchBreakageFixedLink
-    ),
-    "The 'Site Fixed?' link should be hidden."
-  );
 
   // Wait for the protections panel to be hidden as the result of the ETP toggle
   // on action.
@@ -353,23 +242,7 @@ add_task(async function testShowFullReportButton() {
   BrowserTestUtils.removeTab(tab);
 });
 
-/**
- * A test for ensuring the mini panel is working correctly
- */
-add_task(async function testMiniPanel() {
-  // Open a tab.
-  let tab = await BrowserTestUtils.openNewForegroundTab(
-    gBrowser,
-    "https://example.com"
-  );
-
-  // Open the mini panel.
-  await openProtectionsPanel(true);
-  let popuphiddenPromise = BrowserTestUtils.waitForEvent(
-    gProtectionsHandler._protectionsPopup,
-    "popuphidden"
-  );
-
+function checkMiniPanel() {
   // Check that only the header is displayed.
   let mainView = document.getElementById("protections-popup-mainView");
   for (let item of mainView.childNodes) {
@@ -385,11 +258,83 @@ add_task(async function testMiniPanel() {
       );
     }
   }
+}
+
+/**
+ * A test for ensuring the mini panel closes automatically
+ */
+add_task(async function testMiniPanel() {
+  // Open a tab.
+  let tab = await BrowserTestUtils.openNewForegroundTab(
+    gBrowser,
+    "https://example.com"
+  );
+
+  // Open the mini panel.
+  await openProtectionsPanel(true);
+  let popuphiddenPromise = BrowserTestUtils.waitForEvent(
+    gProtectionsHandler._protectionsPopup,
+    "popuphidden"
+  );
+
+  checkMiniPanel();
 
   // Wait until the auto hide is happening.
   await popuphiddenPromise;
 
   ok(true, "The mini panel hides automatically.");
+
+  BrowserTestUtils.removeTab(tab);
+});
+
+/**
+ * A test for ensuring that clicking the mini panel opens the big panel
+ */
+add_task(async function testMiniPanelClick() {
+  // Open a tab.
+  let tab = await BrowserTestUtils.openNewForegroundTab(
+    gBrowser,
+    "https://example.com"
+  );
+
+  // Open the mini panel.
+  await openProtectionsPanel(true);
+  let popuphiddenPromise = BrowserTestUtils.waitForEvent(
+    gProtectionsHandler._protectionsPopup,
+    "popuphidden"
+  );
+
+  checkMiniPanel();
+
+  let popupShownPromise = BrowserTestUtils.waitForEvent(
+    window,
+    "popupshown",
+    true,
+    e => e.target.id == "protections-popup"
+  );
+
+  // Simulate clicking on the mini panel text
+  let headerEl = document.getElementById(
+    "protections-popup-mainView-panel-header-section"
+  );
+  await EventUtils.synthesizeMouseAtCenter(headerEl, {});
+
+  info("Waiting for mini panel to close");
+  await popuphiddenPromise;
+
+  info("Waiting for big popup to be shown");
+  await popupShownPromise;
+
+  let header = document.getElementById(
+    "protections-popup-mainView-panel-header-section"
+  );
+  ok(BrowserTestUtils.isVisible(header), "Header is visible");
+
+  let body = document.getElementById("protections-popup-main-body");
+  ok(BrowserTestUtils.isVisible(body), "Main body is visible");
+
+  let footer = document.getElementById("protections-popup-footer");
+  ok(BrowserTestUtils.isVisible(footer), "Footer is visible");
 
   BrowserTestUtils.removeTab(tab);
 });
@@ -611,7 +556,7 @@ add_task(async function testNumberOfBlockedTrackers() {
   // attribute will only be set if the previous counter is zero. Instead, we
   // wait for the change of the text content of the counter.
   let updateCounterPromise = new Promise(resolve => {
-    let mut = new MutationObserver(mutations => {
+    let mut = new MutationObserver(() => {
       resolve();
       mut.disconnect();
     });

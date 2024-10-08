@@ -280,6 +280,7 @@ bool AtomicAccess(JSContext* cx, HandleValue obj, HandleValue index, Op op) {
       return op(ArrayOps<int64_t>{}, unwrappedTypedArray, intIndex);
     case Scalar::BigUint64:
       return op(ArrayOps<uint64_t>{}, unwrappedTypedArray, intIndex);
+    case Scalar::Float16:
     case Scalar::Float32:
     case Scalar::Float64:
     case Scalar::Uint8Clamped:
@@ -931,7 +932,7 @@ FutexThread::WaitResult js::FutexThread::wait(
   // See explanation below.
 
   if (state_ == WaitingInterrupted) {
-    UnlockGuard<Mutex> unlock(locked);
+    UnlockGuard unlock(locked);
     JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
                               JSMSG_ATOMICS_WAIT_NOT_ALLOWED);
     return WaitResult::Error;
@@ -1032,7 +1033,7 @@ FutexThread::WaitResult js::FutexThread::wait(
 
         state_ = WaitingInterrupted;
         {
-          UnlockGuard<Mutex> unlock(locked);
+          UnlockGuard unlock(locked);
           if (!cx->handleInterrupt()) {
             return WaitResult::Error;
           }
@@ -1087,19 +1088,29 @@ const JSFunctionSpec AtomicsMethods[] = {
     JS_FN("wait", atomics_wait, 4, 0),
     JS_FN("notify", atomics_notify, 3, 0),
     JS_FN("wake", atomics_notify, 3, 0),  // Legacy name
-    JS_FS_END};
+    JS_FS_END,
+};
 
 static const JSPropertySpec AtomicsProperties[] = {
-    JS_STRING_SYM_PS(toStringTag, "Atomics", JSPROP_READONLY), JS_PS_END};
+    JS_STRING_SYM_PS(toStringTag, "Atomics", JSPROP_READONLY),
+    JS_PS_END,
+};
 
 static JSObject* CreateAtomicsObject(JSContext* cx, JSProtoKey key) {
   RootedObject proto(cx, &cx->global()->getObjectPrototype());
   return NewTenuredObjectWithGivenProto(cx, &AtomicsObject::class_, proto);
 }
 
-static const ClassSpec AtomicsClassSpec = {CreateAtomicsObject, nullptr,
-                                           AtomicsMethods, AtomicsProperties};
+static const ClassSpec AtomicsClassSpec = {
+    CreateAtomicsObject,
+    nullptr,
+    AtomicsMethods,
+    AtomicsProperties,
+};
 
 const JSClass AtomicsObject::class_ = {
-    "Atomics", JSCLASS_HAS_CACHED_PROTO(JSProto_Atomics), JS_NULL_CLASS_OPS,
-    &AtomicsClassSpec};
+    "Atomics",
+    JSCLASS_HAS_CACHED_PROTO(JSProto_Atomics),
+    JS_NULL_CLASS_OPS,
+    &AtomicsClassSpec,
+};

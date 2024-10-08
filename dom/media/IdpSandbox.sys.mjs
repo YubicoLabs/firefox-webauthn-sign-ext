@@ -56,7 +56,7 @@ ResourceLoader.prototype = {
     this.data += stream.read(count);
   },
 
-  onStartRequest(request) {},
+  onStartRequest() {},
 
   onStopRequest(request, status) {
     if (Components.isSuccessCode(status)) {
@@ -260,7 +260,6 @@ IdpSandbox.prototype = {
     scriptError.initWithWindowID(
       e.message,
       e.fileName,
-      null,
       e.lineNumber,
       e.columnNumber,
       Ci.nsIScriptError.errorFlag,

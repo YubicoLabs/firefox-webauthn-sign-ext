@@ -171,7 +171,7 @@ export class Runtime extends ContentProcessDomain {
    *     Whether the result is expected to be a JSON object
    *     which should be sent by value.
    *
-   * @returns {Object<RemoteObject, ExceptionDetails>}
+   * @returns {RemoteObject & { exeptionDetails?: ExceptionDetails }}
    */
   callFunctionOn(options = {}) {
     if (typeof options.functionDeclaration != "string") {
@@ -251,7 +251,7 @@ export class Runtime extends ContentProcessDomain {
    * @param {boolean=} options.userGesture [unsupported]
    *     Whether execution should be treated as initiated by user in the UI.
    *
-   * @returns {Object<RemoteObject, exceptionDetails>}
+   * @returns {RemoteObject & { exeptionDetails?: ExceptionDetails }}
    *     The evaluation result, and optionally exception details.
    */
   evaluate(options = {}) {
@@ -484,7 +484,6 @@ export class Runtime extends ContentProcessDomain {
    *     "default" or "isolated"
    *
    * @returns {number} ID of created context
-   *
    */
   _onContextCreated(name, options = {}) {
     const {
@@ -613,7 +612,7 @@ export class Runtime extends ContentProcessDomain {
    * @param {nsIConsoleMessage} subject
    *     Console message.
    */
-  observe(subject, topic, data) {
+  observe(subject) {
     if (subject instanceof Ci.nsIScriptError && subject.hasException) {
       let entry = fromScriptError(subject);
       this._emitExceptionThrown(entry);

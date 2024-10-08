@@ -23,17 +23,19 @@ static int64_t sNextRecordedTextureId = 0;
 
 RecordedTextureData::RecordedTextureData(
     already_AddRefed<CanvasChild> aCanvasChild, gfx::IntSize aSize,
-    gfx::SurfaceFormat aFormat, TextureType aTextureType)
-    : mCanvasChild(aCanvasChild), mSize(aSize), mFormat(aFormat) {
-  mCanvasChild->EnsureRecorder(aSize, aFormat, aTextureType);
-}
+    gfx::SurfaceFormat aFormat, TextureType aTextureType,
+    TextureType aWebglTextureType)
+    : mCanvasChild(aCanvasChild), mSize(aSize), mFormat(aFormat) {}
 
 RecordedTextureData::~RecordedTextureData() {
   // We need the translator to drop its reference for the DrawTarget first,
   // because the TextureData might need to destroy its DrawTarget within a lock.
   mSnapshot = nullptr;
-  mSnapshotWrapper = nullptr;
-  mDT = nullptr;
+  DetachSnapshotWrapper();
+  if (mDT) {
+    mDT->DetachTextureData(this);
+    mDT = nullptr;
+  }
   mCanvasChild->CleanupTexture(mTextureId);
   mCanvasChild->RecordEvent(RecordedTextureDestruction(
       mTextureId, ToRemoteTextureTxnType(mFwdTransactionTracker),
@@ -80,6 +82,8 @@ bool RecordedTextureData::Lock(OpenMode aMode) {
       return false;
     }
 
+    mDT->AttachTextureData(this);
+
     // We lock the TextureData when we create it to get the remote DrawTarget.
     mLockedMode = aMode;
     return true;
@@ -91,10 +95,25 @@ bool RecordedTextureData::Lock(OpenMode aMode) {
   return true;
 }
 
+void RecordedTextureData::DetachSnapshotWrapper(bool aInvalidate,
+                                                bool aRelease) {
+  if (mSnapshotWrapper) {
+    // If the snapshot only has one ref, then we don't need to worry about
+    // copying before invalidation since it is about to be deleted. Otherwise,
+    // we need to ensure any internal data is appropriately copied before
+    // shmems are potentially overwritten if there are still existing users.
+    mCanvasChild->DetachSurface(mSnapshotWrapper,
+                                aInvalidate && !mSnapshotWrapper->hasOneRef());
+    if (aRelease) {
+      mSnapshotWrapper = nullptr;
+    }
+  }
+}
+
 void RecordedTextureData::Unlock() {
   if ((mLockedMode == OpenMode::OPEN_READ_WRITE) &&
       mCanvasChild->ShouldCacheDataSurface()) {
-    mSnapshotWrapper = nullptr;
+    DetachSnapshotWrapper();
     mSnapshot = mDT->Snapshot();
     mDT->DetachAllSnapshots();
     mCanvasChild->RecordEvent(RecordedCacheDataSurface(mSnapshot.get()));
@@ -107,11 +126,9 @@ void RecordedTextureData::Unlock() {
 
 already_AddRefed<gfx::DrawTarget> RecordedTextureData::BorrowDrawTarget() {
   if (mLockedMode & OpenMode::OPEN_WRITE) {
+    // The snapshot will be invalidated.
     mSnapshot = nullptr;
-    if (mSnapshotWrapper) {
-      mCanvasChild->DetachSurface(mSnapshotWrapper);
-      mSnapshotWrapper = nullptr;
-    }
+    DetachSnapshotWrapper(true);
   }
   return do_AddRef(mDT);
 }
@@ -121,14 +138,22 @@ void RecordedTextureData::EndDraw() {
   MOZ_ASSERT(mLockedMode == OpenMode::OPEN_READ_WRITE);
 
   if (mCanvasChild->ShouldCacheDataSurface()) {
-    mSnapshotWrapper = nullptr;
+    DetachSnapshotWrapper();
     mSnapshot = mDT->Snapshot();
     mCanvasChild->RecordEvent(RecordedCacheDataSurface(mSnapshot.get()));
   }
 }
 
+void RecordedTextureData::DrawTargetWillChange() {
+  // The DrawTargetRecording will be modified, so ensure that possibly the last
+  // reference to a snapshot is discarded so that it does not inadvertently
+  // force a copy.
+  mSnapshot = nullptr;
+  DetachSnapshotWrapper(true);
+}
+
 already_AddRefed<gfx::SourceSurface> RecordedTextureData::BorrowSnapshot() {
-  if (mSnapshotWrapper && (!mDT || !mDT->IsDirty())) {
+  if (mSnapshotWrapper) {
     // The DT is unmodified since the last time snapshot was borrowed, so it
     // is safe to reattach the snapshot for shmem readbacks.
     mCanvasChild->AttachSurface(mSnapshotWrapper);
@@ -141,8 +166,6 @@ already_AddRefed<gfx::SourceSurface> RecordedTextureData::BorrowSnapshot() {
     return nullptr;
   }
 
-  mDT->MarkClean();
-
   RefPtr<gfx::SourceSurface> wrapper = mCanvasChild->WrapSurface(
       mSnapshot ? mSnapshot : mDT->Snapshot(), mTextureId);
   mSnapshotWrapper = wrapper;
@@ -152,9 +175,10 @@ already_AddRefed<gfx::SourceSurface> RecordedTextureData::BorrowSnapshot() {
 void RecordedTextureData::ReturnSnapshot(
     already_AddRefed<gfx::SourceSurface> aSnapshot) {
   RefPtr<gfx::SourceSurface> snapshot = aSnapshot;
-  if (mSnapshotWrapper) {
-    mCanvasChild->DetachSurface(mSnapshotWrapper);
-  }
+  // The snapshot needs to be marked detached but we keep the wrapper around
+  // so that it can be reused without repeatedly creating it and accidentally
+  // reading back data for each new instantiation.
+  DetachSnapshotWrapper(false, false);
 }
 
 void RecordedTextureData::Deallocate(LayersIPCChannel* aAllocator) {}

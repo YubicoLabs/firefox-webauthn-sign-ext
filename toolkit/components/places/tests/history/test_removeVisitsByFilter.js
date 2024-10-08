@@ -1,7 +1,7 @@
 /* -*- indent-tabs-mode: nil; js-indent-level: 2 -*- */
 /* vim:set ts=2 sw=2 sts=2 et: */
 
-// Tests for `History.removeVisitsByFilter`, as implemented in History.jsm
+// Tests for `History.removeVisitsByFilter`, as implemented in History.sys.mjs
 
 "use strict";
 
@@ -117,7 +117,7 @@ add_task(async function test_removeVisitsByFilter() {
       }
       endIndex = Math.min(
         endIndex,
-        removedItems.findIndex((v, index) => v.uri.spec != rawURL) - 1
+        removedItems.findIndex(v => v.uri.spec != rawURL) - 1
       );
     }
     removedItems.splice(endIndex + 1);

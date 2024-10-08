@@ -146,7 +146,7 @@
       if (document.readyState == "complete") {
         this._postLoadInit();
       } else {
-        window.addEventListener("load", event => this._postLoadInit());
+        window.addEventListener("load", () => this._postLoadInit());
       }
     }
 
@@ -213,7 +213,7 @@
         }
         return 0;
       })();
-      window.sizeToContentConstrained({ prefWidth });
+      window.sizeToContent({ prefWidth });
     }
 
     moveToAlertPosition() {
@@ -521,7 +521,7 @@
       }
 
       var btn = this.getButton(this.defaultButton);
-      if (btn) {
+      if (btn && !btn.hidden) {
         this._doButtonCommand(this.defaultButton);
       }
     }

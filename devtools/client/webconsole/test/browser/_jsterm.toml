@@ -28,7 +28,7 @@ support-files = [
   "!/devtools/client/framework/browser-toolbox/test/helpers-browser-toolbox.js",
   "!/devtools/client/shared/test/telemetry-test-helpers.js",
   "!/devtools/client/shared/test/highlighter-test-actor.js",
-   "../../../../../toolkit/components/reader/test/readerModeArticle.html",
+   "../../../../../toolkit/components/reader/tests/browser/readerModeArticle.html",
 ]
 
 ["browser_jsterm_add_edited_input_to_history.js"]
@@ -256,6 +256,8 @@ fail-if = ["a11y_checks"] # Bug 1849028
 fail-if = ["a11y_checks"] # Bug 1849028
 
 ["browser_jsterm_multiline.js"]
+
+["browser_jsterm_input_and_tab_key_pressed.js"]
 
 ["browser_jsterm_no_input_and_tab_key_pressed.js"]
 

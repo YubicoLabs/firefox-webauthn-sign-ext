@@ -138,7 +138,7 @@ So for a Histogram that records timing samples like this:
 ```
   "GC_MS": {
     "record_in_processes": ["main", "content"],
-    "products": ["firefox", "geckoview_streaming"],
+    "products": ["firefox"],
     "alert_emails": ["dev-telemetry-gc-alerts@mozilla.org", "jcoppeard@mozilla.com"],
     "expires_in_version": "never",
     "releaseChannelCollection": "opt-out",
@@ -259,7 +259,7 @@ So for a Histogram with artisinal samples like:
 ```
   "CHECKERBOARD_SEVERITY": {
     "record_in_processes": ["main", "content", "gpu"],
-    "products": ["firefox", "fennec", "geckoview_streaming"],
+    "products": ["firefox"],
     "alert_emails": ["gfx-telemetry-alerts@mozilla.com", "botond@mozilla.com"],
     "bug_numbers": [1238040, 1539309, 1584109],
     "releaseChannelCollection": "opt-out",
@@ -326,7 +326,7 @@ For example, for a Histogram of kind `categorical` like:
 ```
   "AVIF_DECODE_RESULT": {
     "record_in_processes": ["main", "content"],
-    "products": ["firefox", "geckoview_streaming"],
+    "products": ["firefox"],
     "alert_emails": ["cchang@mozilla.com", "jbauman@mozilla.com"],
     "expires_in_version": "never",
     "releaseChannelCollection": "opt-out",
@@ -379,10 +379,6 @@ avif:
       - jbauman@mozilla.com
     expires: never
 ```
-
-**N.B:** Glean Labels have a strict regex.
-You may have to transform some categories to
-`snake_case` so that they're safe for the data pipeline.
 
 **GIFFT:** This type of collection is mirrorable back to Firefox Telemetry via the
 [Glean Interface For Firefox Telemetry][gifft].
@@ -527,10 +523,6 @@ urlbar:
     ...
 ```
 
-**N.B:** Glean Labels have a strict regex.
-You may have to transform some categories to
-`snake_case` so that they're safe for the data pipeline.
-
 **GIFFT:** This type of collection is mirrorable back to Firefox Telemetry via the
 [Glean Interface For Firefox Telemetry][gifft].
 See [the guide][gifft] for instructions.
@@ -560,7 +552,7 @@ gfx.display:
       - gfx-telemetry-alerts@mozilla.com
       - ktaeleman@mozilla.com
     products:
-      - 'geckoview_streaming'
+      - 'firefox'
     record_in_processes:
       - 'main'
     release_channel_collection: opt-out
@@ -810,10 +802,6 @@ devtools.tool:
       - accessibility@mozilla.com
     expires: never
 ```
-
-**N.B:** Glean Labels have a strict regex.
-You may have to transform some categories to
-`snake_case` so that they're safe for the data pipeline.
 
 **GIFFT:** This type of collection is mirrorable back to Firefox Telemetry via the
 [Glean Interface For Firefox Telemetry][gifft].

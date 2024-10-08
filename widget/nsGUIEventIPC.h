@@ -218,6 +218,16 @@ template <>
 struct ParamTraits<mozilla::WidgetMouseEvent> {
   using paramType = mozilla::WidgetMouseEvent;
 
+  // We don't need to copy the following members:
+  // - mIgnoreCapturingContent: When this is `true`, the remote process should
+  //   not be capturing the pointer because this is used to dispatch boundary
+  //   events outside the capturing element after handling ePointerUp/eMouseUp.
+  // - mSynthesizeMoveAfterDispatch: When this is `true`, the event needs to
+  //   synthesize a move event to dispatch corresponding boundary events.
+  //   However, when a remote content is under the pointer, it should occur
+  //   before dispatching this event in the remote process, but there is no
+  //   path to do that.  Therefore, this flag is not required for now.
+
   static void Write(MessageWriter* aWriter, const paramType& aParam) {
     WriteParam(aWriter,
                static_cast<const mozilla::WidgetMouseEventBase&>(aParam));
@@ -292,6 +302,7 @@ struct ParamTraits<mozilla::WidgetPointerEvent> {
     WriteParam(aWriter, aParam.mWidth);
     WriteParam(aWriter, aParam.mHeight);
     WriteParam(aWriter, aParam.mIsPrimary);
+    WriteParam(aWriter, aParam.mFromTouchEvent);
   }
 
   static bool Read(MessageReader* aReader, paramType* aResult) {
@@ -299,7 +310,8 @@ struct ParamTraits<mozilla::WidgetPointerEvent> {
         ReadParam(aReader, static_cast<mozilla::WidgetMouseEvent*>(aResult)) &&
         ReadParam(aReader, &aResult->mWidth) &&
         ReadParam(aReader, &aResult->mHeight) &&
-        ReadParam(aReader, &aResult->mIsPrimary);
+        ReadParam(aReader, &aResult->mIsPrimary) &&
+        ReadParam(aReader, &aResult->mFromTouchEvent);
     return rv;
   }
 };

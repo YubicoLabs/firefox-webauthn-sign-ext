@@ -1,12 +1,15 @@
 use super::{
-    help::{WrappedArrayLength, WrappedConstructor, WrappedImageQuery, WrappedStructMatrixAccess},
+    help::{
+        WrappedArrayLength, WrappedConstructor, WrappedImageQuery, WrappedStructMatrixAccess,
+        WrappedZeroValue,
+    },
     storage::StoreValue,
-    BackendResult, Error, Options,
+    BackendResult, Error, FragmentEntryPoint, Options,
 };
 use crate::{
-    back,
-    proc::{self, NameKey},
-    valid, Handle, Module, ScalarKind, ShaderStage, TypeInner,
+    back::{self, Baked},
+    proc::{self, ExpressionKindTracker, NameKey},
+    valid, Handle, Module, Scalar, ScalarKind, ShaderStage, TypeInner,
 };
 use std::{fmt, mem};
 
@@ -19,11 +22,14 @@ const SPECIAL_OTHER: &str = "other";
 
 pub(crate) const MODF_FUNCTION: &str = "naga_modf";
 pub(crate) const FREXP_FUNCTION: &str = "naga_frexp";
+pub(crate) const EXTRACT_BITS_FUNCTION: &str = "naga_extractBits";
+pub(crate) const INSERT_BITS_FUNCTION: &str = "naga_insertBits";
 
 struct EpStructMember {
     name: String,
     ty: Handle<crate::Type>,
     // technically, this should always be `Some`
+    // (we `debug_assert!` this in `write_interface_struct`)
     binding: Option<crate::Binding>,
     index: u32,
 }
@@ -75,6 +81,19 @@ enum Io {
     Output,
 }
 
+const fn is_subgroup_builtin_binding(binding: &Option<crate::Binding>) -> bool {
+    let &Some(crate::Binding::BuiltIn(builtin)) = binding else {
+        return false;
+    };
+    matches!(
+        builtin,
+        crate::BuiltIn::SubgroupSize
+            | crate::BuiltIn::SubgroupInvocationId
+            | crate::BuiltIn::NumSubgroups
+            | crate::BuiltIn::SubgroupId
+    )
+}
+
 impl<'a, W: fmt::Write> super::Writer<'a, W> {
     pub fn new(out: W, options: &'a Options) -> Self {
         Self {
@@ -85,6 +104,7 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
             entry_point_io: Vec::new(),
             named_expressions: crate::NamedExpressions::default(),
             wrapped: super::Wrapped::default(),
+            continue_ctx: back::continue_forward::ContinueCtx::default(),
             temp_access_chain: Vec::new(),
             need_bake_expressions: Default::default(),
         }
@@ -103,6 +123,7 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
         self.entry_point_io.clear();
         self.named_expressions.clear();
         self.wrapped.clear();
+        self.continue_ctx.clear();
         self.need_bake_expressions.clear();
     }
 
@@ -125,14 +146,7 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                 self.need_bake_expressions.insert(fun_handle);
             }
 
-            if let Expression::Math {
-                fun,
-                arg,
-                arg1,
-                arg2,
-                arg3,
-            } = *expr
-            {
+            if let Expression::Math { fun, arg, .. } = *expr {
                 match fun {
                     crate::MathFunction::Asinh
                     | crate::MathFunction::Acosh
@@ -142,27 +156,20 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                     | crate::MathFunction::Unpack2x16unorm
                     | crate::MathFunction::Unpack4x8snorm
                     | crate::MathFunction::Unpack4x8unorm
+                    | crate::MathFunction::Unpack4xI8
+                    | crate::MathFunction::Unpack4xU8
                     | crate::MathFunction::Pack2x16float
                     | crate::MathFunction::Pack2x16snorm
                     | crate::MathFunction::Pack2x16unorm
                     | crate::MathFunction::Pack4x8snorm
-                    | crate::MathFunction::Pack4x8unorm => {
+                    | crate::MathFunction::Pack4x8unorm
+                    | crate::MathFunction::Pack4xI8
+                    | crate::MathFunction::Pack4xU8 => {
                         self.need_bake_expressions.insert(arg);
-                    }
-                    crate::MathFunction::ExtractBits => {
-                        self.need_bake_expressions.insert(arg);
-                        self.need_bake_expressions.insert(arg1.unwrap());
-                        self.need_bake_expressions.insert(arg2.unwrap());
-                    }
-                    crate::MathFunction::InsertBits => {
-                        self.need_bake_expressions.insert(arg);
-                        self.need_bake_expressions.insert(arg1.unwrap());
-                        self.need_bake_expressions.insert(arg2.unwrap());
-                        self.need_bake_expressions.insert(arg3.unwrap());
                     }
                     crate::MathFunction::CountLeadingZeros => {
                         let inner = info[fun_handle].ty.inner_with(&module.types);
-                        if let Some(crate::ScalarKind::Sint) = inner.scalar_kind() {
+                        if let Some(ScalarKind::Sint) = inner.scalar_kind() {
                             self.need_bake_expressions.insert(arg);
                         }
                     }
@@ -177,13 +184,31 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                 }
             }
         }
+        for statement in func.body.iter() {
+            match *statement {
+                crate::Statement::SubgroupCollectiveOperation {
+                    op: _,
+                    collective_op: crate::CollectiveOperation::InclusiveScan,
+                    argument,
+                    result: _,
+                } => {
+                    self.need_bake_expressions.insert(argument);
+                }
+                _ => {}
+            }
+        }
     }
 
     pub fn write(
         &mut self,
         module: &Module,
         module_info: &valid::ModuleInfo,
+        fragment_entry_point: Option<&FragmentEntryPoint<'_>>,
     ) -> Result<super::ReflectionInfo, Error> {
+        if !module.overrides.is_empty() {
+            return Err(Error::Override);
+        }
+
         self.reset(module);
 
         // Write special constants, if needed
@@ -249,7 +274,8 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
 
         self.write_special_functions(module)?;
 
-        self.write_wrapped_compose_functions(module, &module.const_expressions)?;
+        self.write_wrapped_compose_functions(module, &module.global_expressions)?;
+        self.write_wrapped_zero_value_functions(module, &module.global_expressions)?;
 
         // Write all named constants
         let mut constants = module
@@ -278,7 +304,13 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
         // Write all entry points wrapped structs
         for (index, ep) in module.entry_points.iter().enumerate() {
             let ep_name = self.names[&NameKey::EntryPoint(index as u16)].clone();
-            let ep_io = self.write_ep_interface(module, &ep.function, ep.stage, &ep_name)?;
+            let ep_io = self.write_ep_interface(
+                module,
+                &ep.function,
+                ep.stage,
+                &ep_name,
+                fragment_entry_point,
+            )?;
             self.entry_point_io.push(ep_io);
         }
 
@@ -314,6 +346,7 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                 info,
                 expressions: &function.expressions,
                 named_expressions: &function.named_expressions,
+                expr_kind_tracker: ExpressionKindTracker::from_arena(&function.expressions),
             };
             let name = self.names[&NameKey::Function(handle)].clone();
 
@@ -354,6 +387,7 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                 info,
                 expressions: &ep.function.expressions,
                 named_expressions: &ep.function.named_expressions,
+                expr_kind_tracker: ExpressionKindTracker::from_arena(&ep.function.expressions),
             };
 
             self.write_wrapped_functions(module, &ctx)?;
@@ -413,31 +447,32 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
     // if they are struct, so that the `stage` argument here could be omitted.
     fn write_semantic(
         &mut self,
-        binding: &crate::Binding,
+        binding: &Option<crate::Binding>,
         stage: Option<(ShaderStage, Io)>,
     ) -> BackendResult {
         match *binding {
-            crate::Binding::BuiltIn(builtin) => {
+            Some(crate::Binding::BuiltIn(builtin)) if !is_subgroup_builtin_binding(binding) => {
                 let builtin_str = builtin.to_hlsl_str()?;
                 write!(self.out, " : {builtin_str}")?;
             }
-            crate::Binding::Location {
+            Some(crate::Binding::Location {
                 second_blend_source: true,
                 ..
-            } => {
+            }) => {
                 write!(self.out, " : SV_Target1")?;
             }
-            crate::Binding::Location {
+            Some(crate::Binding::Location {
                 location,
                 second_blend_source: false,
                 ..
-            } => {
-                if stage == Some((crate::ShaderStage::Fragment, Io::Output)) {
+            }) => {
+                if stage == Some((ShaderStage::Fragment, Io::Output)) {
                     write!(self.out, " : SV_Target{location}")?;
                 } else {
                     write!(self.out, " : {LOCATION_SEMANTIC}{location}")?;
                 }
             }
+            _ => {}
         }
 
         Ok(())
@@ -458,20 +493,38 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
         write!(self.out, "struct {struct_name}")?;
         writeln!(self.out, " {{")?;
         for m in members.iter() {
+            // Sanity check that each IO member is a built-in or is assigned a
+            // location. Also see note about nesting in `write_ep_input_struct`.
+            debug_assert!(m.binding.is_some());
+
+            if is_subgroup_builtin_binding(&m.binding) {
+                continue;
+            }
             write!(self.out, "{}", back::INDENT)?;
             if let Some(ref binding) = m.binding {
                 self.write_modifier(binding)?;
             }
             self.write_type(module, m.ty)?;
             write!(self.out, " {}", &m.name)?;
-            if let Some(ref binding) = m.binding {
-                self.write_semantic(binding, Some(shader_stage))?;
-            }
+            self.write_semantic(&m.binding, Some(shader_stage))?;
             writeln!(self.out, ";")?;
+        }
+        if members.iter().any(|arg| {
+            matches!(
+                arg.binding,
+                Some(crate::Binding::BuiltIn(crate::BuiltIn::SubgroupId))
+            )
+        }) {
+            writeln!(
+                self.out,
+                "{}uint __local_invocation_index : SV_GroupIndex;",
+                back::INDENT
+            )?;
         }
         writeln!(self.out, "}};")?;
         writeln!(self.out)?;
 
+        // See ordering notes on EntryPointInterface fields
         match shader_stage.1 {
             Io::Input => {
                 // bring back the original order
@@ -503,6 +556,10 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
 
         let mut fake_members = Vec::new();
         for arg in func.arguments.iter() {
+            // NOTE: We don't need to handle nesting structs. All members must
+            // be either built-ins or assigned a location. I.E. `binding` is
+            // `Some`. This is checked in `VaryingContext::validate`. See:
+            // https://gpuweb.github.io/gpuweb/wgsl/#input-output-locations
             match module.types[arg.ty].inner {
                 TypeInner::Struct { ref members, .. } => {
                     for member in members.iter() {
@@ -541,10 +598,10 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
         result: &crate::FunctionResult,
         stage: ShaderStage,
         entry_point_name: &str,
+        frag_ep: Option<&FragmentEntryPoint<'_>>,
     ) -> Result<EntryPointBinding, Error> {
         let struct_name = format!("{stage:?}Output_{entry_point_name}");
 
-        let mut fake_members = Vec::new();
         let empty = [];
         let members = match module.types[result.ty].inner {
             TypeInner::Struct { ref members, .. } => members,
@@ -554,14 +611,54 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
             }
         };
 
-        for member in members.iter() {
+        // Gather list of fragment input locations. We use this below to remove user-defined
+        // varyings from VS outputs that aren't in the FS inputs. This makes the VS interface match
+        // as long as the FS inputs are a subset of the VS outputs. This is only applied if the
+        // writer is supplied with information about the fragment entry point.
+        let fs_input_locs = if let (Some(frag_ep), ShaderStage::Vertex) = (frag_ep, stage) {
+            let mut fs_input_locs = Vec::new();
+            for arg in frag_ep.func.arguments.iter() {
+                let mut push_if_location = |binding: &Option<crate::Binding>| match *binding {
+                    Some(crate::Binding::Location { location, .. }) => fs_input_locs.push(location),
+                    Some(crate::Binding::BuiltIn(_)) | None => {}
+                };
+
+                // NOTE: We don't need to handle struct nesting. See note in
+                // `write_ep_input_struct`.
+                match frag_ep.module.types[arg.ty].inner {
+                    TypeInner::Struct { ref members, .. } => {
+                        for member in members.iter() {
+                            push_if_location(&member.binding);
+                        }
+                    }
+                    _ => push_if_location(&arg.binding),
+                }
+            }
+            fs_input_locs.sort();
+            Some(fs_input_locs)
+        } else {
+            None
+        };
+
+        let mut fake_members = Vec::new();
+        for (index, member) in members.iter().enumerate() {
+            if let Some(ref fs_input_locs) = fs_input_locs {
+                match member.binding {
+                    Some(crate::Binding::Location { location, .. }) => {
+                        if fs_input_locs.binary_search(&location).is_err() {
+                            continue;
+                        }
+                    }
+                    Some(crate::Binding::BuiltIn(_)) | None => {}
+                }
+            }
+
             let member_name = self.namer.call_or(&member.name, "member");
-            let index = fake_members.len() as u32;
             fake_members.push(EpStructMember {
                 name: member_name,
                 ty: member.ty,
                 binding: member.binding.clone(),
-                index,
+                index: index as u32,
             });
         }
 
@@ -569,28 +666,67 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
     }
 
     /// Writes special interface structures for an entry point. The special structures have
-    /// all the fields flattened into them and sorted by binding. They are only needed for
-    /// VS outputs and FS inputs, so that these interfaces match.
+    /// all the fields flattened into them and sorted by binding. They are needed to emulate
+    /// subgroup built-ins and to make the interfaces between VS outputs and FS inputs match.
     fn write_ep_interface(
         &mut self,
         module: &Module,
         func: &crate::Function,
         stage: ShaderStage,
         ep_name: &str,
+        frag_ep: Option<&FragmentEntryPoint<'_>>,
     ) -> Result<EntryPointInterface, Error> {
         Ok(EntryPointInterface {
-            input: if !func.arguments.is_empty() && stage == ShaderStage::Fragment {
+            input: if !func.arguments.is_empty()
+                && (stage == ShaderStage::Fragment
+                    || func
+                        .arguments
+                        .iter()
+                        .any(|arg| is_subgroup_builtin_binding(&arg.binding)))
+            {
                 Some(self.write_ep_input_struct(module, func, stage, ep_name)?)
             } else {
                 None
             },
             output: match func.result {
                 Some(ref fr) if fr.binding.is_none() && stage == ShaderStage::Vertex => {
-                    Some(self.write_ep_output_struct(module, fr, stage, ep_name)?)
+                    Some(self.write_ep_output_struct(module, fr, stage, ep_name, frag_ep)?)
                 }
                 _ => None,
             },
         })
+    }
+
+    fn write_ep_argument_initialization(
+        &mut self,
+        ep: &crate::EntryPoint,
+        ep_input: &EntryPointBinding,
+        fake_member: &EpStructMember,
+    ) -> BackendResult {
+        match fake_member.binding {
+            Some(crate::Binding::BuiltIn(crate::BuiltIn::SubgroupSize)) => {
+                write!(self.out, "WaveGetLaneCount()")?
+            }
+            Some(crate::Binding::BuiltIn(crate::BuiltIn::SubgroupInvocationId)) => {
+                write!(self.out, "WaveGetLaneIndex()")?
+            }
+            Some(crate::Binding::BuiltIn(crate::BuiltIn::NumSubgroups)) => write!(
+                self.out,
+                "({}u + WaveGetLaneCount() - 1u) / WaveGetLaneCount()",
+                ep.workgroup_size[0] * ep.workgroup_size[1] * ep.workgroup_size[2]
+            )?,
+            Some(crate::Binding::BuiltIn(crate::BuiltIn::SubgroupId)) => {
+                write!(
+                    self.out,
+                    "{}.__local_invocation_index / WaveGetLaneCount()",
+                    ep_input.arg_name
+                )?;
+            }
+            _ => {
+                write!(self.out, "{}.{}", ep_input.arg_name, fake_member.name)?;
+            }
+        }
+        Ok(())
     }
 
     /// Write an entry point preface that initializes the arguments as specified in IR.
@@ -600,6 +736,7 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
         func: &crate::Function,
         ep_index: u16,
     ) -> BackendResult {
+        let ep = &module.entry_points[ep_index as usize];
         let ep_input = match self.entry_point_io[ep_index as usize].input.take() {
             Some(ep_input) => ep_input,
             None => return Ok(()),
@@ -613,8 +750,13 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
             match module.types[arg.ty].inner {
                 TypeInner::Array { base, size, .. } => {
                     self.write_array_size(module, base, size)?;
-                    let fake_member = fake_iter.next().unwrap();
-                    writeln!(self.out, " = {}.{};", ep_input.arg_name, fake_member.name)?;
+                    write!(self.out, " = ")?;
+                    self.write_ep_argument_initialization(
+                        ep,
+                        &ep_input,
+                        fake_iter.next().unwrap(),
+                    )?;
+                    writeln!(self.out, ";")?;
                 }
                 TypeInner::Struct { ref members, .. } => {
                     write!(self.out, " = {{ ")?;
@@ -622,14 +764,22 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                         if index != 0 {
                             write!(self.out, ", ")?;
                         }
-                        let fake_member = fake_iter.next().unwrap();
-                        write!(self.out, "{}.{}", ep_input.arg_name, fake_member.name)?;
+                        self.write_ep_argument_initialization(
+                            ep,
+                            &ep_input,
+                            fake_iter.next().unwrap(),
+                        )?;
                     }
                     writeln!(self.out, " }};")?;
                 }
                 _ => {
-                    let fake_member = fake_iter.next().unwrap();
-                    writeln!(self.out, " = {}.{};", ep_input.arg_name, fake_member.name)?;
+                    write!(self.out, " = ")?;
+                    self.write_ep_argument_initialization(
+                        ep,
+                        &ep_input,
+                        fake_iter.next().unwrap(),
+                    )?;
+                    writeln!(self.out, ";")?;
                 }
             }
         }
@@ -910,7 +1060,7 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                     columns,
                     scalar,
                 } if member.binding.is_none() && rows == crate::VectorSize::Bi => {
-                    let vec_ty = crate::TypeInner::Vector { size: rows, scalar };
+                    let vec_ty = TypeInner::Vector { size: rows, scalar };
                     let field_name_key = NameKey::StructMember(handle, index as u32);
 
                     for i in 0..columns as u8 {
@@ -944,9 +1094,7 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                 }
             }
 
-            if let Some(ref binding) = member.binding {
-                self.write_semantic(binding, shader_stage)?;
-            };
+            self.write_semantic(&member.binding, shader_stage)?;
             writeln!(self.out, ";")?;
         }
 
@@ -1159,7 +1307,7 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
             }
             back::FunctionType::EntryPoint(ep_index) => {
                 if let Some(ref ep_input) = self.entry_point_io[ep_index as usize].input {
-                    write!(self.out, "{} {}", ep_input.ty_name, ep_input.arg_name,)?;
+                    write!(self.out, "{} {}", ep_input.ty_name, ep_input.arg_name)?;
                 } else {
                     let stage = module.entry_points[ep_index as usize].stage;
                     for (index, arg) in func.arguments.iter().enumerate() {
@@ -1176,17 +1324,16 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                             self.write_array_size(module, base, size)?;
                         }
 
-                        if let Some(ref binding) = arg.binding {
-                            self.write_semantic(binding, Some((stage, Io::Input)))?;
-                        }
+                        self.write_semantic(&arg.binding, Some((stage, Io::Input)))?;
                     }
-
-                    if need_workgroup_variables_initialization {
-                        if !func.arguments.is_empty() {
-                            write!(self.out, ", ")?;
-                        }
-                        write!(self.out, "uint3 __local_invocation_id : SV_GroupThreadID")?;
+                }
+                if need_workgroup_variables_initialization {
+                    if self.entry_point_io[ep_index as usize].input.is_some()
+                        || !func.arguments.is_empty()
+                    {
+                        write!(self.out, ", ")?;
                     }
+                    write!(self.out, "uint3 __local_invocation_id : SV_GroupThreadID")?;
                 }
             }
         }
@@ -1196,11 +1343,7 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
         // Write semantic if it present
         if let back::FunctionType::EntryPoint(index) = func_ctx.ty {
             let stage = module.entry_points[index as usize].stage;
-            if let Some(crate::FunctionResult {
-                binding: Some(ref binding),
-                ..
-            }) = func.result
-            {
+            if let Some(crate::FunctionResult { ref binding, .. }) = func.result {
                 self.write_semantic(binding, Some((stage, Io::Output)))?;
             }
         }
@@ -1300,6 +1443,151 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
         self.write_barrier(crate::Barrier::WORK_GROUP, level)
     }
 
+    /// Helper method used to write switches
+    fn write_switch(
+        &mut self,
+        module: &Module,
+        func_ctx: &back::FunctionCtx<'_>,
+        level: back::Level,
+        selector: Handle<crate::Expression>,
+        cases: &[crate::SwitchCase],
+    ) -> BackendResult {
+        // Write all cases
+        let indent_level_1 = level.next();
+        let indent_level_2 = indent_level_1.next();
+
+        // See docs of `back::continue_forward` module.
+        if let Some(variable) = self.continue_ctx.enter_switch(&mut self.namer) {
+            writeln!(self.out, "{level}bool {variable} = false;",)?;
+        };
+
+        // Check if there is only one body, by seeing if all except the last case are fall through
+        // with empty bodies. FXC doesn't handle these switches correctly, so
+        // we generate a `do {} while(false);` loop instead. There must be a default case, so there
+        // is no need to check if one of the cases would have matched.
+        let one_body = cases
+            .iter()
+            .rev()
+            .skip(1)
+            .all(|case| case.fall_through && case.body.is_empty());
+        if one_body {
+            // Start the do-while
+            writeln!(self.out, "{level}do {{")?;
+            // Note: Expressions have no side-effects so we don't need to emit selector expression.
+
+            // Body
+            if let Some(case) = cases.last() {
+                for sta in case.body.iter() {
+                    self.write_stmt(module, sta, func_ctx, indent_level_1)?;
+                }
+            }
+            // End do-while
+            writeln!(self.out, "{level}}} while(false);")?;
+        } else {
+            // Start the switch
+            write!(self.out, "{level}")?;
+            write!(self.out, "switch(")?;
+            self.write_expr(module, selector, func_ctx)?;
+            writeln!(self.out, ") {{")?;
+
+            for (i, case) in cases.iter().enumerate() {
+                match case.value {
+                    crate::SwitchValue::I32(value) => {
+                        write!(self.out, "{indent_level_1}case {value}:")?
+                    }
+                    crate::SwitchValue::U32(value) => {
+                        write!(self.out, "{indent_level_1}case {value}u:")?
+                    }
+                    crate::SwitchValue::Default => write!(self.out, "{indent_level_1}default:")?,
+                }
+
+                // The new block is not only stylistic, it plays a role here:
+                // We might end up having to write the same case body
+                // multiple times due to FXC not supporting fallthrough.
+                // Therefore, some `Expression`s written by `Statement::Emit`
+                // will end up having the same name (`_expr<handle_index>`).
+                // So we need to put each case in its own scope.
+                let write_block_braces = !(case.fall_through && case.body.is_empty());
+                if write_block_braces {
+                    writeln!(self.out, " {{")?;
+                } else {
+                    writeln!(self.out)?;
+                }
+
+                // Although FXC does support a series of case clauses before
+                // a block[^yes], it does not support fallthrough from a
+                // non-empty case block to the next[^no]. If this case has a
+                // non-empty body with a fallthrough, emulate that by
+                // duplicating the bodies of all the cases it would fall
+                // into as extensions of this case's own body. This makes
+                // the HLSL output potentially quadratic in the size of the
+                // Naga IR.
+                //
+                // [^yes]: ```hlsl
+                // case 1:
+                // case 2: do_stuff()
+                // ```
+                // [^no]: ```hlsl
+                // case 1: do_this();
+                // case 2: do_that();
+                // ```
+                if case.fall_through && !case.body.is_empty() {
+                    let curr_len = i + 1;
+                    let end_case_idx = curr_len
+                        + cases
+                            .iter()
+                            .skip(curr_len)
+                            .position(|case| !case.fall_through)
+                            .unwrap();
+                    let indent_level_3 = indent_level_2.next();
+                    for case in &cases[i..=end_case_idx] {
+                        writeln!(self.out, "{indent_level_2}{{")?;
+                        let prev_len = self.named_expressions.len();
+                        for sta in case.body.iter() {
+                            self.write_stmt(module, sta, func_ctx, indent_level_3)?;
+                        }
+                        // Clear all named expressions that were previously inserted by the statements in the block
+                        self.named_expressions.truncate(prev_len);
+                        writeln!(self.out, "{indent_level_2}}}")?;
+                    }
+
+                    let last_case = &cases[end_case_idx];
+                    if last_case.body.last().map_or(true, |s| !s.is_terminator()) {
+                        writeln!(self.out, "{indent_level_2}break;")?;
+                    }
+                } else {
+                    for sta in case.body.iter() {
+                        self.write_stmt(module, sta, func_ctx, indent_level_2)?;
+                    }
+                    if !case.fall_through && case.body.last().map_or(true, |s| !s.is_terminator()) {
+                        writeln!(self.out, "{indent_level_2}break;")?;
+                    }
+                }
+
+                if write_block_braces {
+                    writeln!(self.out, "{indent_level_1}}}")?;
+                }
+            }
+
+            writeln!(self.out, "{level}}}")?;
+        }
+
+        // Handle any forwarded continue statements.
+        use back::continue_forward::ExitControlFlow;
+        let op = match self.continue_ctx.exit_switch() {
+            ExitControlFlow::None => None,
+            ExitControlFlow::Continue { variable } => Some(("continue", variable)),
+            ExitControlFlow::Break { variable } => Some(("break", variable)),
+        };
+        if let Some((control_flow, variable)) = op {
+            writeln!(self.out, "{level}if ({variable}) {{")?;
+            writeln!(self.out, "{indent_level_1}{control_flow};")?;
+            writeln!(self.out, "{level}}}")?;
+        }
+
+        Ok(())
+    }
+
     /// Helper method used to write statements
     ///
     /// # Notes
@@ -1329,7 +1617,7 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                         // Also, we use sanitized names! It defense backend from generating variable with name from reserved keywords.
                         Some(self.namer.call(name))
                     } else if self.need_bake_expressions.contains(&handle) {
-                        Some(format!("_expr{}", handle.index()))
+                        Some(Baked(handle).to_string())
                     } else {
                         None
                     };
@@ -1743,6 +2031,7 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                 ref continuing,
                 break_if,
             } => {
+                self.continue_ctx.enter_loop();
                 let l2 = level.next();
                 if !continuing.is_empty() || break_if.is_some() {
                     let gate_name = self.namer.call("loop_init");
@@ -1769,10 +2058,18 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                 for sta in body.iter() {
                     self.write_stmt(module, sta, func_ctx, l2)?;
                 }
-                writeln!(self.out, "{level}}}")?
+                writeln!(self.out, "{level}}}")?;
+                self.continue_ctx.exit_loop();
             }
             Statement::Break => writeln!(self.out, "{level}break;")?,
-            Statement::Continue => writeln!(self.out, "{level}continue;")?,
+            Statement::Continue => {
+                if let Some(variable) = self.continue_ctx.continue_encountered() {
+                    writeln!(self.out, "{level}{variable} = true;")?;
+                    writeln!(self.out, "{level}break;")?
+                } else {
+                    writeln!(self.out, "{level}continue;")?
+                }
+            }
             Statement::Barrier(barrier) => {
                 self.write_barrier(barrier, level)?;
             }
@@ -1810,7 +2107,7 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                 write!(self.out, "{level}")?;
                 if let Some(expr) = result {
                     write!(self.out, "const ")?;
-                    let name = format!("{}{}", back::BAKE_PREFIX, expr.index());
+                    let name = Baked(expr).to_string();
                     let expr_ty = &func_ctx.info[expr].ty;
                     match *expr_ty {
                         proc::TypeResolution::Handle(handle) => self.write_type(module, handle)?,
@@ -1838,11 +2135,20 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                 result,
             } => {
                 write!(self.out, "{level}")?;
-                let res_name = format!("{}{}", back::BAKE_PREFIX, result.index());
-                match func_ctx.info[result].ty {
-                    proc::TypeResolution::Handle(handle) => self.write_type(module, handle)?,
-                    proc::TypeResolution::Value(ref value) => {
-                        self.write_value_type(module, value)?
+                let res_name = match result {
+                    None => None,
+                    Some(result) => {
+                        let name = Baked(result).to_string();
+                        match func_ctx.info[result].ty {
+                            proc::TypeResolution::Handle(handle) => {
+                                self.write_type(module, handle)?
+                            }
+                            proc::TypeResolution::Value(ref value) => {
+                                self.write_value_type(module, value)?
+                            }
+                        };
+                        write!(self.out, " {name}; ")?;
+                        Some((result, name))
                     }
                 };
 
@@ -1853,7 +2159,6 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                     .unwrap();
 
                 let fun_str = fun.to_hlsl_suffix();
-                write!(self.out, " {res_name}; ")?;
                 match pointer_space {
                     crate::AddressSpace::WorkGroup => {
                         write!(self.out, "Interlocked{fun_str}(")?;
@@ -1866,7 +2171,11 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                         // ownership of our reusable access chain buffer.
                         let chain = mem::take(&mut self.temp_access_chain);
                         let var_name = &self.names[&NameKey::GlobalVariable(var_handle)];
-                        write!(self.out, "{var_name}.Interlocked{fun_str}(")?;
+                        let width = match func_ctx.resolve_type(value, &module.types) {
+                            &TypeInner::Scalar(Scalar { width: 8, .. }) => "64",
+                            _ => "",
+                        };
+                        write!(self.out, "{var_name}.Interlocked{fun_str}{width}(")?;
                         self.write_storage_address(module, &chain, func_ctx)?;
                         self.temp_access_chain = chain;
                     }
@@ -1889,13 +2198,21 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                     _ => {}
                 }
                 self.write_expr(module, value, func_ctx)?;
-                writeln!(self.out, ", {res_name});")?;
-                self.named_expressions.insert(result, res_name);
+
+                // The `original_value` out parameter is optional for all the
+                // `Interlocked` functions we generate other than
+                // `InterlockedExchange`.
+                if let Some((result, name)) = res_name {
+                    write!(self.out, ", {name}")?;
+                    self.named_expressions.insert(result, name);
+                }
+
+                writeln!(self.out, ");")?;
             }
             Statement::WorkGroupUniformLoad { pointer, result } => {
                 self.write_barrier(crate::Barrier::WORK_GROUP, level)?;
                 write!(self.out, "{level}")?;
-                let name = format!("_expr{}", result.index());
+                let name = Baked(result).to_string();
                 self.write_named_expr(module, pointer, name, result, func_ctx)?;
 
                 self.write_barrier(crate::Barrier::WORK_GROUP, level)?;
@@ -1904,102 +2221,132 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                 selector,
                 ref cases,
             } => {
-                // Start the switch
-                write!(self.out, "{level}")?;
-                write!(self.out, "switch(")?;
-                self.write_expr(module, selector, func_ctx)?;
-                writeln!(self.out, ") {{")?;
-
-                // Write all cases
-                let indent_level_1 = level.next();
-                let indent_level_2 = indent_level_1.next();
-
-                for (i, case) in cases.iter().enumerate() {
-                    match case.value {
-                        crate::SwitchValue::I32(value) => {
-                            write!(self.out, "{indent_level_1}case {value}:")?
-                        }
-                        crate::SwitchValue::U32(value) => {
-                            write!(self.out, "{indent_level_1}case {value}u:")?
-                        }
-                        crate::SwitchValue::Default => {
-                            write!(self.out, "{indent_level_1}default:")?
-                        }
-                    }
-
-                    // The new block is not only stylistic, it plays a role here:
-                    // We might end up having to write the same case body
-                    // multiple times due to FXC not supporting fallthrough.
-                    // Therefore, some `Expression`s written by `Statement::Emit`
-                    // will end up having the same name (`_expr<handle_index>`).
-                    // So we need to put each case in its own scope.
-                    let write_block_braces = !(case.fall_through && case.body.is_empty());
-                    if write_block_braces {
-                        writeln!(self.out, " {{")?;
-                    } else {
-                        writeln!(self.out)?;
-                    }
-
-                    // Although FXC does support a series of case clauses before
-                    // a block[^yes], it does not support fallthrough from a
-                    // non-empty case block to the next[^no]. If this case has a
-                    // non-empty body with a fallthrough, emulate that by
-                    // duplicating the bodies of all the cases it would fall
-                    // into as extensions of this case's own body. This makes
-                    // the HLSL output potentially quadratic in the size of the
-                    // Naga IR.
-                    //
-                    // [^yes]: ```hlsl
-                    // case 1:
-                    // case 2: do_stuff()
-                    // ```
-                    // [^no]: ```hlsl
-                    // case 1: do_this();
-                    // case 2: do_that();
-                    // ```
-                    if case.fall_through && !case.body.is_empty() {
-                        let curr_len = i + 1;
-                        let end_case_idx = curr_len
-                            + cases
-                                .iter()
-                                .skip(curr_len)
-                                .position(|case| !case.fall_through)
-                                .unwrap();
-                        let indent_level_3 = indent_level_2.next();
-                        for case in &cases[i..=end_case_idx] {
-                            writeln!(self.out, "{indent_level_2}{{")?;
-                            let prev_len = self.named_expressions.len();
-                            for sta in case.body.iter() {
-                                self.write_stmt(module, sta, func_ctx, indent_level_3)?;
-                            }
-                            // Clear all named expressions that were previously inserted by the statements in the block
-                            self.named_expressions.truncate(prev_len);
-                            writeln!(self.out, "{indent_level_2}}}")?;
-                        }
-
-                        let last_case = &cases[end_case_idx];
-                        if last_case.body.last().map_or(true, |s| !s.is_terminator()) {
-                            writeln!(self.out, "{indent_level_2}break;")?;
-                        }
-                    } else {
-                        for sta in case.body.iter() {
-                            self.write_stmt(module, sta, func_ctx, indent_level_2)?;
-                        }
-                        if !case.fall_through
-                            && case.body.last().map_or(true, |s| !s.is_terminator())
-                        {
-                            writeln!(self.out, "{indent_level_2}break;")?;
-                        }
-                    }
-
-                    if write_block_braces {
-                        writeln!(self.out, "{indent_level_1}}}")?;
-                    }
-                }
-
-                writeln!(self.out, "{level}}}")?
+                self.write_switch(module, func_ctx, level, selector, cases)?;
             }
             Statement::RayQuery { .. } => unreachable!(),
+            Statement::SubgroupBallot { result, predicate } => {
+                write!(self.out, "{level}")?;
+                let name = Baked(result).to_string();
+                write!(self.out, "const uint4 {name} = ")?;
+                self.named_expressions.insert(result, name);
+
+                write!(self.out, "WaveActiveBallot(")?;
+                match predicate {
+                    Some(predicate) => self.write_expr(module, predicate, func_ctx)?,
+                    None => write!(self.out, "true")?,
+                }
+                writeln!(self.out, ");")?;
+            }
+            Statement::SubgroupCollectiveOperation {
+                op,
+                collective_op,
+                argument,
+                result,
+            } => {
+                write!(self.out, "{level}")?;
+                write!(self.out, "const ")?;
+                let name = Baked(result).to_string();
+                match func_ctx.info[result].ty {
+                    proc::TypeResolution::Handle(handle) => self.write_type(module, handle)?,
+                    proc::TypeResolution::Value(ref value) => {
+                        self.write_value_type(module, value)?
+                    }
+                };
+                write!(self.out, " {name} = ")?;
+                self.named_expressions.insert(result, name);
+
+                match (collective_op, op) {
+                    (crate::CollectiveOperation::Reduce, crate::SubgroupOperation::All) => {
+                        write!(self.out, "WaveActiveAllTrue(")?
+                    }
+                    (crate::CollectiveOperation::Reduce, crate::SubgroupOperation::Any) => {
+                        write!(self.out, "WaveActiveAnyTrue(")?
+                    }
+                    (crate::CollectiveOperation::Reduce, crate::SubgroupOperation::Add) => {
+                        write!(self.out, "WaveActiveSum(")?
+                    }
+                    (crate::CollectiveOperation::Reduce, crate::SubgroupOperation::Mul) => {
+                        write!(self.out, "WaveActiveProduct(")?
+                    }
+                    (crate::CollectiveOperation::Reduce, crate::SubgroupOperation::Max) => {
+                        write!(self.out, "WaveActiveMax(")?
+                    }
+                    (crate::CollectiveOperation::Reduce, crate::SubgroupOperation::Min) => {
+                        write!(self.out, "WaveActiveMin(")?
+                    }
+                    (crate::CollectiveOperation::Reduce, crate::SubgroupOperation::And) => {
+                        write!(self.out, "WaveActiveBitAnd(")?
+                    }
+                    (crate::CollectiveOperation::Reduce, crate::SubgroupOperation::Or) => {
+                        write!(self.out, "WaveActiveBitOr(")?
+                    }
+                    (crate::CollectiveOperation::Reduce, crate::SubgroupOperation::Xor) => {
+                        write!(self.out, "WaveActiveBitXor(")?
+                    }
+                    (crate::CollectiveOperation::ExclusiveScan, crate::SubgroupOperation::Add) => {
+                        write!(self.out, "WavePrefixSum(")?
+                    }
+                    (crate::CollectiveOperation::ExclusiveScan, crate::SubgroupOperation::Mul) => {
+                        write!(self.out, "WavePrefixProduct(")?
+                    }
+                    (crate::CollectiveOperation::InclusiveScan, crate::SubgroupOperation::Add) => {
+                        self.write_expr(module, argument, func_ctx)?;
+                        write!(self.out, " + WavePrefixSum(")?;
+                    }
+                    (crate::CollectiveOperation::InclusiveScan, crate::SubgroupOperation::Mul) => {
+                        self.write_expr(module, argument, func_ctx)?;
+                        write!(self.out, " * WavePrefixProduct(")?;
+                    }
+                    _ => unimplemented!(),
+                }
+                self.write_expr(module, argument, func_ctx)?;
+                writeln!(self.out, ");")?;
+            }
+            Statement::SubgroupGather {
+                mode,
+                argument,
+                result,
+            } => {
+                write!(self.out, "{level}")?;
+                write!(self.out, "const ")?;
+                let name = Baked(result).to_string();
+                match func_ctx.info[result].ty {
+                    proc::TypeResolution::Handle(handle) => self.write_type(module, handle)?,
+                    proc::TypeResolution::Value(ref value) => {
+                        self.write_value_type(module, value)?
+                    }
+                };
+                write!(self.out, " {name} = ")?;
+                self.named_expressions.insert(result, name);
+
+                if matches!(mode, crate::GatherMode::BroadcastFirst) {
+                    write!(self.out, "WaveReadLaneFirst(")?;
+                    self.write_expr(module, argument, func_ctx)?;
+                } else {
+                    write!(self.out, "WaveReadLaneAt(")?;
+                    self.write_expr(module, argument, func_ctx)?;
+                    write!(self.out, ", ")?;
+                    match mode {
+                        crate::GatherMode::BroadcastFirst => unreachable!(),
+                        crate::GatherMode::Broadcast(index) | crate::GatherMode::Shuffle(index) => {
+                            self.write_expr(module, index, func_ctx)?;
+                        }
+                        crate::GatherMode::ShuffleDown(index) => {
+                            write!(self.out, "WaveGetLaneIndex() + ")?;
+                            self.write_expr(module, index, func_ctx)?;
+                        }
+                        crate::GatherMode::ShuffleUp(index) => {
+                            write!(self.out, "WaveGetLaneIndex() - ")?;
+                            self.write_expr(module, index, func_ctx)?;
+                        }
+                        crate::GatherMode::ShuffleXor(index) => {
+                            write!(self.out, "WaveGetLaneIndex() ^ ")?;
+                            self.write_expr(module, index, func_ctx)?;
+                        }
+                    }
+                }
+                writeln!(self.out, ");")?;
+            }
         }
 
         Ok(())
@@ -2013,7 +2360,7 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
         self.write_possibly_const_expression(
             module,
             expr,
-            &module.const_expressions,
+            &module.global_expressions,
             |writer, expr| writer.write_const_expression(module, expr),
         )
     }
@@ -2038,6 +2385,7 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                 crate::Literal::F32(value) => write!(self.out, "{value:?}")?,
                 crate::Literal::U32(value) => write!(self.out, "{}u", value)?,
                 crate::Literal::I32(value) => write!(self.out, "{}", value)?,
+                crate::Literal::U64(value) => write!(self.out, "{}uL", value)?,
                 crate::Literal::I64(value) => write!(self.out, "{}L", value)?,
                 crate::Literal::Bool(value) => write!(self.out, "{}", value)?,
                 crate::Literal::AbstractInt(_) | crate::Literal::AbstractFloat(_) => {
@@ -2054,7 +2402,10 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                     self.write_const_expression(module, constant.init)?;
                 }
             }
-            Expression::ZeroValue(ty) => self.write_default_init(module, ty)?,
+            Expression::ZeroValue(ty) => {
+                self.write_wrapped_zero_value_function_name(module, WrappedZeroValue { ty })?;
+                write!(self.out, "()")?;
+            }
             Expression::Compose { ty, ref components } => {
                 match module.types[ty].inner {
                     TypeInner::Struct { .. } | TypeInner::Array { .. } => {
@@ -2155,6 +2506,7 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                     |writer, expr| writer.write_expr(module, expr, func_ctx),
                 )?;
             }
+            Expression::Override(_) => return Err(Error::Override),
             // All of the multiplication can be expressed as `mul`,
             // except vector * vector, which needs to use the "*" operator.
             Expression::Binary {
@@ -2192,7 +2544,7 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                 left,
                 right,
             } if func_ctx.resolve_type(left, &module.types).scalar_kind()
-                == Some(crate::ScalarKind::Float) =>
+                == Some(ScalarKind::Float) =>
             {
                 write!(self.out, "fmod(")?;
                 self.write_expr(module, left, func_ctx)?;
@@ -2203,7 +2555,7 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
             Expression::Binary { op, left, right } => {
                 write!(self.out, "(")?;
                 self.write_expr(module, left, func_ctx)?;
-                write!(self.out, " {} ", crate::back::binary_operation_str(op))?;
+                write!(self.out, " {} ", back::binary_operation_str(op))?;
                 self.write_expr(module, right, func_ctx)?;
                 write!(self.out, ")")?;
             }
@@ -2567,9 +2919,9 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                 convert,
             } => {
                 let inner = func_ctx.resolve_type(expr, &module.types);
-                match convert {
+                let close_paren = match convert {
                     Some(dst_width) => {
-                        let scalar = crate::Scalar {
+                        let scalar = Scalar {
                             kind,
                             width: dst_width,
                         };
@@ -2600,13 +2952,21 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                                 )));
                             }
                         };
+                        true
                     }
                     None => {
-                        write!(self.out, "{}(", kind.to_hlsl_cast(),)?;
+                        if inner.scalar_width() == Some(8) {
+                            false
+                        } else {
+                            write!(self.out, "{}(", kind.to_hlsl_cast(),)?;
+                            true
+                        }
                     }
-                }
+                };
                 self.write_expr(module, expr, func_ctx)?;
-                write!(self.out, ")")?;
+                if close_paren {
+                    write!(self.out, ")")?;
+                }
             }
             Expression::Math {
                 fun,
@@ -2620,18 +2980,20 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                 enum Function {
                     Asincosh { is_sin: bool },
                     Atanh,
-                    ExtractBits,
-                    InsertBits,
                     Pack2x16float,
                     Pack2x16snorm,
                     Pack2x16unorm,
                     Pack4x8snorm,
                     Pack4x8unorm,
+                    Pack4xI8,
+                    Pack4xU8,
                     Unpack2x16float,
                     Unpack2x16snorm,
                     Unpack2x16unorm,
                     Unpack4x8snorm,
                     Unpack4x8unorm,
+                    Unpack4xI8,
+                    Unpack4xU8,
                     Regular(&'static str),
                     MissingIntOverload(&'static str),
                     MissingIntReturnType(&'static str),
@@ -2703,22 +3065,26 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                     Mf::CountLeadingZeros => Function::CountLeadingZeros,
                     Mf::CountOneBits => Function::MissingIntOverload("countbits"),
                     Mf::ReverseBits => Function::MissingIntOverload("reversebits"),
-                    Mf::FindLsb => Function::MissingIntReturnType("firstbitlow"),
-                    Mf::FindMsb => Function::MissingIntReturnType("firstbithigh"),
-                    Mf::ExtractBits => Function::ExtractBits,
-                    Mf::InsertBits => Function::InsertBits,
+                    Mf::FirstTrailingBit => Function::MissingIntReturnType("firstbitlow"),
+                    Mf::FirstLeadingBit => Function::MissingIntReturnType("firstbithigh"),
+                    Mf::ExtractBits => Function::Regular(EXTRACT_BITS_FUNCTION),
+                    Mf::InsertBits => Function::Regular(INSERT_BITS_FUNCTION),
                     // Data Packing
                     Mf::Pack2x16float => Function::Pack2x16float,
                     Mf::Pack2x16snorm => Function::Pack2x16snorm,
                     Mf::Pack2x16unorm => Function::Pack2x16unorm,
                     Mf::Pack4x8snorm => Function::Pack4x8snorm,
                     Mf::Pack4x8unorm => Function::Pack4x8unorm,
+                    Mf::Pack4xI8 => Function::Pack4xI8,
+                    Mf::Pack4xU8 => Function::Pack4xU8,
                     // Data Unpacking
                     Mf::Unpack2x16float => Function::Unpack2x16float,
                     Mf::Unpack2x16snorm => Function::Unpack2x16snorm,
                     Mf::Unpack2x16unorm => Function::Unpack2x16unorm,
                     Mf::Unpack4x8snorm => Function::Unpack4x8snorm,
                     Mf::Unpack4x8unorm => Function::Unpack4x8unorm,
+                    Mf::Unpack4xI8 => Function::Unpack4xI8,
+                    Mf::Unpack4xU8 => Function::Unpack4xU8,
                     _ => return Err(Error::Unimplemented(format!("write_expr_math {fun:?}"))),
                 };
 
@@ -2741,70 +3107,6 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                         write!(self.out, ") / (1.0 - ")?;
                         self.write_expr(module, arg, func_ctx)?;
                         write!(self.out, "))")?;
-                    }
-                    Function::ExtractBits => {
-                        // e: T,
-                        // offset: u32,
-                        // count: u32
-                        // T is u32 or i32 or vecN<u32> or vecN<i32>
-                        if let (Some(offset), Some(count)) = (arg1, arg2) {
-                            let scalar_width: u8 = 32;
-                            // Works for signed and unsigned
-                            // (count == 0 ? 0 : (e << (32 - count - offset)) >> (32 - count))
-                            write!(self.out, "(")?;
-                            self.write_expr(module, count, func_ctx)?;
-                            write!(self.out, " == 0 ? 0 : (")?;
-                            self.write_expr(module, arg, func_ctx)?;
-                            write!(self.out, " << ({scalar_width} - ")?;
-                            self.write_expr(module, count, func_ctx)?;
-                            write!(self.out, " - ")?;
-                            self.write_expr(module, offset, func_ctx)?;
-                            write!(self.out, ")) >> ({scalar_width} - ")?;
-                            self.write_expr(module, count, func_ctx)?;
-                            write!(self.out, "))")?;
-                        }
-                    }
-                    Function::InsertBits => {
-                        // e: T,
-                        // newbits: T,
-                        // offset: u32,
-                        // count: u32
-                        // returns T
-                        // T is i32, u32, vecN<i32>, or vecN<u32>
-                        if let (Some(newbits), Some(offset), Some(count)) = (arg1, arg2, arg3) {
-                            let scalar_width: u8 = 32;
-                            let scalar_max: u32 = 0xFFFFFFFF;
-                            // mask = ((0xFFFFFFFFu >> (32 - count)) << offset)
-                            // (count == 0 ? e : ((e & ~mask) | ((newbits << offset) & mask)))
-                            write!(self.out, "(")?;
-                            self.write_expr(module, count, func_ctx)?;
-                            write!(self.out, " == 0 ? ")?;
-                            self.write_expr(module, arg, func_ctx)?;
-                            write!(self.out, " : ")?;
-                            write!(self.out, "(")?;
-                            self.write_expr(module, arg, func_ctx)?;
-                            write!(self.out, " & ~")?;
-                            // mask
-                            write!(self.out, "(({scalar_max}u >> ({scalar_width}u - ")?;
-                            self.write_expr(module, count, func_ctx)?;
-                            write!(self.out, ")) << ")?;
-                            self.write_expr(module, offset, func_ctx)?;
-                            write!(self.out, ")")?;
-                            // end mask
-                            write!(self.out, ") | ((")?;
-                            self.write_expr(module, newbits, func_ctx)?;
-                            write!(self.out, " << ")?;
-                            self.write_expr(module, offset, func_ctx)?;
-                            write!(self.out, ") & ")?;
-                            // // mask
-                            write!(self.out, "(({scalar_max}u >> ({scalar_width}u - ")?;
-                            self.write_expr(module, count, func_ctx)?;
-                            write!(self.out, ")) << ")?;
-                            self.write_expr(module, offset, func_ctx)?;
-                            write!(self.out, ")")?;
-                            // // end mask
-                            write!(self.out, "))")?;
-                        }
                     }
                     Function::Pack2x16float => {
                         write!(self.out, "(f32tof16(")?;
@@ -2875,6 +3177,24 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                         self.write_expr(module, arg, func_ctx)?;
                         write!(self.out, "[3], 0.0, 1.0) * {scale}.0)) << 24)")?;
                     }
+                    fun @ (Function::Pack4xI8 | Function::Pack4xU8) => {
+                        let was_signed = matches!(fun, Function::Pack4xI8);
+                        if was_signed {
+                            write!(self.out, "uint(")?;
+                        }
+                        write!(self.out, "(")?;
+                        self.write_expr(module, arg, func_ctx)?;
+                        write!(self.out, "[0] & 0xFF) | ((")?;
+                        self.write_expr(module, arg, func_ctx)?;
+                        write!(self.out, "[1] & 0xFF) << 8) | ((")?;
+                        self.write_expr(module, arg, func_ctx)?;
+                        write!(self.out, "[2] & 0xFF) << 16) | ((")?;
+                        self.write_expr(module, arg, func_ctx)?;
+                        write!(self.out, "[3] & 0xFF) << 24)")?;
+                        if was_signed {
+                            write!(self.out, ")")?;
+                        }
+                    }
 
                     Function::Unpack2x16float => {
                         write!(self.out, "float2(f16tof32(")?;
@@ -2927,6 +3247,20 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                         self.write_expr(module, arg, func_ctx)?;
                         write!(self.out, " >> 24) / {scale}.0)")?;
                     }
+                    fun @ (Function::Unpack4xI8 | Function::Unpack4xU8) => {
+                        if matches!(fun, Function::Unpack4xU8) {
+                            write!(self.out, "u")?;
+                        }
+                        write!(self.out, "int4(")?;
+                        self.write_expr(module, arg, func_ctx)?;
+                        write!(self.out, ", ")?;
+                        self.write_expr(module, arg, func_ctx)?;
+                        write!(self.out, " >> 8, ")?;
+                        self.write_expr(module, arg, func_ctx)?;
+                        write!(self.out, " >> 16, ")?;
+                        self.write_expr(module, arg, func_ctx)?;
+                        write!(self.out, " >> 24) << 24 >> 24")?;
+                    }
                     Function::Regular(fun_name) => {
                         write!(self.out, "{fun_name}(")?;
                         self.write_expr(module, arg, func_ctx)?;
@@ -2944,9 +3278,15 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                         }
                         write!(self.out, ")")?
                     }
+                    // These overloads are only missing on FXC, so this is only needed for 32bit types,
+                    // as non-32bit types are DXC only.
                     Function::MissingIntOverload(fun_name) => {
-                        let scalar_kind = func_ctx.resolve_type(arg, &module.types).scalar_kind();
-                        if let Some(ScalarKind::Sint) = scalar_kind {
+                        let scalar_kind = func_ctx.resolve_type(arg, &module.types).scalar();
+                        if let Some(Scalar {
+                            kind: ScalarKind::Sint,
+                            width: 4,
+                        }) = scalar_kind
+                        {
                             write!(self.out, "asint({fun_name}(asuint(")?;
                             self.write_expr(module, arg, func_ctx)?;
                             write!(self.out, ")))")?;
@@ -2956,9 +3296,15 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                             write!(self.out, ")")?;
                         }
                     }
+                    // These overloads are only missing on FXC, so this is only needed for 32bit types,
+                    // as non-32bit types are DXC only.
                     Function::MissingIntReturnType(fun_name) => {
-                        let scalar_kind = func_ctx.resolve_type(arg, &module.types).scalar_kind();
-                        if let Some(ScalarKind::Sint) = scalar_kind {
+                        let scalar_kind = func_ctx.resolve_type(arg, &module.types).scalar();
+                        if let Some(Scalar {
+                            kind: ScalarKind::Sint,
+                            width: 4,
+                        }) = scalar_kind
+                        {
                             write!(self.out, "asint({fun_name}(")?;
                             self.write_expr(module, arg, func_ctx)?;
                             write!(self.out, "))")?;
@@ -2977,23 +3323,38 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                                     crate::VectorSize::Quad => ".xxxx",
                                 };
 
-                                if let ScalarKind::Uint = scalar.kind {
-                                    write!(self.out, "min((32u){s}, firstbitlow(")?;
+                                let scalar_width_bits = scalar.width * 8;
+
+                                if scalar.kind == ScalarKind::Uint || scalar.width != 4 {
+                                    write!(
+                                        self.out,
+                                        "min(({scalar_width_bits}u){s}, firstbitlow("
+                                    )?;
                                     self.write_expr(module, arg, func_ctx)?;
                                     write!(self.out, "))")?;
                                 } else {
-                                    write!(self.out, "asint(min((32u){s}, firstbitlow(")?;
+                                    // This is only needed for the FXC path, on 32bit signed integers.
+                                    write!(
+                                        self.out,
+                                        "asint(min(({scalar_width_bits}u){s}, firstbitlow("
+                                    )?;
                                     self.write_expr(module, arg, func_ctx)?;
                                     write!(self.out, ")))")?;
                                 }
                             }
                             TypeInner::Scalar(scalar) => {
-                                if let ScalarKind::Uint = scalar.kind {
-                                    write!(self.out, "min(32u, firstbitlow(")?;
+                                let scalar_width_bits = scalar.width * 8;
+
+                                if scalar.kind == ScalarKind::Uint || scalar.width != 4 {
+                                    write!(self.out, "min({scalar_width_bits}u, firstbitlow(")?;
                                     self.write_expr(module, arg, func_ctx)?;
                                     write!(self.out, "))")?;
                                 } else {
-                                    write!(self.out, "asint(min(32u, firstbitlow(")?;
+                                    // This is only needed for the FXC path, on 32bit signed integers.
+                                    write!(
+                                        self.out,
+                                        "asint(min({scalar_width_bits}u, firstbitlow("
+                                    )?;
                                     self.write_expr(module, arg, func_ctx)?;
                                     write!(self.out, ")))")?;
                                 }
@@ -3012,30 +3373,47 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
                                     crate::VectorSize::Quad => ".xxxx",
                                 };
 
-                                if let ScalarKind::Uint = scalar.kind {
-                                    write!(self.out, "((31u){s} - firstbithigh(")?;
+                                // scalar width - 1
+                                let constant = scalar.width * 8 - 1;
+
+                                if scalar.kind == ScalarKind::Uint {
+                                    write!(self.out, "(({constant}u){s} - firstbithigh(")?;
                                     self.write_expr(module, arg, func_ctx)?;
                                     write!(self.out, "))")?;
                                 } else {
+                                    let conversion_func = match scalar.width {
+                                        4 => "asint",
+                                        _ => "",
+                                    };
                                     write!(self.out, "(")?;
                                     self.write_expr(module, arg, func_ctx)?;
                                     write!(
                                         self.out,
-                                        " < (0){s} ? (0){s} : (31){s} - asint(firstbithigh("
+                                        " < (0){s} ? (0){s} : ({constant}){s} - {conversion_func}(firstbithigh("
                                     )?;
                                     self.write_expr(module, arg, func_ctx)?;
                                     write!(self.out, ")))")?;
                                 }
                             }
                             TypeInner::Scalar(scalar) => {
+                                // scalar width - 1
+                                let constant = scalar.width * 8 - 1;
+
                                 if let ScalarKind::Uint = scalar.kind {
-                                    write!(self.out, "(31u - firstbithigh(")?;
+                                    write!(self.out, "({constant}u - firstbithigh(")?;
                                     self.write_expr(module, arg, func_ctx)?;
                                     write!(self.out, "))")?;
                                 } else {
+                                    let conversion_func = match scalar.width {
+                                        4 => "asint",
+                                        _ => "",
+                                    };
                                     write!(self.out, "(")?;
                                     self.write_expr(module, arg, func_ctx)?;
-                                    write!(self.out, " < 0 ? 0 : 31 - asint(firstbithigh(")?;
+                                    write!(
+                                        self.out,
+                                        " < 0 ? 0 : {constant} - {conversion_func}(firstbithigh("
+                                    )?;
                                     self.write_expr(module, arg, func_ctx)?;
                                     write!(self.out, ")))")?;
                                 }
@@ -3158,7 +3536,9 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
             Expression::CallResult(_)
             | Expression::AtomicResult { .. }
             | Expression::WorkGroupUniformLoadResult { .. }
-            | Expression::RayQueryProceedResult => {}
+            | Expression::RayQueryProceedResult
+            | Expression::SubgroupBallotResult
+            | Expression::SubgroupOperationResult { .. } => {}
         }
 
         if !closing_bracket.is_empty() {
@@ -3208,7 +3588,11 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
     }
 
     /// Helper function that write default zero initialization
-    fn write_default_init(&mut self, module: &Module, ty: Handle<crate::Type>) -> BackendResult {
+    pub(super) fn write_default_init(
+        &mut self,
+        module: &Module,
+        ty: Handle<crate::Type>,
+    ) -> BackendResult {
         write!(self.out, "(")?;
         self.write_type(module, ty)?;
         if let TypeInner::Array { base, size, .. } = module.types[ty].inner {
@@ -3224,6 +3608,9 @@ impl<'a, W: fmt::Write> super::Writer<'a, W> {
         }
         if barrier.contains(crate::Barrier::WORK_GROUP) {
             writeln!(self.out, "{level}GroupMemoryBarrierWithGroupSync();")?;
+        }
+        if barrier.contains(crate::Barrier::SUB_GROUP) {
+            // Does not exist in DirectX
         }
         Ok(())
     }

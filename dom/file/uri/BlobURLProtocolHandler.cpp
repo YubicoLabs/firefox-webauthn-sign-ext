@@ -16,7 +16,6 @@
 #include "mozilla/dom/IPCBlobUtils.h"
 #include "mozilla/dom/MediaSource.h"
 #include "mozilla/ipc/IPCStreamUtils.h"
-#include "mozilla/glean/GleanMetrics.h"
 #include "mozilla/AppShutdown.h"
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/LoadInfo.h"
@@ -317,13 +316,12 @@ class BlobURLsReporter final : public nsIMemoryReporter {
     JSContext* cx = frame ? nsContentUtils::GetCurrentJSContext() : nullptr;
 
     while (frame) {
-      nsString fileNameUTF16;
-      frame->GetFilename(cx, fileNameUTF16);
+      nsCString fileName;
+      frame->GetFilename(cx, fileName);
 
       int32_t lineNumber = frame->GetLineNumber(cx);
 
-      if (!fileNameUTF16.IsEmpty()) {
-        NS_ConvertUTF16toUTF8 fileName(fileNameUTF16);
+      if (!fileName.IsEmpty()) {
         stack += "js(";
         if (!origin.IsEmpty()) {
           // Make the file name root-relative for conciseness if possible.
@@ -777,7 +775,6 @@ bool BlobURLProtocolHandler::GetDataEntry(
   if (StaticPrefs::privacy_partition_bloburl_per_partition_key() &&
       !aPartitionKey.IsEmpty() && !info->mPartitionKey.IsEmpty() &&
       !aPartitionKey.Equals(info->mPartitionKey)) {
-    mozilla::glean::bloburl::resolve_stopped.Add();
     nsAutoString localizedMsg;
     AutoTArray<nsString, 1> param;
     CopyUTF8toUTF16(aUri, *param.AppendElement());
@@ -948,7 +945,7 @@ nsresult NS_GetBlobForBlobURISpec(const nsACString& aSpec,
 }
 
 // Blob requests may specify a range header. We parse, validate, and
-// store that info here, and save it on the nsBaseChannel, where it
+// store that info here, and save it on the nsIBaseChannel, where it
 // can be accessed by BlobURLInputStream::StoreBlobImplStream.
 nsresult NS_SetChannelContentRangeForBlobURI(nsIChannel* aChannel, nsIURI* aURI,
                                              nsACString& aRangeHeader) {
@@ -963,9 +960,8 @@ nsresult NS_SetChannelContentRangeForBlobURI(nsIChannel* aChannel, nsIURI* aURI,
   if (result.Failed()) {
     return NS_ERROR_NO_CONTENT;
   }
-  nsBaseChannel* bchan = static_cast<nsBaseChannel*>(aChannel);
-  MOZ_ASSERT(bchan);
-  if (!bchan->SetContentRange(aRangeHeader, size)) {
+  nsCOMPtr<nsIBaseChannel> baseChan = do_QueryInterface(aChannel);
+  if (!baseChan || !baseChan->SetContentRangeFromHeader(aRangeHeader, size)) {
     return NS_ERROR_NET_PARTIAL_TRANSFER;
   }
   return NS_OK;

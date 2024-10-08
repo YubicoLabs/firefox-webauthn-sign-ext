@@ -18,7 +18,8 @@ class RecordedTextureData final : public TextureData {
  public:
   RecordedTextureData(already_AddRefed<CanvasChild> aCanvasChild,
                       gfx::IntSize aSize, gfx::SurfaceFormat aFormat,
-                      TextureType aTextureType);
+                      TextureType aTextureType,
+                      TextureType aWebglTextureType = TextureType::Unknown);
 
   void FillInfo(TextureData::Info& aInfo) const final;
 
@@ -52,10 +53,17 @@ class RecordedTextureData final : public TextureData {
   already_AddRefed<FwdTransactionTracker> UseCompositableForwarder(
       CompositableForwarder* aForwarder) final;
 
+ protected:
+  friend class gfx::DrawTargetRecording;
+
+  void DrawTargetWillChange();
+
  private:
   DISALLOW_COPY_AND_ASSIGN(RecordedTextureData);
 
   ~RecordedTextureData() override;
+
+  void DetachSnapshotWrapper(bool aInvalidate = false, bool aRelease = true);
 
   int64_t mTextureId;
   RefPtr<CanvasChild> mCanvasChild;

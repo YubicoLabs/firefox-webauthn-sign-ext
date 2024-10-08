@@ -20,7 +20,7 @@ ChromeUtils.defineESModuleGetters(this, {
   ProcessType: "resource://gre/modules/ProcessType.sys.mjs",
 });
 
-window.addEventListener("load", function onload(event) {
+window.addEventListener("load", function onload() {
   try {
     window.removeEventListener("load", onload);
     Troubleshoot.snapshot().then(async snapshot => {
@@ -1051,7 +1051,7 @@ var snapshotFormatters = {
       }
       let button = $("enumerate-database-button");
       if (button) {
-        button.addEventListener("click", function (event) {
+        button.addEventListener("click", function () {
           let { KeyValueService } = ChromeUtils.importESModule(
             "resource://gre/modules/kvstore.sys.mjs"
           );
@@ -1074,7 +1074,7 @@ var snapshotFormatters = {
                 $("enumerate-database-result").textContent +=
                   logs.join("\n") + "\n";
               })
-              .catch(err => {
+              .catch(() => {
                 $("enumerate-database-result").textContent += `${name}:\n`;
               });
           }
@@ -1105,7 +1105,7 @@ var snapshotFormatters = {
             'th[data-l10n-id="roundtrip-latency"]'
           ).nextSibling.textContent = latencyString;
         })
-        .catch(e => {});
+        .catch(() => {});
     }
 
     function createCDMInfoRow(cdmInfo) {
@@ -1169,7 +1169,6 @@ var snapshotFormatters = {
         capabilities.persistent = findElementInArray(array, "persistent");
         capabilities.distinctive = findElementInArray(array, "distinctive");
         capabilities.sessionType = findElementInArray(array, "sessionType");
-        capabilities.scheme = findElementInArray(array, "scheme");
         capabilities.codec = getSupportedCodecs(array);
         return JSON.stringify(capabilities);
       }
@@ -1179,7 +1178,7 @@ var snapshotFormatters = {
         $.new("td", cdmInfo.keySystemName),
         $.new("td", getVideoRobustness(rvArray)),
         $.new("td", getAudioRobustness(rvArray)),
-        $.new("td", getCapabilities(rvArray)),
+        $.new("td", getCapabilities(rvArray), null, { colspan: "4" }),
         $.new("td", cdmInfo.clearlead ? "Yes" : "No"),
         $.new("td", cdmInfo.isHDCP22Compatible ? "Yes" : "No"),
       ]);
@@ -1369,6 +1368,17 @@ var snapshotFormatters = {
     $("remote-debugging-url").textContent = data.url;
   },
 
+  contentAnalysis(data) {
+    $("content-analysis-active").textContent = data.active;
+    if (data.active) {
+      $("content-analysis-connected-to-agent").textContent = data.connected;
+      $("content-analysis-agent-path").textContent = data.agentPath;
+      $("content-analysis-agent-failed-signature-verification").textContent =
+        data.failedSignatureVerification;
+      $("content-analysis-request-count").textContent = data.requestCount;
+    }
+  },
+
   accessibility(data) {
     $("a11y-activated").textContent = data.isActive;
     $("a11y-force-disabled").textContent = data.forceDisabled || 0;
@@ -1440,7 +1450,33 @@ var snapshotFormatters = {
       let keyStrId = toFluentID(key);
       let th = $.new("th", null, "column");
       document.l10n.setAttributes(th, keyStrId);
-      tbody.appendChild($.new("tr", [th, $.new("td", data[key])]));
+      let td = $.new("td", data[key]);
+      // Warning not applicable to Flatpak (see Bug 1882881), Snap or
+      // any "Packaged App" (eg. Debian package)
+      const isPackagedApp = Services.sysinfo.getPropertyAsBool("isPackagedApp");
+      if (key === "hasUserNamespaces" && !data[key] && !isPackagedApp) {
+        td = $.new("td", "");
+        td.classList.add("feature-unavailable");
+        let span = document.createElement("span");
+        document.l10n.setAttributes(
+          span,
+          "support-user-namespaces-unavailable",
+          {
+            status: data[key],
+          }
+        );
+        let supportLink = document.createElement("a", {
+          is: "moz-support-link",
+        });
+        supportLink.classList.add("user-namespaces-unavailabe-support-link");
+        supportLink.setAttribute(
+          "support-page",
+          "install-firefox-linux#w_install-firefox-from-mozilla-builds"
+        );
+        td.appendChild(span);
+        td.appendChild(supportLink);
+      }
+      tbody.appendChild($.new("tr", [th, td]));
     }
 
     if ("syscallLog" in data) {
@@ -1491,6 +1527,31 @@ var snapshotFormatters = {
     );
     $("intl-osprefs-regionalprefs").textContent = JSON.stringify(
       data.osPrefs.regionalPrefsLocales
+    );
+  },
+
+  remoteSettings(data) {
+    if (!data) {
+      return;
+    }
+    const { isSynchronizationBroken, lastCheck, localTimestamp, history } =
+      data;
+
+    $("support-remote-settings-status-ok").style.display =
+      isSynchronizationBroken ? "none" : "block";
+    $("support-remote-settings-status-broken").style.display =
+      isSynchronizationBroken ? "block" : "none";
+    $("support-remote-settings-last-check").textContent = lastCheck;
+    $("support-remote-settings-local-timestamp").textContent = localTimestamp;
+    $.append(
+      $("support-remote-settings-sync-history-tbody"),
+      history["settings-sync"].map(({ status, datetime, infos }) =>
+        $.new("tr", [
+          $.new("td", [document.createTextNode(status)]),
+          $.new("td", [document.createTextNode(datetime)]),
+          $.new("td", [document.createTextNode(JSON.stringify(infos))]),
+        ])
+      )
     );
   },
 
@@ -1606,7 +1667,7 @@ function sortedArrayFromObject(obj) {
   for (let prop in obj) {
     tuples.push([prop, obj[prop]]);
   }
-  tuples.sort(([prop1, v1], [prop2, v2]) => prop1.localeCompare(prop2));
+  tuples.sort(([prop1], [prop2]) => prop1.localeCompare(prop2));
   return tuples;
 }
 
@@ -1757,7 +1818,7 @@ Serializer.prototype = {
     }
   },
 
-  _startNewLine(lines) {
+  _startNewLine() {
     let currLine = this._currentLine;
     if (currLine) {
       // The current line is not empty.  Trim it.
@@ -1770,7 +1831,7 @@ Serializer.prototype = {
     this._lines.push("");
   },
 
-  _appendText(text, lines) {
+  _appendText(text) {
     this._currentLine += text;
   },
 
@@ -1926,13 +1987,13 @@ function safeModeRestart() {
 function setupEventListeners() {
   let button = $("reset-box-button");
   if (button) {
-    button.addEventListener("click", function (event) {
+    button.addEventListener("click", function () {
       ResetProfile.openConfirmationDialog(window);
     });
   }
   button = $("clear-startup-cache-button");
   if (button) {
-    button.addEventListener("click", async function (event) {
+    button.addEventListener("click", async function () {
       const [promptTitle, promptBody, restartButtonLabel] =
         await document.l10n.formatValues([
           { id: "startup-cache-dialog-title2" },
@@ -1965,7 +2026,7 @@ function setupEventListeners() {
   }
   button = $("restart-in-safe-mode-button");
   if (button) {
-    button.addEventListener("click", function (event) {
+    button.addEventListener("click", function () {
       if (
         Services.obs
           .enumerateObservers("restart-in-safe-mode")
@@ -1983,7 +2044,7 @@ function setupEventListeners() {
   if (AppConstants.MOZ_UPDATER) {
     button = $("update-dir-button");
     if (button) {
-      button.addEventListener("click", function (event) {
+      button.addEventListener("click", function () {
         // Get the update directory.
         let updateDir = Services.dirsvc.get("UpdRootD", Ci.nsIFile);
         if (!updateDir.exists()) {
@@ -2001,7 +2062,7 @@ function setupEventListeners() {
     }
     button = $("show-update-history-button");
     if (button) {
-      button.addEventListener("click", function (event) {
+      button.addEventListener("click", function () {
         window.browsingContext.topChromeWindow.openDialog(
           "chrome://mozapps/content/update/history.xhtml",
           "Update:History",
@@ -2012,7 +2073,7 @@ function setupEventListeners() {
   }
   button = $("verify-place-integrity-button");
   if (button) {
-    button.addEventListener("click", function (event) {
+    button.addEventListener("click", function () {
       PlacesDBUtils.checkAndFixDatabase().then(tasksStatusMap => {
         let logs = [];
         for (let [key, value] of tasksStatusMap) {
@@ -2027,13 +2088,13 @@ function setupEventListeners() {
     });
   }
 
-  $("copy-raw-data-to-clipboard").addEventListener("click", function (event) {
+  $("copy-raw-data-to-clipboard").addEventListener("click", function () {
     copyRawDataToClipboard(this);
   });
-  $("copy-to-clipboard").addEventListener("click", function (event) {
+  $("copy-to-clipboard").addEventListener("click", function () {
     copyContentsToClipboard();
   });
-  $("profile-dir-button").addEventListener("click", function (event) {
+  $("profile-dir-button").addEventListener("click", function () {
     openProfileDirectory();
   });
 }

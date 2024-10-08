@@ -31,11 +31,14 @@ class BounceTrackingStateGlobal final {
                             const OriginAttributes& aAttrs);
 
   bool IsPrivateBrowsing() const {
-    return mOriginAttributes.mPrivateBrowsingId !=
-           nsIScriptSecurityManager::DEFAULT_PRIVATE_BROWSING_ID;
+    return mOriginAttributes.IsPrivateBrowsing();
   }
 
   bool ShouldPersistToDisk() const { return !IsPrivateBrowsing(); }
+
+  const OriginAttributes& OriginAttributesRef() const {
+    return mOriginAttributes;
+  };
 
   bool HasUserActivation(const nsACString& aSiteHost) const;
 
@@ -63,6 +66,10 @@ class BounceTrackingStateGlobal final {
   [[nodiscard]] nsresult RemoveBounceTrackers(
       const nsTArray<nsCString>& aSiteHosts);
 
+  // Clear user activation or bounce tracker map.
+  [[nodiscard]] nsresult ClearByType(
+      BounceTrackingProtectionStorage::EntryType aType, bool aSkipStorage);
+
   [[nodiscard]] nsresult ClearSiteHost(const nsACString& aSiteHost,
                                        bool aSkipStorage = false);
 
@@ -78,6 +85,9 @@ class BounceTrackingStateGlobal final {
   const nsTHashMap<nsCStringHashKey, PRTime>& BounceTrackersMapRef() {
     return mBounceTrackers;
   }
+
+  // Create a string that describes this object. Used for logging.
+  nsCString Describe();
 
  private:
   ~BounceTrackingStateGlobal() = default;
@@ -96,13 +106,17 @@ class BounceTrackingStateGlobal final {
   // Map of site hosts to moments. The moments represent the most recent wall
   // clock time at which the user activated a top-level document on the
   // associated site host.
-  nsTHashMap<nsCStringHashKey, PRTime> mUserActivation{};
+  nsTHashMap<nsCStringHashKey, PRTime> mUserActivation;
 
   // Map of site hosts to moments. The moments represent the first wall clock
   // time since the last execution of the bounce tracking timer at which a page
   // on the given site host performed an action that could indicate stateful
   // bounce tracking took place.
-  nsTHashMap<nsCStringHashKey, PRTime> mBounceTrackers{};
+  nsTHashMap<nsCStringHashKey, PRTime> mBounceTrackers;
+
+  // Helper to create a string representation of a siteHost -> timestamp map.
+  static nsCString DescribeMap(
+      const nsTHashMap<nsCStringHashKey, PRTime>& aMap);
 };
 
 }  // namespace mozilla

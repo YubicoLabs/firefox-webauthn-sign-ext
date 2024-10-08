@@ -22,11 +22,11 @@
   ClearErrors
   WriteRegStr HKLM "Software\Mozilla" "${BrandShortName}InstallerTest" "Write Test"
   ${If} ${Errors}
-    StrCpy $TmpVal "HKCU"
+    StrCpy $RegHive "HKCU"
   ${Else}
     SetShellVarContext all    ; Set SHCTX to all users (e.g. HKLM)
     DeleteRegValue HKLM "Software\Mozilla" "${BrandShortName}InstallerTest"
-    StrCpy $TmpVal "HKLM"
+    StrCpy $RegHive "HKLM"
     ${RegCleanMain} "Software\Mozilla"
     ${RegCleanUninstall}
     ${UpdateProtocolHandlers}
@@ -54,9 +54,9 @@
   ${UpdateShortcutsBranding}
   ${TouchStartMenuShortcut}
   Call FixShortcutAppModelIDs
-  ${If} $TmpVal == "HKLM"
+  ${If} $RegHive == "HKLM"
     SetShellVarContext all
-  ${ElseIf} $TmpVal == "HKCU"
+  ${ElseIf} $RegHive == "HKCU"
     SetShellVarContext current
   ${EndIf}
 
@@ -66,9 +66,9 @@
   ${SetAppKeys}
   ${FixClassKeys}
   ${SetUninstallKeys}
-  ${If} $TmpVal == "HKLM"
+  ${If} $RegHive == "HKLM"
     ${SetStartMenuInternet} HKLM
-  ${ElseIf} $TmpVal == "HKCU"
+  ${ElseIf} $RegHive == "HKCU"
     ${SetStartMenuInternet} HKCU
   ${EndIf}
 
@@ -117,7 +117,7 @@
   Pop $R0
   ${If} $R0 == "true"
   ; Only proceed if we have HKLM write access
-  ${AndIf} $TmpVal == "HKLM"
+  ${AndIf} $RegHive == "HKLM"
     ; We check to see if the maintenance service install was already attempted.
     ; Since the Maintenance service can be installed either x86 or x64,
     ; always use the 64-bit registry for checking if an attempt was made.
@@ -161,14 +161,17 @@
   ${ResetLauncherProcessDefaults}
 !endif
 
-  ${WriteToastNotificationRegistration} $TmpVal
+  ${WriteToastNotificationRegistration} $RegHive
 
 ; Make sure the scheduled task registration for the default browser agent gets
 ; updated, but only if we're not the instance of PostUpdate that was started
 ; by the service, because this needs to run as the actual user. Also, don't do
 ; that if the installer was told not to register the agent task at all.
+; XXXbytesized - This also needs to un-register any scheduled tasks for the WDBA
+;                that were registered using elevation, but currently it does
+;                not. See Bugs 1638509 and 1902719.
 !ifdef MOZ_DEFAULT_BROWSER_AGENT
-${If} $TmpVal == "HKCU"
+${If} $RegHive == "HKCU"
   ClearErrors
   ReadRegDWORD $0 HKCU "Software\Mozilla\${AppName}\Installer\$AppUserModelID" \
                     "DidRegisterDefaultBrowserAgent"
@@ -176,10 +179,6 @@ ${If} $TmpVal == "HKCU"
   ${OrIf} ${Errors}
     ExecWait '"$INSTDIR\default-browser-agent.exe" register-task $AppUserModelID'
   ${EndIf}
-${ElseIf} $TmpVal == "HKLM"
-  ; If we're the privileged PostUpdate, make sure that the unprivileged one
-  ; will have permission to create a task by clearing out the old one first.
-  ExecWait '"$INSTDIR\default-browser-agent.exe" unregister-task $AppUserModelID'
 ${EndIf}
 !endif
 
@@ -774,6 +773,7 @@ ${RemoveDefaultBrowserAgentShortcut}
 !define FixShellIconHandler "!insertmacro FixShellIconHandler"
 
 ; Add Software\Mozilla\ registry entries (uses SHCTX).
+; This expects $RegHive to already have been set correctly.
 !macro SetAppKeys
   ; Check if this is an ESR release and if so add registry values so it is
   ; possible to determine that this is an ESR install (bug 726781).
@@ -787,43 +787,44 @@ ${RemoveDefaultBrowserAgentShortcut}
 
   ${GetLongPath} "$INSTDIR" $8
   StrCpy $0 "Software\Mozilla\${BrandFullNameInternal}\${AppVersion}$3 (${ARCH} ${AB_CD})\Main"
-  ${WriteRegStr2} $TmpVal "$0" "Install Directory" "$8" 0
-  ${WriteRegStr2} $TmpVal "$0" "PathToExe" "$8\${FileMainEXE}" 0
+  ${WriteRegStr2} $RegHive "$0" "Install Directory" "$8" 0
+  ${WriteRegStr2} $RegHive "$0" "PathToExe" "$8\${FileMainEXE}" 0
 
   StrCpy $0 "Software\Mozilla\${BrandFullNameInternal}\${AppVersion}$3 (${ARCH} ${AB_CD})\Uninstall"
-  ${WriteRegStr2} $TmpVal "$0" "Description" "${BrandFullNameInternal} ${AppVersion}$3 (${ARCH} ${AB_CD})" 0
+  ${WriteRegStr2} $RegHive "$0" "Description" "${BrandFullNameInternal} ${AppVersion}$3 (${ARCH} ${AB_CD})" 0
 
   StrCpy $0 "Software\Mozilla\${BrandFullNameInternal}\${AppVersion}$3 (${ARCH} ${AB_CD})"
-  ${WriteRegStr2} $TmpVal  "$0" "" "${AppVersion}$3 (${ARCH} ${AB_CD})" 0
+  ${WriteRegStr2} $RegHive  "$0" "" "${AppVersion}$3 (${ARCH} ${AB_CD})" 0
   ${If} "$3" == ""
     DeleteRegValue SHCTX "$0" "ESR"
   ${Else}
-    ${WriteRegDWORD2} $TmpVal "$0" "ESR" 1 0
+    ${WriteRegDWORD2} $RegHive "$0" "ESR" 1 0
   ${EndIf}
 
   StrCpy $0 "Software\Mozilla\${BrandFullNameInternal} ${AppVersion}$3\bin"
-  ${WriteRegStr2} $TmpVal "$0" "PathToExe" "$8\${FileMainEXE}" 0
+  ${WriteRegStr2} $RegHive "$0" "PathToExe" "$8\${FileMainEXE}" 0
 
   StrCpy $0 "Software\Mozilla\${BrandFullNameInternal} ${AppVersion}$3\extensions"
-  ${WriteRegStr2} $TmpVal "$0" "Components" "$8\components" 0
-  ${WriteRegStr2} $TmpVal "$0" "Plugins" "$8\plugins" 0
+  ${WriteRegStr2} $RegHive "$0" "Components" "$8\components" 0
+  ${WriteRegStr2} $RegHive "$0" "Plugins" "$8\plugins" 0
 
   StrCpy $0 "Software\Mozilla\${BrandFullNameInternal} ${AppVersion}$3"
-  ${WriteRegStr2} $TmpVal "$0" "GeckoVer" "${GREVersion}" 0
+  ${WriteRegStr2} $RegHive "$0" "GeckoVer" "${GREVersion}" 0
   ${If} "$3" == ""
     DeleteRegValue SHCTX "$0" "ESR"
   ${Else}
-    ${WriteRegDWORD2} $TmpVal "$0" "ESR" 1 0
+    ${WriteRegDWORD2} $RegHive "$0" "ESR" 1 0
   ${EndIf}
 
   StrCpy $0 "Software\Mozilla\${BrandFullNameInternal}$3"
-  ${WriteRegStr2} $TmpVal "$0" "" "${GREVersion}" 0
-  ${WriteRegStr2} $TmpVal "$0" "CurrentVersion" "${AppVersion}$3 (${ARCH} ${AB_CD})" 0
+  ${WriteRegStr2} $RegHive "$0" "" "${GREVersion}" 0
+  ${WriteRegStr2} $RegHive "$0" "CurrentVersion" "${AppVersion}$3 (${ARCH} ${AB_CD})" 0
 !macroend
 !define SetAppKeys "!insertmacro SetAppKeys"
 
 ; Add uninstall registry entries. This macro tests for write access to determine
 ; if the uninstall keys should be added to HKLM or HKCU.
+; This expects $RegHive to already have been set correctly.
 !macro SetUninstallKeys
   ; Check if this is an ESR release and if so add registry values so it is
   ; possible to determine that this is an ESR install (bug 726781).
@@ -886,7 +887,7 @@ ${RemoveDefaultBrowserAgentShortcut}
     ${GetSize} "$8" "/S=0K" $R2 $R3 $R4
     ${WriteRegDWORD2} $1 "$0" "EstimatedSize" $R2 0
 
-    ${If} "$TmpVal" == "HKLM"
+    ${If} "$RegHive" == "HKLM"
       SetShellVarContext all     ; Set SHCTX to all users (e.g. HKLM)
     ${Else}
       SetShellVarContext current  ; Set SHCTX to the current user (e.g. HKCU)
@@ -933,6 +934,7 @@ ${RemoveDefaultBrowserAgentShortcut}
 
 ; Add app specific handler registry entries under Software\Classes if they
 ; don't exist (does not use SHCTX).
+; This expects $RegHive to already have been set correctly.
 !macro FixClassKeys
   StrCpy $1 "SOFTWARE\Classes"
 
@@ -941,21 +943,21 @@ ${RemoveDefaultBrowserAgentShortcut}
   ReadRegStr $0 HKCR ".shtml" "Content Type"
   ${If} "$0" == ""
     StrCpy $0 "$1\.shtml"
-    ${WriteRegStr2} $TmpVal "$1\.shtml" "" "shtmlfile" 0
-    ${WriteRegStr2} $TmpVal "$1\.shtml" "Content Type" "text/html" 0
-    ${WriteRegStr2} $TmpVal "$1\.shtml" "PerceivedType" "text" 0
+    ${WriteRegStr2} $RegHive "$1\.shtml" "" "shtmlfile" 0
+    ${WriteRegStr2} $RegHive "$1\.shtml" "Content Type" "text/html" 0
+    ${WriteRegStr2} $RegHive "$1\.shtml" "PerceivedType" "text" 0
   ${EndIf}
 
   ReadRegStr $0 HKCR ".xht" "Content Type"
   ${If} "$0" == ""
-    ${WriteRegStr2} $TmpVal "$1\.xht" "" "xhtfile" 0
-    ${WriteRegStr2} $TmpVal "$1\.xht" "Content Type" "application/xhtml+xml" 0
+    ${WriteRegStr2} $RegHive "$1\.xht" "" "xhtfile" 0
+    ${WriteRegStr2} $RegHive "$1\.xht" "Content Type" "application/xhtml+xml" 0
   ${EndIf}
 
   ReadRegStr $0 HKCR ".xhtml" "Content Type"
   ${If} "$0" == ""
-    ${WriteRegStr2} $TmpVal "$1\.xhtml" "" "xhtmlfile" 0
-    ${WriteRegStr2} $TmpVal "$1\.xhtml" "Content Type" "application/xhtml+xml" 0
+    ${WriteRegStr2} $RegHive "$1\.xhtml" "" "xhtmlfile" 0
+    ${WriteRegStr2} $RegHive "$1\.xhtml" "Content Type" "application/xhtml+xml" 0
   ${EndIf}
 
   ; Remove possibly badly associated file types
@@ -1265,12 +1267,11 @@ ${RemoveDefaultBrowserAgentShortcut}
 
 !define GetPinningSupportedByWindowsVersionWithoutSystemPopup "!insertmacro GetPinningSupportedByWindowsVersionWithoutSystemPopup "
 
-; Starting with a version of Windows 11 (10.0.22621), the OS will show a system popup
-; when trying to pin to the taskbar.
+; Starting with Windows 10 (> 10.0.19045.3996) and Windows 11 (> 10.0.22621.2361),
+; the OS will show a system popup when trying to pin to the taskbar.
 ;
 ; Pass in the variable to put the output into. A '1' means pinning is supported on this
 ; OS without generating a popup, a '0' means pinning will generate a system popup.
-;
 ;
 ; More info: a version of Windows was released that introduced a system popup when
 ; an exe (such as setup.exe) attempts to pin an app to the taskbar.
@@ -1280,8 +1281,16 @@ ${RemoveDefaultBrowserAgentShortcut}
 ;
 ; The number for that version of windows is still unclear (it might be 22H2 or 23H2)
 ; and it's not supported by the version of WinVer.nsh we have anyways,
-; so instead we are confirming that it's a build of Windows that is less
-; than 10.0 BuildNumber: 22621 to do pinning in the installer.
+; so instead we are manually retrieving the major, minor, build and ubr numbers
+; (Update Build Revision) and confirming that the build numbers work to do pinning
+; in the installer.
+;
+; NOTE: there are currently running Windows where pinning fails and is a no-op. We haven't quite
+; determined how to identify when that will happen, and it's so far only been reported
+; on the newest versions of Windows. GetPinningSupportedByWindowsVersionWithoutSystemPopup
+; will current report that pinning is not supported in these cases, due to reporting
+; pinning as not supported on the newest builds of Windows.
+;
 !macro GetPinningSupportedByWindowsVersionWithoutSystemPopup outvar
   !define pin_lbl lbl_GPSBWVWSP_${__COUNTER__}
 
@@ -1304,14 +1313,25 @@ ${RemoveDefaultBrowserAgentShortcut}
   ; operator, so we do everything by hand with `IntCmp`.  The below lines
   ; translate to:
   ; StrCpy ${outvar} '0'  ; default to false
-  ; ${If} $0 <= 10
-  ;   ${If} $1 <= 0
-  ;     ${If} $2 < 22621
+  ; ${If} $0 == 10
+  ;   ${If} $1 == 0
+  ;     ${If} $2 < 19045
   ;       StrCpy ${outvar} '1'
-  ;     ${ElseIf} $2 == 22621
-  ;       ${If} $3 < 2361
+  ;     ${ElseIf} $2 == 19045
+  ;       ; Test Windows 10
+  ;       ${If} $3 < 3996
   ;         StrCpy ${outvar} '1'
   ;       ${Endif}
+  ;     ; 22000 is the version number that splits between Win 10 and 11
+  ;     ${ElseIf} $2 >= 22000
+  ;       ; Test Windows 11
+  ;       ${If} $2 < 22621
+  ;         StrCpy ${outvar} '1'
+  ;       ${ElseIf} $2 == 22621
+  ;         ${If} $3 < 2361
+  ;           StrCpy ${outvar} '1'
+  ;         ${EndIf}
+  ;       ${EndIf}
   ;     ${EndIf}
   ;  ${Endif}
   ; ${EndIf}
@@ -1324,12 +1344,32 @@ ${RemoveDefaultBrowserAgentShortcut}
   ; If the minor version is greater than 0, no pinning in setup
   IntCmp $1 0 "" "" ${pin_lbl}_bad
 
+  ; If the build number equals 19045, we have to test the UBR
+  ; If it's greater than 19045, then we have to check if
+  ; it's a Windows 11 build or not to determine if more testing
+  ; is needed
+  IntCmp $2 19045 ${pin_lbl}_test_win10 ${pin_lbl}_good ""
+
+  ; If the major number is less than 22000, then we're between
+  ; 19046 and 22000, meaning pinning will produce a popup
+  IntCmp $2 22000 "" ${pin_lbl}_bad ""
+
+  ${pin_lbl}_test_win11:
+
   ; If the build number is less than 22621, jump to pinning; if greater than, no pinning
   IntCmp $2 22621 "" ${pin_lbl}_good ${pin_lbl}_bad
 
   ; Only if the version is 10.0.22621 do we fall through to here
   ; If the UBR is greater than or equal to 2361, jump to no pinning
-  IntCmp $3 2361 ${pin_lbl}_bad "" ${pin_lbl}_bad
+  ; Otherwise jump to pinning
+  IntCmp $3 2361 ${pin_lbl}_bad ${pin_lbl}_good ${pin_lbl}_bad
+
+  ${pin_lbl}_test_win10:
+
+  ; Only if the version is 10.0.19045 or greater (but not Windows 11) do we fall
+  ; through to here.
+  ; If the UBR is greater than or equal to 3996, jump to no pinning
+  IntCmp $3 3996 ${pin_lbl}_bad ${pin_lbl}_good ${pin_lbl}_bad
 
   ${pin_lbl}_good:
 
@@ -1366,6 +1406,7 @@ ${RemoveDefaultBrowserAgentShortcut}
 ; an edgecase. If removing existing pinned shortcuts with the same application
 ; model ID removes a pinned pinned Start Menu shortcut this will also add a
 ; pinned Start Menu shortcut.
+; This expects $RegHive to already have been set correctly.
 !macro PinToTaskBar
   StrCpy $8 "false" ; Whether a shortcut had to be created
   ${IsPinnedToTaskBar} "$INSTDIR\${FileMainEXE}" $R9
@@ -1441,7 +1482,7 @@ ${RemoveDefaultBrowserAgentShortcut}
           ${EndIf}
         ${EndIf}
 
-        ${If} $TmpVal == "HKCU"
+        ${If} $RegHive == "HKCU"
           SetShellVarContext current ; Set SHCTX to the current user
         ${Else}
           SetShellVarContext all ; Set SHCTX to all users
@@ -1539,6 +1580,7 @@ ${RemoveDefaultBrowserAgentShortcut}
   Push "crashreporter.exe"
   Push "default-browser-agent.exe"
   Push "minidump-analyzer.exe"
+  Push "nmhproxy.exe"
   Push "pingsender.exe"
   Push "updater.exe"
   Push "mozwer.dll"
@@ -1786,3 +1828,49 @@ FunctionEnd
   ${WriteRegStr2} ${RegKey} "Software\Classes\CLSID\$0\InProcServer32" "" "$INSTDIR\notificationserver.dll" 0
 !macroend
 !define WriteToastNotificationRegistration "!insertmacro WriteToastNotificationRegistration"
+
+/**
+ * Deletes the registry keys for a protocol handler but only if those registry
+ * keys were pointed to the installation being uninstalled.
+ * Does this with both the HKLM and the HKCU registry entries.
+ *
+ * @param   _PROTOCOL
+ *          The protocol to delete the registry keys for
+ */
+!macro DeleteProtocolRegistryIfSetToInstallation INSTALL_PATH _PROTOCOL
+  Push $0
+
+  ; Check if there is a protocol handler registered by fetching the DefaultIcon value
+  ; in the registry.
+  ; If there is something registered for the icon, it will be the path to the executable,
+  ; plus a comma and a number for the id of the resource for the icon.
+  ; Use StrCpy with -2 to remove the comma and the resource id so that
+  ; the whole path to the executable can be compared against what's being
+  ; uninstalled.
+
+  ; Do all of that twice, once for the local machine and once for the current user
+  
+  ; Remove protocol handlers
+  ClearErrors
+  ReadRegStr $0 HKLM "Software\Classes\${_PROTOCOL}\DefaultIcon" ""
+  ${If} $0 != ""
+    StrCpy $0 $0 -2
+    ${If} $0 == '"${INSTALL_PATH}"'
+      DeleteRegKey HKLM "Software\Classes\${_PROTOCOL}"
+    ${EndIf}
+  ${EndIf}
+
+  ClearErrors
+  ReadRegStr $0 HKCU "Software\Classes\${_PROTOCOL}\DefaultIcon" ""
+  ${If} $0 != ""
+    StrCpy $0 $0 -2
+    ${If} $0 == '"${INSTALL_PATH}"'
+      DeleteRegKey HKCU "Software\Classes\${_PROTOCOL}"
+    ${EndIf}
+  ${EndIf}
+
+  ClearErrors
+
+  Pop $0
+!macroend
+!define DeleteProtocolRegistryIfSetToInstallation '!insertmacro DeleteProtocolRegistryIfSetToInstallation'

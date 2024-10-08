@@ -274,7 +274,7 @@ StorageAccess StorageAllowedForWindow(nsPIDOMWindowInner* aWindow,
   // No document? Try checking Private Browsing Mode without document
   if (const nsCOMPtr<nsIGlobalObject> global = aWindow->AsGlobal()) {
     if (const nsCOMPtr<nsIPrincipal> principal = global->PrincipalOrNull()) {
-      if (principal->GetPrivateBrowsingId() > 0) {
+      if (principal->GetIsInPrivateBrowsing()) {
         return StorageAccess::ePrivateBrowsing;
       }
     }
@@ -766,12 +766,29 @@ bool ShouldAllowAccessFor(nsIChannel* aChannel, nsIURI* aURI,
 
   RefPtr<BrowsingContext> targetBC;
   rv = loadInfo->GetTargetBrowsingContext(getter_AddRefs(targetBC));
-  if (!targetBC || NS_WARN_IF(NS_FAILED(rv))) {
+  if (NS_WARN_IF(NS_FAILED(rv))) {
     LOG(("Failed to get the channel's target browsing context"));
     return false;
   }
 
-  if (Document::StorageAccessSandboxed(targetBC->GetSandboxFlags())) {
+  // If we cannot get the target browsing context from the loadInfo, the channel
+  // could be a fetch request from a worker scope. In this case, we get the
+  // target browsing context from the worker associated browsing context
+  // instead.
+  if (!targetBC) {
+    rv = loadInfo->GetWorkerAssociatedBrowsingContext(getter_AddRefs(targetBC));
+  }
+
+  // We could have no target BC for the channel if it's for loading the script
+  // for remote workers, i.e. shared workers and service workers. In this case,
+  // we also don't have document, so we can skip the sandbox and the document
+  // check.
+  if (!targetBC) {
+    LOG(("No browsing context is available for the channel."));
+  }
+
+  if (targetBC &&
+      Document::StorageAccessSandboxed(targetBC->GetSandboxFlags())) {
     LOG(("Our document is sandboxed"));
     *aRejectedReason = blockedReason;
     return false;
@@ -784,7 +801,7 @@ bool ShouldAllowAccessFor(nsIChannel* aChannel, nsIURI* aURI,
   bool isDocument = false;
   aChannel->GetIsDocument(&isDocument);
 
-  if (isDocument) {
+  if (targetBC && isDocument) {
     nsCOMPtr<nsPIDOMWindowInner> inner =
         AntiTrackingUtils::GetInnerWindow(targetBC);
     if (inner && inner->UsingStorageAccess()) {

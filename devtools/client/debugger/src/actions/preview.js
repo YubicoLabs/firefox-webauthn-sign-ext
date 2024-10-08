@@ -4,7 +4,6 @@
 
 import { isConsole } from "../utils/preview";
 import { getGrip, getFront } from "../utils/evaluation-result";
-import { getExpressionFromCoords } from "../utils/editor/get-expression";
 
 import {
   isLineInScope,
@@ -14,11 +13,16 @@ import {
   getSelectedFrame,
   getCurrentThread,
   getSelectedException,
+  getSelectedTraceIndex,
+  getAllTraces,
 } from "../selectors/index";
 
 import { getMappedExpression } from "./expressions";
+const {
+  TRACER_FIELDS_INDEXES,
+} = require("resource://devtools/server/actors/tracer.js");
 
-async function findExpressionMatch(state, parserWorker, codeMirror, tokenPos) {
+async function findExpressionMatch(state, parserWorker, editor, tokenPos) {
   const location = getSelectedLocation(state);
   if (!location) {
     return null;
@@ -33,10 +37,100 @@ async function findExpressionMatch(state, parserWorker, codeMirror, tokenPos) {
   if (match) {
     return match;
   }
-  return getExpressionFromCoords(codeMirror, tokenPos);
+  return editor.getExpressionFromCoords(tokenPos);
 }
 
-export function getPreview(target, tokenPos, codeMirror) {
+/**
+ * Get a preview object for the currently selected frame in the JS Tracer.
+ *
+ * @param {Object} target
+ *        The hovered DOM Element within CodeMirror rendering.
+ * @param {Object} tokenPos
+ *        The CodeMirror position object for the hovered token.
+ * @param {Object} editor
+ *        The CodeMirror editor object.
+ */
+export function getTracerPreview(target, tokenPos, editor) {
+  return async thunkArgs => {
+    const { getState, parserWorker } = thunkArgs;
+    const selectedTraceIndex = getSelectedTraceIndex(getState());
+    if (selectedTraceIndex == null) {
+      return null;
+    }
+
+    const trace = getAllTraces(getState())[selectedTraceIndex];
+
+    // We may be selecting a mutation trace, which doesn't expose any value,
+    // so only consider method calls.
+    if (trace[TRACER_FIELDS_INDEXES.TYPE] != "enter") {
+      return null;
+    }
+
+    const match = await findExpressionMatch(
+      getState(),
+      parserWorker,
+      editor,
+      tokenPos
+    );
+    let { expression, location } = match;
+    const source = getSelectedSource(getState());
+    if (location && source.isOriginal) {
+      const thread = getCurrentThread(getState());
+      const mapResult = await getMappedExpression(
+        expression,
+        thread,
+        thunkArgs
+      );
+      if (mapResult) {
+        expression = mapResult.expression;
+      }
+    }
+
+    const argumentValues = trace[TRACER_FIELDS_INDEXES.ENTER_ARGS];
+    const argumentNames = trace[TRACER_FIELDS_INDEXES.ENTER_ARG_NAMES];
+    if (!argumentNames || !argumentValues) {
+      return null;
+    }
+
+    const argumentIndex = argumentNames.indexOf(expression);
+    if (argumentIndex == -1) {
+      return null;
+    }
+
+    const result = argumentValues[argumentIndex];
+    // Values are either primitives, or an Object Front
+    const resultGrip = result?.getGrip ? result?.getGrip() : result;
+
+    const root = {
+      path: expression,
+      contents: {
+        value: resultGrip,
+        front: getFront(result),
+      },
+    };
+    return {
+      previewType: "tracer",
+      target,
+      tokenPos,
+      cursorPos: target.getBoundingClientRect(),
+      expression,
+      root,
+      resultGrip,
+    };
+  };
+}
+
+/**
+ * Get a preview object for the currently paused frame, if paused.
+ *
+ * @param {Object} target
+ *        The hovered DOM Element within CodeMirror rendering.
+ * @param {Object} tokenPos
+ *        The CodeMirror position object for the hovered token.
+ * @param {Object} editor
+ *        The CodeMirror editor object.
+ */
+export function getPausedPreview(target, tokenPos, editor) {
   return async thunkArgs => {
     const { getState, client, parserWorker } = thunkArgs;
     if (
@@ -59,7 +153,7 @@ export function getPreview(target, tokenPos, codeMirror) {
     const match = await findExpressionMatch(
       getState(),
       parserWorker,
-      codeMirror,
+      editor,
       tokenPos
     );
     if (!match) {
@@ -83,9 +177,20 @@ export function getPreview(target, tokenPos, codeMirror) {
       }
     }
 
-    const { result } = await client.evaluate(expression, {
-      frameId: selectedFrame.id,
-    });
+    const { result, hasException, exception } = await client.evaluate(
+      expression,
+      {
+        frameId: selectedFrame.id,
+      }
+    );
+
+    // The evaluation shouldn't return an exception.
+    if (hasException) {
+      const errorClass = exception?.getGrip()?.class || "Error";
+      throw new Error(
+        `Debugger internal exception: Preview for <${expression}> threw a ${errorClass}`
+      );
+    }
 
     const resultGrip = getGrip(result);
 
@@ -117,6 +222,7 @@ export function getPreview(target, tokenPos, codeMirror) {
     };
 
     return {
+      previewType: "pause",
       target,
       tokenPos,
       cursorPos: target.getBoundingClientRect(),
@@ -127,12 +233,12 @@ export function getPreview(target, tokenPos, codeMirror) {
   };
 }
 
-export function getExceptionPreview(target, tokenPos, codeMirror) {
-  return async ({ dispatch, getState, parserWorker }) => {
+export function getExceptionPreview(target, tokenPos, editor) {
+  return async ({ getState, parserWorker }) => {
     const match = await findExpressionMatch(
       getState(),
       parserWorker,
-      codeMirror,
+      editor,
       tokenPos
     );
     if (!match) {

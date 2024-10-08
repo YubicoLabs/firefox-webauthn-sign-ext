@@ -10,7 +10,9 @@ const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
   NimbusFeatures: "resource://nimbus/ExperimentAPI.sys.mjs",
+  SearchSettings: "resource://gre/modules/SearchSettings.sys.mjs",
   SearchUtils: "resource://gre/modules/SearchUtils.sys.mjs",
+  OpenSearchEngine: "resource://gre/modules/OpenSearchEngine.sys.mjs",
 });
 
 const BinaryInputStream = Components.Constructor(
@@ -263,7 +265,7 @@ class QueryPreferenceParameter extends QueryParameter {
 }
 
 /**
- * Perform OpenSearch parameter substitution on aParamValue.
+ * Perform OpenSearch parameter substitution on a parameter value.
  *
  * @see http://opensearch.a9.com/spec/1.1/querysyntax/#core
  *
@@ -274,12 +276,12 @@ class QueryPreferenceParameter extends QueryParameter {
  *   paramValue as the value of the OS_PARAM_USER_DEFINED parameter.
  *   This value must already be escaped appropriately - it is inserted
  *   as-is.
- * @param {nsISearchEngine} engine
- *   The engine which owns the string being acted on.
+ * @param {string} queryCharset
+ *   The character set of the search engine to use for query encoding.
  * @returns {string}
  *   An updated parameter string.
  */
-function ParamSubstitution(paramValue, searchTerms, engine) {
+function ParamSubstitution(paramValue, searchTerms, queryCharset) {
   const PARAM_REGEXP = /\{((?:\w+:)?\w+)(\??)\}/g;
   return paramValue.replace(PARAM_REGEXP, function (match, name, optional) {
     // {searchTerms} is by far the most common param so handle it first.
@@ -289,12 +291,7 @@ function ParamSubstitution(paramValue, searchTerms, engine) {
 
     // {inputEncoding} is the second most common param.
     if (name == OS_PARAM_INPUT_ENCODING) {
-      return engine.queryCharset;
-    }
-
-    // moz: parameters are only available for default search engines.
-    if (engine.isAppProvided && name == lazy.SearchUtils.MOZ_PARAM.LOCALE) {
-      return Services.locale.requestedLocale;
+      return queryCharset;
     }
 
     // Handle the less common OpenSearch parameters we're confident about.
@@ -427,8 +424,21 @@ export class EngineURL {
     }
   }
 
-  getSubmission(searchTerms, engine, purpose) {
-    var url = ParamSubstitution(this.template, searchTerms, engine);
+  /**
+   * Returns a complete URL with parameter data that can be used for submitting
+   * a suggestion query or loading a search page.
+   *
+   * @param {string} searchTerms
+   *   The user's search terms.
+   * @param {string} queryCharset
+   *   The character set that is being used for the query.
+   * @param {string} purpose
+   *   The source of the search (e.g. searchbar, addressbar).
+   * @returns {Submission}
+   *   The submission data containing the URL and post data for the URL.
+   */
+  getSubmission(searchTerms, queryCharset, purpose) {
+    var url = ParamSubstitution(this.template, searchTerms, queryCharset);
     // Default to searchbar if the purpose is not provided
     var requestPurpose = purpose || "searchbar";
 
@@ -453,7 +463,7 @@ export class EngineURL {
 
       // Preference MozParams might not have a preferenced saved, or a valid value.
       if (param.value != null) {
-        var value = ParamSubstitution(param.value, searchTerms, engine);
+        var value = ParamSubstitution(param.value, searchTerms, queryCharset);
 
         dataArray.push(param.name + "=" + value);
       }
@@ -573,8 +583,6 @@ export class SearchEngine {
   _name = null;
   // The name of the charset used to submit the search terms.
   _queryCharset = null;
-  // The engine's raw SearchForm value (URL string pointing to a search form).
-  #cachedSearchForm = null;
   // The order hint from the configuration (if any).
   _orderHint = null;
   // The telemetry id from the configuration (if any).
@@ -596,7 +604,6 @@ export class SearchEngine {
   _searchUrlPublicSuffix = null;
   /**
    * The unique id of the Search Engine.
-   * The id is an UUID.
    *
    * @type {string}
    */
@@ -619,20 +626,6 @@ export class SearchEngine {
       throw new Error("loadPath missing from options.");
     }
     this._loadPath = options.loadPath;
-  }
-
-  get _searchForm() {
-    return this.#cachedSearchForm;
-  }
-  set _searchForm(value) {
-    if (/^https?:/i.test(value)) {
-      this.#cachedSearchForm = value;
-    } else {
-      lazy.logConsole.debug(
-        "_searchForm: Invalid URL dropped for",
-        this._name || "the current engine"
-      );
-    }
   }
 
   /**
@@ -747,7 +740,7 @@ export class SearchEngine {
         }
         break;
       case "http":
-      case "https":
+      case "https": {
         let iconLoadCallback = function (byteArray, contentType) {
           // This callback may run after we've already set a preferred icon,
           // so check again.
@@ -788,7 +781,7 @@ export class SearchEngine {
           if (this._engineAddedToStore) {
             lazy.SearchUtils.notifyAction(
               this,
-              lazy.SearchUtils.MODIFIED_TYPE.CHANGED
+              lazy.SearchUtils.MODIFIED_TYPE.ICON_CHANGED
             );
           }
           this._hasPreferredIcon = isPreferred;
@@ -806,6 +799,7 @@ export class SearchEngine {
         chan.notificationCallbacks = listener;
         chan.asyncOpen(listener);
         break;
+      }
     }
   }
 
@@ -898,14 +892,8 @@ export class SearchEngine {
    *   The suggestion url parameters for use with the POST method.
    * @param {string} [details.encoding]
    *   The encoding to use for the engine.
-   * @param {string} [details.search_form]
-   *   THe search form url for the engine.
-   * @param {object} [configuration]
-   *   The search engine configuration for application provided engines, that
-   *   may be overriding some of the WebExtension's settings.
    */
-  _initWithDetails(details, configuration = {}) {
-    this._orderHint = configuration.orderHint;
+  _initWithDetails(details) {
     this._name = details.name.trim();
 
     this._definedAliases = [];
@@ -919,13 +907,13 @@ export class SearchEngine {
     if (details.iconURL) {
       this._setIcon(details.iconURL, true);
     }
-    this._setUrls(details, configuration);
+    this._setUrls(details);
   }
 
   /**
    * This sets the urls for the search engine based on the supplied parameters.
    * If you add anything here, please consider if it needs to be handled in the
-   * overrideWithExtension / removeExtensionOverride functions as well.
+   * overrideWithEngine / removeExtensionOverride functions as well.
    *
    * @param {object} details
    *   The details of the engine.
@@ -945,75 +933,40 @@ export class SearchEngine {
    *   The suggestion url parameters for use with the POST method.
    * @param {string} [details.encoding]
    *   The encoding to use for the engine.
-   * @param {string} [details.search_form]
-   *   THe search form url for the engine.
-   * @param {object} [configuration]
-   *   The search engine configuration for application provided engines, that
-   *   may be overriding some of the WebExtension's settings.
    */
-  _setUrls(details, configuration = {}) {
-    let postParams =
-      configuration.params?.searchUrlPostParams ||
-      details.search_url_post_params ||
-      "";
+  _setUrls(details) {
+    let postParams = details.search_url_post_params || "";
     let url = this._getEngineURLFromMetaData(lazy.SearchUtils.URL_TYPE.SEARCH, {
       method: (postParams && "POST") || "GET",
       // AddonManager will sometimes encode the URL via `new URL()`. We want
       // to ensure we're always dealing with decoded urls.
       template: decodeURI(details.search_url),
-      getParams:
-        configuration.params?.searchUrlGetParams ||
-        details.search_url_get_params ||
-        "",
+      getParams: details.search_url_get_params || "",
       postParams,
-      mozParams: configuration.extraParams || details.params || [],
+      mozParams: details.params || [],
     });
 
     this._urls.push(url);
 
     if (details.suggest_url) {
-      let suggestPostParams =
-        configuration.params?.suggestUrlPostParams ||
-        details.suggest_url_post_params ||
-        "";
+      let suggestPostParams = details.suggest_url_post_params || "";
       url = this._getEngineURLFromMetaData(
         lazy.SearchUtils.URL_TYPE.SUGGEST_JSON,
         {
           method: (suggestPostParams && "POST") || "GET",
           // suggest_url doesn't currently get encoded.
           template: details.suggest_url,
-          getParams:
-            configuration.params?.suggestUrlGetParams ||
-            details.suggest_url_get_params ||
-            "",
+          getParams: details.suggest_url_get_params || "",
           postParams: suggestPostParams,
-          mozParams: configuration.suggestExtraParams || [],
         }
       );
 
       this._urls.push(url);
     }
 
-    if (configuration?.urls?.trending) {
-      let trending = this._getEngineURLFromMetaData(
-        lazy.SearchUtils.URL_TYPE.TRENDING_JSON,
-        {
-          method: "GET",
-          template: decodeURI(configuration.urls.trending.fullPath),
-          getParams: configuration.urls.trending.query,
-        }
-      );
-      this._urls.push(trending);
-    }
-
-    if (configuration.clickUrl) {
-      this.clickUrl = configuration.clickUrl;
-    }
-
     if (details.encoding) {
       this._queryCharset = details.encoding;
     }
-    this.#cachedSearchForm = details.search_form;
   }
 
   checkSearchUrlMatchesManifest(details) {
@@ -1031,8 +984,8 @@ export class SearchEngine {
       }
     );
 
-    let existingSubmission = existingUrl.getSubmission("", this);
-    let newSubmission = newUrl.getSubmission("", this);
+    let existingSubmission = existingUrl.getSubmission("", this.queryCharset);
+    let newSubmission = newUrl.getSubmission("", this.queryCharset);
 
     return (
       existingSubmission.uri.equals(newSubmission.uri) &&
@@ -1042,33 +995,35 @@ export class SearchEngine {
   }
 
   /**
-   * Overrides the urls/parameters with those of the provided extension.
-   * The parameters are not saved to the search settings - the code handling
+   * Overrides the urls/parameters with those of the provided engine or extension.
+   * The url parameters are not saved to the search settings - the code handling
    * the extension should set these on every restart, this avoids potential
    * third party modifications and means that we can verify the WebExtension is
    * still in the allow list.
    *
    * @param {string} options
    *   The options for this function.
-   * @param {AddonSearchEngine} [options.engine]
+   * @param {AddonSearchEngine|OpenSearchEngine} [options.engine]
    *   The search engine to override with this engine. If not specified, `manifest`
    *   must be provided.
    * @param {object} [options.extension]
    *   An object representing the WebExtensions. If not specified,
    *   `engine` must be provided
    */
-  overrideWithExtension({ engine, extension }) {
+  overrideWithEngine({ engine, extension }) {
     this._overriddenData = {
       urls: this._urls,
       queryCharset: this._queryCharset,
-      searchForm: this.#cachedSearchForm,
     };
     if (engine) {
       // Copy any saved user data (alias, order etc).
       this.copyUserSettingsFrom(engine);
 
       this._urls = engine._urls;
-      this.setAttr("overriddenBy", engine._extensionID);
+      this.setAttr("overriddenBy", engine._extensionID ?? engine.id);
+      if (engine instanceof lazy.OpenSearchEngine) {
+        this.setAttr("overriddenByOpenSearch", engine.toJSON());
+      }
     } else {
       this._urls = [];
       this.setAttr("overriddenBy", extension.id);
@@ -1089,7 +1044,6 @@ export class SearchEngine {
       if (this._overriddenData) {
         this._urls = this._overriddenData.urls;
         this._queryCharset = this._overriddenData.queryCharset;
-        this.#cachedSearchForm = this._overriddenData.searchForm;
         delete this._overriddenData;
       } else {
         lazy.logConsole.error(
@@ -1108,8 +1062,9 @@ export class SearchEngine {
    * Copies settings from the supplied search engine. Typically used for
    * restoring settings when removing an override.
    *
-   * @param {SearchEngine} engine
-   *   The engine to copy the settings from.
+   * @param {SearchEngine|object} engine
+   *   The engine to copy the settings from, or the engine settings from
+   *   the user's saved settings.
    */
   copyUserSettingsFrom(engine) {
     for (let attribute of USER_ATTRIBUTES) {
@@ -1132,7 +1087,6 @@ export class SearchEngine {
     this._hasPreferredIcon = json._hasPreferredIcon == undefined;
     this._queryCharset =
       json.queryCharset || lazy.SearchUtils.DEFAULT_QUERY_CHARSET;
-    this.#cachedSearchForm = json.__searchForm;
     this._iconURI = lazy.SearchUtils.makeURI(json._iconURL);
     this._iconMapObj = json._iconMapObj || null;
     this._metaData = json._metaData || {};
@@ -1186,9 +1140,6 @@ export class SearchEngine {
       }
     }
 
-    if (this.#cachedSearchForm) {
-      json.__searchForm = this.#cachedSearchForm;
-    }
     if (!this._hasPreferredIcon) {
       json._hasPreferredIcon = this._hasPreferredIcon;
     }
@@ -1209,6 +1160,38 @@ export class SearchEngine {
 
   clearAttr(name) {
     delete this._metaData[name];
+  }
+
+  /**
+   * Loads engine settings (_metaData) from the list of settings, finding
+   * the appropriate details for this engine.
+   *
+   * @param {object} [settings]
+   *   The saved settings for the user.
+   */
+  _loadSettings(settings) {
+    if (!settings) {
+      return;
+    }
+
+    let engineSettings = lazy.SearchSettings.findSettingsForEngine(
+      settings,
+      this.id,
+      this.name
+    );
+    if (engineSettings?._metaData) {
+      this._metaData = structuredClone(engineSettings._metaData);
+    }
+  }
+
+  /**
+   * Gets the order hint for this engine. This is determined from the search
+   * configuration when the engine is initialized.
+   *
+   * @type {number}
+   */
+  get orderHint() {
+    return this._orderHint;
   }
 
   /**
@@ -1364,50 +1347,6 @@ export class SearchEngine {
     return this._name;
   }
 
-  /**
-   * The searchForm URL points to the engine's organic search page. This should
-   * not contain neither search term parameters nor partner codes, but may
-   * contain parameters which set the engine in the correct way.
-   *
-   * This URL is typically the prePath and filePath of the search submission URI,
-   * but may vary for different engines. For example, some engines may use a
-   * different domain, e.g. https://sub.example.com for the search URI but
-   * https://example.org/ for the organic search page.
-   *
-   * @returns {string}
-   */
-  get searchForm() {
-    // First look for a <Url rel="searchform">
-    var searchFormURL = this._getURLOfType(
-      lazy.SearchUtils.URL_TYPE.SEARCH,
-      "searchform"
-    );
-    if (searchFormURL) {
-      let submission = searchFormURL.getSubmission("", this);
-
-      // If the rel=searchform URL is not type="get" (i.e. has postData),
-      // ignore it, since we can only return a URL.
-      if (!submission.postData) {
-        return submission.uri.spec;
-      }
-    }
-
-    if (!this._searchForm) {
-      // No SearchForm specified in the engine definition file, use the prePath
-      // (e.g. https://foo.com for https://foo.com/search.php?q=bar).
-      var htmlUrl = this._getURLOfType(lazy.SearchUtils.URL_TYPE.SEARCH);
-      if (!htmlUrl) {
-        throw Components.Exception(
-          "Engine has no HTML URL!",
-          Cr.NS_ERROR_UNEXPECTED
-        );
-      }
-      this._searchForm = lazy.SearchUtils.makeURI(htmlUrl.template).prePath;
-    }
-
-    return ParamSubstitution(this._searchForm, "", this);
-  }
-
   get queryCharset() {
     return this._queryCharset || lazy.SearchUtils.DEFAULT_QUERY_CHARSET;
   }
@@ -1449,8 +1388,7 @@ export class SearchEngine {
       !searchTerms &&
       responseType != lazy.SearchUtils.URL_TYPE.TRENDING_JSON
     ) {
-      // Return a dummy submission object with our searchForm attribute
-      return new Submission(lazy.SearchUtils.makeURI(this.searchForm));
+      lazy.logConsole.warn("getSubmission: searchTerms is empty!");
     }
 
     var submissionData = "";
@@ -1468,7 +1406,7 @@ export class SearchEngine {
         searchTerms
       );
     }
-    return url.getSubmission(submissionData, this, purpose);
+    return url.getSubmission(submissionData, this.queryCharset, purpose);
   }
 
   /**
@@ -1499,11 +1437,16 @@ export class SearchEngine {
    * @param {nsIURI} uri
    *   A URI that may or may not be from a search result matching the engine.
    *
+   * @param {boolean?} skipParamMatching
+   *   Whether to skip the step to match the parameters of the input URI with
+   *   the URI generated by the Engine. If not provided, it is assumed the
+   *   step should not be skipped.
+   *
    * @returns {string}
    *   A string representing the termsParameterName value of the URI,
    *   or an empty string if the URI isn't matched to the engine.
    */
-  searchTermFromResult(uri) {
+  searchTermFromResult(uri, skipParamMatching) {
     let url = this._getURLOfType(lazy.SearchUtils.URL_TYPE.SEARCH);
     if (!url) {
       return "";
@@ -1536,23 +1479,26 @@ export class SearchEngine {
 
     let uriParams = new URLSearchParams(uri.query);
     if (
+      !skipParamMatching &&
       new Set([...uriParams.keys()]).size !=
-      new Set([...engineParams.keys()]).size
+        new Set([...engineParams.keys()]).size
     ) {
       return "";
     }
 
     let termsParameterName = this.getURLParsingInfo().termsParameterName;
-    for (let [name, value] of uriParams.entries()) {
-      // Don't check the name matching the search
-      // query because its value will differ.
-      if (name == termsParameterName) {
-        continue;
-      }
-      // All params of an input must have a matching
-      // key and value in the list of engine parameters.
-      if (!engineParams.getAll(name).includes(value)) {
-        return "";
+    if (!skipParamMatching) {
+      for (let [name, value] of uriParams.entries()) {
+        // Don't check the name matching the search
+        // query because its value will differ.
+        if (name == termsParameterName) {
+          continue;
+        }
+        // All params of an input must have a matching
+        // key and value in the list of engine parameters.
+        if (!engineParams.getAll(name).includes(value)) {
+          return "";
+        }
       }
     }
 
@@ -1571,7 +1517,7 @@ export class SearchEngine {
       );
     }
 
-    return uriParams.get(termsParameterName);
+    return uriParams.get(termsParameterName) ?? "";
   }
 
   get searchUrlQueryParamName() {
@@ -1625,6 +1571,15 @@ export class SearchEngine {
   }
 
   /**
+   * @returns {string}
+   *   URL to the main page of the search engine.
+   *   By default this is the pre path of the search URL.
+   */
+  get searchForm() {
+    return this.searchURLWithNoTerms.prePath;
+  }
+
+  /**
    * @returns {object}
    *   URL parsing properties used by _buildParseSubmissionMap.
    */
@@ -1657,9 +1612,9 @@ export class SearchEngine {
    * @param {number} preferredWidth
    *   Width of the requested icon. If not specified, it is assumed that
    *   16x16 is desired.
-   * @returns {string|undefined}
+   * @returns {Promise<string|undefined>}
    */
-  getIconURL(preferredWidth) {
+  async getIconURL(preferredWidth) {
     // XPCOM interfaces pass optional number parameters as 0 and can't be
     // handled in the same way.
     if (!preferredWidth) {

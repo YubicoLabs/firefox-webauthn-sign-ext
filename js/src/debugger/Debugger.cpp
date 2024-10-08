@@ -12,8 +12,9 @@
 #include "mozilla/HashTable.h"         // for HashSet<>::Range, HashMapEntry
 #include "mozilla/Maybe.h"             // for Maybe, Nothing, Some
 #include "mozilla/ScopeExit.h"         // for MakeScopeExit, ScopeExit
+#include "mozilla/Sprintf.h"           // for SprintfLiteral
 #include "mozilla/ThreadLocal.h"       // for ThreadLocal
-#include "mozilla/TimeStamp.h"         // for TimeStamp, TimeDuration
+#include "mozilla/TimeStamp.h"         // for TimeStamp
 #include "mozilla/UniquePtr.h"         // for UniquePtr
 #include "mozilla/Variant.h"           // for AsVariant, AsVariantTemporary
 #include "mozilla/Vector.h"            // for Vector, Vector<>::ConstRange
@@ -34,6 +35,7 @@
 #include "debugger/DebuggerMemory.h"      // for DebuggerMemory
 #include "debugger/DebugScript.h"         // for DebugScript
 #include "debugger/Environment.h"         // for DebuggerEnvironment
+#include "debugger/ExecutionTracer.h"     // for ExecutionTracer
 #include "debugger/Frame.h"               // for DebuggerFrame
 #include "debugger/NoExecute.h"           // for EnterDebuggeeNoExecute
 #include "debugger/Object.h"              // for DebuggerObject
@@ -71,7 +73,7 @@
 #include "js/Promise.h"               // for AutoDebuggerJobQueueInterruption
 #include "js/PropertyAndElement.h"    // for JS_GetProperty
 #include "js/Proxy.h"                 // for PropertyDescriptor
-#include "js/SourceText.h"            // for SourceOwnership, SourceText
+#include "js/SourceText.h"            // for SourceText
 #include "js/StableStringChars.h"     // for AutoStableStringChars
 #include "js/UbiNode.h"               // for Node, RootList, Edge
 #include "js/UbiNodeBreadthFirst.h"   // for BreadthFirst
@@ -151,8 +153,6 @@ using namespace js;
 
 using JS::AutoStableStringChars;
 using JS::CompileOptions;
-using JS::SourceOwnership;
-using JS::SourceText;
 using JS::dbg::AutoEntryMonitor;
 using JS::dbg::Builder;
 using mozilla::AsVariant;
@@ -161,7 +161,6 @@ using mozilla::MakeScopeExit;
 using mozilla::Maybe;
 using mozilla::Nothing;
 using mozilla::Some;
-using mozilla::TimeDuration;
 using mozilla::TimeStamp;
 
 /*** Utils ******************************************************************/
@@ -536,6 +535,8 @@ Debugger::Debugger(JSContext* cx, NativeObject* dbg)
       exclusiveDebuggerOnEval(false),
       inspectNativeCallArguments(false),
       collectCoverageInfo(false),
+      shouldAvoidSideEffects(false),
+      nativeTracing(false),
       observedGCs(cx->zone()),
       allocationsLog(cx),
       trackingAllocationSites(false),
@@ -902,6 +903,11 @@ bool Debugger::hasAnyLiveHooks() const {
 
 /* static */
 bool DebugAPI::slowPathOnEnterFrame(JSContext* cx, AbstractFramePtr frame) {
+  if (cx->hasExecutionTracer()) {
+    if (!cx->getExecutionTracer().onEnterFrame(cx, frame)) {
+      return false;
+    }
+  }
   return Debugger::dispatchResumptionHook(
       cx, frame,
       [frame](Debugger* dbg) -> bool {
@@ -913,6 +919,11 @@ bool DebugAPI::slowPathOnEnterFrame(JSContext* cx, AbstractFramePtr frame) {
 
 /* static */
 bool DebugAPI::slowPathOnResumeFrame(JSContext* cx, AbstractFramePtr frame) {
+  if (cx->hasExecutionTracer()) {
+    if (!cx->getExecutionTracer().onEnterFrame(cx, frame)) {
+      return false;
+    }
+  }
   // Don't count on this method to be called every time a generator is
   // resumed! This is called only if the frame's debuggee bit is set,
   // i.e. the script has breakpoints or the frame is stepping.
@@ -1049,6 +1060,12 @@ NativeResumeMode DebugAPI::slowPathOnNativeCall(JSContext* cx,
   return NativeResumeMode::Continue;
 }
 
+/* static */
+bool DebugAPI::slowPathShouldAvoidSideEffects(JSContext* cx) {
+  return DebuggerExists(
+      cx->global(), [=](Debugger* dbg) { return dbg->shouldAvoidSideEffects; });
+}
+
 /*
  * RAII class to mark a generator as "running" temporarily while running
  * debugger code.
@@ -1110,6 +1127,11 @@ class MOZ_RAII AutoSetGeneratorRunning {
 /* static */
 bool DebugAPI::slowPathOnLeaveFrame(JSContext* cx, AbstractFramePtr frame,
                                     const jsbytecode* pc, bool frameOk) {
+  if (cx->hasExecutionTracer()) {
+    if (!cx->getExecutionTracer().onLeaveFrame(cx, frame)) {
+      return false;
+    }
+  }
   MOZ_ASSERT_IF(!frame.isWasmDebugFrame(), pc);
 
   mozilla::DebugOnly<Handle<GlobalObject*>> debuggeeGlobal = cx->global();
@@ -1794,7 +1816,7 @@ static bool CheckResumptionValue(JSContext* cx, AbstractFramePtr frame,
     }
 
     // 2.  The generator must be closed.
-    genObj->setClosed();
+    genObj->setClosed(cx);
 
     // Async generators have additionally bookkeeping which must be adjusted
     // when switching over to the closed state.
@@ -1823,7 +1845,7 @@ static bool CheckResumptionValue(JSContext* cx, AbstractFramePtr frame,
       vp.setObject(*promise);
 
       // 2.  The generator must be closed.
-      generator->setClosed();
+      generator->setClosed(cx);
     } else {
       // We're before entering the actual function code.
 
@@ -2855,6 +2877,20 @@ void DebugAPI::slowPathOnNewGlobalObject(JSContext* cx,
 }
 
 /* static */
+void DebugAPI::slowPathOnGeneratorClosed(JSContext* cx,
+                                         AbstractGeneratorObject* genObj) {
+  JS::AutoAssertNoGC nogc;
+  for (Realm::DebuggerVectorEntry& entry : cx->global()->getDebuggers(nogc)) {
+    Debugger* dbg = entry.dbg;
+    if (Debugger::GeneratorWeakMap::Ptr frameEntry =
+            dbg->generatorFrames.lookup(genObj)) {
+      DebuggerFrame* frameObj = frameEntry->value();
+      frameObj->onGeneratorClosed(cx->gcContext());
+    }
+  }
+}
+
+/* static */
 void DebugAPI::slowPathNotifyParticipatesInGC(uint64_t majorGCNumber,
                                               Realm::DebuggerVector& dbgs,
                                               const JS::AutoRequireNoGC& nogc) {
@@ -3445,6 +3481,9 @@ bool Debugger::hookObservesAllExecution(Hook which) {
 }
 
 Debugger::IsObserving Debugger::observesAllExecution() const {
+  if (nativeTracing) {
+    return Observing;
+  }
   if (!!getHook(OnEnterFrame)) {
     return Observing;
   }
@@ -4126,15 +4165,18 @@ const JSClassOps DebuggerInstanceObject::classOps_ = {
 };
 
 const JSClass DebuggerInstanceObject::class_ = {
-    "Debugger", JSCLASS_HAS_RESERVED_SLOTS(Debugger::JSSLOT_DEBUG_COUNT),
-    &classOps_};
+    "Debugger",
+    JSCLASS_HAS_RESERVED_SLOTS(Debugger::JSSLOT_DEBUG_COUNT),
+    &classOps_,
+};
 
 static_assert(Debugger::JSSLOT_DEBUG_PROTO_START == 0,
               "DebuggerPrototypeObject only needs slots for the proto objects");
 
 const JSClass DebuggerPrototypeObject::class_ = {
     "DebuggerPrototype",
-    JSCLASS_HAS_RESERVED_SLOTS(Debugger::JSSLOT_DEBUG_PROTO_STOP)};
+    JSCLASS_HAS_RESERVED_SLOTS(Debugger::JSSLOT_DEBUG_PROTO_STOP),
+};
 
 static Debugger* Debugger_fromThisValue(JSContext* cx, const CallArgs& args,
                                         const char* fnname) {
@@ -4163,6 +4205,8 @@ struct MOZ_STACK_CLASS Debugger::CallData {
   CallData(JSContext* cx, const CallArgs& args, Debugger* dbg)
       : cx(cx), args(args), dbg(dbg) {}
 
+  bool getNativeTracing();
+  bool setNativeTracing();
   bool getOnDebuggerStatement();
   bool setOnDebuggerStatement();
   bool getOnExceptionUnwind();
@@ -4173,6 +4217,8 @@ struct MOZ_STACK_CLASS Debugger::CallData {
   bool setOnEnterFrame();
   bool getOnNativeCall();
   bool setOnNativeCall();
+  bool getShouldAvoidSideEffects();
+  bool setShouldAvoidSideEffects();
   bool getOnNewGlobalObject();
   bool setOnNewGlobalObject();
   bool getOnNewPromise();
@@ -4213,6 +4259,7 @@ struct MOZ_STACK_CLASS Debugger::CallData {
   bool disableAsyncStack();
   bool enableUnlimitedStacksCapturing();
   bool disableUnlimitedStacksCapturing();
+  bool collectNativeTrace();
 
   using Method = bool (CallData::*)();
 
@@ -4322,6 +4369,65 @@ bool Debugger::setGarbageCollectionHook(JSContext* cx, const CallArgs& args,
   return true;
 }
 
+bool Debugger::CallData::getNativeTracing() {
+  args.rval().set(BooleanValue(dbg->nativeTracing));
+  return true;
+}
+
+bool Debugger::CallData::collectNativeTrace() {
+  if (!dbg->nativeTracing) {
+    JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
+                              JSMSG_NATIVE_TRACING_MUST_BE_ENABLED);
+    return false;
+  }
+
+  RootedObject result(cx, NewPlainObject(cx));
+  if (!result) {
+    return false;
+  }
+
+  if (cx->hasExecutionTracer()) {
+    if (!cx->getExecutionTracer().getTrace(cx, result)) {
+      return false;
+    }
+  }
+
+  dbg->nativeTracing = false;
+  cx->removeExecutionTracingConsumer(dbg);
+  if (!dbg->updateObservesAllExecutionOnDebuggees(
+          cx, dbg->observesAllExecution())) {
+    return false;
+  }
+
+  args.rval().setObject(*result);
+  return true;
+}
+
+bool Debugger::CallData::setNativeTracing() {
+  if (!args.requireAtLeast(cx, "Debugger.nativeTracing", 1)) {
+    return false;
+  }
+  bool wasEnabled = dbg->nativeTracing;
+  dbg->nativeTracing = ToBoolean(args[0]);
+  if (wasEnabled != dbg->nativeTracing) {
+    if (dbg->nativeTracing) {
+      if (!cx->addExecutionTracingConsumer(dbg)) {
+        ReportOutOfMemory(cx);
+        return false;
+      }
+    } else {
+      cx->removeExecutionTracingConsumer(dbg);
+    }
+  }
+
+  if (!dbg->updateObservesAllExecutionOnDebuggees(
+          cx, dbg->observesAllExecution())) {
+    return false;
+  }
+
+  return true;
+}
+
 bool Debugger::CallData::getOnDebuggerStatement() {
   return getHookImpl(cx, args, *dbg, OnDebuggerStatement);
 }
@@ -4388,6 +4494,22 @@ bool Debugger::CallData::setOnNativeCall() {
     dbg->updateObservesNativeCallOnDebuggees(NotObserving);
   }
 
+  return true;
+}
+
+bool Debugger::CallData::getShouldAvoidSideEffects() {
+  args.rval().setBoolean(dbg->shouldAvoidSideEffects);
+  return true;
+}
+
+bool Debugger::CallData::setShouldAvoidSideEffects() {
+  if (!args.requireAtLeast(cx, "Debugger.set shouldAvoidSideEffects", 1)) {
+    return false;
+  }
+
+  dbg->shouldAvoidSideEffects = ToBoolean(args[0]);
+
+  args.rval().setUndefined();
   return true;
 }
 
@@ -4591,6 +4713,11 @@ GlobalObject* Debugger::unwrapDebuggeeArgument(JSContext* cx, const Value& v) {
   obj = CheckedUnwrapDynamic(obj, cx, /* stopAtWindowProxy = */ false);
   if (!obj) {
     ReportAccessDenied(cx);
+    return nullptr;
+  }
+
+  if (JS_IsDeadWrapper(obj)) {
+    JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_DEAD_OBJECT);
     return nullptr;
   }
 
@@ -5270,22 +5397,76 @@ class MOZ_STACK_CLASS Debugger::ScriptQuery : public Debugger::QueryBase {
     } else if (lineProperty.isNumber()) {
       if (displayURL.isUndefined() && url.isUndefined() && !hasSource) {
         JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
-                                  JSMSG_QUERY_LINE_WITHOUT_URL);
+                                  JSMSG_QUERY_LINE_WITHOUT_URL,
+                                  "'line' property");
         return false;
       }
-      double doubleLine = lineProperty.toNumber();
-      uint32_t uintLine = (uint32_t)doubleLine;
-      if (doubleLine <= 0 || uintLine != doubleLine) {
-        JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
-                                  JSMSG_DEBUG_BAD_LINE);
+      if (!parsePositiveInteger(lineProperty, line, JSMSG_DEBUG_BAD_LINE)) {
         return false;
       }
       hasLine = true;
-      line = uintLine;
+      lineEnd = line;
     } else {
       JS_ReportErrorNumberASCII(
           cx, GetErrorMessage, nullptr, JSMSG_UNEXPECTED_TYPE,
           "query object's 'line' property", "neither undefined nor an integer");
+      return false;
+    }
+
+    // Check for a 'start' property.
+    RootedValue startProperty(cx);
+    if (!GetProperty(cx, query, query, cx->names().start, &startProperty)) {
+      return false;
+    }
+    if (startProperty.isObject()) {
+      Rooted<JSObject*> startObject(cx, &startProperty.toObject());
+      if (!parseLineColumnObject(startObject, "start", line, columnStart)) {
+        return false;
+      }
+      hasLine = true;
+    } else if (!startProperty.isUndefined()) {
+      JS_ReportErrorNumberASCII(
+          cx, GetErrorMessage, nullptr, JSMSG_UNEXPECTED_TYPE,
+          "query object's 'start' property", "neither undefined nor an object");
+      return false;
+    }
+
+    // Check for a 'end' property.
+    RootedValue endProperty(cx);
+    if (!GetProperty(cx, query, query, cx->names().end, &endProperty)) {
+      return false;
+    }
+    if (endProperty.isObject()) {
+      Rooted<JSObject*> endObject(cx, &endProperty.toObject());
+      if (!parseLineColumnObject(endObject, "end", lineEnd, columnEnd)) {
+        return false;
+      }
+    } else if (!endProperty.isUndefined()) {
+      JS_ReportErrorNumberASCII(
+          cx, GetErrorMessage, nullptr, JSMSG_UNEXPECTED_TYPE,
+          "query object's 'end' property", "neither undefined nor an object");
+      return false;
+    }
+
+    if (startProperty.isUndefined() ^ endProperty.isUndefined()) {
+      JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
+                                JSMSG_QUERY_USE_START_AND_END_TOGETHER);
+      return false;
+    }
+
+    if (!startProperty.isUndefined()) {
+      // endProperty is also not undefined here
+      if (displayURL.isUndefined() && url.isUndefined() && !hasSource) {
+        JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
+                                  JSMSG_QUERY_LINE_WITHOUT_URL,
+                                  "'start' and 'end' properties");
+        return false;
+      }
+    }
+
+    if (hasLine && lineEnd < line) {
+      JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
+                                JSMSG_QUERY_START_LINE_IS_AFTER_END);
       return false;
     }
 
@@ -5487,6 +5668,8 @@ class MOZ_STACK_CLASS Debugger::ScriptQuery : public Debugger::QueryBase {
   }
 
  private:
+  static const uint32_t LINE_CONSTRAINT_NOT_PROVIDED = 0;
+
   /* If this is a string, matching scripts have urls equal to it. */
   RootedValue url;
 
@@ -5505,22 +5688,32 @@ class MOZ_STACK_CLASS Debugger::ScriptQuery : public Debugger::QueryBase {
   bool hasSource = false;
   Rooted<DebuggerSourceReferent> source;
 
-  /* True if the query contained a 'line' property. */
+  /* True if the query contained a 'line' or 'start' property. */
   bool hasLine = false;
 
-  /* The line matching scripts must cover. */
-  uint32_t line = 0;
+  /* The start line of the target range, inclusive. A script's lines must
+   * overlap the target line range or it will be filtered out by the query. */
+  uint32_t line = LINE_CONSTRAINT_NOT_PROVIDED;
+
+  /* The end line of the target range, inclusive. A script's lines must overlap
+   * the target line range or it will be filtered out by the query. */
+  uint32_t lineEnd = LINE_CONSTRAINT_NOT_PROVIDED;
+
+  Maybe<JS::LimitedColumnNumberOneOrigin> columnStart;
+
+  Maybe<JS::LimitedColumnNumberOneOrigin> columnEnd;
 
   // As a performance optimization (and to avoid delazifying as many scripts),
-  // we would like to know the source offset of the target line.
+  // we would like to know the source offset of the target range start line.
   //
   // Since we do not have a simple way to compute this precisely, we instead
   // track a lower-bound of the offset value. As we collect SourceExtent
   // examples with (line,column) <-> sourceStart mappings, we can improve the
-  // bound. The target line is within the range [sourceOffsetLowerBound, Inf).
+  // bound. The target range start line is within the range
+  // [sourceOffsetLowerBound, Inf).
   //
   // NOTE: Using a SourceExtent for updating the bound happens independently of
-  //       if the script matches the target line or not in the in the end.
+  //       if the script matches the target range start line or not in the end.
   mutable uint32_t sourceOffsetLowerBound = 0;
 
   /* True if the query has an 'innermost' property whose value is true. */
@@ -5566,30 +5759,112 @@ class MOZ_STACK_CLASS Debugger::ScriptQuery : public Debugger::QueryBase {
     return true;
   }
 
+  template <size_t N>
+  bool parseLineColumnObject(
+      Handle<JSObject*> obj, const char (&propName)[N], uint32_t& lineOut,
+      Maybe<JS::LimitedColumnNumberOneOrigin>& columnOut) {
+    RootedValue lineProp(cx);
+    if (!GetProperty(cx, obj, obj, cx->names().line, &lineProp)) {
+      return false;
+    }
+    if (!lineProp.isNumber()) {
+      static const char propMessageFormat[] =
+          "query object's '%s.line' property";
+      char propMessage[N - 1 /* propName's terminating null */
+                       + sizeof(propMessageFormat) - 2 /* '%s' is replaced */];
+      DebugOnly<size_t> checkLen =
+          SprintfLiteral(propMessage, propMessageFormat, propName);
+      MOZ_ASSERT(checkLen == sizeof(propMessage) - 1 /* terminating null */);
+      JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
+                                JSMSG_UNEXPECTED_TYPE, propMessage,
+                                "not a number");
+      return false;
+    }
+    if (!parsePositiveInteger(lineProp, lineOut, JSMSG_DEBUG_BAD_LINE)) {
+      return false;
+    }
+
+    RootedValue columnProp(cx);
+    if (!GetProperty(cx, obj, obj, cx->names().column, &columnProp)) {
+      return false;
+    }
+    if (!columnProp.isUndefined()) {
+      if (!columnProp.isNumber()) {
+        static const char propMessageFormat[] =
+            "query object's '%s.column' property";
+        char propMessage[N - 1 /* propName's terminating null */
+                         + sizeof(propMessageFormat) -
+                         2 /* '%s' is replaced */];
+        DebugOnly<size_t> checkLen =
+            SprintfLiteral(propMessage, propMessageFormat, propName);
+        MOZ_ASSERT(checkLen == sizeof(propMessage) - 1 /* terminating null */);
+        JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
+                                  JSMSG_UNEXPECTED_TYPE, propMessage,
+                                  "not a number");
+        return false;
+      }
+      uint32_t uintColumn = 0;
+      if (!parsePositiveInteger(columnProp, uintColumn,
+                                JSMSG_BAD_COLUMN_NUMBER)) {
+        return false;
+      }
+      if (uintColumn > JS::LimitedColumnNumberOneOrigin::Limit) {
+        JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
+                                  JSMSG_BAD_COLUMN_NUMBER);
+        return false;
+      }
+      columnOut.emplace(JS::LimitedColumnNumberOneOrigin(uintColumn));
+    }
+    return true;
+  }
+
+  bool parsePositiveInteger(Handle<Value> numberProp, uint32_t& result,
+                            JSErrNum errorNumber) {
+    double doubleVal = numberProp.toNumber();
+    uint32_t uintVal = (uint32_t)doubleVal;
+    if (doubleVal <= 0 || uintVal != doubleVal) {
+      JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, errorNumber);
+      return false;
+    }
+    result = uintVal;
+    return true;
+  }
+
   void updateSourceOffsetLowerBound(const SourceExtent& extent) {
-    // We trying to find the offset of (target-line, 0) so just ignore any
-    // extents on target line to keep things simple.
-    MOZ_ASSERT(extent.lineno <= line);
-    if (extent.lineno == line) {
+    // We trying to find the offset of (target-range-start-line, 0), so ignore
+    // any scripts within the target range.
+    MOZ_ASSERT(line != LINE_CONSTRAINT_NOT_PROVIDED &&
+               lineEnd != LINE_CONSTRAINT_NOT_PROVIDED);
+    MOZ_ASSERT(extent.lineno <= lineEnd);
+    if (extent.lineno >= line) {
       return;
     }
 
     // The extent.sourceStart position is now definitely *before* the target
-    // line, so update sourceOffsetLowerBound if extent.sourceStart is a tighter
-    // bound.
+    // range start line, so update sourceOffsetLowerBound if extent.sourceStart
+    // is a tighter bound.
     if (extent.sourceStart > sourceOffsetLowerBound) {
       sourceOffsetLowerBound = extent.sourceStart;
     }
   }
 
-  // A partial match is a script that starts before the target line, but may or
-  // may not end before it. If we can prove the script definitely ends before
-  // the target line, we may return false here.
+  // A partial match is a script that starts before the target range ends, but
+  // may or may not end before the target range starts. We can also return false
+  // if we can prove the script ends before the target range starts.
   bool scriptIsPartialLineMatch(BaseScript* script) {
     const SourceExtent& extent = script->extent();
 
-    // Check that start of script is before or on target line.
-    if (extent.lineno > line) {
+    // We only know for sure that the script is outside the target line range
+    // if the start of script is after the target end line, because we don't
+    // know how many lines the script has yet.
+    MOZ_ASSERT(line != LINE_CONSTRAINT_NOT_PROVIDED &&
+               lineEnd != LINE_CONSTRAINT_NOT_PROVIDED);
+    MOZ_ASSERT(line <= lineEnd);
+    if (extent.lineno > lineEnd) {
+      return false;
+    }
+    if (columnEnd.isSome() && script->lineno() == lineEnd &&
+        script->column() > columnEnd.value()) {
       return false;
     }
 
@@ -5599,15 +5874,21 @@ class MOZ_STACK_CLASS Debugger::ScriptQuery : public Debugger::QueryBase {
     updateSourceOffsetLowerBound(script->extent());
 
     // As an optional performance optimization, we rule out any script that ends
-    // before the lower-bound on where target line exists.
+    // before the lower-bound on where target range start line exists.
     return extent.sourceEnd > sourceOffsetLowerBound;
   }
 
-  // True if any part of script source is on the target line.
+  // True if any part of script source overlaps the target range.
   bool scriptIsLineMatch(JSScript* script) {
     MOZ_ASSERT(scriptIsPartialLineMatch(script));
 
-    uint32_t lineCount = GetScriptLineExtent(script);
+    JS::LimitedColumnNumberOneOrigin scriptEndColumn;
+    uint32_t lineCount = GetScriptLineExtent(script, &scriptEndColumn);
+    if (columnStart.isSome() && script->lineno() + lineCount - 1 == line) {
+      if (scriptEndColumn <= columnStart.value()) {
+        return false;
+      }
+    }
     return (script->lineno() + lineCount > line);
   }
 
@@ -5908,7 +6189,12 @@ class MOZ_STACK_CLASS Debugger::ObjectQuery {
  public:
   /* Construct an ObjectQuery to use matching scripts for |dbg|. */
   ObjectQuery(JSContext* cx, Debugger* dbg)
-      : objects(cx), cx(cx), dbg(dbg), className(cx) {}
+      : objects(cx),
+        cx(cx),
+        dbg(dbg),
+        queryType(QueryType::None),
+        jsClassName(cx),
+        unwrappedCtorOrProto(cx) {}
 
   /* The vector that we are accumulating results in. */
   RootedObjectVector objects;
@@ -5926,14 +6212,12 @@ class MOZ_STACK_CLASS Debugger::ObjectQuery {
     if (!GetProperty(cx, query, query, cx->names().class_, &cls)) {
       return false;
     }
-    if (!cls.isUndefined()) {
-      if (!cls.isString()) {
-        JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
-                                  JSMSG_UNEXPECTED_TYPE,
-                                  "query object's 'class' property",
-                                  "neither undefined nor a string");
-        return false;
-      }
+
+    if (cls.isUndefined()) {
+      return true;
+    }
+
+    if (cls.isString()) {
       JSLinearString* str = cls.toString()->ensureLinear(cx);
       if (!str) {
         return false;
@@ -5941,17 +6225,55 @@ class MOZ_STACK_CLASS Debugger::ObjectQuery {
       if (!StringIsAscii(str)) {
         JS_ReportErrorNumberASCII(
             cx, GetErrorMessage, nullptr, JSMSG_UNEXPECTED_TYPE,
-            "query object's 'class' property",
+            "query object's 'class' property string",
             "not a string containing only ASCII characters");
         return false;
       }
-      className = cls;
+      jsClassName = cls;
+      queryType = QueryType::JSClassName;
+      return true;
     }
-    return true;
+
+    if (cls.isObject()) {
+      JS::Rooted<JSObject*> obj(cx, &cls.toObject());
+      obj = UncheckedUnwrap(obj);
+      if (JS_IsDeadWrapper(obj)) {
+        JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
+                                  JSMSG_DEAD_OBJECT);
+        return false;
+      }
+      if (!obj->is<DebuggerObject>()) {
+        JS_ReportErrorNumberASCII(
+            cx, GetErrorMessage, nullptr, JSMSG_UNEXPECTED_TYPE,
+            "query object's 'class' property object", "not Debugger.Object");
+        return false;
+      }
+
+      unwrappedCtorOrProto = obj->as<DebuggerObject>().referent();
+      unwrappedCtorOrProto = UncheckedUnwrap(unwrappedCtorOrProto);
+      if (JS_IsDeadWrapper(unwrappedCtorOrProto)) {
+        JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
+                                  JSMSG_DEAD_OBJECT);
+        return false;
+      }
+      queryType = QueryType::CtorOrProto;
+      return true;
+    }
+
+    JS_ReportErrorNumberASCII(
+        cx, GetErrorMessage, nullptr, JSMSG_UNEXPECTED_TYPE,
+        "query object's 'class' property",
+        "none of JSClass name string, constructor/prototype debuggee object, "
+        "or undefined");
+    return false;
   }
 
   /* Set up this ObjectQuery appropriately for a missing query argument. */
-  void omittedQuery() { className.setUndefined(); }
+  void omittedQuery() {
+    jsClassName.setUndefined();
+    unwrappedCtorOrProto = nullptr;
+    queryType = QueryType::None;
+  }
 
   /*
    * Traverse the heap to find all relevant objects and add them to the
@@ -6039,14 +6361,70 @@ class MOZ_STACK_CLASS Debugger::ObjectQuery {
 
     JSObject* obj = referent.as<JSObject>();
 
-    if (!className.isUndefined()) {
-      const char* objClassName = obj->getClass()->name;
-      if (strcmp(objClassName, classNameCString.get()) != 0) {
-        return true;
+    switch (queryType) {
+      case QueryType::None:
+        break;
+      case QueryType::JSClassName: {
+        const char* objJSClassName = obj->getClass()->name;
+        if (strcmp(objJSClassName, jsClassNameCString.get()) != 0) {
+          return true;
+        }
+        break;
       }
+      case QueryType::CtorOrProto:
+        if (!hasConstructorOrPrototype(obj, unwrappedCtorOrProto, cx)) {
+          return true;
+        }
+        break;
     }
 
     return objects.append(obj);
+  }
+
+  // Returns true if `obj` is confirmed to have `ctorOrProto` as its
+  // constructor or prototype in the prototype chain.
+  //
+  // If it requires side-effect-ful operation for accessing the constructor or
+  // prototype, this can return false even if `obj instanceof ctorOrProto` is
+  // actually `true`.
+  static bool hasConstructorOrPrototype(JSObject* obj, JSObject* ctorOrProto,
+                                        JSContext* cx) {
+    obj = UncheckedUnwrap(obj);
+
+    while (true) {
+      if (!obj->hasStaticPrototype()) {
+        // Dynamic prototype cannot be matched without side-effect.
+        break;
+      }
+
+      JSObject* proto = obj->staticPrototype();
+      if (!proto) {
+        break;
+      }
+      proto = UncheckedUnwrap(proto);
+      if (proto == ctorOrProto) {
+        return true;
+      }
+
+      JS::Value ctorVal;
+      bool result;
+      {
+        AutoRealm ar(cx, proto);
+        result = GetPropertyPure(cx, proto, NameToId(cx->names().constructor),
+                                 &ctorVal);
+      }
+      if (result && ctorVal.isObject()) {
+        JSObject* ctor = &ctorVal.toObject();
+        ctor = UncheckedUnwrap(ctor);
+        if (ctor == ctorOrProto) {
+          return true;
+        }
+      }
+
+      obj = proto;
+    }
+
+    return false;
   }
 
  private:
@@ -6056,23 +6434,35 @@ class MOZ_STACK_CLASS Debugger::ObjectQuery {
   /* The debugger for which we conduct queries. */
   Debugger* dbg;
 
-  /*
-   * If this is non-null, matching objects will have a class whose name is
-   * this property.
-   */
-  RootedValue className;
+  enum class QueryType {
+    /* No filtering. */
+    None,
 
-  /* The className member, as a C string. */
-  UniqueChars classNameCString;
+    /* Match objects with given JSClass name. */
+    JSClassName,
+
+    /* Match objects with given object as constructor or prototype. */
+    CtorOrProto,
+  };
+  QueryType queryType;
+
+  /* Matching objects will have a JSClass whose name is this property. */
+  RootedValue jsClassName;
+
+  /* The jsClassName member, as a C string. */
+  UniqueChars jsClassNameCString;
+
+  /* Matching objects will have given object as constructor or prototype. */
+  JS::Rooted<JSObject*> unwrappedCtorOrProto;
 
   /*
    * Given that either omittedQuery or parseQuery has been called, prepare the
    * query for matching objects.
    */
   bool prepareQuery() {
-    if (className.isString()) {
-      classNameCString = JS_EncodeStringToASCII(cx, className.toString());
-      if (!classNameCString) {
+    if (jsClassName.isString()) {
+      jsClassNameCString = JS_EncodeStringToASCII(cx, jsClassName.toString());
+      if (!jsClassNameCString) {
         return false;
       }
     }
@@ -6272,8 +6662,7 @@ bool Debugger::isCompilableUnit(JSContext* cx, unsigned argc, Value* vp) {
   }
 
   frontend::Parser<frontend::FullParseHandler, char16_t> parser(
-      &fc, options, chars.twoByteChars(), length,
-      /* foldConstants = */ true, compilationState,
+      &fc, options, chars.twoByteChars(), length, compilationState,
       /* syntaxParser = */ nullptr);
   if (!parser.checkOptions() || parser.parse().isErr()) {
     // We ran into an error. If it was because we ran out of memory we report
@@ -6495,6 +6884,7 @@ bool Debugger::CallData::disableUnlimitedStacksCapturing() {
 }
 
 const JSPropertySpec Debugger::properties[] = {
+    JS_DEBUG_PSGS("nativeTracing", getNativeTracing, setNativeTracing),
     JS_DEBUG_PSGS("onDebuggerStatement", getOnDebuggerStatement,
                   setOnDebuggerStatement),
     JS_DEBUG_PSGS("onExceptionUnwind", getOnExceptionUnwind,
@@ -6504,6 +6894,8 @@ const JSPropertySpec Debugger::properties[] = {
     JS_DEBUG_PSGS("onPromiseSettled", getOnPromiseSettled, setOnPromiseSettled),
     JS_DEBUG_PSGS("onEnterFrame", getOnEnterFrame, setOnEnterFrame),
     JS_DEBUG_PSGS("onNativeCall", getOnNativeCall, setOnNativeCall),
+    JS_DEBUG_PSGS("shouldAvoidSideEffects", getShouldAvoidSideEffects,
+                  setShouldAvoidSideEffects),
     JS_DEBUG_PSGS("onNewGlobalObject", getOnNewGlobalObject,
                   setOnNewGlobalObject),
     JS_DEBUG_PSGS("uncaughtExceptionHook", getUncaughtExceptionHook,
@@ -6520,7 +6912,8 @@ const JSPropertySpec Debugger::properties[] = {
                   setInspectNativeCallArguments),
     JS_DEBUG_PSG("memory", getMemory),
     JS_STRING_SYM_PS(toStringTag, "Debugger", JSPROP_READONLY),
-    JS_PS_END};
+    JS_PS_END,
+};
 
 const JSFunctionSpec Debugger::methods[] = {
     JS_DEBUG_FN("addDebuggee", addDebuggee, 1),
@@ -6546,10 +6939,42 @@ const JSFunctionSpec Debugger::methods[] = {
                 enableUnlimitedStacksCapturing, 1),
     JS_DEBUG_FN("disableUnlimitedStacksCapturing",
                 disableUnlimitedStacksCapturing, 1),
-    JS_FS_END};
+    JS_DEBUG_FN("collectNativeTrace", collectNativeTrace, 0),
+    JS_FS_END,
+};
+
+const JSPropertySpec Debugger::static_properties[]{
+    JS_INT32_PS("TRACING_EVENT_KIND_FUNCTION_ENTER",
+                int32_t(ExecutionTracer::EventKind::FunctionEnter),
+                JSPROP_READONLY | JSPROP_PERMANENT),
+    JS_INT32_PS("TRACING_EVENT_KIND_FUNCTION_LEAVE",
+                int32_t(ExecutionTracer::EventKind::FunctionLeave),
+                JSPROP_READONLY | JSPROP_PERMANENT),
+    JS_INT32_PS("TRACING_EVENT_KIND_LABEL_ENTER",
+                int32_t(ExecutionTracer::EventKind::LabelEnter),
+                JSPROP_READONLY | JSPROP_PERMANENT),
+    JS_INT32_PS("TRACING_EVENT_KIND_LABEL_LEAVE",
+                int32_t(ExecutionTracer::EventKind::LabelLeave),
+                JSPROP_READONLY | JSPROP_PERMANENT),
+    JS_INT32_PS("IMPLEMENTATION_INTERPRETER",
+                int32_t(ExecutionTracer::ImplementationType::Interpreter),
+                JSPROP_READONLY | JSPROP_PERMANENT),
+    JS_INT32_PS("IMPLEMENTATION_BASELINE",
+                int32_t(ExecutionTracer::ImplementationType::Baseline),
+                JSPROP_READONLY | JSPROP_PERMANENT),
+    JS_INT32_PS("IMPLEMENTATION_ION",
+                int32_t(ExecutionTracer::ImplementationType::Ion),
+                JSPROP_READONLY | JSPROP_PERMANENT),
+    JS_INT32_PS("IMPLEMENTATION_WASM",
+                int32_t(ExecutionTracer::ImplementationType::Wasm),
+                JSPROP_READONLY | JSPROP_PERMANENT),
+    JS_PS_END,
+};
 
 const JSFunctionSpec Debugger::static_methods[]{
-    JS_FN("isCompilableUnit", Debugger::isCompilableUnit, 1, 0), JS_FS_END};
+    JS_FN("isCompilableUnit", Debugger::isCompilableUnit, 1, 0),
+    JS_FS_END,
+};
 
 DebuggerScript* Debugger::newDebuggerScript(
     JSContext* cx, Handle<DebuggerScriptReferent> referent) {
@@ -6843,7 +7268,9 @@ void DebuggerDebuggeeLink::clearLinkSlot() {
 }
 
 const JSClass DebuggerDebuggeeLink::class_ = {
-    "DebuggerDebuggeeLink", JSCLASS_HAS_RESERVED_SLOTS(RESERVED_SLOTS)};
+    "DebuggerDebuggeeLink",
+    JSCLASS_HAS_RESERVED_SLOTS(RESERVED_SLOTS),
+};
 
 /* static */
 bool DebugAPI::handleBaselineOsr(JSContext* cx, InterpreterFrame* from,
@@ -6965,10 +7392,11 @@ extern JS_PUBLIC_API bool JS_DefineDebuggerObject(JSContext* cx,
   RootedValue debuggeeWouldRunCtor(cx);
   Handle<GlobalObject*> global = obj.as<GlobalObject>();
 
-  debugProto = InitClass(cx, global, &DebuggerPrototypeObject::class_, nullptr,
-                         "Debugger", Debugger::construct, 1,
-                         Debugger::properties, Debugger::methods, nullptr,
-                         Debugger::static_methods, debugCtor.address());
+  debugProto =
+      InitClass(cx, global, &DebuggerPrototypeObject::class_, nullptr,
+                "Debugger", Debugger::construct, 1, Debugger::properties,
+                Debugger::methods, Debugger::static_properties,
+                Debugger::static_methods, debugCtor.address());
   if (!debugProto) {
     return false;
   }
@@ -7243,6 +7671,10 @@ JS_PUBLIC_API bool FireOnGarbageCollectionHook(
   }
 
   return true;
+}
+
+bool ShouldAvoidSideEffects(JSContext* cx) {
+  return DebugAPI::shouldAvoidSideEffects(cx);
 }
 
 }  // namespace dbg

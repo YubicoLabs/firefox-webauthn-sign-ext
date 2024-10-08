@@ -22,7 +22,7 @@ class ThreadSafeWorkerRef;
 namespace gfx {
 class DrawTargetRecording;
 class SourceSurface;
-}
+}  // namespace gfx
 
 namespace layers {
 class CanvasDrawEventRecorder;
@@ -60,9 +60,10 @@ class CanvasChild final : public PCanvasChild, public SupportsWeakPtr {
    * Ensures that the DrawEventRecorder has been created.
    *
    * @params aTextureType the TextureType to create in the CanvasTranslator.
+   * @returns true if the recorder was successfully created
    */
-  void EnsureRecorder(gfx::IntSize aSize, gfx::SurfaceFormat aFormat,
-                      TextureType aTextureType);
+  bool EnsureRecorder(gfx::IntSize aSize, gfx::SurfaceFormat aFormat,
+                      TextureType aTextureType, TextureType aWebglTextureType);
 
   /**
    * Clean up IPDL actor.
@@ -132,7 +133,8 @@ class CanvasChild final : public PCanvasChild, public SupportsWeakPtr {
   /**
    * The DrawTargetRecording is about to change, so detach the old snapshot.
    */
-  void DetachSurface(const RefPtr<gfx::SourceSurface>& aSurface);
+  void DetachSurface(const RefPtr<gfx::SourceSurface>& aSurface,
+                     bool aInvalidate = false);
 
   /**
    * Get DataSourceSurface from the translated equivalent version of aSurface in
@@ -141,15 +143,20 @@ class CanvasChild final : public PCanvasChild, public SupportsWeakPtr {
    * @param aSurface the SourceSurface in this process for which we need a
    *                 DataSourceSurface
    * @param aDetached whether the surface is old
+   * @param aMayInvalidate whether the data may be invalidated by future changes
    * @returns a DataSourceSurface created from data for aSurface retrieve from
    *          GPU process
    */
   already_AddRefed<gfx::DataSourceSurface> GetDataSurface(
-      int64_t aTextureId, const gfx::SourceSurface* aSurface, bool aDetached);
+      int64_t aTextureId, const gfx::SourceSurface* aSurface, bool aDetached,
+      bool& aMayInvalidate);
 
   bool RequiresRefresh(int64_t aTextureId) const;
 
   void CleanupTexture(int64_t aTextureId);
+
+  void ReturnDataSurfaceShmem(
+      already_AddRefed<ipc::SharedMemory> aDataSurfaceShmem);
 
  protected:
   void ActorDestroy(ActorDestroyReason aWhy) final;
@@ -160,14 +167,6 @@ class CanvasChild final : public PCanvasChild, public SupportsWeakPtr {
   ~CanvasChild() final;
 
   bool EnsureDataSurfaceShmem(gfx::IntSize aSize, gfx::SurfaceFormat aFormat);
-
-  void ReturnDataSurfaceShmem(
-      already_AddRefed<ipc::SharedMemoryBasic> aDataSurfaceShmem);
-
-  struct DataShmemHolder {
-    RefPtr<ipc::SharedMemoryBasic> shmem;
-    RefPtr<CanvasChild> canvasChild;
-  };
 
   static void ReleaseDataShmemHolder(void* aClosure);
 
@@ -180,12 +179,12 @@ class CanvasChild final : public PCanvasChild, public SupportsWeakPtr {
   RefPtr<dom::ThreadSafeWorkerRef> mWorkerRef;
   RefPtr<CanvasDrawEventRecorder> mRecorder;
 
-  RefPtr<ipc::SharedMemoryBasic> mDataSurfaceShmem;
+  RefPtr<ipc::SharedMemory> mDataSurfaceShmem;
   bool mDataSurfaceShmemAvailable = false;
   int64_t mLastWriteLockCheckpoint = 0;
   uint32_t mTransactionsSinceGetDataSurface = kCacheDataSurfaceThreshold;
   struct TextureInfo {
-    RefPtr<mozilla::ipc::SharedMemoryBasic> mSnapshotShmem;
+    RefPtr<mozilla::ipc::SharedMemory> mSnapshotShmem;
     bool mRequiresRefresh = false;
   };
   std::unordered_map<int64_t, TextureInfo> mTextureInfo;

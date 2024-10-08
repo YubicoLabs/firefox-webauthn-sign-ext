@@ -32,16 +32,19 @@
 #include "util/Unicode.h"
 #include "vm/ArrayObject.h"
 #include "vm/Compartment.h"
+#include "vm/Float16.h"
 #include "vm/Interpreter.h"
 #include "vm/JSAtomUtils.h"  // AtomizeString
 #include "vm/PlainObject.h"  // js::PlainObject
 #include "vm/SelfHosting.h"
 #include "vm/StaticStrings.h"
 #include "vm/TypedArrayObject.h"
+#include "vm/TypeofEqOperand.h"  // TypeofEqOperand
 #include "vm/Watchtower.h"
 #include "wasm/WasmGcObject.h"
 
 #include "debugger/DebugAPI-inl.h"
+#include "gc/StoreBuffer-inl.h"
 #include "jit/BaselineFrame-inl.h"
 #include "jit/VMFunctionList-inl.h"
 #include "vm/Interpreter-inl.h"
@@ -955,21 +958,18 @@ void PostWriteElementBarrier(JSRuntime* rt, JSObject* obj, int32_t index) {
   MOZ_ASSERT(index >= 0);
   MOZ_ASSERT(uint32_t(index) < nobj->getDenseInitializedLength());
 
-  if (nobj->isInWholeCellBuffer()) {
+  if (gc::StoreBuffer::isInWholeCellBuffer(nobj)) {
     return;
   }
 
-  if (nobj->getDenseInitializedLength() > MAX_WHOLE_CELL_BUFFER_SIZE
-#ifdef JS_GC_ZEAL
-      || rt->hasZealMode(gc::ZealMode::ElementsBarrier)
-#endif
-  ) {
-    rt->gc.storeBuffer().putSlot(nobj, HeapSlot::Element,
-                                 nobj->unshiftedIndex(index), 1);
+  gc::StoreBuffer* sb = &rt->gc.storeBuffer();
+  if (nobj->getDenseInitializedLength() > MAX_WHOLE_CELL_BUFFER_SIZE ||
+      rt->hasZealMode(gc::ZealMode::ElementsBarrier)) {
+    sb->putSlot(nobj, HeapSlot::Element, nobj->unshiftedIndex(index), 1);
     return;
   }
 
-  rt->gc.storeBuffer().putWholeCell(obj);
+  sb->putWholeCell(obj);
 }
 
 void PostGlobalWriteBarrier(JSRuntime* rt, GlobalObject* obj) {
@@ -1111,7 +1111,7 @@ bool NormalSuspend(JSContext* cx, HandleObject obj, BaselineFrame* frame,
 
 bool FinalSuspend(JSContext* cx, HandleObject obj, const jsbytecode* pc) {
   MOZ_ASSERT(JSOp(*pc) == JSOp::FinalYieldRval);
-  AbstractGeneratorObject::finalSuspend(obj);
+  AbstractGeneratorObject::finalSuspend(cx, obj);
   return true;
 }
 
@@ -1655,19 +1655,21 @@ static void VerifyCacheEntry(JSContext* cx, NativeObject* obj, PropertyKey key,
     MOZ_ASSERT(!obj->containsPure(key));
     return;
   }
-  MOZ_ASSERT(entry.isDataProperty());
+  MOZ_ASSERT(entry.isDataProperty() || entry.isAccessorProperty());
   for (size_t i = 0, numHops = entry.numHops(); i < numHops; i++) {
     MOZ_ASSERT(!obj->containsPure(key));
     obj = &obj->staticPrototype()->as<NativeObject>();
   }
   mozilla::Maybe<PropertyInfo> prop = obj->lookupPure(key);
   MOZ_ASSERT(prop.isSome());
-  MOZ_ASSERT(prop->isDataProperty());
+  MOZ_ASSERT_IF(entry.isDataProperty(), prop->isDataProperty());
+  MOZ_ASSERT_IF(!entry.isDataProperty(), prop->isAccessorProperty());
   MOZ_ASSERT(obj->getTaggedSlotOffset(prop->slot()) == entry.slotOffset());
 #endif
 }
 
-static MOZ_ALWAYS_INLINE bool GetNativeDataPropertyPureImpl(
+template <AllowGC allowGC>
+static MOZ_ALWAYS_INLINE bool MaybeGetNativePropertyAndWriteToCache(
     JSContext* cx, JSObject* obj, jsid id, MegamorphicCacheEntry* entry,
     Value* vp) {
   MOZ_ASSERT(obj->is<NativeObject>());
@@ -1684,13 +1686,41 @@ static MOZ_ALWAYS_INLINE bool GetNativeDataPropertyPureImpl(
     uint32_t index;
     if (PropMap* map = nobj->shape()->lookup(cx, id, &index)) {
       PropertyInfo prop = map->getPropertyInfo(index);
-      if (!prop.isDataProperty()) {
+      if (prop.isDataProperty()) {
+        TaggedSlotOffset offset = nobj->getTaggedSlotOffset(prop.slot());
+        cache.initEntryForDataProperty(entry, receiverShape, id, numHops,
+                                       offset);
+        *vp = nobj->getSlot(prop.slot());
+        return true;
+      }
+      if constexpr (allowGC) {
+        // There's nothing fundamentally blocking us from supporting these,
+        // it's just not a priority
+        if (prop.isCustomDataProperty()) {
+          return false;
+        }
+
+        TaggedSlotOffset offset = nobj->getTaggedSlotOffset(prop.slot());
+        MOZ_ASSERT(prop.isAccessorProperty());
+        cache.initEntryForAccessorProperty(entry, receiverShape, id, numHops,
+                                           offset);
+        vp->setUndefined();
+
+        if (!nobj->hasGetter(prop)) {
+          return true;
+        }
+
+        RootedValue getter(cx, nobj->getGetterValue(prop));
+        RootedValue receiver(cx, ObjectValue(*obj));
+        RootedValue rootedValue(cx);
+        if (js::CallGetter(cx, receiver, getter, &rootedValue)) {
+          *vp = rootedValue;
+          return true;
+        }
+        return false;
+      } else {
         return false;
       }
-      TaggedSlotOffset offset = nobj->getTaggedSlotOffset(prop.slot());
-      cache.initEntryForDataProperty(entry, receiverShape, id, numHops, offset);
-      *vp = nobj->getSlot(prop.slot());
-      return true;
     }
 
     // Property not found. Watch out for Class hooks and TypedArrays.
@@ -1754,10 +1784,13 @@ bool GetNativeDataPropertyPureWithCacheLookup(JSContext* cx, JSObject* obj,
       vp->setUndefined();
       return true;
     }
+    if (entry->isAccessorProperty()) {
+      return false;
+    }
     MOZ_ASSERT(entry->isMissingOwnProperty());
   }
 
-  return GetNativeDataPropertyPureImpl(cx, obj, id, entry, vp);
+  return MaybeGetNativePropertyAndWriteToCache<NoGC>(cx, obj, id, entry, vp);
 }
 
 bool CheckProxyGetByValueResult(JSContext* cx, HandleObject obj,
@@ -1783,7 +1816,7 @@ bool CheckProxyGetByValueResult(JSContext* cx, HandleObject obj,
 bool GetNativeDataPropertyPure(JSContext* cx, JSObject* obj, PropertyKey id,
                                MegamorphicCacheEntry* entry, Value* vp) {
   AutoUnsafeCallWithABI unsafe;
-  return GetNativeDataPropertyPureImpl(cx, obj, id, entry, vp);
+  return MaybeGetNativePropertyAndWriteToCache<NoGC>(cx, obj, id, entry, vp);
 }
 
 static MOZ_ALWAYS_INLINE bool ValueToAtomOrSymbolPure(JSContext* cx,
@@ -1821,12 +1854,12 @@ static MOZ_ALWAYS_INLINE bool ValueToAtomOrSymbolPure(JSContext* cx,
   }
 
   if (idVal.isNull()) {
-    *id = PropertyKey::NonIntAtom(cx->names().null);
+    *id = NameToId(cx->names().null);
     return true;
   }
 
   if (idVal.isUndefined()) {
-    *id = PropertyKey::NonIntAtom(cx->names().undefined);
+    *id = NameToId(cx->names().undefined);
     return true;
   }
 
@@ -1851,7 +1884,119 @@ bool GetNativeDataPropertyByValuePure(JSContext* cx, JSObject* obj,
   }
 
   Value* res = vp + 1;
-  return GetNativeDataPropertyPureImpl(cx, obj, id, entry, res);
+  return MaybeGetNativePropertyAndWriteToCache<NoGC>(cx, obj, id, entry, res);
+}
+
+bool GetPropertyCached(JSContext* cx, HandleObject obj, HandleId id,
+                       MegamorphicCacheEntry* entry,
+                       MutableHandleValue result) {
+  if (entry->isMissingProperty()) {
+    result.setUndefined();
+    return true;
+  }
+
+  MOZ_ASSERT(entry->isDataProperty() || entry->isAccessorProperty());
+
+  NativeObject* nobj = &obj->as<NativeObject>();
+  for (size_t i = 0, numHops = entry->numHops(); i < numHops; i++) {
+    nobj = &nobj->staticPrototype()->as<NativeObject>();
+  }
+
+  uint32_t offset = entry->slotOffset().offset();
+  if (entry->slotOffset().isFixedSlot()) {
+    size_t index = NativeObject::getFixedSlotIndexFromOffset(offset);
+    result.set(nobj->getFixedSlot(index));
+  } else {
+    size_t index = NativeObject::getDynamicSlotIndexFromOffset(offset);
+    result.set(nobj->getDynamicSlot(index));
+  }
+
+  // If it's a data property, we're done - otherwise we need to try to call the
+  // getter
+  if (entry->isDataProperty()) {
+    return true;
+  }
+
+  JSObject* getter = result.toGCThing()->as<GetterSetter>()->getter();
+  if (getter) {
+    RootedValue getterValue(cx, ObjectValue(*getter));
+    RootedValue receiver(cx, ObjectValue(*obj));
+    return js::CallGetter(cx, receiver, getterValue, result);
+  }
+  result.setUndefined();
+  return true;
+}
+
+bool GetPropMaybeCached(JSContext* cx, HandleObject obj, HandleId id,
+                        MegamorphicCacheEntry* entry,
+                        MutableHandleValue result) {
+  if (obj->is<NativeObject>()) {
+    // Look up the entry in the cache if we don't have it
+    Shape* receiverShape = obj->shape();
+    MegamorphicCache& cache = cx->caches().megamorphicCache;
+    if (!entry) {
+      cache.lookup(receiverShape, id, &entry);
+    }
+
+    // If we hit it, load it from the cache. We can't though if it was a
+    // MissingOwnProperty entry (added by the HasOwn handler), because we
+    // need to look it up again to know if it's somewhere on the prototype
+    // chain
+    if (cache.isValidForLookup(*entry, receiverShape, id) &&
+        !entry->isMissingOwnProperty()) {
+      return GetPropertyCached(cx, obj, id, entry, result);
+    }
+
+    if (MaybeGetNativePropertyAndWriteToCache<CanGC>(cx, obj.get(), id.get(),
+                                                     entry, &result.get())) {
+      return true;
+    }
+
+    // The getter call in MaybeGetNativePropertyAndWriteToCache can throw, so
+    // we need to check for that specifically
+    // XXX: I know this is unusual, but I'm not sure on the best approach here -
+    // is this alright?
+    if (JS_IsExceptionPending(cx)) {
+      return false;
+    }
+  }
+
+  return GetProperty(cx, obj, obj, id, result);
+}
+
+bool GetElemMaybeCached(JSContext* cx, HandleObject obj, HandleValue idVal,
+                        MegamorphicCacheEntry* entry,
+                        MutableHandleValue result) {
+  jsid id;
+  if (obj->is<NativeObject>() &&
+      ValueToAtomOrSymbolPure(cx, idVal.get(), &id)) {
+    Shape* receiverShape = obj->shape();
+    MegamorphicCache& cache = cx->caches().megamorphicCache;
+    if (!entry) {
+      cache.lookup(receiverShape, id, &entry);
+    }
+
+    if (cache.isValidForLookup(*entry, receiverShape, id) &&
+        !entry->isMissingOwnProperty()) {
+      RootedId rid(cx, id);
+      return GetPropertyCached(cx, obj, rid, entry, result);
+    }
+
+    if (MaybeGetNativePropertyAndWriteToCache<CanGC>(cx, obj.get(), id, entry,
+                                                     &result.get())) {
+      return true;
+    }
+
+    // The getter call in MaybeGetNativePropertyAndWriteToCache can throw, so
+    // we need to check for that specifically
+    if (JS_IsExceptionPending(cx)) {
+      return false;
+    }
+  }
+
+  RootedValue objVal(cx, ObjectValue(*obj));
+  return GetObjectElementOperation(cx, JSOp::GetElem, obj, objVal, idVal,
+                                   result);
 }
 
 bool ObjectHasGetterSetterPure(JSContext* cx, JSObject* objArg, jsid id,
@@ -2247,6 +2392,15 @@ JSString* TypeOfNameObject(JSObject* obj, JSRuntime* rt) {
   return TypeName(type, *rt->commonNames);
 }
 
+bool TypeOfEqObject(JSObject* obj, TypeofEqOperand operand) {
+  AutoUnsafeCallWithABI unsafe;
+  bool result = js::TypeOfObject(obj) == operand.type();
+  if (operand.compareOp() == JSOp::Ne) {
+    result = !result;
+  }
+  return result;
+}
+
 bool GetPrototypeOf(JSContext* cx, HandleObject target,
                     MutableHandleValue rval) {
   MOZ_ASSERT(target->hasDynamicPrototype());
@@ -2379,6 +2533,10 @@ void TraceCreateObject(JSObject* obj) {
   js::gc::gcprobes::CreateObject(obj);
 }
 #endif
+
+BigInt* CreateBigIntFromInt32(JSContext* cx, int32_t i32) {
+  return js::BigInt::createFromInt64(cx, int64_t(i32));
+}
 
 #if JS_BITS_PER_WORD == 32
 BigInt* CreateBigIntFromInt64(JSContext* cx, uint32_t low, uint32_t high) {
@@ -2557,13 +2715,14 @@ BigInt* BigIntAsUintN(JSContext* cx, HandleBigInt x, int32_t bits) {
 }
 
 template <typename T>
-static int32_t AtomicsCompareExchange(FixedLengthTypedArrayObject* typedArray,
+static int32_t AtomicsCompareExchange(TypedArrayObject* typedArray,
                                       size_t index, int32_t expected,
                                       int32_t replacement) {
   AutoUnsafeCallWithABI unsafe;
 
   MOZ_ASSERT(!typedArray->hasDetachedBuffer());
-  MOZ_ASSERT(index < typedArray->length());
+  MOZ_ASSERT_IF(typedArray->hasResizableBuffer(), !typedArray->isOutOfBounds());
+  MOZ_ASSERT(index < typedArray->length().valueOr(0));
 
   SharedMem<T*> addr = typedArray->dataPointerEither().cast<T*>();
   return jit::AtomicOperations::compareExchangeSeqCst(addr + index, T(expected),
@@ -2590,12 +2749,13 @@ AtomicsCompareExchangeFn AtomicsCompareExchange(Scalar::Type elementType) {
 }
 
 template <typename T>
-static int32_t AtomicsExchange(FixedLengthTypedArrayObject* typedArray,
-                               size_t index, int32_t value) {
+static int32_t AtomicsExchange(TypedArrayObject* typedArray, size_t index,
+                               int32_t value) {
   AutoUnsafeCallWithABI unsafe;
 
   MOZ_ASSERT(!typedArray->hasDetachedBuffer());
-  MOZ_ASSERT(index < typedArray->length());
+  MOZ_ASSERT_IF(typedArray->hasResizableBuffer(), !typedArray->isOutOfBounds());
+  MOZ_ASSERT(index < typedArray->length().valueOr(0));
 
   SharedMem<T*> addr = typedArray->dataPointerEither().cast<T*>();
   return jit::AtomicOperations::exchangeSeqCst(addr + index, T(value));
@@ -2621,12 +2781,13 @@ AtomicsReadWriteModifyFn AtomicsExchange(Scalar::Type elementType) {
 }
 
 template <typename T>
-static int32_t AtomicsAdd(FixedLengthTypedArrayObject* typedArray, size_t index,
+static int32_t AtomicsAdd(TypedArrayObject* typedArray, size_t index,
                           int32_t value) {
   AutoUnsafeCallWithABI unsafe;
 
   MOZ_ASSERT(!typedArray->hasDetachedBuffer());
-  MOZ_ASSERT(index < typedArray->length());
+  MOZ_ASSERT_IF(typedArray->hasResizableBuffer(), !typedArray->isOutOfBounds());
+  MOZ_ASSERT(index < typedArray->length().valueOr(0));
 
   SharedMem<T*> addr = typedArray->dataPointerEither().cast<T*>();
   return jit::AtomicOperations::fetchAddSeqCst(addr + index, T(value));
@@ -2652,12 +2813,13 @@ AtomicsReadWriteModifyFn AtomicsAdd(Scalar::Type elementType) {
 }
 
 template <typename T>
-static int32_t AtomicsSub(FixedLengthTypedArrayObject* typedArray, size_t index,
+static int32_t AtomicsSub(TypedArrayObject* typedArray, size_t index,
                           int32_t value) {
   AutoUnsafeCallWithABI unsafe;
 
   MOZ_ASSERT(!typedArray->hasDetachedBuffer());
-  MOZ_ASSERT(index < typedArray->length());
+  MOZ_ASSERT_IF(typedArray->hasResizableBuffer(), !typedArray->isOutOfBounds());
+  MOZ_ASSERT(index < typedArray->length().valueOr(0));
 
   SharedMem<T*> addr = typedArray->dataPointerEither().cast<T*>();
   return jit::AtomicOperations::fetchSubSeqCst(addr + index, T(value));
@@ -2683,12 +2845,13 @@ AtomicsReadWriteModifyFn AtomicsSub(Scalar::Type elementType) {
 }
 
 template <typename T>
-static int32_t AtomicsAnd(FixedLengthTypedArrayObject* typedArray, size_t index,
+static int32_t AtomicsAnd(TypedArrayObject* typedArray, size_t index,
                           int32_t value) {
   AutoUnsafeCallWithABI unsafe;
 
   MOZ_ASSERT(!typedArray->hasDetachedBuffer());
-  MOZ_ASSERT(index < typedArray->length());
+  MOZ_ASSERT_IF(typedArray->hasResizableBuffer(), !typedArray->isOutOfBounds());
+  MOZ_ASSERT(index < typedArray->length().valueOr(0));
 
   SharedMem<T*> addr = typedArray->dataPointerEither().cast<T*>();
   return jit::AtomicOperations::fetchAndSeqCst(addr + index, T(value));
@@ -2714,12 +2877,13 @@ AtomicsReadWriteModifyFn AtomicsAnd(Scalar::Type elementType) {
 }
 
 template <typename T>
-static int32_t AtomicsOr(FixedLengthTypedArrayObject* typedArray, size_t index,
+static int32_t AtomicsOr(TypedArrayObject* typedArray, size_t index,
                          int32_t value) {
   AutoUnsafeCallWithABI unsafe;
 
   MOZ_ASSERT(!typedArray->hasDetachedBuffer());
-  MOZ_ASSERT(index < typedArray->length());
+  MOZ_ASSERT_IF(typedArray->hasResizableBuffer(), !typedArray->isOutOfBounds());
+  MOZ_ASSERT(index < typedArray->length().valueOr(0));
 
   SharedMem<T*> addr = typedArray->dataPointerEither().cast<T*>();
   return jit::AtomicOperations::fetchOrSeqCst(addr + index, T(value));
@@ -2745,12 +2909,13 @@ AtomicsReadWriteModifyFn AtomicsOr(Scalar::Type elementType) {
 }
 
 template <typename T>
-static int32_t AtomicsXor(FixedLengthTypedArrayObject* typedArray, size_t index,
+static int32_t AtomicsXor(TypedArrayObject* typedArray, size_t index,
                           int32_t value) {
   AutoUnsafeCallWithABI unsafe;
 
   MOZ_ASSERT(!typedArray->hasDetachedBuffer());
-  MOZ_ASSERT(index < typedArray->length());
+  MOZ_ASSERT_IF(typedArray->hasResizableBuffer(), !typedArray->isOutOfBounds());
+  MOZ_ASSERT(index < typedArray->length().valueOr(0));
 
   SharedMem<T*> addr = typedArray->dataPointerEither().cast<T*>();
   return jit::AtomicOperations::fetchXorSeqCst(addr + index, T(value));
@@ -2776,12 +2941,12 @@ AtomicsReadWriteModifyFn AtomicsXor(Scalar::Type elementType) {
 }
 
 template <typename AtomicOp, typename... Args>
-static BigInt* AtomicAccess64(JSContext* cx,
-                              FixedLengthTypedArrayObject* typedArray,
+static BigInt* AtomicAccess64(JSContext* cx, TypedArrayObject* typedArray,
                               size_t index, AtomicOp op, Args... args) {
   MOZ_ASSERT(Scalar::isBigIntType(typedArray->type()));
   MOZ_ASSERT(!typedArray->hasDetachedBuffer());
-  MOZ_ASSERT(index < typedArray->length());
+  MOZ_ASSERT_IF(typedArray->hasResizableBuffer(), !typedArray->isOutOfBounds());
+  MOZ_ASSERT(index < typedArray->length().valueOr(0));
 
   if (typedArray->type() == Scalar::BigInt64) {
     SharedMem<int64_t*> addr = typedArray->dataPointerEither().cast<int64_t*>();
@@ -2795,11 +2960,12 @@ static BigInt* AtomicAccess64(JSContext* cx,
 }
 
 template <typename AtomicOp, typename... Args>
-static auto AtomicAccess64(FixedLengthTypedArrayObject* typedArray,
-                           size_t index, AtomicOp op, Args... args) {
+static auto AtomicAccess64(TypedArrayObject* typedArray, size_t index,
+                           AtomicOp op, Args... args) {
   MOZ_ASSERT(Scalar::isBigIntType(typedArray->type()));
   MOZ_ASSERT(!typedArray->hasDetachedBuffer());
-  MOZ_ASSERT(index < typedArray->length());
+  MOZ_ASSERT_IF(typedArray->hasResizableBuffer(), !typedArray->isOutOfBounds());
+  MOZ_ASSERT(index < typedArray->length().valueOr(0));
 
   if (typedArray->type() == Scalar::BigInt64) {
     SharedMem<int64_t*> addr = typedArray->dataPointerEither().cast<int64_t*>();
@@ -2810,14 +2976,14 @@ static auto AtomicAccess64(FixedLengthTypedArrayObject* typedArray,
   return op(addr + index, BigInt::toUint64(args)...);
 }
 
-BigInt* AtomicsLoad64(JSContext* cx, FixedLengthTypedArrayObject* typedArray,
+BigInt* AtomicsLoad64(JSContext* cx, TypedArrayObject* typedArray,
                       size_t index) {
   return AtomicAccess64(cx, typedArray, index, [](auto addr) {
     return jit::AtomicOperations::loadSeqCst(addr);
   });
 }
 
-void AtomicsStore64(FixedLengthTypedArrayObject* typedArray, size_t index,
+void AtomicsStore64(TypedArrayObject* typedArray, size_t index,
                     const BigInt* value) {
   AutoUnsafeCallWithABI unsafe;
 
@@ -2829,8 +2995,7 @@ void AtomicsStore64(FixedLengthTypedArrayObject* typedArray, size_t index,
       value);
 }
 
-BigInt* AtomicsCompareExchange64(JSContext* cx,
-                                 FixedLengthTypedArrayObject* typedArray,
+BigInt* AtomicsCompareExchange64(JSContext* cx, TypedArrayObject* typedArray,
                                  size_t index, const BigInt* expected,
                                  const BigInt* replacement) {
   return AtomicAccess64(
@@ -2842,9 +3007,8 @@ BigInt* AtomicsCompareExchange64(JSContext* cx,
       expected, replacement);
 }
 
-BigInt* AtomicsExchange64(JSContext* cx,
-                          FixedLengthTypedArrayObject* typedArray, size_t index,
-                          const BigInt* value) {
+BigInt* AtomicsExchange64(JSContext* cx, TypedArrayObject* typedArray,
+                          size_t index, const BigInt* value) {
   return AtomicAccess64(
       cx, typedArray, index,
       [](auto addr, auto val) {
@@ -2853,8 +3017,8 @@ BigInt* AtomicsExchange64(JSContext* cx,
       value);
 }
 
-BigInt* AtomicsAdd64(JSContext* cx, FixedLengthTypedArrayObject* typedArray,
-                     size_t index, const BigInt* value) {
+BigInt* AtomicsAdd64(JSContext* cx, TypedArrayObject* typedArray, size_t index,
+                     const BigInt* value) {
   return AtomicAccess64(
       cx, typedArray, index,
       [](auto addr, auto val) {
@@ -2863,8 +3027,8 @@ BigInt* AtomicsAdd64(JSContext* cx, FixedLengthTypedArrayObject* typedArray,
       value);
 }
 
-BigInt* AtomicsAnd64(JSContext* cx, FixedLengthTypedArrayObject* typedArray,
-                     size_t index, const BigInt* value) {
+BigInt* AtomicsAnd64(JSContext* cx, TypedArrayObject* typedArray, size_t index,
+                     const BigInt* value) {
   return AtomicAccess64(
       cx, typedArray, index,
       [](auto addr, auto val) {
@@ -2873,8 +3037,8 @@ BigInt* AtomicsAnd64(JSContext* cx, FixedLengthTypedArrayObject* typedArray,
       value);
 }
 
-BigInt* AtomicsOr64(JSContext* cx, FixedLengthTypedArrayObject* typedArray,
-                    size_t index, const BigInt* value) {
+BigInt* AtomicsOr64(JSContext* cx, TypedArrayObject* typedArray, size_t index,
+                    const BigInt* value) {
   return AtomicAccess64(
       cx, typedArray, index,
       [](auto addr, auto val) {
@@ -2883,8 +3047,8 @@ BigInt* AtomicsOr64(JSContext* cx, FixedLengthTypedArrayObject* typedArray,
       value);
 }
 
-BigInt* AtomicsSub64(JSContext* cx, FixedLengthTypedArrayObject* typedArray,
-                     size_t index, const BigInt* value) {
+BigInt* AtomicsSub64(JSContext* cx, TypedArrayObject* typedArray, size_t index,
+                     const BigInt* value) {
   return AtomicAccess64(
       cx, typedArray, index,
       [](auto addr, auto val) {
@@ -2893,14 +3057,39 @@ BigInt* AtomicsSub64(JSContext* cx, FixedLengthTypedArrayObject* typedArray,
       value);
 }
 
-BigInt* AtomicsXor64(JSContext* cx, FixedLengthTypedArrayObject* typedArray,
-                     size_t index, const BigInt* value) {
+BigInt* AtomicsXor64(JSContext* cx, TypedArrayObject* typedArray, size_t index,
+                     const BigInt* value) {
   return AtomicAccess64(
       cx, typedArray, index,
       [](auto addr, auto val) {
         return jit::AtomicOperations::fetchXorSeqCst(addr, val);
       },
       value);
+}
+
+float RoundFloat16ToFloat32(int32_t d) {
+  AutoUnsafeCallWithABI unsafe;
+  return static_cast<float>(js::float16{d});
+}
+
+float RoundFloat16ToFloat32(float d) {
+  AutoUnsafeCallWithABI unsafe;
+  return static_cast<float>(js::float16{d});
+}
+
+float RoundFloat16ToFloat32(double d) {
+  AutoUnsafeCallWithABI unsafe;
+  return static_cast<float>(js::float16{d});
+}
+
+float Float16ToFloat32(int32_t value) {
+  AutoUnsafeCallWithABI unsafe;
+  return static_cast<float>(js::float16::fromRawBits(value));
+}
+
+int32_t Float32ToFloat16(float value) {
+  AutoUnsafeCallWithABI unsafe;
+  return static_cast<int32_t>(js::float16{value}.toRawBits());
 }
 
 JSAtom* AtomizeStringNoGC(JSContext* cx, JSString* str) {

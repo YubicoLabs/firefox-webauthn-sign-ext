@@ -136,7 +136,7 @@ class ServoStyleSet {
   void RuleRemoved(StyleSheet&, css::Rule&);
   void RuleChanged(StyleSheet&, css::Rule*, StyleRuleChangeKind);
   void SheetCloned(StyleSheet&);
-  void ImportRuleLoaded(dom::CSSImportRule&, StyleSheet&);
+  void ImportRuleLoaded(StyleSheet&);
 
   // Runs style invalidation due to document state changes.
   void InvalidateStyleForDocumentStateChanges(
@@ -256,6 +256,10 @@ class ServoStyleSet {
   already_AddRefed<ComputedStyle> ResolveXULTreePseudoStyle(
       dom::Element* aParentElement, nsCSSAnonBoxPseudoStaticAtom* aPseudoTag,
       ComputedStyle* aParentStyle, const AtomArray& aInputWord);
+
+  // Try to resolve the staring style for a given element. Please call this
+  // function after checking if it may have rules inside @starting-style.
+  already_AddRefed<ComputedStyle> ResolveStartingStyle(dom::Element& aElement);
 
   size_t SheetCount(Origin) const;
   StyleSheet* SheetAt(Origin, size_t aIndex) const;
@@ -477,6 +481,14 @@ class ServoStyleSet {
       const dom::Element&, const ServoElementSnapshotTable& aSnapshots);
 
   /**
+   * Maybe invalidate if a modification to a Custom State might require us to
+   * restyle the relative selector it refers to.
+   */
+  void MaybeInvalidateRelativeSelectorCustomStateDependency(
+      const dom::Element&, nsAtom* state,
+      const ServoElementSnapshotTable& aSnapshots);
+
+  /**
    * Maybe invalidate if a modification to an ID might require us to restyle
    * the relative selector it refers to.
    */
@@ -511,7 +523,7 @@ class ServoStyleSet {
    * relative selector it refers to.
    */
   void MaybeInvalidateRelativeSelectorForNthDependencyFromSibling(
-      const dom::Element*);
+      const dom::Element*, bool aForceRestyleSiblings);
 
   /**
    * Maybe invalidate if a DOM element insertion might require us to restyle
@@ -548,6 +560,12 @@ class ServoStyleSet {
    * us to restyle the element's siblings.
    */
   bool HasNthOfStateDependency(const dom::Element&, dom::ElementState) const;
+
+  /**
+   * Returns true if a change in Custom State on an element might require
+   * us to restyle the element's siblings.
+   */
+  bool HasNthOfCustomStateDependency(const dom::Element&, nsAtom*) const;
 
   /**
    * Restyle this element's siblings in order to propagate any potential change
@@ -686,8 +704,8 @@ class ServoStyleSet {
 
   // Stores pointers to our cached ComputedStyles for non-inheriting anonymous
   // boxes.
-  EnumeratedArray<nsCSSAnonBoxes::NonInheriting,
-                  nsCSSAnonBoxes::NonInheriting::_Count, RefPtr<ComputedStyle>>
+  EnumeratedArray<nsCSSAnonBoxes::NonInheriting, RefPtr<ComputedStyle>,
+                  size_t(nsCSSAnonBoxes::NonInheriting::_Count)>
       mNonInheritingComputedStyles;
 
  public:

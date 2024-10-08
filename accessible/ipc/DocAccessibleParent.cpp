@@ -42,7 +42,6 @@ uint64_t DocAccessibleParent::sMaxDocID = 0;
 
 DocAccessibleParent::DocAccessibleParent()
     : RemoteAccessible(this),
-      mParentDoc(kNoParentDoc),
 #if defined(XP_WIN)
       mEmulatedWindowHandle(nullptr),
 #endif  // defined(XP_WIN)
@@ -96,6 +95,8 @@ mozilla::ipc::IPCResult DocAccessibleParent::RecvShowEvent(
   RemoteAccessible* lastParent = this;
   uint64_t lastParentID = 0;
   for (const auto& accData : aNewTree) {
+    // Avoid repeated hash lookups when there are multiple children of the same
+    // parent.
     RemoteAccessible* parent = accData.ParentID() == lastParentID
                                    ? lastParent
                                    : GetAccessible(accData.ParentID());
@@ -109,6 +110,8 @@ mozilla::ipc::IPCResult DocAccessibleParent::RecvShowEvent(
       return IPC_OK();
 #endif
     }
+    lastParent = parent;
+    lastParentID = accData.ParentID();
 
     uint32_t childIdx = accData.IndexInParent();
     if (childIdx > parent->ChildCount()) {
@@ -820,7 +823,6 @@ ipc::IPCResult DocAccessibleParent::AddChildDoc(DocAccessibleParent* aChildDoc,
   aChildDoc->SetParent(outerDoc);
   outerDoc->SetChildDoc(aChildDoc);
   mChildDocs.AppendElement(aChildDoc->mActorID);
-  aChildDoc->mParentDoc = mActorID;
 
   if (aCreating) {
     ProxyCreated(aChildDoc);
@@ -925,6 +927,7 @@ void DocAccessibleParent::Destroy() {
       CachedTableAccessible::Invalidate(acc);
     }
     ProxyDestroyed(acc);
+    // mAccessibles owns acc, so removing it deletes acc.
     iter.Remove();
   }
 
@@ -954,10 +957,10 @@ void DocAccessibleParent::Destroy() {
     return;
   }
 
-  if (DocAccessibleParent* parentDoc = thisDoc->ParentDoc()) {
-    parentDoc->RemoveChildDoc(thisDoc);
-  } else if (IsTopLevel()) {
+  if (IsTopLevel()) {
     GetAccService()->RemoteDocShutdown(this);
+  } else {
+    Unbind();
   }
 }
 
@@ -970,11 +973,10 @@ void DocAccessibleParent::ActorDestroy(ActorDestroyReason aWhy) {
 }
 
 DocAccessibleParent* DocAccessibleParent::ParentDoc() const {
-  if (mParentDoc == kNoParentDoc) {
-    return nullptr;
+  if (RemoteAccessible* parent = RemoteParent()) {
+    return parent->Document();
   }
-
-  return LiveDocs().Get(mParentDoc);
+  return nullptr;
 }
 
 bool DocAccessibleParent::CheckDocTree() const {

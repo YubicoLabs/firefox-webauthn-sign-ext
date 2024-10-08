@@ -32,13 +32,10 @@
 using namespace js;
 
 using mozilla::AddToHash;
-using mozilla::HashString;
-using mozilla::RangedPtr;
 
 using JS::AutoCheckCannotGC;
 using JS::AutoStableStringChars;
 using JS::CompileOptions;
-using JS::SourceOwnership;
 using JS::SourceText;
 
 // We should be able to assert this for *any* fp->environmentChain().
@@ -70,7 +67,7 @@ static bool IsEvalCacheCandidate(JSScript* script) {
 /* static */
 HashNumber EvalCacheHashPolicy::hash(const EvalCacheLookup& l) {
   HashNumber hash = HashStringChars(l.str);
-  return AddToHash(hash, l.callerScript.get(), l.pc);
+  return AddToHash(hash, l.callerScript, l.pc);
 }
 
 /* static */
@@ -82,13 +79,18 @@ bool EvalCacheHashPolicy::match(const EvalCacheEntry& cacheEntry,
          cacheEntry.callerScript == l.callerScript && cacheEntry.pc == l.pc;
 }
 
+void EvalCacheLookup::trace(JSTracer* trc) {
+  TraceNullableRoot(trc, &str, "EvalCacheLookup::str");
+  TraceNullableRoot(trc, &callerScript, "EvalCacheLookup::callerScript");
+}
+
 // Add the script to the eval cache when EvalKernel is finished
 class EvalScriptGuard {
   JSContext* cx_;
   Rooted<JSScript*> script_;
 
   /* These fields are only valid if lookup_.str is non-nullptr. */
-  EvalCacheLookup lookup_;
+  Rooted<EvalCacheLookup> lookup_;
   mozilla::Maybe<DependentAddPtr<EvalCache>> p_;
 
   Rooted<JSLinearString*> lookupStr_;
@@ -100,12 +102,13 @@ class EvalScriptGuard {
   ~EvalScriptGuard() {
     if (script_ && !cx_->isExceptionPending()) {
       script_->cacheForEval();
-      EvalCacheEntry cacheEntry = {lookupStr_, script_, lookup_.callerScript,
-                                   lookup_.pc};
-      lookup_.str = lookupStr_;
-      if (lookup_.str && IsEvalCacheCandidate(script_)) {
+      EvalCacheLookup& lookup = lookup_.get();
+      EvalCacheEntry cacheEntry = {lookupStr_, script_, lookup.callerScript,
+                                   lookup.pc};
+      lookup.str = lookupStr_;
+      if (lookup.str && IsEvalCacheCandidate(script_)) {
         // Ignore failure to add cache entry.
-        if (!p_->add(cx_, cx_->caches().evalCache, lookup_, cacheEntry)) {
+        if (!p_->add(cx_, cx_->caches().evalCache, lookup, cacheEntry)) {
           cx_->recoverFromOutOfMemory();
         }
       }
@@ -115,13 +118,14 @@ class EvalScriptGuard {
   void lookupInEvalCache(JSLinearString* str, JSScript* callerScript,
                          jsbytecode* pc) {
     lookupStr_ = str;
-    lookup_.str = str;
-    lookup_.callerScript = callerScript;
-    lookup_.pc = pc;
-    p_.emplace(cx_, cx_->caches().evalCache, lookup_);
+    EvalCacheLookup& lookup = lookup_.get();
+    lookup.str = str;
+    lookup.callerScript = callerScript;
+    lookup.pc = pc;
+    p_.emplace(cx_, cx_->caches().evalCache, lookup);
     if (*p_) {
       script_ = (*p_)->script;
-      p_->remove(cx_, cx_->caches().evalCache, lookup_);
+      p_->remove(cx_, cx_->caches().evalCache, lookup);
     }
   }
 
@@ -230,7 +234,8 @@ static bool EvalKernel(JSContext* cx, HandleValue v, EvalType evalType,
                        jsbytecode* pc, MutableHandleValue vp) {
   MOZ_ASSERT((evalType == INDIRECT_EVAL) == !caller);
   MOZ_ASSERT((evalType == INDIRECT_EVAL) == !pc);
-  MOZ_ASSERT_IF(evalType == INDIRECT_EVAL, IsGlobalLexicalEnvironment(env));
+  MOZ_ASSERT_IF(evalType == INDIRECT_EVAL,
+                env->is<GlobalLexicalEnvironmentObject>());
   AssertInnerizedEnvironmentChain(cx, *env);
 
   // Step 2.
@@ -399,7 +404,8 @@ static bool ExecuteInExtensibleLexicalEnvironment(
 JS_PUBLIC_API bool js::ExecuteInFrameScriptEnvironment(
     JSContext* cx, HandleObject objArg, HandleScript scriptArg,
     MutableHandleObject envArg) {
-  RootedObject varEnv(cx, NonSyntacticVariablesObject::create(cx));
+  Rooted<NonSyntacticVariablesObject*> varEnv(
+      cx, NonSyntacticVariablesObject::create(cx));
   if (!varEnv) {
     return false;
   }
@@ -409,8 +415,9 @@ JS_PUBLIC_API bool js::ExecuteInFrameScriptEnvironment(
     return false;
   }
 
-  RootedObject env(cx);
-  if (!js::CreateObjectsForEnvironmentChain(cx, envChain, varEnv, &env)) {
+  Rooted<WithEnvironmentObject*> env(
+      cx, js::CreateObjectsForEnvironmentChain(cx, envChain, varEnv));
+  if (!env) {
     return false;
   }
 
@@ -421,8 +428,7 @@ JS_PUBLIC_API bool js::ExecuteInFrameScriptEnvironment(
   // to |this|, and will fail if it is not bound to a message manager.
   ObjectRealm& realm = ObjectRealm::get(varEnv);
   Rooted<NonSyntacticLexicalEnvironmentObject*> lexicalEnv(
-      cx,
-      realm.getOrCreateNonSyntacticLexicalEnvironment(cx, env, varEnv, objArg));
+      cx, realm.getOrCreateNonSyntacticLexicalEnvironment(cx, env, varEnv));
   if (!lexicalEnv) {
     return false;
   }
@@ -436,7 +442,8 @@ JS_PUBLIC_API bool js::ExecuteInFrameScriptEnvironment(
 }
 
 JS_PUBLIC_API JSObject* JS::NewJSMEnvironment(JSContext* cx) {
-  RootedObject varEnv(cx, NonSyntacticVariablesObject::create(cx));
+  Rooted<NonSyntacticVariablesObject*> varEnv(
+      cx, NonSyntacticVariablesObject::create(cx));
   if (!varEnv) {
     return nullptr;
   }
@@ -484,8 +491,9 @@ JS_PUBLIC_API bool JS::ExecuteInJSMEnvironment(JSContext* cx,
     //  (*) This environment intercepts JSOp::GlobalThis.
 
     // Wrap the target objects in WithEnvironments.
-    RootedObject envChain(cx);
-    if (!js::CreateObjectsForEnvironmentChain(cx, targetObj, env, &envChain)) {
+    Rooted<WithEnvironmentObject*> envChain(
+        cx, js::CreateObjectsForEnvironmentChain(cx, targetObj, env));
+    if (!envChain) {
       return false;
     }
 
@@ -531,16 +539,11 @@ JS_PUBLIC_API bool JS::IsJSMEnvironment(JSObject* obj) {
 
 #ifdef JSGC_HASH_TABLE_CHECKS
 void RuntimeCaches::checkEvalCacheAfterMinorGC() {
-  JSContext* cx = TlsContext.get();
-  for (auto r = evalCache.all(); !r.empty(); r.popFront()) {
-    const EvalCacheEntry& entry = r.front();
+  gc::CheckTableAfterMovingGC(evalCache, [](const auto& entry) {
     CheckGCThingAfterMovingGC(entry.str);
-    EvalCacheLookup lookup(cx);
-    lookup.str = entry.str;
-    lookup.callerScript = entry.callerScript;
-    lookup.pc = entry.pc;
-    auto ptr = evalCache.lookup(lookup);
-    MOZ_RELEASE_ASSERT(ptr.found() && &*ptr == &r.front());
-  }
+    CheckGCThingAfterMovingGC(entry.script);
+    CheckGCThingAfterMovingGC(entry.callerScript);
+    return EvalCacheLookup(entry.str, entry.callerScript, entry.pc);
+  });
 }
 #endif

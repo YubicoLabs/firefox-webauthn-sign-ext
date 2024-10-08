@@ -14,7 +14,7 @@ use serde_json::{json, Value as JsonValue};
 use crate::common_metric_data::{CommonMetricData, Lifetime};
 use crate::metrics::{CounterMetric, DatetimeMetric, Metric, MetricType, PingType, TimeUnit};
 use crate::storage::{StorageManager, INTERNAL_STORAGE};
-use crate::upload::HeaderMap;
+use crate::upload::{HeaderMap, PingMetadata};
 use crate::util::{get_iso_time_string, local_now_with_offset};
 use crate::{Glean, Result, DELETION_REQUEST_PINGS_DIRECTORY, PENDING_PINGS_DIRECTORY};
 
@@ -30,6 +30,10 @@ pub struct Ping<'a> {
     pub content: JsonValue,
     /// The headers to upload with the payload.
     pub headers: HeaderMap,
+    /// Whether the content contains {client|ping}_info sections.
+    pub includes_info_sections: bool,
+    /// Other pings that should be scheduled when this ping is sent.
+    pub schedules_pings: Vec<String>,
 }
 
 /// Collect a ping's data, assemble it into its full payload and store it on disk.
@@ -230,16 +234,28 @@ impl PingMaker {
         url_path: &'a str,
     ) -> Option<Ping<'a>> {
         info!("Collecting {}", ping.name());
+        let database = glean.storage();
 
-        let mut metrics_data = StorageManager.snapshot_as_json(glean.storage(), ping.name(), true);
+        // HACK: Only for metrics pings we add the ping timings.
+        // But we want that to persist until the next metrics ping is actually sent.
+        let write_samples = database.write_timings.replace(Vec::with_capacity(64));
+        if !write_samples.is_empty() {
+            glean
+                .database_metrics
+                .write_time
+                .accumulate_samples_sync(glean, &write_samples);
+        }
+
+        let mut metrics_data = StorageManager.snapshot_as_json(database, ping.name(), true);
+
         let events_data = glean
             .event_storage()
             .snapshot_as_json(glean, ping.name(), true);
 
         // Due to the way the experimentation identifier could link datasets that are intentionally unlinked,
-        // it will not be included in pings that specifically exclude the Glean client-id and those pings that
-        // should not be sent if empty.
-        if (!ping.include_client_id() || !ping.send_if_empty())
+        // it will not be included in pings that specifically exclude the Glean client-id, those pings that
+        // should not be sent if empty, or pings that exclude the {client|ping}_info sections wholesale.
+        if (!ping.include_client_id() || !ping.send_if_empty() || !ping.include_info_sections())
             && glean.test_get_experimentation_id().is_some()
             && metrics_data.is_some()
         {
@@ -285,13 +301,18 @@ impl PingMaker {
             TimeUnit::Minute
         };
 
-        let ping_info = self.get_ping_info(glean, ping.name(), reason, precision);
-        let client_info = self.get_client_info(glean, ping.include_client_id());
+        let mut json = if ping.include_info_sections() {
+            let ping_info = self.get_ping_info(glean, ping.name(), reason, precision);
+            let client_info = self.get_client_info(glean, ping.include_client_id());
 
-        let mut json = json!({
-            "ping_info": ping_info,
-            "client_info": client_info
-        });
+            json!({
+                "ping_info": ping_info,
+                "client_info": client_info
+            })
+        } else {
+            json!({})
+        };
+
         let json_obj = json.as_object_mut()?;
         if let Some(metrics_data) = metrics_data {
             json_obj.insert("metrics".to_string(), metrics_data);
@@ -306,6 +327,8 @@ impl PingMaker {
             doc_id,
             url_path,
             headers: self.get_headers(glean),
+            includes_info_sections: ping.include_info_sections(),
+            schedules_pings: ping.schedules_pings().to_vec(),
         })
     }
 
@@ -355,11 +378,17 @@ impl PingMaker {
             file.write_all(ping.url_path.as_bytes())?;
             file.write_all(b"\n")?;
             file.write_all(::serde_json::to_string(&ping.content)?.as_bytes())?;
-            if !ping.headers.is_empty() {
-                file.write_all(b"\n{\"headers\":")?;
-                file.write_all(::serde_json::to_string(&ping.headers)?.as_bytes())?;
-                file.write_all(b"}")?;
-            }
+            file.write_all(b"\n")?;
+            let metadata = PingMetadata {
+                // We don't actually need to clone the headers except to match PingMetadata's ownership.
+                // But since we're going to write a file to disk in a sec,
+                // and HeaderMaps tend to have only like two things in them, tops,
+                // the cost is bearable.
+                headers: Some(ping.headers.clone()),
+                body_has_info_sections: Some(ping.includes_info_sections),
+                ping_name: Some(ping.name.to_string()),
+            };
+            file.write_all(::serde_json::to_string(&metadata)?.as_bytes())?;
         }
 
         if let Err(e) = std::fs::rename(&temp_ping_path, &ping_path) {

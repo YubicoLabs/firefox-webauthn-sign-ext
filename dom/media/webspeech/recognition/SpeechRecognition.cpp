@@ -38,6 +38,7 @@
 #include "nsPIDOMWindow.h"
 #include "nsServiceManagerUtils.h"
 #include "nsQueryObject.h"
+#include "nsGlobalWindowInner.h"
 #include "SpeechTrackListener.h"
 
 #include <algorithm>
@@ -136,7 +137,7 @@ CreateSpeechRecognitionService(nsPIDOMWindowInner* aWindow,
 NS_IMPL_CYCLE_COLLECTION_WEAK_PTR_INHERITED(SpeechRecognition,
                                             DOMEventTargetHelper, mStream,
                                             mTrack, mRecognitionService,
-                                            mSpeechGrammarList)
+                                            mSpeechGrammarList, mListener)
 
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(SpeechRecognition)
   NS_INTERFACE_MAP_ENTRY(nsIObserver)
@@ -145,12 +146,22 @@ NS_INTERFACE_MAP_END_INHERITING(DOMEventTargetHelper)
 NS_IMPL_ADDREF_INHERITED(SpeechRecognition, DOMEventTargetHelper)
 NS_IMPL_RELEASE_INHERITED(SpeechRecognition, DOMEventTargetHelper)
 
+NS_IMPL_CYCLE_COLLECTION_INHERITED(SpeechRecognition::TrackListener,
+                                   DOMMediaStream::TrackListener,
+                                   mSpeechRecognition)
+NS_IMPL_ADDREF_INHERITED(SpeechRecognition::TrackListener,
+                         DOMMediaStream::TrackListener)
+NS_IMPL_RELEASE_INHERITED(SpeechRecognition::TrackListener,
+                          DOMMediaStream::TrackListener)
+NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(SpeechRecognition::TrackListener)
+NS_INTERFACE_MAP_END_INHERITING(DOMMediaStream::TrackListener)
+
 SpeechRecognition::SpeechRecognition(nsPIDOMWindowInner* aOwnerWindow)
     : DOMEventTargetHelper(aOwnerWindow),
       mEndpointer(kSAMPLE_RATE),
       mAudioSamplesPerChunk(mEndpointer.FrameSize()),
       mSpeechDetectionTimer(NS_NewTimer()),
-      mSpeechGrammarList(new SpeechGrammarList(GetOwner())),
+      mSpeechGrammarList(new SpeechGrammarList(GetOwnerGlobal())),
       mContinuous(false),
       mInterimResults(false),
       mMaxAlternatives(1) {
@@ -437,12 +448,13 @@ uint32_t SpeechRecognition::ProcessAudioSegment(AudioSegment* aSegment,
   // we need to call the nsISpeechRecognitionService::ProcessAudioSegment
   // in a separate thread so that any eventual encoding or pre-processing
   // of the audio does not block the main thread
-  nsresult rv = mEncodeTaskQueue->Dispatch(
-      NewRunnableMethod<StoreCopyPassByPtr<AudioSegment>, TrackRate>(
-          "nsISpeechRecognitionService::ProcessAudioSegment",
-          mRecognitionService,
-          &nsISpeechRecognitionService::ProcessAudioSegment,
-          std::move(*aSegment), aTrackRate));
+  nsresult rv = mEncodeTaskQueue->Dispatch(NS_NewRunnableFunction(
+      "nsISpeechRecognitionService::ProcessAudioSegment",
+      [=, service = mRecognitionService,
+       segment = std::move(*aSegment)]() mutable {
+        service->ProcessAudioSegment(&segment, aTrackRate);
+      }));
+
   MOZ_DIAGNOSTIC_ASSERT(NS_SUCCEEDED(rv));
   Unused << rv;
   return samples;
@@ -471,8 +483,9 @@ void SpeechRecognition::Reset() {
 
   ++mStreamGeneration;
   if (mStream) {
-    mStream->UnregisterTrackListener(this);
+    mStream->UnregisterTrackListener(mListener);
     mStream = nullptr;
+    mListener = nullptr;
   }
   mTrack = nullptr;
   mTrackIsOwned = false;
@@ -641,7 +654,8 @@ RefPtr<GenericNonExclusivePromise> SpeechRecognition::StopRecording() {
     if (mStream) {
       // Ensure we don't start recording because a track became available
       // before we get reset.
-      mStream->UnregisterTrackListener(this);
+      mStream->UnregisterTrackListener(mListener);
+      mListener = nullptr;
     }
     return GenericNonExclusivePromise::CreateAndResolve(true, __func__);
   }
@@ -800,10 +814,13 @@ void SpeechRecognition::Start(const Optional<NonNull<DOMMediaStream>>& aStream,
   MediaStreamConstraints constraints;
   constraints.mAudio.SetAsBoolean() = true;
 
+  MOZ_ASSERT(!mListener);
+  mListener = new TrackListener(this);
+
   if (aStream.WasPassed()) {
     mStream = &aStream.Value();
     mTrackIsOwned = false;
-    mStream->RegisterTrackListener(this);
+    mStream->RegisterTrackListener(mListener);
     nsTArray<RefPtr<AudioStreamTrack>> tracks;
     mStream->GetAudioTracks(tracks);
     for (const RefPtr<AudioStreamTrack>& track : tracks) {
@@ -814,7 +831,7 @@ void SpeechRecognition::Start(const Optional<NonNull<DOMMediaStream>>& aStream,
     }
   } else {
     mTrackIsOwned = true;
-    nsPIDOMWindowInner* win = GetOwner();
+    nsPIDOMWindowInner* win = GetOwnerWindow();
     if (!win || !win->IsFullyActive()) {
       aRv.ThrowInvalidStateError("The document is not fully active.");
       return;
@@ -838,7 +855,7 @@ void SpeechRecognition::Start(const Optional<NonNull<DOMMediaStream>>& aStream,
                 return;
               }
               mStream = std::move(aStream);
-              mStream->RegisterTrackListener(this);
+              mStream->RegisterTrackListener(mListener);
               for (const RefPtr<AudioStreamTrack>& track : tracks) {
                 if (!track->Ended()) {
                   NotifyTrackAdded(track);
@@ -869,7 +886,7 @@ void SpeechRecognition::Start(const Optional<NonNull<DOMMediaStream>>& aStream,
 }
 
 bool SpeechRecognition::SetRecognitionService(ErrorResult& aRv) {
-  if (!GetOwner()) {
+  if (!GetOwnerWindow()) {
     aRv.Throw(NS_ERROR_DOM_INVALID_STATE_ERR);
     return false;
   }
@@ -880,7 +897,7 @@ bool SpeechRecognition::SetRecognitionService(ErrorResult& aRv) {
   if (!mLang.IsEmpty()) {
     lang = mLang;
   } else {
-    nsCOMPtr<Document> document = GetOwner()->GetExtantDoc();
+    nsCOMPtr<Document> document = GetOwnerWindow()->GetExtantDoc();
     if (!document) {
       aRv.Throw(NS_ERROR_DOM_INVALID_STATE_ERR);
       return false;
@@ -895,7 +912,7 @@ bool SpeechRecognition::SetRecognitionService(ErrorResult& aRv) {
     element->GetLang(lang);
   }
 
-  auto result = CreateSpeechRecognitionService(GetOwner(), this, lang);
+  auto result = CreateSpeechRecognitionService(GetOwnerWindow(), this, lang);
 
   if (result.isErr()) {
     switch (result.unwrapErr()) {

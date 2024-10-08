@@ -343,8 +343,11 @@ class JSAPIRuntimeTest : public JSAPITest {
   }
 
   static const JSClass* basicGlobalClass() {
-    static const JSClass c = {"global", JSCLASS_GLOBAL_FLAGS,
-                              &JS::DefaultGlobalClassOps};
+    static const JSClass c = {
+        "global",
+        JSCLASS_GLOBAL_FLAGS,
+        &JS::DefaultGlobalClassOps,
+    };
     return &c;
   }
 
@@ -601,22 +604,22 @@ class AutoLeaveZeal {
  public:
   explicit AutoLeaveZeal(JSContext* cx) : cx_(cx), zealBits_(0), frequency_(0) {
     uint32_t dummy;
-    JS_GetGCZealBits(cx_, &zealBits_, &frequency_, &dummy);
-    JS_SetGCZeal(cx_, 0, 0);
+    JS::GetGCZealBits(cx_, &zealBits_, &frequency_, &dummy);
+    JS::SetGCZeal(cx_, 0, 0);
     JS::PrepareForFullGC(cx_);
     JS::NonIncrementalGC(cx_, JS::GCOptions::Normal, JS::GCReason::DEBUG_GC);
   }
   ~AutoLeaveZeal() {
-    JS_SetGCZeal(cx_, 0, 0);
+    JS::SetGCZeal(cx_, 0, 0);
     for (size_t i = 0; i < sizeof(zealBits_) * 8; i++) {
       if (zealBits_ & (1 << i)) {
-        JS_SetGCZeal(cx_, i, frequency_);
+        JS::SetGCZeal(cx_, i, frequency_);
       }
     }
 
 #  ifdef DEBUG
     uint32_t zealBitsAfter, frequencyAfter, dummy;
-    JS_GetGCZealBits(cx_, &zealBitsAfter, &frequencyAfter, &dummy);
+    JS::GetGCZealBits(cx_, &zealBitsAfter, &frequencyAfter, &dummy);
     MOZ_ASSERT(zealBitsAfter == zealBits_);
     MOZ_ASSERT(frequencyAfter == frequency_);
 #  endif

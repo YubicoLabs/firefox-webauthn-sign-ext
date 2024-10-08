@@ -57,7 +57,7 @@ add_task(async function () {
 
   await selectSource(dbg, entrySrc);
   ok(
-    getCM(dbg).getValue().includes("window.keepMeAlive"),
+    getEditorContent(dbg).includes("window.keepMeAlive"),
     "Original source text loaded correctly"
   );
 
@@ -155,7 +155,7 @@ add_task(async function () {
   );
 
   info("Move the cursor within the bundle to another original source");
-  getCM(dbg).setCursor({ line: 70, ch: 0 });
+  setEditorCursorAt(dbg, 70, 0);
   mappedSourceLink = await waitFor(() => findElement(dbg, "mappedSourceLink"));
   is(
     mappedSourceLink.textContent,
@@ -165,6 +165,13 @@ add_task(async function () {
 
   info("Move to the new original file via the source map button/menu");
   await clickOnSourceMapMenuItem(dbg, ".debugger-jump-mapped-source");
+  is(
+    dbg.panel.panelWin.parent.document.querySelector(
+      ".debugger-jump-mapped-source"
+    ).textContent,
+    DEBUGGER_L10N.getStr("sourceFooter.sourceMapButton.jumpToOriginalSource"),
+    "assert jump to original menu label"
+  );
   await waitForSelectedSource(dbg, "times2.js");
 
   info("Open the related source map file and wait for a new tab to be opened");
@@ -191,5 +198,5 @@ async function waitForBreakpointCount(dbg, count) {
   const {
     selectors: { getBreakpointCount },
   } = dbg;
-  await waitForState(dbg, state => getBreakpointCount() == count);
+  await waitForState(dbg, () => getBreakpointCount() == count);
 }

@@ -44,6 +44,10 @@ skip-if = ["true"] # Only used for recreating URLSearchParams_profile.zip
 requesttimeoutfactor = 2
 skip-if = ["tsan"]
 
+["test_connection_idle_maintenance.js"]
+
+["test_connection_idle_maintenance_stop.js"]
+
 ["test_database_close_without_onclose.js"]
 
 ["test_database_onclose.js"]
@@ -56,6 +60,8 @@ skip-if = ["os == 'android'"]
 ["test_idbSubdirUpgrade.js"]
 
 ["test_idle_maintenance.js"]
+
+["test_idle_maintenance_and_databases.js"]
 
 ["test_invalidate.js"]
 # disabled for the moment.
@@ -87,6 +93,8 @@ skip-if = ["true"]
 
 ["test_schema23upgrade.js"]
 
+["test_slowStorageInitialization.js"]
+
 ["test_snappyUpgrade.js"]
 
 ["test_storagePersistentUpgrade.js"]
@@ -94,6 +102,9 @@ skip-if = ["true"]
 ["test_temporary_storage.js"]
 # bug 951017: intermittent failure on Android x86 emulator
 skip-if = ["os == 'android' && processor == 'x86'"]
+
+["test_transaction_durability.js"]
+run-sequentially = "very high failure rate in parallel"
 
 ["test_unexpectedDirectory.js"]
 

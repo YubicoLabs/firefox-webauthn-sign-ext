@@ -13,8 +13,14 @@ import {cwd} from 'process';
 class AngularProject {
   static ports = new Set();
   static randomPort() {
-    const min = 4000;
-    const max = 9876;
+    /**
+     * Some ports are restricted by Chromium and will fail to connect
+     * to prevent we start after the
+     *
+     * https://source.chromium.org/chromium/chromium/src/+/main:net/base/port_util.cc;l=107?q=kRestrictedPorts&ss=chromium
+     */
+    const min = 10101;
+    const max = 20202;
     return Math.floor(Math.random() * (max - min + 1) + min);
   }
   static port() {
@@ -44,6 +50,8 @@ class AngularProject {
   /** E2E test runner to use */
   #runner;
 
+  type = '';
+
   constructor(runner, name) {
     this.#runner = runner ?? 'node';
     this.#name = name ?? randomUUID();
@@ -65,13 +73,19 @@ class AngularProject {
         ...options,
       });
 
-      createProcess.stdout.on('data', data => {
+      const onData = data => {
         data = data
           .toString()
           // Replace new lines with a prefix including the test runner
-          .replace(/(?:\r\n?|\n)(?=.*[\r\n])/g, `\n${this.#runner} - `);
-        console.log(`${this.#runner} - ${data}`);
-      });
+          .replace(
+            /(?:\r\n?|\n)(?=.*[\r\n])/g,
+            `\n${this.#runner}:${this.type} - `
+          );
+        console.log(`${this.#runner}:${this.type} - ${data}`);
+      };
+
+      createProcess.stdout.on('data', onData);
+      createProcess.stderr.on('data', onData);
 
       createProcess.on('error', message => {
         console.error(`Running ${command} exited with error:`, message);
@@ -134,17 +148,33 @@ class AngularProject {
 }
 
 export class AngularProjectSingle extends AngularProject {
+  type = 'single';
+
   async createProject() {
     await this.executeCommand(
-      `ng new ${this.name} --directory=sandbox/${this.name} --defaults --skip-git`
+      `ng new ${this.name} --directory=sandbox/${this.name} --defaults --skip-git`,
+      {
+        env: {
+          PUPPETEER_SKIP_DOWNLOAD: 'true',
+          ...process.env,
+        },
+      }
     );
   }
 }
 
 export class AngularProjectMulti extends AngularProject {
+  type = 'multi';
+
   async createProject() {
     await this.executeCommand(
-      `ng new ${this.name} --create-application=false --directory=sandbox/${this.name} --defaults --skip-git`
+      `ng new ${this.name} --create-application=false --directory=sandbox/${this.name} --defaults --skip-git`,
+      {
+        env: {
+          PUPPETEER_SKIP_DOWNLOAD: 'true',
+          ...process.env,
+        },
+      }
     );
 
     await this.executeCommand(

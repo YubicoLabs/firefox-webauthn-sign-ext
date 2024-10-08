@@ -77,8 +77,10 @@
 #include "mozilla/dom/quota/Client.h"
 #include "mozilla/dom/quota/ClientImpl.h"
 #include "mozilla/dom/quota/DirectoryLock.h"
+#include "mozilla/dom/quota/DirectoryLockInlines.h"
 #include "mozilla/dom/quota/FirstInitializationAttemptsImpl.h"
 #include "mozilla/dom/quota/OriginScope.h"
+#include "mozilla/dom/quota/PersistenceScope.h"
 #include "mozilla/dom/quota/PersistenceType.h"
 #include "mozilla/dom/quota/QuotaCommon.h"
 #include "mozilla/dom/quota/StorageHelpers.h"
@@ -86,6 +88,7 @@
 #include "mozilla/dom/quota/QuotaObject.h"
 #include "mozilla/dom/quota/ResultExtensions.h"
 #include "mozilla/dom/quota/UsageInfo.h"
+#include "mozilla/glean/GleanMetrics.h"
 #include "mozilla/ipc/BackgroundChild.h"
 #include "mozilla/ipc/BackgroundParent.h"
 #include "mozilla/ipc/PBackgroundChild.h"
@@ -1354,13 +1357,13 @@ class Connection final : public CachingDatabaseConnection {
 };
 
 /**
- * Helper to invoke EnsureTemporaryOriginIsInitialized on the QuotaManager IO
- * thread from the LocalStorage connection thread when creating a database
- * connection on demand. This is necessary because we attempt to defer the
- * creation of the origin directory and the database until absolutely needed,
- * but the directory creation and origin initialization must happen on the QM
- * IO thread for invariant reasons. (We can't just use a mutex because there
- * could be logic on the IO thread that also wants to deal with the same
+ * Helper to invoke EnsureTemporaryOriginIsInitializedInternal on the
+ * QuotaManager IO thread from the LocalStorage connection thread when creating
+ * a database connection on demand. This is necessary because we attempt to
+ * defer the creation of the origin directory and the database until absolutely
+ * needed, but the directory creation and origin initialization must happen on
+ * the QM IO thread for invariant reasons. (We can't just use a mutex because
+ * there could be logic on the IO thread that also wants to deal with the same
  * origin, so we need to queue a runnable and wait our turn.)
  */
 class Connection::InitTemporaryOriginHelper final : public Runnable {
@@ -1530,9 +1533,7 @@ class Datastore final
   uint32_t PrivateBrowsingId() const { return mPrivateBrowsingId; }
 
   bool IsPersistent() const {
-    // Private-browsing is forbidden from touching disk, but
-    // StorageAccess::eSessionScoped is allowed to touch disk because
-    // QuotaManager's storage for such origins is wiped at shutdown.
+    // Private-browsing is forbidden from touching disk.
     return mPrivateBrowsingId == 0;
   }
 
@@ -2232,6 +2233,7 @@ class PrepareDatastoreOp
     AfterNesting
   };
 
+  mozilla::glean::TimerId mProcessingTimerId;
   RefPtr<PrepareDatastoreOp> mDelayedOp;
   RefPtr<ClientDirectoryLock> mPendingDirectoryLock;
   RefPtr<DirectoryLock> mDirectoryLock;
@@ -2638,9 +2640,8 @@ class QuotaClient final : public mozilla::dom::quota::Client {
       PersistenceType aPersistenceType, const OriginMetadata& aOriginMetadata,
       const AtomicBool& aCanceled) override;
 
-  nsresult AboutToClearOrigins(
-      const Nullable<PersistenceType>& aPersistenceType,
-      const OriginScope& aOriginScope) override;
+  nsresult AboutToClearOrigins(const PersistenceScope& aPersistenceScope,
+                               const OriginScope& aOriginScope) override;
 
   void OnOriginClearCompleted(PersistenceType aPersistenceType,
                               const nsACString& aOrigin) override;
@@ -4203,11 +4204,10 @@ nsresult Connection::InitTemporaryOriginHelper::RunOnIOThread() {
   QuotaManager* quotaManager = QuotaManager::Get();
   MOZ_ASSERT(quotaManager);
 
-  QM_TRY_INSPECT(const auto& directoryEntry,
-                 quotaManager
-                     ->EnsureTemporaryOriginIsInitialized(
-                         PERSISTENCE_TYPE_DEFAULT, mOriginMetadata)
-                     .map([](const auto& res) { return res.first; }));
+  QM_TRY_INSPECT(
+      const auto& directoryEntry,
+      quotaManager->EnsureTemporaryOriginIsInitializedInternal(mOriginMetadata)
+          .map([](const auto& res) { return res.first; }));
 
   QM_TRY(MOZ_TO_RESULT(directoryEntry->GetPath(mOriginDirectoryPath)));
 
@@ -4416,7 +4416,7 @@ void Datastore::Close() {
     // There's no connection, so it's safe to release the directory lock and
     // unregister itself from the hashtable.
 
-    mDirectoryLock = nullptr;
+    DropDirectoryLock(mDirectoryLock);
 
     CleanupMetadata();
   }
@@ -5199,7 +5199,7 @@ void Datastore::ConnectionClosedCallback() {
   // Now it's safe to release the directory lock and unregister itself from
   // the hashtable.
 
-  mDirectoryLock = nullptr;
+  DropDirectoryLock(mDirectoryLock);
 
   CleanupMetadata();
 
@@ -6470,6 +6470,8 @@ mozilla::ipc::IPCResult LSRequestBase::RecvCancel() {
 
   Log();
 
+  glean::ls_request::recv_cancellation.Add();
+
   const char* crashOnCancel = PR_GetEnv("LSNG_CRASH_ON_CANCEL");
   if (crashOnCancel) {
     MOZ_CRASH("LSNG: Crash on cancel.");
@@ -6499,6 +6501,7 @@ PrepareDatastoreOp::PrepareDatastoreOp(
     const LSRequestParams& aParams,
     const Maybe<ContentParentId>& aContentParentId)
     : LSRequestBase(aParams, aContentParentId),
+      mProcessingTimerId(glean::ls_preparedatastore::processing_time.Start()),
       mLoadDataOp(nullptr),
       mPrivateBrowsingId(0),
       mUsage(0),
@@ -6945,8 +6948,8 @@ nsresult PrepareDatastoreOp::DatabaseWork() {
           this]() -> mozilla::Result<nsCOMPtr<nsIFile>, nsresult> {
           if (hasDataForMigration) {
             QM_TRY_RETURN(quotaManager
-                              ->EnsureTemporaryOriginIsInitialized(
-                                  PERSISTENCE_TYPE_DEFAULT, mOriginMetadata)
+                              ->EnsureTemporaryOriginIsInitializedInternal(
+                                  mOriginMetadata)
                               .map([](const auto& res) { return res.first; }));
           }
 
@@ -7540,7 +7543,7 @@ void PrepareDatastoreOp::Cleanup() {
     // There's no connection, so it's safe to release the directory lock and
     // unregister itself from the array.
 
-    mDirectoryLock = nullptr;
+    SafeDropDirectoryLock(mDirectoryLock);
 
     CleanupMetadata();
   }
@@ -7553,7 +7556,8 @@ void PrepareDatastoreOp::ConnectionClosedCallback() {
   MOZ_ASSERT(mConnection);
 
   mConnection = nullptr;
-  mDirectoryLock = nullptr;
+
+  DropDirectoryLock(mDirectoryLock);
 
   CleanupMetadata();
 }
@@ -7573,6 +7577,11 @@ void PrepareDatastoreOp::CleanupMetadata() {
 
   if (gPrepareDatastoreOps->IsEmpty()) {
     gPrepareDatastoreOps = nullptr;
+  }
+
+  if (NS_SUCCEEDED(ResultCode())) {
+    glean::ls_preparedatastore::processing_time.StopAndAccumulate(
+        std::move(mProcessingTimerId));
   }
 }
 
@@ -7594,16 +7603,16 @@ void PrepareDatastoreOp::DirectoryLockAcquired(DirectoryLock* aLock) {
 
   mPendingDirectoryLock = nullptr;
 
+  mDirectoryLock = aLock;
+
   if (NS_WARN_IF(QuotaClient::IsShuttingDownOnBackgroundThread()) ||
-      !MayProceed()) {
+      !MayProceed() || mDirectoryLock->Invalidated()) {
     MaybeSetFailureCode(NS_ERROR_ABORT);
 
     FinishNesting();
 
     return;
   }
-
-  mDirectoryLock = aLock;
 
   SendToIOThread();
 }
@@ -8459,7 +8468,7 @@ Result<UsageInfo, nsresult> QuotaClient::GetUsageForOrigin(
 }
 
 nsresult QuotaClient::AboutToClearOrigins(
-    const Nullable<PersistenceType>& aPersistenceType,
+    const PersistenceScope& aPersistenceScope,
     const OriginScope& aOriginScope) {
   AssertIsOnIOThread();
 
@@ -8477,8 +8486,8 @@ nsresult QuotaClient::AboutToClearOrigins(
   // So this method clears the archived data and shadow database entries for
   // given origin scope, but only if it's a privacy-related origin clearing.
 
-  if (!aPersistenceType.IsNull() &&
-      aPersistenceType.Value() != PERSISTENCE_TYPE_DEFAULT) {
+  if (!aPersistenceScope.Matches(
+          PersistenceScope::CreateFromValue(PERSISTENCE_TYPE_DEFAULT))) {
     return NS_OK;
   }
 

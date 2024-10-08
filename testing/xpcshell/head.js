@@ -413,7 +413,7 @@ function _setupDevToolsServer(breakpointFiles, callback) {
         "xpcshell environment.\n" +
         "This can usually be resolved by adding:\n" +
         "  firefox-appdir = browser\n" +
-        "to the xpcshell.ini manifest.\n" +
+        "to the xpcshell.toml manifest.\n" +
         "It is possible for this to alter test behevior by " +
         "triggering additional browser code to run, so check " +
         "test behavior after making this change.\n" +
@@ -434,7 +434,7 @@ function _setupDevToolsServer(breakpointFiles, callback) {
     // Or when devtools are destroyed and we should stop observing.
     "xpcshell-test-devtools-shutdown",
   ];
-  let observe = function (subject, topic, data) {
+  let observe = function (subject, topic) {
     if (topic === "devtools-thread-ready") {
       const threadActor = subject.wrappedJSObject;
       threadActor.setBreakpointOnLoad(breakpointFiles);
@@ -745,7 +745,7 @@ function _execute_test() {
  * @param aFiles Array of files to load.
  */
 function _load_files(aFiles) {
-  function load_file(element, index, array) {
+  function load_file(element) {
     try {
       let startTime = Cu.now();
       load(element);
@@ -1567,7 +1567,7 @@ function add_test(
 }
 
 /**
- * Add a test function which is a Task function.
+ * Add a test function which is an asynchronous function.
  *
  * @param funcOrProperties
  *        An async function to be run or an object represents test properties.
@@ -1577,9 +1577,6 @@ function add_test(
  *          pref_set: An array of preferences to set for the test, reset at end of test.
  * @param func
  *        An async function to be run only if the funcOrProperies is not a function.
- *
- * Task functions are functions fed into Task.jsm's Task.spawn(). They are async
- * functions that emit promises.
  *
  * If an exception is thrown, a do_check_* comparison fails, or if a rejected
  * promise is yielded, the test function aborts immediately and the test is
@@ -1829,7 +1826,7 @@ function run_next_test() {
   }
 
   function frontLoadSetups() {
-    _gTests.sort(([propsA, funcA], [propsB, funcB]) => {
+    _gTests.sort(([propsA], [propsB]) => {
       if (propsB.isSetup === propsA.isSetup) {
         return 0;
       }

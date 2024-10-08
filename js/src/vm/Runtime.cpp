@@ -53,8 +53,6 @@ using namespace js;
 
 using mozilla::Atomic;
 using mozilla::DebugOnly;
-using mozilla::NegativeInfinity;
-using mozilla::PositiveInfinity;
 
 /* static */ MOZ_THREAD_LOCAL(JSContext*) js::TlsContext;
 /* static */
@@ -332,7 +330,7 @@ void JSRuntime::addSizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf,
   rtSizes->uncompressedSourceCache +=
       caches().uncompressedSourceCache.sizeOfExcludingThis(mallocSizeOf);
 
-  rtSizes->gc.nurseryCommitted += gc.nursery().committed();
+  rtSizes->gc.nurseryCommitted += gc.nursery().totalCommitted();
   rtSizes->gc.nurseryMallocedBuffers +=
       gc.nursery().sizeOfMallocedBuffers(mallocSizeOf);
   gc.storeBuffer().addSizeOfExcludingThis(mallocSizeOf, &rtSizes->gc);
@@ -798,8 +796,8 @@ JS_PUBLIC_API void JS::DisableRecordingAllocations(JSContext* cx) {
   cx->runtime()->stopRecordingAllocations();
 }
 
-JS_PUBLIC_API void js::gc::RegisterWeakCache(JSRuntime* rt,
-                                             gc::WeakCacheBase* cachep) {
+JS_PUBLIC_API void JS::shadow::RegisterWeakCache(
+    JSRuntime* rt, detail::WeakCacheBase* cachep) {
   rt->registerWeakCache(cachep);
 }
 

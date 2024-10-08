@@ -8,13 +8,14 @@
  * This file handles addon logic that is independent of the chrome process and
  * may run in all web content and extension processes.
  *
- * Don't put contentscript logic here, use ExtensionContent.jsm instead.
+ * Don't put contentscript logic here, use ExtensionContent.sys.mjs instead.
  */
 
 import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 
 import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
 
+/** @type {Lazy} */
 const lazy = {};
 
 XPCOMUtils.defineLazyServiceGetter(
@@ -144,7 +145,7 @@ const StrongPromise = {
 Services.obs.addObserver(StrongPromise, "extensions-onMessage-witness");
 
 // Simple single-event emitter-like helper, exposes the EventManager api.
-class SimpleEventAPI extends EventManager {
+export class SimpleEventAPI extends EventManager {
   constructor(context, name) {
     let fires = new Set();
     let register = fire => {
@@ -162,7 +163,7 @@ class SimpleEventAPI extends EventManager {
 }
 
 // runtime.OnMessage event helper, handles custom async/sendResponse logic.
-class MessageEvent extends SimpleEventAPI {
+export class MessageEvent extends SimpleEventAPI {
   emit(holder, sender) {
     if (!this.fires.size || !this.context.active) {
       return { received: false };
@@ -229,7 +230,7 @@ function holdMessage(name, anonymizedName, data, native = null) {
 }
 
 // Implements the runtime.Port extension API object.
-class Port {
+export class Port {
   /**
    * @param {BaseContext} context The context that owns this port.
    * @param {number} portId Uniquely identifies this port's channel.
@@ -310,7 +311,7 @@ class Port {
  * Each extension context gets its own Messenger object. It handles the
  * basics of sendMessage, onMessage, connect and onConnect.
  */
-class Messenger {
+export class Messenger {
   constructor(context) {
     this.context = context;
     this.conduit = context.openConduit(this, {
@@ -382,8 +383,11 @@ var ExtensionManager = {
   extensions: new Map(),
 };
 
-// Represents a browser extension in the content process.
-class BrowserExtensionContent extends EventEmitter {
+/**
+ * Represents an extension instance in the child process.
+ * Corresponds to the @see {Extension} instance in the parent.
+ */
+export class ExtensionChild extends EventEmitter {
   constructor(policy) {
     super();
 
@@ -397,7 +401,7 @@ class BrowserExtensionContent extends EventEmitter {
     this.optionalPermissions = policy.optionalPermissions;
 
     if (WebExtensionPolicy.isExtensionProcess) {
-      // Keep in sync with serializeExtended in Extension.jsm
+      // Keep in sync with serializeExtended in Extension.sys.mjs
       let ed = this.getSharedData("extendedData");
       this.backgroundScripts = ed.backgroundScripts;
       this.backgroundWorkerScript = ed.backgroundWorkerScript;
@@ -449,7 +453,7 @@ class BrowserExtensionContent extends EventEmitter {
     return this.policy.allowedOrigins;
   }
 
-  getSharedData(key, value) {
+  getSharedData(key) {
     return sharedData.get(`extension/${this.id}/${key}`);
   }
 
@@ -520,6 +524,21 @@ class BrowserExtensionContent extends EventEmitter {
     return lazy.ExtensionContent.getContext(this, window);
   }
 
+  // Implementation of runtime.getURL / extension.getURL.
+  // ExtensionData.prototype.getURL has a similar signature and return value.
+  getURL(path = "") {
+    if (path.startsWith(this.baseURL)) {
+      // Historically, when the input is an already-resolved extension URL,
+      // we return the parsed version of it as-is.
+      return path;
+    }
+    if (path.startsWith("/")) {
+      // this.baseURL already contains a "/".
+      path = path.slice(1);
+    }
+    return this.baseURL + path;
+  }
+
   emit(event, ...args) {
     Services.cpmm.sendAsyncMessage(this.MESSAGE_EMIT_EVENT, { event, args });
     return super.emit(event, ...args);
@@ -580,7 +599,7 @@ class BrowserExtensionContent extends EventEmitter {
 /**
  * An object that runs an remote implementation of an API.
  */
-class ProxyAPIImplementation extends SchemaAPIInterface {
+export class ProxyAPIImplementation extends SchemaAPIInterface {
   /**
    * @param {string} namespace The full path to the namespace that contains the
    *     `name` member. This may contain dots, e.g. "storage.local".
@@ -680,7 +699,7 @@ class ProxyAPIImplementation extends SchemaAPIInterface {
   }
 }
 
-class ChildLocalAPIImplementation extends LocalAPIImplementation {
+export class ChildLocalAPIImplementation extends LocalAPIImplementation {
   constructor(pathObj, namespace, name, childApiManager) {
     super(pathObj, name, childApiManager.context);
     this.childApiManagerId = childApiManager.id;
@@ -727,10 +746,10 @@ class ChildLocalAPIImplementation extends LocalAPIImplementation {
 
 // We create one instance of this class for every extension context that
 // needs to use remote APIs. It uses the the JSWindowActor and
-// JSProcessActor Conduits actors (see ConduitsChild.jsm) to communicate
-// with the ParentAPIManager singleton in ExtensionParent.jsm.
+// JSProcessActor Conduits actors (see ConduitsChild.sys.mjs) to communicate
+// with the ParentAPIManager singleton in ExtensionParent.sys.mjs.
 // It handles asynchronous function calls as well as event listeners.
-class ChildAPIManager {
+export class ChildAPIManager {
   constructor(context, messageManager, localAPICan, contextData) {
     this.context = context;
     this.messageManager = messageManager;
@@ -1012,14 +1031,3 @@ class ChildAPIManager {
     this.permissionsChangedCallbacks.add(callback);
   }
 }
-
-export var ExtensionChild = {
-  BrowserExtensionContent,
-  ChildAPIManager,
-  ChildLocalAPIImplementation,
-  MessageEvent,
-  Messenger,
-  Port,
-  ProxyAPIImplementation,
-  SimpleEventAPI,
-};

@@ -41,7 +41,6 @@
 #include "nsDOMMutationObserver.h"
 #include "nsJSUtils.h"
 #include "nsPIDOMWindow.h"
-#include "nsStringBuffer.h"
 #include "nsThread.h"
 #include "nsThreadUtils.h"
 #include "nsWrapperCache.h"
@@ -388,7 +387,10 @@ void CycleCollectedJSContext::PromiseRejectionTrackerCallback(
       nsIGlobalObject* global = xpc::NativeGlobal(aPromise);
       if (nsCOMPtr<EventTarget> owner = do_QueryInterface(global)) {
         RootedDictionary<PromiseRejectionEventInit> init(aCx);
-        init.mPromise = Promise::CreateFromExisting(global, aPromise);
+        if (RefPtr<Promise> newPromise =
+                Promise::CreateFromExisting(global, aPromise)) {
+          init.mPromise = newPromise->PromiseObj();
+        }
         init.mReason = JS::GetPromiseResult(aPromise);
 
         RefPtr<PromiseRejectionEvent> event =
@@ -780,7 +782,7 @@ NS_IMETHODIMP CycleCollectedJSContext::NotifyUnhandledRejections::Run() {
       if (nsCOMPtr<EventTarget> target =
               do_QueryInterface(promise->GetParentObject())) {
         RootedDictionary<PromiseRejectionEventInit> init(cx);
-        init.mPromise = promise;
+        init.mPromise = promiseObj;
         init.mReason = JS::GetPromiseResult(promiseObj);
         init.mCancelable = true;
 

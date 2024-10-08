@@ -183,7 +183,7 @@ add_task(async function staleReplacedWithFresh() {
   await SpecialPowers.pushPrefEnv({
     set: [["browser.urlbar.suggest.searches", true]],
   });
-  let engine = await SearchTestUtils.promiseNewSearchEngine({
+  let engine = await SearchTestUtils.installOpenSearchEngine({
     url: getRootDirectory(gTestPath) + "searchSuggestionEngineSlow.xml",
   });
   let oldDefaultEngine = await Services.search.getDefault();
@@ -258,7 +258,7 @@ add_task(async function staleReplacedWithFresh() {
   //   test2
   //   test1
   let mutationPromise = new Promise(resolve => {
-    let observer = new MutationObserver(mutations => {
+    let observer = new MutationObserver(() => {
       let row = UrlbarTestUtils.getRowAt(window, maxResults - 2);
       if (row && row._elements.get("title").textContent == "test2") {
         observer.disconnect();

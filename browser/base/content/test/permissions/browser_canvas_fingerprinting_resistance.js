@@ -70,14 +70,17 @@ function enableResistFingerprinting(
 ) {
   return SpecialPowers.pushPrefEnv({
     set: [
-      ["privacy.resistFingerprinting", true],
+      ["privacy.fingerprintingProtection", true],
+      [
+        "privacy.fingerprintingProtection.overrides",
+        "+CanvasRandomization,+CanvasImageExtractionPrompt,+CanvasExtractionFromThirdPartiesIsBlocked" +
+          (autoDeclineNoInput
+            ? ",+CanvasExtractionBeforeUserInputIsBlocked"
+            : ""),
+      ],
       [
         "privacy.resistFingerprinting.randomDataOnCanvasExtract",
         randomDataOnCanvasExtract,
-      ],
-      [
-        "privacy.resistFingerprinting.autoDeclineNoUserInputCanvasPrompts",
-        autoDeclineNoInput,
       ],
     ],
   });
@@ -336,7 +339,7 @@ async function withNewTabInput(
   await SpecialPowers.spawn(browser, [], initTab);
   await enableResistFingerprinting(randomDataOnCanvasExtract, true);
   let popupShown = promisePopupShown();
-  await SpecialPowers.spawn(browser, [], function (host) {
+  await SpecialPowers.spawn(browser, [], function () {
     E10SUtils.wrapHandlingUserInput(content, true, function () {
       var button = content.document.getElementById("clickme");
       button.click();
@@ -361,11 +364,7 @@ async function withNewTabInput(
   await SpecialPowers.popPrefEnv();
 }
 
-async function doTestInput(
-  randomDataOnCanvasExtract,
-  grantPermission,
-  autoDeclineNoInput
-) {
+async function doTestInput(randomDataOnCanvasExtract, grantPermission) {
   await BrowserTestUtils.withNewTab(
     kUrl,
     withNewTabInput.bind(null, randomDataOnCanvasExtract, grantPermission)

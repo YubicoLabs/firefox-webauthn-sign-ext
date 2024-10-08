@@ -35,7 +35,7 @@
 #include "mozilla/IntegerTypeTraits.h"
 #include "mozilla/NullPrincipal.h"
 #include "mozilla/Telemetry.h"
-#include "mozilla/TelemetryComms.h"
+#include "mozilla/glean/GleanMetrics.h"
 
 #include "nsThreadUtils.h"
 #include "mozilla/ClearOnShutdown.h"
@@ -521,9 +521,11 @@ void nsExpatDriver::HandleStartElementForSystemPrincipal(
     error.AppendLiteral("> created from entity value.");
 
     nsContentUtils::ReportToConsoleNonLocalized(
-        error, nsIScriptError::warningFlag, "XML Document"_ns, doc, nullptr,
-        u""_ns, lineNumber.unverified_safe_because(RLBOX_SAFE_PRINT),
-        colNumber.unverified_safe_because(RLBOX_SAFE_PRINT));
+        error, nsIScriptError::warningFlag, "XML Document"_ns, doc,
+        mozilla::SourceLocation(
+            doc->GetDocumentURI(),
+            lineNumber.unverified_safe_because(RLBOX_SAFE_PRINT),
+            colNumber.unverified_safe_because(RLBOX_SAFE_PRINT)));
   }
 }
 
@@ -734,7 +736,7 @@ class RLBoxExpatClosure {
  public:
   RLBoxExpatClosure(RLBoxExpatSandboxData* aSbxData,
                     tainted_expat<XML_Parser> aExpatParser)
-      : mSbxData(aSbxData), mExpatParser(aExpatParser){};
+      : mSbxData(aSbxData), mExpatParser(aExpatParser) {};
   inline rlbox_sandbox_expat* Sandbox() const { return mSbxData->Sandbox(); };
   inline tainted_expat<XML_Parser> Parser() const { return mExpatParser; };
 
@@ -1106,30 +1108,19 @@ nsresult nsExpatDriver::HandleError() {
       docShellDestroyed.Assign(destroyed ? "true"_ns : "false"_ns);
     }
 
-    mozilla::Maybe<nsTArray<mozilla::Telemetry::EventExtraEntry>> extra =
-        mozilla::Some<nsTArray<mozilla::Telemetry::EventExtraEntry>>({
-            mozilla::Telemetry::EventExtraEntry{"error_code"_ns,
-                                                nsPrintfCString("%u", code)},
-            mozilla::Telemetry::EventExtraEntry{
-                "location"_ns,
-                nsPrintfCString(
-                    "%lu:%lu",
-                    lineNumber.unverified_safe_because(RLBOX_SAFE_PRINT),
-                    colNumber.unverified_safe_because(RLBOX_SAFE_PRINT))},
-            mozilla::Telemetry::EventExtraEntry{
-                "last_line"_ns, NS_ConvertUTF16toUTF8(mLastLine)},
-            mozilla::Telemetry::EventExtraEntry{
-                "last_line_len"_ns, nsPrintfCString("%zu", mLastLine.Length())},
-            mozilla::Telemetry::EventExtraEntry{
-                "hidden"_ns, doc->Hidden() ? "true"_ns : "false"_ns},
-            mozilla::Telemetry::EventExtraEntry{"destroyed"_ns,
-                                                docShellDestroyed},
-        });
-
     mozilla::Telemetry::SetEventRecordingEnabled("ysod"_ns, true);
-    mozilla::Telemetry::RecordEvent(
-        mozilla::Telemetry::EventID::Ysod_Shown_Ysod, mozilla::Some(path),
-        extra);
+    mozilla::glean::ysod::ShownYsodExtra extra = {
+        .destroyed = mozilla::Some(docShellDestroyed),
+        .errorCode = mozilla::Some(code),
+        .hidden = mozilla::Some(doc->Hidden()),
+        .lastLine = mozilla::Some(NS_ConvertUTF16toUTF8(mLastLine)),
+        .lastLineLen = mozilla::Some(mLastLine.Length()),
+        .location = mozilla::Some(nsPrintfCString(
+            "%lu:%lu", lineNumber.unverified_safe_because(RLBOX_SAFE_PRINT),
+            colNumber.unverified_safe_because(RLBOX_SAFE_PRINT))),
+        .value = mozilla::Some(path),
+    };
+    mozilla::glean::ysod::shown_ysod.Record(mozilla::Some(extra));
   }
 
   // Try to create and initialize the script error.
@@ -1137,7 +1128,7 @@ nsresult nsExpatDriver::HandleError() {
   nsresult rv = NS_ERROR_FAILURE;
   if (serr) {
     rv = serr->InitWithSourceURI(
-        errorText, mURIs.SafeElementAt(0), mLastLine,
+        errorText, mURIs.SafeElementAt(0),
         lineNumber.unverified_safe_because(RLBOX_SAFE_PRINT),
         colNumber.unverified_safe_because(RLBOX_SAFE_PRINT),
         nsIScriptError::errorFlag, "malformed-xml", mInnerWindowID);

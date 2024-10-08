@@ -42,35 +42,6 @@ class SVGViewportElement;
 #define SVG_ZERO_LENGTH_PATH_FIX_FACTOR 512
 
 /**
- * SVGTransformTypes controls the transforms that PrependLocalTransformsTo
- * applies.
- *
- * If aWhich is eAllTransforms, then all the transforms from the coordinate
- * space established by this element for its children to the coordinate
- * space established by this element's parent element for this element, are
- * included.
- *
- * If aWhich is eUserSpaceToParent, then only the transforms from this
- * element's userspace to the coordinate space established by its parent is
- * included. This includes any transforms introduced by the 'transform'
- * attribute, transform animations and animateMotion, but not any offsets
- * due to e.g. 'x'/'y' attributes, or any transform due to a 'viewBox'
- * attribute. (SVG userspace is defined to be the coordinate space in which
- * coordinates on an element apply.)
- *
- * If aWhich is eChildToUserSpace, then only the transforms from the
- * coordinate space established by this element for its childre to this
- * elements userspace are included. This includes any offsets due to e.g.
- * 'x'/'y' attributes, and any transform due to a 'viewBox' attribute, but
- * does not include any transforms due to the 'transform' attribute.
- */
-enum SVGTransformTypes {
-  eAllTransforms,
-  eUserSpaceToParent,
-  eChildToUserSpace
-};
-
-/**
  * Functions generally used by SVG Content classes. Functions here
  * should not generally depend on layout methods/classes e.g. SVGUtils
  */
@@ -180,13 +151,26 @@ class SVGContentUtils {
   static float GetFontXHeight(const ComputedStyle*, nsPresContext*);
 
   /*
+   * Get the number of CSS px (user units) per lh (i.e. the line-height in
+   * user units) for an nsIContent.
+   *
+   * Requires the element be styled - if not, a default value assuming
+   * the font-size of 16px and line-height of 1.2 is returned.
+   */
+  static float GetLineHeight(const mozilla::dom::Element* aElement);
+
+  /*
    * Report a localized error message to the error console.
    */
   static nsresult ReportToConsole(const dom::Document* doc,
                                   const char* aWarning,
                                   const nsTArray<nsString>& aParams);
 
-  static Matrix GetCTM(dom::SVGElement* aElement, bool aScreenCTM);
+  static Matrix GetCTM(dom::SVGElement* aElement);
+
+  static Matrix GetNonScalingStrokeCTM(dom::SVGElement* aElement);
+
+  static Matrix GetScreenCTM(dom::SVGElement* aElement);
 
   /**
    * Gets the tight bounds-space stroke bounds of the non-scaling-stroked rect
@@ -327,7 +311,7 @@ class SVGContentUtils {
    * string formatted as an SVG path
    */
   static already_AddRefed<mozilla::gfx::Path> GetPath(
-      const nsAString& aPathString);
+      const nsACString& aPathString);
 
   /**
    *  Returns true if aContent is one of the elements whose stroke is guaranteed

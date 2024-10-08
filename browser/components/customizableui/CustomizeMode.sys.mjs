@@ -28,7 +28,6 @@ ChromeUtils.defineESModuleGetters(lazy, {
   AddonManager: "resource://gre/modules/AddonManager.sys.mjs",
   BrowserUsageTelemetry: "resource:///modules/BrowserUsageTelemetry.sys.mjs",
   DragPositionManager: "resource:///modules/DragPositionManager.sys.mjs",
-  SessionStore: "resource:///modules/sessionstore/SessionStore.sys.mjs",
   URILoadingHelper: "resource:///modules/URILoadingHelper.sys.mjs",
 });
 ChromeUtils.defineLazyGetter(lazy, "gWidgetsBundle", function () {
@@ -63,14 +62,14 @@ var gTab;
 function closeGlobalTab() {
   let win = gTab.ownerGlobal;
   if (win.gBrowser.browsers.length == 1) {
-    win.BrowserOpenTab();
+    win.BrowserCommands.openTab();
   }
   win.gBrowser.removeTab(gTab, { animate: true });
   gTab = null;
 }
 
 var gTabsProgressListener = {
-  onLocationChange(aBrowser, aWebProgress, aRequest, aLocation, aFlags) {
+  onLocationChange(aBrowser, aWebProgress, aRequest, aLocation) {
     // Tear down customize mode when the customize mode tab loads some other page.
     // Customize mode will be re-entered if "about:blank" is loaded again, so
     // don't tear down in this case.
@@ -221,7 +220,6 @@ CustomizeMode.prototype = {
     gTab = aTab;
 
     gTab.setAttribute("customizemode", "true");
-    lazy.SessionStore.persistTabAttribute("customizemode");
 
     if (gTab.linkedPanel) {
       gTab.linkedBrowser.stop();
@@ -349,7 +347,7 @@ CustomizeMode.prototype = {
       document.getElementById("mainPopupSet").appendChild(panelContextMenu);
       panelHolder.appendChild(window.PanelUI.overflowFixedList);
 
-      window.PanelUI.overflowFixedList.setAttribute("customizing", true);
+      window.PanelUI.overflowFixedList.toggleAttribute("customizing", true);
       window.PanelUI.menuButton.disabled = true;
       document.getElementById("nav-bar-overflow-button").disabled = true;
 
@@ -362,13 +360,13 @@ CustomizeMode.prototype = {
 
       this._wrapToolbarItemSync(CustomizableUI.AREA_TABSTRIP);
 
-      this.document.documentElement.setAttribute("customizing", true);
+      this.document.documentElement.toggleAttribute("customizing", true);
 
       let customizableToolbars = document.querySelectorAll(
         "toolbar[customizable=true]:not([autohide=true], [collapsed=true])"
       );
       for (let toolbar of customizableToolbars) {
-        toolbar.setAttribute("customizing", true);
+        toolbar.toggleAttribute("customizing", true);
       }
 
       this._updateOverflowPanelArrowOffset();
@@ -663,7 +661,7 @@ CustomizeMode.prototype = {
     });
   },
 
-  async addToToolbar(aNode, aReason) {
+  async addToToolbar(aNode) {
     aNode = this._getCustomizableChildForNode(aNode);
     if (aNode.localName == "toolbarpaletteitem" && aNode.firstElementChild) {
       aNode = aNode.firstElementChild;
@@ -1271,26 +1269,22 @@ CustomizeMode.prototype = {
 
   _onToolbarVisibilityChange(aEvent) {
     let toolbar = aEvent.target;
-    if (
-      aEvent.detail.visible &&
-      toolbar.getAttribute("customizable") == "true"
-    ) {
-      toolbar.setAttribute("customizing", "true");
-    } else {
-      toolbar.removeAttribute("customizing");
-    }
+    toolbar.toggleAttribute(
+      "customizing",
+      aEvent.detail.visible && toolbar.getAttribute("customizable") == "true"
+    );
     this._onUIChange();
   },
 
-  onWidgetMoved(aWidgetId, aArea, aOldPosition, aNewPosition) {
+  onWidgetMoved() {
     this._onUIChange();
   },
 
-  onWidgetAdded(aWidgetId, aArea, aPosition) {
+  onWidgetAdded() {
     this._onUIChange();
   },
 
-  onWidgetRemoved(aWidgetId, aArea) {
+  onWidgetRemoved() {
     this._onUIChange();
   },
 
@@ -1378,7 +1372,7 @@ CustomizeMode.prototype = {
   },
 
   openAddonsManagerThemes() {
-    this.window.BrowserOpenAddonsMgr("addons://list/theme");
+    this.window.BrowserAddonUI.openAddonsMgr("addons://list/theme");
   },
 
   getMoreThemes(aEvent) {
@@ -1649,7 +1643,7 @@ CustomizeMode.prototype = {
     delete this.paletteDragHandler;
   },
 
-  observe(aSubject, aTopic, aData) {
+  observe(aSubject, aTopic) {
     switch (aTopic) {
       case "nsPref:changed":
         this._updateResetButton();
@@ -2329,7 +2323,7 @@ CustomizeMode.prototype = {
     }
   },
 
-  _setGridDragActive(aDragOverNode, aDraggedItem, aValue) {
+  _setGridDragActive(aDragOverNode, aDraggedItem) {
     let targetArea = this._getCustomizableParent(aDragOverNode);
     let draggedWrapper = this.$("wrapper-" + aDraggedItem.id);
     let originArea = this._getCustomizableParent(draggedWrapper);
@@ -2428,7 +2422,7 @@ CustomizeMode.prototype = {
     return aElement.closest(areas.map(a => "#" + CSS.escape(a)).join(","));
   },
 
-  _getDragOverNode(aEvent, aAreaElement, aAreaType, aDraggedItemId) {
+  _getDragOverNode(aEvent, aAreaElement, aAreaType) {
     let expectedParent =
       CustomizableUI.getCustomizationTarget(aAreaElement) || aAreaElement;
     if (!expectedParent.contains(aEvent.target)) {
@@ -2472,7 +2466,7 @@ CustomizeMode.prototype = {
     doc.documentElement.setAttribute("customizing-movingItem", true);
     let item = this._getWrapper(aEvent.target);
     if (item) {
-      item.setAttribute("mousedown", "true");
+      item.toggleAttribute("mousedown", true);
     }
   },
 

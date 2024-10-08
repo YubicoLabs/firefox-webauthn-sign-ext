@@ -10,9 +10,9 @@
 #include "mozilla/layers/APZCCallbackHelper.h"
 #include "mozilla/layers/InputAPZContext.h"
 #include "mozilla/layers/ScrollableLayerGuid.h"
+#include "mozilla/ScrollContainerFrame.h"
 #include "nsIContent.h"
 #include "nsIFrame.h"
-#include "nsIScrollableFrame.h"
 #include "nsLayoutUtils.h"
 #include "nsQueryFrame.h"
 #include "nsStyleStruct.h"
@@ -24,7 +24,8 @@ using layers::InputAPZContext;
 using layers::ScrollableLayerGuid;
 
 template <typename Units>
-gfx::Matrix4x4Typed<Units, Units> ViewportUtils::GetVisualToLayoutTransform(
+gfx::Matrix4x4TypedFlagged<Units, Units>
+ViewportUtils::GetVisualToLayoutTransform(
     ScrollableLayerGuid::ViewID aScrollId) {
   static_assert(
       std::is_same_v<Units, CSSPixel> ||
@@ -65,18 +66,19 @@ gfx::Matrix4x4Typed<Units, Units> ViewportUtils::GetVisualToLayoutTransform(
                 content->GetPrimaryFrame()->PresContext()->CSSToDevPixelScale();
   }
 
-  return gfx::Matrix4x4Typed<Units, Units>::Scaling(1 / resolution,
-                                                    1 / resolution, 1)
+  return gfx::Matrix4x4TypedFlagged<Units, Units>::Scaling(1 / resolution,
+                                                           1 / resolution, 1)
       .PostTranslate(transform.x, transform.y, 0);
 }
 
-CSSToCSSMatrix4x4 GetVisualToLayoutTransform(PresShell* aContext) {
+CSSToCSSMatrix4x4Flagged GetVisualToLayoutTransform(PresShell* aContext) {
   ScrollableLayerGuid::ViewID targetScrollId =
       InputAPZContext::GetTargetLayerGuid().mScrollId;
   if (targetScrollId == ScrollableLayerGuid::NULL_SCROLL_ID) {
-    if (nsIFrame* rootScrollFrame = aContext->GetRootScrollFrame()) {
-      targetScrollId =
-          nsLayoutUtils::FindOrCreateIDFor(rootScrollFrame->GetContent());
+    if (nsIFrame* rootScrollContainerFrame =
+            aContext->GetRootScrollContainerFrame()) {
+      targetScrollId = nsLayoutUtils::FindOrCreateIDFor(
+          rootScrollContainerFrame->GetContent());
     }
   }
   return ViewportUtils::GetVisualToLayoutTransform(targetScrollId);
@@ -231,9 +233,9 @@ LayoutDeviceRect ViewportUtils::ToScreenRelativeVisual(
 // Definitions of the two explicit instantiations forward declared in the header
 // file. This causes code for these instantiations to be emitted into the object
 // file for ViewportUtils.cpp.
-template CSSToCSSMatrix4x4 ViewportUtils::GetVisualToLayoutTransform<CSSPixel>(
-    ScrollableLayerGuid::ViewID);
-template LayoutDeviceToLayoutDeviceMatrix4x4
+template CSSToCSSMatrix4x4Flagged ViewportUtils::GetVisualToLayoutTransform<
+    CSSPixel>(ScrollableLayerGuid::ViewID);
+template LayoutDeviceToLayoutDeviceMatrix4x4Flagged
     ViewportUtils::GetVisualToLayoutTransform<LayoutDevicePixel>(
         ScrollableLayerGuid::ViewID);
 
@@ -243,7 +245,7 @@ const nsIFrame* ViewportUtils::IsZoomedContentRoot(const nsIFrame* aFrame) {
   }
   if (aFrame->Type() == LayoutFrameType::Canvas ||
       aFrame->Type() == LayoutFrameType::PageSequence) {
-    nsIScrollableFrame* sf = do_QueryFrame(aFrame->GetParent());
+    ScrollContainerFrame* sf = do_QueryFrame(aFrame->GetParent());
     if (sf && sf->IsRootScrollFrameOfDocument() &&
         aFrame->PresContext()->IsRootContentDocumentCrossProcess()) {
       return aFrame->GetParent();
@@ -252,7 +254,7 @@ const nsIFrame* ViewportUtils::IsZoomedContentRoot(const nsIFrame* aFrame) {
              StylePositionProperty::Fixed) {
     if (ViewportFrame* viewportFrame = do_QueryFrame(aFrame->GetParent())) {
       if (viewportFrame->PresContext()->IsRootContentDocumentCrossProcess()) {
-        return viewportFrame->PresShell()->GetRootScrollFrame();
+        return viewportFrame->PresShell()->GetRootScrollContainerFrame();
       }
     }
   }
@@ -260,6 +262,9 @@ const nsIFrame* ViewportUtils::IsZoomedContentRoot(const nsIFrame* aFrame) {
 }
 
 Scale2D ViewportUtils::TryInferEnclosingResolution(PresShell* aShell) {
+  if (!XRE_IsContentProcess()) {
+    return {1.0f, 1.0f};
+  }
   MOZ_ASSERT(aShell && aShell->GetPresContext());
   MOZ_ASSERT(!aShell->GetPresContext()->GetParentPresContext(),
              "TryInferEnclosingResolution can only be called for a root pres "

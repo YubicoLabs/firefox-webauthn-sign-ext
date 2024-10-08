@@ -21,22 +21,62 @@ SearchTestUtils.init(this);
 const DEFAULT_ENGINE = {
   id: "basic",
   name: "basic",
-  loadPath: "[addon]basic@search.mozilla.org",
+  loadPath: "[app]basic",
   submissionUrl:
-    "https://mochi.test:8888/browser/browser/components/search/test/browser/?search=&foo=1",
+    "https://mochi.test:8888/browser/browser/components/search/test/browser/?foo=1&search=",
 };
 const ALTERNATE_ENGINE = {
   id: "simple",
   name: "Simple Engine",
-  loadPath: "[addon]simple@search.mozilla.org",
+  loadPath: "[app]simple",
   submissionUrl: "https://example.com/?sourceId=Mozilla-search&search=",
 };
 const ALTERNATE2_ENGINE = {
-  id: "simple",
+  id: "another",
   name: "another",
   loadPath: "",
   submissionUrl: "",
 };
+
+const CONFIG = [
+  {
+    identifier: DEFAULT_ENGINE.id,
+    base: {
+      urls: {
+        search: {
+          base: "https://mochi.test:8888/browser/browser/components/search/test/browser/",
+          params: [
+            {
+              name: "foo",
+              value: "1",
+            },
+          ],
+          searchTermParamName: "search",
+        },
+      },
+    },
+  },
+  {
+    identifier: ALTERNATE_ENGINE.id,
+    base: {
+      name: ALTERNATE_ENGINE.name,
+      urls: {
+        search: {
+          base: "https://example.com",
+          params: [
+            {
+              name: "sourceId",
+              value: "Mozilla-search",
+            },
+          ],
+          searchTermParamName: "search",
+        },
+      },
+    },
+  },
+  { identifier: ALTERNATE2_ENGINE.id },
+  { globalDefault: DEFAULT_ENGINE.id },
+];
 
 async function restoreDefaultEngine() {
   let engine = Services.search.getEngineByName(DEFAULT_ENGINE.name);
@@ -91,23 +131,7 @@ async function checkTelemetry(source, prevEngine, newEngine) {
 }
 
 add_setup(async function () {
-  let searchExtensions = getChromeDir(getResolvedURI(gTestPath));
-  searchExtensions.append("search-engines");
-
-  await SearchTestUtils.useMochitestEngines(searchExtensions);
-
-  SearchTestUtils.useMockIdleService();
-  let response = await fetch(`resource://search-extensions/engines.json`);
-  let json = await response.json();
-  await SearchTestUtils.updateRemoteSettingsConfig(json.data);
-
-  registerCleanupFunction(async () => {
-    let settingsWritten = SearchTestUtils.promiseSearchNotification(
-      "write-settings-to-disk-complete"
-    );
-    await SearchTestUtils.updateRemoteSettingsConfig();
-    await settingsWritten;
-  });
+  await SearchTestUtils.updateRemoteSettingsConfig(CONFIG);
 });
 
 /* This tests setting a default engine. */

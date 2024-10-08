@@ -9,7 +9,9 @@ import {describe, it} from 'node:test';
 import expect from 'expect';
 import sinon from 'sinon';
 
-import {invokeAtMostOnceForArguments} from './decorators.js';
+import {EventEmitter} from '../common/EventEmitter.js';
+
+import {bubble, invokeAtMostOnceForArguments} from './decorators.js';
 
 describe('decorators', function () {
   describe('invokeAtMostOnceForArguments', () => {
@@ -74,6 +76,69 @@ describe('decorators', function () {
       expect(() => {
         t.test(1);
       }).toThrow();
+    });
+  });
+
+  describe('bubble', () => {
+    it('should work', () => {
+      class Test extends EventEmitter<any> {
+        @bubble()
+        accessor field = new EventEmitter();
+      }
+
+      const t = new Test();
+      const spy = sinon.spy();
+      t.on('a', spy);
+
+      t.field.emit('a', true);
+      expect(spy.callCount).toBe(1);
+      expect(spy.calledWithExactly(true)).toBeTruthy();
+
+      // Set a new emitter.
+      t.field = new EventEmitter();
+
+      t.field.emit('a', false);
+      expect(spy.callCount).toBe(2);
+      expect(spy.calledWithExactly(false)).toBeTruthy();
+    });
+
+    it('should not bubble down', () => {
+      class Test extends EventEmitter<any> {
+        @bubble()
+        accessor field = new EventEmitter<any>();
+      }
+
+      const t = new Test();
+      const spy = sinon.spy();
+      t.field.on('a', spy);
+
+      t.emit('a', true);
+      expect(spy.callCount).toBe(0);
+
+      t.field.emit('a', true);
+      expect(spy.callCount).toBe(1);
+    });
+
+    it('should be assignable during construction', () => {
+      class Test extends EventEmitter<any> {
+        @bubble()
+        accessor field: EventEmitter<any>;
+
+        constructor(emitter: EventEmitter<any>) {
+          super();
+          this.field = emitter;
+        }
+      }
+
+      const t = new Test(new EventEmitter());
+      const spy = sinon.spy();
+      t.field.on('a', spy);
+
+      t.emit('a', true);
+      expect(spy.callCount).toBe(0);
+
+      t.field.emit('a', true);
+      expect(spy.callCount).toBe(1);
     });
   });
 });

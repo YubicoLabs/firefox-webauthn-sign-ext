@@ -11,7 +11,7 @@ LOG = get_proxy_logger("profiler")
 
 # Precompiled regex for validating lib names
 # Empty lib name means client couldn't associate frame with any lib
-gLibNameRE = re.compile("[0-9a-zA-Z_+\-\.]*$")
+gLibNameRE = re.compile(r"[0-9a-zA-Z_+\-\.]*$")
 
 # Maximum number of times a request can be forwarded to a different server
 # for symbolication. Also prevents loops.
@@ -206,7 +206,10 @@ class SymbolicationRequest:
                     "version": requestVersion,
                 }
                 requestJson = json.dumps(requestObj).encode()
-                headers = {"Content-Type": "application/json"}
+                headers = {
+                    "Content-Type": "application/json",
+                    "User-Agent": "FirefoxCiProfileSymbolication (testing/mozbase/mozgeckoprofiler/mozgeckoprofiler/symbolicationRequest.py)",
+                }
                 requestHandle = Request(url, requestJson, headers)
                 try:
                     response = urlopen(requestHandle)

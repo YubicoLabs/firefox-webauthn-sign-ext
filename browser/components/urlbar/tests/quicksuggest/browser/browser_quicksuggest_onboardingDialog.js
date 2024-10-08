@@ -370,10 +370,9 @@ const VARIATION_TEST_DATA = [
         ".pager": true,
       },
       defaultFocusOrder: [
-        "onboardingNext",
+        "onboardingDialog",
         "onboardingAccept",
         "onboardingLearnMore",
-        "onboardingReject",
         "onboardingSkipLink",
         "onboardingDialog",
         "onboardingAccept",
@@ -703,10 +702,9 @@ const VARIATION_TEST_DATA = [
         ".pager": false,
       },
       defaultFocusOrder: [
-        "onboardingNext",
+        "onboardingDialog",
         "onboardingLearnMore",
         "onboardingAccept",
-        "onboardingReject",
         "onboardingSkipLink",
         "onboardingDialog",
         "onboardingLearnMore",
@@ -762,7 +760,6 @@ const VARIATION_TEST_DATA = [
       defaultFocusOrder: [
         "onboardingLearnMore",
         "onboardingAccept",
-        "onboardingReject",
         "onboardingSkipLink",
         "onboardingDialog",
         "onboardingLearnMore",

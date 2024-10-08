@@ -164,15 +164,7 @@ bool XPCConvert::NativeData2JS(JSContext* cx, MutableHandleValue d,
         d.setNull();
         return true;
       }
-
-      nsStringBuffer* buf;
-      if (!XPCStringConvert::ReadableToJSVal(cx, *p, &buf, d)) {
-        return false;
-      }
-      if (buf) {
-        buf->AddRef();
-      }
-      return true;
+      return NonVoidStringToJsval(cx, *p, d);
     }
 
     case nsXPTType::T_CHAR_STR: {
@@ -250,28 +242,12 @@ bool XPCConvert::NativeData2JS(JSContext* cx, MutableHandleValue d,
       // almost always ASCII, so the inexact allocations below
       // should be fine.
 
-      if (IsUtf8Latin1(*utf8String)) {
-        using UniqueLatin1Chars =
-            js::UniquePtr<JS::Latin1Char[], JS::FreePolicy>;
-
-        UniqueLatin1Chars buffer(static_cast<JS::Latin1Char*>(
-            JS_string_malloc(cx, allocLen.value())));
-        if (!buffer) {
-          return false;
-        }
-
-        size_t written = LossyConvertUtf8toLatin1(
-            *utf8String, Span(reinterpret_cast<char*>(buffer.get()), len));
-        buffer[written] = 0;
-
-        // written can never exceed len, so the truncation is OK.
-        JSString* str = JS_NewLatin1String(cx, std::move(buffer), written);
-        if (!str) {
-          return false;
-        }
-
-        d.setString(str);
-        return true;
+      // Is the string buffer is already valid latin1 (i.e. it is ASCII).
+      //
+      // NOTE: NonVoidUTF8StringToJsval cannot be used here because
+      //       it requires valid UTF-8 sequence.
+      if (mozilla::IsAscii(*utf8String)) {
+        return NonVoidLatin1StringToJsval(cx, *utf8String, d);
       }
 
       // 1-byte sequences decode to 1 UTF-16 code unit
@@ -321,14 +297,7 @@ bool XPCConvert::NativeData2JS(JSContext* cx, MutableHandleValue d,
       }
 
       // c-strings (binary blobs) are Latin1 string in JSAPI.
-      nsStringBuffer* buf;
-      if (!XPCStringConvert::Latin1ToJSVal(cx, *cString, &buf, d)) {
-        return false;
-      }
-      if (buf) {
-        buf->AddRef();
-      }
-      return true;
+      return NonVoidLatin1StringToJsval(cx, *cString, d);
     }
 
     case nsXPTType::T_INTERFACE:
@@ -670,24 +639,7 @@ bool XPCConvert::JSData2Native(JSContext* cx, void* d, HandleValue s,
         return true;
       }
 
-      JSLinearString* linear = JS_EnsureLinearString(cx, str);
-      if (!linear) {
-        return false;
-      }
-
-      size_t utf8Length = JS::GetDeflatedUTF8StringLength(linear);
-      if (!rs->SetLength(utf8Length, fallible)) {
-        if (pErr) {
-          *pErr = NS_ERROR_OUT_OF_MEMORY;
-        }
-        return false;
-      }
-
-      mozilla::DebugOnly<size_t> written = JS::DeflateStringToUTF8Buffer(
-          linear, mozilla::Span(rs->BeginWriting(), utf8Length));
-      MOZ_ASSERT(written == utf8Length);
-
-      return true;
+      return AssignJSString(cx, *rs, str);
     }
 
     case nsXPTType::T_CSTRING: {
@@ -1171,15 +1123,13 @@ static nsresult JSErrorToXPCException(JSContext* cx, const char* toStringResult,
       bestMessage.AssignLiteral("JavaScript Error");
     }
 
-    const char16_t* linebuf = report->linebuf();
     uint32_t flags = report->isWarning() ? nsIScriptError::warningFlag
                                          : nsIScriptError::errorFlag;
 
     data = new nsScriptError();
     data->nsIScriptError::InitWithWindowID(
-        bestMessage, NS_ConvertUTF8toUTF16(report->filename.c_str()),
-        linebuf ? nsDependentString(linebuf, report->linebufLength())
-                : EmptyString(),
+        bestMessage,
+        nsDependentCString(report->filename ? report->filename.c_str() : ""),
         report->lineno, report->column.oneOriginValue(), flags,
         "XPConnect JavaScript"_ns,
         nsJSUtils::GetCurrentlyRunningCodeInnerWindowID(cx));

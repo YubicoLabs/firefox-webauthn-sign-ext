@@ -25,7 +25,6 @@ class BigInt;
 
 namespace js {
 
-class FixedLengthTypedArrayObject;
 class TypedArrayObject;
 enum class UnaryMathFunction : uint8_t;
 
@@ -800,6 +799,13 @@ class MOZ_RAII CacheIRCompiler {
                                        FloatRegisterSet::Volatile());
   }
 
+  // Returns the set of volatile registers that are live. These registers need
+  // to be saved when making non-GC calls with callWithABI.
+  LiveRegisterSet liveVolatileRegs() const {
+    // All volatile GPR registers are treated as live.
+    return {GeneralRegisterSet::Volatile(), liveVolatileFloatRegs()};
+  }
+
   bool objectGuardNeedsSpectreMitigations(ObjOperandId objId) const {
     // Instructions like GuardShape need Spectre mitigations if
     // (1) mitigations are enabled and (2) the object is used by other
@@ -846,21 +852,37 @@ class MOZ_RAII CacheIRCompiler {
 
   bool emitDoubleIncDecResult(bool isInc, NumberOperandId inputId);
 
-  using AtomicsReadWriteModifyFn = int32_t (*)(FixedLengthTypedArrayObject*,
-                                               size_t, int32_t);
+  void emitTypedArrayBoundsCheck(ArrayBufferViewKind viewKind, Register obj,
+                                 Register index, Register scratch,
+                                 Register maybeScratch, Register spectreScratch,
+                                 Label* fail);
+
+  void emitTypedArrayBoundsCheck(ArrayBufferViewKind viewKind, Register obj,
+                                 Register index, Register scratch,
+                                 mozilla::Maybe<Register> maybeScratch,
+                                 mozilla::Maybe<Register> spectreScratch,
+                                 Label* fail);
+
+  void emitDataViewBoundsCheck(ArrayBufferViewKind viewKind, size_t byteSize,
+                               Register obj, Register offset, Register scratch,
+                               Register maybeScratch, Label* fail);
+
+  using AtomicsReadWriteModifyFn = int32_t (*)(TypedArrayObject*, size_t,
+                                               int32_t);
 
   [[nodiscard]] bool emitAtomicsReadModifyWriteResult(
       ObjOperandId objId, IntPtrOperandId indexId, uint32_t valueId,
-      Scalar::Type elementType, AtomicsReadWriteModifyFn fn);
+      Scalar::Type elementType, ArrayBufferViewKind viewKind,
+      AtomicsReadWriteModifyFn fn);
 
-  using AtomicsReadWriteModify64Fn =
-      JS::BigInt* (*)(JSContext*, FixedLengthTypedArrayObject*, size_t,
-                      const JS::BigInt*);
+  using AtomicsReadWriteModify64Fn = JS::BigInt* (*)(JSContext*,
+                                                     TypedArrayObject*, size_t,
+                                                     const JS::BigInt*);
 
   template <AtomicsReadWriteModify64Fn fn>
-  [[nodiscard]] bool emitAtomicsReadModifyWriteResult64(ObjOperandId objId,
-                                                        IntPtrOperandId indexId,
-                                                        uint32_t valueId);
+  [[nodiscard]] bool emitAtomicsReadModifyWriteResult64(
+      ObjOperandId objId, IntPtrOperandId indexId, uint32_t valueId,
+      ArrayBufferViewKind viewKind);
 
   void emitActivateIterator(Register objBeingIterated, Register iterObject,
                             Register nativeIter, Register scratch,
@@ -1405,6 +1427,9 @@ class CacheIRStubInfo {
 
   void replaceStubRawWord(uint8_t* stubData, uint32_t offset, uintptr_t oldWord,
                           uintptr_t newWord) const;
+
+  void replaceStubRawValueBits(uint8_t* stubData, uint32_t offset,
+                               uint64_t oldBits, uint64_t newBits) const;
 };
 
 template <typename T>

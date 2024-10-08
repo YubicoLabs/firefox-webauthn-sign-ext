@@ -180,6 +180,10 @@ class SharedContext {
   // FunctionBox::copyUpdated* methods.
   bool isScriptExtraFieldCopiedToStencil : 1;
 
+  // Indicates this shared context is eligible to use JSOp::ArgumentsLength
+  // when emitting the ArgumentsLength parse node.
+  bool eligibleForArgumentsLength : 1;
+
   // End of fields.
 
   enum class Kind : uint8_t { FunctionBox, Global, Eval, Module };
@@ -257,9 +261,9 @@ class SharedContext {
   bool hasExplicitUseStrict() const { return hasExplicitUseStrict_; }
   void setExplicitUseStrict() { hasExplicitUseStrict_ = true; }
 
-  ImmutableScriptFlags immutableFlags() { return immutableFlags_; }
+  ImmutableScriptFlags immutableFlags() const { return immutableFlags_; }
 
-  bool allBindingsClosedOver() { return bindingsAccessedDynamically(); }
+  bool allBindingsClosedOver() const { return bindingsAccessedDynamically(); }
 
   // The ImmutableFlag tracks if the entire script is strict, while the
   // localStrict flag indicates the current region (such as class body) should
@@ -272,6 +276,11 @@ class SharedContext {
     localStrict = strict;
     return retVal;
   }
+
+  bool isEligibleForArgumentsLength() const {
+    return eligibleForArgumentsLength && !bindingsAccessedDynamically();
+  }
+  void setIneligibleForArgumentsLength() { eligibleForArgumentsLength = false; }
 
   void copyScriptExtraFields(ScriptStencilExtra& scriptExtra);
 };
@@ -555,7 +564,7 @@ class FunctionBox : public SuspendableContext {
 
   bool isInterpreted() const { return flags_.hasBaseScript(); }
 
-  FunctionFlags::FunctionKind kind() { return flags_.kind(); }
+  FunctionFlags::FunctionKind kind() const { return flags_.kind(); }
 
   bool hasInferredName() const { return flags_.hasInferredName(); }
   bool hasGuessedAtom() const { return flags_.hasGuessedAtom(); }
@@ -672,7 +681,7 @@ class FunctionBox : public SuspendableContext {
     }
   }
 
-  uint16_t length() { return length_; }
+  uint16_t length() const { return length_; }
   void setLength(uint16_t length) { length_ = length; }
 
   void setArgCount(uint16_t args) {
@@ -680,7 +689,7 @@ class FunctionBox : public SuspendableContext {
     nargs_ = args;
   }
 
-  size_t nargs() { return nargs_; }
+  size_t nargs() const { return nargs_; }
 
   const MemberInitializers& memberInitializers() const {
     MOZ_ASSERT(useMemberInitializers());
@@ -695,7 +704,7 @@ class FunctionBox : public SuspendableContext {
     }
   }
 
-  ScriptIndex index() { return funcDataIndex_; }
+  ScriptIndex index() const { return funcDataIndex_; }
 
   void finishScriptFlags();
   void copyFunctionFields(ScriptStencil& script);

@@ -11,7 +11,11 @@
 #include <gdk/gdk.h>
 #include <gio/gio.h>
 #include <gtk/gtk.h>
+#include <gio/gdesktopappinfo.h>
 #include "mozilla/RefPtr.h"
+
+typedef struct _DbusmenuMenuitem DbusmenuMenuitem;
+typedef struct _DbusmenuServer DbusmenuServer;
 
 namespace mozilla {
 
@@ -25,6 +29,8 @@ struct GObjectRefPtrTraits {
   template <>                 \
   struct RefPtrTraits<type_> : public GObjectRefPtrTraits<type_> {};
 
+GOBJECT_TRAITS(DbusmenuMenuitem)
+GOBJECT_TRAITS(DbusmenuServer)
 GOBJECT_TRAITS(GtkWidget)
 GOBJECT_TRAITS(GFile)
 GOBJECT_TRAITS(GFileMonitor)
@@ -34,6 +40,7 @@ GOBJECT_TRAITS(GSimpleAction)
 GOBJECT_TRAITS(GSimpleActionGroup)
 GOBJECT_TRAITS(GDBusProxy)
 GOBJECT_TRAITS(GAppInfo)
+GOBJECT_TRAITS(GDesktopAppInfo)
 GOBJECT_TRAITS(GAppLaunchContext)
 GOBJECT_TRAITS(GdkDragContext)
 GOBJECT_TRAITS(GDBusMessage)

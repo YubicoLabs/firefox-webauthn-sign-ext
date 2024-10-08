@@ -23,6 +23,19 @@ const PAGE_ICON_TEST_URLS = [
   "page-icon:foo://bar/baz",
 ];
 
+const TELEMETRY_TEST_DATA = [
+  {
+    page: "http://example.com/#size=32",
+    expectedSmallIconCount: 1,
+    expectedFitIconCount: 0,
+  },
+  {
+    page: "http://example.com/#size=1",
+    expectedSmallIconCount: 0,
+    expectedFitIconCount: 1,
+  },
+];
+
 XPCShellContentUtils.init(this);
 
 const HTML = String.raw`<!DOCTYPE html>
@@ -76,29 +89,21 @@ var gFavicon;
 
 add_task(async function setup() {
   await PlacesTestUtils.addVisits(TEST_URI);
-
-  PlacesUtils.favicons.replaceFaviconDataFromDataURL(
+  await PlacesTestUtils.setFaviconForPage(
+    TEST_URI,
     ICON_URI,
     ICON_DATAURL,
-    (Date.now() + 8640000) * 1000,
-    Services.scriptSecurityManager.getSystemPrincipal()
+    (Date.now() + 8640000) * 1000
   );
-
-  await new Promise(resolve => {
-    PlacesUtils.favicons.setAndFetchFaviconForPage(
-      TEST_URI,
-      ICON_URI,
-      false,
-      PlacesUtils.favicons.FAVICON_LOAD_NON_PRIVATE,
-      resolve,
-      Services.scriptSecurityManager.getSystemPrincipal()
-    );
-  });
-
   gDefaultFavicon = await fetchIconForSpec(
     PlacesUtils.favicons.defaultFavicon.spec
   );
   gFavicon = await fetchIconForSpec(ICON_DATAURL);
+
+  // FOG needs a profile directory to put its data in.
+  do_get_profile();
+
+  Services.fog.initializeFOG();
 });
 
 add_task(async function known_url() {
@@ -133,13 +138,11 @@ add_task(async function subpage_url_fallback() {
 
 add_task(async function svg_icon() {
   let faviconURI = NetUtil.newURI("http://places.test/favicon.svg");
-  PlacesUtils.favicons.replaceFaviconDataFromDataURL(
+  await PlacesTestUtils.setFaviconForPage(
+    TEST_URI,
     faviconURI,
-    SMALLSVG_DATA_URI.spec,
-    0,
-    Services.scriptSecurityManager.getSystemPrincipal()
+    SMALLSVG_DATA_URI
   );
-  await setFaviconForPage(TEST_URI, faviconURI);
   let svgIcon = await fetchIconForSpec(SMALLSVG_DATA_URI.spec);
   info(svgIcon.contentType);
   let pageIcon = await fetchIconForSpec("page-icon:" + TEST_URI.spec);
@@ -159,6 +162,39 @@ add_task(async function page_with_ref() {
     Assert.equal(contentType, gFavicon.contentType);
     Assert.deepEqual(data, gFavicon.data, "Got the favicon data");
     await PlacesUtils.history.remove(url);
+  }
+});
+
+add_task(async function test_icon_telemetry() {
+  for (let {
+    page,
+    expectedSmallIconCount,
+    expectedFitIconCount,
+  } of TELEMETRY_TEST_DATA) {
+    Services.fog.testResetFOG();
+
+    let telemetryTestURI = NetUtil.newURI(page);
+
+    await PlacesTestUtils.addVisits(telemetryTestURI);
+
+    await PlacesTestUtils.setFaviconForPage(
+      telemetryTestURI,
+      NetUtil.newURI("http://example.com/favicon.png"),
+      ICON_DATAURL // The icon has a size of 1x1.
+    );
+
+    await fetchIconForSpec("page-icon:" + telemetryTestURI.spec);
+
+    Assert.equal(
+      Glean.pageIcon.smallIconCount.testGetValue() ?? 0,
+      expectedSmallIconCount
+    );
+    Assert.equal(
+      Glean.pageIcon.fitIconCount.testGetValue() ?? 0,
+      expectedFitIconCount
+    );
+
+    await PlacesUtils.history.clear();
   }
 });
 
@@ -185,11 +221,11 @@ add_task(async function page_content_process() {
       let img = content.document.createElement("img");
       img.src = url;
       let imgPromise = new Promise((resolve, reject) => {
-        img.addEventListener("error", e => {
+        img.addEventListener("error", () => {
           Assert.ok(true, "Got expected load error.");
           resolve();
         });
-        img.addEventListener("load", e => {
+        img.addEventListener("load", () => {
           Assert.ok(false, "Did not expect a successful load.");
           reject();
         });
@@ -225,11 +261,11 @@ add_task(async function page_privileged_about_content_process() {
       let img = content.document.createElement("img");
       img.src = url;
       let imgPromise = new Promise((resolve, reject) => {
-        img.addEventListener("error", e => {
+        img.addEventListener("error", () => {
           Assert.ok(false, "Did not expect an error. ");
           reject();
         });
-        img.addEventListener("load", e => {
+        img.addEventListener("load", () => {
           Assert.ok(true, "Got expected load event.");
           resolve();
         });
@@ -240,4 +276,109 @@ add_task(async function page_privileged_about_content_process() {
   });
 
   await contentPage.close();
+});
+
+add_task(async function test_icon_telemetry_new_stream() {
+  // about:certificate loads in the privileged about content process.
+  let contentPage = await XPCShellContentUtils.loadContentPage(
+    "about:certificate",
+    {
+      remote: true,
+    }
+  );
+  Assert.equal(
+    contentPage.browsingContext.currentRemoteType,
+    "privilegedabout"
+  );
+
+  for (let {
+    page,
+    expectedSmallIconCount,
+    expectedFitIconCount,
+  } of TELEMETRY_TEST_DATA) {
+    Services.fog.testResetFOG();
+
+    const URI = NetUtil.newURI(page);
+
+    await PlacesTestUtils.addVisits(URI);
+    await PlacesTestUtils.setFaviconForPage(
+      URI,
+      NetUtil.newURI("http://example.com/favicon/ico"),
+      ICON_DATAURL
+    );
+
+    const PAGE_ICON_TEST_URI = "page-icon:" + URI.spec;
+
+    await contentPage.spawn([PAGE_ICON_TEST_URI], async url => {
+      // We expect the URL to load correctly in this process type.
+      let img = content.document.createElement("img");
+      img.src = url;
+      let imgPromise = new Promise((resolve, reject) => {
+        img.addEventListener("error", () => {
+          Assert.ok(false, "Did not expect an error. ");
+          reject();
+        });
+        img.addEventListener("load", () => {
+          Assert.ok(true, "Got expected load event.");
+          resolve();
+        });
+      });
+      content.document.body.appendChild(img);
+      await imgPromise;
+    });
+
+    Assert.equal(
+      Glean.pageIcon.smallIconCount.testGetValue() ?? 0,
+      expectedSmallIconCount,
+      "small icon count should match expected value"
+    );
+    Assert.equal(
+      Glean.pageIcon.fitIconCount.testGetValue() ?? 0,
+      expectedFitIconCount,
+      "fit icon count should match expected value"
+    );
+
+    await PlacesUtils.history.clear();
+  }
+
+  await contentPage.close();
+});
+
+add_task(async function test_with_user_pass() {
+  info("Test whether can get favicon content regardless of user pass");
+  await PlacesUtils.history.clear();
+
+  const PAGE_NORMAL = uri("http://mozilla.org/");
+  const PAGE_USERPASS = uri("http://user:pass@mozilla.org/");
+  const ICON_NORMAL = uri("http://mozilla.org/favicon.png");
+  const ICON_USERPASS = uri("http://user:pass@mozilla.org/favicon.png");
+  const PAGE_ICON_NORMAL = "page-icon:http://mozilla.org/";
+  const PAGE_ICON_USERPASS = "page-icon:http://user:pass@mozilla.org/";
+
+  const testData = [
+    {
+      pageURI: PAGE_USERPASS,
+      iconURI: ICON_NORMAL,
+    },
+    {
+      pageURI: PAGE_NORMAL,
+      iconURI: ICON_USERPASS,
+    },
+    {
+      pageURI: PAGE_USERPASS,
+      iconURI: ICON_USERPASS,
+    },
+  ];
+
+  for (const { pageURI, iconURI } of testData) {
+    for (const loadingIconURISpec of [PAGE_ICON_NORMAL, PAGE_ICON_USERPASS]) {
+      await PlacesTestUtils.addVisits(pageURI);
+      await PlacesTestUtils.setFaviconForPage(pageURI, iconURI, ICON_DATAURL);
+
+      let { data, contentType } = await fetchIconForSpec(loadingIconURISpec);
+      Assert.equal(contentType, gFavicon.contentType);
+      Assert.deepEqual(data, gFavicon.data, "Got the favicon data");
+      await PlacesUtils.history.clear();
+    }
+  }
 });

@@ -163,10 +163,9 @@ class BasePrincipal : public nsJSPrincipals {
   NS_IMETHOD GetIsIpAddress(bool* aIsIpAddress) override;
   NS_IMETHOD GetIsLocalIpAddress(bool* aIsIpAddress) override;
   NS_IMETHOD GetIsOnion(bool* aIsOnion) override;
-  NS_IMETHOD GetIsInIsolatedMozBrowserElement(
-      bool* aIsInIsolatedMozBrowserElement) final;
   NS_IMETHOD GetUserContextId(uint32_t* aUserContextId) final;
   NS_IMETHOD GetPrivateBrowsingId(uint32_t* aPrivateBrowsingId) final;
+  NS_IMETHOD GetIsInPrivateBrowsing(bool* aIsInPrivateBrowsing) final;
   NS_IMETHOD GetSiteOrigin(nsACString& aSiteOrigin) final;
   NS_IMETHOD GetSiteOriginNoSuffix(nsACString& aSiteOrigin) override;
   NS_IMETHOD IsThirdPartyURI(nsIURI* uri, bool* aRes) override;
@@ -183,8 +182,6 @@ class BasePrincipal : public nsJSPrincipals {
                                         bool* aOutAllowed) override;
   NS_IMETHOD GetAsciiHost(nsACString& aAsciiHost) override;
   NS_IMETHOD GetLocalStorageQuotaKey(nsACString& aRes) override;
-  NS_IMETHOD AllowsRelaxStrictFileOriginPolicy(nsIURI* aURI,
-                                               bool* aRes) override;
   NS_IMETHOD CreateReferrerInfo(mozilla::dom::ReferrerPolicy aReferrerPolicy,
                                 nsIReferrerInfo** _retval) override;
   NS_IMETHOD GetIsScriptAllowedByPolicy(
@@ -249,9 +246,6 @@ class BasePrincipal : public nsJSPrincipals {
   uint32_t UserContextId() const { return mOriginAttributes.mUserContextId; }
   uint32_t PrivateBrowsingId() const {
     return mOriginAttributes.mPrivateBrowsingId;
-  }
-  bool IsInIsolatedMozBrowserElement() const {
-    return mOriginAttributes.mInIsolatedMozBrowser;
   }
 
   PrincipalKind Kind() const { return mKind; }

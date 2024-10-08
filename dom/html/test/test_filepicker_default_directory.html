@@ -34,7 +34,7 @@ var customUploadDirectory = Cc["@mozilla.org/file/directory_service;1"]
 //info("customUploadDirectory" + customUploadDirectory.path);
 
 var MockFilePicker = SpecialPowers.MockFilePicker;
-MockFilePicker.init(window);
+MockFilePicker.init(SpecialPowers.wrap(window).browsingContext);
 
 // need to show the MockFilePicker so .displayDirectory gets set
 var f = document.getElementById("f");
@@ -69,6 +69,7 @@ function launchNextTest() {
       ['dom.input.fallbackUploadDir', tests[testIndex][0]],
     ]},
   function () {
+    SpecialPowers.wrap(document).notifyUserGestureActivation();
     f.click();
   });
 }

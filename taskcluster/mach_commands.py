@@ -17,21 +17,9 @@ from functools import partial
 import gecko_taskgraph.main
 from gecko_taskgraph.main import commands as taskgraph_commands
 from mach.decorators import Command, CommandArgument, SubCommand
+from mach.util import strtobool
 
 logger = logging.getLogger("taskcluster")
-
-
-def strtobool(value):
-    """Convert string to boolean.
-
-    Wraps "distutils.util.strtobool", deferring the import of the package
-    in case it's not installed. Otherwise, we have a "chicken and egg problem" where
-    |mach bootstrap| would install the required package to enable "distutils.util", but
-    it can't because mach fails to interpret this file.
-    """
-    from distutils.util import strtobool
-
-    return bool(strtobool(value))
 
 
 def get_taskgraph_command_parser(name):
@@ -59,7 +47,7 @@ def get_taskgraph_decision_parser():
         (
             ["--optimize-target-tasks"],
             {
-                "type": lambda flag: strtobool(flag),
+                "type": lambda flag: bool(strtobool(flag)),
                 "nargs": "?",
                 "const": "true",
                 "help": "If specified, this indicates whether the target "
@@ -241,19 +229,6 @@ def taskgraph_decision(command_context, **options):
     except Exception:
         traceback.print_exc()
         sys.exit(1)
-
-
-@SubCommand(
-    "taskgraph",
-    "cron",
-    description="Provide a pointer to the new `.cron.yml` handler.",
-)
-def taskgraph_cron(command_context, **options):
-    print(
-        'Handling of ".cron.yml" files has move to '
-        "https://hg.mozilla.org/ci/ci-admin/file/default/build-decision."
-    )
-    sys.exit(1)
 
 
 @SubCommand(

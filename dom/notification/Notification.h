@@ -8,6 +8,7 @@
 #define mozilla_dom_notification_h__
 
 #include "mozilla/DOMEventTargetHelper.h"
+#include "mozilla/GlobalFreezeObserver.h"
 #include "mozilla/UniquePtr.h"
 #include "mozilla/dom/NotificationBinding.h"
 #include "mozilla/dom/WorkerPrivate.h"
@@ -28,6 +29,10 @@ class NotificationRef;
 class WorkerNotificationObserver;
 class Promise;
 class StrongWorkerRef;
+
+namespace notification {
+enum class PermissionCheckPurpose : uint8_t;
+}
 
 /*
  * Notifications on workers introduce some lifetime issues. The property we
@@ -81,9 +86,7 @@ class StrongWorkerRef;
  * dispatch a control runnable instead.
  *
  */
-class Notification : public DOMEventTargetHelper,
-                     public nsIObserver,
-                     public nsSupportsWeakReference {
+class Notification : public DOMEventTargetHelper, public GlobalFreezeObserver {
   friend class CloseNotificationRunnable;
   friend class NotificationTask;
   friend class NotificationPermissionRequest;
@@ -102,7 +105,6 @@ class Notification : public DOMEventTargetHelper,
   NS_DECL_ISUPPORTS_INHERITED
   NS_DECL_CYCLE_COLLECTION_SCRIPT_HOLDER_CLASS_INHERITED(Notification,
                                                          DOMEventTargetHelper)
-  NS_DECL_NSIOBSERVER
 
   static bool PrefEnabled(JSContext* aCx, JSObject* aObj);
 
@@ -177,10 +179,9 @@ class Notification : public DOMEventTargetHelper,
 
   void Close();
 
-  nsPIDOMWindowInner* GetParentObject() { return GetOwner(); }
+  nsIGlobalObject* GetParentObject() const { return GetOwnerGlobal(); }
 
-  virtual JSObject* WrapObject(JSContext* aCx,
-                               JS::Handle<JSObject*> aGivenProto) override;
+  JSObject* WrapObject(JSContext*, JS::Handle<JSObject*> aGivenProto) override;
 
   bool RequireInteraction() const;
 
@@ -200,6 +201,7 @@ class Notification : public DOMEventTargetHelper,
   // Initialized on the worker thread, never unset, and always used in
   // a read-only capacity. Used on any thread.
   CheckedUnsafePtr<WorkerPrivate> mWorkerPrivate;
+  bool mWorkerUseRegularPrincipal = false;
 
   // Main thread only.
   WorkerNotificationObserver* mObserver;
@@ -217,13 +219,9 @@ class Notification : public DOMEventTargetHelper,
   bool AddRefObject();
   void ReleaseObject();
 
-  static NotificationPermission GetPermission(nsIGlobalObject* aGlobal,
-                                              ErrorResult& aRv);
-
-  static NotificationPermission GetPermissionInternal(nsIPrincipal* aPrincipal,
-                                                      ErrorResult& rv);
-
-  static NotificationPermission TestPermission(nsIPrincipal* aPrincipal);
+  static NotificationPermission GetPermission(
+      nsIGlobalObject* aGlobal, notification::PermissionCheckPurpose aPurpose,
+      ErrorResult& aRv);
 
   bool DispatchClickEvent();
 
@@ -245,34 +243,18 @@ class Notification : public DOMEventTargetHelper,
       nsIGlobalObject* aGlobal, const nsAString& aID, const nsAString& aTitle,
       const NotificationOptions& aOptions, ErrorResult& aRv);
 
-  nsresult Init();
+  // Triggers CloseInternal for non-persistent notifications if window freezes
+  nsresult MaybeObserveWindowFrozen();
   bool IsInPrivateBrowsing();
   void ShowInternal();
   void CloseInternal(bool aContextClosed = false);
 
+  void DisconnectFromOwner() override;
+  void FrozenCallback(nsIGlobalObject* aOwner) override;
+
   static NotificationPermission GetPermissionInternal(
-      nsPIDOMWindowInner* aWindow, ErrorResult& rv);
-
-  static const nsString DirectionToString(NotificationDirection aDirection) {
-    switch (aDirection) {
-      case NotificationDirection::Ltr:
-        return u"ltr"_ns;
-      case NotificationDirection::Rtl:
-        return u"rtl"_ns;
-      default:
-        return u"auto"_ns;
-    }
-  }
-
-  static NotificationDirection StringToDirection(const nsAString& aDirection) {
-    if (aDirection.EqualsLiteral("ltr")) {
-      return NotificationDirection::Ltr;
-    }
-    if (aDirection.EqualsLiteral("rtl")) {
-      return NotificationDirection::Rtl;
-    }
-    return NotificationDirection::Auto;
-  }
+      nsPIDOMWindowInner* aWindow,
+      notification::PermissionCheckPurpose aPurpose, ErrorResult& rv);
 
   static nsresult GetOrigin(nsIPrincipal* aPrincipal, nsString& aOrigin);
 
@@ -347,7 +329,8 @@ class Notification : public DOMEventTargetHelper,
 
   bool CreateWorkerRef();
 
-  nsresult ResolveIconAndSoundURL(nsString&, nsString&);
+  static nsresult ResolveIconAndSoundURL(nsIGlobalObject* aGlobal,
+                                         nsString& iconUrl, nsString& soundUrl);
 
   // Only used for Notifications on Workers, worker thread only.
   RefPtr<StrongWorkerRef> mWorkerRef;

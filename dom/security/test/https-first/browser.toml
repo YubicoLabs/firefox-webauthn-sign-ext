@@ -1,4 +1,5 @@
 [DEFAULT]
+support-files = ["head.js"]
 
 ["browser_beforeunload_permit_http.js"]
 support-files = ["file_beforeunload_permit_http.html"]
@@ -7,7 +8,7 @@ support-files = ["file_beforeunload_permit_http.html"]
 support-files = [
   "file_mixed_content_auto_upgrade.html",
   "pass.png",
-  "test.ogv",
+  "test.webm",
   "test.wav",
 ]
 
@@ -40,7 +41,14 @@ support-files = [
 ["browser_navigation.js"]
 support-files = ["file_navigation.html"]
 
+["browser_subdocument_downgrade.js"]
+support-files = [
+  "file_empty.html",
+  "file_subdocument_downgrade.sjs",
+]
+
 ["browser_schemeless.js"]
+skip-if = ["!debug && tsan"] #Bug 1890170
 
 ["browser_slow_download.js"]
 support-files = [
@@ -50,4 +58,27 @@ support-files = [
 
 ["browser_superfluos_auth.js"]
 
+["browser_tlds.js"]
+
 ["browser_upgrade_onion.js"]
+
+["browser_https_telemetry.js"]
+support-files = [
+  "file_https_telemetry_hsts.sjs",
+  "file_no_https_support.sjs"
+]
+skip-if = [
+  "http3",
+  "http2",
+  "socketprocess_networking",
+]
+
+["browser_https_telemetry2.js"]
+support-files = [
+  "file_https_telemetry_csp_uir.html",
+]
+skip-if = [
+  "http3",
+  "http2",
+  "socketprocess_networking",
+]

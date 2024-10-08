@@ -32,7 +32,7 @@ const EXCEPTION_LIST_PREF_NAME = "privacy.restrict3rdpartystorage.skip_list";
 async function cleanup() {
   Services.prefs.clearUserPref(EXCEPTION_LIST_PREF_NAME);
   await new Promise(resolve => {
-    Services.clearData.deleteData(Ci.nsIClearDataService.CLEAR_ALL, value =>
+    Services.clearData.deleteData(Ci.nsIClearDataService.CLEAR_ALL, () =>
       resolve()
     );
   });
@@ -59,6 +59,8 @@ add_setup(async function () {
     ],
   });
   registerCleanupFunction(cleanup);
+
+  await cleanup();
 });
 
 function executeContentScript(browser, callback, options = {}) {
@@ -123,7 +125,7 @@ function getDataFromFirstParty(browser) {
 function createDataInThirdParty(browser, value) {
   return executeContentScript(browser, writeNetworkCookie, {
     page: TEST_3RD_PARTY_PARTITIONED_PAGE,
-    value,
+    value: value + ";SameSite=None;Secure;Partitioned;",
   });
 }
 function getDataFromThirdParty(browser) {
@@ -152,19 +154,18 @@ async function redirectWithUserInteraction(browser, url, wait = null) {
 }
 
 async function checkData(browser, options) {
+  let data;
+
+  // We check if the cookie string includes the expected cookie because the
+  // cookie string might contain both partitioned and unpartitioned cookies at
+  // the same time.
   if ("firstParty" in options) {
-    is(
-      await getDataFromFirstParty(browser),
-      options.firstParty,
-      "correct first-party data"
-    );
+    data = await getDataFromFirstParty(browser);
+    ok(data.includes(options.firstParty), "correct first-party data");
   }
   if ("thirdParty" in options) {
-    is(
-      await getDataFromThirdParty(browser),
-      options.thirdParty,
-      "correct third-party data"
-    );
+    data = await getDataFromThirdParty(browser);
+    ok(data.includes(options.thirdParty), "correct third-party data");
   }
 }
 

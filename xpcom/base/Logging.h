@@ -16,21 +16,9 @@
 #include "mozilla/Atomics.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/Likely.h"
+#include "mozilla/LoggingCore.h"
 
-// We normally have logging enabled everywhere, but measurements showed that
-// having logging enabled on Android is quite expensive (hundreds of kilobytes
-// for both the format strings for logging and the code to perform all the
-// logging calls).  Because retrieving logs from a mobile device is
-// comparatively more difficult for Android than it is for desktop and because
-// desktop machines tend to be less space/bandwidth-constrained than Android
-// devices, we've chosen to leave logging enabled on desktop, but disabled on
-// Android.  Given that logging can still be useful for development purposes,
-// however, we leave logging enabled on Android developer builds.
-#if !defined(ANDROID) || !defined(RELEASE_OR_BETA)
-#  define MOZ_LOGGING_ENABLED 1
-#else
-#  define MOZ_LOGGING_ENABLED 0
-#endif
+#define MOZ_LOGGING_ENABLED 1
 
 // The mandatory extension we add to log files.  Note that rotate will append
 // the file piece number still at the end.
@@ -42,36 +30,6 @@
 namespace mozilla {
 
 class TimeStamp;
-
-// While not a 100% mapping to PR_LOG's numeric values, mozilla::LogLevel does
-// maintain a direct mapping for the Disabled, Debug and Verbose levels.
-//
-// Mappings of LogLevel to PR_LOG's numeric values:
-//
-//   +---------+------------------+-----------------+
-//   | Numeric | NSPR Logging     | Mozilla Logging |
-//   +---------+------------------+-----------------+
-//   |       0 | PR_LOG_NONE      | Disabled        |
-//   |       1 | PR_LOG_ALWAYS    | Error           |
-//   |       2 | PR_LOG_ERROR     | Warning         |
-//   |       3 | PR_LOG_WARNING   | Info            |
-//   |       4 | PR_LOG_DEBUG     | Debug           |
-//   |       5 | PR_LOG_DEBUG + 1 | Verbose         |
-//   +---------+------------------+-----------------+
-//
-enum class LogLevel {
-  Disabled = 0,
-  Error,
-  Warning,
-  Info,
-  Debug,
-  Verbose,
-};
-
-/**
- * Safely converts an integer into a valid LogLevel.
- */
-LogLevel ToLogLevel(int32_t aLevel);
 
 class LogModule {
  public:
@@ -126,6 +84,11 @@ class LogModule {
   static void SetCaptureStacks(bool aCaptureStacks);
 
   /**
+   * Disable all log modules.
+   */
+  static void DisableModules();
+
+  /**
    * Indicates whether or not the given log level is enabled.
    */
   bool ShouldLog(LogLevel aLevel) const { return mLevel >= aLevel; }
@@ -154,6 +117,8 @@ class LogModule {
    */
   const char* Name() const { return mName; }
 
+  AtomicLogLevel& LevelRef() { return mLevel; }
+
  private:
   friend class LogModuleManager;
 
@@ -165,7 +130,7 @@ class LogModule {
 
   char* mName;
 
-  Atomic<LogLevel, Relaxed> mLevel;
+  AtomicLogLevel mLevel;
 };
 
 /**

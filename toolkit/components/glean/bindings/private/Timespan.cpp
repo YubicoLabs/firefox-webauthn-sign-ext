@@ -36,6 +36,7 @@ class ScalarIDHashKey : public PLDHashEntryHdr {
     return static_cast<std::underlying_type<ScalarID>::type>(*aKey);
   }
   enum { ALLOW_MEMMOVE = true };
+  static_assert(std::is_trivially_copyable_v<ScalarID>);
 
  private:
   const ScalarID mValue;
@@ -92,7 +93,7 @@ void TimespanMetric::Start() const {
   auto optScalarId = ScalarIdForMetric(mId);
   if (optScalarId) {
     auto scalarId = optScalarId.extract();
-    GetTimesToStartsLock().apply([&](auto& lock) {
+    GetTimesToStartsLock().apply([&](const auto& lock) {
       (void)NS_WARN_IF(lock.ref()->Remove(scalarId));
       lock.ref()->InsertOrUpdate(scalarId, TimeStamp::Now());
     });
@@ -104,7 +105,7 @@ void TimespanMetric::Stop() const {
   auto optScalarId = ScalarIdForMetric(mId);
   if (optScalarId) {
     auto scalarId = optScalarId.extract();
-    GetTimesToStartsLock().apply([&](auto& lock) {
+    GetTimesToStartsLock().apply([&](const auto& lock) {
       auto optStart = lock.ref()->Extract(scalarId);
       if (!NS_WARN_IF(!optStart)) {
         double delta = (TimeStamp::Now() - optStart.extract()).ToMilliseconds();
@@ -126,7 +127,7 @@ void TimespanMetric::Cancel() const {
   if (optScalarId) {
     auto scalarId = optScalarId.extract();
     GetTimesToStartsLock().apply(
-        [&](auto& lock) { lock.ref()->Remove(scalarId); });
+        [&](const auto& lock) { lock.ref()->Remove(scalarId); });
   }
   fog_timespan_cancel(mId);
 }

@@ -56,7 +56,7 @@ ChromeUtils.defineLazyGetter(this, "homepagePopup", () => {
       Services.prefs.addObserver(HOMEPAGE_PREF, async function prefObserver() {
         Services.prefs.removeObserver(HOMEPAGE_PREF, prefObserver);
         let loaded = waitForTabLoaded(tab);
-        win.BrowserHome();
+        win.BrowserCommands.home();
         await loaded;
         // Manually trigger an event in case this is controlled again.
         popup.open();
@@ -259,7 +259,7 @@ this.chrome_settings_overrides = class extends ExtensionAPI {
     await chrome_settings_overrides.removeEngine(id);
   }
 
-  async onManifestEntry(entryName) {
+  async onManifestEntry() {
     let { extension } = this;
     let { manifest } = extension;
     let homepageUrl = manifest.chrome_settings_overrides.homepage;
@@ -269,15 +269,10 @@ this.chrome_settings_overrides = class extends ExtensionAPI {
       const ignoreHomePageUrl = await HomePage.shouldIgnore(homepageUrl);
 
       if (ignoreHomePageUrl) {
-        Services.telemetry.recordEvent(
-          "homepage",
-          "preference",
-          "ignore",
-          "set_blocked_extension",
-          {
-            webExtensionId: extension.id,
-          }
-        );
+        Glean.homepage.preferenceIgnore.record({
+          value: "set_blocked_extension",
+          webExtensionId: extension.id,
+        });
       } else {
         await handleHomepageUrl(extension, homepageUrl);
       }

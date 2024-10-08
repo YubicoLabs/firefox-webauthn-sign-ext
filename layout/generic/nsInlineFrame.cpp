@@ -77,8 +77,8 @@ void nsInlineFrame::InvalidateFrameWithRect(const nsRect& aRect,
                                             aRebuildDisplayItems);
 }
 
-static inline bool IsMarginZero(const LengthPercentageOrAuto& aLength) {
-  return aLength.IsAuto() ||
+static inline bool IsMarginZero(const StyleMargin& aLength) {
+  return !aLength.IsLengthPercentage() ||
          nsLayoutUtils::IsMarginZero(aLength.AsLengthPercentage());
 }
 
@@ -103,7 +103,7 @@ bool nsInlineFrame::IsSelfEmpty() {
   auto HaveSide = [&](mozilla::Side aSide) -> bool {
     return border->GetComputedBorderWidth(aSide) != 0 ||
            !nsLayoutUtils::IsPaddingZero(padding->mPadding.Get(aSide)) ||
-           !IsMarginZero(margin->mMargin.Get(aSide));
+           !IsMarginZero(margin->GetMargin(aSide));
   };
   // Initially set up haveStart and haveEnd in terms of visual (LTR/TTB)
   // coordinates; we'll exchange them later if bidi-RTL is in effect to
@@ -223,15 +223,15 @@ void nsInlineFrame::BuildDisplayList(nsDisplayListBuilder* aBuilder,
 // Reflow methods
 
 /* virtual */
-void nsInlineFrame::AddInlineMinISize(gfxContext* aRenderingContext,
-                                      nsIFrame::InlineMinISizeData* aData) {
-  DoInlineMinISize(aRenderingContext, aData);
+void nsInlineFrame::AddInlineMinISize(const IntrinsicSizeInput& aInput,
+                                      InlineMinISizeData* aData) {
+  DoInlineMinISize(aInput, aData);
 }
 
 /* virtual */
-void nsInlineFrame::AddInlinePrefISize(gfxContext* aRenderingContext,
-                                       nsIFrame::InlinePrefISizeData* aData) {
-  DoInlinePrefISize(aRenderingContext, aData);
+void nsInlineFrame::AddInlinePrefISize(const IntrinsicSizeInput& aInput,
+                                       InlinePrefISizeData* aData) {
+  DoInlinePrefISize(aInput, aData);
 }
 
 /* virtual */
@@ -265,19 +265,19 @@ static void ReparentChildListStyle(nsPresContext* aPresContext,
   }
 }
 
-void nsInlineFrame::Reflow(nsPresContext* aPresContext, ReflowOutput& aMetrics,
+void nsInlineFrame::Reflow(nsPresContext* aPresContext,
+                           ReflowOutput& aReflowOutput,
                            const ReflowInput& aReflowInput,
                            nsReflowStatus& aStatus) {
   MarkInReflow();
   DO_GLOBAL_REFLOW_COUNT("nsInlineFrame");
-  DISPLAY_REFLOW(aPresContext, this, aReflowInput, aMetrics, aStatus);
   MOZ_ASSERT(aStatus.IsEmpty(), "Caller should pass a fresh reflow status!");
 
   if (!aReflowInput.mLineLayout) {
     NS_ERROR("must have non-null aReflowInput.mLineLayout");
     return;
   }
-  if (IsFrameTreeTooDeep(aReflowInput, aMetrics, aStatus)) {
+  if (IsFrameTreeTooDeep(aReflowInput, aReflowOutput, aStatus)) {
     return;
   }
 
@@ -354,9 +354,9 @@ void nsInlineFrame::Reflow(nsPresContext* aPresContext, ReflowOutput& aMetrics,
     Unused << PullOneFrame(aPresContext, irs);
   }
 
-  ReflowFrames(aPresContext, aReflowInput, irs, aMetrics, aStatus);
+  ReflowFrames(aPresContext, aReflowInput, irs, aReflowOutput, aStatus);
 
-  ReflowAbsoluteFrames(aPresContext, aMetrics, aReflowInput, aStatus);
+  ReflowAbsoluteFrames(aPresContext, aReflowOutput, aReflowInput, aStatus);
 
   // Note: the line layout code will properly compute our
   // overflow-rect state for us.
@@ -442,7 +442,8 @@ void nsInlineFrame::PullOverflowsFromPrevInFlow() {
 
 void nsInlineFrame::ReflowFrames(nsPresContext* aPresContext,
                                  const ReflowInput& aReflowInput,
-                                 InlineReflowInput& irs, ReflowOutput& aMetrics,
+                                 InlineReflowInput& irs,
+                                 ReflowOutput& aReflowOutput,
                                  nsReflowStatus& aStatus) {
   MOZ_ASSERT(aStatus.IsEmpty(), "Caller should pass a fresh reflow status!");
 
@@ -450,7 +451,7 @@ void nsInlineFrame::ReflowFrames(nsPresContext* aPresContext,
   bool inFirstLine = aReflowInput.mLineLayout->GetInFirstLine();
   RestyleManager* restyleManager = aPresContext->RestyleManager();
   WritingMode frameWM = aReflowInput.GetWritingMode();
-  WritingMode lineWM = aReflowInput.mLineLayout->mRootSpan->mWritingMode;
+  WritingMode lineWM = aReflowInput.mLineLayout->GetWritingMode();
   LogicalMargin framePadding =
       aReflowInput.ComputedLogicalBorderPadding(frameWM);
   nscoord startEdge = 0;
@@ -592,7 +593,7 @@ void nsInlineFrame::ReflowFrames(nsPresContext* aPresContext,
   // line-height calculations. However, continuations of an inline
   // that are empty we force to empty so that things like collapsed
   // whitespace in an inline element don't affect the line-height.
-  aMetrics.ISize(lineWM) = lineLayout->EndSpan(this);
+  aReflowOutput.ISize(lineWM) = lineLayout->EndSpan(this);
 
   // Compute final width.
 
@@ -608,7 +609,7 @@ void nsInlineFrame::ReflowFrames(nsPresContext* aPresContext,
   // and padding since all continuations have them.
   if ((!GetPrevContinuation() && !FrameIsNonFirstInIBSplit()) ||
       boxDecorationBreakClone) {
-    aMetrics.ISize(lineWM) += framePadding.IStart(frameWM);
+    aReflowOutput.ISize(lineWM) += framePadding.IStart(frameWM);
   }
 
   /*
@@ -622,20 +623,20 @@ void nsInlineFrame::ReflowFrames(nsPresContext* aPresContext,
   if ((aStatus.IsComplete() && !LastInFlow()->GetNextContinuation() &&
        !FrameIsNonLastInIBSplit()) ||
       boxDecorationBreakClone) {
-    aMetrics.ISize(lineWM) += framePadding.IEnd(frameWM);
+    aReflowOutput.ISize(lineWM) += framePadding.IEnd(frameWM);
   }
 
-  nsLayoutUtils::SetBSizeFromFontMetrics(this, aMetrics, framePadding, lineWM,
-                                         frameWM);
+  nsLayoutUtils::SetBSizeFromFontMetrics(this, aReflowOutput, framePadding,
+                                         lineWM, frameWM);
 
   // For now our overflow area is zero. The real value will be
   // computed in |nsLineLayout::RelativePositionFrames|.
-  aMetrics.mOverflowAreas.Clear();
+  aReflowOutput.mOverflowAreas.Clear();
 
 #ifdef NOISY_FINAL_SIZE
   ListTag(stdout);
-  printf(": metrics=%d,%d ascent=%d\n", aMetrics.Width(), aMetrics.Height(),
-         aMetrics.BlockStartAscent());
+  printf(": metrics=%d,%d ascent=%d\n", aReflowOutput.Width(),
+         aReflowOutput.Height(), aReflowOutput.BlockStartAscent());
 #endif
 }
 
@@ -798,7 +799,7 @@ LogicalSides nsInlineFrame::GetLogicalSkipSides() const {
         (prev && (prev->mRect.height || prev->mRect.width))) {
       // Prev continuation is not empty therefore we don't render our start
       // border edge.
-      skip |= eLogicalSideBitsIStart;
+      skip += LogicalSide::IStart;
     } else {
       // If the prev continuation is empty, then go ahead and let our start
       // edge border render.
@@ -810,7 +811,7 @@ LogicalSides nsInlineFrame::GetLogicalSkipSides() const {
         (next && (next->mRect.height || next->mRect.width))) {
       // Next continuation is not empty therefore we don't render our end
       // border edge.
-      skip |= eLogicalSideBitsIEnd;
+      skip += LogicalSide::IEnd;
     } else {
       // If the next continuation is empty, then go ahead and let our end
       // edge border render.
@@ -823,15 +824,15 @@ LogicalSides nsInlineFrame::GetLogicalSkipSides() const {
     // a split should skip the "start" side.  But figuring out which part of
     // the split we are involves getting our first continuation, which might be
     // expensive.  So don't bother if we already have the relevant bits set.
-    if (skip != LogicalSides(mWritingMode, eLogicalSideBitsIBoth)) {
+    if (skip != LogicalSides(mWritingMode, LogicalSides::IBoth)) {
       // We're missing one of the skip bits, so check whether we need to set it.
       // Only get the first continuation once, as an optimization.
       nsIFrame* firstContinuation = FirstContinuation();
       if (firstContinuation->FrameIsNonLastInIBSplit()) {
-        skip |= eLogicalSideBitsIEnd;
+        skip += LogicalSide::IEnd;
       }
       if (firstContinuation->FrameIsNonFirstInIBSplit()) {
-        skip |= eLogicalSideBitsIStart;
+        skip += LogicalSide::IStart;
       }
     }
   }
@@ -983,7 +984,7 @@ nsIFrame* nsFirstLineFrame::PullOneFrame(nsPresContext* aPresContext,
 }
 
 void nsFirstLineFrame::Reflow(nsPresContext* aPresContext,
-                              ReflowOutput& aMetrics,
+                              ReflowOutput& aReflowOutput,
                               const ReflowInput& aReflowInput,
                               nsReflowStatus& aStatus) {
   MarkInReflow();
@@ -1044,10 +1045,10 @@ void nsFirstLineFrame::Reflow(nsPresContext* aPresContext,
   NS_ASSERTION(!aReflowInput.mLineLayout->GetInFirstLine(),
                "Nested first-line frames? BOGUS");
   aReflowInput.mLineLayout->SetInFirstLine(true);
-  ReflowFrames(aPresContext, aReflowInput, irs, aMetrics, aStatus);
+  ReflowFrames(aPresContext, aReflowInput, irs, aReflowOutput, aStatus);
   aReflowInput.mLineLayout->SetInFirstLine(false);
 
-  ReflowAbsoluteFrames(aPresContext, aMetrics, aReflowInput, aStatus);
+  ReflowAbsoluteFrames(aPresContext, aReflowOutput, aReflowInput, aStatus);
 
   // Note: the line layout code will properly compute our overflow state for us
 }

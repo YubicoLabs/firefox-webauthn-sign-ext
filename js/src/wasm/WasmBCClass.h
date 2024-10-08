@@ -72,6 +72,8 @@ struct Control {
   bool deadThenBranch;         // deadCode_ was set on exit from "then"
   size_t tryNoteIndex;         // For tracking try branch code ranges.
   CatchInfoVector catchInfos;  // Used for try-catch handlers.
+  size_t loopBytecodeStart;    // For LT: bytecode offset of start of a loop.
+  CodeOffset offsetOfCtrDec;   // For LT: masm offset of loop's counter decr.
 
   Control()
       : stackHeight(StackHeight::Invalid()),
@@ -80,7 +82,9 @@ struct Control {
         bceSafeOnExit(~BCESet(0)),
         deadOnArrival(false),
         deadThenBranch(false),
-        tryNoteIndex(0) {}
+        tryNoteIndex(0),
+        loopBytecodeStart(UINTPTR_MAX),
+        offsetOfCtrDec(CodeOffset()) {}
 
   Control(Control&&) = default;
   Control(const Control&) = delete;
@@ -88,23 +92,23 @@ struct Control {
 
 // A vector of Nothing values, used for reading opcodes.
 class BaseNothingVector {
-  Nothing unused_;
+  mozilla::Nothing unused_;
 
  public:
   bool reserve(size_t size) { return true; }
   bool resize(size_t length) { return true; }
-  Nothing& operator[](size_t) { return unused_; }
-  Nothing& back() { return unused_; }
+  mozilla::Nothing& operator[](size_t) { return unused_; }
+  mozilla::Nothing& back() { return unused_; }
   size_t length() const { return 0; }
-  bool append(Nothing& nothing) { return true; }
-  void infallibleAppend(Nothing& nothing) {}
+  bool append(mozilla::Nothing& nothing) { return true; }
+  void infallibleAppend(mozilla::Nothing& nothing) {}
 };
 
 // The baseline compiler tracks values on a stack of its own -- it needs to scan
 // that stack for spilling -- and thus has no need for the values maintained by
 // the iterator.
 struct BaseCompilePolicy {
-  using Value = Nothing;
+  using Value = mozilla::Nothing;
   using ValueVector = BaseNothingVector;
 
   // The baseline compiler uses the iterator's control stack, attaching
@@ -174,6 +178,12 @@ enum class PostBarrierKind {
   Imprecise,
 };
 
+struct BranchIfRefSubtypeRegisters {
+  RegPtr superSTV;
+  RegI32 scratch1;
+  RegI32 scratch2;
+};
+
 //////////////////////////////////////////////////////////////////////////////
 //
 // Wasm baseline compiler proper.
@@ -198,7 +208,7 @@ struct BaseCompiler final {
   // Read-only and write-once members.
 
   // Static compilation environment.
-  const ModuleEnvironment& moduleEnv_;
+  const CodeMetadata& codeMeta_;
   const CompilerEnvironment& compilerEnv_;
   const FuncCompileInput& func_;
   const ValTypeVector& locals_;
@@ -222,9 +232,9 @@ struct BaseCompiler final {
   // generation and only used by the caller.
   FuncOffsets offsets_;
 
-  // We call this address from the breakable point when the breakpoint handler
-  // is not null.
-  NonAssertingLabel debugTrapStub_;
+  // We call this address from the breakable point when the (per-module) debug
+  // stub pointer in the Instance is not null.
+  NonAssertingLabel perFunctionDebugStub_;
   uint32_t previousBreakablePoint_;
 
   // BaselineCompileFunctions() "lends" us the StkVector to use in this
@@ -291,6 +301,10 @@ struct BaseCompiler final {
   // Flag indicating that the compiler is currently in a dead code region.
   bool deadCode_;
 
+  // Store previously finished note to know if we need to insert a nop in
+  // finishTryNote.
+  size_t mostRecentFinishedTryNoteIndex_;
+
   ///////////////////////////////////////////////////////////////////////////
   //
   // State for bounds check elimination.
@@ -321,7 +335,7 @@ struct BaseCompiler final {
   // A client will create a compiler object, and then call init(),
   // emitFunction(), and finish() in that order.
 
-  BaseCompiler(const ModuleEnvironment& moduleEnv,
+  BaseCompiler(const CodeMetadata& codeMetadata,
                const CompilerEnvironment& compilerEnv,
                const FuncCompileInput& func, const ValTypeVector& locals,
                const RegisterOffsets& trapExitLayout,
@@ -505,9 +519,6 @@ struct BaseCompiler final {
   // On 64-bit systems, return an invalid register.  On 32-bit systems, return
   // the low part of a pair.
   inline RegI32 maybeHighPart(RegI64 r);
-
-  // On 64-bit systems, do nothing.  On 32-bit systems, clear the high register.
-  inline void maybeClearHighPart(RegI64 r);
 
   //////////////////////////////////////////////////////////////////////////////
   //
@@ -762,6 +773,14 @@ struct BaseCompiler final {
   // Pop an I32 or I64 as an I64. The value is zero extended out to 64-bits.
   inline RegI64 popIndexToInt64(IndexType indexType);
 
+  // Pop an I32 or I64 as an I32. The value is clamped to UINT32_MAX to ensure
+  // that it trips bounds checks.
+  inline RegI32 popTableIndexToClampedInt32(IndexType indexType);
+
+  // A combined push/pop that replaces an I32 or I64 on the stack with a clamped
+  // I32, which will trip bounds checks if out of I32 range.
+  inline void replaceTableIndexWithClampedInt32(IndexType indexType);
+
   // Pop the stack until it has the desired size, but do not move the physical
   // stack pointer.
   inline void popValueStackTo(uint32_t stackSize);
@@ -929,7 +948,7 @@ struct BaseCompiler final {
   void insertBreakablePoint(CallSiteDesc::Kind kind);
 
   // Insert code at the end of a function for breakpoint filtering.
-  void insertBreakpointStub();
+  void insertPerFunctionDebugStub();
 
   // Debugger API used at the return point: shuffle register return values off
   // to memory for the debugger to see; and get them back again.
@@ -967,9 +986,10 @@ struct BaseCompiler final {
                     bool tailCall, CodeOffset* fastCallOffset,
                     CodeOffset* slowCallOffset);
   CodeOffset callImport(unsigned instanceDataOffset, const FunctionCall& call);
-#ifdef ENABLE_WASM_FUNCTION_REFERENCES
+#ifdef ENABLE_WASM_GC
   void callRef(const Stk& calleeRef, const FunctionCall& call,
-               CodeOffset* fastCallOffset, CodeOffset* slowCallOffset);
+               mozilla::Maybe<size_t> callRefIndex, CodeOffset* fastCallOffset,
+               CodeOffset* slowCallOffset);
 #  ifdef ENABLE_WASM_TAIL_CALLS
   void returnCallRef(const Stk& calleeRef, const FunctionCall& call,
                      const FuncType* funcType);
@@ -1025,6 +1045,16 @@ struct BaseCompiler final {
   //////////////////////////////////////////////////////////////////////
   //
   // Sundry low-level code generators.
+
+  // Decrement the per-instance function hotness counter by `step` and request
+  // optimized compilation for this function if the updated counter is negative
+  // when regarded as an int32_t.  The amount to decrement is to be filled in
+  // later by ::patchHotnessCheck.
+  [[nodiscard]] Maybe<CodeOffset> addHotnessCheck();
+
+  // Patch in the counter decrement for a hotness check, using the offset
+  // previously obtained from ::addHotnessCheck. We require 1 <= `step` <= 127.
+  void patchHotnessCheck(CodeOffset offset, uint32_t step);
 
   // Check the interrupt flag, trap if it is set.
   [[nodiscard]] bool addInterruptCheck();
@@ -1332,17 +1362,17 @@ struct BaseCompiler final {
   // stored. This register is consumed by this function.
   // `value` is the value that was stored in the field. This register is
   // preserved by this function.
-  [[nodiscard]] bool emitPostBarrierImprecise(const Maybe<RegRef>& object,
-                                              RegPtr valueAddr, RegRef value);
-  [[nodiscard]] bool emitPostBarrierPrecise(const Maybe<RegRef>& object,
-                                            RegPtr valueAddr, RegRef prevValue,
-                                            RegRef value);
+  [[nodiscard]] bool emitPostBarrierImprecise(
+      const mozilla::Maybe<RegRef>& object, RegPtr valueAddr, RegRef value);
+  [[nodiscard]] bool emitPostBarrierPrecise(
+      const mozilla::Maybe<RegRef>& object, RegPtr valueAddr, RegRef prevValue,
+      RegRef value);
 
   // Emits a store to a JS object pointer at the address `valueAddr`, which is
   // inside the GC cell `object`.
   //
   // Preserves `object` and `value`. Consumes `valueAddr`.
-  [[nodiscard]] bool emitBarrieredStore(const Maybe<RegRef>& object,
+  [[nodiscard]] bool emitBarrieredStore(const mozilla::Maybe<RegRef>& object,
                                         RegPtr valueAddr, RegRef value,
                                         PreBarrierKind preBarrierKind,
                                         PostBarrierKind postBarrierKind);
@@ -1392,9 +1422,6 @@ struct BaseCompiler final {
   // Used for common setup for catch and catch_all.
   void emitCatchSetup(LabelKind kind, Control& tryCatch,
                       const ResultType& resultType);
-  // Helper function used to generate landing pad code for the special
-  // case in which `delegate` jumps to a function's body block.
-  [[nodiscard]] bool emitBodyDelegateThrowPad();
 
   [[nodiscard]] bool emitTry();
   [[nodiscard]] bool emitTryTable();
@@ -1635,7 +1662,7 @@ struct BaseCompiler final {
   [[nodiscard]] bool emitRefFunc();
   [[nodiscard]] bool emitRefNull();
   [[nodiscard]] bool emitRefIsNull();
-#ifdef ENABLE_WASM_FUNCTION_REFERENCES
+#ifdef ENABLE_WASM_GC
   [[nodiscard]] bool emitRefAsNonNull();
   [[nodiscard]] bool emitBrOnNull();
   [[nodiscard]] bool emitBrOnNonNull();
@@ -1747,15 +1774,10 @@ struct BaseCompiler final {
   template <typename T, typename NullCheckPolicy>
   void emitGcSetScalar(const T& dst, StorageType type, AnyReg value);
 
-  // Common code for both old and new ref.test instructions.
-  void emitRefTestCommon(RefType sourceType, RefType destType);
-  // Common code for both old and new ref.cast instructions.
-  void emitRefCastCommon(RefType sourceType, RefType destType);
-
-  // Allocate registers and branch if the given wasm ref is a subtype of the
-  // given heap type.
-  void branchIfRefSubtype(RegRef ref, RefType sourceType, RefType destType,
-                          Label* label, bool onSuccess);
+  BranchIfRefSubtypeRegisters allocRegistersForBranchIfRefSubtype(
+      RefType destType);
+  void freeRegistersForBranchIfRefSubtype(
+      const BranchIfRefSubtypeRegisters& regs);
 
   // Write `value` to wasm struct `object`, at `areaBase + areaOffset`.  The
   // caller must decide on the in- vs out-of-lineness before the call and set

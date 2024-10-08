@@ -16,6 +16,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.mozilla.geckoview.BuildConfig
 import org.mozilla.geckoview.GeckoResult
+import org.mozilla.geckoview.GeckoRuntimeSettings
 import org.mozilla.geckoview.GeckoSession
 import org.mozilla.geckoview.GeckoSession.NavigationDelegate
 import org.mozilla.geckoview.GeckoSession.ProgressDelegate
@@ -219,6 +220,31 @@ class RuntimeSettingsTest : BaseSessionTest() {
     }
 
     @Test
+    fun webContentIsolationStrategy() {
+        val geckoRuntimeSettings = sessionRule.runtime.settings
+
+        // Set isolation strategy
+        geckoRuntimeSettings.setWebContentIsolationStrategy(GeckoRuntimeSettings.STRATEGY_ISOLATE_NOTHING)
+
+        // Check isolation strategy with GeckoView
+        assertThat(
+            "WebContentIsolationStrategy was set to isolate nothing.",
+            geckoRuntimeSettings.webContentIsolationStrategy,
+            equalTo(GeckoRuntimeSettings.STRATEGY_ISOLATE_NOTHING),
+        )
+
+        // Check isolation strategy with Gecko
+        val geckoPreference =
+            (sessionRule.getPrefs("fission.webContentIsolationStrategy").get(0)) as Int
+
+        assertThat(
+            "WebContentIsolationStrategy pref value should be isolate nothing.",
+            geckoPreference,
+            equalTo(GeckoRuntimeSettings.STRATEGY_ISOLATE_NOTHING),
+        )
+    }
+
+    @Test
     fun largeKeepaliveFactor() {
         val defaultLargeKeepaliveFactor = 10
         val settings = sessionRule.runtime.settings
@@ -277,8 +303,7 @@ class RuntimeSettingsTest : BaseSessionTest() {
         mainSession.loadUri("about:config")
         mainSession.waitUntilCalled(object : NavigationDelegate {
             @AssertCalled
-            override fun onLoadError(session: GeckoSession, uri: String?, error: WebRequestError):
-                GeckoResult<String>? {
+            override fun onLoadError(session: GeckoSession, uri: String?, error: WebRequestError): GeckoResult<String>? {
                 assertThat("about:config should not load.", uri, equalTo("about:config"))
                 return null
             }
@@ -410,6 +435,170 @@ class RuntimeSettingsTest : BaseSessionTest() {
             "Global Privacy Control Functionality flag should still be enabled",
             globalPrivacyControlFunctionality,
             equalTo(true),
+        )
+    }
+
+    @Test
+    fun suspectedFingerprintersEnabling() {
+        val geckoRuntimeSettings = sessionRule.runtime.settings
+
+        geckoRuntimeSettings.setFingerprintingProtection(true)
+        geckoRuntimeSettings.setFingerprintingProtectionPrivateBrowsing(true)
+
+        assertThat(
+            "Suspected Fingerprint Protection runtime settings should now be enabled in normal tabs",
+            geckoRuntimeSettings.fingerprintingProtection,
+            equalTo(true),
+        )
+
+        assertThat(
+            "Suspected Fingerprint Protection runtime settings should still be enabled in private tabs",
+            geckoRuntimeSettings.fingerprintingProtectionPrivateBrowsing,
+            equalTo(true),
+        )
+
+        val fingerprintingProtection =
+            (sessionRule.getPrefs("privacy.fingerprintingProtection").get(0)) as Boolean
+        val fingerprintingProtectionPrivateBrowsing =
+            (sessionRule.getPrefs("privacy.fingerprintingProtection.pbmode").get(0)) as Boolean
+
+        assertThat(
+            "Suspected Fingerprint Protection should be enabled in normal tabs",
+            fingerprintingProtection,
+            equalTo(true),
+        )
+
+        assertThat(
+            "Suspected Fingerprint Protection should still be enabled in private tabs",
+            fingerprintingProtectionPrivateBrowsing,
+            equalTo(true),
+        )
+    }
+
+    @Test
+    fun suspectedFingerprintersDisabling() {
+        val geckoRuntimeSettings = sessionRule.runtime.settings
+
+        geckoRuntimeSettings.setFingerprintingProtection(false)
+        geckoRuntimeSettings.setFingerprintingProtectionPrivateBrowsing(false)
+
+        assertThat(
+            "Suspected Fingerprint Protection runtime settings should still be disabled in normal tabs",
+            geckoRuntimeSettings.fingerprintingProtection,
+            equalTo(false),
+        )
+
+        assertThat(
+            "Suspected Fingerprint Protection runtime settings should now be disabled in private tabs",
+            geckoRuntimeSettings.fingerprintingProtectionPrivateBrowsing,
+            equalTo(false),
+        )
+
+        val fingerprintingProtection =
+            (sessionRule.getPrefs("privacy.fingerprintingProtection").get(0)) as Boolean
+        val fingerprintingProtectionPrivateBrowsing =
+            (sessionRule.getPrefs("privacy.fingerprintingProtection.pbmode").get(0)) as Boolean
+
+        assertThat(
+            "Suspected Fingerprint Protection should still be disabled in normal tabs",
+            fingerprintingProtection,
+            equalTo(false),
+        )
+
+        assertThat(
+            "Suspected Fingerprint Protection should be disabled in private tabs",
+            fingerprintingProtectionPrivateBrowsing,
+            equalTo(false),
+        )
+    }
+
+    @Test
+    fun fingerprintingProtectionOverrides() {
+        val geckoRuntimeSettings = sessionRule.runtime.settings
+
+        geckoRuntimeSettings.setFingerprintingProtectionOverrides(
+            "+NavigatorHWConcurrency,+CanvasRandomization",
+        )
+
+        assertThat(
+            "Fingerprint Protection overrides settings should be set to the expected value",
+            geckoRuntimeSettings.fingerprintingProtectionOverrides,
+            equalTo("+NavigatorHWConcurrency,+CanvasRandomization"),
+        )
+
+        val overrides =
+            (sessionRule.getPrefs("privacy.fingerprintingProtection.overrides").get(0)) as String
+
+        assertThat(
+            "Fingerprint Protection overrides pref should be set to the expected value",
+            overrides,
+            equalTo("+NavigatorHWConcurrency,+CanvasRandomization"),
+        )
+    }
+
+    @Test
+    fun fdlibmMathEnabling() {
+        val geckoRuntimeSettings = sessionRule.runtime.settings
+
+        geckoRuntimeSettings.setFdlibmMathEnabled(true)
+
+        assertThat(
+            "Fdlibm math settings should be set to the expected value",
+            geckoRuntimeSettings.fdlibmMathEnabled,
+            equalTo(true),
+        )
+
+        val enabled =
+            (sessionRule.getPrefs("javascript.options.use_fdlibm_for_sin_cos_tan").get(0)) as Boolean
+
+        assertThat(
+            "Fdlibm math pref should be set to the expected value",
+            enabled,
+            equalTo(true),
+        )
+    }
+
+    @Test
+    fun fdlibmMathDisabling() {
+        val geckoRuntimeSettings = sessionRule.runtime.settings
+
+        geckoRuntimeSettings.setFdlibmMathEnabled(false)
+
+        assertThat(
+            "Fdlibm math settings should be set to the expected value",
+            geckoRuntimeSettings.fdlibmMathEnabled,
+            equalTo(false),
+        )
+
+        val enabled =
+            (sessionRule.getPrefs("javascript.options.use_fdlibm_for_sin_cos_tan").get(0)) as Boolean
+
+        assertThat(
+            "Fdlibm math pref should be set to the expected value",
+            enabled,
+            equalTo(false),
+        )
+    }
+
+    @Test
+    fun userCharacteristicPingCurrentVersion() {
+        val geckoRuntimeSettings = sessionRule.runtime.settings
+
+        geckoRuntimeSettings.setUserCharacteristicPingCurrentVersion(5)
+
+        assertThat(
+            "UserCharacteristicPingCurrentVersion runtime settings should return expected value",
+            geckoRuntimeSettings.userCharacteristicPingCurrentVersion,
+            equalTo(5),
+        )
+
+        val currentVersion =
+            (sessionRule.getPrefs("toolkit.telemetry.user_characteristics_ping.current_version").get(0)) as Int
+
+        assertThat(
+            "UserCharacteristicPingCurrentVersion pref value should be expected value",
+            currentVersion,
+            equalTo(5),
         )
     }
 }

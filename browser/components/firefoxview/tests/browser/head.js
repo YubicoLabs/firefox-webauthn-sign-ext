@@ -3,6 +3,7 @@
 
 const {
   getFirefoxViewURL,
+  switchToWindow,
   withFirefoxView,
   assertFirefoxViewTab,
   assertFirefoxViewTabSelected,
@@ -31,6 +32,11 @@ const { FeatureCalloutMessages } = ChromeUtils.importESModule(
 const { TelemetryTestUtils } = ChromeUtils.importESModule(
   "resource://testing-common/TelemetryTestUtils.sys.mjs"
 );
+const { NonPrivateTabs } = ChromeUtils.importESModule(
+  "resource:///modules/OpenTabs.sys.mjs"
+);
+// shut down the open tabs module after each test so we don't get debounced events bleeding into the next
+registerCleanupFunction(() => NonPrivateTabs.stop());
 
 const triggeringPrincipal_base64 = E10SUtils.SERIALIZED_SYSTEMPRINCIPAL;
 const { SessionStoreTestUtils } = ChromeUtils.importESModule(
@@ -45,10 +51,6 @@ ChromeUtils.defineESModuleGetters(this, {
   SyncedTabs: "resource://services-sync/SyncedTabs.sys.mjs",
   TabStateFlusher: "resource:///modules/sessionstore/TabStateFlusher.sys.mjs",
 });
-
-const calloutId = "feature-callout";
-const calloutSelector = `#${calloutId}.featureCallout`;
-const CTASelector = `#${calloutId} :is(.primary, .secondary)`;
 
 /**
  * URLs used for browser_recently_closed_tabs_keyboard and
@@ -231,11 +233,13 @@ function setupRecentDeviceListMocks() {
       name: "My desktop",
       isCurrentDevice: true,
       type: "desktop",
+      availableCommands: {},
     },
     {
       id: 2,
       name: "My iphone",
       type: "mobile",
+      availableCommands: {},
     },
   ]);
 
@@ -244,6 +248,11 @@ function setupRecentDeviceListMocks() {
     syncEnabled: true,
     email: "email@example.com",
   });
+
+  // whatever was passed in was the "found" client
+  sandbox
+    .stub(SyncedTabs._internal, "_getClientFxaDeviceId")
+    .callsFake(clientId => clientId);
 
   return sandbox;
 }
@@ -329,174 +338,6 @@ function setupMocks({ fxaDevices = null, state, syncEnabled = true }) {
 async function tearDown(sandbox) {
   sandbox?.restore();
   Services.prefs.clearUserPref("services.sync.lastTabFetch");
-}
-
-const featureTourPref = "browser.firefox-view.feature-tour";
-const launchFeatureTourIn = win => {
-  const { FeatureCallout } = ChromeUtils.importESModule(
-    "resource:///modules/asrouter/FeatureCallout.sys.mjs"
-  );
-  let callout = new FeatureCallout({
-    win,
-    pref: { name: featureTourPref },
-    location: "about:firefoxview",
-    context: "content",
-    theme: { preset: "themed-content" },
-  });
-  callout.showFeatureCallout();
-  return callout;
-};
-
-/**
- * Returns a value that can be used to set
- * `browser.firefox-view.feature-tour` to change the feature tour's
- * UI state.
- *
- * @see FeatureCalloutMessages.sys.mjs for valid values of "screen"
- *
- * @param {number} screen The full ID of the feature callout screen
- * @returns {string} JSON string used to set
- * `browser.firefox-view.feature-tour`
- */
-const getPrefValueByScreen = screen => {
-  return JSON.stringify({
-    screen: `FEATURE_CALLOUT_${screen}`,
-    complete: false,
-  });
-};
-
-/**
- * Wait for a feature callout screen of given parameters to be shown
- *
- * @param {Document} doc the document where the callout appears.
- * @param {string} screenPostfix The full ID of the feature callout screen.
- */
-const waitForCalloutScreen = async (doc, screenPostfix) => {
-  await BrowserTestUtils.waitForCondition(() =>
-    doc.querySelector(`${calloutSelector}:not(.hidden) .${screenPostfix}`)
-  );
-};
-
-/**
- * Waits for the feature callout screen to be removed.
- *
- * @param {Document} doc The document where the callout appears.
- */
-const waitForCalloutRemoved = async doc => {
-  await BrowserTestUtils.waitForCondition(() => {
-    return !doc.body.querySelector(calloutSelector);
-  });
-};
-
-/**
- * NOTE: Should be replaced with synthesizeMouseAtCenter for
- * simulating user input. See Bug 1798322
- *
- * Clicks the primary button in the feature callout dialog
- *
- * @param {document} doc Firefox View document
- */
-const clickCTA = async doc => {
-  doc.querySelector(CTASelector).click();
-};
-
-/**
- * Closes a feature callout via a click to the dismiss button.
- *
- * @param {Document} doc The document where the callout appears.
- */
-const closeCallout = async doc => {
-  // close the callout dialog
-  const dismissBtn = doc.querySelector(`${calloutSelector} .dismiss-button`);
-  if (!dismissBtn) {
-    return;
-  }
-  doc.querySelector(`${calloutSelector} .dismiss-button`).click();
-  await BrowserTestUtils.waitForCondition(() => {
-    return !document.querySelector(calloutSelector);
-  });
-};
-
-/**
- * Get a Feature Callout message by id.
- *
- * @param {string} id
- *   The message id.
- */
-const getCalloutMessageById = id => {
-  return {
-    message: FeatureCalloutMessages.getMessages().find(m => m.id === id),
-  };
-};
-
-/**
- * Create a sinon sandbox with `sendTriggerMessage` stubbed
- * to return a specified test message for featureCalloutCheck.
- *
- * @param {object} testMessage
- * @param {string} [source="about:firefoxview"]
- */
-const createSandboxWithCalloutTriggerStub = (
-  testMessage,
-  source = "about:firefoxview"
-) => {
-  const firefoxViewMatch = sinon.match({
-    id: "featureCalloutCheck",
-    context: { source },
-  });
-  const sandbox = sinon.createSandbox();
-  const sendTriggerStub = sandbox.stub(ASRouter, "sendTriggerMessage");
-  sendTriggerStub.withArgs(firefoxViewMatch).resolves(testMessage);
-  sendTriggerStub.callThrough();
-  return sandbox;
-};
-
-/**
- * A helper to check that correct telemetry was sent by AWSendEventTelemetry.
- * This is a wrapper around sinon's spy functionality.
- *
- * @example
- *  let spy = new TelemetrySpy();
- *  element.click();
- *  spy.assertCalledWith({ event: "CLICK" });
- *  spy.restore();
- */
-class TelemetrySpy {
-  /**
-   * @param {object} [sandbox] A pre-existing sinon sandbox to build the spy in.
-   *                           If not provided, a new sandbox will be created.
-   */
-  constructor(sandbox = sinon.createSandbox()) {
-    this.sandbox = sandbox;
-    this.spy = this.sandbox
-      .spy(AboutWelcomeParent.prototype, "onContentMessage")
-      .withArgs("AWPage:TELEMETRY_EVENT");
-    registerCleanupFunction(() => this.restore());
-  }
-  /**
-   * Assert that AWSendEventTelemetry sent the expected telemetry object.
-   *
-   * @param {object} expectedData
-   */
-  assertCalledWith(expectedData) {
-    let match = this.spy.calledWith("AWPage:TELEMETRY_EVENT", expectedData);
-    if (match) {
-      ok(true, "Expected telemetry sent");
-    } else if (this.spy.called) {
-      ok(
-        false,
-        "Wrong telemetry sent: " + JSON.stringify(this.spy.lastCall.args)
-      );
-    } else {
-      ok(false, "No telemetry sent");
-    }
-  }
-  reset() {
-    this.spy.resetHistory();
-  }
-  restore() {
-    this.sandbox.restore();
-  }
 }
 
 /**
@@ -585,6 +426,7 @@ async function navigateToViewAndWait(document, view) {
  *   The tab switched to.
  */
 async function switchToFxViewTab(win = window) {
+  await switchToWindow(win);
   return BrowserTestUtils.switchTab(win.gBrowser, win.FirefoxViewHandler.tab);
 }
 
@@ -645,8 +487,30 @@ function setSortOption(component, value) {
   EventUtils.synthesizeMouseAtCenter(el, {}, el.ownerGlobal);
 }
 
+/**
+ * Select the Open Tabs view-page in the Firefox View tab.
+ */
+async function navigateToOpenTabs(browser) {
+  const document = browser.contentDocument;
+  if (document.querySelector("named-deck").selectedViewName != "opentabs") {
+    await navigateToViewAndWait(browser.contentDocument, "opentabs");
+  }
+}
+
 function getOpenTabsCards(openTabs) {
   return openTabs.shadowRoot.querySelectorAll("view-opentabs-card");
+}
+
+function getOpenTabsComponent(browser) {
+  return browser.contentDocument.querySelector("named-deck > view-opentabs");
+}
+
+async function getTabRowsForCard(card) {
+  await TestUtils.waitForCondition(
+    () => card.tabList.rowEls.length,
+    "Wait for the card's tab list to have rows"
+  );
+  return card.tabList.rowEls;
 }
 
 async function click_recently_closed_tab_item(itemElem, itemProperty = "") {
@@ -663,7 +527,7 @@ async function click_recently_closed_tab_item(itemElem, itemProperty = "") {
   let clickTarget;
   switch (itemProperty) {
     case "dismiss":
-      clickTarget = itemElem.buttonEl;
+      clickTarget = itemElem.secondaryButtonEl;
       break;
     default:
       clickTarget = itemElem.mainEl;
@@ -693,4 +557,26 @@ async function waitForRecentlyClosedTabsList(doc) {
     return cardMainSlotNode.rowEls.length;
   });
   return [cardMainSlotNode, cardMainSlotNode.rowEls];
+}
+
+async function add_new_tab(URL) {
+  let tabChangeRaised = BrowserTestUtils.waitForEvent(
+    NonPrivateTabs,
+    "TabChange"
+  );
+  let tab = BrowserTestUtils.addTab(gBrowser, URL);
+  // wait so we can reliably compare the tab URL
+  await BrowserTestUtils.browserLoaded(tab.linkedBrowser);
+  await tabChangeRaised;
+  return tab;
+}
+
+function isActiveElement(expectedLinkEl) {
+  return expectedLinkEl.getRootNode().activeElement == expectedLinkEl;
+}
+
+function cleanupTabs() {
+  while (gBrowser.tabs.length > 1) {
+    BrowserTestUtils.removeTab(gBrowser.tabs[0]);
+  }
 }

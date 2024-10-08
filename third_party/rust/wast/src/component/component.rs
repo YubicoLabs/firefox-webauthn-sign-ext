@@ -86,8 +86,7 @@ impl<'a> Component<'a> {
     /// This function can return an error for name resolution errors and other
     /// expansion-related errors.
     pub fn encode(&mut self) -> std::result::Result<Vec<u8>, crate::Error> {
-        self.resolve()?;
-        Ok(crate::component::binary::encode(self))
+        crate::core::EncodeOptions::default().encode_component(self)
     }
 
     pub(crate) fn validate(&self, parser: Parser<'_>) -> Result<()> {
@@ -111,6 +110,7 @@ impl<'a> Parse<'a> for Component<'a> {
         let _r = parser.register_annotation("custom");
         let _r = parser.register_annotation("producers");
         let _r = parser.register_annotation("name");
+        let _r = parser.register_annotation("metadata.code.branch_hint");
 
         let span = parser.parse::<kw::component>()?.0;
         let id = parser.parse()?;

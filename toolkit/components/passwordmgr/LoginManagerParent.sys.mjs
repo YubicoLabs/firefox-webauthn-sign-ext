@@ -34,7 +34,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   MigrationUtils: "resource:///modules/MigrationUtils.sys.mjs",
   NimbusFeatures: "resource://nimbus/ExperimentAPI.sys.mjs",
   WebAuthnFeature: "resource://gre/modules/WebAuthnFeature.sys.mjs",
-  PasswordGenerator: "resource://gre/modules/PasswordGenerator.sys.mjs",
+  PasswordGenerator: "resource://gre/modules/shared/PasswordGenerator.sys.mjs",
   PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.sys.mjs",
 });
 
@@ -214,6 +214,16 @@ export class LoginManagerParent extends JSWindowActorParent {
     return browsingContext.embedderElement;
   }
 
+  #origin = null;
+  get origin() {
+    if (!this.#origin) {
+      this.#origin = lazy.LoginHelper.getLoginOrigin(
+        this.manager.documentPrincipal?.originNoSuffix
+      );
+    }
+    return this.#origin;
+  }
+
   /**
    * @param {origin} formOrigin
    * @param {object} options
@@ -287,19 +297,14 @@ export class LoginManagerParent extends JSWindowActorParent {
         "The child process should not send an origin to the parent process. See bug 1513003"
       );
     }
-    let context = {};
-    ChromeUtils.defineLazyGetter(context, "origin", () => {
-      // We still need getLoginOrigin to remove the path for file: URIs until we fix bug 1625391.
-      let origin = lazy.LoginHelper.getLoginOrigin(
-        this.manager.documentPrincipal?.originNoSuffix
-      );
-      if (!origin) {
-        throw new Error("An origin is required. Message name: " + msg.name);
-      }
-      return origin;
-    });
 
     switch (msg.name) {
+      // Called by the preference
+      case "PasswordManager:OpenPreferences": {
+        this.#onOpenPreferences(data.hostname, data.entryPoint);
+        break;
+      }
+
       case "PasswordManager:updateDoorhangerSuggestions": {
         this.#onUpdateDoorhangerSuggestions(data.possibleValues);
         break;
@@ -312,19 +317,19 @@ export class LoginManagerParent extends JSWindowActorParent {
 
       case "PasswordManager:findLogins": {
         return this.sendLoginDataToChild(
-          context.origin,
+          this.origin,
           data.actionOrigin,
           data.options
         );
       }
 
       case "PasswordManager:onFormSubmit": {
-        this.#onFormSubmit(context);
+        this.#onFormSubmit();
         break;
       }
 
       case "PasswordManager:onPasswordEditedOrGenerated": {
-        this.#onPasswordEditedOrGenerated(context, data);
+        this.#onPasswordEditedOrGenerated(data);
         break;
       }
 
@@ -334,31 +339,16 @@ export class LoginManagerParent extends JSWindowActorParent {
       }
 
       case "PasswordManager:ShowDoorhanger": {
-        this.#onShowDoorhanger(context, data);
+        this.#onShowDoorhanger(data);
         break;
       }
 
       case "PasswordManager:autoCompleteLogins": {
-        return this.doAutocompleteSearch(context.origin, data);
+        return this.doAutocompleteSearch(this.origin, data);
       }
 
       case "PasswordManager:removeLogin": {
         this.#onRemoveLogin(data.login);
-        break;
-      }
-
-      case "PasswordManager:OpenImportableLearnMore": {
-        this.#onOpenImportableLearnMore();
-        break;
-      }
-
-      case "PasswordManager:HandleImportable": {
-        await this.#onHandleImportable(data.browserId);
-        break;
-      }
-
-      case "PasswordManager:OpenPreferences": {
-        this.#onOpenPreferences(data.hostname, data.entryPoint);
         break;
       }
 
@@ -367,27 +357,6 @@ export class LoginManagerParent extends JSWindowActorParent {
       case "PasswordManager:formProcessed": {
         this.#onFormProcessed(data.formid, data.autofillResult);
         break;
-      }
-
-      case "PasswordManager:offerRelayIntegration": {
-        FirefoxRelayTelemetry.recordRelayOfferedEvent(
-          "clicked",
-          data.telemetry.flowId,
-          data.telemetry.scenarioName
-        );
-        return this.#offerRelayIntegration(context.origin);
-      }
-
-      case "PasswordManager:generateRelayUsername": {
-        FirefoxRelayTelemetry.recordRelayUsernameFilledEvent(
-          "clicked",
-          data.telemetry.flowId
-        );
-        return this.#generateRelayUsername(context.origin);
-      }
-
-      case "PasswordManager:promptForAuthenticator": {
-        return this.#promptForAuthenticator(data.selection);
       }
     }
 
@@ -399,22 +368,22 @@ export class LoginManagerParent extends JSWindowActorParent {
     this.possibleValues.passwords = possibleValues.passwords;
   }
 
-  #onFormSubmit(context) {
+  #onFormSubmit() {
     Services.obs.notifyObservers(
       null,
       "passwordmgr-form-submission-detected",
-      context.origin
+      this.origin
     );
   }
 
-  #onPasswordEditedOrGenerated(context, data) {
+  #onPasswordEditedOrGenerated(data) {
     lazy.log("#onPasswordEditedOrGenerated: Received PasswordManager.");
     if (gListenerForTests) {
       lazy.log("#onPasswordEditedOrGenerated: Calling gListenerForTests.");
       gListenerForTests("PasswordEditedOrGenerated", {});
     }
     let browser = this.getRootBrowser();
-    this._onPasswordEditedOrGenerated(browser, context.origin, data);
+    this._onPasswordEditedOrGenerated(browser, this.origin, data);
   }
 
   #onIgnorePasswordEdit() {
@@ -425,13 +394,13 @@ export class LoginManagerParent extends JSWindowActorParent {
     }
   }
 
-  #onShowDoorhanger(context, data) {
+  #onShowDoorhanger(data) {
     const browser = this.getRootBrowser();
-    const submitPromise = this.showDoorhanger(browser, context.origin, data);
+    const submitPromise = this.showDoorhanger(browser, this.origin, data);
     if (gListenerForTests) {
       submitPromise.then(() => {
         gListenerForTests("ShowDoorhanger", {
-          origin: context.origin,
+          origin: this.origin,
           data,
         });
       });
@@ -829,15 +798,19 @@ export class LoginManagerParent extends JSWindowActorParent {
         }))
       );
     }
-    autocompleteItems.push(
-      ...(await lazy.WebAuthnFeature.autocompleteItemsAsync(
-        this._overrideBrowsingContextId ??
-          this.getRootBrowser().browsingContext.id,
-        formOrigin,
-        scenarioName,
-        isWebAuthn
-      ))
-    );
+    // This check is only used to init webauthn in tests, which causes
+    // intermittent like Bug 1890419.
+    if (LoginManagerParent._webAuthnAutoComplete) {
+      autocompleteItems.push(
+        ...(await lazy.WebAuthnFeature.autocompleteItemsAsync(
+          this._overrideBrowsingContextId ??
+            this.getRootBrowser().browsingContext.id,
+          formOrigin,
+          scenarioName,
+          isWebAuthn
+        ))
+      );
+    }
 
     return {
       generatedPassword,
@@ -954,11 +927,7 @@ export class LoginManagerParent extends JSWindowActorParent {
 
     generatedPW.autocompleteShown = true;
 
-    Services.telemetry.recordEvent(
-      "pwmgr",
-      "autocomplete_shown",
-      "generatedpassword"
-    );
+    Glean.pwmgr.autocompleteShownGeneratedpassword.record();
   }
 
   /**
@@ -1020,7 +989,7 @@ export class LoginManagerParent extends JSWindowActorParent {
       Services.logins.recordPasswordUse(
         login,
         browser && lazy.PrivateBrowsingUtils.isBrowserPrivate(browser),
-        login.username ? "form_login" : "form_password",
+        login.username ? "FormLogin" : "FormPassword",
         !!autoFilledLoginGuid
       );
     }
@@ -1310,11 +1279,7 @@ export class LoginManagerParent extends JSWindowActorParent {
 
         // Record telemetry for the first edit
         if (!generatedPW.edited) {
-          Services.telemetry.recordEvent(
-            "pwmgr",
-            "filled_field_edited",
-            "generatedpassword"
-          );
+          Glean.pwmgr.filledFieldEditedGeneratedpassword.record();
           lazy.log("filled_field_edited telemetry event recorded.");
           generatedPW.edited = true;
         }
@@ -1328,11 +1293,7 @@ export class LoginManagerParent extends JSWindowActorParent {
           );
         }
         // record first use of this generated password
-        Services.telemetry.recordEvent(
-          "pwmgr",
-          "autocomplete_field",
-          "generatedpassword"
-        );
+        Glean.pwmgr.autocompleteFieldGeneratedpassword.record();
         lazy.log("autocomplete_field telemetry event recorded.");
         generatedPW.filled = true;
       }
@@ -1541,6 +1502,76 @@ export class LoginManagerParent extends JSWindowActorParent {
 
     return gRecipeManager.initializationPromise;
   }
+
+  async searchAutoCompleteEntries(searchString, data) {
+    return this.doAutocompleteSearch(data.formOrigin, data);
+  }
+
+  onAutoCompleteEntryHovered(_message, _data) {
+    // Logins do not show previews
+  }
+
+  async onAutoCompleteEntrySelected(message, data) {
+    switch (message) {
+      // Called when clicking the open preference entry in the autocomplete
+      case "PasswordManager:OpenPreferences": {
+        this.#onOpenPreferences(data.hostname, data.entryPoint);
+        break;
+      }
+
+      case "PasswordManager:OpenImportableLearnMore": {
+        this.#onOpenImportableLearnMore();
+        break;
+      }
+
+      case "PasswordManager:HandleImportable": {
+        this.#onHandleImportable(data.browserId);
+        break;
+      }
+
+      case "PasswordManager:offerRelayIntegration": {
+        FirefoxRelayTelemetry.recordRelayOfferedEvent(
+          "clicked",
+          data.telemetry.flowId,
+          data.telemetry.scenarioName
+        );
+        const username = await this.#offerRelayIntegration(this.origin);
+        if (username) {
+          this.sendAsyncMessage("PasswordManager:FillRelayUsername", username);
+        }
+        break;
+      }
+
+      case "PasswordManager:generateRelayUsername": {
+        FirefoxRelayTelemetry.recordRelayUsernameFilledEvent(
+          "clicked",
+          data.telemetry.flowId
+        );
+        const username = await this.#generateRelayUsername(this.origin);
+        if (username) {
+          this.sendAsyncMessage("PasswordManager:FillRelayUsername", username);
+        }
+        break;
+      }
+
+      case "PasswordManager:promptForAuthenticator": {
+        return this.#promptForAuthenticator(data.selection);
+      }
+
+      case "PasswordManager:FillGeneratedPassword":
+      case "PasswordManager:OnFieldAutoComplete": {
+        this.sendAsyncMessage(message, data);
+        break;
+      }
+
+      default: {
+        lazy.log.debug("Unsupported autocomplete message:", message);
+        break;
+      }
+    }
+
+    return undefined;
+  }
 }
 
 LoginManagerParent.SUGGEST_IMPORT_DEBOUNCE_MS = 10000;
@@ -1551,3 +1582,10 @@ XPCOMUtils.defineLazyPreferenceGetter(
   "signon.masterPasswordReprompt.timeout_ms",
   900000
 ); // 15 Minutes
+
+XPCOMUtils.defineLazyPreferenceGetter(
+  LoginManagerParent,
+  "_webAuthnAutoComplete",
+  "signon.webauthn.autocomplete",
+  true
+);

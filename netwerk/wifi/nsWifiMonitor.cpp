@@ -18,6 +18,7 @@
 #include "nsNetCID.h"
 
 #include "nsComponentManagerUtils.h"
+#include "mozilla/Components.h"
 #include "mozilla/DelayedRunnable.h"
 #include "mozilla/IntegerPrintfMacros.h"
 #include "mozilla/StaticPrefs_network.h"
@@ -95,8 +96,8 @@ nsWifiMonitor::nsWifiMonitor(UniquePtr<mozilla::WifiScanner>&& aScanner)
   }
 
   nsresult rv;
-  nsCOMPtr<nsINetworkLinkService> nls =
-      do_GetService(NS_NETWORK_LINK_SERVICE_CONTRACTID, &rv);
+  nsCOMPtr<nsINetworkLinkService> nls;
+  nls = do_GetService(NS_NETWORK_LINK_SERVICE_CONTRACTID, &rv);
   if (NS_SUCCEEDED(rv) && nls) {
     uint32_t linkType = nsINetworkLinkService::LINK_TYPE_UNKNOWN;
     rv = nls->GetLinkType(&linkType);
@@ -171,6 +172,15 @@ nsWifiMonitor::Observe(nsISupports* subject, const char* topic,
   }
 
   return NS_OK;
+}
+
+void nsWifiMonitor::EnsureWifiScanner() {
+  if (mWifiScanner) {
+    return;
+  }
+
+  LOG(("Constructing WifiScanner"));
+  mWifiScanner = MakeUnique<mozilla::WifiScannerImpl>();
 }
 
 NS_IMETHODIMP nsWifiMonitor::StartWatching(nsIWifiListener* aListener,
@@ -315,10 +325,7 @@ void nsWifiMonitor::Scan(uint64_t aPollingId) {
 nsresult nsWifiMonitor::DoScan() {
   MOZ_ASSERT(IsBackgroundThread());
 
-  if (!mWifiScanner) {
-    LOG(("Constructing WifiScanner"));
-    mWifiScanner = MakeUnique<mozilla::WifiScannerImpl>();
-  }
+  EnsureWifiScanner();
   MOZ_ASSERT(mWifiScanner);
 
   LOG(("Scanning Wifi for access points"));
@@ -364,13 +371,13 @@ nsresult nsWifiMonitor::DoScan() {
   }
 
   return NS_DispatchToMainThread(
-      NewRunnableMethod<const nsTArray<RefPtr<nsIWifiAccessPoint>>&&, bool>(
+      NewRunnableMethod<nsTArray<RefPtr<nsIWifiAccessPoint>>, bool>(
           "CallWifiListeners", this, &nsWifiMonitor::CallWifiListeners,
           mLastAccessPoints.Clone(), accessPointsChanged));
 }
 
 nsresult nsWifiMonitor::CallWifiListeners(
-    nsTArray<RefPtr<nsIWifiAccessPoint>>&& aAccessPoints,
+    const nsTArray<RefPtr<nsIWifiAccessPoint>>& aAccessPoints,
     bool aAccessPointsChanged) {
   MOZ_ASSERT(NS_IsMainThread());
   LOG(("Sending wifi access points to the listeners"));
@@ -390,4 +397,16 @@ nsresult nsWifiMonitor::PassErrorToWifiListeners(nsresult rv) {
     listener.mListener->OnError(rv);
   }
   return NS_OK;
+}
+
+bool nsWifiMonitor::GetHasWifiAdapter() {
+#ifdef XP_WIN
+  EnsureWifiScanner();
+  MOZ_ASSERT(mWifiScanner);
+  return static_cast<WifiScannerImpl*>(mWifiScanner.get())->HasWifiAdapter();
+#else
+  MOZ_ASSERT_UNREACHABLE(
+      "nsWifiMonitor::HasWifiAdapter is not available on this platform");
+  return false;
+#endif
 }

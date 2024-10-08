@@ -20,7 +20,7 @@
 #include "nsXULAppAPI.h"
 #include "mozilla/PresState.h"
 #include "mozilla/StaticPrefs_fission.h"
-
+#include "mozilla/dom/BindingIPCUtils.h"
 #include "mozilla/dom/BrowserParent.h"
 #include "mozilla/dom/CanonicalBrowsingContext.h"
 #include "mozilla/dom/ContentChild.h"
@@ -52,7 +52,6 @@ SessionHistoryInfo::SessionHistoryInfo(nsDocShellLoadState* aLoadState,
                       : Some(aLoadState->SrcdocData())),
       mBaseURI(aLoadState->BaseURI()),
       mLoadReplace(aLoadState->LoadReplace()),
-      mHasUserInteraction(false),
       mHasUserActivation(aLoadState->HasValidUserGestureActivation()),
       mSharedState(SharedState::Create(
           aLoadState->TriggeringPrincipal(), aLoadState->PrincipalToInherit(),
@@ -79,6 +78,7 @@ SessionHistoryInfo::SessionHistoryInfo(
     const SessionHistoryInfo& aSharedStateFrom, nsIURI* aURI)
     : mURI(aURI), mSharedState(aSharedStateFrom.mSharedState) {
   MaybeUpdateTitleFromURI();
+  mHasUserInteraction = aSharedStateFrom.mHasUserInteraction;
 }
 
 SessionHistoryInfo::SessionHistoryInfo(
@@ -1797,10 +1797,8 @@ namespace IPC {
 // Allow sending mozilla::dom::WireframeRectType enums over IPC.
 template <>
 struct ParamTraits<mozilla::dom::WireframeRectType>
-    : public ContiguousEnumSerializer<
-          mozilla::dom::WireframeRectType,
-          mozilla::dom::WireframeRectType::Image,
-          mozilla::dom::WireframeRectType::EndGuard_> {};
+    : public mozilla::dom::WebIDLEnumSerializer<
+          mozilla::dom::WireframeRectType> {};
 
 template <>
 struct ParamTraits<mozilla::dom::WireframeTaggedRect> {

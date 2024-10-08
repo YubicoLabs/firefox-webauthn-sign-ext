@@ -478,6 +478,14 @@ class Loader final {
   friend class SheetLoadData;
   friend class StreamLoader;
 
+  enum class UsePreload : bool { No, Yes };
+  enum class UseLoadGroup : bool { No, Yes };
+
+  nsresult NewStyleSheetChannel(SheetLoadData& aLoadData, CORSMode aCorsMode,
+                                UsePreload aUsePreload,
+                                UseLoadGroup aUseLoadGroup,
+                                nsIChannel** aOutChannel);
+
   // Only to be called by `LoadSheet`.
   [[nodiscard]] bool MaybeDeferLoad(SheetLoadData& aLoadData,
                                     SheetState aSheetState,
@@ -523,6 +531,8 @@ class Loader final {
                               nsIPrincipal* aTriggeringPrincipal,
                               nsIURI* aTargetURI, nsINode* aRequestingNode,
                               const nsAString& aNonce, StylePreloadKind);
+
+  bool MaybePutIntoLoadsPerformed(SheetLoadData& aLoadData);
 
   std::tuple<RefPtr<StyleSheet>, SheetState> CreateSheet(
       const SheetInfo& aInfo, css::SheetParsingMode aParsingMode,
@@ -570,6 +580,9 @@ class Loader final {
   // Synchronously notify of a cached load data.
   void NotifyOfCachedLoad(RefPtr<SheetLoadData>);
 
+  // Notify observers of a cached stylesheet being.
+  void NotifyObserversForCachedSheet(SheetLoadData&);
+
   // Start the loads of all the sheets in mPendingDatas
   void StartDeferredLoads();
 
@@ -590,7 +603,8 @@ class Loader final {
   //
   // If this function returns Completed::Yes, then ParseSheet also called
   // SheetComplete on aLoadData.
-  Completed ParseSheet(const nsACString&, SheetLoadData&, AllowAsyncParse);
+  Completed ParseSheet(const nsACString&, const RefPtr<SheetLoadDataHolder>&,
+                       AllowAsyncParse);
 
   // The load of the sheet in the load data is done, one way or another.
   // Do final cleanup.
@@ -646,7 +660,7 @@ class Loader final {
   uint32_t mPendingLoadCount = 0;
 
   // The number of stylesheets that we have parsed, for testing purposes.
-  uint32_t mParsedSheetCount = 0;
+  Atomic<uint32_t, MemoryOrdering::Relaxed> mParsedSheetCount{0};
 
   bool mEnabled = true;
 

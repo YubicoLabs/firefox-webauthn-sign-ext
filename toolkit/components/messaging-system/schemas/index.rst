@@ -174,12 +174,12 @@ Triggers and actions
 
 ..  _make_schemas_script: https://searchfox.org/mozilla-central/source/browser/components/asrouter/content-src/schemas/make-schemas.py
 ..  _jsonschema_bundling: https://json-schema.org/understanding-json-schema/structuring.html#bundling
-..  _make_schemas_check: https://searchfox.org/mozilla-central/source/taskcluster/ci/source-test/python.yml#425-438
+..  _make_schemas_check: https://searchfox.org/mozilla-central/source/taskcluster/kinds/source-test/python.yml#425-438
 
 ..  _Experimenter: https://experimenter.info
 
-..  _CFRMessageProvider: https://searchfox.org/mozilla-central/source/browser/components/asrouter/modules/CFRMessageProvider.jsm
-..  _PanelTestProvider: https://searchfox.org/mozilla-central/source/browser/components/asrouter/modules/PanelTestProvider.jsm
+..  _CFRMessageProvider: https://searchfox.org/mozilla-central/source/browser/components/asrouter/modules/CFRMessageProvider.sys.mjs
+..  _PanelTestProvider: https://searchfox.org/mozilla-central/source/browser/components/asrouter/modules/PanelTestProvider.sys.mjs
 ..  _OnboardingMessageProvider: https://searchfox.org/mozilla-central/source/browser/components/asrouter/modules/OnboardingMessageProvider.sys.mjs
 ..  _Test_CFRMessageProvider: https://searchfox.org/mozilla-central/source/browser/components/asrouter/tests//xpcshell/test_CFMessageProvider.js
 ..  _Test_OnboardingMessageProvider: https://searchfox.org/mozilla-central/source/browser/components/asrouter/tests//xpcshell/test_OnboardingMessageProvider.js

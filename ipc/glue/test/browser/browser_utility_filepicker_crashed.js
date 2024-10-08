@@ -57,10 +57,14 @@ function openFileDialog() {
     return pid;
   })();
 
-  const file = new Promise((resolve, reject) => {
+  const file = new Promise(resolve => {
     info("Opening Windows file dialog");
     let fp = Cc["@mozilla.org/filepicker;1"].createInstance(Ci.nsIFilePicker);
-    fp.init(window, "Test: browser_utility_filepicker_crashed.js", fp.modeOpen);
+    fp.init(
+      window.browsingContext,
+      "Test: browser_utility_filepicker_crashed.js",
+      fp.modeOpen
+    );
     fp.open(result => {
       Assert.equal(
         result,
@@ -90,10 +94,18 @@ function makeTask(description, Describe, action) {
       // file dialog open to fail.
       //
       // (We shouldn't be running two such tests in parallel on the same Fx
-      // instance, but that's not obvious at this level.)
+      // instance, but it's not obvious at this level that we're not.)
       ok(false, "another test has a file dialog open; aborting");
       return;
     }
+
+    // the file-picker-crashed notification should be shown after the process
+    // dies, but we must set up the listener before the notification is shown
+    let notificationAppeared = BrowserTestUtils.waitForNotificationBar(
+      gBrowser,
+      undefined,
+      "file-picker-crashed"
+    );
 
     const { process, file } = openFileDialog();
     const pid = await process;
@@ -108,6 +120,10 @@ function makeTask(description, Describe, action) {
     const _after = Date.now();
     const delta = _after - _before;
     info(`file callback resolved after ${description} after ${delta}ms`);
+
+    let notification = await notificationAppeared;
+    ok(notification, "file-picker notification should appear");
+    notification.close();
 
     // depending on the test configuration, this may take some time while
     // cleanup occurs

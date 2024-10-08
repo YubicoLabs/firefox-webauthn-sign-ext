@@ -16,6 +16,7 @@ rtc_library("rtc_stats") {
   visibility = [ "*" ]
   cflags = []
   sources = [
+    "attribute.cc",
     "rtc_stats.cc",
     "rtc_stats_report.cc",
     "rtcstats_objects.cc",
@@ -26,6 +27,7 @@ rtc_library("rtc_stats") {
     "../rtc_base:checks",
     "../rtc_base:macromagic",
     "../rtc_base:stringutils",
+    "//third_party/abseil-cpp/absl/types:variant",
   ]
 }
 
@@ -42,6 +44,7 @@ rtc_library("rtc_stats_test_utils") {
     "../api:rtc_stats_api",
     "../rtc_base:checks",
     "../rtc_base/system:rtc_export",
+    "//third_party/abseil-cpp/absl/types:optional",
   ]
 }
 
@@ -62,6 +65,7 @@ if (rtc_include_tests && !build_with_chromium) {
       "../rtc_base:rtc_json",
       "../test:test_main",
       "../test:test_support",
+      "//third_party/abseil-cpp/absl/types:optional",
     ]
 
     if (is_android) {

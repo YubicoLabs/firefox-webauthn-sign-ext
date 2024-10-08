@@ -6,21 +6,9 @@
 #ifndef nsListControlFrame_h___
 #define nsListControlFrame_h___
 
-#ifdef DEBUG_evaughan
-// #define DEBUG_rods
-#endif
-
-#ifdef DEBUG_rods
-// #define DO_REFLOW_DEBUG
-// #define DO_REFLOW_COUNTER
-// #define DO_UNCONSTRAINED_CHECK
-// #define DO_PIXELS
-#endif
-
 #include "mozilla/Attributes.h"
+#include "mozilla/ScrollContainerFrame.h"
 #include "mozilla/StaticPtr.h"
-#include "nsGfxScrollFrame.h"
-#include "nsIFormControlFrame.h"
 #include "nsISelectControlFrame.h"
 #include "nsSelectsAreaFrame.h"
 
@@ -43,11 +31,10 @@ class HTMLOptionsCollection;
  * Frame-based listbox.
  */
 
-class nsListControlFrame final : public nsHTMLScrollFrame,
-                                 public nsIFormControlFrame,
+class nsListControlFrame final : public mozilla::ScrollContainerFrame,
                                  public nsISelectControlFrame {
  public:
-  typedef mozilla::dom::HTMLOptionElement HTMLOptionElement;
+  using HTMLOptionElement = mozilla::dom::HTMLOptionElement;
 
   friend nsListControlFrame* NS_NewListControlFrame(
       mozilla::PresShell* aPresShell, ComputedStyle* aStyle);
@@ -66,8 +53,8 @@ class nsListControlFrame final : public nsHTMLScrollFrame,
 
   void SetInitialChildList(ChildListID aListID, nsFrameList&& aChildList) final;
 
-  nscoord GetPrefISize(gfxContext* aRenderingContext) final;
-  nscoord GetMinISize(gfxContext* aRenderingContext) final;
+  nscoord IntrinsicISize(const mozilla::IntrinsicSizeInput& aInput,
+                         mozilla::IntrinsicISizeType aType) final;
 
   void Reflow(nsPresContext* aCX, ReflowOutput& aDesiredSize,
               const ReflowInput& aReflowInput, nsReflowStatus& aStatus) final;
@@ -92,11 +79,7 @@ class nsListControlFrame final : public nsHTMLScrollFrame,
   nsresult GetFrameName(nsAString& aResult) const final;
 #endif
 
-  // nsIFormControlFrame
-  nsresult SetFormProperty(nsAtom* aName, const nsAString& aValue) final;
-  MOZ_CAN_RUN_SCRIPT_BOUNDARY
-  void SetFocus(bool aOn = true, bool aRepaint = false) final;
-
+  void ElementStateChanged(mozilla::dom::ElementState aStates) final;
   bool ShouldPropagateComputedBSizeToScrolledContent() const final;
 
   // for accessibility purposes
@@ -164,7 +147,7 @@ class nsListControlFrame final : public nsHTMLScrollFrame,
   HTMLOptionElement* GetOption(uint32_t aIndex) const;
 
   // Helper
-  bool IsFocused() { return this == mFocused; }
+  bool IsFocused() const;
 
   /**
    * Function to paint the focus rect when our nsSelectsAreaFrame is painting.
@@ -195,7 +178,7 @@ class nsListControlFrame final : public nsHTMLScrollFrame,
   bool MightNeedSecondPass() const { return mMightNeedSecondPass; }
 
   void SetSuppressScrollbarUpdate(bool aSuppress) {
-    nsHTMLScrollFrame::SetSuppressScrollbarUpdate(aSuppress);
+    ScrollContainerFrame::SetSuppressScrollbarUpdate(aSuppress);
   }
 
   /**
@@ -225,9 +208,7 @@ class nsListControlFrame final : public nsHTMLScrollFrame,
   /**
    * Returns whether mContent supports multiple selection.
    */
-  bool GetMultiple() const {
-    return mContent->AsElement()->HasAttr(nsGkAtoms::multiple);
-  }
+  bool GetMultiple() const;
 
   mozilla::dom::HTMLSelectElement& Select() const;
 
@@ -340,11 +321,7 @@ class nsListControlFrame final : public nsHTMLScrollFrame,
 
   RefPtr<mozilla::HTMLSelectEventListener> mEventListener;
 
-  static nsListControlFrame* mFocused;
-
-#ifdef DO_REFLOW_COUNTER
-  int32_t mReflowId;
-#endif
+  static nsListControlFrame* sFocused;
 };
 
 #endif /* nsListControlFrame_h___ */

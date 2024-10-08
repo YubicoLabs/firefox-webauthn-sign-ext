@@ -8,17 +8,12 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <algorithm>
-#include <new>
-#include <type_traits>
 #include <utility>
 #include "ErrorList.h"
 #include "GeckoProfiler.h"
 #include "js/GCAPI.h"
-#include "mozilla/ArrayIterator.h"
 #include "mozilla/Buffer.h"
 #include "mozilla/CheckedInt.h"
-#include "mozilla/DebugOnly.h"
 #include "mozilla/Encoding.h"
 #include "mozilla/EncodingDetector.h"
 #include "mozilla/Likely.h"
@@ -27,24 +22,20 @@
 #include "mozilla/ScopeExit.h"
 #include "mozilla/Services.h"
 #include "mozilla/StaticPrefs_html5.h"
-#include "mozilla/StaticPrefs_intl.h"
 #include "mozilla/StaticPrefs_network.h"
 #include "mozilla/TextUtils.h"
+#include "mozilla/glean/GleanMetrics.h"
 
-#include "mozilla/UniquePtrExtensions.h"
 #include "mozilla/Unused.h"
 #include "mozilla/dom/BindingDeclarations.h"
 #include "mozilla/dom/BrowsingContext.h"
 #include "mozilla/dom/DebuggerUtilsBinding.h"
-#include "mozilla/dom/DocGroup.h"
 #include "mozilla/dom/Document.h"
-#include "mozilla/mozalloc.h"
 #include "mozilla/Vector.h"
 #include "nsContentSink.h"
 #include "nsContentUtils.h"
 #include "nsCycleCollectionTraversalCallback.h"
 #include "nsHtml5AtomTable.h"
-#include "nsHtml5ByteReadable.h"
 #include "nsHtml5Highlighter.h"
 #include "nsHtml5Module.h"
 #include "nsHtml5OwningUTF16Buffer.h"
@@ -54,13 +45,11 @@
 #include "nsHtml5Tokenizer.h"
 #include "nsHtml5TreeBuilder.h"
 #include "nsHtml5TreeOpExecutor.h"
-#include "nsHtml5TreeOpStage.h"
 #include "nsIChannel.h"
 #include "nsIContentSink.h"
 #include "nsID.h"
 #include "nsIDTD.h"
 #include "nsIDocShell.h"
-#include "nsIEventTarget.h"
 #include "nsIHttpChannel.h"
 #include "nsIInputStream.h"
 #include "nsINestedURI.h"
@@ -70,7 +59,6 @@
 #include "nsIScriptError.h"
 #include "nsIThread.h"
 #include "nsIThreadRetargetableRequest.h"
-#include "nsIThreadRetargetableStreamListener.h"
 #include "nsITimer.h"
 #include "nsIURI.h"
 #include "nsJSEnvironment.h"
@@ -1397,27 +1385,25 @@ nsresult nsHtml5StreamParser::OnStopRequest(
     const mozilla::ReentrantMonitorAutoEnter& aProofOfLock) {
   MOZ_ASSERT_IF(aRequest, mRequest == aRequest);
   if (mOnStopCalled) {
+    // OnStopRequest already executed (probably OMT).
+    MOZ_ASSERT(NS_IsMainThread(), "Expected to run on main thread");
     if (mOnDataFinishedTime) {
       mOnStopRequestTime = TimeStamp::Now();
-    } else {
-      mOnDataFinishedTime = TimeStamp::Now();
     }
   } else {
     mOnStopCalled = true;
 
     if (MOZ_UNLIKELY(NS_IsMainThread())) {
-      mOnStopRequestTime = TimeStamp::Now();
+      MOZ_ASSERT(mOnDataFinishedTime.IsNull(), "stale mOnDataFinishedTime");
       nsCOMPtr<nsIRunnable> stopper = new nsHtml5RequestStopper(this);
       if (NS_FAILED(
               mEventTarget->Dispatch(stopper, nsIThread::DISPATCH_NORMAL))) {
         NS_WARNING("Dispatching StopRequest event failed.");
       }
     } else {
-      mOnDataFinishedTime = TimeStamp::Now();
-
       if (StaticPrefs::network_send_OnDataFinished_html5parser()) {
         MOZ_ASSERT(IsParserThread(), "Wrong thread!");
-
+        mOnDataFinishedTime = TimeStamp::Now();
         mozilla::MutexAutoLock autoLock(mTokenizerMutex);
         DoStopRequest();
         PostLoadFlusher();
@@ -1433,16 +1419,10 @@ nsresult nsHtml5StreamParser::OnStopRequest(
   }
   if (!mOnStopRequestTime.IsNull() && !mOnDataFinishedTime.IsNull()) {
     TimeDuration delta = (mOnStopRequestTime - mOnDataFinishedTime);
-    if (delta.ToMilliseconds() < 0) {
-      // Because Telemetry can't handle negatives
-      delta = -delta;
-      glean::networking::
-          http_content_html5parser_ondatafinished_to_onstop_delay_negative
-              .AccumulateRawDuration(delta);
-    } else {
-      glean::networking::http_content_html5parser_ondatafinished_to_onstop_delay
-          .AccumulateRawDuration(delta);
-    }
+    MOZ_ASSERT((delta.ToMilliseconds() >= 0),
+               "OnDataFinished after OnStopRequest");
+    glean::networking::http_content_html5parser_ondatafinished_to_onstop_delay
+        .AccumulateRawDuration(delta);
   }
   return NS_OK;
 }
@@ -2691,9 +2671,10 @@ void nsHtml5StreamParser::ContinueAfterScriptsOrEncodingCommitment(
       nsContentUtils::ReportToConsole(
           nsIScriptError::warningFlag, "DOM Events"_ns,
           mExecutor->GetDocument(), nsContentUtils::eDOM_PROPERTIES,
-          "SpeculationFailed2", nsTArray<nsString>(), nullptr, u""_ns,
-          speculation->GetStartLineNumber(),
-          speculation->GetStartColumnNumber());
+          "SpeculationFailed2", nsTArray<nsString>(),
+          SourceLocation(mExecutor->GetDocument()->GetDocumentURI(),
+                         speculation->GetStartLineNumber(),
+                         speculation->GetStartColumnNumber()));
 
       nsHtml5OwningUTF16Buffer* buffer = mFirstBuffer->next;
       while (buffer) {

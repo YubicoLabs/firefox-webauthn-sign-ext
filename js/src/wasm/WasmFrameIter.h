@@ -42,9 +42,11 @@ class Instance;
 class Instance;
 
 struct CallableOffsets;
+struct ImportOffsets;
 struct FuncOffsets;
 struct Offsets;
 class Frame;
+class FrameWithInstances;
 
 using RegisterState = JS::ProfilingFrameIterator::RegisterState;
 
@@ -67,18 +69,21 @@ class WasmFrameIter {
   Frame* fp_;
   Instance* instance_;
   uint8_t* unwoundCallerFP_;
-  mozilla::Maybe<jit::FrameType> unwoundJitFrameType_;
+  // Whether unwoundCallerFP_ is a JS JIT exit frame.
+  bool hasUnwoundJitFrame_ = false;
   Unwind unwind_;
   void** unwoundAddressOfReturnAddress_;
   uint8_t* resumePCinCurrentFrame_;
   // See wasm::TrapData for more information.
   bool failedUnwindSignatureMismatch_;
+  bool stackSwitched_;
 
   void popFrame();
 
  public:
   // See comment above this class definition.
   explicit WasmFrameIter(jit::JitActivation* activation, Frame* fp = nullptr);
+  WasmFrameIter(FrameWithInstances* fp, void* returnAddress);
   const jit::JitActivation* activation() const { return activation_; }
   void setUnwind(Unwind unwind) { unwind_ = unwind; }
   void operator++();
@@ -94,11 +99,11 @@ class WasmFrameIter {
   void** unwoundAddressOfReturnAddress() const;
   bool debugEnabled() const;
   DebugFrame* debugFrame() const;
-  jit::FrameType unwoundJitFrameType() const;
   bool hasUnwoundJitFrame() const;
   uint8_t* unwoundCallerFP() const { return unwoundCallerFP_; }
   Frame* frame() const { return fp_; }
   Instance* instance() const { return instance_; }
+  bool stackSwitched() const { return stackSwitched_; }
 
   // Returns the address of the next instruction that will execute in this
   // frame, once control returns to this frame.
@@ -119,7 +124,8 @@ class ExitReason {
     ImportInterp,   // slow-path call into C++ Invoke()
     BuiltinNative,  // fast-path call directly into native C++ code
     Trap,           // call to trap handler
-    DebugTrap       // call to debug trap handler
+    DebugStub,      // call to debug stub
+    RequestTierUp   // call to request tier-2 compilation
   };
 
  private:
@@ -196,6 +202,12 @@ class ProfilingFrameIterator {
   ProfilingFrameIterator(const jit::JitActivation& activation,
                          const RegisterState& state);
 
+  enum Category {
+    Baseline,
+    Ion,
+    Other,
+  };
+
   void operator++();
 
   bool done() const {
@@ -213,6 +225,8 @@ class ProfilingFrameIterator {
   }
   const char* label() const;
 
+  Category category() const;
+
   void* endStackAddress() const { return endStackAddress_; }
 };
 
@@ -228,7 +242,7 @@ void GenerateExitEpilogue(jit::MacroAssembler& masm, unsigned framePushed,
                           ExitReason reason, CallableOffsets* offsets);
 
 void GenerateJitExitPrologue(jit::MacroAssembler& masm, unsigned framePushed,
-                             CallableOffsets* offsets);
+                             uint32_t fallbackOffset, ImportOffsets* offsets);
 void GenerateJitExitEpilogue(jit::MacroAssembler& masm, unsigned framePushed,
                              CallableOffsets* offsets);
 

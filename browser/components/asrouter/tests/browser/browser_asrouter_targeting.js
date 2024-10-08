@@ -93,7 +93,7 @@ add_task(async function return_nothing_for_no_matching_message() {
 
 add_task(async function check_other_error_handling() {
   let called = false;
-  function onError(...args) {
+  function onError() {
     called = true;
   }
 
@@ -518,6 +518,18 @@ add_task(async function checkAddonsInfo() {
     Object.prototype.hasOwnProperty.call(testAddon, "isWebExtension") &&
       testAddon.isWebExtension === true,
     "should correctly provide `isWebExtension` property"
+  );
+
+  ok(
+    Object.prototype.hasOwnProperty.call(testAddon, "hidden") &&
+      testAddon.hidden === false,
+    "should correctly provide `hidden` property"
+  );
+
+  ok(
+    Object.prototype.hasOwnProperty.call(testAddon, "isBuiltin") &&
+      testAddon.isBuiltin === false,
+    "should correctly provide `isBuiltin` property"
   );
 
   // As we installed our test addon the addons database must be initialised, so
@@ -1226,47 +1238,6 @@ add_task(async function check_userPrefersReducedMotion() {
   );
 });
 
-add_task(async function test_mr2022Holdback() {
-  await ExperimentAPI.ready();
-
-  ok(
-    !ASRouterTargeting.Environment.inMr2022Holdback,
-    "Should not be in holdback (no experiment)"
-  );
-
-  {
-    const doExperimentCleanup = await ExperimentFakes.enrollWithFeatureConfig({
-      featureId: "majorRelease2022",
-      value: {
-        onboarding: true,
-      },
-    });
-
-    ok(
-      !ASRouterTargeting.Environment.inMr2022Holdback,
-      "Should not be in holdback (onboarding = true)"
-    );
-
-    await doExperimentCleanup();
-  }
-
-  {
-    const doExperimentCleanup = await ExperimentFakes.enrollWithFeatureConfig({
-      featureId: "majorRelease2022",
-      value: {
-        onboarding: false,
-      },
-    });
-
-    ok(
-      ASRouterTargeting.Environment.inMr2022Holdback,
-      "Should be in holdback (onboarding = false)"
-    );
-
-    await doExperimentCleanup();
-  }
-});
-
 add_task(async function test_distributionId() {
   is(
     ASRouterTargeting.Environment.distributionId,
@@ -1467,6 +1438,28 @@ add_task(async function check_useEmbeddedMigrationWizard() {
   ]);
 
   ok(!(await ASRouterTargeting.Environment.useEmbeddedMigrationWizard));
+});
+
+add_task(async function check_isMSIX() {
+  is(
+    typeof ASRouterTargeting.Environment.isMSIX,
+    "boolean",
+    "Should return a boolean"
+  );
+  if (AppConstants.platform !== "win") {
+    is(
+      ASRouterTargeting.Environment.isMSIX,
+      false,
+      "Should always be false on non-Windows"
+    );
+    return;
+  }
+
+  is(
+    ASRouterTargeting.Environment.isMSIX,
+    Services.sysinfo.getProperty("hasWinPackageId"),
+    "Should match the value from sysinfo"
+  );
 });
 
 add_task(async function check_isRTAMO() {
@@ -1697,6 +1690,15 @@ add_task(async function check_archBits() {
   ok(bits === 32 || bits === 64, "archBits is either 32 or 64");
 });
 
+add_task(async function check_systemArch() {
+  const arch = ASRouterTargeting.Environment.systemArch;
+  is(typeof arch, "string", "systemArch should be a string");
+  ok(
+    ["x86", "x86-64", "aarch64"].includes(arch),
+    "systemArch is either x86, x86-64 or aarch64"
+  );
+});
+
 add_task(async function check_memoryMB() {
   const memory = ASRouterTargeting.Environment.memoryMB;
   is(typeof memory, "number", "Memory is a number");
@@ -1704,3 +1706,52 @@ add_task(async function check_memoryMB() {
   // runs this unit test it has between 500MB and 1TB of RAM.
   ok(memory > 500 && memory < 5_000_000);
 });
+
+add_task(async function check_totalSearches() {
+  await pushPrefs(["browser.search.totalSearches", 20]);
+  is(
+    typeof ASRouterTargeting.Environment.totalSearches,
+    "number",
+    "should return a number"
+  );
+
+  is(
+    await ASRouterTargeting.Environment.totalSearches,
+    20,
+    "should return a value of 20"
+  );
+});
+
+add_task(
+  async function check_activeNotifications_newtab_topic_selection_modal_shown_past() {
+    // 10 minutes ago
+    let timestamp10MinsAgo = `${new Date().getTime() - 600000}`;
+    await pushPrefs([
+      "browser.newtabpage.activity-stream.discoverystream.topicSelection.onboarding.lastDisplayed",
+      timestamp10MinsAgo,
+    ]);
+
+    is(
+      await ASRouterTargeting.Environment.activeNotifications,
+      false,
+      "activeNotifications should be false if the topic selection modal on newtab was last shown more than a minute ago"
+    );
+  }
+);
+
+add_task(
+  async function check_activeNotifications_newtab_topic_selection_modal_shown_recently() {
+    // 1 second ago
+    let timestamp1SecAgo = `${new Date().getTime() - 1000}`;
+    await pushPrefs([
+      "browser.newtabpage.activity-stream.discoverystream.topicSelection.onboarding.lastDisplayed",
+      timestamp1SecAgo,
+    ]);
+
+    is(
+      await ASRouterTargeting.Environment.activeNotifications,
+      true,
+      "activeNotifications should be true if the topic selection modal on newtab was last shown less than a minute ago"
+    );
+  }
+);

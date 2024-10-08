@@ -169,8 +169,9 @@ inline gc::AllocKind WasmArrayObject::allocKindForIL(uint32_t storageBytes) {
 
 inline gc::AllocKind WasmArrayObject::allocKind() const {
   if (isDataInline()) {
-    uint32_t storageBytes = calcStorageBytes(
-        typeDef().arrayType().elementType_.size(), numElements_);
+    // numElements_ was validated to not overflow when constructing this object
+    uint32_t storageBytes = calcStorageBytesUnchecked(
+        typeDef().arrayType().elementType().size(), numElements_);
     return allocKindForIL(storageBytes);
   }
 
@@ -337,13 +338,12 @@ MOZ_ALWAYS_INLINE WasmArrayObject* WasmArrayObject::createArray(
     JSContext* cx, wasm::TypeDefInstanceData* typeDefData,
     js::gc::Heap initialHeap, uint32_t numElements) {
   MOZ_ASSERT(typeDefData->arrayElemSize ==
-             typeDefData->typeDef->arrayType().elementType_.size());
-  CheckedUint32 storageBytes =
+             typeDefData->typeDef->arrayType().elementType().size());
+  mozilla::CheckedUint32 storageBytes =
       calcStorageBytesChecked(typeDefData->arrayElemSize, numElements);
   if (!storageBytes.isValid() ||
       storageBytes.value() > uint32_t(wasm::MaxArrayPayloadBytes)) {
-    JS_ReportErrorNumberUTF8(cx, GetErrorMessage, nullptr,
-                             JSMSG_WASM_ARRAY_IMP_LIMIT);
+    wasm::ReportTrapError(cx, JSMSG_WASM_ARRAY_IMP_LIMIT);
     return nullptr;
   }
 

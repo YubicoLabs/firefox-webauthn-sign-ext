@@ -1,9 +1,15 @@
-commit 584048ed081d85f5eed6e884a7b40b6f4bcd67d7
-Author: Nicolò Ribaudo <nribaudo@igalia.com>
-Date:   Tue Jan 30 16:53:17 2024 +0100
+commit dfece8cfc5a7dde260c68dffac7bbfc842fabfc7
+Author: Rezvan Mahdavi Hezaveh <rezvan@chromium.org>
+Date:   Tue Sep 17 12:19:35 2024 -0700
 
-    Add additional tests for out-of-range date-times
+    [explicit-resource-management] Add test for async generator body
     
-    - https://github.com/tc39/proposal-temporal/pull/2727#discussion_r1414066610
-    - https://github.com/tc39/proposal-temporal/pull/2727#discussion_r1414065876
-    - https://github.com/tc39/proposal-temporal/pull/2727#discussion_r1414067272
+    This cl adds a test for having `await using` in the async
+    generator function body.
+    
+    Bug: 42203814
+    Change-Id: I30c0d2fe354a3047f67a4a71f7c6472c3d832bbf
+    Reviewed-on: https://chromium-review.googlesource.com/c/v8/v8/+/5867651
+    Commit-Queue: Rezvan Mahdavi Hezaveh <rezvan@chromium.org>
+    Reviewed-by: Shu-yu Guo <syg@chromium.org>
+    Cr-Commit-Position: refs/heads/main@{#96146}

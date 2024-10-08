@@ -2,14 +2,17 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-import { Module } from "chrome://remote/content/shared/messagehandler/Module.sys.mjs";
+import { RootBiDiModule } from "chrome://remote/content/webdriver-bidi/modules/RootBiDiModule.sys.mjs";
 
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
   assert: "chrome://remote/content/shared/webdriver/Assert.sys.mjs",
   error: "chrome://remote/content/shared/webdriver/Errors.sys.mjs",
-  Marionette: "chrome://remote/content/components/Marionette.sys.mjs",
+  getWebDriverSessionById:
+    "chrome://remote/content/shared/webdriver/Session.sys.mjs",
+  pprint: "chrome://remote/content/shared/Format.sys.mjs",
+  TabManager: "chrome://remote/content/shared/TabManager.sys.mjs",
   UserContextManager:
     "chrome://remote/content/shared/UserContextManager.sys.mjs",
 });
@@ -32,7 +35,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
  *     Array of UserContextInfo for the current user contexts.
  */
 
-class BrowserModule extends Module {
+class BrowserModule extends RootBiDiModule {
   constructor(messageHandler) {
     super(messageHandler);
   }
@@ -44,18 +47,28 @@ class BrowserModule extends Module {
    */
 
   /**
-   * Terminate all WebDriver sessions and clean up automation state in the remote browser instance.
+   * Terminate all WebDriver sessions and clean up automation state in the
+   * remote browser instance.
    *
-   * Session clean up and actual broser closure will happen later in WebDriverBiDiConnection class.
+   * The actual session clean-up and closing the browser will happen later
+   * in WebDriverBiDiConnection class.
    */
   async close() {
+    const session = lazy.getWebDriverSessionById(this.messageHandler.sessionId);
+
     // TODO Bug 1838269. Enable browser.close command for the case of classic + bidi session, when
     // session ending for this type of session is supported.
-    if (lazy.Marionette.running) {
+    if (session.http) {
       throw new lazy.error.UnsupportedOperationError(
-        "Closing browser with the session which was started with Webdriver classic is not supported," +
-          "you can use Webdriver classic session delete command which will also close the browser."
+        "Closing the browser in a session started with WebDriver classic" +
+          ' is not supported. Use the WebDriver classic "Delete Session"' +
+          " command instead which will also close the browser."
       );
+    }
+
+    // Close all open top-level browsing contexts by not prompting for beforeunload.
+    for (const tab of lazy.TabManager.tabs) {
+      lazy.TabManager.removeTab(tab, { skipPermitUnload: true });
     }
   }
 
@@ -104,7 +117,7 @@ class BrowserModule extends Module {
 
     lazy.assert.string(
       userContextId,
-      `Expected "userContext" to be a string, got ${userContextId}`
+      lazy.pprint`Expected "userContext" to be a string, got ${userContextId}`
     );
 
     if (userContextId === lazy.UserContextManager.defaultUserContextId) {

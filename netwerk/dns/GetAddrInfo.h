@@ -67,6 +67,8 @@ nsresult GetAddrInfoInit();
  */
 nsresult GetAddrInfoShutdown();
 
+void DNSThreadShutdown();
+
 /**
  * Resolves a HTTPS record. Will check overrides before calling the
  * native OS implementation.
@@ -82,6 +84,12 @@ nsresult ResolveHTTPSRecordImpl(const nsACString& aHost, uint16_t aFlags,
 
 nsresult ParseHTTPSRecord(nsCString& aHost, DNSPacket& aDNSPacket,
                           TypeRecordResultType& aResult, uint32_t& aTTL);
+
+// Use the provided aHost to create a mock HTTPS record.
+nsresult CreateAndResolveMockHTTPSRecord(const nsACString& aHost,
+                                         uint16_t aFlags,
+                                         TypeRecordResultType& aResult,
+                                         uint32_t& aTTL);
 
 class NativeDNSResolverOverride : public nsINativeDNSResolverOverride {
   NS_DECL_THREADSAFE_ISUPPORTS

@@ -88,21 +88,48 @@ async function testUploadPrompt(confirmUpload) {
     await ContentTask.spawn(browser, { path }, args => {
       let MockFilePicker = content.SpecialPowers.MockFilePicker;
       MockFilePicker.init(
-        content,
+        content.browsingContext,
         "A Mock File Picker",
         content.SpecialPowers.Ci.nsIFilePicker.modeGetFolder
       );
       MockFilePicker.useDirectory(args.path);
 
       let input = content.document.getElementById("filepicker");
+
+      // Activate the page to allow opening the file picker.
+      content.SpecialPowers.wrap(
+        content.document
+      ).notifyUserGestureActivation();
+
       input.click();
     });
 
     // Wait for confirmation prompt
     let prompt = await promptPromise;
     ok(prompt, "Shown upload confirmation prompt");
+
     is(prompt.ui.button0.label, "Upload", "Accept button label");
+    ok(
+      prompt.ui.button0.disabled,
+      "Accept button should be disabled by the security delay initially."
+    );
+
     ok(prompt.ui.button1.hasAttribute("default"), "Cancel is default button");
+    ok(
+      !prompt.ui.button1.disabled,
+      "Cancel button should not be disabled by the security delay."
+    );
+
+    info("Wait for the security delay to pass.");
+    let delayTime = Services.prefs.getIntPref("security.dialog_enable_delay");
+    // eslint-disable-next-line mozilla/no-arbitrary-setTimeout
+    await new Promise(resolve => setTimeout(resolve, delayTime + 100));
+
+    ok(
+      !prompt.ui.button0.disabled,
+      "Accept button should no longer be disabled."
+    );
+    ok(!prompt.ui.button1.disabled, "Cancel button should remain enabled.");
 
     // Close confirmation prompt
     await PromptTestUtils.handlePrompt(prompt, {

@@ -17,12 +17,13 @@
 #include <string>
 
 #include "absl/types/optional.h"
-#include "api/array_view.h"
 #include "api/units/timestamp.h"
 #include "api/video/color_space.h"
 #include "api/video/video_content_type.h"
 #include "api/video/video_rotation.h"
 #include "api/video/video_timing.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/system/rtc_export.h"
 
 namespace webrtc {
 
@@ -77,6 +78,29 @@ struct AbsoluteCaptureTime {
   absl::optional<int64_t> estimated_capture_clock_offset;
 };
 
+// The audio level extension is used to indicate the voice activity and the
+// audio level of the payload in the RTP stream. See:
+// https://tools.ietf.org/html/rfc6464#section-3.
+class AudioLevel {
+ public:
+  AudioLevel();
+  AudioLevel(bool voice_activity, int audio_level);
+  AudioLevel(const AudioLevel& other) = default;
+  AudioLevel& operator=(const AudioLevel& other) = default;
+
+  // Flag indicating whether the encoder believes the audio packet contains
+  // voice activity.
+  bool voice_activity() const { return voice_activity_; }
+
+  // Audio level in -dBov. Values range from 0 to 127, representing 0 to -127
+  // dBov. 127 represents digital silence.
+  int level() const { return audio_level_; }
+
+ private:
+  bool voice_activity_;
+  int audio_level_;
+};
+
 inline bool operator==(const AbsoluteCaptureTime& lhs,
                        const AbsoluteCaptureTime& rhs) {
   return (lhs.absolute_capture_timestamp == rhs.absolute_capture_timestamp) &&
@@ -127,9 +151,11 @@ struct RTPHeaderExtension {
 
   // Audio Level includes both level in dBov and voiced/unvoiced bit. See:
   // https://tools.ietf.org/html/rfc6464#section-3
-  bool hasAudioLevel;
-  bool voiceActivity;
-  uint8_t audioLevel;
+  absl::optional<AudioLevel> audio_level() const { return audio_level_; }
+
+  void set_audio_level(absl::optional<AudioLevel> audio_level) {
+    audio_level_ = audio_level;
+  }
 
   // For Coordination of Video Orientation. See
   // http://www.etsi.org/deliver/etsi_ts/126100_126199/126114/12.07.00_60/
@@ -159,6 +185,9 @@ struct RTPHeaderExtension {
   absl::optional<ColorSpace> color_space;
 
   CsrcAudioLevelList csrcAudioLevels;
+
+ private:
+  absl::optional<AudioLevel> audio_level_;
 };
 
 struct RTC_EXPORT RTPHeader {

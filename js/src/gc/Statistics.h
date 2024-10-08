@@ -136,19 +136,19 @@ struct Statistics {
   template <typename T, size_t Length>
   using Array = mozilla::Array<T, Length>;
 
-  template <typename IndexType, IndexType SizeAsEnumValue, typename ValueType>
+  template <typename IndexType, typename ValueType, IndexType SizeAsEnumValue>
   using EnumeratedArray =
-      mozilla::EnumeratedArray<IndexType, SizeAsEnumValue, ValueType>;
+      mozilla::EnumeratedArray<IndexType, ValueType, size_t(SizeAsEnumValue)>;
 
   using TimeDuration = mozilla::TimeDuration;
   using TimeStamp = mozilla::TimeStamp;
 
   // Create types for tables of times, by phase and phase kind.
-  using PhaseTimes = EnumeratedArray<Phase, Phase::LIMIT, TimeDuration>;
+  using PhaseTimes = EnumeratedArray<Phase, TimeDuration, Phase::LIMIT>;
   using PhaseKindTimes =
-      EnumeratedArray<PhaseKind, PhaseKind::LIMIT, TimeDuration>;
+      EnumeratedArray<PhaseKind, TimeDuration, PhaseKind::LIMIT>;
 
-  using PhaseTimeStamps = EnumeratedArray<Phase, Phase::LIMIT, TimeStamp>;
+  using PhaseTimeStamps = EnumeratedArray<Phase, TimeStamp, Phase::LIMIT>;
 
   [[nodiscard]] static bool initialize();
 
@@ -178,7 +178,7 @@ struct Statistics {
   void resumePhases();
 
   void beginSlice(const ZoneGCStats& zoneStats, JS::GCOptions options,
-                  const SliceBudget& budget, JS::GCReason reason,
+                  const JS::SliceBudget& budget, JS::GCReason reason,
                   bool budgetWasIncreased);
   void endSlice();
 
@@ -253,11 +253,11 @@ struct Statistics {
   static const size_t MAX_SUSPENDED_PHASES = MAX_PHASE_NESTING * 3;
 
   struct SliceData {
-    SliceData(const SliceBudget& budget, mozilla::Maybe<Trigger> trigger,
+    SliceData(const JS::SliceBudget& budget, mozilla::Maybe<Trigger> trigger,
               JS::GCReason reason, TimeStamp start, size_t startFaults,
               gc::State initialState);
 
-    SliceBudget budget;
+    JS::SliceBudget budget;
     JS::GCReason reason = JS::GCReason::NO_REASON;
     mozilla::Maybe<Trigger> trigger;
     gc::State initialState = gc::State::NotActive;
@@ -326,7 +326,7 @@ struct Statistics {
   // Print a logging message.
   void log(const char* fmt, ...);
 #else
-  void log(const char* fmt, ...){};
+  void log(const char* fmt, ...) {};
 #endif
 
  private:
@@ -370,12 +370,12 @@ struct Statistics {
   TimeDuration totalGCTime_;
 
   /* Number of events of this type for this GC. */
-  EnumeratedArray<Count, COUNT_LIMIT,
-                  mozilla::Atomic<uint32_t, mozilla::ReleaseAcquire>>
+  EnumeratedArray<Count, mozilla::Atomic<uint32_t, mozilla::ReleaseAcquire>,
+                  COUNT_LIMIT>
       counts;
 
   /* Other GC statistics. */
-  EnumeratedArray<Stat, STAT_LIMIT, uint32_t> stats;
+  EnumeratedArray<Stat, uint32_t, STAT_LIMIT> stats;
 
   /*
    * These events cannot be kept in the above array, we need to take their
@@ -440,7 +440,7 @@ struct Statistics {
   };
 
   using ProfileDurations =
-      EnumeratedArray<ProfileKey, ProfileKey::KeyCount, TimeDuration>;
+      EnumeratedArray<ProfileKey, TimeDuration, ProfileKey::KeyCount>;
 
   bool enableProfiling_ = false;
   bool profileWorkers_ = false;
@@ -503,7 +503,7 @@ struct Statistics {
 
 struct MOZ_RAII AutoGCSlice {
   AutoGCSlice(Statistics& stats, const ZoneGCStats& zoneStats,
-              JS::GCOptions options, const SliceBudget& budget,
+              JS::GCOptions options, const JS::SliceBudget& budget,
               JS::GCReason reason, bool budgetWasIncreased)
       : stats(stats) {
     stats.beginSlice(zoneStats, options, budget, reason, budgetWasIncreased);

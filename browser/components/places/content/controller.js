@@ -102,7 +102,7 @@ PlacesController.prototype = {
   QueryInterface: ChromeUtils.generateQI(["nsIClipboardOwner"]),
 
   // nsIClipboardOwner
-  LosingOwnership: function PC_LosingOwnership(aXferable) {
+  LosingOwnership: function PC_LosingOwnership() {
     this.cutNodes = [];
   },
 
@@ -217,15 +217,15 @@ PlacesController.prototype = {
           ) &&
           (PlacesUtils.nodeIsTagQuery(selectedNode) ||
             PlacesUtils.nodeIsBookmark(selectedNode) ||
-            (PlacesUtils.nodeIsFolder(selectedNode) &&
-              !PlacesUtils.isQueryGeneratedFolder(selectedNode)))
+            (PlacesUtils.nodeIsFolderOrShortcut(selectedNode) &&
+              !PlacesUtils.nodeIsQueryGeneratedFolder(selectedNode)))
         );
       }
       case "placesCmd_sortBy:name": {
         let selectedNode = this._view.selectedNode;
         return (
           selectedNode &&
-          PlacesUtils.nodeIsFolder(selectedNode) &&
+          PlacesUtils.nodeIsFolderOrShortcut(selectedNode) &&
           !PlacesUIUtils.isFolderReadOnly(selectedNode) &&
           this._view.result.sortingMode ==
             Ci.nsINavHistoryQueryOptions.SORT_BY_NONE
@@ -333,7 +333,7 @@ PlacesController.prototype = {
     }
   },
 
-  onEvent: function PC_onEvent(eventName) {},
+  onEvent: function PC_onEvent() {},
 
   /**
    * Determine whether or not the selection can be removed, either by the
@@ -378,8 +378,12 @@ PlacesController.prototype = {
    */
   _isRepeatedRemoveOperation() {
     let lastRemoveOperationFingerprint = this._lastRemoveOperationFingerprint;
+    // .bookmarkGuid and .pageGuid may either be null or an empty string. While
+    // that should probably change, it's safer to use || here.
     this._lastRemoveOperationFingerprint = PlacesUtils.sha256(
-      this._view.selectedNodes.map(n => n.guid ?? n.uri).join()
+      this._view.selectedNodes
+        .map(n => n.bookmarkGuid || (n.pageGuid || n.uri) + n.time)
+        .join()
     );
     return (
       lastRemoveOperationFingerprint == this._lastRemoveOperationFingerprint
@@ -461,17 +465,7 @@ PlacesController.prototype = {
    *          and the item can be displayed, false otherwise.
    */
   _shouldShowMenuItem(aMenuItem, aMetaData) {
-    if (
-      aMenuItem.hasAttribute("hide-if-private-browsing") &&
-      !PrivateBrowsingUtils.enabled
-    ) {
-      return false;
-    }
-
-    if (
-      aMenuItem.hasAttribute("hide-if-usercontext-disabled") &&
-      !Services.prefs.getBoolPref("privacy.userContext.enabled", false)
-    ) {
+    if (PlacesUIUtils.shouldHideOpenMenuItem(aMenuItem)) {
       return false;
     }
 
@@ -562,8 +556,12 @@ PlacesController.prototype = {
    *     menuitem when there's no insertion point. An insertion point represents
    *     a point in the view where a new item can be inserted.
    *  9) The boolean `hide-if-private-browsing` attribute may be set to hide a
-   *     menuitem in private browsing mode
-   * 10) The boolean `hide-if-single-click-opens` attribute may be set to hide a
+   *     menuitem in private browsing mode.
+   * 10) The boolean `hide-if-disabled-private-browsing` attribute may be set to
+   *     hide a menuitem if private browsing is not enabled.
+   * 11) The boolean `hide-if-usercontext-disabled` attribute may be set to
+   *     hide a menuitem if containers are disabled.
+   * 12) The boolean `hide-if-single-click-opens` attribute may be set to hide a
    *     menuitem in views opening entries with a single click.
    *
    * @param {object} aPopup
@@ -589,9 +587,6 @@ PlacesController.prototype = {
           item.getAttribute("hide-if-no-insertion-point") == "true" &&
           noIp &&
           !(ip && ip.isTag && item.id == "placesContext_paste");
-        let hideIfPrivate =
-          item.getAttribute("hide-if-private-browsing") == "true" &&
-          PrivateBrowsingUtils.isWindowPrivate(window);
         // Hide `Open` if the primary action on click is opening.
         let hideIfSingleClickOpens =
           item.getAttribute("hide-if-single-click-opens") == "true" &&
@@ -606,7 +601,6 @@ PlacesController.prototype = {
 
         let shouldHideItem =
           hideIfNoIP ||
-          hideIfPrivate ||
           hideIfSingleClickOpens ||
           hideIfNotSearch ||
           !this._shouldShowMenuItem(item, metadata);
@@ -902,7 +896,7 @@ PlacesController.prototype = {
         // History deletes are not undoable, so we don't have a transaction.
       } else {
         // This is a common bookmark item.
-        if (PlacesUtils.nodeIsFolder(node)) {
+        if (PlacesUtils.nodeIsFolderOrShortcut(node)) {
           // If this is a folder we add it to our array of folders, used
           // to skip nodes that are children of an already removed folder.
           removedFolders.push(node);
@@ -1035,7 +1029,7 @@ PlacesController.prototype = {
 
     var root = this._view.result.root;
 
-    if (PlacesUtils.nodeIsFolder(root)) {
+    if (PlacesUtils.nodeIsFolderOrShortcut(root)) {
       await this._removeRowsFromBookmarks();
     } else if (PlacesUtils.nodeIsQuery(root)) {
       var queryType = PlacesUtils.asQuery(root).queryOptions.queryType;
@@ -1166,7 +1160,7 @@ PlacesController.prototype = {
       if (this._shouldSkipNode(node, copiedFolders)) {
         return;
       }
-      if (PlacesUtils.nodeIsFolder(node)) {
+      if (PlacesUtils.nodeIsFolderOrShortcut(node)) {
         copiedFolders.push(node);
       }
 
@@ -1340,7 +1334,7 @@ PlacesController.prototype = {
     // Allow dropping into Tag containers and editable folders.
     return (
       !PlacesUtils.nodeIsTagQuery(container) &&
-      (!PlacesUtils.nodeIsFolder(container) ||
+      (!PlacesUtils.nodeIsFolderOrShortcut(container) ||
         PlacesUIUtils.isFolderReadOnly(container))
     );
   },
@@ -1372,7 +1366,7 @@ PlacesController.prototype = {
     }
 
     return (
-      (PlacesUtils.nodeIsFolder(parentNode) &&
+      (PlacesUtils.nodeIsFolderOrShortcut(parentNode) &&
         !PlacesUIUtils.isFolderReadOnly(parentNode)) ||
       PlacesUtils.nodeIsQuery(parentNode)
     );
@@ -1432,7 +1426,7 @@ PlacesController.prototype = {
     let documentUrl = document.documentURI.toLowerCase();
     if (documentUrl.endsWith("browser.xhtml")) {
       // We're in a menu or a panel.
-      window.SidebarUI._show("viewBookmarksSidebar").then(() => {
+      window.SidebarController._show("viewBookmarksSidebar").then(() => {
         let theSidebar = document.getElementById("sidebar");
         theSidebar.contentDocument
           .getElementById("bookmarks-view")
@@ -1499,10 +1493,11 @@ var PlacesControllerDragHelper = {
   },
 
   /**
-   * @returns {object|null} The current active drag session. Returns null if there is none.
+   * @returns {object|null} The current active drag session for the window.
+   * Returns null if there is none.
    */
   getSession: function PCDH__getSession() {
-    return this.dragService.getCurrentSession();
+    return this.dragService.getCurrentSession(window);
   },
 
   /**

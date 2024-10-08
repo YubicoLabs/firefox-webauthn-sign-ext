@@ -9,9 +9,15 @@
 #include "jsapi.h"
 #include "jsfriendapi.h"
 
+#ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT
+#  include "builtin/AsyncDisposableStackObject.h"
+#endif
 #include "builtin/AtomicsObject.h"
 #include "builtin/BigInt.h"
 #include "builtin/DataViewObject.h"
+#ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT
+#  include "builtin/DisposableStackObject.h"
+#endif
 #ifdef JS_HAS_INTL_API
 #  include "builtin/intl/Collator.h"
 #  include "builtin/intl/DateTimeFormat.h"
@@ -106,8 +112,12 @@ JS_PUBLIC_API const JSClass* js::ProtoKeyToClass(JSProtoKey key) {
 }
 
 static bool IsIteratorHelpersEnabled() {
-#ifdef NIGHTLY_BUILD
   return JS::Prefs::experimental_iterator_helpers();
+}
+
+static bool IsAsyncIteratorHelpersEnabled() {
+#ifdef NIGHTLY_BUILD
+  return JS::Prefs::experimental_async_iterator_helpers();
 #else
   return false;
 #endif
@@ -131,6 +141,11 @@ bool GlobalObject::skipDeselectedConstructor(JSContext* cx, JSProtoKey key) {
     case JSProto_Error:
     case JSProto_InternalError:
     case JSProto_AggregateError:
+#ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT
+    case JSProto_SuppressedError:
+    case JSProto_DisposableStack:
+    case JSProto_AsyncDisposableStack:
+#endif
     case JSProto_EvalError:
     case JSProto_RangeError:
     case JSProto_ReferenceError:
@@ -186,6 +201,9 @@ bool GlobalObject::skipDeselectedConstructor(JSContext* cx, JSProtoKey key) {
 #ifdef ENABLE_WASM_TYPE_REFLECTIONS
     case JSProto_WasmFunction:
 #endif
+#ifdef ENABLE_WASM_JSPI
+    case JSProto_WasmSuspending:
+#endif
     case JSProto_WasmException:
       return false;
 
@@ -202,7 +220,7 @@ bool GlobalObject::skipDeselectedConstructor(JSContext* cx, JSProtoKey key) {
       return false;
 
     case JSProto_Segmenter:
-#  if defined(MOZ_ICU4X) && defined(NIGHTLY_BUILD)
+#  if defined(MOZ_ICU4X)
       return false;
 #  else
       return true;
@@ -235,11 +253,16 @@ bool GlobalObject::skipDeselectedConstructor(JSContext* cx, JSProtoKey key) {
       return JS::GetWeakRefsEnabled() == JS::WeakRefSpecifier::Disabled;
 
     case JSProto_Iterator:
-    case JSProto_AsyncIterator:
       return !IsIteratorHelpersEnabled();
+
+    case JSProto_AsyncIterator:
+      return !IsAsyncIteratorHelpersEnabled();
 
     case JSProto_ShadowRealm:
       return !JS::Prefs::experimental_shadow_realms();
+
+    case JSProto_Float16Array:
+      return !JS::Prefs::experimental_float16array();
 
     default:
       MOZ_CRASH("unexpected JSProtoKey");
@@ -577,13 +600,25 @@ GlobalObject* GlobalObject::createInternal(JSContext* cx,
   MOZ_ASSERT(clasp->flags & JSCLASS_IS_GLOBAL);
   MOZ_ASSERT(clasp->isTrace(JS_GlobalObjectTraceHook));
 
-  JSObject* obj = NewTenuredObjectWithGivenProto(cx, clasp, nullptr);
+  ObjectFlags objectFlags = {
+      ObjectFlag::QualifiedVarObj,
+      ObjectFlag::GenerationCountedGlobal,
+  };
+
+  JSObject* obj =
+      NewTenuredObjectWithGivenProto(cx, clasp, nullptr, objectFlags);
   if (!obj) {
     return nullptr;
   }
 
   Rooted<GlobalObject*> global(cx, &obj->as<GlobalObject>());
+
+  // Global holds both variables qualified with `var` and those that are not.
   MOZ_ASSERT(global->isUnqualifiedVarObj());
+  MOZ_ASSERT(global->isQualifiedVarObj());
+
+  // Global objects support generation counts.
+  MOZ_ASSERT(global->isGenerationCountedGlobal());
 
   {
     auto data = cx->make_unique<GlobalObjectData>(cx->zone());
@@ -613,13 +648,6 @@ GlobalObject* GlobalObject::createInternal(JSContext* cx,
   global->data().emptyGlobalScope.init(emptyGlobalScope);
 
   if (!GlobalObject::createIntrinsicsHolder(cx, global)) {
-    return nullptr;
-  }
-
-  if (!JSObject::setQualifiedVarObj(cx, global)) {
-    return nullptr;
-  }
-  if (!JSObject::setGenerationCountedGlobal(cx, global)) {
     return nullptr;
   }
 
@@ -861,6 +889,7 @@ GlobalObject::getOrCreateFinalizationRegistryData() {
   return maybeFinalizationRegistryData();
 }
 
+#ifndef NIGHTLY_BUILD
 bool GlobalObject::addToVarNames(JSContext* cx, JS::Handle<JSAtom*> name) {
   MOZ_ASSERT(name);
 
@@ -871,6 +900,7 @@ bool GlobalObject::addToVarNames(JSContext* cx, JS::Handle<JSAtom*> name) {
 
   return true;
 }
+#endif
 
 /* static */
 bool GlobalObject::createIntrinsicsHolder(JSContext* cx,
@@ -920,6 +950,10 @@ bool GlobalObject::getSelfHostedFunction(JSContext* cx,
     return true;
   }
 
+  // Don't collect metadata for self-hosted functions or intrinsics.
+  // This is similar to the suppression in GlobalObject::resolveConstructor.
+  AutoSuppressAllocationMetadataBuilder suppressMetadata(cx);
+
   JSRuntime* runtime = cx->runtime();
   frontend::ScriptIndex index =
       runtime->getSelfHostedScriptIndexRange(selfHostedName)->start;
@@ -940,6 +974,10 @@ bool GlobalObject::getIntrinsicValueSlow(JSContext* cx,
                                          Handle<GlobalObject*> global,
                                          Handle<PropertyName*> name,
                                          MutableHandleValue value) {
+  // Don't collect metadata for self-hosted functions or intrinsics.
+  // This is similar to the suppression in GlobalObject::resolveConstructor.
+  AutoSuppressAllocationMetadataBuilder suppressMetadata(cx);
+
   // If this is a C++ intrinsic, simply define the function on the intrinsics
   // holder.
   if (const JSFunctionSpec* spec = js::FindIntrinsicSpec(name)) {
@@ -1008,7 +1046,7 @@ JSObject* GlobalObject::createIteratorPrototype(JSContext* cx,
 /* static */
 JSObject* GlobalObject::createAsyncIteratorPrototype(
     JSContext* cx, Handle<GlobalObject*> global) {
-  if (!IsIteratorHelpersEnabled()) {
+  if (!IsAsyncIteratorHelpersEnabled()) {
     return getOrCreateBuiltinProto(cx, global, ProtoKind::AsyncIteratorProto,
                                    initAsyncIteratorProto);
   }
@@ -1027,15 +1065,22 @@ void GlobalObject::releaseData(JS::GCContext* gcx) {
   gcx->delete_(this, data, MemoryUse::GlobalObjectData);
 }
 
-GlobalObjectData::GlobalObjectData(Zone* zone) : varNames(zone) {}
+GlobalObjectData::GlobalObjectData(Zone* zone)
+#ifndef NIGHTLY_BUILD
+    : varNames(zone)
+#endif
+{
+}
 
 GlobalObjectData::~GlobalObjectData() = default;
 
 void GlobalObjectData::trace(JSTracer* trc, GlobalObject* global) {
+#ifndef NIGHTLY_BUILD
   // Atoms are always tenured so don't need to be traced during minor GC.
   if (trc->runtime()->heapState() != JS::HeapState::MinorCollecting) {
     varNames.trace(trc);
   }
+#endif
 
   for (auto& ctorWithProto : builtinConstructors) {
     TraceNullableEdge(trc, &ctorWithProto.constructor, "global-builtin-ctor");
@@ -1102,6 +1147,8 @@ void GlobalObjectData::addSizeOfIncludingThis(
         regExpRealm.regExpStatics->sizeOfIncludingThis(mallocSizeOf);
   }
 
+#ifndef NIGHTLY_BUILD
   info->objectsMallocHeapGlobalVarNamesSet +=
       varNames.shallowSizeOfExcludingThis(mallocSizeOf);
+#endif
 }

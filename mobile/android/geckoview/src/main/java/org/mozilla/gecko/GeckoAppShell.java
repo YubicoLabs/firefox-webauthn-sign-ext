@@ -46,7 +46,6 @@ import android.os.Looper;
 import android.os.PowerManager;
 import android.os.Vibrator;
 import android.provider.Settings;
-import android.text.TextUtils;
 import android.util.Log;
 import android.view.ContextThemeWrapper;
 import android.view.Display;
@@ -72,7 +71,6 @@ import org.mozilla.gecko.util.ProxySelector;
 import org.mozilla.gecko.util.ThreadUtils;
 import org.mozilla.geckoview.BuildConfig;
 import org.mozilla.geckoview.CrashHandler;
-import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.R;
 
 public class GeckoAppShell {
@@ -188,6 +186,13 @@ public class GeckoAppShell {
 
   // See also HardwareUtils.LOW_MEMORY_THRESHOLD_MB.
   private static final int HIGH_MEMORY_DEVICE_THRESHOLD_MB = 768;
+
+  /*
+   * Device RAM threshold requirement for adding additional headers.
+   * Keep in sync with RAM_THRESHOLD_MEGABYTES defined in
+   * https://searchfox.org/mozilla-central/rev/55944eaee1e358b5443eaedc8adcd37e3fd23fd3/mobile/android/fenix/app/src/main/java/org/mozilla/fenix/FenixApplication.kt#120
+   */
+  private static final int ADDITIONAL_SEARCH_HEADER_RAM_THRESHOLD_MEGABYTES = 1024;
 
   private static int sDensityDpi;
   private static Float sDensity;
@@ -866,6 +871,12 @@ public class GeckoAppShell {
     return sTotalRam;
   }
 
+  @WrapForJNI(calledFrom = "gecko")
+  private static synchronized boolean isDeviceRamThresholdOkay() {
+    final Context applicationContext = getApplicationContext();
+    return getTotalRam(applicationContext) > ADDITIONAL_SEARCH_HEADER_RAM_THRESHOLD_MEGABYTES;
+  }
+
   private static boolean isHighMemoryDevice(final Context context) {
     return getTotalRam(context) > HIGH_MEMORY_DEVICE_THRESHOLD_MB;
   }
@@ -1232,7 +1243,7 @@ public class GeckoAppShell {
 
   @WrapForJNI(calledFrom = "gecko")
   private static double[] getCurrentBatteryInformation() {
-    return GeckoBatteryManager.getCurrentInformation();
+    return GeckoBatteryManager.getCurrentInformation(getApplicationContext());
   }
 
   /* Called by JNI from AndroidBridge, and by reflection from tests/BaseTest.java.in */
@@ -1527,20 +1538,6 @@ public class GeckoAppShell {
     }
   }
 
-  private static String getLanguageTag(final Locale locale) {
-    final StringBuilder out = new StringBuilder(locale.getLanguage());
-    final String country = locale.getCountry();
-    final String variant = locale.getVariant();
-    if (!TextUtils.isEmpty(country)) {
-      out.append('-').append(country);
-    }
-    if (!TextUtils.isEmpty(variant)) {
-      out.append('-').append(variant);
-    }
-    // e.g. "en", "en-US", or "en-US-POSIX".
-    return out.toString();
-  }
-
   @WrapForJNI
   public static String[] getDefaultLocales() {
     // XXX We may have to convert some language codes such as "id" vs "in".
@@ -1598,12 +1595,8 @@ public class GeckoAppShell {
   @WrapForJNI
   public static native boolean isParentProcess();
 
-  /**
-   * Returns a GeckoResult that will be completed to true if the GPU process is enabled and false if
-   * it is disabled.
-   */
   @WrapForJNI
-  public static native GeckoResult<Boolean> isGpuProcessEnabled();
+  public static native boolean isGpuProcessEnabled();
 
   @SuppressLint("NewApi")
   public static boolean isIsolatedProcess() {
@@ -1611,4 +1604,10 @@ public class GeckoAppShell {
     // this on any SDK level but must suppress the new API lint.
     return android.os.Process.isIsolated();
   }
+
+  @WrapForJNI(dispatchTo = "gecko")
+  public static native void onSystemLocaleChanged();
+
+  @WrapForJNI(dispatchTo = "gecko")
+  public static native void onTimezoneChanged();
 }

@@ -34,6 +34,7 @@
 #  include "builtin/intl/FormatBuffer.h"
 #endif
 #include "builtin/RegExp.h"
+#include "gc/GC.h"
 #include "jit/InlinableNatives.h"
 #include "js/Conversions.h"
 #include "js/friend/ErrorMessages.h"  // js::GetErrorMessage, JSMSG_*
@@ -46,7 +47,7 @@
 #include "js/PropertySpec.h"
 #include "js/StableStringChars.h"
 #include "js/UniquePtr.h"
-#include "util/StringBuffer.h"
+#include "util/StringBuilder.h"
 #include "util/Unicode.h"
 #include "vm/GlobalObject.h"
 #include "vm/JSContext.h"
@@ -63,9 +64,6 @@
 #include "vm/StringType-inl.h"
 
 using namespace js;
-
-using JS::Symbol;
-using JS::SymbolCode;
 
 using mozilla::AsciiAlphanumericToNumber;
 using mozilla::CheckedInt;
@@ -261,7 +259,7 @@ static inline bool Unhex2(const RangedPtr<const CharT> chars,
 }
 
 template <typename CharT>
-static bool Unescape(StringBuffer& sb,
+static bool Unescape(StringBuilder& sb,
                      const mozilla::Range<const CharT> chars) {
   // Step 2.
   uint32_t length = chars.length();
@@ -460,7 +458,9 @@ const JSClass StringObject::class_ = {
     "String",
     JSCLASS_HAS_RESERVED_SLOTS(StringObject::RESERVED_SLOTS) |
         JSCLASS_HAS_CACHED_PROTO(JSProto_String),
-    &StringObjectClassOps, &StringObject::classSpec_};
+    &StringObjectClassOps,
+    &StringObject::classSpec_,
+};
 
 /*
  * Perform the initial |RequireObjectCoercible(thisv)| and |ToString(thisv)|
@@ -566,15 +566,10 @@ static inline void CopyChars(CharT* to, const JSLinearString* from,
   MOZ_ASSERT(begin + length <= from->length());
 
   JS::AutoCheckCannotGC nogc;
-  if constexpr (std::is_same_v<CharT, Latin1Char>) {
-    MOZ_ASSERT(from->hasLatin1Chars());
+  if (from->hasLatin1Chars()) {
     CopyChars(to, from->latin1Chars(nogc) + begin, length);
   } else {
-    if (from->hasLatin1Chars()) {
-      CopyChars(to, from->latin1Chars(nogc) + begin, length);
-    } else {
-      CopyChars(to, from->twoByteChars(nogc) + begin, length);
-    }
+    CopyChars(to, from->twoByteChars(nogc) + begin, length);
   }
 }
 
@@ -2161,8 +2156,8 @@ static MOZ_ALWAYS_INLINE int StringMatch(const TextChar* text, uint32_t textLen,
                    text, textLen, pat, patLen);
 }
 
-static int32_t StringMatch(JSLinearString* text, JSLinearString* pat,
-                           uint32_t start = 0) {
+static int32_t StringMatch(const JSLinearString* text,
+                           const JSLinearString* pat, uint32_t start = 0) {
   MOZ_ASSERT(start <= text->length());
   uint32_t textLen = text->length() - start;
   uint32_t patLen = pat->length();
@@ -2190,12 +2185,12 @@ static int32_t StringMatch(JSLinearString* text, JSLinearString* pat,
 
 static const size_t sRopeMatchThresholdRatioLog2 = 4;
 
-int js::StringFindPattern(JSLinearString* text, JSLinearString* pat,
+int js::StringFindPattern(const JSLinearString* text, const JSLinearString* pat,
                           size_t start) {
   return StringMatch(text, pat, start);
 }
 
-typedef Vector<JSLinearString*, 16, SystemAllocPolicy> LinearStringVector;
+using LinearStringVector = Vector<JSLinearString*, 16, SystemAllocPolicy>;
 
 template <typename TextChar, typename PatChar>
 static int RopeMatchImpl(const AutoCheckCannotGC& nogc,
@@ -2262,7 +2257,7 @@ static int RopeMatchImpl(const AutoCheckCannotGC& nogc,
  * RopeMatch returns false on OOM and otherwise returns the match index through
  * the 'match' outparam (-1 for not found).
  */
-static bool RopeMatch(JSContext* cx, JSRope* text, JSLinearString* pat,
+static bool RopeMatch(JSContext* cx, JSRope* text, const JSLinearString* pat,
                       int* match) {
   uint32_t patLen = pat->length();
   if (patLen == 0) {
@@ -2534,8 +2529,8 @@ static int32_t LastIndexOfImpl(const TextChar* text, size_t textLen,
   return -1;
 }
 
-static int32_t LastIndexOf(JSLinearString* text, JSLinearString* searchStr,
-                           size_t start) {
+static int32_t LastIndexOf(const JSLinearString* text,
+                           const JSLinearString* searchStr, size_t start) {
   AutoCheckCannotGC nogc;
 
   size_t len = text->length();
@@ -2652,10 +2647,14 @@ bool js::StringLastIndexOf(JSContext* cx, HandleString string,
     return true;
   }
 
+  MOZ_ASSERT(len >= searchLen);
+  size_t start = len - searchLen;
+
   if (searchLen == 0) {
-    *result = 0;
+    *result = start;
     return true;
   }
+  MOZ_ASSERT(start < len);
 
   JSLinearString* text = string->ensureLinear(cx);
   if (!text) {
@@ -2666,9 +2665,6 @@ bool js::StringLastIndexOf(JSContext* cx, HandleString string,
   if (!searchStr) {
     return false;
   }
-
-  MOZ_ASSERT(len >= searchLen);
-  size_t start = len - searchLen;
 
   *result = LastIndexOf(text, searchStr, start);
   return true;
@@ -3079,9 +3075,10 @@ static JSString* BuildFlatRopeReplacement(JSContext* cx, HandleString textstr,
 }
 
 template <typename CharT>
-static bool AppendDollarReplacement(StringBuffer& newReplaceChars,
+static bool AppendDollarReplacement(StringBuilder& newReplaceChars,
                                     size_t firstDollarIndex, size_t matchStart,
-                                    size_t matchLimit, JSLinearString* text,
+                                    size_t matchLimit,
+                                    const JSLinearString* text,
                                     const CharT* repChars, size_t repLength) {
   MOZ_ASSERT(firstDollarIndex < repLength);
   MOZ_ASSERT(matchStart <= matchLimit);
@@ -3190,9 +3187,9 @@ static JSLinearString* InterpretDollarReplacement(
 }
 
 template <typename StrChar, typename RepChar>
-static bool StrFlatReplaceGlobal(JSContext* cx, JSLinearString* str,
-                                 JSLinearString* pat, JSLinearString* rep,
-                                 StringBuffer& sb) {
+static bool StrFlatReplaceGlobal(JSContext* cx, const JSLinearString* str,
+                                 const JSLinearString* pat,
+                                 const JSLinearString* rep, StringBuilder& sb) {
   MOZ_ASSERT(str->length() > 0);
 
   AutoCheckCannotGC nogc;
@@ -3370,9 +3367,9 @@ JSString* js::str_replace_string_raw(JSContext* cx, HandleString string,
 
 template <typename StrChar, typename RepChar>
 static bool ReplaceAllInternal(const AutoCheckCannotGC& nogc,
-                               JSLinearString* string,
-                               JSLinearString* searchString,
-                               JSLinearString* replaceString,
+                               const JSLinearString* string,
+                               const JSLinearString* searchString,
+                               const JSLinearString* replaceString,
                                const int32_t startPosition,
                                JSStringBuilder& result) {
   // Step 7.
@@ -3443,8 +3440,8 @@ static bool ReplaceAllInternal(const AutoCheckCannotGC& nogc,
 // are fused. GetSubstitution is optimized away when possible.
 template <typename StrChar, typename RepChar>
 static JSString* ReplaceAll(JSContext* cx, JSLinearString* string,
-                            JSLinearString* searchString,
-                            JSLinearString* replaceString) {
+                            const JSLinearString* searchString,
+                            const JSLinearString* replaceString) {
   // Step 7 moved into ReplaceAll_internal.
 
   // Step 8 (advanceBy is equal to searchLength when searchLength > 0).
@@ -3487,8 +3484,9 @@ static JSString* ReplaceAll(JSContext* cx, JSLinearString* string,
 
 template <typename StrChar, typename RepChar>
 static bool ReplaceAllInterleaveInternal(const AutoCheckCannotGC& nogc,
-                                         JSContext* cx, JSLinearString* string,
-                                         JSLinearString* replaceString,
+                                         JSContext* cx,
+                                         const JSLinearString* string,
+                                         const JSLinearString* replaceString,
                                          JSStringBuilder& result) {
   // Step 7.
   const size_t stringLength = string->length();
@@ -3553,8 +3551,9 @@ static bool ReplaceAllInterleaveInternal(const AutoCheckCannotGC& nogc,
 // The steps are quite different, for performance. Loops in steps 11 and 14
 // are fused. GetSubstitution is optimized away when possible.
 template <typename StrChar, typename RepChar>
-static JSString* ReplaceAllInterleave(JSContext* cx, JSLinearString* string,
-                                      JSLinearString* replaceString) {
+static JSString* ReplaceAllInterleave(JSContext* cx,
+                                      const JSLinearString* string,
+                                      const JSLinearString* replaceString) {
   // Step 7 moved into ReplaceAllInterleavedInternal.
 
   // Step 8 (advanceBy is 1 when searchString is the empty string).
@@ -3678,7 +3677,13 @@ static ArrayObject* SplitHelper(JSContext* cx, Handle<JSLinearString*> str,
   }
 
   // Step 3 (reordered).
-  RootedValueVector splits(cx);
+  Rooted<ArrayObject*> substrings(cx, NewDenseEmptyArray(cx));
+  if (!substrings) {
+    return nullptr;
+  }
+
+  // Switch to allocating in the tenured heap if we fill the nursery.
+  AutoSelectGCHeap gcHeap(cx);
 
   // Step 8 (reordered).
   size_t lastEndIndex = 0;
@@ -3724,16 +3729,17 @@ static ArrayObject* SplitHelper(JSContext* cx, Handle<JSLinearString*> str,
 
     // Step 14.c.ii.1.
     size_t subLength = size_t(endIndex - sepLength - lastEndIndex);
-    JSString* sub = NewDependentString(cx, str, lastEndIndex, subLength);
+    JSString* sub =
+        NewDependentString(cx, str, lastEndIndex, subLength, gcHeap);
 
     // Steps 14.c.ii.2-4.
-    if (!sub || !splits.append(StringValue(sub))) {
+    if (!sub || !NewbornArrayPush(cx, substrings, StringValue(sub))) {
       return nullptr;
     }
 
     // Step 14.c.ii.5.
-    if (splits.length() == limit) {
-      return NewDenseCopiedArray(cx, splits.length(), splits.begin());
+    if (substrings->length() == limit) {
+      return substrings;
     }
 
     // Step 14.c.ii.6.
@@ -3744,16 +3750,16 @@ static ArrayObject* SplitHelper(JSContext* cx, Handle<JSLinearString*> str,
   }
 
   // Step 15.
-  JSString* sub =
-      NewDependentString(cx, str, lastEndIndex, strLength - lastEndIndex);
+  size_t subLength = strLength - lastEndIndex;
+  JSString* sub = NewDependentString(cx, str, lastEndIndex, subLength, gcHeap);
 
   // Steps 16-17.
-  if (!sub || !splits.append(StringValue(sub))) {
+  if (!sub || !NewbornArrayPush(cx, substrings, StringValue(sub))) {
     return nullptr;
   }
 
   // Step 18.
-  return NewDenseCopiedArray(cx, splits.length(), splits.begin());
+  return substrings;
 }
 
 // Fast-path for splitting a string into a character array via split("").
@@ -4321,7 +4327,8 @@ const ClassSpec StringObject::classSpec_ = {
     nullptr,
     string_methods,
     nullptr,
-    StringClassFinish};
+    StringClassFinish,
+};
 
 #define ____ false
 
@@ -4419,7 +4426,7 @@ enum EncodeResult { Encode_Failure, Encode_BadUri, Encode_Success };
 // caller Encode function. Annotate both functions with MOZ_NEVER_INLINE resp.
 // MOZ_ALWAYS_INLINE to ensure we get the desired inlining behavior.
 template <typename CharT>
-static MOZ_NEVER_INLINE EncodeResult Encode(StringBuffer& sb,
+static MOZ_NEVER_INLINE EncodeResult Encode(StringBuilder& sb,
                                             const CharT* chars, size_t length,
                                             const bool* unescapedSet) {
   Latin1Char hexBuf[3];
@@ -4549,7 +4556,7 @@ static MOZ_ALWAYS_INLINE bool Encode(JSContext* cx, Handle<JSLinearString*> str,
 enum DecodeResult { Decode_Failure, Decode_BadUri, Decode_Success };
 
 template <typename CharT>
-static DecodeResult Decode(StringBuffer& sb, const CharT* chars, size_t length,
+static DecodeResult Decode(StringBuilder& sb, const CharT* chars, size_t length,
                            const bool* reservedSet) {
   auto appendRange = [&sb, chars](size_t start, size_t end) {
     MOZ_ASSERT(start <= end);

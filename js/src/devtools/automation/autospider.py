@@ -440,7 +440,7 @@ CONFIGURE_ARGS += " --prefix={OBJDIR}/dist".format(OBJDIR=quote(OBJDIR))
 # Generate a mozconfig.
 with open(mozconfig, "wt") as fh:
     if AUTOMATION and platform.system() == "Windows":
-        fh.write('. "$topsrcdir/build/%s/mozconfig.vs-latest"\n' % variant_platform)
+        fh.write('. "$topsrcdir/build/mozconfig.clang-cl"\n')
     fh.write("ac_add_options --enable-project=js\n")
     fh.write("ac_add_options " + CONFIGURE_ARGS + "\n")
     fh.write("mk_add_options MOZ_OBJDIR=" + quote(OBJDIR) + "\n")
@@ -570,6 +570,10 @@ if use_minidump:
     for v in ("JSTESTS_EXTRA_ARGS", "JITTEST_EXTRA_ARGS"):
         env[v] = "--args='--dll %s' %s" % (injector_lib, env.get(v, ""))
 
+# Report longest running jit-tests in automation.
+env["JITTEST_EXTRA_ARGS"] = "--show-slow " + env.get("JITTEST_EXTRA_ARGS", "")
+env["JSTESTS_EXTRA_ARGS"] = "--show-slow " + env.get("JSTESTS_EXTRA_ARGS", "")
+
 # Always run all enabled tests, even if earlier ones failed. But return the
 # first failed status.
 results = [("(make-nonempty)", 0)]
@@ -668,7 +672,7 @@ if use_minidump:
         [
             mach,
             "python",
-            "virtualenv=build",
+            "--virtualenv=build",
             os.path.join(DIR.source, "testing/mozbase/mozcrash/mozcrash/mozcrash.py"),
             os.getenv("TMPDIR", "/tmp"),
             os.path.join(OBJDIR, "dist/crashreporter-symbols"),

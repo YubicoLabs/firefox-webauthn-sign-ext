@@ -1434,6 +1434,24 @@ void NotifyEmbedVisit(VisitData& aPlace,
   (void)NS_DispatchToMainThread(event);
 }
 
+void NotifyOriginRestrictedVisit(nsIURI* aURI) {
+  MOZ_ASSERT(NS_IsMainThread(), "Must be called on the main thread!");
+
+  nsCOMPtr<nsIRunnable> event = new NotifyManyVisitsObservers(VisitData(aURI));
+  (void)NS_DispatchToMainThread(event);
+}
+
+void NotifyVisitIfHavingUserPass(nsIURI* aURI) {
+  MOZ_ASSERT(NS_IsMainThread(), "Must be called on the main thread!");
+
+  bool hasUserPass;
+  if (NS_SUCCEEDED(aURI->GetHasUserPass(&hasUserPass)) && hasUserPass) {
+    nsCOMPtr<nsIRunnable> event =
+        new NotifyManyVisitsObservers(VisitData(aURI));
+    (void)NS_DispatchToMainThread(event);
+  }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 //// History
 
@@ -1857,6 +1875,64 @@ const mozIStorageConnection* History::GetConstDBConn() {
   return mDB->MainConn();
 }
 
+void History::UpdateOriginFloodingRestriction(nsACString& aOrigin) {
+  MOZ_ASSERT(NS_IsMainThread());
+
+  TimeStamp latestInputTimeStamp = UserActivation::LatestUserInputStart();
+  if (latestInputTimeStamp.IsNull()) {
+    // Probably just after browser initialization.
+    return;
+  }
+
+  TimeStamp now = TimeStamp::Now();
+
+  // Remove expired flooding resrictions.
+  for (auto iter = mOriginFloodingRestrictions.Iter(); !iter.Done();
+       iter.Next()) {
+    if ((now - iter.Data().mLastVisitTimeStamp).ToSeconds() >
+        iter.Data().mExpireIntervalSeconds) {
+      iter.Remove();
+    }
+  }
+
+  // If not long enough time elapsed sincer last user interaction, this visit
+  // can be stored.
+  if ((now - latestInputTimeStamp).ToSeconds() <
+      StaticPrefs::
+          places_history_floodingPrevention_maxSecondsFromLastUserInteraction()) {
+    mOriginFloodingRestrictions.Remove(aOrigin);
+    return;
+  }
+
+  // Otherwise, update the flooding restriction for the origin.
+  auto restriction = mOriginFloodingRestrictions.Lookup(aOrigin);
+  if (restriction) {
+    if (restriction->mAllowedVisitCount) {
+      // Count down to 0. If 0, the origin should be restricted.
+      restriction->mAllowedVisitCount -= 1;
+    } else {
+      // Since the origin is marked as restricted make its expiration time
+      // longer.
+      restriction->mExpireIntervalSeconds *= 2;
+    }
+  } else {
+    // Initialize OriginFloodingRestriction to store the origin restriction.
+    mOriginFloodingRestrictions.InsertOrUpdate(
+        aOrigin,
+        OriginFloodingRestriction{
+            now,
+            StaticPrefs::
+                places_history_floodingPrevention_restrictionExpireSeconds(),
+            StaticPrefs::places_history_floodingPrevention_restrictionCount()});
+  }
+}
+
+bool History::IsRestrictedOrigin(nsACString& aOrigin) {
+  auto restriction = mOriginFloodingRestrictions.Lookup(aOrigin);
+  // If the count is 0, need to restrict the origin.
+  return restriction && !restriction->mAllowedVisitCount;
+}
+
 void History::Shutdown() {
   MOZ_ASSERT(NS_IsMainThread());
   MutexAutoLock lockedScope(mBlockShutdownMutex);
@@ -1925,13 +2001,6 @@ History::VisitURI(nsIWidget* aWidget, nsIURI* aURI, nsIURI* aLastVisitedURI,
     NS_ENSURE_SUCCESS(rv, rv);
   }
 
-  nsTArray<VisitData> placeArray(1);
-  placeArray.AppendElement(VisitData(aURI, aLastVisitedURI));
-  VisitData& place = placeArray.ElementAt(0);
-  NS_ENSURE_FALSE(place.spec.IsEmpty(), NS_ERROR_INVALID_ARG);
-
-  place.visitTime = PR_Now();
-
   // Assigns a type to the edge in the visit linked list. Each type will be
   // considered differently when weighting the frecency of a location.
   uint32_t recentFlags = navHistory->GetRecentFlags(aURI);
@@ -1966,18 +2035,8 @@ History::VisitURI(nsIWidget* aWidget, nsIURI* aURI, nsIURI* aLastVisitedURI,
     transitionType = nsINavHistoryService::TRANSITION_FRAMED_LINK;
   }
 
-  place.SetTransitionType(transitionType);
   bool isRedirect = aFlags & IHistory::REDIRECT_SOURCE;
-  if (isRedirect) {
-    place.useFrecencyRedirectBonus =
-        (aFlags & (IHistory::REDIRECT_SOURCE_PERMANENT |
-                   IHistory::REDIRECT_SOURCE_UPGRADED)) ||
-        transitionType != nsINavHistoryService::TRANSITION_TYPED;
-  }
-  place.hidden = GetHiddenState(isRedirect, place.transitionType);
-
-  // Error pages should never be autocompleted.
-  place.isUnrecoverableError = aFlags & IHistory::UNRECOVERABLE_ERROR;
+  bool isHidden = GetHiddenState(isRedirect, transitionType);
 
   // Do not save a reloaded uri if we have visited the same URI recently.
   if (reload) {
@@ -1988,14 +2047,65 @@ History::VisitURI(nsIWidget* aWidget, nsIURI* aURI, nsIURI* aLastVisitedURI,
       bool wasHidden = entry->mHidden;
       // Regardless of whether we store the visit or not, we must update the
       // stored visit time.
-      AppendToRecentlyVisitedURIs(aURI, place.hidden);
+      AppendToRecentlyVisitedURIs(aURI, isHidden);
       // We always want to store an unhidden visit, if the previous visits were
       // hidden, because otherwise the page may not appear in the history UI.
       // This can happen for example at a page redirecting to itself.
-      if (!wasHidden || place.hidden) {
+      if (!wasHidden || isHidden) {
         // We can skip this visit.
         return NS_OK;
       }
+    }
+  }
+
+  // Never store the URL having userpass to database.
+  nsCOMPtr<nsIURI> visitedURI = GetExposableURI(aURI);
+  nsCOMPtr<nsIURI> lastVisitedURI;
+  if (aLastVisitedURI) {
+    lastVisitedURI = GetExposableURI(aLastVisitedURI);
+  }
+
+  nsTArray<VisitData> placeArray(1);
+  placeArray.AppendElement(VisitData(visitedURI, lastVisitedURI));
+  VisitData& place = placeArray.ElementAt(0);
+  NS_ENSURE_FALSE(place.spec.IsEmpty(), NS_ERROR_INVALID_ARG);
+
+  place.visitTime = PR_Now();
+  place.SetTransitionType(transitionType);
+  place.hidden = isHidden;
+
+  if (isRedirect) {
+    place.useFrecencyRedirectBonus =
+        (aFlags & (IHistory::REDIRECT_SOURCE_PERMANENT |
+                   IHistory::REDIRECT_SOURCE_UPGRADED)) ||
+        transitionType != nsINavHistoryService::TRANSITION_TYPED;
+  }
+
+  // Error pages should never be autocompleted.
+  place.isUnrecoverableError = aFlags & IHistory::UNRECOVERABLE_ERROR;
+
+  // EMBED visits should not go through the database.
+  // They exist only to keep track of isVisited status during the session.
+  if (place.transitionType == nsINavHistoryService::TRANSITION_EMBED) {
+    NotifyEmbedVisit(place);
+    return NS_OK;
+  }
+
+  if (StaticPrefs::places_history_floodingPrevention_enabled()) {
+    // If the origin is restricted, make isVisited status available during the
+    // session but not stored in the database.
+    nsAutoCString origin;
+    Unused << visitedURI->GetHost(origin);
+    if (StringBeginsWith(origin, "www."_ns)) {
+      origin.Cut(0, 4);
+    }
+
+    UpdateOriginFloodingRestriction(origin);
+
+    if (IsRestrictedOrigin(origin)) {
+      NotifyOriginRestrictedVisit(visitedURI);
+      NotifyVisitIfHavingUserPass(aURI);
+      return NS_OK;
     }
   }
 
@@ -2055,17 +2165,20 @@ History::VisitURI(nsIWidget* aWidget, nsIURI* aURI, nsIURI* aLastVisitedURI,
     }
   }
 
-  // EMBED visits should not go through the database.
-  // They exist only to keep track of isVisited status during the session.
-  if (place.transitionType == nsINavHistoryService::TRANSITION_EMBED) {
-    NotifyEmbedVisit(place);
-  } else {
-    mozIStorageConnection* dbConn = GetDBConn();
-    NS_ENSURE_STATE(dbConn);
+  mozIStorageConnection* dbConn = GetDBConn();
+  NS_ENSURE_STATE(dbConn);
 
-    rv = InsertVisitedURIs::Start(dbConn, std::move(placeArray));
-    NS_ENSURE_SUCCESS(rv, rv);
-  }
+  rv = InsertVisitedURIs::Start(dbConn, std::move(placeArray));
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  // URIs with a userpass component are not stored in the database for security
+  // reasons, we store the exposable URI version of them instead.
+  // The original link pointing at the URI with userpass must still be marked as
+  // visited, to properly react to the user interaction, so we notify a visit.
+  // The visited status is not going to survive a reload of course, though the
+  // alternative of marking any userpass URI as visited if the exposable URI is
+  // visited also feels wrong from the user point of view.
+  NotifyVisitIfHavingUserPass(aURI);
 
   return NS_OK;
 }
@@ -2099,8 +2212,9 @@ History::SetURITitle(nsIURI* aURI, const nsAString& aTitle) {
   //
   NS_ENSURE_TRUE(navHistory, NS_ERROR_FAILURE);
 
+  nsCOMPtr<nsIURI> uri = GetExposableURI(aURI);
   bool canAdd;
-  nsresult rv = navHistory->CanAddURI(aURI, &canAdd);
+  nsresult rv = navHistory->CanAddURI(uri, &canAdd);
   NS_ENSURE_SUCCESS(rv, rv);
   if (!canAdd) {
     return NS_OK;
@@ -2109,7 +2223,7 @@ History::SetURITitle(nsIURI* aURI, const nsAString& aTitle) {
   mozIStorageConnection* dbConn = GetDBConn();
   NS_ENSURE_STATE(dbConn);
 
-  return SetPageTitle::Start(dbConn, aURI, aTitle);
+  return SetPageTitle::Start(dbConn, uri, aTitle);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2135,6 +2249,10 @@ History::UpdatePlaces(JS::Handle<JS::Value> aPlaceInfos,
     NS_ENSURE_SUCCESS(rv, rv);
 
     nsCOMPtr<nsIURI> uri = GetURIFromJSObject(aCtx, info, "uri");
+    if (uri) {
+      uri = GetExposableURI(uri);
+    }
+
     nsCString guid;
     {
       nsString fatGUID;
@@ -2289,6 +2407,7 @@ History::IsURIVisited(nsIURI* aURI, mozIVisitedStatusCallback* aCallback) {
 NS_IMETHODIMP
 History::ClearCache() {
   mRecentlyVisitedURIs.Clear();
+  mOriginFloodingRestrictions.Clear();
   return NS_OK;
 }
 

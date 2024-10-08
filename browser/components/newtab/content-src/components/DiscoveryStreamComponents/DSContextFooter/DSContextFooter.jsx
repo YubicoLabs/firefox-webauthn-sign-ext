@@ -2,7 +2,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-import { cardContextTypes } from "../../Card/types.js";
+import { cardContextTypes } from "../../Card/types.mjs";
+import { SponsoredContentHighlight } from "../FeatureHighlight/SponsoredContentHighlight";
+// eslint-disable-next-line no-shadow
 import { CSSTransition, TransitionGroup } from "react-transition-group";
 import { FluentOrText } from "../../FluentOrText/FluentOrText.jsx";
 import React from "react";
@@ -82,6 +84,8 @@ export class DSContextFooter extends React.PureComponent {
       sponsored_by_override,
       cta_button_variant,
       source,
+      spocMessageVariant,
+      dispatch,
     } = this.props;
 
     const sponsorLabel = SponsorLabel({
@@ -119,6 +123,12 @@ export class DSContextFooter extends React.PureComponent {
       return (
         <div className="story-footer">
           {sponsorLabel}
+          {sponsorLabel && spocMessageVariant === "variant-b" && (
+            <SponsoredContentHighlight
+              dispatch={dispatch}
+              position="inset-block-end inset-inline-start"
+            />
+          )}
           {dsMessageLabel}
         </div>
       );

@@ -45,9 +45,13 @@ const Cm = Components.manager;
 /* global MOZ_VERIFY_MAR_SIGNATURE, IS_AUTHENTICODE_CHECK_ENABLED */
 load("../data/xpcshellConstantsPP.js");
 
-const DIR_MACOS = AppConstants.platform == "macosx" ? "Contents/MacOS/" : "";
+// Note: DIR_CONTENTS, DIR_MACOS and DIR_RESOURCES only differ on macOS. They
+//       default to "" on all other platforms.
+const DIR_CONTENTS = AppConstants.platform == "macosx" ? "Contents/" : "";
+const DIR_MACOS =
+  AppConstants.platform == "macosx" ? DIR_CONTENTS + "MacOS/" : "";
 const DIR_RESOURCES =
-  AppConstants.platform == "macosx" ? "Contents/Resources/" : "";
+  AppConstants.platform == "macosx" ? DIR_CONTENTS + "Resources/" : "";
 const TEST_FILE_SUFFIX = AppConstants.platform == "macosx" ? "_mac" : "";
 const FILE_COMPLETE_MAR = "complete" + TEST_FILE_SUFFIX + ".mar";
 const FILE_PARTIAL_MAR = "partial" + TEST_FILE_SUFFIX + ".mar";
@@ -75,13 +79,19 @@ const APP_BIN_SUFFIX =
   AppConstants.platform == "linux" ? "-bin" : mozinfo.bin_suffix;
 const FILE_APP_BIN = AppConstants.MOZ_APP_NAME + APP_BIN_SUFFIX;
 const FILE_COMPLETE_EXE = "complete.exe";
-const FILE_HELPER_BIN = "TestAUSHelper" + mozinfo.bin_suffix;
+const FILE_HELPER_BIN =
+  AppConstants.platform == "macosx"
+    ? "callback_app.app/Contents/MacOS/TestAUSHelper"
+    : "TestAUSHelper" + mozinfo.bin_suffix;
+const FILE_HELPER_APP =
+  AppConstants.platform == "macosx" ? "callback_app.app" : FILE_HELPER_BIN;
 const FILE_MAINTENANCE_SERVICE_BIN = "maintenanceservice.exe";
 const FILE_MAINTENANCE_SERVICE_INSTALLER_BIN =
   "maintenanceservice_installer.exe";
 const FILE_OLD_VERSION_MAR = "old_version.mar";
 const FILE_PARTIAL_EXE = "partial.exe";
-const FILE_UPDATER_BIN = "updater" + mozinfo.bin_suffix;
+const FILE_UPDATER_BIN =
+  "updater" + (AppConstants.platform == "macosx" ? ".app" : mozinfo.bin_suffix);
 
 const PERFORMING_STAGED_UPDATE = "Performing a staged update";
 const CALL_QUIT = "calling QuitProgressUI";
@@ -145,8 +155,21 @@ var gPIDPersistProcess;
 
 // Variables are used instead of contants so tests can override these values if
 // necessary.
-var gCallbackBinFile = "callback_app" + mozinfo.bin_suffix;
 var gCallbackArgs = ["./", "callback.log", "Test Arg 2", "Test Arg 3"];
+var gCallbackApp = (() => {
+  if (AppConstants.platform == "macosx") {
+    return "callback_app.app";
+  }
+  return "callback_app" + mozinfo.bin_suffix;
+})();
+
+var gCallbackBinFile = (() => {
+  if (AppConstants.platform == "macosx") {
+    return FILE_HELPER_BIN;
+  }
+  return "callback_app" + mozinfo.bin_suffix;
+})();
+
 var gPostUpdateBinFile = "postup_app" + mozinfo.bin_suffix;
 
 var gTimeoutRuns = 0;
@@ -181,12 +204,30 @@ var gDebugTestLog = false;
 var gTestsToLog = [];
 var gRealDump;
 var gFOS;
+var gUpdateBin;
 
 var gTestFiles = [];
 var gTestDirs = [];
 
 // Common files for both successful and failed updates.
 var gTestFilesCommon = [
+  {
+    description: "Should never change",
+    fileName: FILE_CHANNEL_PREFS,
+    relPathDir:
+      AppConstants.platform == "macosx"
+        ? "Contents/Frameworks/ChannelPrefs.framework/"
+        : DIR_RESOURCES + "defaults/pref/",
+    originalContents: "ShouldNotBeReplaced\n",
+    compareContents: "ShouldNotBeReplaced\n",
+    originalFile: null,
+    compareFile: null,
+    originalPerms: 0o767,
+    comparePerms: 0o767,
+  },
+];
+
+var gTestFilesCommonNonMac = [
   {
     description: "Should never change",
     fileName: FILE_UPDATE_SETTINGS_INI,
@@ -198,18 +239,67 @@ var gTestFilesCommon = [
     originalPerms: 0o767,
     comparePerms: 0o767,
   },
+];
+
+if (AppConstants.platform != "macosx") {
+  gTestFilesCommon = gTestFilesCommon.concat(gTestFilesCommonNonMac);
+}
+
+var gTestFilesCommonMac = [
   {
     description: "Should never change",
-    fileName: "channel-prefs.js",
-    relPathDir: DIR_RESOURCES + "defaults/pref/",
-    originalContents: "ShouldNotBeReplaced\n",
-    compareContents: "ShouldNotBeReplaced\n",
+    fileName: FILE_UPDATE_SETTINGS_FRAMEWORK,
+    relPathDir:
+      DIR_MACOS + "updater.app/Contents/Frameworks/UpdateSettings.framework/",
+    originalContents: null,
+    compareContents: null,
     originalFile: null,
     compareFile: null,
-    originalPerms: 0o767,
-    comparePerms: 0o767,
+    originalPerms: null,
+    comparePerms: null,
+    existingFile: true,
+  },
+  {
+    description: "Should never change",
+    fileName: FILE_INFO_PLIST,
+    relPathDir: DIR_CONTENTS,
+    originalContents: DIR_APP_INFO_PLIST_FILE_CONTENTS,
+    compareContents: DIR_APP_INFO_PLIST_FILE_CONTENTS,
+    originalFile: null,
+    compareFile: null,
+    originalPerms: null,
+    comparePerms: null,
+    existingFile: true,
+  },
+  {
+    description: "Should never change",
+    fileName: FILE_INFO_PLIST,
+    relPathDir: DIR_MACOS + "updater.app/Contents/",
+    originalContents: null,
+    compareContents: null,
+    originalFile: null,
+    compareFile: null,
+    originalPerms: null,
+    comparePerms: null,
+    existingFile: true,
+  },
+  {
+    description: "Should never change",
+    fileName: FILE_INFO_PLIST,
+    relPathDir: DIR_MACOS + "callback_app.app/Contents/",
+    originalContents: null,
+    compareContents: null,
+    originalFile: null,
+    compareFile: null,
+    originalPerms: null,
+    comparePerms: null,
+    existingFile: true,
   },
 ];
+
+if (AppConstants.platform == "macosx") {
+  gTestFilesCommon = gTestFilesCommon.concat(gTestFilesCommonMac);
+}
 
 // Files for a complete successful update. This can be used for a complete
 // failed update by calling setTestFilesAndDirsForFailure.
@@ -657,6 +747,20 @@ var gTestFilesPartialSuccess = [
 // Concatenate the common files to the end of the array.
 gTestFilesPartialSuccess = gTestFilesPartialSuccess.concat(gTestFilesCommon);
 
+/**
+ * Searches `gTestFiles` for the file with the given filename. This is currently
+ * not very efficient (it searches the whole array every time).
+ *
+ * @param filename
+ *        The name of the file to search for (i.e. the `fileName` attribute).
+ * @returns
+ *        The object in `gTestFiles` that describes the requested file.
+ *        Or `null`, if the file is not in `gTestFiles`.
+ */
+function getTestFileByName(filename) {
+  return gTestFiles.find(f => f.fileName == filename) ?? null;
+}
+
 var gTestDirsCommon = [
   {
     relPathDir: DIR_RESOURCES + "3/",
@@ -954,10 +1058,10 @@ function setupTestCommon(aAppUpdateAutoEnabled = false, aAllowBits = false) {
   );
   syncManager.resetLock();
 
-  // Remove the updates directory on Windows and Mac OS X which is located
+  // Remove the updates directory on Windows and macOS which is located
   // outside of the application directory after the call to adjustGeneralPaths
-  // has set it up. Since the test hasn't ran yet and the directory shouldn't
-  // exist this is non-fatal for the test.
+  // has set it up. Since the test hasn't run yet, the directory shouldn't
+  // exist and failure to remove the directory should be non-fatal for the test.
   if (AppConstants.platform == "win" || AppConstants.platform == "macosx") {
     let updatesDir = getMockUpdRootD();
     if (updatesDir.exists()) {
@@ -1139,7 +1243,7 @@ function dumpOverride(aText) {
  * run of a test passed when it runs synchronously so the log output can be
  * inspected.
  */
-function doTestFinish() {
+async function doTestFinish() {
   if (gDebugTest) {
     // This prevents do_print errors from being printed by the xpcshell test
     // harness due to nsUpdateService.js logging to the console when the
@@ -1148,7 +1252,7 @@ function doTestFinish() {
     gAUS.observe(null, "nsPref:changed", PREF_APP_UPDATE_LOG);
   }
 
-  reloadUpdateManagerData(true);
+  await reloadUpdateManagerData(true);
 
   // Call app update's observe method passing quit-application to test that the
   // shutdown of app update runs without throwing or leaking. The observer
@@ -1260,17 +1364,16 @@ function checkAppBundleModTime() {
  * @param   aUpdateCount
  *          The update history's update count.
  */
-function checkUpdateManager(
+async function checkUpdateManager(
   aStatusFileState,
   aHasActiveUpdate,
   aUpdateStatusState,
   aUpdateErrCode,
   aUpdateCount
 ) {
-  let activeUpdate =
-    aUpdateStatusState == STATE_DOWNLOADING
-      ? gUpdateManager.downloadingUpdate
-      : gUpdateManager.readyUpdate;
+  let activeUpdate = await (aUpdateStatusState == STATE_DOWNLOADING
+    ? gUpdateManager.getDownloadingUpdate()
+    : gUpdateManager.getReadyUpdate());
   Assert.equal(
     readStatusState(),
     aStatusFileState,
@@ -1292,13 +1395,14 @@ function checkUpdateManager(
         msgTags[i] + "the active update should not be defined"
       );
     }
+    const history = await gUpdateManager.getHistory();
     Assert.equal(
-      gUpdateManager.getUpdateCount(),
+      history.length,
       aUpdateCount,
       msgTags[i] + "the update manager updateCount attribute" + MSG_SHOULD_EQUAL
     );
     if (aUpdateCount > 0) {
-      let update = gUpdateManager.getUpdateAt(0);
+      let update = history[0];
       Assert.equal(
         update.state,
         aUpdateStatusState,
@@ -1400,9 +1504,9 @@ function checkPostUpdateRunningFile(aShouldExist) {
  * Initializes the most commonly used settings and creates an instance of the
  * update service stub.
  */
-function standardInit() {
+async function standardInit() {
   // Initialize the update service stub component
-  initUpdateServiceStub();
+  await initUpdateServiceStub();
 }
 
 /**
@@ -1456,7 +1560,7 @@ function getApplyDirPath() {
  * update will be applied.
  *
  * The files for the update are located two directories below the apply to
- * directory since Mac OS X sets the last modified time for the root directory
+ * directory since macOS sets the last modified time for the root directory
  * to the current time and if the update changes any files in the root directory
  * then it wouldn't be possible to test (bug 600098).
  *
@@ -1864,6 +1968,21 @@ function removeUpdateInProgressLockFile(aDir) {
   Assert.ok(!file.exists(), MSG_SHOULD_NOT_EXIST + getMsgPath(file.path));
 }
 
+function stripQuarantineBitFromPath(aPath) {
+  if (AppConstants.platform != "macosx") {
+    do_throw("macOS-only function called by a different platform!");
+  }
+
+  let args = ["-dr", "com.apple.quarantine", aPath];
+  let stripQuarantineBitProcess = Cc[
+    "@mozilla.org/process/util;1"
+  ].createInstance(Ci.nsIProcess);
+  let xattrBin = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
+  xattrBin.initWithPath("/usr/bin/xattr");
+  stripQuarantineBitProcess.init(xattrBin);
+  stripQuarantineBitProcess.run(true, args, args.length);
+}
+
 /**
  * Copies the test updater to the GRE binary directory and returns the nsIFile
  * for the copied test updater.
@@ -1871,15 +1990,15 @@ function removeUpdateInProgressLockFile(aDir) {
  * @return  nsIFIle for the copied test updater.
  */
 function copyTestUpdaterToBinDir() {
-  let updaterLeafName =
-    AppConstants.platform == "macosx" ? "updater.app" : FILE_UPDATER_BIN;
-  let testUpdater = getTestDirFile(updaterLeafName);
+  let testUpdater = getTestDirFile(FILE_UPDATER_BIN);
   let updater = getGREBinDir();
-  updater.append(updaterLeafName);
+  updater.append(FILE_UPDATER_BIN);
   if (!updater.exists()) {
-    testUpdater.copyToFollowingLinks(updater.parent, updaterLeafName);
+    testUpdater.copyToFollowingLinks(updater.parent, FILE_UPDATER_BIN);
   }
+
   if (AppConstants.platform == "macosx") {
+    stripQuarantineBitFromPath(updater.path);
     updater.append("Contents");
     updater.append("MacOS");
     updater.append("org.mozilla.updater");
@@ -2006,8 +2125,8 @@ function runUpdate(
 
   let svcOriginalLog;
   if (gIsServiceTest) {
-    copyFileToTestAppDir(FILE_MAINTENANCE_SERVICE_BIN, false);
-    copyFileToTestAppDir(FILE_MAINTENANCE_SERVICE_INSTALLER_BIN, false);
+    copyFileToTestAppDir(FILE_MAINTENANCE_SERVICE_BIN, DIR_MACOS);
+    copyFileToTestAppDir(FILE_MAINTENANCE_SERVICE_INSTALLER_BIN, DIR_MACOS);
     if (aCheckSvcLog) {
       svcOriginalLog = readServiceLogFile();
     }
@@ -2019,15 +2138,21 @@ function runUpdate(
     Services.env.set("MOZ_TEST_SHORTER_WAIT_PID", "1");
   }
 
-  let updateBin = copyTestUpdaterToBinDir();
-  Assert.ok(updateBin.exists(), MSG_SHOULD_EXIST + getMsgPath(updateBin.path));
+  if (!gUpdateBin) {
+    gUpdateBin = copyTestUpdaterToBinDir();
+  }
+
+  Assert.ok(
+    gUpdateBin.exists(),
+    MSG_SHOULD_EXIST + getMsgPath(gUpdateBin.path)
+  );
 
   let updatesDirPath = aPatchDirPath || getUpdateDirFile(DIR_PATCH).path;
   let installDirPath = aInstallDirPath || getApplyDirFile().path;
   let applyToDirPath = aApplyToDirPath || getApplyDirFile().path;
   let stageDirPath = aApplyToDirPath || getStageDirFile().path;
 
-  let callbackApp = getApplyDirFile(DIR_RESOURCES + gCallbackBinFile);
+  let callbackApp = getApplyDirFile(DIR_MACOS + gCallbackApp);
   Assert.ok(
     callbackApp.exists(),
     MSG_SHOULD_EXIST + ", path: " + callbackApp.path
@@ -2045,13 +2170,13 @@ function runUpdate(
     args[3] = pid;
   }
 
-  let launchBin = gIsServiceTest && isInvalidArgTest ? callbackApp : updateBin;
+  let launchBin = gIsServiceTest && isInvalidArgTest ? callbackApp : gUpdateBin;
 
   if (!isInvalidArgTest) {
     args = args.concat([callbackApp.parent.path, callbackApp.path]);
     args = args.concat(gCallbackArgs);
   } else if (gIsServiceTest) {
-    args = ["launch-service", updateBin.path].concat(args);
+    args = ["launch-service", gUpdateBin.path].concat(args);
   } else if (aCallbackPath) {
     args = args.concat([callbackApp.parent.path, aCallbackPath]);
   }
@@ -2118,11 +2243,6 @@ function runUpdate(
     logUpdateLog(FILE_UPDATE_LOG);
   }
   Assert.equal(status, aExpectedStatus, "the update status" + MSG_SHOULD_EQUAL);
-
-  Assert.ok(
-    !updateHasBinaryTransparencyErrorResult(),
-    "binary transparency is not being processed for now"
-  );
 
   if (gIsServiceTest && aCheckSvcLog) {
     let contents = readServiceLogFile();
@@ -2235,7 +2355,12 @@ function checkSymlink() {
 /**
  * Sets the active update and related information for updater tests.
  */
-function setupActiveUpdate() {
+async function setupActiveUpdate() {
+  // The update system being initialized at an unexpected time could cause
+  // unexpected effects in the reload process. Make sure that initialization
+  // has already run first.
+  await gAUS.init();
+
   let pendingState = gIsServiceTest ? STATE_PENDING_SVC : STATE_PENDING;
   let patchProps = { state: pendingState };
   let patches = getLocalPatchString(patchProps);
@@ -2244,7 +2369,10 @@ function setupActiveUpdate() {
   writeVersionFile(DEFAULT_UPDATE_VERSION);
   writeStatusFile(pendingState);
   reloadUpdateManagerData();
-  Assert.ok(!!gUpdateManager.readyUpdate, "the ready update should be defined");
+  Assert.ok(
+    !!(await gUpdateManager.getReadyUpdate()),
+    "the ready update should be defined"
+  );
 }
 
 /**
@@ -2306,7 +2434,7 @@ async function stageUpdate(
     );
 
     Assert.equal(
-      gUpdateManager.readyUpdate.state,
+      (await gUpdateManager.getReadyUpdate()).state,
       aStateAfterStage,
       "the update state" + MSG_SHOULD_EQUAL
     );
@@ -2495,19 +2623,19 @@ function setupAppFiles({ requiresOmnijar = false } = {}) {
   // Required files for the application or the test that aren't listed in the
   // dependentlibs.list file.
   let appFiles = [
-    { relPath: FILE_APP_BIN, inGreDir: false },
-    { relPath: FILE_APPLICATION_INI, inGreDir: true },
-    { relPath: "dependentlibs.list", inGreDir: true },
+    { relPath: FILE_APP_BIN, inDir: DIR_MACOS },
+    { relPath: FILE_APPLICATION_INI, inDir: DIR_RESOURCES },
+    { relPath: "dependentlibs.list", inDir: DIR_RESOURCES },
   ];
 
   if (requiresOmnijar) {
-    appFiles.push({ relPath: AppConstants.OMNIJAR_NAME, inGreDir: true });
+    appFiles.push({ relPath: AppConstants.OMNIJAR_NAME, inDir: DIR_RESOURCES });
 
     if (AppConstants.MOZ_BUILD_APP == "browser") {
       // Only Firefox uses an app-specific omnijar.
       appFiles.push({
         relPath: "browser/" + AppConstants.OMNIJAR_NAME,
-        inGreDir: true,
+        inDir: DIR_RESOURCES,
       });
     }
   }
@@ -2516,8 +2644,8 @@ function setupAppFiles({ requiresOmnijar = false } = {}) {
   // symlinked or copied.
   if (AppConstants.platform == "linux") {
     appFiles.push(
-      { relPath: "icons/updater.png", inGreDir: true },
-      { relPath: "libsoftokn3.so", inGreDir: true }
+      { relPath: "icons/updater.png", inDir: DIR_RESOURCES },
+      { relPath: "libsoftokn3.so", inDir: DIR_RESOURCES }
     );
   }
 
@@ -2535,13 +2663,13 @@ function setupAppFiles({ requiresOmnijar = false } = {}) {
   let line = {};
   do {
     hasMore = fis.readLine(line);
-    appFiles.push({ relPath: line.value, inGreDir: false });
+    appFiles.push({ relPath: line.value, inDir: DIR_MACOS });
   } while (hasMore);
 
   fis.close();
 
   appFiles.forEach(function CMAF_FLN_FE(aAppFile) {
-    copyFileToTestAppDir(aAppFile.relPath, aAppFile.inGreDir);
+    copyFileToTestAppDir(aAppFile.relPath, aAppFile.inDir);
   });
 
   copyTestUpdaterToBinDir();
@@ -2559,18 +2687,39 @@ function setupAppFiles({ requiresOmnijar = false } = {}) {
  * @param   aFileRelPath
  *          The relative path to the source and the destination of the file to
  *          copy.
- * @param   aInGreDir
- *          Whether the file is located in the GRE directory which is
- *          <bundle>/Contents/Resources on Mac OS X and is the installation
- *          directory on all other platforms. If false the file must be in the
- *          GRE Binary directory which is <bundle>/Contents/MacOS on Mac OS X
- *          and is the installation directory on on all other platforms.
+ * @param   aDir
+ *          The relative subdirectory within the .app bundle on macOS. This is
+ *          ignored on all other platforms.
  */
-function copyFileToTestAppDir(aFileRelPath, aInGreDir) {
+function copyFileToTestAppDir(aFileRelPath, aDir) {
+  let srcFile;
+  let destFile;
+
   // gGREDirOrig and gGREBinDirOrig must always be cloned when changing its
   // properties
-  let srcFile = aInGreDir ? gGREDirOrig.clone() : gGREBinDirOrig.clone();
-  let destFile = aInGreDir ? getGREDir() : getGREBinDir();
+  if (AppConstants.platform == "macosx") {
+    switch (aDir) {
+      case DIR_RESOURCES:
+        srcFile = gGREDirOrig.clone();
+        destFile = getGREDir();
+        break;
+      case DIR_MACOS:
+        srcFile = gGREBinDirOrig.clone();
+        destFile = getGREBinDir();
+        break;
+      case DIR_CONTENTS:
+        srcFile = gGREBinDirOrig.parent.clone();
+        destFile = getGREBinDir().parent;
+        break;
+      default:
+        debugDump("invalid path given. Path: " + aDir);
+        break;
+    }
+  } else {
+    srcFile = gGREDirOrig.clone();
+    destFile = getGREDir();
+  }
+
   let fileRelPath = aFileRelPath;
   let pathParts = fileRelPath.split("/");
   for (let i = 0; i < pathParts.length; i++) {
@@ -2587,10 +2736,6 @@ function copyFileToTestAppDir(aFileRelPath, aInGreDir) {
         ".app exists. Path: " +
         srcFile.path
     );
-    // gGREDirOrig and gGREBinDirOrig must always be cloned when changing its
-    // properties
-    srcFile = aInGreDir ? gGREDirOrig.clone() : gGREBinDirOrig.clone();
-    destFile = aInGreDir ? getGREDir() : getGREBinDir();
     for (let i = 0; i < pathParts.length; i++) {
       if (pathParts[i]) {
         srcFile.append(
@@ -3102,15 +3247,23 @@ async function waitForHelperExit() {
  *          When true, copy or symlink omnijars as well.  This may be required
  *          to launch the updated application and have non-trivial functionality
  *          available.
+ * @param   options.asyncExeArg
+ *          When `aPostUpdateAsync`, the (single) post-argument to invoke the
+ *          post-update process with.  Default: "post-update-async".
  */
 async function setupUpdaterTest(
   aMarFile,
   aPostUpdateAsync,
   aPostUpdateExeRelPathPrefix = "",
   aSetupActiveUpdate = true,
-  { requiresOmnijar = false } = {}
+  { requiresOmnijar = false, asyncExeArg = "post-update-async" } = {}
 ) {
   debugDump("start - updater test setup");
+  // Make sure that update has already been initialized. If post update
+  // processing unexpectedly runs between this setup and when we use these
+  // files, it may clean them up before we get the chance to use them.
+  await gAUS.init();
+
   let updatesPatchDir = getUpdateDirFile(DIR_PATCH);
   if (!updatesPatchDir.exists()) {
     updatesPatchDir.create(Ci.nsIFile.DIRECTORY_TYPE, PERMS_DIRECTORY);
@@ -3119,11 +3272,25 @@ async function setupUpdaterTest(
   let mar = getTestDirFile(aMarFile);
   mar.copyToFollowingLinks(updatesPatchDir, FILE_UPDATE_MAR);
 
+  let helperApp = getTestDirFile(FILE_HELPER_APP);
   let helperBin = getTestDirFile(FILE_HELPER_BIN);
+  helperApp.permissions = PERMS_DIRECTORY;
   helperBin.permissions = PERMS_DIRECTORY;
-  let afterApplyBinDir = getApplyDirFile(DIR_RESOURCES);
-  helperBin.copyToFollowingLinks(afterApplyBinDir, gCallbackBinFile);
+  let afterApplyBinDir = getApplyDirFile(DIR_MACOS);
+
   helperBin.copyToFollowingLinks(afterApplyBinDir, gPostUpdateBinFile);
+  helperApp.copyToFollowingLinks(afterApplyBinDir, gCallbackApp);
+
+  // On macOS, some test files (like the Update Settings file) may be within the
+  // updater app bundle, so make sure it is in place now in case we want to
+  // manipulate it.
+  if (!gUpdateBin) {
+    gUpdateBin = copyTestUpdaterToBinDir();
+  }
+
+  if (AppConstants.platform == "macosx") {
+    stripQuarantineBitFromPath(afterApplyBinDir.parent.parent.path);
+  }
 
   gTestFiles.forEach(function SUT_TF_FE(aTestFile) {
     debugDump("start - setup test file: " + aTestFile.fileName);
@@ -3159,6 +3326,24 @@ async function setupUpdaterTest(
         testFile.permissions = aTestFile.originalPerms;
         // Store the actual permissions on the file for reference later after
         // setting the permissions.
+        if (!aTestFile.comparePerms) {
+          aTestFile.comparePerms = testFile.permissions;
+        }
+      }
+    } else if (aTestFile.existingFile) {
+      const testFile = getApplyDirFile(
+        aTestFile.relPathDir + aTestFile.fileName
+      );
+      if (aTestFile.removeOriginalFile) {
+        testFile.remove(false);
+      } else {
+        const fileContents = readFileBytes(testFile);
+        if (!aTestFile.originalContents && !aTestFile.originalFile) {
+          aTestFile.originalContents = fileContents;
+        }
+        if (!aTestFile.compareContents && !aTestFile.compareFile) {
+          aTestFile.compareContents = fileContents;
+        }
         if (!aTestFile.comparePerms) {
           aTestFile.comparePerms = testFile.permissions;
         }
@@ -3223,11 +3408,13 @@ async function setupUpdaterTest(
   });
 
   if (aSetupActiveUpdate) {
-    setupActiveUpdate();
+    await setupActiveUpdate();
   }
 
   if (aPostUpdateAsync !== null) {
-    createUpdaterINI(aPostUpdateAsync, aPostUpdateExeRelPathPrefix);
+    createUpdaterINI(aPostUpdateAsync, aPostUpdateExeRelPathPrefix, {
+      asyncExeArg,
+    });
   }
 
   await TestUtils.waitForCondition(() => {
@@ -3253,9 +3440,16 @@ async function setupUpdaterTest(
  *          order to test the default launch behavior which is async.
  * @param   aExeRelPathPrefix
  *          A string to prefix the ExeRelPath values in the updater.ini.
+ * @param   options.asyncExeArg
+ *          When `aIsExeAsync`, the (single) argument to invoke the
+ *          post-update process with.  Default: "post-update-async".
  */
-function createUpdaterINI(aIsExeAsync, aExeRelPathPrefix) {
-  let exeArg = "ExeArg=post-update-async\n";
+function createUpdaterINI(
+  aIsExeAsync,
+  aExeRelPathPrefix,
+  { asyncExeArg = "post-update-async" } = {}
+) {
+  let exeArg = `ExeArg=${asyncExeArg}\n`;
   let exeAsync = "";
   if (aIsExeAsync !== undefined) {
     if (aIsExeAsync) {
@@ -3271,11 +3465,7 @@ function createUpdaterINI(aIsExeAsync, aExeRelPathPrefix) {
   }
 
   let exeRelPathMac =
-    "ExeRelPath=" +
-    aExeRelPathPrefix +
-    DIR_RESOURCES +
-    gPostUpdateBinFile +
-    "\n";
+    "ExeRelPath=" + aExeRelPathPrefix + DIR_MACOS + gPostUpdateBinFile + "\n";
   let exeRelPathWin =
     "ExeRelPath=" + aExeRelPathPrefix + gPostUpdateBinFile + "\n";
   let updaterIniContents =
@@ -3424,21 +3614,13 @@ function checkUpdateLogContents(
   // Remove leading timestamps
   updateLogContents = removeTimeStamps(updateLogContents);
 
-  // The channel-prefs.js is defined in gTestFilesCommon which will always be
-  // located to the end of gTestFiles when it is present.
-  if (
-    gTestFiles.length > 1 &&
-    gTestFiles[gTestFiles.length - 1].fileName == "channel-prefs.js" &&
-    !gTestFiles[gTestFiles.length - 1].originalContents
-  ) {
+  const channelPrefs = getTestFileByName(FILE_CHANNEL_PREFS);
+  if (channelPrefs && !channelPrefs.originalContents) {
     updateLogContents = updateLogContents.replace(/.*defaults\/.*/g, "");
   }
 
-  if (
-    gTestFiles.length > 2 &&
-    gTestFiles[gTestFiles.length - 2].fileName == FILE_UPDATE_SETTINGS_INI &&
-    !gTestFiles[gTestFiles.length - 2].originalContents
-  ) {
+  const updateSettings = getTestFileByName(FILE_UPDATE_SETTINGS_INI);
+  if (updateSettings && !updateSettings.originalContents) {
     updateLogContents = updateLogContents.replace(
       /.*update-settings.ini.*/g,
       ""
@@ -3529,21 +3711,11 @@ function checkUpdateLogContents(
   // Remove leading timestamps
   compareLogContents = removeTimeStamps(compareLogContents);
 
-  // The channel-prefs.js is defined in gTestFilesCommon which will always be
-  // located to the end of gTestFiles.
-  if (
-    gTestFiles.length > 1 &&
-    gTestFiles[gTestFiles.length - 1].fileName == "channel-prefs.js" &&
-    !gTestFiles[gTestFiles.length - 1].originalContents
-  ) {
+  if (channelPrefs && !channelPrefs.originalContents) {
     compareLogContents = compareLogContents.replace(/.*defaults\/.*/g, "");
   }
 
-  if (
-    gTestFiles.length > 2 &&
-    gTestFiles[gTestFiles.length - 2].fileName == FILE_UPDATE_SETTINGS_INI &&
-    !gTestFiles[gTestFiles.length - 2].originalContents
-  ) {
+  if (updateSettings && !updateSettings.originalContents) {
     compareLogContents = compareLogContents.replace(
       /.*update-settings.ini.*/g,
       ""
@@ -3766,7 +3938,7 @@ function checkFilesAfterUpdateSuccess(
           "xattr value changed"
         );
       },
-      reason => {
+      _reason => {
         Assert.fail(MAC_APP_XATTR_KEY + " xattr is missing!");
       }
     );
@@ -3967,9 +4139,10 @@ function checkFilesAfterUpdateCommon(aStageDirExists, aToBeDeletedDirExists) {
  *        parameter passed to the callback executable (in the apply directory).
  */
 function checkCallbackLog(
-  appLaunchLog = getApplyDirFile(DIR_RESOURCES + gCallbackArgs[1])
+  appLaunchLog = getApplyDirFile(DIR_MACOS + gCallbackArgs[1])
 ) {
   if (!appLaunchLog.exists()) {
+    debugDump("Callback log does not exist yet. Path: " + appLaunchLog.path);
     // Uses do_timeout instead of do_execute_soon to lessen log spew.
     do_timeout(FILE_IN_USE_TIMEOUT_MS, checkCallbackLog);
     return;
@@ -4030,14 +4203,19 @@ function checkCallbackLog(
  *          The string to append to the post update test helper binary path.
  */
 function getPostUpdateFile(aSuffix) {
-  return getApplyDirFile(DIR_RESOURCES + gPostUpdateBinFile + aSuffix);
+  return getApplyDirFile(DIR_MACOS + gPostUpdateBinFile + aSuffix);
 }
 
 /**
  * Checks the contents of the updater post update binary log. When completed
  * checkPostUpdateAppLogFinished will be called.
+ *
+ * @param   options.expectedContents
+ *          The expected log content.  Default: "post-update\n".
  */
-async function checkPostUpdateAppLog() {
+async function checkPostUpdateAppLog({
+  expectedContents = "post-update\n",
+} = {}) {
   // Only Mac OS X and Windows support post update.
   if (AppConstants.platform == "macosx" || AppConstants.platform == "win") {
     let file = getPostUpdateFile(".log");
@@ -4046,10 +4224,20 @@ async function checkPostUpdateAppLog() {
       "Waiting for file to exist, path: " + file.path
     );
 
-    let expectedContents = "post-update\n";
     await TestUtils.waitForCondition(
       () => readFile(file) == expectedContents,
-      "Waiting for expected file contents: " + expectedContents
+      // This is wonky: the message is evaluated _first_, not _finally_!  But
+      // when there's a mismatch and not a race, it still has the final content.
+      "Waiting for expected file contents: " +
+        expectedContents +
+        ", first read: " +
+        readFile(file)
+    );
+
+    Assert.equal(
+      readFile(file),
+      expectedContents,
+      "the post update log contents" + MSG_SHOULD_EQUAL
     );
   }
 }
@@ -4109,7 +4297,7 @@ function isFileInUse(aFile) {
  * Waits until files that are in use that break tests are no longer in use and
  * then calls doTestFinish to end the test.
  */
-function waitForFilesInUse() {
+async function waitForFilesInUse() {
   if (AppConstants.platform == "win") {
     let fileNames = [
       FILE_APP_BIN,
@@ -4126,7 +4314,7 @@ function waitForFilesInUse() {
   }
 
   debugDump("calling doTestFinish");
-  doTestFinish();
+  await doTestFinish();
 }
 
 /**
@@ -4226,16 +4414,16 @@ async function waitForUpdateCheck(aSuccess, aExpectedValues = {}) {
  *          onStopRequest occurs and returns the arguments from onStopRequest.
  */
 async function waitForUpdateDownload(aUpdates, aExpectedStatus) {
-  let bestUpdate = gAUS.selectUpdate(aUpdates);
-  let success = await gAUS.downloadUpdate(bestUpdate, false);
-  if (!success) {
-    do_throw("nsIApplicationUpdateService:downloadUpdate returned " + success);
+  let bestUpdate = await gAUS.selectUpdate(aUpdates);
+  let result = await gAUS.downloadUpdate(bestUpdate, false);
+  if (result != Ci.nsIApplicationUpdateService.DOWNLOAD_SUCCESS) {
+    do_throw("nsIApplicationUpdateService:downloadUpdate returned " + result);
   }
   return new Promise(resolve =>
     gAUS.addDownloadListener({
-      onStartRequest: aRequest => {},
-      onProgress: (aRequest, aContext, aProgress, aMaxProgress) => {},
-      onStatus: (aRequest, aStatus, aStatusText) => {},
+      onStartRequest: _aRequest => {},
+      onProgress: (_aRequest, _aContext, _aProgress, _aMaxProgress) => {},
+      onStatus: (_aRequest, _aStatus, _aStatusText) => {},
       onStopRequest(request, status) {
         gAUS.removeDownloadListener(this);
         Assert.equal(
@@ -4347,8 +4535,6 @@ function createAppInfo(aID, aName, aVersion, aPlatformVersion) {
  *       would otherwise pollute the xpcshell log.
  *
  * Command line arguments used when launching the application:
- * -no-remote prevents shell integration from being affected by an existing
- * application process.
  * -test-process-updates makes the application exit after being relaunched by
  * the updater.
  * the platform specific string defined by PIPE_TO_NULL to output both stdout
@@ -4389,7 +4575,7 @@ function getProcessArgs(aExtraArgs) {
     scriptContents += "export XRE_PROFILE_PATH=" + profilePath + "\n";
     scriptContents +=
       appBinPath +
-      " -no-remote -test-process-updates " +
+      " -test-process-updates " +
       aExtraArgs.join(" ") +
       " " +
       PIPE_TO_NULL;
@@ -4406,7 +4592,6 @@ function getProcessArgs(aExtraArgs) {
       appBinPath,
       "-profile",
       profilePath,
-      "-no-remote",
       "-test-process-updates",
       "-wait-for-browser",
     ]
@@ -4552,7 +4737,7 @@ function adjustGeneralPaths() {
  * The timer callback to kill the process if it takes too long.
  */
 const gAppTimerCallback = {
-  notify: function TC_notify(aTimer) {
+  notify: function TC_notify(_aTimer) {
     gAppTimer = null;
     if (gProcess.isRunning) {
       logTestInfo("attempting to kill process");
@@ -4662,7 +4847,7 @@ function IncrementalDownload() {
 
 IncrementalDownload.prototype = {
   /* nsIIncrementalDownload */
-  init(uri, file, chunkSize, intervalInSeconds) {
+  init(uri, file, _chunkSize, _intervalInSeconds) {
     this._destination = file;
     this._URI = uri;
     this._finalURI = uri;
@@ -4729,7 +4914,7 @@ IncrementalDownload.prototype = {
   },
 
   /* nsIRequest */
-  cancel(aStatus) {
+  cancel(_aStatus) {
     throw Components.Exception("", Cr.NS_ERROR_NOT_IMPLEMENTED);
   },
   suspend() {
@@ -4877,5 +5062,35 @@ function resetEnvironment() {
   } else if (gIsServiceTest) {
     debugDump("removing MOZ_NO_SERVICE_FALLBACK environment variable");
     Services.env.set("MOZ_NO_SERVICE_FALLBACK", "");
+  }
+}
+
+/**
+ * `gTestFiles` needs to be set such that it contains the Update Settings file
+ * before this function is called.
+ */
+function setUpdateSettingsUseWrongChannel() {
+  if (AppConstants.platform == "macosx") {
+    let replacementUpdateSettings = Services.dirsvc.get("CurWorkD", Ci.nsIFile);
+    replacementUpdateSettings = replacementUpdateSettings.parent;
+    replacementUpdateSettings.append("UpdateSettings-WrongChannel");
+
+    const updateSettings = getTestFileByName(FILE_UPDATE_SETTINGS_FRAMEWORK);
+    if (!updateSettings) {
+      throw new Error(
+        "gTestFiles does not contain the update settings framework"
+      );
+    }
+    updateSettings.existingFile = false;
+    updateSettings.originalContents = readFileBytes(replacementUpdateSettings);
+  } else {
+    const updateSettings = getTestFileByName(FILE_UPDATE_SETTINGS_INI);
+    if (!updateSettings) {
+      throw new Error("gTestFiles does not contain the update settings INI");
+    }
+    updateSettings.originalContents = UPDATE_SETTINGS_CONTENTS.replace(
+      "xpcshell-test",
+      "wrong-channel"
+    );
   }
 }

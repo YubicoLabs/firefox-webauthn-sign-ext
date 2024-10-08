@@ -144,25 +144,19 @@ class SandboxBroker final : private SandboxBrokerCommon,
   int mFileDesc;
   const int mChildPid;
   const UniquePtr<const Policy> mPolicy;
-#if defined(MOZ_CONTENT_TEMP_DIR)
-  nsCString mTempPath;
-  nsCString mContentTempPath;
-#endif
 
   typedef nsTHashMap<nsCStringHashKey, nsCString> PathMap;
   PathMap mSymlinkMap;
 
   SandboxBroker(UniquePtr<const Policy> aPolicy, int aChildPid, int& aClientFd);
   void ThreadMain(void) override;
-  void AuditPermissive(int aOp, int aFlags, int aPerms, const char* aPath);
-  void AuditDenial(int aOp, int aFlags, int aPerms, const char* aPath);
+  void AuditPermissive(int aOp, int aFlags, uint64_t aId, int aPerms,
+                       const char* aPath);
+  void AuditDenial(int aOp, int aFlags, uint64_t aId, int aPerms,
+                   const char* aPath);
   // Remap relative paths to absolute paths.
   size_t ConvertRelativePath(char* aPath, size_t aBufSize, size_t aPathLen);
   size_t RealPath(char* aPath, size_t aBufSize, size_t aPathLen);
-#if defined(MOZ_CONTENT_TEMP_DIR)
-  // Remap references to /tmp and friends to the content process tempdir
-  size_t RemapTempDirs(char* aPath, size_t aBufSize, size_t aPathLen);
-#endif
   nsCString ReverseSymlinks(const nsACString& aPath);
   // Retrieves permissions for the path the original symlink sits in.
   int SymlinkPermissions(const char* aPath, const size_t aPathLen);

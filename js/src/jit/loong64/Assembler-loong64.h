@@ -210,6 +210,7 @@ static constexpr Register WasmTableCallIndexReg = ABINonArgReg3;
 // Registers used for ref calls.
 static constexpr Register WasmCallRefCallScratchReg0 = ABINonArgReg0;
 static constexpr Register WasmCallRefCallScratchReg1 = ABINonArgReg1;
+static constexpr Register WasmCallRefCallScratchReg2 = ABINonArgReg2;
 static constexpr Register WasmCallRefReg = ABINonArgReg3;
 
 // Registers used for wasm tail calls operations.
@@ -309,6 +310,7 @@ static const uint32_t Imm26Shift = 0;
 static const uint32_t Imm26Bits = 26;
 static const uint32_t CODEShift = 0;
 static const uint32_t CODEBits = 15;
+static const uint32_t HINTBits = 5;
 
 // LoongArch instruction field bit masks.
 static const uint32_t RJMask = (1 << RJBits) - 1;
@@ -316,7 +318,9 @@ static const uint32_t RKMask = (1 << RKBits) - 1;
 static const uint32_t RDMask = (1 << RDBits) - 1;
 static const uint32_t SA2Mask = (1 << SA2Bits) - 1;
 static const uint32_t SA3Mask = (1 << SA3Bits) - 1;
+static const uint32_t CDMask = (1 << CDBits) - 1;
 static const uint32_t CONDMask = (1 << CONDBits) - 1;
+static const uint32_t HINTMask = (1 << HINTBits) - 1;
 static const uint32_t LSBWMask = (1 << LSBWBits) - 1;
 static const uint32_t LSBDMask = (1 << LSBDBits) - 1;
 static const uint32_t MSBWMask = (1 << MSBWBits) - 1;
@@ -808,10 +812,6 @@ inline bool is_uintN(int32_t x, unsigned n) {
   MOZ_ASSERT((0 < n) && (n < (sizeof(x) * 8)));
   return !(x >> n);
 }
-
-inline Imm32 Imm64::firstHalf() const { return low(); }
-
-inline Imm32 Imm64::secondHalf() const { return hi(); }
 
 static constexpr int32_t SliceSize = 1024;
 typedef js::jit::AssemblerBuffer<SliceSize, Instruction> LOONGBuffer;
@@ -1451,6 +1451,8 @@ class AssemblerLOONG64 : public AssemblerShared {
   }
   static bool SupportsUnalignedAccesses() { return true; }
   static bool SupportsFastUnalignedFPAccesses() { return true; }
+  static bool SupportsFloat64To16() { return false; }
+  static bool SupportsFloat32To16() { return false; }
 
   static bool HasRoundInstruction(RoundingMode mode) { return false; }
 
@@ -1611,7 +1613,7 @@ class InstReg : public Instruction {
   InstReg(OpcodeField op, int32_t cond, FloatRegister fk, FloatRegister fj,
           AssemblerLOONG64::FPConditionBit cd)
       : Instruction(op | (cond & CONDMask) << CONDShift | FK(fk) | FJ(fj) |
-                    (cd & RDMask)) {
+                    (cd & CDMask)) {
     MOZ_ASSERT(is_uintN(cond, 5));
   }
 
@@ -1700,7 +1702,7 @@ class InstImm : public Instruction {
   }
   InstImm(OpcodeField op, int32_t si12, Register rj, int32_t hint)
       : Instruction(op | (si12 & Imm12Mask) << Imm12Shift | RJ(rj) |
-                    (hint & RDMask)) {
+                    (hint & HINTMask)) {
     MOZ_ASSERT(op == op_preld);
   }
   InstImm(OpcodeField op, int32_t msb, int32_t lsb, Register rj, Register rd,
@@ -1738,7 +1740,9 @@ class InstImm : public Instruction {
   uint32_t extractRJ() {
     return extractBitField(RJShift + RJBits - 1, RJShift);
   }
-  void setRJ(uint32_t rj) { data = (data & ~RJMask) | (rj << RJShift); }
+  void setRJ(uint32_t rj) {
+    data = (data & ~(RJMask << RJShift)) | (rj << RJShift);
+  }
   uint32_t extractRD() {
     return extractBitField(RDShift + RDBits - 1, RDShift);
   }

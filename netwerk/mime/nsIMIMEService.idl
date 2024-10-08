@@ -10,16 +10,6 @@ interface nsIMIMEInfo;
 interface nsIURI;
 interface nsIChannel;
 
-%{C++
-#define NS_MIMESERVICE_CID                           \
-{ /* 03af31da-3109-11d3-8cd0-0060b0fc14a3 */         \
-    0x03af31da,                                      \
-    0x3109,                                          \
-    0x11d3,                                          \
-    {0x8c, 0xd0, 0x00, 0x60, 0xb0, 0xfc, 0x14, 0xa3} \
-}
-%}
-
 /**
  * The MIME service is responsible for mapping file extensions to MIME-types
  * (see RFC 2045). It also provides access to nsIMIMEInfo interfaces and
@@ -184,6 +174,13 @@ interface nsIMIMEService : nsISupports {
      * modified so that the operating system does not treat them specially.
      */
     const long VALIDATE_ALLOW_INVALID_FILENAMES = 128;
+
+    /**
+     * Some names are unsafe as a file name, but safe for directory names.
+     * If this is used, the validation is more permissive towards names that
+     * are valid directory names.
+     */
+    const long VALIDATE_ALLOW_DIRECTORY_NAMES = 256;
 
     /**
      * Generate a valid filename from the channel that can be used to save

@@ -69,7 +69,7 @@ class DateTimeTestHelper {
       [selector],
       async selector => {
         let input = content.document.querySelector(selector);
-        await ContentTaskUtils.waitForEvent(input, "change", false, e => {
+        await ContentTaskUtils.waitForEvent(input, "change", false, () => {
           ok(
             content.window.windowUtils.isHandlingUserInput,
             "isHandlingUserInput should be true"
@@ -113,15 +113,19 @@ class DateTimeTestHelper {
     EventUtils.synthesizeMouseAtCenter(element, {}, this.frame.contentWindow);
   }
 
-  /**
-   * Close the panel and the tab
-   */
-  async tearDown() {
+  async closePicker() {
     if (this.panel.state != "closed") {
       let pickerClosePromise = this.promisePickerClosed();
       this.panel.hidePopup();
       await pickerClosePromise;
     }
+  }
+
+  /**
+   * Close the panel and the tab
+   */
+  async tearDown() {
+    await this.closePicker();
     BrowserTestUtils.removeTab(this.tab);
     this.tab = null;
   }

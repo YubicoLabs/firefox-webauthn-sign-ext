@@ -168,6 +168,7 @@ const sslNamedGroupDef ssl_named_groups[] = {
     ECGROUP(secp384r1, 384, SECP384R1, PR_TRUE),
     ECGROUP(secp521r1, 521, SECP521R1, PR_TRUE),
     { ssl_grp_kem_xyber768d00, 256, ssl_kea_ecdh_hybrid, SEC_OID_XYBER768D00, PR_TRUE },
+    { ssl_grp_kem_mlkem768x25519, 256, ssl_kea_ecdh_hybrid, SEC_OID_MLKEM768X25519, PR_TRUE },
     FFGROUP(2048),
     FFGROUP(3072),
     FFGROUP(4096),
@@ -1647,7 +1648,7 @@ SSLExp_CipherSuiteOrderGet(PRFileDesc *fd, PRUint16 *cipherOrder,
  * (Client Hello). */
 SECStatus
 SSLExp_CipherSuiteOrderSet(PRFileDesc *fd, const PRUint16 *cipherOrder,
-                           unsigned int numCiphers)
+                           PRUint16 numCiphers)
 {
     if (!fd) {
         SSL_DBG(("%d: SSL: file descriptor in CipherSuiteOrderGet is null",
@@ -3275,7 +3276,7 @@ ssl_GetPeerName(PRFileDesc *fd, PRNetAddr *addr)
 }
 
 /*
-*/
+ */
 SECStatus
 ssl_GetPeerInfo(sslSocket *ss)
 {
@@ -4376,6 +4377,8 @@ struct {
     EXP(SetResumptionToken),
     EXP(SetServerEchConfigs),
     EXP(SetTimeFunc),
+    EXP(SetCertificateCompressionAlgorithm),
+    EXP(PeerCertificateChainDER),
 #endif
     { "", NULL }
 };

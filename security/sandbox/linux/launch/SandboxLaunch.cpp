@@ -43,6 +43,7 @@
 #include "nsThreadUtils.h"
 #include "prenv.h"
 #include "sandbox/linux/system_headers/linux_syscalls.h"
+#include "sandbox/linux/services/syscall_wrappers.h"
 
 #ifdef MOZ_X11
 #  ifndef MOZ_WIDGET_GTK
@@ -53,6 +54,11 @@
 #  include <gdk/gdkx.h>
 #  include "X11UndefineNone.h"
 #  include "gfxPlatform.h"
+#endif
+
+#if defined(__GLIBC__) && !defined(__UCLIBC__)
+// We really are using glibc, not uClibc pretending to be glibc.
+#  define LIBC_GLIBC 1
 #endif
 
 namespace mozilla {
@@ -319,6 +325,13 @@ void SandboxLaunch::Configure(GeckoProcessType aType, SandboxingKind aKind,
         flags |= CLONE_NEWNET;
       }
       break;
+    case GeckoProcessType_Utility:
+      if (level >= 1) {
+        canChroot = true;
+        flags |= CLONE_NEWIPC;
+        flags |= CLONE_NEWNET;
+      }
+      break;
     case GeckoProcessType_Content:
       if (level >= 4) {
         canChroot = true;
@@ -441,6 +454,22 @@ static void ResetSignalHandlers() {
 
 namespace {
 
+#if defined(LIBC_GLIBC)
+/*
+ * The following is using imported code from Chromium's
+ * sandbox/linux/services/namespace_sandbox.cc
+ */
+
+#  if !defined(CHECK_EQ)
+#    define CHECK_EQ(a, b) MOZ_ASSERT((a) == (b))
+#  endif
+
+// for sys_gettid()
+using namespace sandbox;
+
+#  include "glibc_hack/namespace_sandbox.inc"
+#endif  // defined(LIBC_GLIBC)
+
 // The libc clone() routine insists on calling a provided function on
 // a new stack, even if the address space isn't shared and it would be
 // safe to expose the underlying system call's fork()-like behavior.
@@ -508,9 +537,14 @@ static pid_t ForkWithFlags(int aFlags) {
   }
   RestoreSignals(&oldSigs);
   // In the child and have longjmp'ed:
+#if defined(LIBC_GLIBC)
+  MaybeUpdateGlibcTidCache();
+#endif
   return ret;
 }
 
+// Returns true for success, or returns false and sets errno on
+// failure.  Intended only for procfs pseudo-files.
 static bool WriteStringToFile(const char* aPath, const char* aStr,
                               const size_t aLen) {
   int fd = open(aPath, O_WRONLY);
@@ -519,6 +553,11 @@ static bool WriteStringToFile(const char* aPath, const char* aStr,
   }
   ssize_t written = write(fd, aStr, aLen);
   if (close(fd) != 0 || written != ssize_t(aLen)) {
+    // procfs shouldn't ever cause a short write, but ensure that
+    // errno is set to something distinctive if it does
+    if (written >= 0) {
+      errno = EMSGSIZE;
+    }
     return false;
   }
   return true;
@@ -537,6 +576,7 @@ static void ConfigureUserNamespace(uid_t uid, gid_t gid) {
   len = static_cast<size_t>(SafeSPrintf(buf, "%d %d 1", uid, uid));
   MOZ_RELEASE_ASSERT(len < sizeof(buf));
   if (!WriteStringToFile("/proc/self/uid_map", buf, len)) {
+    SANDBOX_LOG_ERRNO("writing /proc/self/uid_map");
     MOZ_CRASH("Failed to write /proc/self/uid_map");
   }
 
@@ -549,6 +589,7 @@ static void ConfigureUserNamespace(uid_t uid, gid_t gid) {
   len = static_cast<size_t>(SafeSPrintf(buf, "%d %d 1", gid, gid));
   MOZ_RELEASE_ASSERT(len < sizeof(buf));
   if (!WriteStringToFile("/proc/self/gid_map", buf, len)) {
+    SANDBOX_LOG_ERRNO("writing /proc/self/gid_map");
     MOZ_CRASH("Failed to write /proc/self/gid_map");
   }
 }
@@ -641,6 +682,9 @@ void SandboxLaunch::StartChrootServer() {
 
   char msg;
   ssize_t msgLen = HANDLE_EINTR(read(mChrootServer, &msg, 1));
+  if (msgLen < 0) {
+    SANDBOX_LOG_ERRNO("chroot server couldn't read request");
+  }
   if (msgLen == 0) {
     // Process exited before chrooting (or chose not to chroot?).
     _exit(0);
@@ -653,7 +697,10 @@ void SandboxLaunch::StartChrootServer() {
   // exits at the end of this function, and which is always
   // unwriteable.
   int rv = chroot("/proc/self/fdinfo");
-  MOZ_RELEASE_ASSERT(rv == 0);
+  if (rv != 0) {
+    SANDBOX_LOG_ERRNO("chroot");
+    MOZ_CRASH("chroot failed");
+  }
 
   // Drop CAP_SYS_CHROOT ASAP.  This must happen before responding;
   // the main child won't be able to waitpid(), so it could start
@@ -664,10 +711,16 @@ void SandboxLaunch::StartChrootServer() {
   // remove that.  (Note: if the process can obtain directory fds, for
   // example via SandboxBroker, it must be blocked from using fchdir.)
   rv = chdir("/");
-  MOZ_RELEASE_ASSERT(rv == 0);
+  if (rv != 0) {
+    SANDBOX_LOG_ERRNO("chdir(\"/\")");
+    MOZ_CRASH("chdir(\"/\") failed");
+  }
 
   msg = kSandboxChrootResponse;
   msgLen = HANDLE_EINTR(write(mChrootServer, &msg, 1));
+  if (msgLen < 0) {
+    SANDBOX_LOG_ERRNO("chroot server couldn't send response");
+  }
   MOZ_RELEASE_ASSERT(msgLen == 1);
   _exit(0);
 }

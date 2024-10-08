@@ -8,16 +8,12 @@
 #ifndef nsTSubstring_h
 #define nsTSubstring_h
 
-#include <iterator>
 #include <type_traits>
 
-#include "mozilla/Casting.h"
+#include "mozilla/Attributes.h"
 #include "mozilla/DebugOnly.h"
-#include "mozilla/IntegerPrintfMacros.h"
-#include "mozilla/UniquePtr.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/MemoryReporting.h"
-#include "mozilla/IntegerTypeTraits.h"
 #include "mozilla/ResultExtensions.h"
 #include "mozilla/Span.h"
 #include "mozilla/Try.h"
@@ -34,7 +30,6 @@
 // memory checking. (Limited to avoid quadratic behavior.)
 const size_t kNsStringBufferMaxPoison = 16;
 
-class nsStringBuffer;
 template <typename T>
 class nsTSubstringSplitter;
 template <typename T>
@@ -286,7 +281,7 @@ class BulkWriteHandle final {
 template <typename T>
 class nsTSubstring : public mozilla::detail::nsTStringRepr<T> {
   friend class mozilla::BulkWriteHandle<T>;
-  friend class nsStringBuffer;
+  friend class mozilla::StringBuffer;
 
  public:
   typedef nsTSubstring<T> self_type;
@@ -383,6 +378,14 @@ class nsTSubstring : public mozilla::detail::nsTStringRepr<T> {
   int32_t ToInteger(nsresult* aErrorCode, uint32_t aRadix = 10) const;
 
   /**
+   * Perform string to uint conversion.
+   * @param   aErrorCode will contain error if one occurs
+   * @param   aRadix is the radix to use. Only 10 and 16 are supported.
+   * @return  int rep of string value, and possible (out) error code
+   */
+  uint32_t ToUnsignedInteger(nsresult* aErrorCode, uint32_t aRadix = 10) const;
+
+  /**
    * Perform string to 64-bit int conversion.
    * @param   aErrorCode will contain error if one occurs
    * @param   aRadix is the radix to use. Only 10 and 16 are supported.
@@ -414,6 +417,20 @@ class nsTSubstring : public mozilla::detail::nsTStringRepr<T> {
   [[nodiscard]] bool NS_FASTCALL Assign(const substring_tuple_type&,
                                         const fallible_t&);
 
+  void Assign(mozilla::StringBuffer* aBuffer, size_type aLength) {
+    aBuffer->AddRef();
+    Assign(already_AddRefed<mozilla::StringBuffer>(aBuffer), aLength);
+  }
+  void NS_FASTCALL Assign(already_AddRefed<mozilla::StringBuffer> aBuffer,
+                          size_type aLength) {
+    mozilla::StringBuffer* buffer = aBuffer.take();
+    auto* data = reinterpret_cast<char_type*>(buffer->Data());
+    MOZ_DIAGNOSTIC_ASSERT(data[aLength] == char_type(0),
+                          "data should be null terminated");
+    Finalize();
+    SetData(data, aLength, DataFlags::REFCOUNTED | DataFlags::TERMINATED);
+  }
+
 #if defined(MOZ_USE_CHAR16_WRAPPER)
   template <typename Q = T, typename EnableIfChar16 = mozilla::Char16OnlyT<Q>>
   void Assign(char16ptr_t aData) {
@@ -440,6 +457,9 @@ class nsTSubstring : public mozilla::detail::nsTStringRepr<T> {
   void NS_FASTCALL AssignASCII(const char* aData) {
     AssignASCII(aData, strlen(aData));
   }
+
+  void NS_FASTCALL AssignASCII(const nsLiteralCString& aData);
+
   [[nodiscard]] bool NS_FASTCALL AssignASCII(const char* aData,
                                              const fallible_t& aFallible) {
     return AssignASCII(aData, strlen(aData), aFallible);
@@ -702,6 +722,8 @@ class nsTSubstring : public mozilla::detail::nsTStringRepr<T> {
                             const fallible_t& aFallible);
 
   void AppendASCII(const char* aData, size_type aLength = size_type(-1));
+
+  void AppendASCII(const nsLiteralCString& aData);
 
   [[nodiscard]] bool AppendASCII(const char* aData,
                                  const fallible_t& aFallible);
@@ -1130,13 +1152,14 @@ class nsTSubstring : public mozilla::detail::nsTStringRepr<T> {
   void NS_FASTCALL SetIsVoid(bool);
 
   /**
-   * If the string uses a shared buffer, this method
-   * clears the pointer without releasing the buffer.
+   * If the string uses a reference-counted buffer, this method returns a
+   * pointer to it without incrementing the buffer's refcount.
    */
-  void ForgetSharedBuffer() {
-    if (base_string_type::mDataFlags & DataFlags::REFCOUNTED) {
-      SetToEmptyBuffer();
+  mozilla::StringBuffer* GetStringBuffer() const {
+    if (this->mDataFlags & DataFlags::REFCOUNTED) {
+      return mozilla::StringBuffer::FromData(this->mData);
     }
+    return nullptr;
   }
 
  protected:

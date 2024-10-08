@@ -436,6 +436,8 @@ public abstract class TreeBuilder<T> implements TokenHandler,
 
     private boolean allowDeclarativeShadowRoots = false;
 
+    private boolean keepBuffer = false;
+
     // [NOCPP[
 
     private boolean reportingDoctype = true;
@@ -577,6 +579,18 @@ public abstract class TreeBuilder<T> implements TokenHandler,
 
     // ]NOCPP]
 
+    public void setKeepBuffer(boolean keepBuffer) {
+        this.keepBuffer = keepBuffer;
+    }
+
+    public boolean dropBufferIfLongerThan(int length) {
+        if (charBuffer.length > length) {
+            charBuffer = null;
+            return true;
+        }
+        return false;
+    }
+
     @SuppressWarnings("unchecked") public final void startTokenization(Tokenizer self) throws SAXException {
         tokenizer = self;
         stackNodes = new StackNode[64];
@@ -598,7 +612,9 @@ public abstract class TreeBuilder<T> implements TokenHandler,
         // ]NOCPP]
         start(fragment);
         charBufferLen = 0;
-        charBuffer = null;
+        if (!keepBuffer) {
+            charBuffer = null;
+        }
         framesetOk = true;
         if (fragment) {
             T elt;
@@ -1451,7 +1467,10 @@ public abstract class TreeBuilder<T> implements TokenHandler,
         // [NOCPP[
         idLocations.clear();
         // ]NOCPP]
-        charBuffer = null;
+
+        if (!keepBuffer) {
+            charBuffer = null;
+        }
         end();
     }
 
@@ -2970,8 +2989,10 @@ public abstract class TreeBuilder<T> implements TokenHandler,
             return null;
         }
 
+        boolean shadowRootIsClonable = attributes.contains(AttributeName.SHADOWROOTCLONABLE);
+        boolean shadowRootIsSerializable = attributes.contains(AttributeName.SHADOWROOTSERIALIZABLE);
         boolean shadowRootDelegatesFocus = attributes.contains(AttributeName.SHADOWROOTDELEGATESFOCUS);
-        return getShadowRootFromHost(currentNode, templateNode, shadowRootMode, shadowRootDelegatesFocus);
+        return getShadowRootFromHost(currentNode, templateNode, shadowRootMode, shadowRootIsClonable, shadowRootIsSerializable, shadowRootDelegatesFocus);
     }
 
     /**
@@ -5418,7 +5439,8 @@ public abstract class TreeBuilder<T> implements TokenHandler,
     void setDocumentFragmentForTemplate(T template, T fragment) {
     }
 
-    T getShadowRootFromHost(T host, T template, String shadowRootMode, boolean shadowRootDelegatesFocus) {
+    T getShadowRootFromHost(T host, T template, String shadowRootMode,
+            boolean shadowRootIsClonable, boolean shadowRootIsSerializable, boolean shadowRootDelegatesFocus) {
         return null;
     }
 

@@ -112,6 +112,8 @@ inline AsyncTransformMatrix CompleteAsyncTransform(
       aMatrix, PixelCastJustification::MultipleAsyncTransforms);
 }
 
+enum class DispatchToContent : bool { No, Yes };
+
 struct TargetConfirmationFlags final {
   explicit TargetConfirmationFlags(bool aTargetConfirmed)
       : mTargetConfirmed(aTargetConfirmed),
@@ -134,6 +136,10 @@ struct TargetConfirmationFlags final {
         mDispatchToContent(
             !(aHitTestInfo & gfx::CompositorHitTestDispatchToContent)
                  .isEmpty()) {}
+
+  DispatchToContent NeedDispatchToContent() const {
+    return mDispatchToContent ? DispatchToContent::Yes : DispatchToContent::No;
+  }
 
   bool mTargetConfirmed : 1;
   bool mRequiresTargetConfirmation : 1;
@@ -169,6 +175,13 @@ enum class AsyncTransformConsumer {
   eForEventHandling,
   eForCompositing,
 };
+
+/**
+ * A flag type for use by functions which return information about
+ * handoff, in case they need to differentiate between handoff for
+ * the purpose of scrolling and handoff for the purpose of pull-to-refresh.
+ */
+enum class HandoffConsumer { Scrolling, PullToRefresh };
 
 /**
  * Metrics that GeckoView wants to know at every composite.
@@ -232,6 +245,14 @@ bool AboutToCheckerboard(const FrameMetrics& aPaintedMetrics,
  * Returns SideBits where the given |aOverscrollAmount| overscrolls.
  */
 SideBits GetOverscrollSideBits(const ParentLayerPoint& aOverscrollAmount);
+
+// Represents tri-state when a touch-end event received.
+enum class SingleTapState : uint8_t {
+  NotClick,          // The touch-block doesn't trigger a click event
+  WasClick,          // The touch-block did trigger a click event
+  NotYetDetermined,  // It's not yet determined whether the touch-block trigger
+                     // a click event or not since double-tapping might happen
+};
 
 }  // namespace apz
 

@@ -164,9 +164,8 @@ function handleRustResult(result, liftCallback, liftErrCallback) {
             throw liftErrCallback(result.data);
 
         case "internal-error":
-            let message = result.internalErrorMessage;
-            if (message) {
-                throw new UniFFIInternalError(message);
+            if (result.data) {
+                throw new UniFFIInternalError(FfiConverterString.lift(result.data));
             } else {
                 throw new UniFFIInternalError("Unknown error");
             }
@@ -331,7 +330,7 @@ export class FfiConverterTypeCustomTypesDemo extends FfiConverterArrayBuffer {
     static checkType(value) {
         super.checkType(value);
         if (!(value instanceof CustomTypesDemo)) {
-            throw new TypeError(`Expected 'CustomTypesDemo', found '${typeof value}'`);
+            throw new UniFFITypeError(`Expected 'CustomTypesDemo', found '${typeof value}'`);
         }
         try {
             FfiConverterTypeUrl.checkType(value.url);
@@ -455,7 +454,7 @@ export function getCustomTypesDemo(demo) {
                 throw e;
             }
             return UniFFIScaffolding.callAsync(
-                39, // custom_types:uniffi_uniffi_custom_types_fn_func_get_custom_types_demo
+                57, // custom_types:uniffi_uniffi_custom_types_fn_func_get_custom_types_demo
                 FfiConverterOptionalTypeCustomTypesDemo.lower(demo),
             )
         }

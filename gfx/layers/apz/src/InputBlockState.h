@@ -31,6 +31,7 @@ class DragBlockState;
 class PanGestureBlockState;
 class PinchGestureBlockState;
 class KeyboardBlockState;
+class InputQueueIterator;
 enum class BrowserGestureResponse : bool;
 
 /**
@@ -57,15 +58,17 @@ class InputBlockState : public RefCounted<InputBlockState> {
 
   virtual CancelableBlockState* AsCancelableBlock() { return nullptr; }
   virtual TouchBlockState* AsTouchBlock() { return nullptr; }
+  virtual const TouchBlockState* AsTouchBlock() const { return nullptr; }
   virtual WheelBlockState* AsWheelBlock() { return nullptr; }
   virtual DragBlockState* AsDragBlock() { return nullptr; }
   virtual PanGestureBlockState* AsPanGestureBlock() { return nullptr; }
   virtual PinchGestureBlockState* AsPinchGestureBlock() { return nullptr; }
   virtual KeyboardBlockState* AsKeyboardBlock() { return nullptr; }
+  virtual Maybe<LayersId> WheelTransactionLayersId() const { return Nothing(); }
 
   virtual bool SetConfirmedTargetApzc(
       const RefPtr<AsyncPanZoomController>& aTargetApzc,
-      TargetConfirmationState aState, InputData* aFirstInput,
+      TargetConfirmationState aState, InputQueueIterator aFirstInput,
       bool aForScrollbarDrag);
   const RefPtr<AsyncPanZoomController>& GetTargetApzc() const;
   const RefPtr<const OverscrollHandoffChain>& GetOverscrollHandoffChain() const;
@@ -94,6 +97,8 @@ class InputBlockState : public RefCounted<InputBlockState> {
  protected:
   virtual void UpdateTargetApzc(
       const RefPtr<AsyncPanZoomController>& aTargetApzc);
+
+  const AsyncPanZoomController* TargetApzc() const { return mTargetApzc.get(); }
 
  private:
   // Checks whether |aA| is an ancestor of |aB| (or the same as |aB|) in
@@ -162,6 +167,11 @@ class CancelableBlockState : public InputBlockState {
   bool IsContentResponseTimerExpired() const;
 
   /**
+   * Checks if the content has responded.
+   */
+  bool HasContentResponded() const { return mContentResponded; }
+
+  /**
    * @return true iff web content cancelled this block of events.
    */
   bool IsDefaultPrevented() const;
@@ -204,7 +214,7 @@ class WheelBlockState : public CancelableBlockState {
   const char* Type() override;
   bool SetConfirmedTargetApzc(const RefPtr<AsyncPanZoomController>& aTargetApzc,
                               TargetConfirmationState aState,
-                              InputData* aFirstInput,
+                              InputQueueIterator aFirstInput,
                               bool aForScrollbarDrag) override;
 
   WheelBlockState* AsWheelBlock() override { return this; }
@@ -264,6 +274,8 @@ class WheelBlockState : public CancelableBlockState {
     return mAllowedScrollDirections;
   }
 
+  Maybe<LayersId> WheelTransactionLayersId() const override;
+
  protected:
   void UpdateTargetApzc(
       const RefPtr<AsyncPanZoomController>& aTargetApzc) override;
@@ -321,7 +333,7 @@ class PanGestureBlockState : public CancelableBlockState {
   const char* Type() override;
   bool SetConfirmedTargetApzc(const RefPtr<AsyncPanZoomController>& aTargetApzc,
                               TargetConfirmationState aState,
-                              InputData* aFirstInput,
+                              InputQueueIterator aFirstInput,
                               bool aForScrollbarDrag) override;
 
   PanGestureBlockState* AsPanGestureBlock() override { return this; }
@@ -345,6 +357,14 @@ class PanGestureBlockState : public CancelableBlockState {
   ScrollDirections GetAllowedScrollDirections() const {
     return mAllowedScrollDirections;
   }
+
+  bool IsWaitingForBrowserGestureResponse() const {
+    return mWaitingForBrowserGestureResponse;
+  }
+  bool IsWaitingForContentResponse() const {
+    return mWaitingForContentResponse;
+  }
+  Maybe<LayersId> WheelTransactionLayersId() const override;
 
  private:
   bool mInterrupted;
@@ -377,6 +397,10 @@ class PinchGestureBlockState : public CancelableBlockState {
   bool WasInterrupted() const { return mInterrupted; }
 
   void SetNeedsToWaitForContentResponse(bool aWaitForContentResponse);
+
+  bool IsWaitingForContentResponse() const {
+    return mWaitingForContentResponse;
+  }
 
  private:
   bool mInterrupted;
@@ -413,6 +437,7 @@ class TouchBlockState : public CancelableBlockState {
                            TouchCounter& aTouchCounter);
 
   TouchBlockState* AsTouchBlock() override { return this; }
+  const TouchBlockState* AsTouchBlock() const override { return this; }
 
   /**
    * Set the allowed touch behavior flags for this block.
@@ -454,14 +479,12 @@ class TouchBlockState : public CancelableBlockState {
    */
   bool IsDuringFastFling() const;
   /**
-   * Set the single-tap-occurred flag that indicates that this touch block
-   * triggered a single tap event.
+   * Set the single-tap state flag that indicates that this touch block
+   * triggered (1) a click, (2) not a click, or (3) not yet sure it will trigger
+   * a click or not.
    */
-  void SetSingleTapOccurred();
-  /**
-   * @return true iff the single-tap-occurred flag is set on this block.
-   */
-  bool SingleTapOccurred() const;
+  void SetSingleTapState(apz::SingleTapState aState);
+  apz::SingleTapState SingleTapState() const { return mSingleTapState; }
 
   /**
    * @return false iff touch-action is enabled and the allowed touch behaviors
@@ -503,9 +526,9 @@ class TouchBlockState : public CancelableBlockState {
     mIsWaitingLongTapResult = false;
   }
 
-  void SetWaitingLongTapResult() {
+  void SetWaitingLongTapResult(bool aResult) {
     MOZ_ASSERT(!mForLongTap);
-    mIsWaitingLongTapResult = true;
+    mIsWaitingLongTapResult = aResult;
   }
   bool IsWaitingLongTapResult() const { return mIsWaitingLongTapResult; }
 
@@ -520,7 +543,7 @@ class TouchBlockState : public CancelableBlockState {
    * can be made.
    */
   Maybe<ScrollDirection> GetBestGuessPanDirection(
-      const MultiTouchInput& aInput);
+      const MultiTouchInput& aInput) const;
 
   /**
    * Returns the number of touch points currently active.
@@ -537,7 +560,6 @@ class TouchBlockState : public CancelableBlockState {
   nsTArray<TouchBehaviorFlags> mAllowedTouchBehaviors;
   bool mAllowedTouchBehaviorSet;
   bool mDuringFastFling;
-  bool mSingleTapOccurred;
   bool mInSlop;
   // A long tap involves two touch blocks: the original touch
   // block containing the `touchstart`, and a second one
@@ -557,6 +579,7 @@ class TouchBlockState : public CancelableBlockState {
   // content response for a touch move event. It will be set just before
   // triggering a long-press event.
   bool mNeedsWaitTouchMove;
+  apz::SingleTapState mSingleTapState;
   ScreenIntPoint mSlopOrigin;
   // A reference to the InputQueue's touch counter
   TouchCounter& mTouchCounter;

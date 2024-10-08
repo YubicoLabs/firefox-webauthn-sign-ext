@@ -95,16 +95,7 @@ class BindAnglePlanes final {
                   const EGLAttrib* const* postAttribsList = nullptr)
       : mParent(*parent),
         mNumPlanes(numPlanes),
-        mMultiTex(
-            mParent.mGL,
-            [&]() {
-              std::vector<uint8_t> ret;
-              for (int i = 0; i < numPlanes; i++) {
-                ret.push_back(i);
-              }
-              return ret;
-            }(),
-            LOCAL_GL_TEXTURE_EXTERNAL),
+        mMultiTex(mParent.mGL, mNumPlanes, LOCAL_GL_TEXTURE_EXTERNAL),
         mTempTexs{0},
         mStreams{0},
         mSuccess(true) {
@@ -223,26 +214,6 @@ bool GLBlitHelper::BlitImage(layers::D3D11TextureIMFSampleImage* const srcImage,
 
 // -------------------------------------
 
-bool GLBlitHelper::BlitImage(layers::D3D11YCbCrImage* const srcImage,
-                             const gfx::IntSize& destSize,
-                             const OriginPos destOrigin) const {
-  const auto& data = srcImage->GetData();
-  if (!data) return false;
-
-  const WindowsHandle handles[3] = {
-      (WindowsHandle)(data->mHandles[0] ? data->mHandles[0]->GetHandle()
-                                        : nullptr),
-      (WindowsHandle)(data->mHandles[1] ? data->mHandles[1]->GetHandle()
-                                        : nullptr),
-      (WindowsHandle)(data->mHandles[2] ? data->mHandles[2]->GetHandle()
-                                        : nullptr)};
-  return BlitAngleYCbCr(handles, srcImage->mPictureRect, srcImage->GetYSize(),
-                        srcImage->GetCbCrSize(), srcImage->mColorSpace,
-                        destSize, destOrigin);
-}
-
-// -------------------------------------
-
 bool GLBlitHelper::BlitDescriptor(const layers::SurfaceDescriptorD3D10& desc,
                                   const gfx::IntSize& destSize,
                                   const OriginPos destOrigin) const {
@@ -271,7 +242,7 @@ bool GLBlitHelper::BlitDescriptor(const layers::SurfaceDescriptorD3D10& desc,
     auto* textureMap = layers::GpuProcessD3D11TextureMap::Get();
     if (textureMap) {
       Maybe<HANDLE> handle =
-          textureMap->GetSharedHandleOfCopiedTexture(gpuProcessTextureId.ref());
+          textureMap->GetSharedHandle(gpuProcessTextureId.ref());
       if (handle.isSome()) {
         tex = OpenSharedTexture(d3d, (WindowsHandle)handle.ref());
       }
@@ -336,7 +307,7 @@ bool GLBlitHelper::BlitDescriptor(const layers::SurfaceDescriptorD3D10& desc,
 
   const auto& prog = GetDrawBlitProg(
       {kFragHeader_TexExt, {kFragSample_TwoPlane, kFragConvert_ColorMatrix}});
-  prog->Draw(baseArgs, &yuvArgs);
+  prog.Draw(baseArgs, &yuvArgs);
   return true;
 }
 
@@ -391,7 +362,7 @@ bool GLBlitHelper::BlitAngleYCbCr(const WindowsHandle (&handleList)[3],
 
   const auto& prog = GetDrawBlitProg(
       {kFragHeader_TexExt, {kFragSample_ThreePlane, kFragConvert_ColorMatrix}});
-  prog->Draw(baseArgs, &yuvArgs);
+  prog.Draw(baseArgs, &yuvArgs);
   return true;
 }
 

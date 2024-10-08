@@ -15,14 +15,14 @@
     constructor() {
       super();
 
-      this.addEventListener("focus", event => {
+      this.addEventListener("focus", () => {
         this._cachedInsertionPoint = undefined;
         // See select handler. We need the sidebar's places commandset to be
         // updated as well
         document.commandDispatcher.updateCommands("focus");
       });
 
-      this.addEventListener("select", event => {
+      this.addEventListener("select", () => {
         this._cachedInsertionPoint = undefined;
 
         // This additional complexity is here for the sidebars
@@ -125,7 +125,7 @@
         event.stopPropagation();
       });
 
-      this.addEventListener("dragend", event => {
+      this.addEventListener("dragend", () => {
         this._isDragSource = false;
         PlacesControllerDragHelper.currentDropTarget = null;
       });
@@ -505,7 +505,7 @@
         if (!wasOpen) {
           container.containerOpen = true;
         }
-        for (var i = 0; i < container.childCount; ++i) {
+        for (let i = 0, count = container.childCount; i < count; ++i) {
           var child = container.getChild(i);
           var childURI = child.uri;
           if (childURI == placeURI) {
@@ -761,7 +761,7 @@
         // specify just the top-level bookmark folders.
         let shouldOpen =
           aOpenContainers &&
-          (PlacesUtils.nodeIsFolder(node) ||
+          (PlacesUtils.nodeIsFolderOrShortcut(node) ||
             (PlacesUtils.nodeIsQuery(node) &&
               node.bookmarkGuid == PlacesUIUtils.virtualAllBookmarksGuid));
 
@@ -774,11 +774,15 @@
 
         // Remember the beginning state so that we can re-close
         // this node if we don't find any additional results here.
-        var previousOpenness = node.containerOpen;
+        let previousOpenness = node.containerOpen;
         node.containerOpen = true;
-        for (var child = 0; child < node.childCount && guids.length; child++) {
-          var childNode = node.getChild(child);
-          var found = findNodes(childNode);
+        for (
+          let i = 0, count = node.childCount;
+          i < count && guids.length;
+          ++i
+        ) {
+          let childNode = node.getChild(i);
+          let found = findNodes(childNode);
           if (!foundOne) {
             foundOne = found;
           }
@@ -841,7 +845,7 @@
       return this.controller.buildContextMenu(aPopup);
     }
 
-    destroyContextMenu(aPopup) {}
+    destroyContextMenu() {}
 
     disconnectedCallback() {
       window.removeEventListener("unload", this.disconnectedCallback);

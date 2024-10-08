@@ -27,7 +27,6 @@ export const ThemeVariableMap = [
     "--tab-loading-fill",
     {
       lwtProperty: "tab_loading",
-      optionalElementID: "tabbrowser-tabs",
     },
   ],
   [
@@ -46,7 +45,6 @@ export const ThemeVariableMap = [
     "--lwt-tab-line-color",
     {
       lwtProperty: "tab_line",
-      optionalElementID: "TabsToolbar",
     },
   ],
   [
@@ -56,9 +54,19 @@ export const ThemeVariableMap = [
     },
   ],
   [
-    "--tabs-navbar-shadow-color",
+    "--tabs-navbar-separator-color",
     {
       lwtProperty: "toolbar_top_separator",
+    },
+  ],
+  [
+    "--tabs-navbar-separator-style",
+    {
+      lwtProperty: "toolbar_top_separator",
+      processColor(rgbaChannels) {
+        // If the separator is transparent, we don't want it to take space.
+        return rgbaChannels?.a === 0 ? "none" : null;
+      },
     },
   ],
   [

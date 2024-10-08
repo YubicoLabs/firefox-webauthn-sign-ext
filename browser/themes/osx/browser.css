@@ -3,12 +3,41 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 @import url("chrome://browser/skin/browser-shared.css");
-@import url("chrome://browser/skin/browser-custom-colors.css");
-
-@namespace html url("http://www.w3.org/1999/xhtml");
 
 :root {
   --arrowpanel-field-background: light-dark(rgba(249, 249, 250, .3), rgba(12, 12, 13, .3));
+}
+
+/* stylelint-disable-next-line media-query-no-invalid */
+@media (-moz-bool-pref: "browser.theme.macos.native-theme") {
+  @media not (prefers-contrast) {
+    :root:not([lwtheme]) {
+      @media (prefers-color-scheme: light) {
+        --urlbar-box-bgcolor: #fafafa;
+      }
+      @media (prefers-color-scheme: dark) {
+        --tab-selected-bgcolor: color-mix(in srgb, -moz-dialog 75%, white);
+      }
+    }
+  }
+
+  /* Don't make the toolbox vibrant when in full-screen. macOS fullscreen has a
+   * native titlebar outside of the window (revealed on hover) anyways. */
+  :root[tabsintitlebar]:not([lwtheme], [macOSNativeFullscreen]) #navigator-toolbox {
+    background-color: transparent;
+
+    /* This is conceptually a background, but putting this on a
+     * pseudo-element avoids it from suppressing the chrome-content separator
+     * border, etc */
+    &::after {
+      -moz-default-appearance: -moz-window-titlebar;
+      appearance: auto;
+      content: "";
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+    }
+  }
 }
 
 #browser,
@@ -197,11 +226,8 @@ moz-input-box > menupopup .context-menu-add-engine > .menu-iconic-left {
 
 /* ::::: tabbrowser ::::: */
 
-#tabbrowser-tabbox {
-  margin: 0;
-}
-
-.tab-label {
+.tab-label,
+.tab-group-label {
   margin-block: 1px 0;
 }
 
@@ -231,7 +257,7 @@ moz-input-box > menupopup .context-menu-add-engine > .menu-iconic-left {
     text-shadow: inherit;
 
     @media (prefers-color-scheme: light) {
-      &:not(:-moz-lwtheme) {
+      :root:not([lwtheme]) & {
         /* overriding tabbox.css */
         color: hsl(240, 5%, 5%);
       }

@@ -17,6 +17,12 @@ Awsy tests
 .. dropdown:: base (FF)
    :class-container: anchor-id-base-Awsy-tests
 
+   * Command to Run Locally
+
+   .. code-block::
+
+      ./mach awsy-test --base
+
    **Owner**: :mccr8 and Perftest Team
 
    * **Test Task**:
@@ -55,6 +61,12 @@ Awsy tests
 
 .. dropdown:: dmd (FF)
    :class-container: anchor-id-dmd-Awsy-tests
+
+   * Command to Run Locally
+
+   .. code-block::
+
+      ./mach awsy-test --dmd
 
    **Owner**: :mccr8 and Perftest Team
 
@@ -95,6 +107,12 @@ Awsy tests
 .. dropdown:: tp5 (FF)
    :class-container: anchor-id-tp5-Awsy-tests
 
+   * Command to Run Locally
+
+   .. code-block::
+
+      ./mach awsy-test --tp5
+
    **Owner**: :mccr8 and Perftest Team
 
    * **Test Task**:
@@ -117,6 +135,12 @@ Awsy tests
 
 .. dropdown:: tp6 (FF)
    :class-container: anchor-id-tp6-Awsy-tests
+
+   * Command to Run Locally
+
+   .. code-block::
+
+      ./mach awsy-test 
 
    **Owner**: :mccr8 and Perftest Team
 
@@ -165,14 +189,14 @@ TP5 tests
 
 .. code-block:: bash
 
-    ./mach awsy-test
+    ./mach awsy-test --tp5
 
 TP6 tests
 =========
 
 .. code-block:: bash
 
-    ./mach awsy-test --tp6
+    ./mach awsy-test
 
 Base Memory Usage tests
 ========================
@@ -199,8 +223,8 @@ The following documents all tests we currently run for AWSY.
 TP5/TP6 Tests
 **************
 
-The following tests exist for both TP5 and TP6. Running `./mach awsy-test` by default will run TP5 tests*.
-To run TP6 tests, add the `--tp6` flag: `./mach awsy-test --tp6`
+The following tests exist for both TP5 and TP6. Running `./mach awsy-test` by default will run TP6 tests*.
+To run TP5 tests, add the `--tp5` flag: `./mach awsy-test --tp5`
 
 *\*TP5 tests are out of date and no longer maintained. These tests are scheduled to be removed:* https://bugzilla.mozilla.org/show_bug.cgi?id=1712406
 

@@ -15,6 +15,7 @@
 #include "nsServiceManagerUtils.h"
 #include "nsCharSeparatedTokenizer.h"
 #include "mozilla/gfx/Logging.h"
+#include "mozilla/LookAndFeel.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/ProfilerLabels.h"
 #include "mozilla/Sprintf.h"
@@ -928,16 +929,14 @@ FontFamily gfxDWriteFontList::GetDefaultFontForPlatform(
   }
 
   // otherwise, use local default
-  NONCLIENTMETRICSW ncm;
-  ncm.cbSize = sizeof(ncm);
-  BOOL status =
-      ::SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
-
-  if (status) {
-    ff = FindFamily(aPresContext,
-                    NS_ConvertUTF16toUTF8(ncm.lfMessageFont.lfFaceName));
+  gfxFontStyle fontStyle;
+  nsAutoString systemFontName;
+  if (!mozilla::LookAndFeel::GetFont(mozilla::StyleSystemFont::MessageBox,
+                                     systemFontName, fontStyle)) {
+    return ff;
   }
 
+  ff = FindFamily(aPresContext, NS_ConvertUTF16toUTF8(systemFontName));
   return ff;
 }
 
@@ -1157,6 +1156,17 @@ FontVisibility gfxDWriteFontList::GetVisibilityForFamily(
     return FontVisibility::LangPack;
   }
   return FontVisibility::User;
+}
+
+nsTArray<std::pair<const char**, uint32_t>>
+gfxDWriteFontList::GetFilteredPlatformFontLists() {
+  nsTArray<std::pair<const char**, uint32_t>> fontLists;
+
+  fontLists.AppendElement(std::make_pair(kBaseFonts, ArrayLength(kBaseFonts)));
+  fontLists.AppendElement(
+      std::make_pair(kLangPackFonts, ArrayLength(kLangPackFonts)));
+
+  return fontLists;
 }
 
 void gfxDWriteFontList::AppendFamiliesFromCollection(

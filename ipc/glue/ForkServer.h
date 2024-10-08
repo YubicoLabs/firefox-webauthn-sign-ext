@@ -20,7 +20,7 @@ class ForkServer {
   static constexpr int kClientPipeFd = 3;
 
   ForkServer();
-  ~ForkServer(){};
+  ~ForkServer() {};
 
   void InitProcess(int* aArgc, char*** aArgv);
   bool HandleMessages();
@@ -38,6 +38,7 @@ class ForkServer {
 enum {
   Msg_ForkNewSubprocess__ID = 0x7f0,  // a random picked number
   Reply_ForkNewSubprocess__ID,
+  Msg_SubprocessExecInfo__ID,
 };
 
 }  // namespace ipc

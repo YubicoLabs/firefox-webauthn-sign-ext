@@ -13,9 +13,8 @@ use crate::dom::{SendNode, TElement, TNode};
 use crate::parallel;
 use crate::scoped_tls::ScopedTLS;
 use crate::traversal::{DomTraversal, PerLevelTraversalData, PreTraverseToken};
-use rayon;
 use std::collections::VecDeque;
-use time;
+use std::time::Instant;
 
 #[cfg(feature = "servo")]
 fn should_report_statistics() -> bool {
@@ -36,26 +35,41 @@ fn report_statistics(_stats: &PerThreadTraversalStatistics) {
 fn report_statistics(stats: &PerThreadTraversalStatistics) {
     // This should only be called in the main thread, or it may be racy
     // to update the statistics in a global variable.
-    debug_assert!(unsafe { crate::gecko_bindings::bindings::Gecko_IsMainThread() });
-    let gecko_stats =
-        unsafe { &mut crate::gecko_bindings::structs::ServoTraversalStatistics_sSingleton };
-    gecko_stats.mElementsTraversed += stats.elements_traversed;
-    gecko_stats.mElementsStyled += stats.elements_styled;
-    gecko_stats.mElementsMatched += stats.elements_matched;
-    gecko_stats.mStylesShared += stats.styles_shared;
-    gecko_stats.mStylesReused += stats.styles_reused;
+    unsafe {
+        debug_assert!(crate::gecko_bindings::bindings::Gecko_IsMainThread());
+        let gecko_stats = std::ptr::addr_of_mut!(
+            crate::gecko_bindings::structs::ServoTraversalStatistics_sSingleton
+        );
+        (*gecko_stats).mElementsTraversed += stats.elements_traversed;
+        (*gecko_stats).mElementsStyled += stats.elements_styled;
+        (*gecko_stats).mElementsMatched += stats.elements_matched;
+        (*gecko_stats).mStylesShared += stats.styles_shared;
+        (*gecko_stats).mStylesReused += stats.styles_reused;
+    }
 }
 
-fn with_pool_in_place_scope<'scope, R>(
+fn with_pool_in_place_scope<'scope>(
     work_unit_max: usize,
     pool: Option<&rayon::ThreadPool>,
-    closure: impl FnOnce(Option<&rayon::ScopeFifo<'scope>>) -> R,
-) -> R {
+    closure: impl FnOnce(Option<&rayon::ScopeFifo<'scope>>) + Send + 'scope,
+) {
     if work_unit_max == 0 || pool.is_none() {
-        closure(None)
+        closure(None);
     } else {
-        pool.unwrap()
-            .in_place_scope_fifo(|scope| closure(Some(scope)))
+        let pool = pool.unwrap();
+        pool.in_place_scope_fifo(|scope| {
+            #[cfg(feature = "gecko")]
+            debug_assert_eq!(
+                pool.current_thread_index(),
+                Some(0),
+                "Main thread should be the first thread"
+            );
+            if cfg!(feature = "gecko") || pool.current_thread_index().is_some() {
+                closure(Some(scope));
+            } else {
+                scope.spawn_fifo(|scope| closure(Some(scope)));
+            }
+        });
     }
 }
 
@@ -89,7 +103,7 @@ where
     let report_stats = should_report_statistics();
     let dump_stats = traversal.shared_context().options.dump_style_statistics;
     let start_time = if dump_stats {
-        Some(time::precise_time_s())
+        Some(Instant::now())
     } else {
         None
     };
@@ -108,6 +122,8 @@ where
     // Process the nodes breadth-first. This helps keep similar traversal characteristics for the
     // style sharing cache.
     let work_unit_max = work_unit_max();
+
+    let send_root = unsafe { SendNode::new(root.as_node()) };
     with_pool_in_place_scope(work_unit_max, pool, |maybe_scope| {
         let mut tlc = scoped_tls.ensure(parallel::create_thread_local_context);
         let mut context = StyleContext {
@@ -115,22 +131,16 @@ where
             thread_local: &mut tlc,
         };
 
-        debug_assert_eq!(
-            scoped_tls.current_thread_index(),
-            0,
-            "Main thread should be the first thread"
-        );
-
         let mut discovered = VecDeque::with_capacity(work_unit_max * 2);
-        discovered.push_back(unsafe { SendNode::new(root.as_node()) });
+        let current_dom_depth = send_root.depth();
+        let opaque_root = send_root.opaque();
+        discovered.push_back(send_root);
         parallel::style_trees(
             &mut context,
             discovered,
-            root.as_node().opaque(),
+            opaque_root,
             work_unit_max,
-            PerLevelTraversalData {
-                current_dom_depth: root.depth(),
-            },
+            PerLevelTraversalData { current_dom_depth },
             maybe_scope,
             traversal,
             &scoped_tls,

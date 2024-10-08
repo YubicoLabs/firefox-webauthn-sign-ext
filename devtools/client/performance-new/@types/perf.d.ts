@@ -438,6 +438,15 @@ export interface ScaleFunctions {
  */
 export type ProfilerViewMode = "full" | "active-tab" | "origins";
 
+/**
+ * Panel string identifier in the profiler frontend.
+ *
+ * To be synchronized with:
+ * https://github.com/firefox-devtools/profiler/blob/b7fe97217b5d3ae770e2b7025738a075eba9ec34/src/app-logic/tabs-handling.js#L12
+ */
+export type ProfilerPanel = "calltree" | "flame-graph" | "stack-chart" |
+  "marker-chart" | "marker-table" | "network-chart" | "js-tracer";
+
 export interface PresetDefinition {
   entries: number;
   interval: number;
@@ -474,6 +483,7 @@ export type RequestFromFrontend =
   | StatusQueryRequest
   | EnableMenuButtonRequest
   | GetProfileRequest
+  | GetExternalMarkersRequest
   | GetExternalPowerTracksRequest
   | GetSymbolTableRequest
   | QuerySymbolicationApiRequest;
@@ -481,6 +491,11 @@ export type RequestFromFrontend =
 type StatusQueryRequest = { type: "STATUS_QUERY" };
 type EnableMenuButtonRequest = { type: "ENABLE_MENU_BUTTON" };
 type GetProfileRequest = { type: "GET_PROFILE" };
+type GetExternalMarkersRequest = {
+  type: "GET_EXTERNAL_MARKERS",
+  startTime: number,
+  endTime: number,
+};
 type GetExternalPowerTracksRequest = {
   type: "GET_EXTERNAL_POWER_TRACKS",
   startTime: number,
@@ -523,6 +538,7 @@ export type ResponseToFrontend =
   | StatusQueryResponse
   | EnableMenuButtonResponse
   | GetProfileResponse
+  | GetExternalMarkersResponse
   | GetExternalPowerTracksResponse
   | GetSymbolTableResponse
   | QuerySymbolicationApiResponse;
@@ -549,6 +565,7 @@ type StatusQueryResponse = {
 };
 type EnableMenuButtonResponse = void;
 type GetProfileResponse = ArrayBuffer | MinimallyTypedGeckoProfile;
+type GetExternalMarkersResponse = Array<object>;
 type GetExternalPowerTracksResponse = Array<object>;
 type GetSymbolTableResponse = SymbolTableAsTuple;
 type QuerySymbolicationApiResponse = string;

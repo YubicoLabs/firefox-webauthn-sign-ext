@@ -12,6 +12,7 @@
 #include "mozilla/Assertions.h"  // MOZ_ASSERT
 #include "mozilla/Attributes.h"  // MOZ_IMPLICIT
 
+#include <ostream>   // ostream
 #include <stdint.h>  // uint8_t
 
 namespace JS {
@@ -78,7 +79,7 @@ class RegExpFlags {
   using Flag = uint8_t;
 
  private:
-  Flag flags_;
+  Flag flags_ = 0;
 
  public:
   RegExpFlags() = default;
@@ -129,6 +130,15 @@ class RegExpFlags {
   explicit operator bool() const { return flags_ != 0; }
 
   Flag value() const { return flags_; }
+  constexpr operator Flag() const { return flags_; }
+
+  void set(Flag flags, bool value) {
+    if (value) {
+      flags_ |= flags;
+    } else {
+      flags_ &= ~flags;
+    }
+  }
 };
 
 inline RegExpFlags& operator&=(RegExpFlags& flags, RegExpFlags::Flag flag) {
@@ -149,7 +159,7 @@ inline RegExpFlags& operator^=(RegExpFlags& flags, RegExpFlags::Flag flag) {
 inline RegExpFlags operator&(const RegExpFlags& lhs, const RegExpFlags& rhs) {
   RegExpFlags result = lhs;
   result &= rhs;
-  return lhs;
+  return result;
 }
 
 inline RegExpFlags operator|(const RegExpFlags& lhs, const RegExpFlags& rhs) {
@@ -157,6 +167,39 @@ inline RegExpFlags operator|(const RegExpFlags& lhs, const RegExpFlags& rhs) {
   result |= rhs;
   return result;
 }
+
+inline bool MaybeParseRegExpFlag(char c, RegExpFlags::Flag* flag) {
+  switch (c) {
+    case 'd':
+      *flag = RegExpFlag::HasIndices;
+      return true;
+    case 'g':
+      *flag = RegExpFlag::Global;
+      return true;
+    case 'i':
+      *flag = RegExpFlag::IgnoreCase;
+      return true;
+    case 'm':
+      *flag = RegExpFlag::Multiline;
+      return true;
+    case 's':
+      *flag = RegExpFlag::DotAll;
+      return true;
+    case 'u':
+      *flag = RegExpFlag::Unicode;
+      return true;
+    case 'v':
+      *flag = RegExpFlag::UnicodeSets;
+      return true;
+    case 'y':
+      *flag = RegExpFlag::Sticky;
+      return true;
+    default:
+      return false;
+  }
+}
+
+std::ostream& operator<<(std::ostream& os, RegExpFlags flags);
 
 }  // namespace JS
 

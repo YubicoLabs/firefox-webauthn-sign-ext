@@ -22,18 +22,20 @@ class InlinePreview extends PureComponent {
       highlightDomElement: PropTypes.func.isRequired,
       openElementInInspector: PropTypes.func.isRequired,
       unHighlightDomElement: PropTypes.func.isRequired,
+      type: PropTypes.string.isRequired,
       value: PropTypes.any,
       variable: PropTypes.string.isRequired,
     };
   }
 
-  showInScopes(variable) {
+  showInScopes() {
     // TODO: focus on variable value in the scopes sidepanel
     // we will need more info from parent comp
   }
 
   render() {
     const {
+      type,
       value,
       variable,
       openElementInInspector,
@@ -49,7 +51,7 @@ class InlinePreview extends PureComponent {
       },
       span(
         {
-          className: "inline-preview-label",
+          className: `inline-preview-label ${type}`,
         },
         variable,
         ":"

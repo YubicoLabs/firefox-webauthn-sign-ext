@@ -10,9 +10,13 @@ use std::ops::Range;
 use termcolor::{ColorChoice, NoColor, StandardStream};
 use thiserror::Error;
 
+#[cfg(test)]
+use std::mem::size_of;
+
 #[derive(Clone, Debug)]
 pub struct ParseError {
     message: String,
+    // The first span should be the primary span, and the other ones should be complementary.
     labels: Vec<(Span, Cow<'static, str>)>,
     notes: Vec<String>,
 }
@@ -61,7 +65,7 @@ impl ParseError {
     {
         let path = path.as_ref().display().to_string();
         let files = SimpleFile::new(path, source);
-        let config = codespan_reporting::term::Config::default();
+        let config = term::Config::default();
         let writer = StandardStream::stderr(ColorChoice::Auto);
         term::emit(&mut writer.lock(), &config, &files, &self.diagnostic())
             .expect("cannot write error");
@@ -79,7 +83,7 @@ impl ParseError {
     {
         let path = path.as_ref().display().to_string();
         let files = SimpleFile::new(path, source);
-        let config = codespan_reporting::term::Config::default();
+        let config = term::Config::default();
         let mut writer = NoColor::new(Vec::new());
         term::emit(&mut writer, &config, &files, &self.diagnostic()).expect("cannot write error");
         String::from_utf8(writer.into_inner()).unwrap()
@@ -87,7 +91,7 @@ impl ParseError {
 
     /// Returns a [`SourceLocation`] for the first label in the error message.
     pub fn location(&self, source: &str) -> Option<SourceLocation> {
-        self.labels.get(0).map(|label| label.0.location(source))
+        self.labels.first().map(|label| label.0.location(source))
     }
 }
 
@@ -143,7 +147,7 @@ pub enum InvalidAssignmentType {
 }
 
 #[derive(Clone, Debug)]
-pub enum Error<'a> {
+pub(crate) enum Error<'a> {
     Unexpected(Span, ExpectedToken<'a>),
     UnexpectedComponents(Span),
     UnexpectedOperationInConstContext(Span),
@@ -153,8 +157,8 @@ pub enum Error<'a> {
     BadTexture(Span),
     BadTypeCast {
         span: Span,
-        from_type: String,
-        to_type: String,
+        from_type: Box<str>,
+        to_type: Box<str>,
     },
     BadTextureSampleType {
         span: Span,
@@ -187,10 +191,10 @@ pub enum Error<'a> {
     TypeNotInferable(Span),
     InitializationTypeMismatch {
         name: Span,
-        expected: String,
-        got: String,
+        expected: Box<str>,
+        got: Box<str>,
     },
-    MissingType(Span),
+    DeclMissingTypeAndInit(Span),
     MissingAttribute(&'static str, Span),
     InvalidAtomicPointer(Span),
     InvalidAtomicOperandType(Span),
@@ -231,7 +235,7 @@ pub enum Error<'a> {
         /// name is `decl` has an identifier at `reference` whose definition is
         /// the next declaration in the cycle. The last pair's `reference` is
         /// the same identifier as `ident`, above.
-        path: Vec<(Span, Span)>,
+        path: Box<[(Span, Span)]>,
     },
     InvalidSwitchValue {
         uint: bool,
@@ -250,28 +254,46 @@ pub enum Error<'a> {
     ExpectedNonNegative(Span),
     ExpectedPositiveArrayLength(Span),
     MissingWorkgroupSize(Span),
-    ConstantEvaluatorError(ConstantEvaluatorError, Span),
-    AutoConversion {
-        dest_span: Span,
-        dest_type: String,
-        source_span: Span,
-        source_type: String,
+    ConstantEvaluatorError(Box<ConstantEvaluatorError>, Span),
+    AutoConversion(Box<AutoConversionError>),
+    AutoConversionLeafScalar(Box<AutoConversionLeafScalarError>),
+    ConcretizationFailed(Box<ConcretizationFailedError>),
+    ExceededLimitForNestedBraces {
+        span: Span,
+        limit: u8,
     },
-    AutoConversionLeafScalar {
-        dest_span: Span,
-        dest_scalar: String,
-        source_span: Span,
-        source_type: String,
-    },
-    ConcretizationFailed {
-        expr_span: Span,
-        expr_type: String,
-        scalar: String,
-        inner: ConstantEvaluatorError,
-    },
+    PipelineConstantIDValue(Span),
+    NotBool(Span),
+    ConstAssertFailed(Span),
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct AutoConversionError {
+    pub dest_span: Span,
+    pub dest_type: Box<str>,
+    pub source_span: Span,
+    pub source_type: Box<str>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct AutoConversionLeafScalarError {
+    pub dest_span: Span,
+    pub dest_scalar: Box<str>,
+    pub source_span: Span,
+    pub source_type: Box<str>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ConcretizationFailedError {
+    pub expr_span: Span,
+    pub expr_type: Box<str>,
+    pub scalar: Box<str>,
+    pub inner: ConstantEvaluatorError,
 }
 
 impl<'a> Error<'a> {
+    #[cold]
+    #[inline(never)]
     pub(crate) fn as_parse_error(&self, source: &'a str) -> ParseError {
         match *self {
             Error::Unexpected(unexpected_span, expected) => {
@@ -518,11 +540,11 @@ impl<'a> Error<'a> {
                     notes: vec![],
                 }
             }
-            Error::MissingType(name_span) => ParseError {
-                message: format!("variable `{}` needs a type", &source[name_span]),
+            Error::DeclMissingTypeAndInit(name_span) => ParseError {
+                message: format!("declaration of `{}` needs a type specifier or initializer", &source[name_span]),
                 labels: vec![(
                     name_span,
-                    format!("definition of `{}`", &source[name_span]).into(),
+                    "needs a type specifier or initializer".into(),
                 )],
                 notes: vec![],
             },
@@ -730,46 +752,92 @@ impl<'a> Error<'a> {
                 )],
                 notes: vec![],
             },
-            Error::AutoConversion { dest_span, ref dest_type, source_span, ref source_type } => ParseError {
-                message: format!("automatic conversions cannot convert `{source_type}` to `{dest_type}`"),
-                labels: vec![
-                    (
-                        dest_span,
-                        format!("a value of type {dest_type} is required here").into(),
-                    ),
-                    (
-                        source_span,
-                        format!("this expression has type {source_type}").into(),
-                    )
-                ],
-                notes: vec![],
+            Error::AutoConversion(ref error) => {
+                // destructuring ensures all fields are handled
+                let AutoConversionError { dest_span, ref dest_type, source_span, ref source_type } = **error;
+                ParseError {
+                    message: format!("automatic conversions cannot convert `{source_type}` to `{dest_type}`"),
+                    labels: vec![
+                        (
+                            dest_span,
+                            format!("a value of type {dest_type} is required here").into(),
+                        ),
+                        (
+                            source_span,
+                            format!("this expression has type {source_type}").into(),
+                        )
+                    ],
+                    notes: vec![],
+                }
             },
-            Error::AutoConversionLeafScalar { dest_span, ref dest_scalar, source_span, ref source_type } => ParseError {
-                message: format!("automatic conversions cannot convert elements of `{source_type}` to `{dest_scalar}`"),
-                labels: vec![
-                    (
-                        dest_span,
-                        format!("a value with elements of type {dest_scalar} is required here").into(),
-                    ),
-                    (
-                        source_span,
-                        format!("this expression has type {source_type}").into(),
-                    )
-                ],
-                notes: vec![],
+            Error::AutoConversionLeafScalar(ref error) => {
+                let AutoConversionLeafScalarError { dest_span, ref dest_scalar, source_span, ref source_type } = **error;
+                ParseError {
+                    message: format!("automatic conversions cannot convert elements of `{source_type}` to `{dest_scalar}`"),
+                    labels: vec![
+                        (
+                            dest_span,
+                            format!("a value with elements of type {dest_scalar} is required here").into(),
+                        ),
+                        (
+                            source_span,
+                            format!("this expression has type {source_type}").into(),
+                        )
+                    ],
+                    notes: vec![],
+                }
             },
-            Error::ConcretizationFailed { expr_span, ref expr_type, ref scalar, ref inner } => ParseError {
-                message: format!("failed to convert expression to a concrete type: {}", inner),
-                labels: vec![
-                    (
-                        expr_span,
-                        format!("this expression has type {}", expr_type).into(),
-                    )
-                ],
+            Error::ConcretizationFailed(ref error) => {
+                let ConcretizationFailedError { expr_span, ref expr_type, ref scalar, ref inner } = **error;
+                ParseError {
+                    message: format!("failed to convert expression to a concrete type: {}", inner),
+                    labels: vec![
+                        (
+                            expr_span,
+                            format!("this expression has type {}", expr_type).into(),
+                        )
+                    ],
+                    notes: vec![
+                        format!("the expression should have been converted to have {} scalar type", scalar),
+                    ]
+                }
+            },
+            Error::ExceededLimitForNestedBraces { span, limit } => ParseError {
+                message: "brace nesting limit reached".into(),
+                labels: vec![(span, "limit reached at this brace".into())],
                 notes: vec![
-                    format!("the expression should have been converted to have {} scalar type", scalar),
-                ]
+                    format!("nesting limit is currently set to {limit}"),
+                ],
+            },
+            Error::PipelineConstantIDValue(span) => ParseError {
+                message: "pipeline constant ID must be between 0 and 65535 inclusive".to_string(),
+                labels: vec![(
+                    span,
+                    "must be between 0 and 65535 inclusive".into(),
+                )],
+                notes: vec![],
+            },
+            Error::NotBool(span) => ParseError {
+                message: "must be a const-expression that resolves to a bool".to_string(),
+                labels: vec![(
+                    span,
+                    "must resolve to bool".into(),
+                )],
+                notes: vec![],
+            },
+            Error::ConstAssertFailed(span) => ParseError {
+                message: "const_assert failure".to_string(),
+                labels: vec![(
+                    span,
+                    "evaluates to false".into(),
+                )],
+                notes: vec![],
             },
         }
     }
+}
+
+#[test]
+fn test_error_size() {
+    assert!(size_of::<Error<'_>>() <= 48);
 }

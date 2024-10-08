@@ -21,12 +21,19 @@ EXPORTS.mozilla += [
 ]
 
 EXPORTS.mozilla.dom += [
+    "AudioData.h",
+    "AudioDecoder.h",
+    "AudioEncoder.h",
     "DecoderTemplate.h",
     "DecoderTypes.h",
+    "EncodedAudioChunk.h",
     "EncodedVideoChunk.h",
     "EncoderAgent.h",
     "EncoderTemplate.h",
     "EncoderTypes.h",
+    "ImageDecoder.h",
+    "ImageTrack.h",
+    "ImageTrackList.h",
     "VideoColorSpace.h",
     "VideoDecoder.h",
     "VideoEncoder.h",
@@ -35,11 +42,19 @@ EXPORTS.mozilla.dom += [
 ]
 
 UNIFIED_SOURCES += [
+    "AudioData.cpp",
+    "AudioDecoder.cpp",
+    "AudioEncoder.cpp",
     "DecoderAgent.cpp",
     "DecoderTemplate.cpp",
+    "EncodedAudioChunk.cpp",
     "EncodedVideoChunk.cpp",
     "EncoderAgent.cpp",
     "EncoderTemplate.cpp",
+    "ImageDecoder.cpp",
+    "ImageDecoderReadRequest.cpp",
+    "ImageTrack.cpp",
+    "ImageTrackList.cpp",
     "VideoColorSpace.cpp",
     "VideoDecoder.cpp",
     "VideoEncoder.cpp",

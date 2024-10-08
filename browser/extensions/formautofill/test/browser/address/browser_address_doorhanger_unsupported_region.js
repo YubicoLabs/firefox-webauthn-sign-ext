@@ -9,6 +9,10 @@ add_setup(async function () {
       ["extensions.formautofill.addresses.capture.enabled", true],
       ["extensions.formautofill.addresses.supported", "detect"],
       ["extensions.formautofill.addresses.supportedCountries", "US,CA"],
+      [
+        "extensions.formautofill.addresses.capture.requiredFields",
+        "street-address",
+      ],
     ],
   });
 });
@@ -53,7 +57,7 @@ add_task(async function test_save_doorhanger_unsupported_region_from_record() {
         },
       });
 
-      await ensureNoDoorhanger(browser);
+      await ensureNoDoorhanger();
     }
   );
 });
@@ -79,7 +83,7 @@ add_task(async function test_save_doorhanger_unsupported_region_from_pref() {
         },
       });
 
-      await ensureNoDoorhanger(browser);
+      await ensureNoDoorhanger();
     }
   );
 

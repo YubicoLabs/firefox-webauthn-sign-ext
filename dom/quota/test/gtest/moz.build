@@ -18,12 +18,14 @@ UNIFIED_SOURCES = [
     "QuotaManagerDependencyFixture.cpp",
     "TestCheckedUnsafePtr.cpp",
     "TestClientUsageArray.cpp",
+    "TestDirectoryLock.cpp",
     "TestEncryptedStream.cpp",
     "TestFileOutputStream.cpp",
     "TestFlatten.cpp",
     "TestForwardDecls.cpp",
     "TestOriginParser.cpp",
     "TestOriginScope.cpp",
+    "TestPersistenceScope.cpp",
     "TestPersistenceType.cpp",
     "TestQMResult.cpp",
     "TestQuotaCommon.cpp",
@@ -34,6 +36,7 @@ UNIFIED_SOURCES = [
     "TestStorageOriginAttributes.cpp",
     "TestStringifyUtils.cpp",
     "TestTelemetry.cpp",
+    "TestThreadUtils.cpp",
     "TestUsageInfo.cpp",
 ]
 

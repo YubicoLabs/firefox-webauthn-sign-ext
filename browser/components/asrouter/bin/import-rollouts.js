@@ -24,7 +24,7 @@
  * };
  */
 
-/* eslint-disable max-depth, no-console */
+/* eslint-disable no-console */
 const chalk = require("chalk");
 const https = require("https");
 const path = require("path");
@@ -94,6 +94,10 @@ async function getMessageValidators(skipValidation) {
   );
 
   const messageValidators = {
+    bookmarks_bar_button: await getValidator(
+      "./content-src/templates/OnboardingMessage/BookmarksBarButton.schema.json",
+      { common: true }
+    ),
     cfr_doorhanger: await getValidator(
       "./content-src/templates/CFR/templates/ExtensionDoorhanger.schema.json",
       { common: true }
@@ -124,10 +128,6 @@ async function getMessageValidators(skipValidation) {
     ),
     update_action: await getValidator(
       "./content-src/templates/OnboardingMessage/UpdateAction.schema.json",
-      { common: true }
-    ),
-    whatsnew_panel_message: await getValidator(
-      "./content-src/templates/OnboardingMessage/WhatsNewMessage.schema.json",
       { common: true }
     ),
     feature_callout: await getValidator(

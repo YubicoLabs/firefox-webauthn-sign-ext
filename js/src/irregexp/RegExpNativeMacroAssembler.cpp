@@ -247,8 +247,8 @@ void SMRegExpMacroAssembler::CheckCharacterNotInRange(base::uc16 from,
 bool SMRegExpMacroAssembler::IsCharacterInRangeArray(uint32_t c,
                                                      ByteArrayData* ranges) {
   js::AutoUnsafeCallWithABI unsafe;
-  MOZ_ASSERT(ranges->length % sizeof(uint16_t) == 0);
-  uint32_t length = ranges->length / sizeof(uint16_t);
+  MOZ_ASSERT(ranges->length() % sizeof(uint16_t) == 0);
+  uint32_t length = ranges->length() / sizeof(uint16_t);
   MOZ_ASSERT(length > 0);
 
   // Fast paths.
@@ -1395,7 +1395,7 @@ bool SMRegExpMacroAssembler::GrowBacktrackStack(RegExpStack* regexp_stack) {
 
 bool SMRegExpMacroAssembler::CanReadUnaligned() const {
 #if defined(JS_CODEGEN_ARM)
-  return !js::jit::HasAlignmentFault();
+  return !js::jit::ARMFlags::HasAlignmentFault();
 #elif defined(JS_CODEGEN_MIPS32) || defined(JS_CODEGEN_MIPS64)
   return false;
 #else

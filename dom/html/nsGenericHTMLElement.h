@@ -23,7 +23,6 @@
 #include <cstdint>
 
 class nsDOMTokenList;
-class nsIFormControlFrame;
 class nsIFrame;
 class nsILayoutHistoryState;
 class nsIURI;
@@ -53,14 +52,16 @@ using nsGenericHTMLElementBase = nsStyledElement;
  */
 class nsGenericHTMLElement : public nsGenericHTMLElementBase {
  public:
+  using ContentEditableState = mozilla::ContentEditableState;
   using Element::Focus;
   using Element::SetTabIndex;
+  using InvokeAction = mozilla::dom::InvokeAction;
+
   explicit nsGenericHTMLElement(
       already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo)
       : nsGenericHTMLElementBase(std::move(aNodeInfo)) {
     NS_ASSERTION(mNodeInfo->NamespaceID() == kNameSpaceID_XHTML,
                  "Unexpected namespace");
-    AddStatesSilently(mozilla::dom::ElementState::LTR);
   }
 
   NS_INLINE_DECL_REFCOUNTING_INHERITED(nsGenericHTMLElement,
@@ -118,14 +119,20 @@ class nsGenericHTMLElement : public nsGenericHTMLElementBase {
     SetHTMLAttr(nsGkAtoms::draggable, aDraggable ? u"true"_ns : u"false"_ns,
                 aError);
   }
-  void GetContentEditable(nsString& aContentEditable) {
-    ContentEditableTristate value = GetContentEditableValue();
-    if (value == eTrue) {
-      aContentEditable.AssignLiteral("true");
-    } else if (value == eFalse) {
-      aContentEditable.AssignLiteral("false");
-    } else {
-      aContentEditable.AssignLiteral("inherit");
+  void GetContentEditable(nsString& aContentEditable) const {
+    switch (GetContentEditableState()) {
+      case ContentEditableState::True:
+        aContentEditable.AssignLiteral("true");
+        return;
+      case ContentEditableState::False:
+        aContentEditable.AssignLiteral("false");
+        return;
+      case ContentEditableState::PlainTextOnly:
+        aContentEditable.AssignLiteral("plaintext-only");
+        return;
+      case ContentEditableState::Inherit:
+        aContentEditable.AssignLiteral("inherit");
+        return;
     }
   }
   void SetContentEditable(const nsAString& aContentEditable,
@@ -136,21 +143,46 @@ class nsGenericHTMLElement : public nsGenericHTMLElementBase {
       SetHTMLAttr(nsGkAtoms::contenteditable, u"true"_ns, aError);
     } else if (aContentEditable.LowerCaseEqualsLiteral("false")) {
       SetHTMLAttr(nsGkAtoms::contenteditable, u"false"_ns, aError);
+    } else if (mozilla::StaticPrefs::
+                   dom_element_contenteditable_plaintext_only_enabled() &&
+               aContentEditable.LowerCaseEqualsLiteral("plaintext-only")) {
+      SetHTMLAttr(nsGkAtoms::contenteditable, u"plaintext-only"_ns, aError);
     } else {
       aError.Throw(NS_ERROR_DOM_SYNTAX_ERR);
     }
   }
-  bool IsContentEditable() {
-    for (nsIContent* node = this; node; node = node->GetParent()) {
-      nsGenericHTMLElement* element = FromNode(node);
-      if (element) {
-        ContentEditableTristate value = element->GetContentEditableValue();
-        if (value != eInherit) {
-          return value == eTrue;
-        }
+
+  [[nodiscard]] bool IsContentEditable() const;
+
+  /**
+   * Returns ContentEditableState::True if the element has a contentEditable
+   * attribute and its value is "true" or an empty string. Returns
+   * ContentEditableState::False if the *element has a contentEditable attribute
+   * and its value is "false". Returns ContentEditableState::PlainTextOnly if
+   * the element has a contentEditable attribute and its value is
+   * "plaintext-only". Otherwise returns ContentEditableState::Inherit.
+   */
+  [[nodiscard]] ContentEditableState GetContentEditableState() const {
+    if (!MayHaveContentEditableAttr()) {
+      return ContentEditableState::Inherit;
+    }
+
+    if (const nsAttrValue* value =
+            mAttrs.GetAttr(nsGkAtoms::contenteditable, kNameSpaceID_None)) {
+      if (value->Equals(nsGkAtoms::_false, eIgnoreCase)) {
+        return ContentEditableState::False;
+      }
+      if (value->Equals(nsGkAtoms::_true, eIgnoreCase) ||
+          value->Equals(nsGkAtoms::_empty, eCaseMatters)) {
+        return ContentEditableState::True;
+      }
+      if (mozilla::StaticPrefs::
+              dom_element_contenteditable_plaintext_only_enabled() &&
+          value->Equals(nsGkAtoms::plaintextOnly, eIgnoreCase)) {
+        return ContentEditableState::PlainTextOnly;
       }
     }
-    return false;
+    return ContentEditableState::Inherit;
   }
 
   mozilla::dom::PopoverAttributeState GetPopoverAttributeState() const;
@@ -184,6 +216,12 @@ class nsGenericHTMLElement : public nsGenericHTMLElementBase {
   void ForgetPreviouslyFocusedElementAfterHidingPopover();
   MOZ_CAN_RUN_SCRIPT void FocusPreviousElementAfterHidingPopover();
 
+  bool IsValidInvokeAction(mozilla::dom::InvokeAction aAction) const override;
+
+  MOZ_CAN_RUN_SCRIPT bool HandleInvokeInternal(
+      Element* aInvoker, mozilla::dom::InvokeAction aAction,
+      ErrorResult& aRv) override;
+
   MOZ_CAN_RUN_SCRIPT void FocusCandidate(Element*, bool aClearUpFocus);
 
   void SetNonce(const nsAString& aNonce) {
@@ -199,7 +237,7 @@ class nsGenericHTMLElement : public nsGenericHTMLElementBase {
   }
 
   /** Returns whether a form control should be default-focusable. */
-  bool IsFormControlDefaultFocusable(bool aWithMouse) const;
+  bool IsFormControlDefaultFocusable(mozilla::IsFocusableFlags) const;
 
   /**
    * Returns the count of descendants (inclusive of this node) in
@@ -334,16 +372,17 @@ class nsGenericHTMLElement : public nsGenericHTMLElementBase {
   nsresult BindToTree(BindContext&, nsINode& aParent) override;
   void UnbindFromTree(UnbindContext&) override;
 
-  Focusable IsFocusableWithoutStyle(bool aWithMouse) override {
+  Focusable IsFocusableWithoutStyle(mozilla::IsFocusableFlags aFlags =
+                                        mozilla::IsFocusableFlags(0)) override {
     Focusable result;
-    IsHTMLFocusable(aWithMouse, &result.mFocusable, &result.mTabIndex);
+    IsHTMLFocusable(aFlags, &result.mFocusable, &result.mTabIndex);
     return result;
   }
   /**
    * Returns true if a subclass is not allowed to override the value returned
    * in aIsFocusable.
    */
-  virtual bool IsHTMLFocusable(bool aWithMouse, bool* aIsFocusable,
+  virtual bool IsHTMLFocusable(mozilla::IsFocusableFlags, bool* aIsFocusable,
                                int32_t* aTabIndex);
   MOZ_CAN_RUN_SCRIPT
   mozilla::Result<bool, nsresult> PerformAccesskey(
@@ -385,17 +424,6 @@ class nsGenericHTMLElement : public nsGenericHTMLElementBase {
    * @param aBaseTarget the base target [OUT]
    */
   void GetBaseTarget(nsAString& aBaseTarget) const;
-
-  /**
-   * Get the primary form control frame for this element.  Same as
-   * GetPrimaryFrame(), except it QI's to nsIFormControlFrame.
-   *
-   * @param aFlush whether to flush out frames so that they're up to date.
-   * @return the primary frame as nsIFormControlFrame
-   */
-  nsIFormControlFrame* GetFormControlFrame(bool aFlushFrames);
-
-  //----------------------------------------
 
   /**
    * Parse an alignment attribute (top/middle/bottom/baseline)
@@ -641,6 +669,7 @@ class nsGenericHTMLElement : public nsGenericHTMLElementBase {
    * @param aResult    result value [out]
    */
   void GetURIAttr(nsAtom* aAttr, nsAtom* aBaseAttr, nsAString& aResult) const;
+  void GetURIAttr(nsAtom* aAttr, nsAtom* aBaseAttr, nsACString& aResult) const;
 
   /**
    * Gets the absolute URI values of an attribute, by resolving any relative
@@ -648,7 +677,8 @@ class nsGenericHTMLElement : public nsGenericHTMLElementBase {
    * isn't a relative URI, the substring is returned as is. Only works for
    * attributes in null namespace.
    */
-  bool GetURIAttr(nsAtom* aAttr, nsAtom* aBaseAttr, nsIURI** aURI) const;
+  const nsAttrValue* GetURIAttr(nsAtom* aAttr, nsAtom* aBaseAttr,
+                                nsIURI** aURI) const;
 
   bool IsHidden() const { return HasAttr(nsGkAtoms::hidden); }
 
@@ -765,6 +795,9 @@ class nsGenericHTMLElement : public nsGenericHTMLElementBase {
     GetEnumAttr(aName, nullptr, aResult);
   }
   void GetHTMLURIAttr(nsAtom* aName, nsAString& aResult) const {
+    GetURIAttr(aName, nullptr, aResult);
+  }
+  void GetHTMLURIAttr(nsAtom* aName, nsACString& aResult) const {
     GetURIAttr(aName, nullptr, aResult);
   }
 
@@ -917,24 +950,12 @@ class nsGenericHTMLElement : public nsGenericHTMLElementBase {
    */
   static void SyncEditorsOnSubtree(nsIContent* content);
 
-  enum ContentEditableTristate { eInherit = -1, eFalse = 0, eTrue = 1 };
-
-  /**
-   * Returns eTrue if the element has a contentEditable attribute and its value
-   * is "true" or an empty string. Returns eFalse if the element has a
-   * contentEditable attribute and its value is "false". Otherwise returns
-   * eInherit.
-   */
-  ContentEditableTristate GetContentEditableValue() const {
-    static const Element::AttrValuesArray values[] = {
-        nsGkAtoms::_false, nsGkAtoms::_true, nsGkAtoms::_empty, nullptr};
-
-    if (!MayHaveContentEditableAttr()) return eInherit;
-
-    int32_t value = FindAttrValueIn(
-        kNameSpaceID_None, nsGkAtoms::contenteditable, values, eIgnoreCase);
-
-    return value > 0 ? eTrue : (value == 0 ? eFalse : eInherit);
+  [[nodiscard]] inline static bool IsEditableState(
+      ContentEditableState aState) {
+    return aState == ContentEditableState::True ||
+           (mozilla::StaticPrefs::
+                dom_element_contenteditable_plaintext_only_enabled() &&
+            aState == ContentEditableState::PlainTextOnly);
   }
 
   // Used by A, AREA, LINK, and STYLE.
@@ -1133,9 +1154,10 @@ class nsGenericHTMLFormElement : public nsGenericHTMLElement {
   virtual bool CanBeDisabled() const { return false; }
 
   /**
-   * Returns if the readonly attribute applies.
+   * Returns true if :read-write pseudo class may match the element even if the
+   * element isn't part of designMode or contenteditable.
    */
-  virtual bool DoesReadOnlyApply() const { return false; }
+  virtual bool DoesReadWriteApply() const { return false; }
 
   /**
    *  Returns true if the element is a form associated element.
@@ -1162,6 +1184,11 @@ class nsGenericHTMLFormControlElement : public nsGenericHTMLFormElement,
   NS_IMPL_FROMNODE_HELPER(nsGenericHTMLFormControlElement,
                           IsHTMLFormControlElement())
 
+  [[nodiscard]] nsIFormControl* GetAsFormControl() final { return this; }
+  [[nodiscard]] const nsIFormControl* GetAsFormControl() const final {
+    return this;
+  }
+
   // nsINode
   nsINode* GetScopeChainParent() const override;
   bool IsHTMLFormControlElement() const final { return true; }
@@ -1172,12 +1199,8 @@ class nsGenericHTMLFormControlElement : public nsGenericHTMLFormElement,
   // nsGenericHTMLElement
   // autocapitalize attribute support
   void GetAutocapitalize(nsAString& aValue) const override;
-  bool IsHTMLFocusable(bool aWithMouse, bool* aIsFocusable,
+  bool IsHTMLFocusable(mozilla::IsFocusableFlags, bool* aIsFocusable,
                        int32_t* aTabIndex) override;
-
-  // EventTarget
-  void GetEventTargetParent(mozilla::EventChainPreVisitor& aVisitor) override;
-  nsresult PreHandleEvent(mozilla::EventChainVisitor& aVisitor) override;
 
   // nsIFormControl
   mozilla::dom::HTMLFieldSetElement* GetFieldSet() override;
@@ -1193,7 +1216,7 @@ class nsGenericHTMLFormControlElement : public nsGenericHTMLFormElement,
 
   // nsGenericHTMLFormElement
   bool CanBeDisabled() const override;
-  bool DoesReadOnlyApply() const override;
+  bool DoesReadWriteApply() const override;
   void SetFormInternal(mozilla::dom::HTMLFormElement* aForm,
                        bool aBindToTree) override;
   mozilla::dom::HTMLFormElement* GetFormInternal() const override;
@@ -1210,6 +1233,9 @@ class nsGenericHTMLFormControlElement : public nsGenericHTMLFormElement,
   bool IsAutocapitalizeInheriting() const;
 
   nsresult SubmitDirnameDir(mozilla::dom::FormData* aFormData);
+
+  void GetFormAutofillState(nsAString& aState) const;
+  void SetFormAutofillState(const nsAString& aState);
 
   /** The form that contains this control */
   mozilla::dom::HTMLFormElement* mForm;
@@ -1255,7 +1281,7 @@ class nsGenericHTMLFormControlElementWithState
   mozilla::dom::Element* GetInvokeTargetElement() const;
   void SetInvokeTargetElement(mozilla::dom::Element*);
   void GetInvokeAction(nsAString& aValue) const;
-  nsAtom* GetInvokeAction() const;
+  InvokeAction GetInvokeAction(nsAtom* aAtom) const;
   void SetInvokeAction(const nsAString& aValue) {
     SetHTMLAttr(nsGkAtoms::invokeaction, aValue);
   }

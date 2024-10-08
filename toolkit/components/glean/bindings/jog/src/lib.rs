@@ -19,9 +19,9 @@ struct ExtraMetricArgs {
     time_unit: Option<TimeUnit>,
     memory_unit: Option<MemoryUnit>,
     allowed_extra_keys: Option<Vec<String>>,
-    range_min: Option<u64>,
-    range_max: Option<u64>,
-    bucket_count: Option<u64>,
+    range_min: Option<i64>,
+    range_max: Option<i64>,
+    bucket_count: Option<i64>,
     histogram_type: Option<HistogramType>,
     numerators: Option<Vec<CommonMetricData>>,
     ordered_labels: Option<Vec<Cow<'static, str>>>,
@@ -138,6 +138,9 @@ pub extern "C" fn jog_test_register_ping(
     include_client_id: bool,
     send_if_empty: bool,
     precise_timestamps: bool,
+    include_info_sections: bool,
+    enabled: bool,
+    schedules_pings: &ThinVec<nsCString>,
     reason_codes: &ThinVec<nsCString>,
 ) -> u32 {
     let ping_name = name.to_string();
@@ -145,21 +148,32 @@ pub extern "C" fn jog_test_register_ping(
         .iter()
         .map(|reason| reason.to_string())
         .collect();
+    let schedules_pings = schedules_pings
+        .iter()
+        .map(|ping| ping.to_string())
+        .collect();
     create_and_register_ping(
         ping_name,
         include_client_id,
         send_if_empty,
         precise_timestamps,
+        include_info_sections,
+        enabled,
+        schedules_pings,
         reason_codes,
     )
     .expect("Creation or registration of ping failed.") // permitted to panic in test-only method.
 }
 
+#[allow(clippy::too_many_arguments)]
 fn create_and_register_ping(
     ping_name: String,
     include_client_id: bool,
     send_if_empty: bool,
     precise_timestamps: bool,
+    include_info_sections: bool,
+    enabled: bool,
+    schedules_pings: Vec<String>,
     reason_codes: Vec<String>,
 ) -> Result<u32, Box<dyn std::error::Error>> {
     let ns_name = nsCString::from(&ping_name);
@@ -168,6 +182,9 @@ fn create_and_register_ping(
         include_client_id,
         send_if_empty,
         precise_timestamps,
+        include_info_sections,
+        enabled,
+        schedules_pings,
         reason_codes,
     );
     extern "C" {
@@ -214,6 +231,9 @@ struct PingDefinitionData {
     include_client_id: bool,
     send_if_empty: bool,
     precise_timestamps: bool,
+    include_info_sections: bool,
+    enabled: bool,
+    schedules_pings: Option<Vec<String>>,
     reason_codes: Option<Vec<String>>,
 }
 
@@ -260,6 +280,9 @@ pub extern "C" fn jog_load_jogfile(jogfile_path: &nsAString) -> bool {
             ping.include_client_id,
             ping.send_if_empty,
             ping.precise_timestamps,
+            ping.include_info_sections,
+            ping.enabled,
+            ping.schedules_pings.unwrap_or_else(Vec::new),
             ping.reason_codes.unwrap_or_else(Vec::new),
         );
     }

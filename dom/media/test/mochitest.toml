@@ -31,12 +31,7 @@ prefs = [
 support-files = [
   "16bit_wave_extrametadata.wav",
   "16bit_wave_extrametadata.wav^headers^",
-  "320x240.ogv",
-  "320x240.ogv^headers^",
-  "448636.ogv",
-  "448636.ogv^headers^",
-  "A4.ogv",
-  "A4.ogv^headers^",
+  "320x240.webm",
   "VID_0001.ogg",
   "VID_0001.ogg^headers^",
   "allowed.sjs",
@@ -88,6 +83,10 @@ support-files = [
   "bipbop-clearkey-keyrotation-clear-lead-audio.mp4^headers^",
   "bipbop-clearkey-keyrotation-clear-lead-video.mp4",
   "bipbop-clearkey-keyrotation-clear-lead-video.mp4^headers^",
+  "bipbop-clearkey-video-av1.mp4",
+  "bipbop-clearkey-video-av1.mp4^headers^",
+  "bipbop-clearkey-video-av1.webm",
+  "bipbop-clearkey-video-av1.webm^headers^",
   "bipbop_225w_175kbps.mp4",
   "bipbop_225w_175kbps.mp4^headers^",
   "bipbop_225w_175kbps-cenc-audio-key1-1.m4s",
@@ -406,63 +405,19 @@ support-files = [
   "bipbop_short_vp8.webm^headers^",
   "bipbop-lateaudio.mp4",
   "bipbop-lateaudio.mp4^headers^",
-  "black100x100-aspect3to2.ogv",
-  "black100x100-aspect3to2.ogv^headers^",
   "bogus.duh",
-  "bogus.ogv",
-  "bogus.ogv^headers^",
   "bogus.wav",
   "bogus.wav^headers^",
-  "bug461281.ogg",
-  "bug461281.ogg^headers^",
-  "bug482461-theora.ogv",
-  "bug482461-theora.ogv^headers^",
-  "bug482461.ogv",
-  "bug482461.ogv^headers^",
-  "bug495129.ogv",
-  "bug495129.ogv^headers^",
   "bug495794.ogg",
   "bug495794.ogg^headers^",
-  "bug498380.ogv",
-  "bug498380.ogv^headers^",
-  "bug498855-1.ogv",
-  "bug498855-1.ogv^headers^",
-  "bug498855-2.ogv",
-  "bug498855-2.ogv^headers^",
-  "bug498855-3.ogv",
-  "bug498855-3.ogv^headers^",
-  "bug499519.ogv",
-  "bug499519.ogv^headers^",
-  "bug500311.ogv",
-  "bug500311.ogv^headers^",
   "bug501279.ogg",
   "bug501279.ogg^headers^",
-  "bug504613.ogv",
-  "bug504613.ogv^headers^",
-  "bug504644.ogv",
-  "bug504644.ogv^headers^",
-  "bug504843.ogv",
-  "bug504843.ogv^headers^",
-  "bug506094.ogv",
-  "bug506094.ogv^headers^",
-  "bug516323.indexed.ogv",
-  "bug516323.indexed.ogv^headers^",
-  "bug516323.ogv",
-  "bug516323.ogv^headers^",
   "bug520493.ogg",
   "bug520493.ogg^headers^",
   "bug520500.ogg",
   "bug520500.ogg^headers^",
-  "bug520908.ogv",
-  "bug520908.ogv^headers^",
-  "bug523816.ogv",
-  "bug523816.ogv^headers^",
   "bug533822.ogg",
   "bug533822.ogg^headers^",
-  "bug556821.ogv",
-  "bug556821.ogv^headers^",
-  "bug557094.ogv",
-  "bug557094.ogv^headers^",
   "bug604067.webm",
   "bug604067.webm^headers^",
   "bug1066943.webm",
@@ -483,16 +438,13 @@ support-files = [
   "cancellable_request.sjs",
   "chain.ogg",
   "chain.ogg^headers^",
-  "chain.ogv",
-  "chain.ogv^headers^",
   "chain.opus",
   "chain.opus^headers^",
   "chained-audio-video.ogg",
   "chained-audio-video.ogg^headers^",
-  "chained-video.ogv",
-  "chained-video.ogv^headers^",
   "chromeHelper.js",
   "cloneElementVisually_helpers.js",
+  "complete_length_worker.js",
   "contentType.sjs",
   "detodos.opus",
   "detodos.opus^headers^",
@@ -571,8 +523,6 @@ support-files = [
   "invalid-preskip.webm^headers^",
   "manifest.js",
   "midflight-redirect.sjs",
-  "multiple-bos.ogg",
-  "multiple-bos.ogg^headers^",
   "multiple-bos-more-header-fileds.ogg",
   "multiple-bos-more-header-fileds.ogg^headers^",
   "multi_id3v2.mp3",
@@ -627,14 +577,6 @@ support-files = [
   "sample.3g2",
   "sample-encrypted-sgpdstbl-sbgptraf.mp4",
   "sample-encrypted-sgpdstbl-sbgptraf.mp4^headers^",
-  "sample-fisbone-skeleton4.ogv",
-  "sample-fisbone-skeleton4.ogv^headers^",
-  "sample-fisbone-wrong-header.ogv",
-  "sample-fisbone-wrong-header.ogv^headers^",
-  "seek.ogv",
-  "seek.ogv^headers^",
-  "seek-short.ogv",
-  "seek-short.ogv^headers^",
   "seek.webm",
   "seek.webm^headers^",
   "seek-short.webm",
@@ -647,7 +589,6 @@ support-files = [
   "short-audio-fragmented-cenc-without-pssh.mp4",
   "short-audio-fragmented-cenc-without-pssh.mp4^headers^",
   "short-cenc.mp4",
-  "short-video.ogv",
   "short.mp4",
   "short.mp4.gz",
   "short.mp4^headers^",
@@ -674,7 +615,6 @@ support-files = [
   "sintel-short-clearkey-subsample-encrypted-audio.webm^headers^",
   "sintel-short-clearkey-subsample-encrypted-video.webm",
   "sintel-short-clearkey-subsample-encrypted-video.webm^headers^",
-  "short-video.ogv^headers^",
   "short-vp9-encrypted-video.mp4",
   "short-vp9-encrypted-video.mp4^headers^",
   "small-shot-mp3.mp4",
@@ -798,6 +738,7 @@ skip-if = [
   "os == 'mac'", # 1517199 (timeout-on-osx)
   "os == 'linux'", # 1713397, 1719881 (high intermittent failure on linux tsan), 1776937
   "apple_silicon", # Disabled due to bleedover with other tests when run in regular suites; passes in "failures" jobs
+  "mda_gpu", # Disabled because high intermittent failure
 ]
 
 ["test_chaining.html"]
@@ -821,11 +762,17 @@ tags = "cloneelementvisually"
 tags = "cloneelementvisually"
 
 ["test_cloneElementVisually_resource_change.html"]
-skip-if = ["os == 'linux' && !(debug || asan || tsan)"] # Bug 1559308 - lower frequency intermittent
-tags = "cloneelementvisually"
+skip-if = [
+  "os == 'linux' && !(debug || asan || tsan)",  # Bug 1559308 - lower frequency intermittent
+  "os == 'mac' && os_version == '14.40'",  # Bug 1909908
+]
+tags = "cloneelementvisually os_integration"
 
 ["test_clone_media_element.html"]
 skip-if = ["os == 'android'"] # bug 1108558, android(bug 1232305)
+
+["test_complete_length.html"]
+scheme = "https"
 
 ["test_fastSeek-forwards.html"]
 
@@ -834,12 +781,13 @@ skip-if = ["os == 'android'"] # bug 1108558, android(bug 1232305)
 ["test_hls_player_independency.html"]
 # There's a limit for creating decoder when API lever < 18(Bug 1278574)
 # We could skip the test in that case as we cannot play 2 video at a time.
-skip-if = ["os != 'android'"]
+skip-if = ["true"] # bug 1896932
 tags = "hls"
 
 ["test_hw_video_decoding.html"]
 skip-if = ["!mda_gpu"]
 scheme = "https"
+tags = "os_integration"
 
 ["test_imagecapture.html"]
 scheme = "https"
@@ -883,7 +831,7 @@ support-files = ["file_playback_and_bfcache.html"]
 # HLS is only supported on Fennec with API level >= 16
 # TODO: This test is similar to test_playback.html, will remove the
 # redundant code once test_playback.html is enabled on Fennec.
-skip-if = ["os != 'android'"]
+skip-if = ["true"] # bug 1896932
 tags = "hls"
 
 ["test_playback_rate.html"]
@@ -943,7 +891,7 @@ skip-if = ["os == 'win'"] # bug 1374189
 
 ["test_video_low_power_telemetry.html"]
 run-if = ["os == 'mac'"] # This telemetry is macOS-specific.
-disabled = "https://bugzilla.mozilla.org/show_bug.cgi?id=1849680"
+tags = "os_integration"
 
 ["test_video_to_canvas.html"]
 skip-if = ["os == 'android'"] # android(bug 1232305), bugs 1320418,1347953,1347954,1348140,1348386

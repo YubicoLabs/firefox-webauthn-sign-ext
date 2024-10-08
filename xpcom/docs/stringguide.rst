@@ -342,11 +342,11 @@ bucket could accommodate the new logical length.
 Helper Classes and Functions
 ----------------------------
 
-Converting Cocoa strings
-~~~~~~~~~~~~~~~~~~~~~~~~
+Converting NSString strings
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Use ``mozilla::CopyCocoaStringToXPCOMString()`` in
-``mozilla/MacStringHelpers.h`` to convert Cocoa strings to XPCOM strings.
+Use ``mozilla::CopyNSStringToXPCOMString()`` in
+``mozilla/MacStringHelpers.h`` to convert NSString strings to XPCOM strings.
 
 Searching strings - looking for substrings, characters, etc.
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -466,7 +466,7 @@ Additionally, on Windows the are some rare cases (e.g. drag&drop) where it's
 necessary to call a system API with data encoded in the Windows
 locale-dependent legacy encoding instead of UTF-16. In those rare cases, use
 ``MultiByteToWideChar``/``WideCharToMultiByte`` from kernel32.dll. Do not use
-``iconv`` on *nix. We only support UTF-8-encoded file paths on *nix, non-path
+``iconv`` on \*nix. We only support UTF-8-encoded file paths on \*nix, non-path
 Gtk strings are always UTF-8 and Cocoa and Java strings are always UTF-16.
 
 When working with existing code, it is important to examine the current usage
@@ -1048,7 +1048,7 @@ Class Reference
 
     .. cpp:function:: const char_type* EndReading() const
 
-    .. cpp:function:: bool Equals(const self_type&, comparator_type = ...) const
+    .. cpp:function:: bool Equals(const self_type&, comparator_type) const
 
     .. cpp:function:: char_type First() const
 

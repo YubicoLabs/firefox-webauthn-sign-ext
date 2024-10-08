@@ -30,7 +30,7 @@ describe('Target.createCDPSession', function () {
   });
 
   it('should not report created targets for custom CDP sessions', async () => {
-    const {browser} = await getTestState();
+    const {context} = await getTestState();
     let called = 0;
     const handler = async (target: Target) => {
       called++;
@@ -39,9 +39,9 @@ describe('Target.createCDPSession', function () {
       }
       await target.createCDPSession();
     };
-    browser.browserContexts()[0]!.on('targetcreated', handler);
-    await browser.newPage();
-    browser.browserContexts()[0]!.off('targetcreated', handler);
+    context.on('targetcreated', handler);
+    await context.newPage();
+    context.off('targetcreated', handler);
   });
 
   it('should send events', async () => {
@@ -59,6 +59,27 @@ describe('Target.createCDPSession', function () {
     ]);
     expect(events).toHaveLength(1);
   });
+
+  it('should not send extra events', async () => {
+    const {page, server} = await getTestState();
+
+    const client = await page.createCDPSession();
+    await client.send('Network.enable');
+    const events = new Set();
+    client.on('*', name => {
+      if (typeof name !== 'string') {
+        return;
+      }
+      events.add((name as string).split('.').shift());
+    });
+    await Promise.all([
+      waitEvent(client, 'Network.requestWillBeSent'),
+      page.goto(server.EMPTY_PAGE),
+    ]);
+    expect(events.size).toBe(1);
+    expect(events).toContain('Network');
+  });
+
   it('should enable and disable domains independently', async () => {
     const {page} = await getTestState();
 
@@ -134,7 +155,7 @@ describe('Target.createCDPSession', function () {
         }
       )
     ).rejects.toThrowError(
-      `Runtime.evaluate timed out. Increase the 'protocolTimeout' setting in launch/connect calls for a higher timeout if needed.`
+      /Increase the 'protocolTimeout' setting in launch\/connect calls for a higher timeout if needed./gi
     );
   });
 

@@ -325,6 +325,7 @@ function getEvalResult(
     if (noSideEffectDebugger) {
       noSideEffectDebugger.removeAllDebuggees();
       noSideEffectDebugger.onNativeCall = undefined;
+      noSideEffectDebugger.shouldAvoidSideEffects = false;
     }
   }
 }
@@ -457,11 +458,15 @@ function makeSideeffectFreeDebugger(targetActorDbg) {
     try {
       dbg.addDebuggee(global);
     } catch (e) {
-      // Ignore the following exception which can happen for some globals in the browser toolbox
+      // Ignore exceptions from the following cases:
+      //   * A global from the same compartment (happens with parent process)
+      //   * A dead wrapper (happens when the reference gets nuked after
+      //     findAllGlobals call)
       if (
         !e.message.includes(
           "debugger and debuggee must be in different compartments"
-        )
+        ) &&
+        !e.message.includes("can't access dead object")
       ) {
         throw e;
       }
@@ -544,6 +549,7 @@ function makeSideeffectFreeDebugger(targetActorDbg) {
     // Returning null terminates the current evaluation.
     return null;
   };
+  dbg.shouldAvoidSideEffects = true;
 
   return dbg;
 }
@@ -606,8 +612,12 @@ function nativeIsEagerlyEvaluateable(fn) {
       return true;
   }
 
+  // This needs to use isSameNativeWithJitInfo instead of isSameNative, given
+  // DOM methods share single native function with different JSJitInto,
+  // and isSameNative cannot distinguish between side-effect-free methods
+  // and others.
   const natives = gSideEffectFreeNatives.get(fn.name);
-  return natives && natives.some(n => fn.isSameNative(n));
+  return natives && natives.some(n => fn.isSameNativeWithJitInfo(n));
 }
 
 function updateConsoleInputEvaluation(dbg, webConsole) {
@@ -622,7 +632,7 @@ function updateConsoleInputEvaluation(dbg, webConsole) {
   }
 }
 
-function getEvalInput(string, bindings) {
+function getEvalInput(string) {
   const trimmedString = string.trim();
   // Add easter egg for console.mihai().
   if (

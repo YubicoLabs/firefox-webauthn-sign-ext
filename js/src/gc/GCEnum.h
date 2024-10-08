@@ -120,13 +120,16 @@ enum class GCAbortReason {
   _(PropMapTable)                          \
   _(ModuleBindingMap)                      \
   _(ModuleCyclicFields)                    \
+  _(ModuleSyntheticFields)                 \
   _(ModuleExports)                         \
+  _(ModuleImportAttributes)                \
   _(BaselineScript)                        \
   _(IonScript)                             \
   _(ArgumentsData)                         \
   _(RareArgumentsData)                     \
   _(RegExpSharedBytecode)                  \
   _(RegExpSharedNamedCaptureData)          \
+  _(RegExpSharedNamedCaptureSliceData)     \
   _(TypedArrayElements)                    \
   _(NativeIterator)                        \
   _(JitScript)                             \

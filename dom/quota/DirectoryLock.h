@@ -38,6 +38,8 @@ class NS_NO_VTABLE DirectoryLock {
 
   virtual nsTArray<RefPtr<DirectoryLock>> LocksMustWaitFor() const = 0;
 
+  virtual bool Invalidated() const = 0;
+
   virtual bool Dropped() const = 0;
 
   virtual RefPtr<BoolPromise> Acquire() = 0;
@@ -46,7 +48,7 @@ class NS_NO_VTABLE DirectoryLock {
 
   virtual void AssertIsAcquiredExclusively() = 0;
 
-  virtual void Drop() = 0;
+  virtual RefPtr<BoolPromise> Drop() = 0;
 
   virtual void OnInvalidate(std::function<void()>&& aCallback) = 0;
 
@@ -83,8 +85,7 @@ class NS_NO_VTABLE ClientDirectoryLock : public OriginDirectoryLock {
 // and its subdirectories.
 class UniversalDirectoryLock : public DirectoryLock {
  public:
-  // XXX Rename to NullablePersistenceTypeRef.
-  virtual const Nullable<PersistenceType>& NullablePersistenceType() const = 0;
+  virtual const PersistenceScope& PersistenceScopeRef() const = 0;
 
   // XXX Rename to OriginScopeRef.
   virtual const OriginScope& GetOriginScope() const = 0;
@@ -96,6 +97,18 @@ class UniversalDirectoryLock : public DirectoryLock {
       PersistenceType aPersistenceType, const OriginMetadata& aOriginMetadata,
       Client::Type aClientType) const = 0;
 };
+
+template <typename T>
+constexpr void SafeDropDirectoryLock(RefPtr<T>& aDirectoryLock);
+
+template <typename T>
+constexpr void DropDirectoryLock(RefPtr<T>& aDirectoryLock);
+
+template <typename T>
+constexpr void SafeDropDirectoryLockIfNotDropped(RefPtr<T>& aDirectoryLock);
+
+template <typename T>
+constexpr void DropDirectoryLockIfNotDropped(RefPtr<T>& aDirectoryLock);
 
 }  // namespace mozilla::dom::quota
 

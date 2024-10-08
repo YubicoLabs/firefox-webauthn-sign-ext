@@ -82,6 +82,8 @@ class TimeUnit final {
   constexpr TimeUnit(CheckedInt64 aTicks, int64_t aBase)
       : mTicks(aTicks), mBase(aBase) {
     MOZ_RELEASE_ASSERT(mBase > 0);
+    // aBase is often from a uint32_t and assumed less than 2^32.
+    MOZ_DIAGNOSTIC_ASSERT(mBase <= UINT32_MAX);
   }
 
   explicit constexpr TimeUnit(CheckedInt64 aTicks)
@@ -169,6 +171,13 @@ class TimeUnit final {
     }
   };
 
+  struct FloorPolicy {
+    template <typename T>
+    static T policy(T& aValue) {
+      return std::floor(aValue);
+    }
+  };
+
   struct RoundPolicy {
     template <typename T>
     static T policy(T& aValue) {
@@ -205,6 +214,10 @@ class TimeUnit final {
   template <class RoundingPolicy = TruncatePolicy>
   TimeUnit ToBase(int64_t aTargetBase, double& aOutError) const {
     aOutError = 0.0;
+    if (mTicks.value() == INT64_MAX || mTicks.value() == INT64_MIN) {
+      // -ve or +ve infinity
+      return TimeUnit(mTicks, aTargetBase);
+    }
     CheckedInt<int64_t> ticks = mTicks * aTargetBase;
     if (ticks.isValid()) {
       imaxdiv_t rv = imaxdiv(ticks.value(), mBase);

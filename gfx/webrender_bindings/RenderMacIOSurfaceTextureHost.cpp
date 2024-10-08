@@ -6,16 +6,20 @@
 
 #include "RenderMacIOSurfaceTextureHost.h"
 
-#include "GLContextCGL.h"
+#ifdef XP_MACOSX
+#  include "GLContextCGL.h"
+#else
+#  include "GLContextEAGL.h"
+#endif
+
 #include "mozilla/gfx/Logging.h"
 #include "ScopedGLHelpers.h"
 
 namespace mozilla {
 namespace wr {
 
-static CGLError CreateTextureForPlane(uint8_t aPlaneID, gl::GLContext* aGL,
-                                      MacIOSurface* aSurface,
-                                      GLuint* aTexture) {
+static bool CreateTextureForPlane(uint8_t aPlaneID, gl::GLContext* aGL,
+                                  MacIOSurface* aSurface, GLuint* aTexture) {
   MOZ_ASSERT(aGL && aSurface && aTexture);
 
   aGL->fGenTextures(1, aTexture);
@@ -26,14 +30,12 @@ static CGLError CreateTextureForPlane(uint8_t aPlaneID, gl::GLContext* aGL,
   aGL->fTexParameteri(LOCAL_GL_TEXTURE_RECTANGLE_ARB, LOCAL_GL_TEXTURE_WRAP_S,
                       LOCAL_GL_CLAMP_TO_EDGE);
 
-  CGLError result = kCGLNoError;
   gfx::SurfaceFormat readFormat = gfx::SurfaceFormat::UNKNOWN;
-  result = aSurface->CGLTexImageIOSurface2D(
-      aGL, gl::GLContextCGL::Cast(aGL)->GetCGLContext(), aPlaneID, &readFormat);
-  // If this is a yuv format, the Webrender only supports YUV422 interleaving
+  bool result = aSurface->BindTexImage(aGL, aPlaneID, &readFormat);
+  // If this is a yuv format, the Webrender only supports YUY2 interleaving
   // format.
-  MOZ_ASSERT(aSurface->GetFormat() != gfx::SurfaceFormat::YUV422 ||
-             readFormat == gfx::SurfaceFormat::YUV422);
+  MOZ_ASSERT(aSurface->GetFormat() != gfx::SurfaceFormat::YUY2 ||
+             readFormat == gfx::SurfaceFormat::YUY2);
 
   return result;
 }
@@ -89,7 +91,11 @@ wr::WrExternalImage RenderMacIOSurfaceTextureHost::Lock(uint8_t aChannelIndex,
   }
 
   if (!mTextureHandles[0]) {
+#ifdef XP_MACOSX
     MOZ_ASSERT(gl::GLContextCGL::Cast(mGL.get())->GetCGLContext());
+#else
+    MOZ_ASSERT(gl::GLContextEAGL::Cast(mGL.get())->GetEAGLContext());
+#endif
 
     // The result of GetPlaneCount() is 0 for single plane format, but it will
     // be 2 if the format has 2 planar data.
@@ -99,10 +105,10 @@ wr::WrExternalImage RenderMacIOSurfaceTextureHost::Lock(uint8_t aChannelIndex,
     }
   }
 
-  const auto uvs = GetUvCoords(GetSize(aChannelIndex));
-  return NativeTextureToWrExternalImage(GetGLHandle(aChannelIndex), uvs.first.x,
-                                        uvs.first.y, uvs.second.x,
-                                        uvs.second.y);
+  const auto size = GetSize(aChannelIndex);
+  return NativeTextureToWrExternalImage(GetGLHandle(aChannelIndex), 0.0, 0.0,
+                                        static_cast<float>(size.width),
+                                        static_cast<float>(size.height));
 }
 
 void RenderMacIOSurfaceTextureHost::Unlock() {}
@@ -141,7 +147,9 @@ bool RenderMacIOSurfaceTextureHost::MapPlane(RenderCompositor* aCompositor,
                                              uint8_t aChannelIndex,
                                              PlaneInfo& aPlaneInfo) {
   if (!aChannelIndex) {
-    mSurface->Lock();
+    if (NS_WARN_IF(!mSurface->Lock())) {
+      return false;
+    }
   }
   aPlaneInfo.mData = mSurface->GetBaseAddressOfPlane(aChannelIndex);
   aPlaneInfo.mStride = mSurface->GetBytesPerRow(aChannelIndex);

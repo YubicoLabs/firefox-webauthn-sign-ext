@@ -307,15 +307,16 @@ class Scopes extends PureComponent {
           dimTopLevelWindow: true,
           frame: selectedFrame,
           mayUseCustomFormatter: true,
-          openLink: openLink,
+          openLink,
           onDOMNodeClick: grip => openElementInInspector(grip),
           onInspectIconClick: grip => openElementInInspector(grip),
           onDOMNodeMouseOver: grip => highlightDomElement(grip),
           onDOMNodeMouseOut: grip => unHighlightDomElement(grip),
           onContextMenu: this.onContextMenu,
+          preventBlur: true,
           setExpanded: (path, expand) =>
             setExpandedScope(selectedFrame, path, expand),
-          initiallyExpanded: initiallyExpanded,
+          initiallyExpanded,
           renderItemActions: this.renderWatchpointButton,
           shouldRenderTooltip: true,
         })
@@ -359,7 +360,7 @@ const mapStateToProps = state => {
   let originalFrameScopes;
   let generatedFrameScopes;
   let isLoading;
-  let mapScopesEnabled;
+  let mapScopesEnabled = false;
 
   if (
     selectedSource?.isOriginal &&

@@ -37,7 +37,7 @@ function childFrameScript() {
   );
 
   function parentReady(message) {
-    MockFilePicker.init(content);
+    MockFilePicker.init(content.browsingContext);
     MockFilePicker.setFiles([message.data.file]);
     MockFilePicker.returnValue = MockFilePicker.returnOK;
 
@@ -47,6 +47,9 @@ function childFrameScript() {
       let value = input.value;
       message.target.sendAsyncMessage("testBug1086684:childDone", { value });
     });
+
+    // Activate the page to allow opening the file picker.
+    content.document.notifyUserGestureActivation();
 
     input.focus();
     input.click();

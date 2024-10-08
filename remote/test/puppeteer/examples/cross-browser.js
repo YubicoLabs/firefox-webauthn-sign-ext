@@ -1,9 +1,14 @@
+/**
+ * @license
+ * Copyright 2024 Google Inc.
+ * SPDX-License-Identifier: Apache-2.0
+ */
 const puppeteer = require('puppeteer');
 
 /**
  * To have Puppeteer fetch a Firefox binary for you, first run:
  *
- * PUPPETEER_PRODUCT=firefox npm install
+ * npx puppeteer browsers install firefox
  *
  * To get additional logging about which browser binary is executed,
  * run this example as:

@@ -8,8 +8,6 @@
 "use strict";
 
 ChromeUtils.defineESModuleGetters(this, {
-  CONTEXTUAL_SERVICES_PING_TYPES:
-    "resource:///modules/PartnerLinkAttribution.sys.mjs",
   UrlbarView: "resource:///modules/UrlbarView.sys.mjs",
   sinon: "resource://testing-common/Sinon.sys.mjs",
 });
@@ -17,28 +15,14 @@ ChromeUtils.defineESModuleGetters(this, {
 const { TELEMETRY_SCALARS } = UrlbarProviderQuickSuggest;
 
 const REMOTE_SETTINGS_RESULTS = [
-  {
-    id: 1,
-    url: "https://example.com/sponsored",
-    title: "Sponsored suggestion",
-    keywords: ["sponsored"],
-    click_url: "https://example.com/click",
-    impression_url: "https://example.com/impression",
-    advertiser: "testadvertiser",
-  },
-  {
-    id: 2,
-    url: "https://example.com/nonsponsored",
-    title: "Non-sponsored suggestion",
-    keywords: ["nonsponsored"],
-    click_url: "https://example.com/click",
-    impression_url: "https://example.com/impression",
-    advertiser: "testadvertiser",
-    iab_category: "5 - Education",
-  },
+  QuickSuggestTestUtils.ampRemoteSettings({ keywords: ["sponsored"] }),
+  QuickSuggestTestUtils.wikipediaRemoteSettings({ keywords: ["nonsponsored"] }),
 ];
 
 const SPONSORED_RESULT = REMOTE_SETTINGS_RESULTS[0];
+
+// Trying to avoid timeouts in TV mode.
+requestLongerTimeout(6);
 
 add_setup(async function () {
   await PlacesUtils.history.clear();
@@ -63,7 +47,7 @@ add_setup(async function () {
 
 // Makes sure impression telemetry is not recorded when the urlbar engagement is
 // abandoned.
-add_task(async function abandonment() {
+add_tasks_with_rust(async function abandonment() {
   Services.telemetry.clearEvents();
   await UrlbarTestUtils.promiseAutocompleteResultPopup({
     window,
@@ -83,7 +67,7 @@ add_task(async function abandonment() {
 
 // Makes sure impression telemetry is not recorded when a quick suggest result
 // is not present.
-add_task(async function noQuickSuggestResult() {
+add_tasks_with_rust(async function noQuickSuggestResult() {
   await BrowserTestUtils.withNewTab("about:blank", async () => {
     Services.telemetry.clearEvents();
     await UrlbarTestUtils.promiseAutocompleteResultPopup({
@@ -103,7 +87,7 @@ add_task(async function noQuickSuggestResult() {
 
 // When a quick suggest result is added to the view but hidden during the view
 // update, impression telemetry should not be recorded for it.
-add_task(async function hiddenRow() {
+add_tasks_with_rust(async function hiddenRow() {
   Services.telemetry.clearEvents();
 
   // Increase the timeout of the remove-stale-rows timer so that it doesn't
@@ -172,7 +156,7 @@ add_task(async function hiddenRow() {
   // mutation listener to the view so we can tell when the quick suggest row is
   // added.
   let mutationPromise = new Promise(resolve => {
-    let observer = new MutationObserver(mutations => {
+    let observer = new MutationObserver(() => {
       let rows = UrlbarTestUtils.getResultsContainer(window).children;
       for (let row of rows) {
         if (row.result.providerName == "UrlbarProviderQuickSuggest") {
@@ -236,12 +220,13 @@ add_task(async function hiddenRow() {
   BrowserTestUtils.removeTab(tab);
   UrlbarProvidersManager.unregisterProvider(provider);
   UrlbarView.removeStaleRowsTimeout = originalRemoveStaleRowsTimeout;
+  await PlacesUtils.history.clear();
 });
 
 // When a quick suggest result has not been added to the view, impression
 // telemetry should not be recorded for it even if it's the result most recently
 // returned by the provider.
-add_task(async function notAddedToView() {
+add_tasks_with_rust(async function notAddedToView() {
   Services.telemetry.clearEvents();
 
   // Open a new tab since we'll load a page.
@@ -273,7 +258,7 @@ add_task(async function notAddedToView() {
 // When a quick suggest result is visible in the view, impression telemetry
 // should be recorded for it even if it's not the result most recently returned
 // by the provider.
-add_task(async function previousResultStillVisible() {
+add_tasks_with_rust(async function previousResultStillVisible() {
   Services.telemetry.clearEvents();
 
   // Open a new tab since we'll load a page.
@@ -376,8 +361,11 @@ async function doEngagementWithoutAddingResultToView(
   let getPriorityStub = sandbox.stub(UrlbarProviderQuickSuggest, "getPriority");
   getPriorityStub.returns(Infinity);
 
-  // Spy on `UrlbarProviderQuickSuggest.onEngagement()`.
-  let onEngagementSpy = sandbox.spy(UrlbarProviderQuickSuggest, "onEngagement");
+  // Spy on `UrlbarProviderQuickSuggest.onSearchSessionEnd()`.
+  let onSearchSessionEndSpy = sandbox.spy(
+    UrlbarProviderQuickSuggest,
+    "onSearchSessionEnd"
+  );
 
   let sandboxCleanup = () => {
     getPriorityStub?.restore();
@@ -454,11 +442,8 @@ async function doEngagementWithoutAddingResultToView(
   });
   await loadPromise;
 
-  let engagementCalls = onEngagementSpy.getCalls().filter(call => {
-    let state = call.args[0];
-    return state == "engagement";
-  });
-  Assert.equal(engagementCalls.length, 1, "One engagement occurred");
+  let spyCalls = onSearchSessionEndSpy.getCalls();
+  Assert.equal(spyCalls.length, 1, "One session occurred");
 
   // Clean up.
   resolveQuery();

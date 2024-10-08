@@ -8,7 +8,6 @@ import { copyToTheClipboard } from "../../utils/clipboard";
 import {
   isPretty,
   getRawSourceURL,
-  getFilename,
   shouldBlackbox,
   findBlackBoxRange,
 } from "../../utils/source";
@@ -40,7 +39,7 @@ import { toggleBlackBox } from "../../actions/sources/blackbox";
 import { addExpression } from "../../actions/expressions";
 import { evaluateInConsole } from "../../actions/toolbox";
 
-export function showEditorContextMenu(event, editor, location) {
+export function showEditorContextMenu(event, editor, lineObject, location) {
   return async ({ dispatch, getState }) => {
     const { source } = location;
     const state = getState();
@@ -64,9 +63,9 @@ export function showEditorContextMenu(event, editor, location) {
         location,
         isPaused,
         editorWrappingEnabled,
-        selectionText: editor.codeMirror.getSelection().trim(),
-        isTextSelected: editor.codeMirror.somethingSelected(),
-        editor,
+        selectionText: editor.getSelectedText(),
+        isTextSelected: editor.isTextSelected(),
+        lineObject,
         isSourceOnIgnoreList,
         dispatch,
       })
@@ -74,7 +73,7 @@ export function showEditorContextMenu(event, editor, location) {
   };
 }
 
-export function showEditorGutterContextMenu(event, editor, location, lineText) {
+export function showEditorGutterContextMenu(event, line, location, lineText) {
   return async ({ dispatch, getState }) => {
     const { source } = location;
     const state = getState();
@@ -91,7 +90,7 @@ export function showEditorGutterContextMenu(event, editor, location, lineText) {
       { type: "separator" },
       blackBoxLineMenuItem(
         source,
-        editor,
+        line,
         blackboxedRanges,
         isSourceOnIgnoreList,
         location.line,
@@ -179,7 +178,7 @@ const blackBoxMenuItem = (
 
 const blackBoxLineMenuItem = (
   selectedSource,
-  editor,
+  { from, to },
   blackboxedRanges,
   isSourceOnIgnoreList,
   // the clickedLine is passed when the context menu
@@ -188,10 +187,6 @@ const blackBoxLineMenuItem = (
   clickedLine = null,
   dispatch
 ) => {
-  const { codeMirror } = editor;
-  const from = codeMirror.getCursor("from");
-  const to = codeMirror.getCursor("to");
-
   const startLine = clickedLine ?? toSourceLine(selectedSource.id, from.line);
   const endLine = clickedLine ?? toSourceLine(selectedSource.id, to.line);
 
@@ -252,16 +247,12 @@ const blackBoxLineMenuItem = (
 
 const blackBoxLinesMenuItem = (
   selectedSource,
-  editor,
+  { from, to },
   blackboxedRanges,
   isSourceOnIgnoreList,
-  clickedLine = null,
+  clickedLine,
   dispatch
 ) => {
-  const { codeMirror } = editor;
-  const from = codeMirror.getCursor("from");
-  const to = codeMirror.getCursor("to");
-
   const startLine = toSourceLine(selectedSource.id, from.line);
   const endLine = toSourceLine(selectedSource.id, to.line);
 
@@ -321,7 +312,7 @@ const downloadFileItem = (selectedSource, selectedContent) => ({
   id: "node-menu-download-file",
   label: L10N.getStr("downloadFile.label"),
   accesskey: L10N.getStr("downloadFile.accesskey"),
-  click: () => downloadFile(selectedContent, getFilename(selectedSource)),
+  click: () => downloadFile(selectedContent, selectedSource.shortName),
 });
 
 const inlinePreviewItem = dispatch => ({
@@ -348,7 +339,7 @@ function editorMenuItems({
   isTextSelected,
   isPaused,
   editorWrappingEnabled,
-  editor,
+  lineObject,
   isSourceOnIgnoreList,
   dispatch,
 }) {
@@ -377,14 +368,8 @@ function editorMenuItems({
     blackBoxMenuItem(source, blackboxedRanges, isSourceOnIgnoreList, dispatch)
   );
 
-  const startLine = toSourceLine(
-    source.id,
-    editor.codeMirror.getCursor("from").line
-  );
-  const endLine = toSourceLine(
-    source.id,
-    editor.codeMirror.getCursor("to").line
-  );
+  const startLine = toSourceLine(source.id, lineObject.from.line);
+  const endLine = toSourceLine(source.id, lineObject.to.line);
 
   // Find any blackbox ranges that exist for the selected lines
   const blackboxRange = findBlackBoxRange(source, blackboxedRanges, {
@@ -409,7 +394,7 @@ function editorMenuItems({
     items.push(
       blackBoxSourceLinesMenuItem(
         source,
-        editor,
+        lineObject,
         blackboxedRanges,
         isSourceOnIgnoreList,
         null,

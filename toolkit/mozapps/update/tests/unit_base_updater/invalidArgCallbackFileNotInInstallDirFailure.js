@@ -17,16 +17,16 @@ async function run_test() {
   await setupUpdaterTest(FILE_COMPLETE_MAR, false);
   let path = getTestDirFile(FILE_HELPER_BIN).path;
   runUpdate(STATE_AFTER_RUNUPDATE, false, 1, true, null, null, null, path);
-  standardInit();
+  await testPostUpdateProcessing();
   checkPostUpdateRunningFile(false);
   checkFilesAfterUpdateFailure(getApplyDirFile);
   await waitForUpdateXMLFiles();
-  checkUpdateManager(
+  await checkUpdateManager(
     STATE_NONE,
     false,
     STATE_FAILED,
     INVALID_CALLBACK_DIR_ERROR,
     1
   );
-  waitForFilesInUse();
+  await waitForFilesInUse();
 }

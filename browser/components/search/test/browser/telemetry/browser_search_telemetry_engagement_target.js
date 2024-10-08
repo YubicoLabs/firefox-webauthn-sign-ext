@@ -22,6 +22,7 @@ const TEST_PROVIDER_INFO = [
       /^https:\/\/example.org\/browser\/browser\/components\/search\/test\/browser\/telemetry\/searchTelemetryAd_nonAdsLink_redirect.html/,
     ],
     extraAdServersRegexps: [/^https:\/\/example\.com\/ad/],
+    ignoreLinkRegexps: [/^https:\/\/example\.org\/consent\?data=/],
     components: [
       {
         type: SearchSERPTelemetryUtils.COMPONENTS.AD_CAROUSEL,
@@ -90,6 +91,44 @@ const TEST_PROVIDER_INFO = [
         type: SearchSERPTelemetryUtils.COMPONENTS.AD_LINK,
         default: true,
       },
+      {
+        type: SearchSERPTelemetryUtils.COMPONENTS.COOKIE_BANNER,
+        topDown: true,
+        included: {
+          parent: {
+            selector: "#banner",
+          },
+          children: [
+            {
+              selector: "#cookie_accept",
+              eventListeners: [
+                {
+                  eventType: "click",
+                  action: SearchSERPTelemetryUtils.ACTIONS.CLICKED_ACCEPT,
+                },
+              ],
+            },
+            {
+              selector: "#cookie_reject",
+              eventListeners: [
+                {
+                  eventType: "click",
+                  action: SearchSERPTelemetryUtils.ACTIONS.CLICKED_REJECT,
+                },
+              ],
+            },
+            {
+              selector: "#cookie_more_options",
+              eventListeners: [
+                {
+                  eventType: "click",
+                  action: SearchSERPTelemetryUtils.ACTIONS.CLICKED_MORE_OPTIONS,
+                },
+              ],
+            },
+          ],
+        },
+      },
     ],
   },
 ];
@@ -109,9 +148,6 @@ add_setup(async function () {
   // Enable local telemetry recording for the duration of the tests.
   let oldCanRecord = Services.telemetry.canRecordExtended;
   Services.telemetry.canRecordExtended = true;
-  await SpecialPowers.pushPrefEnv({
-    set: [["browser.search.serpEventTelemetry.enabled", true]],
-  });
 
   registerCleanupFunction(async () => {
     SearchSERPTelemetry.overrideSearchTelemetryForTests();
@@ -150,6 +186,7 @@ add_task(async function test_click_second_ad_in_component() {
         is_shopping_page: "false",
         is_private: "false",
         shopping_tab_displayed: "false",
+        is_signed_in: "false",
       },
       engagements: [
         {
@@ -206,6 +243,7 @@ add_task(async function test_click_ads_link_modified() {
         is_shopping_page: "false",
         is_private: "false",
         shopping_tab_displayed: "false",
+        is_signed_in: "false",
       },
       engagements: [
         {
@@ -261,6 +299,7 @@ add_task(async function test_click_and_submit_incontent_searchbox() {
         is_shopping_page: "false",
         is_private: "false",
         shopping_tab_displayed: "false",
+        is_signed_in: "false",
       },
       engagements: [
         {
@@ -282,6 +321,7 @@ add_task(async function test_click_and_submit_incontent_searchbox() {
         is_shopping_page: "false",
         is_private: "false",
         shopping_tab_displayed: "false",
+        is_signed_in: "false",
       },
     },
   ]);
@@ -319,6 +359,7 @@ add_task(async function test_click_autosuggest() {
         is_shopping_page: "false",
         is_private: "false",
         shopping_tab_displayed: "false",
+        is_signed_in: "false",
       },
       engagements: [
         {
@@ -336,6 +377,7 @@ add_task(async function test_click_autosuggest() {
         is_shopping_page: "false",
         is_private: "false",
         shopping_tab_displayed: "false",
+        is_signed_in: "false",
       },
     },
   ]);
@@ -365,6 +407,7 @@ add_task(async function test_click_carousel_expand() {
         is_shopping_page: "false",
         is_private: "false",
         shopping_tab_displayed: "false",
+        is_signed_in: "false",
       },
       engagements: [
         {
@@ -425,6 +468,7 @@ add_task(async function test_click_link_with_special_characters_in_path() {
         is_shopping_page: "false",
         is_private: "false",
         shopping_tab_displayed: "false",
+        is_signed_in: "false",
       },
       engagements: [
         {
@@ -454,4 +498,142 @@ add_task(async function test_click_link_with_special_characters_in_path() {
   // Reset state for other tests.
   SearchSERPTelemetry.overrideSearchTelemetryForTests(TEST_PROVIDER_INFO);
   await waitForIdle();
+});
+
+// Test that clicking the accept button on the cookie banner is correctly
+// tracked as an engagement event.
+add_task(async function test_click_cookie_banner_accept() {
+  resetTelemetry();
+  let url = getSERPUrl("searchTelemetryAd_components_cookie_banner.html");
+  let tab = await BrowserTestUtils.openNewForegroundTab(gBrowser, url);
+  await waitForPageWithAdImpressions();
+
+  await BrowserTestUtils.synthesizeMouseAtCenter(
+    "#cookie_accept",
+    {},
+    tab.linkedBrowser
+  );
+
+  assertSERPTelemetry([
+    {
+      impression: {
+        provider: "example",
+        tagged: "true",
+        partner_code: "ff",
+        source: "unknown",
+        is_shopping_page: "false",
+        is_private: "false",
+        shopping_tab_displayed: "false",
+        is_signed_in: "false",
+      },
+      engagements: [
+        {
+          action: SearchSERPTelemetryUtils.ACTIONS.CLICKED_ACCEPT,
+          target: SearchSERPTelemetryUtils.COMPONENTS.COOKIE_BANNER,
+        },
+      ],
+      adImpressions: [
+        {
+          component: SearchSERPTelemetryUtils.COMPONENTS.COOKIE_BANNER,
+          ads_loaded: "1",
+          ads_visible: "1",
+          ads_hidden: "0",
+        },
+      ],
+    },
+  ]);
+
+  BrowserTestUtils.removeTab(tab);
+});
+
+// Test that clicking the reject button on the cookie banner is accurately
+// recorded as an engagement event.
+add_task(async function test_click_cookie_banner_reject() {
+  resetTelemetry();
+  let url = getSERPUrl("searchTelemetryAd_components_cookie_banner.html");
+  let tab = await BrowserTestUtils.openNewForegroundTab(gBrowser, url);
+  await waitForPageWithAdImpressions();
+
+  await BrowserTestUtils.synthesizeMouseAtCenter(
+    "#cookie_reject",
+    {},
+    tab.linkedBrowser
+  );
+
+  assertSERPTelemetry([
+    {
+      impression: {
+        provider: "example",
+        tagged: "true",
+        partner_code: "ff",
+        source: "unknown",
+        is_shopping_page: "false",
+        is_private: "false",
+        shopping_tab_displayed: "false",
+        is_signed_in: "false",
+      },
+      engagements: [
+        {
+          action: SearchSERPTelemetryUtils.ACTIONS.CLICKED_REJECT,
+          target: SearchSERPTelemetryUtils.COMPONENTS.COOKIE_BANNER,
+        },
+      ],
+      adImpressions: [
+        {
+          component: SearchSERPTelemetryUtils.COMPONENTS.COOKIE_BANNER,
+          ads_loaded: "1",
+          ads_visible: "1",
+          ads_hidden: "0",
+        },
+      ],
+    },
+  ]);
+
+  BrowserTestUtils.removeTab(tab);
+});
+
+// Test that clicking the more options button on the cookie banner is accurately
+// recorded as an engagement event.
+add_task(async function test_click_cookie_banner_more_options() {
+  resetTelemetry();
+  let url = getSERPUrl("searchTelemetryAd_components_cookie_banner.html");
+  let tab = await BrowserTestUtils.openNewForegroundTab(gBrowser, url);
+  await waitForPageWithAdImpressions();
+
+  await BrowserTestUtils.synthesizeMouseAtCenter(
+    "#cookie_more_options",
+    {},
+    tab.linkedBrowser
+  );
+
+  assertSERPTelemetry([
+    {
+      impression: {
+        provider: "example",
+        tagged: "true",
+        partner_code: "ff",
+        source: "unknown",
+        is_shopping_page: "false",
+        is_private: "false",
+        shopping_tab_displayed: "false",
+        is_signed_in: "false",
+      },
+      engagements: [
+        {
+          action: SearchSERPTelemetryUtils.ACTIONS.CLICKED_MORE_OPTIONS,
+          target: SearchSERPTelemetryUtils.COMPONENTS.COOKIE_BANNER,
+        },
+      ],
+      adImpressions: [
+        {
+          component: SearchSERPTelemetryUtils.COMPONENTS.COOKIE_BANNER,
+          ads_loaded: "1",
+          ads_visible: "1",
+          ads_hidden: "0",
+        },
+      ],
+    },
+  ]);
+
+  BrowserTestUtils.removeTab(tab);
 });

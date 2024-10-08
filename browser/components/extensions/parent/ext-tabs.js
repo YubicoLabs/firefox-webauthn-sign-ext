@@ -30,7 +30,6 @@ const TAB_ID_NONE = -1;
 ChromeUtils.defineLazyGetter(this, "tabHidePopup", () => {
   return new ExtensionControlledPopup({
     confirmedType: TAB_HIDE_CONFIRMED_TYPE,
-    anchorId: "alltabs-button",
     popupnotificationId: "extension-tab-hide-notification",
     descriptionId: "extension-tab-hide-notification-description",
     descriptionMessageId: "tabHideControlled.message",
@@ -82,7 +81,7 @@ let tabListener = {
     }
   },
 
-  onLocationChange(browser, webProgress, request, locationURI, flags) {
+  onLocationChange(browser, webProgress) {
     if (webProgress.isTopLevel) {
       let { gBrowser } = browser.ownerGlobal;
       let nativeTab = gBrowser.getTabForBrowser(browser);
@@ -160,6 +159,7 @@ const allProperties = new Set([
   "hidden",
   "isArticle",
   "mutedInfo",
+  "openerTabId",
   "pinned",
   "sharingState",
   "status",
@@ -356,7 +356,7 @@ this.tabs = class extends ExtensionAPIPersistent {
         return windowId;
       }
 
-      function matchFilters(tab, changed) {
+      function matchFilters(tab) {
         if (!filterProps) {
           return true;
         }
@@ -503,6 +503,11 @@ this.tabs = class extends ExtensionAPIPersistent {
         }
       };
 
+      let openerTabIdChangeListener = (_, { nativeTab, openerTabId }) => {
+        let tab = tabManager.getWrapper(nativeTab);
+        fireForTab(tab, { openerTabId }, nativeTab);
+      };
+
       let listeners = new Map();
       if (filter.properties.has("status") || filter.properties.has("url")) {
         listeners.set("status", statusListener);
@@ -531,6 +536,10 @@ this.tabs = class extends ExtensionAPIPersistent {
         tabTracker.on("tab-isarticle", isArticleChangeListener);
       }
 
+      if (filter.properties.has("openerTabId")) {
+        tabTracker.on("tab-openerTabId", openerTabIdChangeListener);
+      }
+
       return {
         unregister() {
           for (let [name, listener] of listeners) {
@@ -539,6 +548,10 @@ this.tabs = class extends ExtensionAPIPersistent {
 
           if (filter.properties.has("isArticle")) {
             tabTracker.off("tab-isarticle", isArticleChangeListener);
+          }
+
+          if (filter.properties.has("openerTabId")) {
+            tabTracker.off("tab-openerTabId", openerTabIdChangeListener);
           }
         },
         convert(_fire, _context) {
@@ -663,7 +676,7 @@ this.tabs = class extends ExtensionAPIPersistent {
         onReplaced: new EventManager({
           context,
           name: "tabs.onReplaced",
-          register: fire => {
+          register: () => {
             return () => {};
           },
         }).api(),
@@ -683,7 +696,7 @@ this.tabs = class extends ExtensionAPIPersistent {
         }).api(),
 
         create(createProperties) {
-          return new Promise((resolve, reject) => {
+          return new Promise(resolve => {
             let window =
               createProperties.windowId !== null
                 ? windowTracker.getWindow(createProperties.windowId, context)
@@ -695,7 +708,7 @@ this.tabs = class extends ExtensionAPIPersistent {
             }
             let { gBrowserInit } = window;
             if (!gBrowserInit || !gBrowserInit.delayedStartupFinished) {
-              let obs = (finishedWindow, topic, data) => {
+              let obs = finishedWindow => {
                 if (finishedWindow != window) {
                   return;
                 }
@@ -939,14 +952,7 @@ this.tabs = class extends ExtensionAPIPersistent {
             }
           }
           if (updateProperties.openerTabId !== null) {
-            let opener = tabTracker.getTab(updateProperties.openerTabId);
-            if (opener.ownerDocument !== nativeTab.ownerDocument) {
-              return Promise.reject({
-                message:
-                  "Opener tab must be in the same window as the tab being updated",
-              });
-            }
-            tabTracker.setOpener(nativeTab, opener);
+            tabTracker.setOpener(nativeTab, updateProperties.openerTabId);
           }
           if (updateProperties.successorTabId !== null) {
             let successor = null;
@@ -1026,7 +1032,13 @@ this.tabs = class extends ExtensionAPIPersistent {
               ? windowTracker.getTopWindow(context)
               : windowTracker.getWindow(windowId, context);
 
-          let tab = tabManager.wrapTab(window.gBrowser.selectedTab);
+          let tab = tabManager.getWrapper(window.gBrowser.selectedTab);
+          if (
+            !extension.hasPermission("<all_urls>") &&
+            !tab.hasActiveTabPermission
+          ) {
+            throw new ExtensionError("Missing activeTab permission");
+          }
           await tabListener.awaitTabReady(tab.nativeTab);
 
           let zoom = window.ZoomManager.getZoomForBrowser(
@@ -1364,7 +1376,11 @@ this.tabs = class extends ExtensionAPIPersistent {
           }
           filename = DownloadPaths.sanitize(filename);
 
-          picker.init(activeTab.ownerGlobal, title, Ci.nsIFilePicker.modeSave);
+          picker.init(
+            activeTab.ownerGlobal.browsingContext,
+            title,
+            Ci.nsIFilePicker.modeSave
+          );
           picker.appendFilter("PDF", "*.pdf");
           picker.defaultExtension = "pdf";
           picker.defaultString = filename;
@@ -1621,12 +1637,12 @@ this.tabs = class extends ExtensionAPIPersistent {
 
         goForward(tabId) {
           let nativeTab = getTabOrActive(tabId);
-          nativeTab.linkedBrowser.goForward();
+          nativeTab.linkedBrowser.goForward(false);
         },
 
         goBack(tabId) {
           let nativeTab = getTabOrActive(tabId);
-          nativeTab.linkedBrowser.goBack();
+          nativeTab.linkedBrowser.goBack(false);
         },
       },
     };

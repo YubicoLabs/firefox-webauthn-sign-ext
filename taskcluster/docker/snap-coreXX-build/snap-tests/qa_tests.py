@@ -35,7 +35,9 @@ class QATests(SnapTestsBase):
 
         if iframe_selector:
             self._logger.info("find iframe")
-            iframe = self._driver.find_element(By.CSS_SELECTOR, iframe_selector)
+            iframe = self._wait.until(
+                EC.visibility_of_element_located((By.CSS_SELECTOR, iframe_selector))
+            )
             self._driver.switch_to.frame(iframe)
 
         self._logger.info("find video")
@@ -267,16 +269,26 @@ class QATests(SnapTestsBase):
             )
         )
 
-        self._wait.until(
-            lambda d: d.execute_script(
-                'return window.getComputedStyle(document.querySelector(".loadingInput.start"), "::after").getPropertyValue("visibility");'
+        if not self.is_esr_115():
+            self._wait.until(
+                lambda d: d.execute_script(
+                    'return window.getComputedStyle(document.querySelector(".loadingInput.start"), "::after").getPropertyValue("visibility");'
+                )
+                != "visible"
             )
-            != "visible"
-        )
+            # PDF.js can take time to settle and we don't have a nice way to wait
+            # for an event on it
+            time.sleep(1)
+        else:
+            self._logger.info("Running against ESR, just wait too much.")
+            # Big but let's be safe, this is only for ESR because its PDF.js
+            # does not have "<span class='loadingInput start'>"
+            time.sleep(10)
 
-        # PDF.js can take time to settle and we don't have a nice way to wait
-        # for an event on it
-        time.sleep(1)
+        # Rendering can be slower on debug build so give more time to settle
+        if self.is_debug_build():
+            time.sleep(3)
+
         return page
 
     def pdf_go_to_page(self, page):
@@ -390,10 +402,37 @@ class QATests(SnapTestsBase):
             if menu_id == "pageRotateCw" or menu_id == "pageRotateCcw":
                 secondary_menu.click()
 
-            time.sleep(0.2)
+            time.sleep(0.75)
 
             self._logger.info("assert {}".format(menu_id))
-            self.assert_rendering(exp[menu_id], self._driver)
+            if self.is_esr_115() and menu_id == "documentProperties":
+                # on ESR pdf.js misreports in mm instead of inches
+                title = self._wait.until(
+                    EC.visibility_of_element_located((By.ID, "titleField"))
+                )
+                author = self._wait.until(
+                    EC.visibility_of_element_located((By.ID, "authorField"))
+                )
+                subject = self._wait.until(
+                    EC.visibility_of_element_located((By.ID, "subjectField"))
+                )
+                version = self._wait.until(
+                    EC.visibility_of_element_located((By.ID, "versionField"))
+                )
+                assert title.text == "PDF", "Incorrect PDF title reported: {}".format(
+                    title
+                )
+                assert (
+                    author.text == "Software 995"
+                ), "Incorrect PDF author reported: {}".format(author)
+                assert (
+                    subject.text == "Create PDF with Pdf 995"
+                ), "Incorrect PDF subject reported: {}".format(subject)
+                assert (
+                    version.text == "1.3"
+                ), "Incorrect PDF version reported: {}".format(version)
+            else:
+                self.assert_rendering(exp[menu_id], self._driver)
 
             if menu_id == "documentProperties":
                 close = self._wait.until(
@@ -418,7 +457,21 @@ class QATests(SnapTestsBase):
         )
         action.drag_and_drop_by_offset(paragraph, 50, 10).perform()
         time.sleep(0.75)
-        self.assert_rendering(exp["select_text"], self._driver)
+        try:
+            ref_screen_source = "select_text_with_highlight"
+            self._wait.until(
+                EC.visibility_of_element_located(
+                    (By.CSS_SELECTOR, "button.highlightButton")
+                )
+            )
+        except TimeoutException:
+            ref_screen_source = "select_text_without_highlight"
+            self._logger.info(
+                "Wait for pdf highlight button: timed out, maybe it is not there"
+            )
+        finally:
+            time.sleep(0.75)
+            self.assert_rendering(exp[ref_screen_source], self._driver)
 
         # release select selection
         action.move_by_offset(0, 150).perform()
@@ -459,7 +512,7 @@ class QATests(SnapTestsBase):
 
         for zoom, page, ref in zoom_levels:
             self.pdf_select_zoom(zoom)
-            self.pdf_get_page(page)
+            self.pdf_get_page(page, long=True)
             self._logger.info("assert {}".format(ref))
             self.assert_rendering(exp[ref], self._driver)
 
@@ -699,33 +752,27 @@ class QATests(SnapTestsBase):
             download_dir_pref == new
         ), "download directory from pref should match new directory"
 
-    def open_thinkbroadband(self):
-        download_site = self.open_tab("https://www.thinkbroadband.com/download")
-        try:
-            consent = self._wait.until(
-                EC.visibility_of_element_located(
-                    (By.CSS_SELECTOR, ".t-acceptAllButton")
+    def open_lafibre(self):
+        download_site = self.open_tab("https://ip.lafibre.info/connectivite.php")
+        return download_site
+
+    def get_lafibre_1M(self):
+        return self._wait.until(
+            EC.presence_of_element_located(
+                (
+                    By.CSS_SELECTOR,
+                    ".tableau tbody tr td a",
                 )
             )
-            consent.click()
-        except TimeoutException:
-            self._logger.info("Wait for consent form: timed out, maybe it is not here")
-        return download_site
+        )
 
     def test_download_folder_change(self, exp):
         """
         C1756713
         """
 
-        download_site = self.open_thinkbroadband()
-        extra_small = self._wait.until(
-            EC.presence_of_element_located(
-                (
-                    By.CSS_SELECTOR,
-                    "div.module:nth-child(8) > p:nth-child(1) > a:nth-child(1)",
-                )
-            )
-        )
+        download_site = self.open_lafibre()
+        extra_small = self.get_lafibre_1M()
         self._driver.execute_script("arguments[0].click();", extra_small)
 
         download_name = self.accept_download()
@@ -770,15 +817,8 @@ class QATests(SnapTestsBase):
         C1756715
         """
 
-        download_site = self.open_thinkbroadband()
-        extra_small = self._wait.until(
-            EC.presence_of_element_located(
-                (
-                    By.CSS_SELECTOR,
-                    "div.module:nth-child(8) > p:nth-child(1) > a:nth-child(1)",
-                )
-            )
-        )
+        download_site = self.open_lafibre()
+        extra_small = self.get_lafibre_1M()
 
         with tempfile.TemporaryDirectory() as tmpdir:
             self.change_download_folder(None, tmpdir)

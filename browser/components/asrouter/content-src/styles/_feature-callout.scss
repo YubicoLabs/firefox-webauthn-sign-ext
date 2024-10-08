@@ -18,6 +18,7 @@
   accent-color: var(--fc-accent-color);
   // Make sure HTML content uses non-native theming, even in chrome windows.
   -moz-theme: non-native;
+  -moz-window-shadow: none;
 
   @media (prefers-color-scheme: dark) {
     @include dark-theme;
@@ -39,6 +40,12 @@
     }
 
     @media (-moz-content-prefers-color-scheme: dark) {
+      @include dark-theme;
+    }
+
+    @at-root :root[lwt-newtab-brighttext] #{&}.lwtNewtab {
+      color-scheme: dark;
+
       @include dark-theme;
     }
 
@@ -120,22 +127,14 @@
 
     // auto height to allow for arrow positioning based on height
     height: auto;
-  }
 
-  // use a different approach to flipping to avoid the fuzzy aliasing that
-  // transform causes.
-  &:dir(rtl) {
+    // use a different approach to flipping to avoid the fuzzy aliasing that
+    // transform causes.
     transform: none;
-    direction: ltr;
-  }
-
-  & .outer-wrapper:dir(rtl) {
-    transform: none;
-    direction: rtl;
   }
 
   .screen {
-    // override transform in about:welcome
+    // override the RTL transform in about:welcome
     &:dir(rtl) {
       transform: none;
     }
@@ -191,7 +190,7 @@
       }
 
       .welcome-text {
-        align-items: baseline;
+        align-items: start;
         text-align: start;
         margin: 0;
         padding: 0;
@@ -252,11 +251,21 @@
       }
 
       .multi-select-container {
-        margin-block: 0;
+        margin: 0;
         font-size: 0.813em;
         row-gap: 12px;
         color: inherit;
         overflow: visible;
+
+        #multi-stage-multi-select-label {
+          font-size: inherit;
+          // There's a 12px gap that pushes the .multi-select-container down
+          // away from the .welcome-text. And there's an 8px gap between the h1
+          // and h2 in the .welcome-text container. So subtract 4px to get the
+          // desired 8px margin, so spacing is the same as for `subtitle`.
+          margin: -4px 0 0;
+          color: inherit;
+        }
       }
 
       .cta-link {
@@ -297,7 +306,7 @@
           padding: var(--callout-padding, 24px);
           width: 25em;
           gap: 16px;
-          background-color: var(--fc-background);
+          background: var(--fc-background);
 
           .main-content-inner {
             gap: 12px;
@@ -343,7 +352,7 @@
           inset-inline: auto 0;
           margin-block: 16px 0;
           margin-inline: 0 16px;
-          background-color: var(--fc-background);
+          background-color: transparent;
 
           &[button-size='small'] {
             height: 24px;
@@ -550,7 +559,7 @@
 
   // the 'filled' arrow
   .background-arrow {
-    background-color: var(--fc-background);
+    background: var(--fc-background);
     clip-path: var(--fc-arrow-clip-path);
   }
 
@@ -741,25 +750,5 @@
 
   @at-root panel#{&}[arrow-position='inline-start-bottom'] {
     margin-inline-start: calc(-1 * (var(--panel-shadow-margin) + var(--arrow-overlap-magnitude)));
-  }
-
-  // focus outline for the callout itself
-  &:focus-visible {
-    .screen {
-      &[pos='callout'] {
-        .section-main .main-content {
-          outline: 2px solid var(--fc-accent-color);
-          border-color: transparent;
-
-          @media (prefers-contrast) {
-            border-color: var(--fc-background);
-          }
-        }
-      }
-    }
-
-    .shadow-arrow {
-      outline: 2px solid var(--fc-accent-color);
-    }
   }
 }

@@ -127,6 +127,11 @@ void SVGUseElement::ProcessAttributeChange(int32_t aNamespaceID,
   }
 }
 
+void SVGUseElement::DidAnimateAttribute(int32_t aNameSpaceID,
+                                        nsAtom* aAttribute) {
+  ProcessAttributeChange(aNameSpaceID, aAttribute);
+}
+
 void SVGUseElement::AfterSetAttr(int32_t aNamespaceID, nsAtom* aAttribute,
                                  const nsAttrValue* aValue,
                                  const nsAttrValue* aOldValue,
@@ -252,14 +257,13 @@ static bool NodeCouldBeRendered(const nsINode& aNode) {
   if (const auto* symbol = SVGSymbolElement::FromNode(aNode)) {
     return symbol->CouldBeRendered();
   }
-  if (const auto* svgGraphics = SVGGraphicsElement::FromNode(aNode)) {
-    if (!svgGraphics->PassesConditionalProcessingTests()) {
-      return false;
-    }
-  }
   if (auto* svgSwitch =
           SVGSwitchElement::FromNodeOrNull(aNode.GetParentNode())) {
     if (&aNode != svgSwitch->GetActiveChild()) {
+      return false;
+    }
+  } else if (const auto* svgGraphics = SVGGraphicsElement::FromNode(aNode)) {
+    if (!svgGraphics->PassesConditionalProcessingTests()) {
       return false;
     }
   }
@@ -291,9 +295,8 @@ auto SVGUseElement::ScanAncestors(const Element& aTarget) const -> ScanResult {
   return ScanAncestorsInternal(aTarget, count);
 }
 
-auto SVGUseElement::ScanAncestorsInternal(const Element& aTarget,
-                                          uint32_t& aCount) const
-    -> ScanResult {
+auto SVGUseElement::ScanAncestorsInternal(
+    const Element& aTarget, uint32_t& aCount) const -> ScanResult {
   if (&aTarget == this) {
     return ScanResult::CyclicReference;
   }
@@ -601,41 +604,12 @@ void SVGUseElement::UnlinkSource() {
 // SVGElement methods
 
 /* virtual */
-gfxMatrix SVGUseElement::PrependLocalTransformsTo(
-    const gfxMatrix& aMatrix, SVGTransformTypes aWhich) const {
-  // 'transform' attribute:
-  gfxMatrix userToParent;
-
-  if (aWhich == eUserSpaceToParent || aWhich == eAllTransforms) {
-    userToParent = GetUserToParentTransform(mAnimateMotionTransform.get(),
-                                            mTransforms.get());
-    if (aWhich == eUserSpaceToParent) {
-      return userToParent * aMatrix;
-    }
-  }
-
-  // our 'x' and 'y' attributes:
+gfxMatrix SVGUseElement::ChildToUserSpaceTransform() const {
   float x, y;
   if (!SVGGeometryProperty::ResolveAll<SVGT::X, SVGT::Y>(this, &x, &y)) {
     const_cast<SVGUseElement*>(this)->GetAnimatedLengthValues(&x, &y, nullptr);
   }
-
-  gfxMatrix childToUser = gfxMatrix::Translation(x, y);
-
-  if (aWhich == eAllTransforms) {
-    return childToUser * userToParent * aMatrix;
-  }
-
-  MOZ_ASSERT(aWhich == eChildToUserSpace, "Unknown TransformTypes");
-
-  // The following may look broken because pre-multiplying our eChildToUserSpace
-  // transform with another matrix without including our eUserSpaceToParent
-  // transform between the two wouldn't make sense.  We don't expect that to
-  // ever happen though.  We get here either when the identity matrix has been
-  // passed because our caller just wants our eChildToUserSpace transform, or
-  // when our eUserSpaceToParent transform has already been multiplied into the
-  // matrix that our caller passes (such as when we're called from PaintSVG).
-  return childToUser * aMatrix;
+  return gfxMatrix::Translation(x, y);
 }
 
 /* virtual */

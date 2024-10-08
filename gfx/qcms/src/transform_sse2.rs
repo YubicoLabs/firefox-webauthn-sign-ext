@@ -30,22 +30,22 @@ unsafe extern "C" fn qcms_transform_data_template_lut_sse2<F: Format>(
     let igtbl_b: *const f32 = (*transform).input_gamma_table_b.as_ref().unwrap().as_ptr();
     /* deref *transform now to avoid it in loop */
     let otdata_r: *const u8 = (*transform)
-        .output_table_r
+        .precache_output
         .as_deref()
         .unwrap()
-        .data
+        .lut_r
         .as_ptr();
     let otdata_g: *const u8 = (*transform)
-        .output_table_g
+        .precache_output
         .as_deref()
         .unwrap()
-        .data
+        .lut_g
         .as_ptr();
     let otdata_b: *const u8 = (*transform)
-        .output_table_b
+        .precache_output
         .as_deref()
         .unwrap()
-        .data
+        .lut_b
         .as_ptr();
     /* input matrix values never change */
     let mat0: __m128 = _mm_load_ps((*mat.offset(0isize)).as_ptr());
@@ -93,7 +93,7 @@ unsafe extern "C" fn qcms_transform_data_template_lut_sse2<F: Format>(
         }
         /* crunch, crunch, crunch */
         vec_r = _mm_add_ps(vec_r, _mm_add_ps(vec_g, vec_b));
-        vec_r = _mm_max_ps(min, vec_r);
+        vec_r = _mm_max_ps(vec_r, min);
         vec_r = _mm_min_ps(max, vec_r);
         result = _mm_mul_ps(vec_r, scale);
         /* store calc'd output tables indices */
@@ -121,7 +121,7 @@ unsafe extern "C" fn qcms_transform_data_template_lut_sse2<F: Format>(
         *dest.add(F::kAIndex) = alpha
     }
     vec_r = _mm_add_ps(vec_r, _mm_add_ps(vec_g, vec_b));
-    vec_r = _mm_max_ps(min, vec_r);
+    vec_r = _mm_max_ps(vec_r, min);
     vec_r = _mm_min_ps(max, vec_r);
     result = _mm_mul_ps(vec_r, scale);
     _mm_store_si128(output as *mut __m128i, _mm_cvtps_epi32(result));

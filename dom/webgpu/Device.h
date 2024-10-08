@@ -89,11 +89,13 @@ class Device final : public DOMEventTargetHelper, public SupportsWeakPtr {
   const RawId mId;
   RefPtr<SupportedFeatures> mFeatures;
   RefPtr<SupportedLimits> mLimits;
+  const bool mSupportExternalTextureInSwapChain;
 
   static CheckedInt<uint32_t> BufferStrideWithMask(
       const gfx::IntSize& aSize, const gfx::SurfaceFormat& aFormat);
 
-  explicit Device(Adapter* const aParent, RawId aId, const ffi::WGPULimits&);
+  explicit Device(Adapter* const aParent, RawId aDeviceId, RawId aQueueId,
+                  const ffi::WGPULimits&);
 
   RefPtr<WebGPUChild> GetBridge();
   already_AddRefed<Texture> InitSwapChain(

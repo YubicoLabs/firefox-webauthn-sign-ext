@@ -52,6 +52,7 @@ RefType RefType::topType() const {
     case RefType::NoExtern:
       return RefType::extern_();
     case RefType::Exn:
+    case RefType::NoExn:
       return RefType::exn();
     case RefType::TypeRef:
       switch (typeDef()->kind()) {
@@ -81,7 +82,7 @@ TypeDefKind RefType::typeDefKind() const {
   MOZ_CRASH("switch is exhaustive");
 }
 
-static bool ToRefType(JSContext* cx, JSLinearString* typeLinearStr,
+static bool ToRefType(JSContext* cx, const JSLinearString* typeLinearStr,
                       RefType* out) {
   if (StringEqualsLiteral(typeLinearStr, "anyfunc") ||
       StringEqualsLiteral(typeLinearStr, "funcref")) {
@@ -94,14 +95,12 @@ static bool ToRefType(JSContext* cx, JSLinearString* typeLinearStr,
     *out = RefType::extern_();
     return true;
   }
-#ifdef ENABLE_WASM_EXNREF
   if (ExnRefAvailable(cx)) {
     if (StringEqualsLiteral(typeLinearStr, "exnref")) {
       *out = RefType::exn();
       return true;
     }
   }
-#endif
 #ifdef ENABLE_WASM_GC
   if (GcAvailable(cx)) {
     if (StringEqualsLiteral(typeLinearStr, "anyref")) {
@@ -132,6 +131,10 @@ static bool ToRefType(JSContext* cx, JSLinearString* typeLinearStr,
       *out = RefType::noextern();
       return true;
     }
+    if (StringEqualsLiteral(typeLinearStr, "nullexnref")) {
+      *out = RefType::noexn();
+      return true;
+    }
     if (StringEqualsLiteral(typeLinearStr, "nullref")) {
       *out = RefType::none();
       return true;
@@ -150,94 +153,7 @@ enum class RefTypeResult {
   Unparsed,
 };
 
-static RefTypeResult MaybeToRefType(JSContext* cx, HandleObject obj,
-                                    RefType* out) {
-#ifdef ENABLE_WASM_FUNCTION_REFERENCES
-  if (!wasm::FunctionReferencesAvailable(cx)) {
-    return RefTypeResult::Unparsed;
-  }
-
-  JSAtom* refAtom = Atomize(cx, "ref", strlen("ref"));
-  if (!refAtom) {
-    return RefTypeResult::Failure;
-  }
-  RootedId refId(cx, AtomToId(refAtom));
-
-  RootedValue refVal(cx);
-  if (!GetProperty(cx, obj, obj, refId, &refVal)) {
-    return RefTypeResult::Failure;
-  }
-
-  RootedString typeStr(cx, ToString(cx, refVal));
-  if (!typeStr) {
-    return RefTypeResult::Failure;
-  }
-
-  Rooted<JSLinearString*> typeLinearStr(cx, typeStr->ensureLinear(cx));
-  if (!typeLinearStr) {
-    return RefTypeResult::Failure;
-  }
-
-  if (StringEqualsLiteral(typeLinearStr, "func")) {
-    *out = RefType::func();
-  } else if (StringEqualsLiteral(typeLinearStr, "extern")) {
-    *out = RefType::extern_();
-#  ifdef ENABLE_WASM_EXNREF
-  } else if (ExnRefAvailable(cx) && StringEqualsLiteral(typeLinearStr, "exn")) {
-    *out = RefType::exn();
-#  endif
-#  ifdef ENABLE_WASM_GC
-  } else if (GcAvailable(cx) && StringEqualsLiteral(typeLinearStr, "any")) {
-    *out = RefType::any();
-  } else if (GcAvailable(cx) && StringEqualsLiteral(typeLinearStr, "eq")) {
-    *out = RefType::eq();
-  } else if (GcAvailable(cx) && StringEqualsLiteral(typeLinearStr, "i31")) {
-    *out = RefType::i31();
-  } else if (GcAvailable(cx) && StringEqualsLiteral(typeLinearStr, "struct")) {
-    *out = RefType::struct_();
-  } else if (GcAvailable(cx) && StringEqualsLiteral(typeLinearStr, "array")) {
-    *out = RefType::array();
-#  endif
-  } else {
-    return RefTypeResult::Unparsed;
-  }
-
-  JSAtom* nullableAtom = Atomize(cx, "nullable", strlen("nullable"));
-  if (!nullableAtom) {
-    return RefTypeResult::Failure;
-  }
-  RootedId nullableId(cx, AtomToId(nullableAtom));
-  RootedValue nullableVal(cx);
-  if (!GetProperty(cx, obj, obj, nullableId, &nullableVal)) {
-    return RefTypeResult::Failure;
-  }
-
-  bool nullable = ToBoolean(nullableVal);
-  if (!nullable) {
-    *out = out->asNonNullable();
-  }
-  MOZ_ASSERT(out->isNullable() == nullable);
-  return RefTypeResult::Parsed;
-#else
-  return RefTypeResult::Unparsed;
-#endif
-}
-
 bool wasm::ToValType(JSContext* cx, HandleValue v, ValType* out) {
-  if (v.isObject()) {
-    RootedObject obj(cx, &v.toObject());
-    RefType refType;
-    switch (MaybeToRefType(cx, obj, &refType)) {
-      case RefTypeResult::Failure:
-        return false;
-      case RefTypeResult::Parsed:
-        *out = ValType(refType);
-        return true;
-      case RefTypeResult::Unparsed:
-        break;
-    }
-  }
-
   RootedString typeStr(cx, ToString(cx, v));
   if (!typeStr) {
     return false;
@@ -274,18 +190,6 @@ bool wasm::ToValType(JSContext* cx, HandleValue v, ValType* out) {
 }
 
 bool wasm::ToRefType(JSContext* cx, HandleValue v, RefType* out) {
-  if (v.isObject()) {
-    RootedObject obj(cx, &v.toObject());
-    switch (MaybeToRefType(cx, obj, out)) {
-      case RefTypeResult::Failure:
-        return false;
-      case RefTypeResult::Parsed:
-        return true;
-      case RefTypeResult::Unparsed:
-        break;
-    }
-  }
-
   RootedString typeStr(cx, ToString(cx, v));
   if (!typeStr) {
     return false;
@@ -318,6 +222,9 @@ UniqueChars wasm::ToString(RefType type, const TypeContext* types) {
         break;
       case RefType::NoFunc:
         literal = "nullfuncref";
+        break;
+      case RefType::NoExn:
+        literal = "nullexnref";
         break;
       case RefType::NoExtern:
         literal = "nullexternref";
@@ -361,6 +268,9 @@ UniqueChars wasm::ToString(RefType type, const TypeContext* types) {
       break;
     case RefType::NoFunc:
       heapType = "nofunc";
+      break;
+    case RefType::NoExn:
+      heapType = "noexn";
       break;
     case RefType::NoExtern:
       heapType = "noextern";
@@ -426,7 +336,7 @@ UniqueChars wasm::ToString(StorageType type, const TypeContext* types) {
   return DuplicateString(literal);
 }
 
-UniqueChars wasm::ToString(const Maybe<ValType>& type,
+UniqueChars wasm::ToString(const mozilla::Maybe<ValType>& type,
                            const TypeContext* types) {
   return type ? ToString(type.ref(), types) : JS_smprintf("%s", "void");
 }

@@ -11,7 +11,6 @@ use std::{
     cell::RefCell,
     cmp::max,
     collections::BTreeMap,
-    convert::TryFrom,
     mem,
     rc::{Rc, Weak},
 };
@@ -34,10 +33,11 @@ use crate::{
 const RX_STREAM_DATA_WINDOW: u64 = 0x10_0000; // 1MiB
 
 // Export as usize for consistency with SEND_BUFFER_SIZE
+#[allow(clippy::cast_possible_truncation)] // Yeah, nope.
 pub const RECV_BUFFER_SIZE: usize = RX_STREAM_DATA_WINDOW as usize;
 
 #[derive(Debug, Default)]
-pub(crate) struct RecvStreams {
+pub struct RecvStreams {
     streams: BTreeMap<StreamId, RecvStream>,
     keep_alive: Weak<()>,
 }
@@ -61,10 +61,12 @@ impl RecvStreams {
         self.streams.insert(id, stream);
     }
 
+    #[allow(clippy::missing_errors_doc)]
     pub fn get_mut(&mut self, id: StreamId) -> Res<&mut RecvStream> {
         self.streams.get_mut(&id).ok_or(Error::InvalidStreamId)
     }
 
+    #[allow(clippy::missing_errors_doc)]
     pub fn keep_alive(&mut self, id: StreamId, k: bool) -> Res<()> {
         let self_ka = &mut self.keep_alive;
         let s = self.streams.get_mut(&id).ok_or(Error::InvalidStreamId)?;
@@ -80,7 +82,8 @@ impl RecvStreams {
         Ok(())
     }
 
-    pub fn need_keep_alive(&mut self) -> bool {
+    #[must_use]
+    pub fn need_keep_alive(&self) -> bool {
         self.keep_alive.strong_count() > 0
     }
 
@@ -130,6 +133,7 @@ pub struct RxStreamOrderer {
 }
 
 impl RxStreamOrderer {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -137,6 +141,9 @@ impl RxStreamOrderer {
     /// Process an incoming stream frame off the wire. This may result in data
     /// being available to upper layers if frame is not out of order (ooo) or
     /// if the frame fills a gap.
+    /// # Panics
+    /// Only when `u64` values cannot be converted to `usize`, which only
+    /// happens on 32-bit machines that hold far too much data at the same time.
     pub fn inbound_frame(&mut self, mut new_start: u64, mut new_data: &[u8]) {
         qtrace!("Inbound data offset={} len={}", new_start, new_data.len());
 
@@ -275,6 +282,7 @@ impl RxStreamOrderer {
     }
 
     /// Are any bytes readable?
+    #[must_use]
     pub fn data_ready(&self) -> bool {
         self.data_ranges
             .keys()
@@ -301,20 +309,24 @@ impl RxStreamOrderer {
                     false
                 }
             })
-            .map(|(_, data_len)| data_len as usize)
-            .sum()
+            // Accumulate, but saturate at usize::MAX.
+            .fold(0, |acc: usize, (_, data_len)| {
+                acc.saturating_add(usize::try_from(data_len).unwrap_or(usize::MAX))
+            })
     }
 
     /// Bytes read by the application.
-    pub fn retired(&self) -> u64 {
+    #[must_use]
+    pub const fn retired(&self) -> u64 {
         self.retired
     }
 
-    pub fn received(&self) -> u64 {
+    #[must_use]
+    pub const fn received(&self) -> u64 {
         self.received
     }
 
-    /// Data bytes buffered. Could be more than bytes_readable if there are
+    /// Data bytes buffered. Could be more than `bytes_readable` if there are
     /// ranges missing.
     fn buffered(&self) -> u64 {
         self.data_ranges
@@ -375,7 +387,6 @@ impl RxStreamOrderer {
 
 /// QUIC receiving states, based on -transport 3.2.
 #[derive(Debug)]
-#[allow(dead_code)]
 // Because a dead_code warning is easier than clippy::unused_self, see https://github.com/rust-lang/rust/issues/68408
 enum RecvStreamState {
     Recv {
@@ -432,7 +443,7 @@ impl RecvStreamState {
         }
     }
 
-    fn name(&self) -> &str {
+    const fn name(&self) -> &str {
         match self {
             Self::Recv { .. } => "Recv",
             Self::SizeKnown { .. } => "SizeKnown",
@@ -444,7 +455,7 @@ impl RecvStreamState {
         }
     }
 
-    fn recv_buf(&self) -> Option<&RxStreamOrderer> {
+    const fn recv_buf(&self) -> Option<&RxStreamOrderer> {
         match self {
             Self::Recv { recv_buf, .. }
             | Self::SizeKnown { recv_buf, .. }
@@ -516,7 +527,7 @@ pub struct RecvStreamStats {
 
 impl RecvStreamStats {
     #[must_use]
-    pub fn new(bytes_received: u64, bytes_read: u64) -> Self {
+    pub const fn new(bytes_received: u64, bytes_read: u64) -> Self {
         Self {
             bytes_received,
             bytes_read,
@@ -524,12 +535,12 @@ impl RecvStreamStats {
     }
 
     #[must_use]
-    pub fn bytes_received(&self) -> u64 {
+    pub const fn bytes_received(&self) -> u64 {
         self.bytes_received
     }
 
     #[must_use]
-    pub fn bytes_read(&self) -> u64 {
+    pub const fn bytes_read(&self) -> u64 {
         self.bytes_read
     }
 }
@@ -588,7 +599,8 @@ impl RecvStream {
         self.state = new_state;
     }
 
-    pub fn stats(&self) -> RecvStreamStats {
+    #[must_use]
+    pub const fn stats(&self) -> RecvStreamStats {
         match &self.state {
             RecvStreamState::Recv { recv_buf, .. }
             | RecvStreamState::SizeKnown { recv_buf, .. }
@@ -622,11 +634,16 @@ impl RecvStream {
         }
     }
 
+    /// # Errors
+    /// When the incoming data violates flow control limits.
+    /// # Panics
+    /// Only when `u64` values are so big that they can't fit in a `usize`, which
+    /// only happens on a 32-bit machine that has far too much unread data.
     pub fn inbound_stream_frame(&mut self, fin: bool, offset: u64, data: &[u8]) -> Res<()> {
         // We should post a DataReadable event only once when we change from no-data-ready to
         // data-ready. Therefore remember the state before processing a new frame.
         let already_data_ready = self.data_ready();
-        let new_end = offset + u64::try_from(data.len()).unwrap();
+        let new_end = offset + u64::try_from(data.len())?;
 
         self.state.flow_control_consume_data(new_end, fin)?;
 
@@ -691,6 +708,8 @@ impl RecvStream {
         Ok(())
     }
 
+    /// # Errors
+    /// When the reset occurs at an invalid point.
     pub fn reset(&mut self, application_error_code: AppError, final_size: u64) -> Res<()> {
         self.state.flow_control_consume_data(final_size, true)?;
         match &mut self.state {
@@ -750,7 +769,7 @@ impl RecvStream {
     fn flow_control_retire_data(
         new_read: u64,
         fc: &mut ReceiverFlowControl<StreamId>,
-        session_fc: &mut Rc<RefCell<ReceiverFlowControl<()>>>,
+        session_fc: &Rc<RefCell<ReceiverFlowControl<()>>>,
     ) {
         if new_read > 0 {
             fc.add_retired(new_read);
@@ -773,7 +792,8 @@ impl RecvStream {
         }
     }
 
-    pub fn is_terminal(&self) -> bool {
+    #[must_use]
+    pub const fn is_terminal(&self) -> bool {
         matches!(
             self.state,
             RecvStreamState::ResetRecvd { .. } | RecvStreamState::DataRead { .. }
@@ -781,7 +801,7 @@ impl RecvStream {
     }
 
     // App got all data but did not get the fin signal.
-    fn needs_to_inform_app_about_fin(&self) -> bool {
+    const fn needs_to_inform_app_about_fin(&self) -> bool {
         matches!(self.state, RecvStreamState::DataRecvd { .. })
     }
 
@@ -792,8 +812,8 @@ impl RecvStream {
     }
 
     /// # Errors
-    ///
     /// `NoMoreData` if data and fin bit were previously read by the application.
+    #[allow(clippy::missing_panics_doc)] // with a >16 exabyte packet on a 128-bit machine, maybe
     pub fn read(&mut self, buf: &mut [u8]) -> Res<(usize, bool)> {
         let data_recvd_state = matches!(self.state, RecvStreamState::DataRecvd { .. });
         match &mut self.state {
@@ -967,7 +987,8 @@ impl RecvStream {
     }
 
     #[cfg(test)]
-    pub fn has_frames_to_write(&self) -> bool {
+    #[must_use]
+    pub const fn has_frames_to_write(&self) -> bool {
         if let RecvStreamState::Recv { fc, .. } = &self.state {
             fc.frame_needed()
         } else {
@@ -976,7 +997,8 @@ impl RecvStream {
     }
 
     #[cfg(test)]
-    pub fn fc(&self) -> Option<&ReceiverFlowControl<StreamId>> {
+    #[must_use]
+    pub const fn fc(&self) -> Option<&ReceiverFlowControl<StreamId>> {
         match &self.state {
             RecvStreamState::Recv { fc, .. }
             | RecvStreamState::SizeKnown { fc, .. }
@@ -990,11 +1012,18 @@ impl RecvStream {
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Range;
+    use std::{cell::RefCell, ops::Range, rc::Rc};
 
-    use neqo_common::Encoder;
+    use neqo_common::{qtrace, Encoder};
 
-    use super::*;
+    use super::RecvStream;
+    use crate::{
+        fc::ReceiverFlowControl,
+        packet::PacketBuilder,
+        recv_stream::{RxStreamOrderer, RX_STREAM_DATA_WINDOW},
+        stats::FrameStats,
+        ConnectionEvents, Error, StreamId, RECV_BUFFER_SIZE,
+    };
 
     const SESSION_WINDOW: usize = 1024;
 
@@ -1022,7 +1051,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(unknown_lints, clippy::single_range_in_vec_init)] // Because that lint makes no sense here.
+    #[allow(clippy::single_range_in_vec_init)] // Because that lint makes no sense here.
     fn recv_noncontiguous() {
         // Non-contiguous with the start, no data available.
         recv_ranges(&[10..20], 0);
@@ -1312,7 +1341,7 @@ mod tests {
         s.read(&mut buf).unwrap_err();
     }
 
-    fn check_chunks(s: &mut RxStreamOrderer, expected: &[(u64, usize)]) {
+    fn check_chunks(s: &RxStreamOrderer, expected: &[(u64, usize)]) {
         assert_eq!(s.data_ranges.len(), expected.len());
         for ((start, buf), (expected_start, expected_len)) in s.data_ranges.iter().zip(expected) {
             assert_eq!((*start, buf.len()), (*expected_start, *expected_len));
@@ -1325,27 +1354,27 @@ mod tests {
         let mut s = RxStreamOrderer::new();
 
         s.inbound_frame(0, &[1; 6]);
-        check_chunks(&mut s, &[(0, 6)]);
+        check_chunks(&s, &[(0, 6)]);
 
         // New data that overlaps entirely (starting from the head), is ignored.
         s.inbound_frame(0, &[2; 3]);
-        check_chunks(&mut s, &[(0, 6)]);
+        check_chunks(&s, &[(0, 6)]);
 
         // New data that overlaps at the tail has any new data appended.
         s.inbound_frame(2, &[3; 6]);
-        check_chunks(&mut s, &[(0, 8)]);
+        check_chunks(&s, &[(0, 8)]);
 
         // New data that overlaps entirely (up to the tail), is ignored.
         s.inbound_frame(4, &[4; 4]);
-        check_chunks(&mut s, &[(0, 8)]);
+        check_chunks(&s, &[(0, 8)]);
 
         // New data that overlaps, starting from the beginning is appended too.
         s.inbound_frame(0, &[5; 10]);
-        check_chunks(&mut s, &[(0, 10)]);
+        check_chunks(&s, &[(0, 10)]);
 
         // New data that is entirely subsumed is ignored.
         s.inbound_frame(2, &[6; 2]);
-        check_chunks(&mut s, &[(0, 10)]);
+        check_chunks(&s, &[(0, 10)]);
 
         let mut buf = [0; 16];
         assert_eq!(s.read(&mut buf[..]), 10);
@@ -1358,15 +1387,15 @@ mod tests {
         let mut s = RxStreamOrderer::new();
 
         s.inbound_frame(1, &[6; 6]);
-        check_chunks(&mut s, &[(1, 6)]);
+        check_chunks(&s, &[(1, 6)]);
 
         // Insertion before an existing chunk causes truncation of the new chunk.
         s.inbound_frame(0, &[7; 6]);
-        check_chunks(&mut s, &[(0, 1), (1, 6)]);
+        check_chunks(&s, &[(0, 1), (1, 6)]);
 
         // Perfect overlap with existing slices has no effect.
         s.inbound_frame(0, &[8; 7]);
-        check_chunks(&mut s, &[(0, 1), (1, 6)]);
+        check_chunks(&s, &[(0, 1), (1, 6)]);
 
         let mut buf = [0; 16];
         assert_eq!(s.read(&mut buf[..]), 7);
@@ -1378,16 +1407,16 @@ mod tests {
         let mut s = RxStreamOrderer::new();
 
         s.inbound_frame(1, &[6; 6]);
-        check_chunks(&mut s, &[(1, 6)]);
+        check_chunks(&s, &[(1, 6)]);
 
         // Insertion before an existing chunk causes truncation of the new chunk.
         s.inbound_frame(0, &[7; 6]);
-        check_chunks(&mut s, &[(0, 1), (1, 6)]);
+        check_chunks(&s, &[(0, 1), (1, 6)]);
 
         // New data at the end causes the tail to be added to the first chunk,
         // replacing later chunks entirely.
         s.inbound_frame(0, &[9; 8]);
-        check_chunks(&mut s, &[(0, 8)]);
+        check_chunks(&s, &[(0, 8)]);
 
         let mut buf = [0; 16];
         assert_eq!(s.read(&mut buf[..]), 8);
@@ -1399,15 +1428,15 @@ mod tests {
         let mut s = RxStreamOrderer::new();
 
         s.inbound_frame(2, &[6; 6]);
-        check_chunks(&mut s, &[(2, 6)]);
+        check_chunks(&s, &[(2, 6)]);
 
         // Insertion before an existing chunk causes truncation of the new chunk.
         s.inbound_frame(1, &[7; 6]);
-        check_chunks(&mut s, &[(1, 1), (2, 6)]);
+        check_chunks(&s, &[(1, 1), (2, 6)]);
 
         // New data at the start and end replaces all the slices.
         s.inbound_frame(0, &[9; 10]);
-        check_chunks(&mut s, &[(0, 10)]);
+        check_chunks(&s, &[(0, 10)]);
 
         let mut buf = [0; 16];
         assert_eq!(s.read(&mut buf[..]), 10);
@@ -1423,11 +1452,11 @@ mod tests {
 
         // Partially read slices are retained.
         assert_eq!(s.read(&mut buf[..6]), 6);
-        check_chunks(&mut s, &[(0, 10)]);
+        check_chunks(&s, &[(0, 10)]);
 
         // Partially read slices are kept and so are added to.
         s.inbound_frame(3, &buf[..10]);
-        check_chunks(&mut s, &[(0, 13)]);
+        check_chunks(&s, &[(0, 13)]);
 
         // Wholly read pieces are dropped.
         assert_eq!(s.read(&mut buf[..]), 7);
@@ -1435,7 +1464,7 @@ mod tests {
 
         // New data that overlaps with retired data is trimmed.
         s.inbound_frame(0, &buf[..]);
-        check_chunks(&mut s, &[(13, 5)]);
+        check_chunks(&s, &[(13, 5)]);
     }
 
     #[test]
@@ -1444,8 +1473,8 @@ mod tests {
         let mut buf = vec![0u8; RECV_BUFFER_SIZE + 100]; // Make it overlarge
 
         assert!(!s.has_frames_to_write());
-        s.inbound_stream_frame(false, 0, &[0; RECV_BUFFER_SIZE])
-            .unwrap();
+        let big_buf = vec![0; RECV_BUFFER_SIZE];
+        s.inbound_stream_frame(false, 0, &big_buf).unwrap();
         assert!(!s.has_frames_to_write());
         assert_eq!(s.read(&mut buf).unwrap(), (RECV_BUFFER_SIZE, false));
         assert!(!s.data_ready());
@@ -1454,7 +1483,7 @@ mod tests {
         assert!(s.has_frames_to_write());
 
         // consume it
-        let mut builder = PacketBuilder::short(Encoder::new(), false, []);
+        let mut builder = PacketBuilder::short(Encoder::new(), false, None::<&[u8]>);
         let mut token = Vec::new();
         s.write_frame(&mut builder, &mut token, &mut FrameStats::default());
 
@@ -1476,8 +1505,8 @@ mod tests {
     fn stream_max_stream_data() {
         let mut s = create_stream(1024 * RX_STREAM_DATA_WINDOW);
         assert!(!s.has_frames_to_write());
-        s.inbound_stream_frame(false, 0, &[0; RECV_BUFFER_SIZE])
-            .unwrap();
+        let big_buf = vec![0; RECV_BUFFER_SIZE];
+        s.inbound_stream_frame(false, 0, &big_buf).unwrap();
         s.inbound_stream_frame(false, RX_STREAM_DATA_WINDOW, &[1; 1])
             .unwrap_err();
     }
@@ -1520,9 +1549,10 @@ mod tests {
     #[test]
     fn no_stream_flowc_event_after_exiting_recv() {
         let mut s = create_stream(1024 * RX_STREAM_DATA_WINDOW);
-        s.inbound_stream_frame(false, 0, &[0; RECV_BUFFER_SIZE])
-            .unwrap();
-        let mut buf = [0; RECV_BUFFER_SIZE];
+        let mut buf = vec![0; RECV_BUFFER_SIZE];
+        // Write from buf at first.
+        s.inbound_stream_frame(false, 0, &buf).unwrap();
+        // Then read into it.
         s.read(&mut buf).unwrap();
         assert!(s.has_frames_to_write());
         s.inbound_stream_frame(true, RX_STREAM_DATA_WINDOW, &[])
@@ -1567,7 +1597,7 @@ mod tests {
         s.read(&mut buf).unwrap();
         assert!(session_fc.borrow().frame_needed());
         // consume it
-        let mut builder = PacketBuilder::short(Encoder::new(), false, []);
+        let mut builder = PacketBuilder::short(Encoder::new(), false, None::<&[u8]>);
         let mut token = Vec::new();
         session_fc
             .borrow_mut()
@@ -1588,7 +1618,7 @@ mod tests {
         s.read(&mut buf).unwrap();
         assert!(session_fc.borrow().frame_needed());
         // consume it
-        let mut builder = PacketBuilder::short(Encoder::new(), false, []);
+        let mut builder = PacketBuilder::short(Encoder::new(), false, None::<&[u8]>);
         let mut token = Vec::new();
         session_fc
             .borrow_mut()
@@ -1634,7 +1664,7 @@ mod tests {
         assert_eq!(fc.retired(), retired);
     }
 
-    /// Test consuming the flow control in RecvStreamState::Recv
+    /// Test consuming the flow control in `RecvStreamState::Recv`
     #[test]
     fn fc_state_recv_1() {
         const SW: u64 = 1024;
@@ -1651,7 +1681,7 @@ mod tests {
         check_fc(s.fc().unwrap(), SW / 4, 0);
     }
 
-    /// Test consuming the flow control in RecvStreamState::Recv
+    /// Test consuming the flow control in `RecvStreamState::Recv`
     /// with multiple streams
     #[test]
     fn fc_state_recv_2() {
@@ -1678,7 +1708,7 @@ mod tests {
         check_fc(s2.fc().unwrap(), SW / 4, 0);
     }
 
-    /// Test retiring the flow control in RecvStreamState::Recv
+    /// Test retiring the flow control in `RecvStreamState::Recv`
     /// with multiple streams
     #[test]
     fn fc_state_recv_3() {
@@ -1730,7 +1760,7 @@ mod tests {
         check_fc(s2.fc().unwrap(), SW / 4, SW / 4);
     }
 
-    /// Test consuming the flow control in RecvStreamState::Recv - duplicate data
+    /// Test consuming the flow control in `RecvStreamState::Recv` - duplicate data
     #[test]
     fn fc_state_recv_4() {
         const SW: u64 = 1024;
@@ -1753,7 +1783,7 @@ mod tests {
         check_fc(s.fc().unwrap(), SW / 4, 0);
     }
 
-    /// Test consuming the flow control in RecvStreamState::Recv - filling a gap in the
+    /// Test consuming the flow control in `RecvStreamState::Recv` - filling a gap in the
     /// data stream.
     #[test]
     fn fc_state_recv_5() {
@@ -1774,7 +1804,7 @@ mod tests {
         check_fc(s.fc().unwrap(), SW / 4, 0);
     }
 
-    /// Test consuming the flow control in RecvStreamState::Recv - receiving frame past
+    /// Test consuming the flow control in `RecvStreamState::Recv` - receiving frame past
     /// the flow control will cause an error.
     #[test]
     fn fc_state_recv_6() {
@@ -1836,7 +1866,7 @@ mod tests {
         assert!(s.fc().unwrap().frame_needed());
 
         // Write the fc update frame
-        let mut builder = PacketBuilder::short(Encoder::new(), false, []);
+        let mut builder = PacketBuilder::short(Encoder::new(), false, None::<&[u8]>);
         let mut token = Vec::new();
         let mut stats = FrameStats::default();
         fc.borrow_mut()
@@ -1859,7 +1889,7 @@ mod tests {
         assert_eq!(stats.max_stream_data, 1);
     }
 
-    /// Test flow control in RecvStreamState::SizeKnown
+    /// Test flow control in `RecvStreamState::SizeKnown`
     #[test]
     fn fc_state_size_known() {
         const SW: u64 = 1024;
@@ -1916,7 +1946,7 @@ mod tests {
         assert!(s.fc().is_none());
     }
 
-    /// Test flow control in RecvStreamState::DataRecvd
+    /// Test flow control in `RecvStreamState::DataRecvd`
     #[test]
     fn fc_state_data_recv() {
         const SW: u64 = 1024;
@@ -1961,7 +1991,7 @@ mod tests {
         assert!(s.fc().is_none());
     }
 
-    /// Test flow control in RecvStreamState::DataRead
+    /// Test flow control in `RecvStreamState::DataRead`
     #[test]
     fn fc_state_data_read() {
         const SW: u64 = 1024;
@@ -1999,7 +2029,7 @@ mod tests {
         assert!(s.fc().is_none());
     }
 
-    /// Test flow control in RecvStreamState::AbortReading and final size is known
+    /// Test flow control in `RecvStreamState::AbortReading` and final size is known
     #[test]
     fn fc_state_abort_reading_1() {
         const SW: u64 = 1024;
@@ -2041,7 +2071,7 @@ mod tests {
         check_fc(s.fc().unwrap(), SW / 2, SW / 2);
     }
 
-    /// Test flow control in RecvStreamState::AbortReading and final size is unknown
+    /// Test flow control in `RecvStreamState::AbortReading` and final size is unknown
     #[test]
     fn fc_state_abort_reading_2() {
         const SW: u64 = 1024;
@@ -2099,7 +2129,7 @@ mod tests {
         check_fc(s.fc().unwrap(), SW / 2 + 20, SW / 2 + 20);
     }
 
-    /// Test flow control in RecvStreamState::WaitForReset
+    /// Test flow control in `RecvStreamState::WaitForReset`
     #[test]
     fn fc_state_wait_for_reset() {
         const SW: u64 = 1024;

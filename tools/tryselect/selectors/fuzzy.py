@@ -12,7 +12,7 @@ from mach.util import get_state_dir
 
 from ..cli import BaseTryParser
 from ..push import check_working_directory, generate_try_task_config, push_to_try
-from ..tasks import filter_tasks_by_paths, generate_tasks
+from ..tasks import filter_tasks_by_paths, filter_tasks_by_worker_type, generate_tasks
 from ..util.fzf import (
     FZF_NOT_FOUND,
     PREVIEW_SCRIPT,
@@ -118,6 +118,7 @@ class FuzzyParser(BaseTryParser):
         "gecko-profile",
         "new-test-config",
         "path",
+        "test-tag",
         "pernosco",
         "rebuild",
         "routes",
@@ -137,6 +138,7 @@ def run(
     dry_run=False,
     message="{msg}",
     test_paths=None,
+    test_tag=None,
     exact=False,
     closed_tree=False,
     show_estimates=False,
@@ -182,8 +184,13 @@ def run(
             if filter_by_uncommon_try_tasks(task_name)
         }
 
-    if test_paths:
-        all_tasks = filter_tasks_by_paths(all_tasks, test_paths)
+    if try_config_params.get("try_task_config", {}).get("worker-types", []):
+        all_tasks = filter_tasks_by_worker_type(all_tasks, try_config_params)
+        if not all_tasks:
+            return 1
+
+    if test_paths or test_tag:
+        all_tasks = filter_tasks_by_paths(all_tasks, test_paths, tag=test_tag)
         if not all_tasks:
             return 1
 

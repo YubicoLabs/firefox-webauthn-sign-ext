@@ -61,25 +61,12 @@ REQUEST_HEADER_ATTRIBUTE_CHARS = re.compile(
 DEFAULT_MANIFEST_NAME = "manifest.tt"
 TOOLTOOL_PACKAGE_SUFFIX = ".TOOLTOOL-PACKAGE"
 HAWK_VER = 1
-PY3 = sys.version_info[0] == 3
 
-if PY3:
-    six_binary_type = bytes
-    unicode = (
-        str  # Silence `pyflakes` from reporting `undefined name 'unicode'` in Python 3.
-    )
-    import urllib.request as urllib2
-    from http.client import HTTPConnection, HTTPSConnection
-    from urllib.error import HTTPError, URLError
-    from urllib.parse import urljoin, urlparse
-    from urllib.request import Request
-else:
-    six_binary_type = str
-    import urllib2
-    from httplib import HTTPConnection, HTTPSConnection
-    from urllib2 import HTTPError, Request, URLError
-    from urlparse import urljoin, urlparse
-
+import urllib.request as urllib2
+from http.client import HTTPConnection, HTTPSConnection
+from urllib.error import HTTPError, URLError
+from urllib.parse import urljoin, urlparse
+from urllib.request import Request
 
 log = logging.getLogger(__name__)
 
@@ -205,9 +192,7 @@ def retriable(*retry_args, **retry_kwargs):
 
 
 def request_has_data(req):
-    if PY3:
-        return req.data is not None
-    return req.has_data()
+    return req.data is not None
 
 
 def get_hexdigest(val):
@@ -281,7 +266,7 @@ def random_string(length):
 
 
 def prepare_header_val(val):
-    if isinstance(val, six_binary_type):
+    if isinstance(val, bytes):
         val = val.decode("utf-8")
 
     if not REQUEST_HEADER_ATTRIBUTE_CHARS.match(val):
@@ -303,7 +288,7 @@ def parse_content_type(content_type):  # pragma: no cover
 
 def calculate_payload_hash(algorithm, payload, content_type):  # pragma: no cover
     parts = [
-        part if isinstance(part, six_binary_type) else part.encode("utf8")
+        part if isinstance(part, bytes) else part.encode("utf8")
         for part in [
             "hawk." + str(HAWK_VER) + ".payload\n",
             parse_content_type(content_type) + "\n",
@@ -337,7 +322,7 @@ def validate_taskcluster_credentials(credentials):
 
 
 def normalize_header_attr(val):
-    if isinstance(val, six_binary_type):
+    if isinstance(val, bytes):
         return val.decode("utf-8")
     return val  # pragma: no cover
 
@@ -390,10 +375,10 @@ def calculate_mac(
     log.debug("normalized resource for mac calc: {norm}".format(norm=normalized))
     digestmod = getattr(hashlib, algorithm)
 
-    if not isinstance(normalized, six_binary_type):
+    if not isinstance(normalized, bytes):
         normalized = normalized.encode("utf8")
 
-    if not isinstance(access_token, six_binary_type):
+    if not isinstance(access_token, bytes):
         access_token = access_token.encode("ascii")
 
     result = hmac.new(access_token, normalized, digestmod)
@@ -412,10 +397,7 @@ def make_taskcluster_header(credentials, req):
 
     content_hash = None
     if request_has_data(req):
-        if PY3:
-            data = req.data
-        else:
-            data = req.get_data()
+        data = req.data
         content_hash = calculate_payload_hash(  # pragma: no cover
             algorithm,
             data,
@@ -760,7 +742,7 @@ def open_manifest(manifest_file):
     """I know how to take a filename and load it into a Manifest object"""
     if os.path.exists(manifest_file):
         manifest = Manifest()
-        with open(manifest_file, "r" if PY3 else "rb") as f:
+        with open(manifest_file, "r") as f:
             manifest.load(f)
             log.debug("loaded manifest from file '%s'" % manifest_file)
         return manifest
@@ -865,12 +847,10 @@ def add_files(manifest_file, algorithm, filenames, version, visibility, unpack):
     for old_fr in old_manifest.file_records:
         if old_fr.filename not in new_filenames:
             new_manifest.file_records.append(old_fr)
-    if PY3:
-        with open(manifest_file, mode="w") as output:
-            new_manifest.dump(output, fmt="json")
-    else:
-        with open(manifest_file, mode="wb") as output:
-            new_manifest.dump(output, fmt="json")
+
+    with open(manifest_file, mode="w") as output:
+        new_manifest.dump(output, fmt="json")
+
     return all_files_added
 
 
@@ -983,6 +963,64 @@ def validate_tar_member(member, path):
         raise Exception("Attempted setuid or setgid in tar file: " + member.name)
 
 
+class TarFile(tarfile.TarFile):
+    def _tooltool_do_extract(
+        self, extract, member, path="", set_attrs=True, numeric_owner=False, **kwargs
+    ):
+        deferred_links = getattr(self, "_deferred_links", None)
+        if not isinstance(member, tarfile.TarInfo):
+            member = self.getmember(member)
+        targetpath = os.path.normcase(os.path.join(path, member.name))
+
+        if deferred_links is not None and member.issym():
+            if os.path.lexists(targetpath):
+                # Avoid FileExistsError on following os.symlink.
+                os.unlink(targetpath)
+            try:
+                os.symlink(member.linkname, targetpath)
+            except (NotImplementedError, OSError):
+                # On Windows, os.symlink can fail, in this case fallback to
+                # creating a copy. If the destination was not already created,
+                # defer the link creation.
+                source = os.path.normcase(
+                    os.path.join(os.path.dirname(targetpath), member.linkname)
+                )
+
+                if source in self._extracted_members:
+                    shutil.copy(source, targetpath)
+                    self.chown(member, targetpath, numeric_owner)
+                else:
+                    deferred_links.setdefault(source, []).append(
+                        (member, targetpath, numeric_owner)
+                    )
+            return
+
+        extract(member, path, set_attrs, numeric_owner=numeric_owner, **kwargs)
+        if deferred_links is not None:
+            for tarinfo, linkpath, numeric_owner in deferred_links.pop(targetpath, []):
+                shutil.copy(targetpath, linkpath)
+                self.chown(tarinfo, linkpath, numeric_owner)
+            self._extracted_members.add(targetpath)
+
+    def extract(self, *args, **kwargs):
+        self._tooltool_do_extract(super(TarFile, self).extract, *args, **kwargs)
+
+    # extractall in versions for cpython that implement PEP 706 call _extract_one
+    # instead of extract.
+    def _extract_one(self, *args, **kwargs):
+        self._tooltool_do_extract(super(TarFile, self)._extract_one, *args, **kwargs)
+
+    def extractall(self, *args, **kwargs):
+        self._deferred_links = {}
+        self._extracted_members = set()
+        super(TarFile, self).extractall(*args, **kwargs)
+        for links in self._deferred_links.values():
+            for tarinfo, linkpath, numeric_owner in links:
+                log.warn("Cannot create dangling symbolic link: %s", linkpath)
+        delattr(self, "_deferred_links")
+        delattr(self, "_extracted_members")
+
+
 def safe_extract(tar, path=".", *, numeric_owner=False):
     def _files(tar, path):
         for member in tar:
@@ -1002,7 +1040,7 @@ def unpack_file(filename):
         base_file, tar_ext = os.path.splitext(tar_file)
         clean_path(base_file)
         log.info('untarring "%s"' % filename)
-        with tarfile.open(filename) as tar:
+        with TarFile.open(filename) as tar:
             safe_extract(tar)
     elif os.path.isfile(filename) and filename.endswith(".tar.zst"):
         import zstandard
@@ -1012,7 +1050,7 @@ def unpack_file(filename):
         log.info('untarring "%s"' % filename)
         dctx = zstandard.ZstdDecompressor()
         with dctx.stream_reader(open(filename, "rb")) as fileobj:
-            with tarfile.open(fileobj=fileobj, mode="r|") as tar:
+            with TarFile.open(fileobj=fileobj, mode="r|") as tar:
                 safe_extract(tar)
     elif os.path.isfile(filename) and zipfile.is_zipfile(filename):
         base_file = filename.replace(".zip", "")
@@ -1288,9 +1326,7 @@ def _send_batch(base_url, auth_file, batch, region):
     url = urljoin(base_url, "upload")
     if region is not None:
         url += "?region=" + region
-    data = json.dumps(batch)
-    if PY3:
-        data = data.encode("utf-8")
+    data = json.dumps(batch).encode("utf-8")
     req = Request(url, data, {"Content-Type": "application/json"})
     _authorize(req, auth_file)
     try:

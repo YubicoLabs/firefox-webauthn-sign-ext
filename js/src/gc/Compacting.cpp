@@ -36,6 +36,8 @@ using namespace js::gc;
 
 using mozilla::Maybe;
 
+using JS::SliceBudget;
+
 bool GCRuntime::canRelocateZone(Zone* zone) const {
   return !zone->isAtomsZone();
 }
@@ -215,7 +217,7 @@ static void RelocateCell(Zone* zone, TenuredCell* src, AllocKind thingKind,
   // Allocate a new cell.
   MOZ_ASSERT(zone == src->zone());
   TenuredCell* dst =
-      reinterpret_cast<TenuredCell*>(AllocateCellInGC(zone, thingKind));
+      reinterpret_cast<TenuredCell*>(AllocateTenuredCellInGC(zone, thingKind));
 
   // Copy source cell contents to destination.
   memcpy(dst, src, thingSize);
@@ -287,7 +289,7 @@ static void RelocateArena(Arena* arena, SliceBudget& sliceBudget) {
   MOZ_ASSERT(!arena->onDelayedMarkingList());
   MOZ_ASSERT(arena->bufferedCells()->isEmpty());
 
-  Zone* zone = arena->zone;
+  Zone* zone = arena->zone();
 
   AllocKind thingKind = arena->getAllocKind();
   size_t thingSize = arena->getThingSize();
@@ -468,7 +470,7 @@ void GCRuntime::sweepZoneAfterCompacting(MovingTracer* trc, Zone* zone) {
   traceWeakFinalizationObserverEdges(trc, zone);
 
   for (auto* cache : zone->weakCaches()) {
-    cache->traceWeak(trc, WeakCacheBase::DontLockStoreBuffer);
+    cache->traceWeak(trc, JS::detail::WeakCacheBase::DontLockStoreBuffer);
   }
 
   if (jit::JitZone* jitZone = zone->jitZone()) {
@@ -822,8 +824,8 @@ void GCRuntime::updateRuntimePointersToRelocatedCells(AutoGCSession& session) {
 
   // Sweep everything to fix up weak pointers.
   jit::JitRuntime::TraceWeakJitcodeGlobalTable(rt, &trc);
-  for (WeakCacheBase* cache : rt->weakCaches()) {
-    cache->traceWeak(&trc, WeakCacheBase::DontLockStoreBuffer);
+  for (JS::detail::WeakCacheBase* cache : rt->weakCaches()) {
+    cache->traceWeak(&trc, JS::detail::WeakCacheBase::DontLockStoreBuffer);
   }
 
   if (rt->hasJitRuntime() && rt->jitRuntime()->hasInterpreterEntryMap()) {
@@ -878,11 +880,11 @@ void GCRuntime::clearRelocatedArenasWithoutUnlocking(Arena* arenaList,
     //  - if they were allocated since the start of the GC.
     bool allArenasRelocated = ShouldRelocateAllArenas(reason);
     bool updateRetainedSize = !allArenasRelocated && !arena->isNewlyCreated();
-    arena->zone->gcHeapSize.removeBytes(ArenaSize, updateRetainedSize,
-                                        heapSize);
+    arena->zone()->gcHeapSize.removeBytes(ArenaSize, updateRetainedSize,
+                                          heapSize);
 
     // Release the arena but don't return it to the chunk yet.
-    arena->release(lock);
+    arena->release(this, lock);
   }
 }
 

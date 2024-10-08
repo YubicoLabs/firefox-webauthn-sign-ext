@@ -300,7 +300,7 @@ function checkCertErrorGenericAtTime(
   /* optional */ hostname,
   /* optional */ flags = NO_FLAGS
 ) {
-  return new Promise((resolve, reject) => {
+  return new Promise(resolve => {
     let result = new CertVerificationExpectedErrorResult(
       cert.commonName,
       expectedError,
@@ -570,7 +570,7 @@ async function asyncConnectTo(
 
   Connection.prototype = {
     // nsITransportEventSink
-    onTransportStatus(aTransport, aStatus, aProgress, aProgressMax) {
+    onTransportStatus(aTransport, aStatus) {
       if (
         !this.connected &&
         aStatus == Ci.nsISocketTransport.STATUS_CONNECTED_TO
@@ -596,7 +596,7 @@ async function asyncConnectTo(
     },
 
     // nsIOutputStreamCallback
-    onOutputStreamReady(aStream) {
+    onOutputStreamReady() {
       if (aAfterStreamOpen) {
         aAfterStreamOpen(this.transport);
       }
@@ -774,7 +774,7 @@ function generateOCSPResponses(ocspRespArray, nssDBlocation) {
 // serverIdentities.
 function getFailingHttpServer(serverPort, serverIdentities) {
   let httpServer = new HttpServer();
-  httpServer.registerPrefixHandler("/", function (request, response) {
+  httpServer.registerPrefixHandler("/", function () {
     Assert.ok(false, "HTTP responder should not have been queried");
   });
   httpServer.identity.setPrimary("http", serverIdentities.shift(), serverPort);
@@ -902,7 +902,7 @@ function startOCSPResponder(
 // Given an OCSP responder (see startOCSPResponder), returns a promise that
 // resolves when the responder has successfully stopped.
 function stopOCSPResponder(responder) {
-  return new Promise((resolve, reject) => {
+  return new Promise(resolve => {
     responder.stop(resolve);
   });
 }
@@ -977,7 +977,7 @@ class CertVerificationResult {
     this.resolve = resolve;
   }
 
-  verifyCertFinished(aPRErrorCode, aVerifiedChain, aHasEVPolicy) {
+  verifyCertFinished(aPRErrorCode) {
     if (this.successExpected) {
       equal(
         aPRErrorCode,
@@ -1017,7 +1017,7 @@ function asyncTestCertificateUsages(certdb, cert, expectedUsages) {
   let now = new Date().getTime() / 1000;
   let promises = [];
   Object.keys(allCertificateUsages).forEach(usageString => {
-    let promise = new Promise((resolve, reject) => {
+    let promise = new Promise(resolve => {
       let usage = allCertificateUsages[usageString];
       let successExpected = expectedUsages.includes(usage);
       let result = new CertVerificationResult(
@@ -1244,4 +1244,43 @@ function append_line_to_data_storage_file(
       u16_to_big_endian_bytes(useBadChecksum ? ~checksum & 0xffff : checksum)
     ) + line;
   outputStream.write(line, line.length);
+}
+
+// Helper function for add_ct_test. Returns a function that checks that the
+// nsITransportSecurityInfo of the connection has the expected CT and resumed
+// statuses.
+function expectCT(expectedCTValue, expectedResumed) {
+  return securityInfo => {
+    Assert.equal(
+      securityInfo.certificateTransparencyStatus,
+      expectedCTValue,
+      "actual and expected CT status should match"
+    );
+    Assert.equal(
+      securityInfo.resumed,
+      expectedResumed,
+      "connection should be resumed (or not) as expected"
+    );
+  };
+}
+
+// Helper function to add a certificate transparency test. The connection is
+// expected to succeed with the given CT status (see nsITransportSecurityInfo).
+// Additionally, if an additional connection is made, it is expected that TLS
+// resumption is used and that the CT status is the same with the resumed
+// connection.
+function add_ct_test(host, expectedCTValue) {
+  add_connection_test(
+    host,
+    PRErrorCodeSuccess,
+    null,
+    expectCT(expectedCTValue, false)
+  );
+  // Test that session resumption results in the same expected CT status.
+  add_connection_test(
+    host,
+    PRErrorCodeSuccess,
+    null,
+    expectCT(expectedCTValue, true)
+  );
 }

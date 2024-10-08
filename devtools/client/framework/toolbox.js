@@ -5,7 +5,8 @@
 "use strict";
 
 const MAX_ORDINAL = 99;
-const SPLITCONSOLE_ENABLED_PREF = "devtools.toolbox.splitconsoleEnabled";
+const SPLITCONSOLE_OPEN_PREF = "devtools.toolbox.splitconsole.open";
+const SPLITCONSOLE_ENABLED_PREF = "devtools.toolbox.splitconsole.enabled";
 const SPLITCONSOLE_HEIGHT_PREF = "devtools.toolbox.splitconsoleHeight";
 const DEVTOOLS_ALWAYS_ON_TOP = "devtools.toolbox.alwaysOnTop";
 const DISABLE_AUTOHIDE_PREF = "ui.popup.disable_autohide";
@@ -41,8 +42,8 @@ var Startup = Cc["@mozilla.org/devtools/startup-clh;1"].getService(
   Ci.nsISupports
 ).wrappedJSObject;
 
-const { BrowserLoader } = ChromeUtils.import(
-  "resource://devtools/shared/loader/browser-loader.js"
+const { BrowserLoader } = ChromeUtils.importESModule(
+  "resource://devtools/shared/loader/browser-loader.sys.mjs"
 );
 
 const {
@@ -77,10 +78,17 @@ loader.lazyRequireGetter(
   "resource://devtools/shared/commands/target/actions/targets.js",
   true
 );
+loader.lazyRequireGetter(
+  this,
+  "TRACER_LOG_METHODS",
+  "resource://devtools/shared/specs/tracer.js",
+  true
+);
 
 const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
   AppConstants: "resource://gre/modules/AppConstants.sys.mjs",
+  TYPES: "resource://devtools/shared/highlighters.mjs",
 });
 loader.lazyRequireGetter(this, "flags", "resource://devtools/shared/flags.js");
 loader.lazyRequireGetter(
@@ -216,6 +224,28 @@ loader.lazyGetter(this, "ProfilerBackground", () => {
   );
 });
 
+const BOOLEAN_CONFIGURATION_PREFS = {
+  "devtools.cache.disabled": {
+    name: "cacheDisabled",
+  },
+  "devtools.custom-formatters.enabled": {
+    name: "customFormatters",
+  },
+  "devtools.serviceWorkers.testing.enabled": {
+    name: "serviceWorkersTestingEnabled",
+  },
+  "devtools.inspector.simple-highlighters-reduced-motion": {
+    name: "useSimpleHighlightersForReducedMotion",
+  },
+  "devtools.debugger.features.overlay": {
+    name: "pauseOverlay",
+    thread: true,
+  },
+  "devtools.debugger.features.javascript-tracing": {
+    name: "isTracerFeatureEnabled",
+  },
+};
+
 /**
  * A "Toolbox" is the component that holds all the tools for one specific
  * target. Visually, it's a document that includes the tools tabs and all
@@ -262,7 +292,7 @@ function Toolbox(commands, selectedTool, hostType, contentWindow, frameId) {
   this.selectedFrameId = null;
 
   // Number of targets currently paused
-  this._pausedTargets = 0;
+  this._pausedTargets = new Set();
 
   /**
    * KeyShortcuts instance specific to WINDOW host type.
@@ -284,13 +314,6 @@ function Toolbox(commands, selectedTool, hostType, contentWindow, frameId) {
   this._splitConsoleOnKeypress = this._splitConsoleOnKeypress.bind(this);
   this.closeToolbox = this.closeToolbox.bind(this);
   this.destroy = this.destroy.bind(this);
-  this._applyCacheSettings = this._applyCacheSettings.bind(this);
-  this._applyCustomFormatterSetting =
-    this._applyCustomFormatterSetting.bind(this);
-  this._applyServiceWorkersTestingSettings =
-    this._applyServiceWorkersTestingSettings.bind(this);
-  this._applySimpleHighlightersSettings =
-    this._applySimpleHighlightersSettings.bind(this);
   this._saveSplitConsoleHeight = this._saveSplitConsoleHeight.bind(this);
   this._onFocus = this._onFocus.bind(this);
   this._onBlur = this._onBlur.bind(this);
@@ -596,6 +619,18 @@ Toolbox.prototype = {
     );
   },
 
+  /**
+   * Get the enabled split console setting, and if it's not set, set it with updateIsSplitConsoleEnabled
+   * @returns {boolean} devtools.toolbox.splitconsole.enabled option
+   */
+  isSplitConsoleEnabled() {
+    if (typeof this._splitConsoleEnabled !== "boolean") {
+      this.updateIsSplitConsoleEnabled();
+    }
+
+    return this._splitConsoleEnabled;
+  },
+
   get isBrowserToolbox() {
     return this.hostType === Toolbox.HostType.BROWSERTOOLBOX;
   },
@@ -661,9 +696,31 @@ Toolbox.prototype = {
    */
   _onThreadStateChanged(resource) {
     if (resource.state == "paused") {
-      this._pauseToolbox(resource.why.type);
+      this._onTargetPaused(resource.targetFront, resource.why.type);
     } else if (resource.state == "resumed") {
-      this._resumeToolbox();
+      this._onTargetResumed(resource.targetFront);
+    }
+  },
+
+  /**
+   * This listener is called by TracerCommand, sooner than the JSTRACER_STATE resource.
+   * This is called when the frontend toggles the tracer, before the server started interpreting the request.
+   * This allows to open the console before we start receiving traces.
+   */
+  async onTracerToggled() {
+    const { tracerCommand } = this.commands;
+    if (!tracerCommand.isTracingEnabled) {
+      return;
+    }
+    const { logMethod } = this.commands.tracerCommand.getTracingOptions();
+    if (
+      logMethod == TRACER_LOG_METHODS.CONSOLE &&
+      this.currentToolId !== "webconsole"
+    ) {
+      await this.openSplitConsole({ focusConsoleInput: false });
+    } else if (logMethod == TRACER_LOG_METHODS.DEBUGGER_SIDEBAR) {
+      const panel = await this.selectTool("jsdebugger");
+      panel.showTracerSidebar();
     }
   },
 
@@ -677,7 +734,7 @@ Toolbox.prototype = {
     if (!profile) {
       return;
     }
-    const browser = await openProfilerTab();
+    const browser = await openProfilerTab({ defaultPanel: "stack-chart" });
 
     const profileCaptureResult = {
       type: "SUCCESS",
@@ -691,10 +748,16 @@ Toolbox.prototype = {
   },
 
   /**
+   * Called whenever a given target got its execution paused.
+   *
    * Be careful, this method is synchronous, but highlightTool, raise, selectTool
    * are all async.
+   *
+   * @param {TargetFront} targetFront
+   * @param {string} reason
+   *        Reason why the execution paused
    */
-  _pauseToolbox(reason) {
+  _onTargetPaused(targetFront, reason) {
     // Suppress interrupted events by default because the thread is
     // paused/resumed a lot for various actions.
     if (reason === "interrupted") {
@@ -718,15 +781,20 @@ Toolbox.prototype = {
       // Each Target/Thread can be paused only once at a time,
       // so, for each pause, we should have a related resumed event.
       // But we may have multiple targets paused at the same time
-      this._pausedTargets++;
+      this._pausedTargets.add(targetFront);
       this.emit("toolbox-paused");
     }
   },
 
-  _resumeToolbox() {
+  /**
+   * Called whenever a given target got its execution resumed.
+   *
+   * @param {TargetFront} targetFront
+   */
+  _onTargetResumed(targetFront) {
     if (this.isHighlighted("jsdebugger")) {
-      this._pausedTargets--;
-      if (this._pausedTargets == 0) {
+      this._pausedTargets.delete(targetFront);
+      if (this._pausedTargets.size == 0) {
         this.emit("toolbox-resumed");
         this.unhighlightTool("jsdebugger");
       }
@@ -818,8 +886,8 @@ Toolbox.prototype = {
     // navigations when paused, so lets make sure we resumed if not.
     //
     // We should also resume if a paused non-top-level target is destroyed
-    if (targetFront.isTopLevel || targetFront.threadFront?.paused) {
-      this._resumeToolbox();
+    if (targetFront.isTopLevel || this._pausedTargets.has(targetFront)) {
+      this._onTargetResumed(targetFront);
     }
 
     if (targetFront.targetForm.ignoreSubFrames) {
@@ -887,17 +955,9 @@ Toolbox.prototype = {
       // the iframe being ready (makes startup faster)
       await this.commands.targetCommand.startListening();
 
-      // Lets get the current thread settings from the prefs and
-      // update the threadConfigurationActor which should manage
-      // updating the current threads.
-      const options = await getThreadOptions();
-      await this.commands.threadConfigurationCommand.updateConfiguration(
-        options
-      );
-
-      // This needs to be done before watching for resources so console messages can be
-      // custom formatted right away.
-      await this._applyCustomFormatterSetting();
+      // Transfer settings early, before watching resources as it may impact them.
+      // (this is the case for custom formatter pref and console messages)
+      await this._listenAndApplyConfigurationPref();
 
       // The targetCommand is created right before this code.
       // It means that this call to watchTargets is the first,
@@ -929,6 +989,8 @@ Toolbox.prototype = {
       ) {
         watchedResources.push(this.resourceCommand.TYPES.JSTRACER_STATE);
         tracerInitialization = this.commands.tracerCommand.initialize();
+        this.onTracerToggled = this.onTracerToggled.bind(this);
+        this.commands.tracerCommand.on("toggle", this.onTracerToggled);
       }
 
       if (!this.isBrowserToolbox) {
@@ -960,22 +1022,6 @@ Toolbox.prototype = {
       const framesPromise = this._listFrames();
 
       Services.prefs.addObserver(
-        "devtools.cache.disabled",
-        this._applyCacheSettings
-      );
-      Services.prefs.addObserver(
-        "devtools.custom-formatters.enabled",
-        this._applyCustomFormatterSetting
-      );
-      Services.prefs.addObserver(
-        "devtools.serviceWorkers.testing.enabled",
-        this._applyServiceWorkersTestingSettings
-      );
-      Services.prefs.addObserver(
-        "devtools.inspector.simple-highlighters-reduced-motion",
-        this._applySimpleHighlightersSettings
-      );
-      Services.prefs.addObserver(
         BROWSERTOOLBOX_SCOPE_PREF,
         this._refreshHostTitle
       );
@@ -991,11 +1037,6 @@ Toolbox.prototype = {
       this._buildDockOptions();
       this._buildInitialPanelDefinitions();
       this._setDebugTargetData();
-
-      // Forward configuration flags to the DevTools server.
-      this._applyCacheSettings();
-      this._applyServiceWorkersTestingSettings();
-      this._applySimpleHighlightersSettings();
 
       this._addWindowListeners();
       this._addChromeEventHandlerEvents();
@@ -1055,7 +1096,7 @@ Toolbox.prototype = {
       // Wait until the original tool is selected so that the split
       // console input will receive focus.
       let splitConsolePromise = Promise.resolve();
-      if (Services.prefs.getBoolPref(SPLITCONSOLE_ENABLED_PREF)) {
+      if (Services.prefs.getBoolPref(SPLITCONSOLE_OPEN_PREF)) {
         splitConsolePromise = this.openSplitConsole();
         this.telemetry.addEventProperty(
           this.topWindow,
@@ -1615,9 +1656,17 @@ Toolbox.prototype = {
       // holding buttons. By default the buttons are placed in the end container.
       isInStartContainer: !!isInStartContainer,
       experimentalURL,
+      getContextMenu() {
+        if (options.getContextMenu) {
+          return options.getContextMenu(toolbox);
+        }
+        return null;
+      },
     };
     if (typeof setup == "function") {
-      const onChange = () => {
+      // Use async function as tracer's definition requires an async function to be passed
+      // for "toggle" event listener.
+      const onChange = async () => {
         button.emit("updatechecked");
       };
       setup(this, onChange);
@@ -1634,7 +1683,7 @@ Toolbox.prototype = {
   },
 
   _splitConsoleOnKeypress(e) {
-    if (e.keyCode !== KeyCodes.DOM_VK_ESCAPE) {
+    if (e.keyCode !== KeyCodes.DOM_VK_ESCAPE || !this.isSplitConsoleEnabled()) {
       return;
     }
 
@@ -2033,7 +2082,7 @@ Toolbox.prototype = {
     this.errorCountButton = this._createButtonState({
       id: "command-button-errorcount",
       isInStartContainer: false,
-      isToolSupported: toolbox => true,
+      isToolSupported: () => true,
       description: L10N.getStr("toolbox.errorCountButton.description"),
     });
     // Use updateErrorCountButton to set some properties so we don't have to repeat
@@ -2185,7 +2234,7 @@ Toolbox.prototype = {
    */
   _getPickerTooltip() {
     let shortcut = L10N.getStr("toolbox.elementPicker.key");
-    shortcut = KeyShortcuts.parseElectronKey(this.win, shortcut);
+    shortcut = KeyShortcuts.parseElectronKey(shortcut);
     shortcut = KeyShortcuts.stringify(shortcut);
     const shortcutMac = L10N.getStr("toolbox.elementPicker.mac.key");
     const isMac = Services.appinfo.OS === "Darwin";
@@ -2206,68 +2255,70 @@ Toolbox.prototype = {
       : L10N.getFormatStr(label, shortcut);
   },
 
-  /**
-   * Apply the current cache setting from devtools.cache.disabled to this
-   * toolbox's tab.
-   */
-  async _applyCacheSettings() {
-    const pref = "devtools.cache.disabled";
-    const cacheDisabled = Services.prefs.getBoolPref(pref);
+  async _listenAndApplyConfigurationPref() {
+    this._onBooleanConfigurationPrefChange =
+      this._onBooleanConfigurationPrefChange.bind(this);
 
-    await this.commands.targetConfigurationCommand.updateConfiguration({
-      cacheDisabled,
-    });
+    // We have two configurations:
+    //  * target specific configurations, which are set on all target actors, themself easily accessible from any actor.
+    //    Most configurations should be set this way.
+    //  * thread specific configurations, which are set on directly on the thread actor.
+    //    Only configuration used by the thread actor should be set this way.
+    const targetConfiguration = {};
 
-    // This event is only emitted for tests in order to know when to reload
-    if (flags.testing) {
-      this.emit("cache-reconfigured");
+    // Get the current thread settings from the prefs as well as debugger internal storage for breakpoints.
+    const threadConfiguration = await getThreadOptions();
+
+    for (const prefName in BOOLEAN_CONFIGURATION_PREFS) {
+      const { name, thread } = BOOLEAN_CONFIGURATION_PREFS[prefName];
+      const value = Services.prefs.getBoolPref(prefName, false);
+
+      // Based on the pref name, this will be stored in either target or thread specific configuration
+      if (thread) {
+        threadConfiguration[name] = value;
+      } else {
+        targetConfiguration[name] = value;
+      }
+
+      // Also listen for any future change
+      Services.prefs.addObserver(
+        prefName,
+        this._onBooleanConfigurationPrefChange
+      );
     }
-  },
 
-  /**
-   * Apply the custom formatter setting (from `devtools.custom-formatters.enabled`) to this
-   * toolbox's tab.
-   */
-  async _applyCustomFormatterSetting() {
-    if (!this.commands) {
-      return;
-    }
-
-    const customFormatters = Services.prefs.getBoolPref(
-      "devtools.custom-formatters.enabled",
-      false
+    // Now communicate the configurations to the server
+    await this.commands.targetConfigurationCommand.updateConfiguration(
+      targetConfiguration
     );
-
-    await this.commands.targetConfigurationCommand.updateConfiguration({
-      customFormatters,
-    });
-
-    this.emitForTests("custom-formatters-reconfigured");
-  },
-
-  /**
-   * Apply the current service workers testing setting from
-   * devtools.serviceWorkers.testing.enabled to this toolbox's tab.
-   */
-  _applyServiceWorkersTestingSettings() {
-    const pref = "devtools.serviceWorkers.testing.enabled";
-    const serviceWorkersTestingEnabled = Services.prefs.getBoolPref(pref);
-    this.commands.targetConfigurationCommand.updateConfiguration({
-      serviceWorkersTestingEnabled,
-    });
-  },
-
-  /**
-   * Apply the current simple highlighters setting to this toolbox's tab.
-   */
-  _applySimpleHighlightersSettings() {
-    const useSimpleHighlightersForReducedMotion = Services.prefs.getBoolPref(
-      "devtools.inspector.simple-highlighters-reduced-motion",
-      false
+    await this.commands.threadConfigurationCommand.updateConfiguration(
+      threadConfiguration
     );
-    this.commands.targetConfigurationCommand.updateConfiguration({
-      useSimpleHighlightersForReducedMotion,
+  },
+
+  /**
+   * Called whenever a preference registered in BOOLEAN_CONFIGURATION_PREFS
+   * changes.
+   * This is used to communicate the new setting's value to the server.
+   *
+   * @param {String} subject
+   * @param {String} topic
+   * @param {String} prefName
+   *        The preference name which changed
+   */
+  async _onBooleanConfigurationPrefChange(subject, topic, prefName) {
+    const { name, thread } = BOOLEAN_CONFIGURATION_PREFS[prefName];
+    const value = Services.prefs.getBoolPref(prefName, false);
+
+    const configurationCommand = thread
+      ? this.commands.threadConfigurationCommand
+      : this.commands.targetConfigurationCommand;
+    await configurationCommand.updateConfiguration({
+      [name]: value,
     });
+
+    // This event is only emitted for tests in order to know when the setting has been applied by the backend.
+    this.emitForTests("new-configuration-applied", prefName);
   },
 
   /**
@@ -2289,8 +2340,8 @@ Toolbox.prototype = {
     // on will-navigate, otherwise we hold on to the stale highlighter
     const hasHighlighters =
       inspectorFront &&
-      (inspectorFront.hasHighlighter("RulersHighlighter") ||
-        inspectorFront.hasHighlighter("MeasuringToolHighlighter"));
+      (inspectorFront.hasHighlighter(lazy.TYPES.RULERS) ||
+        inspectorFront.hasHighlighter(lazy.TYPES.MEASURING));
     if (hasHighlighters) {
       inspectorFront.destroyHighlighters();
       this.component.setToolboxButtons(this.toolbarButtons);
@@ -2363,6 +2414,21 @@ Toolbox.prototype = {
     this.errorCountButton.isVisible =
       this._commandIsVisible(this.errorCountButton) && this._errorCount > 0;
     this.errorCountButton.errorCount = this._errorCount;
+  },
+
+  /**
+   * Setup the _splitConsoleEnabled, reflecting the enabled/disabled state of the Enable Split
+   * Console setting, and close the split console if it's open and the setting is turned off
+   */
+  updateIsSplitConsoleEnabled() {
+    this._splitConsoleEnabled = Services.prefs.getBoolPref(
+      SPLITCONSOLE_ENABLED_PREF,
+      true
+    );
+
+    if (!this._splitConsoleEnabled && this.splitConsole) {
+      this.closeSplitConsole();
+    }
   },
 
   /**
@@ -3028,8 +3094,15 @@ Toolbox.prototype = {
    *          loaded and focused.
    */
   openSplitConsole({ focusConsoleInput = true } = {}) {
+    if (!this.isSplitConsoleEnabled()) {
+      return this.selectTool(
+        "webconsole",
+        "use_in_console_with_disabled_split_console"
+      );
+    }
+
     this._splitConsole = true;
-    Services.prefs.setBoolPref(SPLITCONSOLE_ENABLED_PREF, true);
+    Services.prefs.setBoolPref(SPLITCONSOLE_OPEN_PREF, true);
     this._refreshConsoleDisplay();
 
     // Ensure split console is visible if console was already loaded in background
@@ -3059,7 +3132,7 @@ Toolbox.prototype = {
    */
   closeSplitConsole() {
     this._splitConsole = false;
-    Services.prefs.setBoolPref(SPLITCONSOLE_ENABLED_PREF, false);
+    Services.prefs.setBoolPref(SPLITCONSOLE_OPEN_PREF, false);
     this._refreshConsoleDisplay();
     this.component.setIsSplitConsoleActive(false);
 
@@ -3194,9 +3267,9 @@ Toolbox.prototype = {
     // issue which can cause loosing outgoing messages/RDP packets, the THREAD_STATE
     // resources for the resumed state might not get received. So let assume it happens
     // make use the UI is the appropriate state.
-    if (this._pausedTargets > 0) {
+    if (this._pausedTargets.size > 0) {
       this.emit("toolbox-resumed");
-      this._pausedTargets = 0;
+      this._pausedTargets.clear();
       if (this.isHighlighted("jsdebugger")) {
         this.unhighlightTool("jsdebugger");
       }
@@ -3378,7 +3451,7 @@ Toolbox.prototype = {
     return prefFront.getBoolPref(DISABLE_AUTOHIDE_PREF);
   },
 
-  async _listFrames(event) {
+  async _listFrames() {
     if (
       !this.target.getTrait("frames") ||
       this.target.targetForm.ignoreSubFrames
@@ -4053,22 +4126,12 @@ Toolbox.prototype = {
     gDevTools.off("tool-registered", this._toolRegistered);
     gDevTools.off("tool-unregistered", this._toolUnregistered);
 
-    Services.prefs.removeObserver(
-      "devtools.cache.disabled",
-      this._applyCacheSettings
-    );
-    Services.prefs.removeObserver(
-      "devtools.custom-formatters.enabled",
-      this._applyCustomFormatterSetting
-    );
-    Services.prefs.removeObserver(
-      "devtools.serviceWorkers.testing.enabled",
-      this._applyServiceWorkersTestingSettings
-    );
-    Services.prefs.removeObserver(
-      "devtools.inspector.simple-highlighters-reduced-motion",
-      this._applySimpleHighlightersSettings
-    );
+    for (const prefName in BOOLEAN_CONFIGURATION_PREFS) {
+      Services.prefs.removeObserver(
+        prefName,
+        this._onBooleanConfigurationPrefChange
+      );
+    }
     Services.prefs.removeObserver(
       BROWSERTOOLBOX_SCOPE_PREF,
       this._refreshHostTitle
@@ -4152,6 +4215,16 @@ Toolbox.prototype = {
 
     if (!this.isBrowserToolbox) {
       watchedResources.push(this.resourceCommand.TYPES.NETWORK_EVENT);
+    }
+
+    if (
+      Services.prefs.getBoolPref(
+        "devtools.debugger.features.javascript-tracing",
+        false
+      )
+    ) {
+      watchedResources.push(this.resourceCommand.TYPES.JSTRACER_STATE);
+      this.commands.tracerCommand.off("toggle", this.onTracerToggled);
     }
 
     this.resourceCommand.unwatchResources(watchedResources, {
@@ -4680,7 +4753,7 @@ Toolbox.prototype = {
       }
 
       if (resourceType === TYPES.CONSOLE_MESSAGE) {
-        const { level } = resource.message;
+        const { level } = resource;
         if (level === "error" || level === "exception" || level === "assert") {
           errors++;
         }

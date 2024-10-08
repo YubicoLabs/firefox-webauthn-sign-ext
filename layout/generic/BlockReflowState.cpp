@@ -38,7 +38,6 @@ BlockReflowState::BlockReflowState(
       mContentArea(aReflowInput.GetWritingMode()),
       mInsetForBalance(aInset),
       mContainerSize(aReflowInput.ComputedSizeAsContainerIfConstrained()),
-      mPushedFloats(nullptr),
       mOverflowTracker(nullptr),
       mBorderPadding(
           mReflowInput
@@ -47,7 +46,8 @@ BlockReflowState::BlockReflowState(
       mMinLineHeight(aReflowInput.GetLineHeight()),
       mLineNumber(0),
       mTrailingClearFromPIF(StyleClear::None),
-      mConsumedBSize(aConsumedBSize) {
+      mConsumedBSize(aConsumedBSize),
+      mAlignContentShift(mBlock->GetAlignContentShift()) {
   NS_ASSERTION(mConsumedBSize != NS_UNCONSTRAINEDSIZE,
                "The consumed block-size should be constrained!");
 
@@ -87,8 +87,8 @@ BlockReflowState::BlockReflowState(
   // the "overflow" property. When we don't have a specified style block-size,
   // then we may end up limiting our block-size if the available block-size is
   // constrained (this situation occurs when we are paginated).
-  if (const nscoord availableBSize = aReflowInput.AvailableBSize();
-      availableBSize != NS_UNCONSTRAINEDSIZE) {
+  const nscoord availableBSize = aReflowInput.AvailableBSize();
+  if (availableBSize != NS_UNCONSTRAINEDSIZE) {
     // We are in a paginated situation. The block-end edge of the available
     // space to reflow the children is within our block-end border and padding.
     // If we're cloning our border and padding, and we're going to request
@@ -112,8 +112,32 @@ BlockReflowState::BlockReflowState(
   mContentArea.IStart(wm) = mBorderPadding.IStart(wm);
   mBCoord = mContentArea.BStart(wm) = mBorderPadding.BStart(wm);
 
+  // Account for existing cached shift, we'll re-position in AlignContent() if
+  // needed.
+  if (mAlignContentShift) {
+    mBCoord += mAlignContentShift;
+    mContentArea.BStart(wm) += mAlignContentShift;
+
+    if (availableBSize != NS_UNCONSTRAINEDSIZE) {
+      mContentArea.BSize(wm) += mAlignContentShift;
+    }
+  }
+
   mPrevChild = nullptr;
   mCurrentLine = aFrame->LinesEnd();
+}
+
+void BlockReflowState::UndoAlignContentShift() {
+  if (!mAlignContentShift) {
+    return;
+  }
+
+  mBCoord -= mAlignContentShift;
+  mContentArea.BStart(mReflowInput.GetWritingMode()) -= mAlignContentShift;
+
+  if (mReflowInput.AvailableBSize() != NS_UNCONSTRAINEDSIZE) {
+    mContentArea.BSize(mReflowInput.GetWritingMode()) -= mAlignContentShift;
+  }
 }
 
 void BlockReflowState::ComputeFloatAvoidingOffsets(
@@ -381,27 +405,11 @@ void BlockReflowState::ReconstructMarginBefore(nsLineList::iterator aLine) {
   }
 }
 
-void BlockReflowState::SetupPushedFloatList() {
-  MOZ_ASSERT(!mFlags.mIsFloatListInBlockPropertyTable == !mPushedFloats,
-             "flag mismatch");
-  if (!mFlags.mIsFloatListInBlockPropertyTable) {
-    // If we're being re-Reflow'd without our next-in-flow having been
-    // reflowed, some pushed floats from our previous reflow might
-    // still be on our pushed floats list.  However, that's
-    // actually fine, since they'll all end up being stolen and
-    // reordered into the correct order again.
-    // (nsBlockFrame::ReflowDirtyLines ensures that any lines with
-    // pushed floats are reflowed.)
-    mPushedFloats = mBlock->EnsurePushedFloats();
-    mFlags.mIsFloatListInBlockPropertyTable = true;
-  }
-}
-
 void BlockReflowState::AppendPushedFloatChain(nsIFrame* aFloatCont) {
-  SetupPushedFloatList();
+  nsFrameList* pushedFloats = mBlock->EnsurePushedFloats();
   while (true) {
     aFloatCont->AddStateBits(NS_FRAME_IS_PUSHED_FLOAT);
-    mPushedFloats->AppendFrame(mBlock, aFloatCont);
+    pushedFloats->AppendFrame(mBlock, aFloatCont);
     aFloatCont = aFloatCont->GetNextInFlow();
     if (!aFloatCont || aFloatCont->GetParent() != mBlock) {
       break;
@@ -528,7 +536,7 @@ bool BlockReflowState::AddFloat(nsLineLayout* aLineLayout, nsIFrame* aFloat,
 
     // Appending is fine, since if a float was pushed to the next
     // page/column, all later floats were also pushed.
-    mBlock->mFloats.AppendFrame(mBlock, aFloat);
+    mBlock->EnsureFloats()->AppendFrame(mBlock, aFloat);
   }
 
   // Because we are in the middle of reflowing a placeholder frame

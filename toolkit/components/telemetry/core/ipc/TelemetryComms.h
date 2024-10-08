@@ -12,6 +12,7 @@
 #include "mozilla/TelemetryProcessEnums.h"
 #include "mozilla/TimeStamp.h"
 #include "mozilla/Variant.h"
+#include "mozilla/dom/WebGLIpdl.h"
 #include "nsITelemetry.h"
 
 namespace mozilla {
@@ -51,18 +52,8 @@ struct ScalarAction {
   mozilla::Telemetry::ProcessID mProcessType;
 };
 
-struct KeyedScalarAction {
-  uint32_t mId;
-  bool mDynamic;
-  ScalarActionType mActionType;
+struct KeyedScalarAction : public ScalarAction {
   nsCString mKey;
-  // We need to wrap mData in a Maybe otherwise the IPC system
-  // is unable to instantiate a ScalarAction.
-  Maybe<ScalarVariant> mData;
-  // The process type this scalar should be recorded for.
-  // The IPC system will determine the process this action was coming from
-  // later.
-  mozilla::Telemetry::ProcessID mProcessType;
 };
 
 // Dynamic scalars support.
@@ -96,6 +87,13 @@ struct DiscardedData {
   uint32_t mDiscardedScalarActions;
   uint32_t mDiscardedKeyedScalarActions;
   uint32_t mDiscardedChildEvents;
+
+  auto MutTiedFields() {
+    return std::tie(mDiscardedHistogramAccumulations,
+                    mDiscardedKeyedHistogramAccumulations,
+                    mDiscardedScalarActions, mDiscardedKeyedScalarActions,
+                    mDiscardedChildEvents);
+  }
 };
 
 }  // namespace Telemetry
@@ -393,7 +391,7 @@ struct ParamTraits<mozilla::Telemetry::EventExtraEntry> {
 
 template <>
 struct ParamTraits<mozilla::Telemetry::DiscardedData>
-    : public PlainOldDataSerializer<mozilla::Telemetry::DiscardedData> {};
+    : public ParamTraits_TiedFields<mozilla::Telemetry::DiscardedData> {};
 
 }  // namespace IPC
 

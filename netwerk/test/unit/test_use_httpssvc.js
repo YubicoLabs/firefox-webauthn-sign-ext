@@ -34,7 +34,7 @@ add_setup(async function setup() {
     await TestUtils.waitForCondition(() => Services.io.socketProcessLaunched);
   }
 
-  Services.prefs.setIntPref("network.trr.mode", 2); // TRR first
+  Services.prefs.setIntPref("network.trr.mode", Ci.nsIDNSService.MODE_TRRONLY);
 });
 
 function makeChan(url) {
@@ -51,8 +51,6 @@ function channelOpenPromise(chan) {
     function finish(req, buffer) {
       resolve([req, buffer]);
     }
-    let internal = chan.QueryInterface(Ci.nsIHttpChannelInternal);
-    internal.setWaitForHTTPSSVCRecord();
     chan.asyncOpen(new ChannelListener(finish, null, CL_ALLOW_UNKNOWN_CL));
   });
 }
@@ -179,7 +177,7 @@ add_task(async function testFallback() {
   });
   await trrServer.start();
 
-  Services.prefs.setIntPref("network.trr.mode", 3);
+  Services.prefs.setIntPref("network.trr.mode", Ci.nsIDNSService.MODE_TRRONLY);
   Services.prefs.setCharPref(
     "network.trr.uri",
     `https://foo.example.com:${trrServer.port()}/dns-query`

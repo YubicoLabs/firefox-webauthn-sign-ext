@@ -3,9 +3,9 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-#include <math.h>
-#include <stdint.h>
-#include <stdio.h>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
 
 #include "lib/jxl/base/status.h"
 #include "lib/jxl/render_pipeline/render_pipeline_stage.h"
@@ -23,7 +23,7 @@ class UpsampleXSlowStage : public RenderPipelineStage {
     for (size_t c = 0; c < input_rows.size(); c++) {
       const float* row = GetInputRow(input_rows, c, 0);
       float* row_out = GetOutputRow(output_rows, c, 0);
-      for (int64_t x = -xextra; x < (int64_t)(xsize + xextra); x++) {
+      for (int64_t x = -xextra; x < static_cast<int64_t>(xsize + xextra); x++) {
         float xp = *(row + x - 1);
         float xc = *(row + x);
         float xn = *(row + x + 1);
@@ -57,14 +57,14 @@ class UpsampleYSlowStage : public RenderPipelineStage {
       const float* rown = GetInputRow(input_rows, c, 1);
       float* row_out0 = GetOutputRow(output_rows, c, 0);
       float* row_out1 = GetOutputRow(output_rows, c, 1);
-      for (int64_t x = -xextra; x < (int64_t)(xsize + xextra); x++) {
+      for (int64_t x = -xextra; x < static_cast<int64_t>(xsize + xextra); x++) {
         float xp = *(rowp + x);
         float xc = *(rowc + x);
         float xn = *(rown + x);
-        float yout0 = xp * 0.25f + xc * 0.75f;
-        float yout1 = xc * 0.75f + xn * 0.25f;
-        *(row_out0 + x) = yout0;
-        *(row_out1 + x) = yout1;
+        float y_out0 = xp * 0.25f + xc * 0.75f;
+        float y_out1 = xc * 0.75f + xn * 0.25f;
+        *(row_out0 + x) = y_out0;
+        *(row_out1 + x) = y_out1;
       }
     }
     return true;
@@ -86,7 +86,7 @@ class Check0FinalStage : public RenderPipelineStage {
                     size_t thread_id) const final {
     for (size_t c = 0; c < input_rows.size(); c++) {
       for (size_t x = 0; x < xsize; x++) {
-        JXL_CHECK(fabsf(GetInputRow(input_rows, c, 0)[x]) < 1e-8);
+        JXL_ENSURE(fabsf(GetInputRow(input_rows, c, 0)[x]) < 1e-8);
       }
     }
     return true;

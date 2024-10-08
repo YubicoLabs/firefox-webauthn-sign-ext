@@ -41,6 +41,10 @@ let hasContainers =
   Services.prefs.getBoolPref("privacy.userContext.enabled") &&
   ContextualIdentityService.getPublicIdentities().length;
 
+const hasSelectTranslations =
+  Services.prefs.getBoolPref("browser.translations.enable") &&
+  Services.prefs.getBoolPref("browser.translations.select.enable");
+
 const example_base =
   // eslint-disable-next-line @microsoft/sdl/no-insecure-url
   "http://example.com/browser/browser/base/content/test/contextMenu/";
@@ -70,6 +74,7 @@ add_setup(async function () {
       ["browser.search.separatePrivateDefault.ui.enabled", true],
       ["extensions.screenshots.disabled", false],
       ["layout.forms.reveal-password-context-menu.enabled", true],
+      ["privacy.query_stripping.strip_on_share.canDisable", false],
     ],
   });
 });
@@ -137,7 +142,7 @@ add_task(async function test_setup_html() {
     audio.loop = true;
     audio.src = "audio.ogg";
     video.loop = true;
-    video.src = "video.ogg";
+    video.src = "video.webm";
 
     let awaitPause = ContentTaskUtils.waitForEvent(audio, "pause");
     await ContentTaskUtils.waitForCondition(
@@ -207,14 +212,24 @@ const kLinkItems = [
 ];
 
 add_task(async function test_link() {
-  await test_contextmenu("#test-link", kLinkItems);
+  await test_contextmenu("#test-link", [
+    ...kLinkItems,
+    ...(hasSelectTranslations ? ["context-translate-selection", true] : []),
+  ]);
 });
 
 add_task(async function test_link_in_shadow_dom() {
-  await test_contextmenu("#shadow-host", kLinkItems, {
-    offsetX: 6,
-    offsetY: 6,
-  });
+  await test_contextmenu(
+    "#shadow-host",
+    [
+      ...kLinkItems,
+      ...(hasSelectTranslations ? ["context-translate-selection", true] : []),
+    ],
+    {
+      offsetX: 6,
+      offsetY: 6,
+    }
+  );
 });
 
 add_task(async function test_link_over_shadow_dom() {
@@ -234,6 +249,7 @@ add_task(async function test_mailto() {
     true,
     "context-searchselect-private",
     true,
+    ...(hasSelectTranslations ? ["context-translate-selection", true] : []),
   ]);
 });
 
@@ -247,6 +263,7 @@ add_task(async function test_tel() {
     true,
     "context-searchselect-private",
     true,
+    ...(hasSelectTranslations ? ["context-translate-selection", true] : []),
   ]);
 });
 
@@ -272,6 +289,10 @@ add_task(async function test_image() {
         "---",
         null,
         "context-setDesktopBackground",
+        true,
+        "---",
+        null,
+        "context-take-screenshot",
         true,
       ],
       {
@@ -356,6 +377,10 @@ add_task(async function test_video_ok() {
     true,
     "context-sendvideo",
     true,
+    "---",
+    null,
+    "context-take-screenshot",
+    true,
   ]);
 
   await SpecialPowers.popPrefEnv();
@@ -403,6 +428,10 @@ add_task(async function test_video_ok() {
     "context-copyvideourl",
     true,
     "context-sendvideo",
+    true,
+    "---",
+    null,
+    "context-take-screenshot",
     true,
   ]);
 
@@ -490,6 +519,10 @@ add_task(async function test_video_bad() {
     true,
     "context-sendvideo",
     true,
+    "---",
+    null,
+    "context-take-screenshot",
+    true,
   ]);
 
   await SpecialPowers.popPrefEnv();
@@ -537,6 +570,10 @@ add_task(async function test_video_bad() {
     "context-copyvideourl",
     true,
     "context-sendvideo",
+    true,
+    "---",
+    null,
+    "context-take-screenshot",
     true,
   ]);
 
@@ -588,6 +625,10 @@ add_task(async function test_video_bad2() {
     false,
     "context-sendvideo",
     false,
+    "---",
+    null,
+    "context-take-screenshot",
+    true,
   ]);
 
   await SpecialPowers.popPrefEnv();
@@ -636,6 +677,10 @@ add_task(async function test_video_bad2() {
     false,
     "context-sendvideo",
     false,
+    "---",
+    null,
+    "context-take-screenshot",
+    true,
   ]);
 
   await SpecialPowers.popPrefEnv();
@@ -767,6 +812,10 @@ add_task(async function test_video_in_iframe() {
       true,
       "---",
       null,
+      "context-take-frame-screenshot",
+      true,
+      "---",
+      null,
       "context-viewframeinfo",
       true,
     ]),
@@ -843,6 +892,10 @@ add_task(async function test_video_in_iframe() {
       "---",
       null,
       "context-printframe",
+      true,
+      "---",
+      null,
+      "context-take-frame-screenshot",
       true,
       "---",
       null,
@@ -964,6 +1017,10 @@ add_task(async function test_image_in_iframe() {
       "---",
       null,
       "context-printframe",
+      true,
+      "---",
+      null,
+      "context-take-frame-screenshot",
       true,
       "---",
       null,
@@ -1336,6 +1393,7 @@ add_task(async function test_select_text() {
       true,
       "context-searchselect-private",
       true,
+      ...(hasSelectTranslations ? ["context-translate-selection", true] : []),
       "---",
       null,
       "context-viewpartialsource-selection",
@@ -1369,6 +1427,9 @@ add_task(async function test_select_text_search_service_not_initialized() {
       null,
       "context-take-screenshot",
       true,
+      ...(hasSelectTranslations
+        ? ["---", null, "context-translate-selection", true]
+        : []),
       "---",
       null,
       "context-viewpartialsource-selection",
@@ -1423,6 +1484,7 @@ add_task(async function test_select_text_link() {
       true,
       "context-searchselect-private",
       true,
+      ...(hasSelectTranslations ? ["context-translate-selection", true] : []),
       "---",
       null,
       "context-viewpartialsource-selection",
@@ -1590,6 +1652,10 @@ add_task(async function test_longdesc() {
     "---",
     null,
     "context-setDesktopBackground",
+    true,
+    "---",
+    null,
+    "context-take-screenshot",
     true,
   ]);
 });
@@ -1898,6 +1964,7 @@ add_task(async function test_background_image() {
     true,
     "context-searchselect-private",
     true,
+    ...(hasSelectTranslations ? ["context-translate-selection", true] : []),
   ]);
 
   // Don't show image related context menu commands when there is a selection
@@ -1921,6 +1988,7 @@ add_task(async function test_background_image() {
       true,
       "context-searchselect-private",
       true,
+      ...(hasSelectTranslations ? ["context-translate-selection", true] : []),
       "---",
       null,
       "context-viewpartialsource-selection",
@@ -1989,6 +2057,7 @@ add_task(async function test_strip_on_share_on_secure_about_page() {
     true,
     "context-searchselect-private",
     true,
+    ...(hasSelectTranslations ? ["context-translate-selection", true] : []),
   ]);
 
   // Clean up

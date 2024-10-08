@@ -15,7 +15,7 @@ const {
  * This middleware converts workers object that get from DevToolsClient.listAllWorkers()
  * to data which is used in DebugTargetItem.
  */
-const workerComponentDataMiddleware = store => next => action => {
+const workerComponentDataMiddleware = () => next => action => {
   switch (action.type) {
     case REQUEST_WORKERS_SUCCESS: {
       action.otherWorkers = toComponentData(action.otherWorkers);
@@ -50,7 +50,7 @@ function toComponentData(workers, isServiceWorker) {
     const type = DEBUG_TARGETS.WORKER;
     const icon = "chrome://devtools/skin/images/debugging-workers.svg";
     let { fetch } = worker;
-    const { id, name, registrationFront, scope, subscription } = worker;
+    const { id, name, registrationFront, scope, subscription, origin } = worker;
 
     let pushServiceEndpoint = null;
     let status = null;
@@ -70,6 +70,7 @@ function toComponentData(workers, isServiceWorker) {
         registrationFront,
         scope,
         status,
+        origin,
       },
       icon,
       id,

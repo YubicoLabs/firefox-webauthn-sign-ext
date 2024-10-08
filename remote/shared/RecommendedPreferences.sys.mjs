@@ -103,6 +103,16 @@ const COMMON_PREFERENCES = new Map([
   // inconsistently.
   ["browser.download.panel.shown", true],
 
+  // Make sure newtab weather doesn't hit the network to retrieve weather data.
+  [
+    "browser.newtabpage.activity-stream.discoverystream.region-weather-config",
+    "",
+  ],
+
+  // Make sure newtab wallpapers don't hit the network to retrieve wallpaper data.
+  ["browser.newtabpage.activity-stream.newtabWallpapers.enabled", false],
+  ["browser.newtabpage.activity-stream.newtabWallpapers.v2.enabled", false],
+
   // Make sure Topsites doesn't hit the network to retrieve sponsored tiles.
   ["browser.newtabpage.activity-stream.showSponsoredTopSites", false],
 
@@ -144,6 +154,9 @@ const COMMON_PREFERENCES = new Map([
 
   // Do not redirect user when a milstone upgrade of Firefox is detected
   ["browser.startup.homepage_override.mstone", "ignore"],
+
+  // Unload the previously selected tab immediately
+  ["browser.tabs.remote.unloadDelayMs", 0],
 
   // Don't unload tabs when available memory is running low
   ["browser.tabs.unloadOnLowMemory", false],
@@ -210,7 +223,7 @@ const COMMON_PREFERENCES = new Map([
   ["dom.max_script_run_time", 0],
 
   // Disable location change rate limitation
-  ["dom.navigation.locationChangeRateLimit.count", 0],
+  ["dom.navigation.navigationRateLimit.count", 0],
 
   // DOM Push
   ["dom.push.connection.enabled", false],
@@ -252,10 +265,7 @@ const COMMON_PREFERENCES = new Map([
     "http://%(server)s/extensions-dummy/blocklistItemURL",
   ],
   ["extensions.hotfix.url", "http://%(server)s/extensions-dummy/hotfixURL"],
-  [
-    "extensions.systemAddon.update.url",
-    "http://%(server)s/dummy-system-addons.xml",
-  ],
+  ["extensions.systemAddon.update.enabled", false],
   [
     "extensions.update.background.url",
     "http://%(server)s/extensions-dummy/updateBackgroundURL",
@@ -310,6 +320,9 @@ const COMMON_PREFERENCES = new Map([
   // Privacy and Tracking Protection
   ["privacy.trackingprotection.enabled", false],
 
+  // Used to check if recommended preferences are applied
+  ["remote.prefs.recommended.applied", true],
+
   // Don't do network connections for mitm priming
   ["security.certerrors.mitm.priming.enabled", false],
 
@@ -362,7 +375,7 @@ export const RecommendedPreferences = {
    * @param {Map<string, object>=} preferences
    *     Map of preference name to preference value.
    */
-  applyPreferences(preferences) {
+  applyPreferences(preferences = new Map()) {
     if (!lazy.useRecommendedPrefs) {
       // If remote.prefs.recommended is set to false, do not set any preference
       // here. Needed for our Firefox CI.
@@ -374,11 +387,7 @@ export const RecommendedPreferences = {
     if (!this.isInitialized) {
       // Merge common preferences and optionally provided preferences in a
       // single map. Hereby the extra preferences have higher priority.
-      if (preferences) {
-        preferences = new Map([...COMMON_PREFERENCES, ...preferences]);
-      } else {
-        preferences = COMMON_PREFERENCES;
-      }
+      preferences = new Map([...COMMON_PREFERENCES, ...preferences]);
 
       Services.obs.addObserver(this, "quit-application");
       this.isInitialized = true;

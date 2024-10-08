@@ -73,7 +73,7 @@ const observer = {
   QueryInterface: ChromeUtils.generateQI(["nsIObserver"]),
 
   // nsIObserver
-  observe(subject, topic, data) {
+  observe(subject, topic, _data) {
     switch (topic) {
       case "autocomplete-did-enter-text": {
         const input = subject.QueryInterface(Ci.nsIAutoCompleteInput);
@@ -227,10 +227,10 @@ export class LoginManagerPrompter {
 
     const wasModifiedEvent = {
       // Values are mutated
-      did_edit_un: "false",
-      did_select_un: "false",
-      did_edit_pw: "false",
-      did_select_pw: "false",
+      did_edit_un: false,
+      did_select_un: false,
+      did_edit_pw: false,
+      did_select_pw: false,
     };
 
     const updateButtonStatus = element => {
@@ -323,25 +323,25 @@ export class LoginManagerPrompter {
     };
 
     const onUsernameInput = () => {
-      wasModifiedEvent.did_edit_un = "true";
-      wasModifiedEvent.did_select_un = "false";
+      wasModifiedEvent.did_edit_un = true;
+      wasModifiedEvent.did_select_un = false;
       onInput();
     };
 
     const onUsernameSelect = () => {
-      wasModifiedEvent.did_edit_un = "false";
-      wasModifiedEvent.did_select_un = "true";
+      wasModifiedEvent.did_edit_un = false;
+      wasModifiedEvent.did_select_un = true;
     };
 
     const onPasswordInput = () => {
-      wasModifiedEvent.did_edit_pw = "true";
-      wasModifiedEvent.did_select_pw = "false";
+      wasModifiedEvent.did_edit_pw = true;
+      wasModifiedEvent.did_select_pw = false;
       onInput();
     };
 
     const onPasswordSelect = () => {
-      wasModifiedEvent.did_edit_pw = "false";
-      wasModifiedEvent.did_select_pw = "true";
+      wasModifiedEvent.did_edit_pw = false;
+      wasModifiedEvent.did_select_pw = true;
     };
 
     const onKeyUp = e => {
@@ -444,7 +444,7 @@ export class LoginManagerPrompter {
         Services.logins.recordPasswordUse(
           loginToUpdate,
           PrivateBrowsingUtils.isBrowserPrivate(browser),
-          loginToUpdate.username ? "form_password" : "form_login",
+          loginToUpdate.username ? "FormPassword" : "FormLogin",
           !!autoFilledLoginGuid
         );
       } else {
@@ -479,11 +479,11 @@ export class LoginManagerPrompter {
       callback: async () => {
         const eventTypeMapping = {
           "password-save": {
-            eventObject: "save",
+            eventObject: "Save",
             confirmationHintFtlId: "confirmation-hint-password-created",
           },
           "password-change": {
-            eventObject: "update",
+            eventObject: "Update",
             confirmationHintFtlId: "confirmation-hint-password-updated",
           },
         };
@@ -520,13 +520,9 @@ export class LoginManagerPrompter {
         browser.focus();
         await persistData();
 
-        Services.telemetry.recordEvent(
-          "pwmgr",
-          "doorhanger_submitted",
-          eventTypeMapping[type].eventObject,
-          null,
-          wasModifiedEvent
-        );
+        Glean.pwmgr[
+          "doorhangerSubmitted" + eventTypeMapping[type].eventObject
+        ].record(wasModifiedEvent);
 
         if (histogramName == "PWMGR_PROMPT_REMEMBER_ACTION") {
           Services.obs.notifyObservers(browser, "LoginStats:NewSavedPassword");
@@ -636,103 +632,104 @@ export class LoginManagerPrompter {
         eventCallback(topic) {
           switch (topic) {
             case "showing":
-              lazy.log.debug("showing");
-              currentNotification = this;
+              {
+                lazy.log.debug("showing");
+                currentNotification = this;
 
-              // Record the first time this instance of the doorhanger is shown.
-              if (!this.timeShown) {
-                histogram.add(PROMPT_DISPLAYED);
-                Services.obs.notifyObservers(
-                  null,
-                  "weave:telemetry:histogram",
-                  histogramName
-                );
-              }
-
-              chromeDoc
-                .getElementById("password-notification-password")
-                .removeAttribute("focused");
-              chromeDoc
-                .getElementById("password-notification-username")
-                .removeAttribute("focused");
-              chromeDoc
-                .getElementById("password-notification-username")
-                .addEventListener("input", onUsernameInput);
-              chromeDoc
-                .getElementById("password-notification-username")
-                .addEventListener("keyup", onKeyUp);
-              chromeDoc
-                .getElementById("password-notification-password")
-                .addEventListener("keyup", onKeyUp);
-              chromeDoc
-                .getElementById("password-notification-password")
-                .addEventListener("input", onPasswordInput);
-              chromeDoc
-                .getElementById("password-notification-username-dropmarker")
-                .addEventListener("click", togglePopup);
-
-              LoginManagerPrompter._getUsernameSuggestions(
-                login,
-                possibleValues?.usernames
-              ).then(usernameSuggestions => {
-                const dropmarker = chromeDoc?.getElementById(
-                  "password-notification-username-dropmarker"
-                );
-                if (dropmarker) {
-                  dropmarker.hidden = !usernameSuggestions.length;
-                }
-
-                const usernameField = chromeDoc?.getElementById(
-                  "password-notification-username"
-                );
-                if (usernameField) {
-                  usernameField.classList.toggle(
-                    "ac-has-end-icon",
-                    !!usernameSuggestions.length
+                // Record the first time this instance of the doorhanger is shown.
+                if (!this.timeShown) {
+                  histogram.add(PROMPT_DISPLAYED);
+                  Services.obs.notifyObservers(
+                    null,
+                    "weave:telemetry:histogram",
+                    histogramName
                   );
                 }
-              });
 
-              const toggleBtn = chromeDoc.getElementById(
-                "password-notification-visibilityToggle"
-              );
+                chromeDoc
+                  .getElementById("password-notification-password")
+                  .removeAttribute("focused");
+                chromeDoc
+                  .getElementById("password-notification-username")
+                  .removeAttribute("focused");
+                chromeDoc
+                  .getElementById("password-notification-username")
+                  .addEventListener("input", onUsernameInput);
+                chromeDoc
+                  .getElementById("password-notification-username")
+                  .addEventListener("keyup", onKeyUp);
+                chromeDoc
+                  .getElementById("password-notification-password")
+                  .addEventListener("keyup", onKeyUp);
+                chromeDoc
+                  .getElementById("password-notification-password")
+                  .addEventListener("input", onPasswordInput);
+                chromeDoc
+                  .getElementById("password-notification-username-dropmarker")
+                  .addEventListener("click", togglePopup);
 
-              if (
-                Services.prefs.getBoolPref(
-                  "signon.rememberSignons.visibilityToggle"
-                )
-              ) {
-                toggleBtn.addEventListener("command", onVisibilityToggle);
+                LoginManagerPrompter._getUsernameSuggestions(
+                  login,
+                  possibleValues?.usernames
+                ).then(usernameSuggestions => {
+                  const dropmarker = chromeDoc?.getElementById(
+                    "password-notification-username-dropmarker"
+                  );
+                  if (dropmarker) {
+                    dropmarker.hidden = !usernameSuggestions.length;
+                  }
 
-                toggleBtn.setAttribute("label", togglePassword.label);
-                toggleBtn.setAttribute("accesskey", togglePassword.accessKey);
+                  const usernameField = chromeDoc?.getElementById(
+                    "password-notification-username"
+                  );
+                  if (usernameField) {
+                    usernameField.classList.toggle(
+                      "ac-has-end-icon",
+                      !!usernameSuggestions.length
+                    );
+                  }
+                });
 
-                const hideToggle =
-                  lazy.LoginHelper.isPrimaryPasswordSet() ||
-                  // Don't show the toggle when the login was autofilled
-                  !!autoFilledLoginGuid ||
-                  // Dismissed-by-default prompts should still show the toggle.
-                  (this.timeShown && this.wasDismissed) ||
-                  // If we are only adding a username then the password is
-                  // one that is already saved and we don't want to reveal
-                  // it as the submitter of this form may not be the account
-                  // owner, they may just be using the saved password.
-                  (messageStringID ==
-                    "password-manager-update-login-add-username" &&
-                    login.timePasswordChanged <
-                      Date.now() - VISIBILITY_TOGGLE_MAX_PW_AGE_MS);
-                toggleBtn.hidden = hideToggle;
+                const toggleBtn = chromeDoc.getElementById(
+                  "password-notification-visibilityToggle"
+                );
+
+                if (
+                  Services.prefs.getBoolPref(
+                    "signon.rememberSignons.visibilityToggle"
+                  )
+                ) {
+                  toggleBtn.addEventListener("command", onVisibilityToggle);
+
+                  toggleBtn.setAttribute("label", togglePassword.label);
+                  toggleBtn.setAttribute("accesskey", togglePassword.accessKey);
+
+                  const hideToggle =
+                    lazy.LoginHelper.isPrimaryPasswordSet() ||
+                    // Don't show the toggle when the login was autofilled
+                    !!autoFilledLoginGuid ||
+                    // Dismissed-by-default prompts should still show the toggle.
+                    (this.timeShown && this.wasDismissed) ||
+                    // If we are only adding a username then the password is
+                    // one that is already saved and we don't want to reveal
+                    // it as the submitter of this form may not be the account
+                    // owner, they may just be using the saved password.
+                    (messageStringID ==
+                      "password-manager-update-login-add-username" &&
+                      login.timePasswordChanged <
+                        Date.now() - VISIBILITY_TOGGLE_MAX_PW_AGE_MS);
+                  toggleBtn.hidden = hideToggle;
+                }
+
+                let popup = chromeDoc.getElementById("PopupAutoComplete");
+                popup.onUsernameSelect = onUsernameSelect;
+                popup.onPasswordSelect = onPasswordSelect;
+
+                LoginManagerPrompter._setUsernameAutocomplete(
+                  login,
+                  possibleValues?.usernames
+                );
               }
-
-              let popup = chromeDoc.getElementById("PopupAutoComplete");
-              popup.onUsernameSelect = onUsernameSelect;
-              popup.onPasswordSelect = onPasswordSelect;
-
-              LoginManagerPrompter._setUsernameAutocomplete(
-                login,
-                possibleValues?.usernames
-              );
-
               break;
             case "shown": {
               lazy.log.debug("shown");
@@ -993,7 +990,7 @@ export class LoginManagerPrompter {
     try {
       const uri = Services.io.newURI(aURIString);
       const baseDomain = Services.eTLD.getBaseDomain(uri);
-      displayHost = idnService.convertToDisplayIDN(baseDomain, {});
+      displayHost = idnService.convertToDisplayIDN(baseDomain);
     } catch (e) {
       lazy.log.warn(`Couldn't process supplied URIString: ${aURIString}`);
     }

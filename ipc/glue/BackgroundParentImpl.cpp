@@ -18,6 +18,7 @@
 #include "mozilla/dom/BackgroundSessionStorageServiceParent.h"
 #include "mozilla/dom/ClientManagerActors.h"
 #include "mozilla/dom/ContentParent.h"
+#include "mozilla/dom/CookieStoreParent.h"
 #include "mozilla/dom/DOMTypes.h"
 #include "mozilla/dom/EndpointForReportParent.h"
 #include "mozilla/dom/FetchParent.h"
@@ -148,8 +149,8 @@ void BackgroundParentImpl::ProcessingError(Result aCode, const char* aReason) {
       GetIPCChannel()->InduceConnectionError();
     }
   } else {
-    CrashReporter::AnnotateCrashReport(
-        CrashReporter::Annotation::ipc_channel_error, reason);
+    CrashReporter::RecordAnnotationCString(
+        CrashReporter::Annotation::ipc_channel_error, aReason);
 
     MOZ_CRASH("in-process BackgroundParent abort due to IPC error");
   }
@@ -191,26 +192,28 @@ bool BackgroundParentImpl::DeallocPBackgroundTestParent(
 }
 
 auto BackgroundParentImpl::AllocPBackgroundIDBFactoryParent(
-    const LoggingInfo& aLoggingInfo)
+    const LoggingInfo& aLoggingInfo, const nsACString& aSystemLocale)
     -> already_AddRefed<PBackgroundIDBFactoryParent> {
   using mozilla::dom::indexedDB::AllocPBackgroundIDBFactoryParent;
 
   AssertIsInMainProcess();
   AssertIsOnBackgroundThread();
 
-  return AllocPBackgroundIDBFactoryParent(aLoggingInfo);
+  return AllocPBackgroundIDBFactoryParent(aLoggingInfo, aSystemLocale);
 }
 
 mozilla::ipc::IPCResult
 BackgroundParentImpl::RecvPBackgroundIDBFactoryConstructor(
-    PBackgroundIDBFactoryParent* aActor, const LoggingInfo& aLoggingInfo) {
+    PBackgroundIDBFactoryParent* aActor, const LoggingInfo& aLoggingInfo,
+    const nsACString& aSystemLocale) {
   using mozilla::dom::indexedDB::RecvPBackgroundIDBFactoryConstructor;
 
   AssertIsInMainProcess();
   AssertIsOnBackgroundThread();
   MOZ_ASSERT(aActor);
 
-  if (!RecvPBackgroundIDBFactoryConstructor(aActor, aLoggingInfo)) {
+  if (!RecvPBackgroundIDBFactoryConstructor(aActor, aLoggingInfo,
+                                            aSystemLocale)) {
     return IPC_FAIL_NO_REASON(this);
   }
   return IPC_OK();
@@ -427,8 +430,8 @@ bool BackgroundParentImpl::DeallocPBackgroundLocalStorageCacheParent(
 }
 
 auto BackgroundParentImpl::AllocPBackgroundStorageParent(
-    const nsAString& aProfilePath, const uint32_t& aPrivateBrowsingId)
-    -> PBackgroundStorageParent* {
+    const nsAString& aProfilePath,
+    const uint32_t& aPrivateBrowsingId) -> PBackgroundStorageParent* {
   AssertIsInMainProcess();
   AssertIsOnBackgroundThread();
 
@@ -522,27 +525,6 @@ IPCResult BackgroundParentImpl::RecvPRemoteWorkerControllerConstructor(
     const dom::RemoteWorkerData& aRemoteWorkerData) {
   MOZ_ASSERT(aActor);
 
-  return IPC_OK();
-}
-
-already_AddRefed<dom::PRemoteWorkerServiceParent>
-BackgroundParentImpl::AllocPRemoteWorkerServiceParent() {
-  return MakeAndAddRef<dom::RemoteWorkerServiceParent>();
-}
-
-IPCResult BackgroundParentImpl::RecvPRemoteWorkerServiceConstructor(
-    PRemoteWorkerServiceParent* aActor) {
-  mozilla::dom::RemoteWorkerServiceParent* actor =
-      static_cast<mozilla::dom::RemoteWorkerServiceParent*>(aActor);
-
-  RefPtr<ThreadsafeContentParentHandle> parent =
-      BackgroundParent::GetContentParentHandle(this);
-  // If the ContentParent is null we are dealing with a same-process actor.
-  if (!parent) {
-    actor->Initialize(NOT_REMOTE_TYPE);
-  } else {
-    actor->Initialize(parent->GetRemoteType());
-  }
   return IPC_OK();
 }
 
@@ -686,8 +668,8 @@ bool BackgroundParentImpl::DeallocPCamerasParent(
 }
 
 auto BackgroundParentImpl::AllocPUDPSocketParent(
-    const Maybe<PrincipalInfo>& /* unused */, const nsACString& /* unused */)
-    -> PUDPSocketParent* {
+    const Maybe<PrincipalInfo>& /* unused */,
+    const nsACString& /* unused */) -> PUDPSocketParent* {
   RefPtr<UDPSocketParent> p = new UDPSocketParent(this);
 
   return p.forget().take();
@@ -837,6 +819,27 @@ bool BackgroundParentImpl::DeallocPBroadcastChannelParent(
   MOZ_ASSERT(aActor);
 
   delete static_cast<BroadcastChannelParent*>(aActor);
+  return true;
+}
+
+mozilla::dom::PCookieStoreParent*
+BackgroundParentImpl::AllocPCookieStoreParent() {
+  AssertIsInMainProcess();
+  AssertIsOnBackgroundThread();
+
+  RefPtr<mozilla::dom::CookieStoreParent> actor =
+      new mozilla::dom::CookieStoreParent();
+  return actor.forget().take();
+}
+
+bool BackgroundParentImpl::DeallocPCookieStoreParent(
+    PCookieStoreParent* aActor) {
+  AssertIsInMainProcess();
+  AssertIsOnBackgroundThread();
+  MOZ_ASSERT(aActor);
+
+  RefPtr<mozilla::dom::CookieStoreParent> actor =
+      dont_AddRef(static_cast<mozilla::dom::CookieStoreParent*>(aActor));
   return true;
 }
 
@@ -1270,7 +1273,8 @@ BackgroundParentImpl::RecvEnsureRDDProcessAndCreateBridge(
     return IPC_OK();
   }
 
-  rdd->EnsureRDDProcessAndCreateBridge(OtherPid(), parent->ChildID())
+  rdd->EnsureRDDProcessAndCreateBridge(OtherEndpointProcInfo(),
+                                       parent->ChildID())
       ->Then(GetCurrentSerialEventTarget(), __func__,
              [resolver = std::move(aResolver)](
                  mozilla::RDDProcessManager::EnsureRDDPromise::
@@ -1289,7 +1293,7 @@ mozilla::ipc::IPCResult
 BackgroundParentImpl::RecvEnsureUtilityProcessAndCreateBridge(
     const RemoteDecodeIn& aLocation,
     EnsureUtilityProcessAndCreateBridgeResolver&& aResolver) {
-  base::ProcessId otherPid = OtherPid();
+  EndpointProcInfo otherProcInfo = OtherEndpointProcInfo();
   RefPtr<ThreadsafeContentParentHandle> parent =
       BackgroundParent::GetContentParentHandle(this);
   if (NS_WARN_IF(!parent)) {
@@ -1302,7 +1306,7 @@ BackgroundParentImpl::RecvEnsureUtilityProcessAndCreateBridge(
   }
   NS_DispatchToMainThread(NS_NewRunnableFunction(
       "BackgroundParentImpl::RecvEnsureUtilityProcessAndCreateBridge()",
-      [aResolver, managerThread, otherPid, childId, aLocation]() {
+      [aResolver, managerThread, otherProcInfo, childId, aLocation]() {
         RefPtr<UtilityProcessManager> upm =
             UtilityProcessManager::GetSingleton();
         using Type =
@@ -1318,14 +1322,17 @@ BackgroundParentImpl::RecvEnsureUtilityProcessAndCreateBridge(
               }));
         } else {
           SandboxingKind sbKind = GetSandboxingKindFromLocation(aLocation);
-          upm->StartProcessForRemoteMediaDecoding(otherPid, childId, sbKind)
+          upm->StartProcessForRemoteMediaDecoding(otherProcInfo, childId,
+                                                  sbKind)
               ->Then(managerThread, __func__,
                      [resolver = aResolver](
                          mozilla::ipc::UtilityProcessManager::
                              StartRemoteDecodingUtilityPromise::
                                  ResolveOrRejectValue&& aValue) mutable {
                        if (aValue.IsReject()) {
-                         resolver(Type(aValue.RejectValue(),
+                         // the RejectValue() has something that might be an
+                         // nsresult, but our sole caller discards it anyway
+                         resolver(Type(NS_ERROR_FAILURE,
                                        Endpoint<PRemoteDecoderManagerChild>()));
                          return;
                        }
@@ -1378,9 +1385,27 @@ mozilla::ipc::IPCResult BackgroundParentImpl::RecvRemoveEndpoint(
   return IPC_OK();
 }
 
+mozilla::ipc::IPCResult BackgroundParentImpl::RecvPLockManagerConstructor(
+    PLockManagerParent* aActor, mozilla::NotNull<nsIPrincipal*> aPrincipalInfo,
+    const Maybe<nsID>& aClientId) {
+  AssertIsInMainProcess();
+  AssertIsOnBackgroundThread();
+  MOZ_ASSERT(aActor);
+
+  // If the IsOtherProcessActor is true, then we're dealing with some kind of
+  // content process, and we do not expect the system principal to send this
+  // kind of constructor message.
+  if (aPrincipalInfo->IsSystemPrincipal() &&
+      BackgroundParent::IsOtherProcessActor(this)) {
+    return IPC_FAIL_NO_REASON(this);
+  }
+
+  return IPC_OK();
+}
+
 already_AddRefed<dom::locks::PLockManagerParent>
 BackgroundParentImpl::AllocPLockManagerParent(NotNull<nsIPrincipal*> aPrincipal,
-                                              const nsID& aClientId) {
+                                              const Maybe<nsID>& aClientId) {
   return MakeAndAddRef<mozilla::dom::locks::LockManagerParent>(aPrincipal,
                                                                aClientId);
 }

@@ -29,6 +29,9 @@
 using namespace js;
 using namespace js::wasm;
 
+using mozilla::CheckedInt32;
+using mozilla::MallocSizeOf;
+
 /* static */
 CacheableName CacheableName::fromUTF8Chars(UniqueChars&& utf8Chars) {
   size_t length = strlen(utf8Chars.get());
@@ -47,6 +50,12 @@ bool CacheableName::fromUTF8Chars(const char* utf8Chars, CacheableName* name) {
   memcpy(bytes.begin(), utf8Chars, utf8CharsLen);
   *name = CacheableName(std::move(bytes));
   return true;
+}
+
+BranchHintVector BranchHintCollection::invalidVector_;
+
+JSString* CacheableName::toJSString(JSContext* cx) const {
+  return NewStringCopyUTF8N(cx, JS::UTF8Chars(begin(), length()));
 }
 
 JSAtom* CacheableName::toAtom(JSContext* cx) const {

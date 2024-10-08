@@ -9,13 +9,9 @@
 
 ["include:tests/benchmarks/matrix-react-bench.toml"]
 
-["include:tests/benchmarks/motionmark-animometer-desktop.toml"]
+["include:tests/benchmarks/motionmark-1-3-desktop.toml"]
 
-["include:tests/benchmarks/motionmark-animometer-mobile.toml"]
-
-["include:tests/benchmarks/motionmark-htmlsuite-desktop.toml"]
-
-["include:tests/benchmarks/motionmark-htmlsuite-mobile.toml"]
+["include:tests/benchmarks/motionmark-1-3-mobile.toml"]
 
 ["include:tests/benchmarks/speedometer-desktop.toml"]
 
@@ -51,9 +47,6 @@
 ["include:tests/custom/browsertime-custom.toml"]
 # Local custom browsertime tests
 
-["include:tests/custom/browsertime-grandprix.toml"]
-# Custom grandprix benchmark test
-
 ["include:tests/custom/browsertime-indexeddb.toml"]
 # Custom indexeddb test
 
@@ -78,6 +71,12 @@
 ["include:tests/custom/browsertime-upload.toml"]
 # Custom upload speed test
 
+["include:tests/custom/browsertime-network-bench.toml"]
+# Custom download/upload performance test
+
+["include:tests/custom/browsertime-video-playback-latency.toml"]
+# Video playback latency tests
+
 ["include:tests/custom/browsertime-welcome.toml"]
 # First-install pageload test
 
@@ -95,6 +94,9 @@
 
 ["include:tests/tp6/mobile/browsertime-tp6m.toml"]
 # raptor-browsertime android page-load tests
+
+["include:tests/tp7/desktop/browsertime-tp7.toml"]
+# raptor-browsertime desktop page-load tests
 
 ["include:tests/unittests/browsertime-tp6-unittest.toml"]
 # raptor-browsertime unit tests

@@ -55,10 +55,12 @@ function getValidStyle(style, validStyles, allowVars) {
 
 export const MultiSelect = ({
   content,
+  screenMultiSelects,
+  setScreenMultiSelects,
   activeMultiSelect,
   setActiveMultiSelect,
 }) => {
-  const { data, randomize } = content.tiles;
+  const { data } = content.tiles;
 
   const refs = useRef({});
 
@@ -73,7 +75,23 @@ export const MultiSelect = ({
   }, [setActiveMultiSelect]);
 
   const items = useMemo(
-    () => (randomize ? data.sort(() => 0.5 - Math.random()) : data),
+    () => {
+      function getOrderedIds() {
+        if (screenMultiSelects) {
+          return screenMultiSelects;
+        }
+        let orderedIds = data
+          .map(item => ({
+            id: item.id,
+            rank: item.randomize ? Math.random() : NaN,
+          }))
+          .sort((a, b) => b.rank - a.rank)
+          .map(({ id }) => id);
+        setScreenMultiSelects(orderedIds);
+        return orderedIds;
+      }
+      return getOrderedIds().map(id => data.find(item => item.id === id));
+    },
     [] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
@@ -97,30 +115,52 @@ export const MultiSelect = ({
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="multi-select-container" style={containerStyle}>
-      {items.map(({ id, label, icon, type = "checkbox", group, style }) => (
-        <div
-          key={id + label}
-          className="checkbox-container multi-select-item"
-          style={getValidStyle(style, MULTI_SELECT_STYLES)}
-        >
-          <input
-            type={type} // checkbox or radio
-            id={id}
-            value={id}
-            name={group}
-            checked={activeMultiSelect?.includes(id)}
-            style={getValidStyle(icon?.style, MULTI_SELECT_ICON_STYLES)}
-            onChange={handleChange}
-            ref={el => (refs.current[id] = el)}
-          />
-          {label ? (
-            <Localized text={label}>
-              <label htmlFor={id}></label>
-            </Localized>
-          ) : null}
-        </div>
-      ))}
+    <div
+      className="multi-select-container"
+      style={containerStyle}
+      role={
+        items.some(({ type, group }) => type === "radio" && group)
+          ? "radiogroup"
+          : "group"
+      }
+      aria-labelledby="multi-stage-multi-select-label"
+    >
+      {content.tiles.label ? (
+        <Localized text={content.tiles.label}>
+          <h2 id="multi-stage-multi-select-label" />
+        </Localized>
+      ) : null}
+      {items.map(
+        ({ id, label, description, icon, type = "checkbox", group, style }) => (
+          <div
+            key={id + label}
+            className="checkbox-container multi-select-item"
+            style={getValidStyle(style, MULTI_SELECT_STYLES)}
+          >
+            <input
+              type={type} // checkbox or radio
+              id={id}
+              value={id}
+              name={group}
+              checked={activeMultiSelect?.includes(id)}
+              style={getValidStyle(icon?.style, MULTI_SELECT_ICON_STYLES)}
+              onChange={handleChange}
+              ref={el => (refs.current[id] = el)}
+              aria-describedby={description ? `${id}-description` : null}
+            />
+            {label ? (
+              <Localized text={label}>
+                <label htmlFor={id}></label>
+              </Localized>
+            ) : null}
+            {description ? (
+              <Localized text={description}>
+                <p id={`${id}-description`}></p>
+              </Localized>
+            ) : null}
+          </div>
+        )
+      )}
     </div>
   );
 };

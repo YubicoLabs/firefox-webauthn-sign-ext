@@ -32,6 +32,7 @@ BROWSER_CHROME_MANIFESTS += [
     "content/test/gesture/browser.toml",
     "content/test/historySwipeAnimation/browser.toml",
     "content/test/keyboard/browser.toml",
+    "content/test/keyboard/browserSidebarRevamp.toml",
     "content/test/menubar/browser.toml",
     "content/test/metaTags/browser.toml",
     "content/test/notificationbox/browser.toml",
@@ -47,11 +48,12 @@ BROWSER_CHROME_MANIFESTS += [
     "content/test/protectionsUI/browser.toml",
     "content/test/referrer/browser.toml",
     "content/test/sanitize/browser.toml",
+    "content/test/scroll-to-text-fragment/browser.toml",
     "content/test/sidebar/browser.toml",
+    "content/test/sidebar/browserSidebarRevamp.toml",
     "content/test/siteIdentity/browser.toml",
     "content/test/startup/browser.toml",
     "content/test/static/browser.toml",
-    "content/test/statuspanel/browser.toml",
     "content/test/sync/browser.toml",
     "content/test/tabcrashed/browser.toml",
     "content/test/tabcrashed/browser_aboutRestartRequired.toml",
@@ -59,7 +61,6 @@ BROWSER_CHROME_MANIFESTS += [
     "content/test/tabdialogs/browser.toml",
     "content/test/tabMediaIndicator/browser.toml",
     "content/test/tabPrompts/browser.toml",
-    "content/test/tabs/browser.toml",
     "content/test/touch/browser.toml",
     "content/test/utilityOverlay/browser.toml",
     "content/test/webextensions/browser.toml",
@@ -70,6 +71,7 @@ BROWSER_CHROME_MANIFESTS += [
 
 DIRS += [
     "content/test/performance/",
+    "content/test/fullscreen/",
 ]
 
 PERFTESTS_MANIFESTS += ["content/test/perftest.toml"]
@@ -84,9 +86,5 @@ if CONFIG["MOZ_WIDGET_TOOLKIT"] in ("windows", "gtk", "cocoa"):
 
 if CONFIG["MOZ_WIDGET_TOOLKIT"] in ("windows", "gtk"):
     DEFINES["MENUBAR_CAN_AUTOHIDE"] = 1
-
-if CONFIG["OS_ARCH"] == "WINNT" and CONFIG["MOZ_DEFAULT_BROWSER_AGENT"]:
-    # Impacts `/toolkit/content/license.html`.
-    DEFINES["MOZ_DEFAULT_BROWSER_AGENT"] = True
 
 JAR_MANIFESTS += ["jar.mn"]

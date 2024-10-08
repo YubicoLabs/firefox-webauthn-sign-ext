@@ -22,10 +22,7 @@ module.exports = {
 
     // The thread actor has to be initialized in order to correctly
     // retrieve the stack trace when hitting an XHR
-    if (
-      threadActor.state == THREAD_STATES.DETACHED &&
-      !targetActor.targetType.endsWith("worker")
-    ) {
+    if (threadActor.state == THREAD_STATES.DETACHED) {
       await threadActor.attach();
     }
 
@@ -36,7 +33,7 @@ module.exports = {
     );
   },
 
-  removeSessionDataEntry(targetActor, entries, isDocumentCreation) {
+  removeSessionDataEntry(targetActor, entries) {
     for (const { path, method } of entries) {
       targetActor.threadActor.removeXHRBreakpoint(path, method);
     }

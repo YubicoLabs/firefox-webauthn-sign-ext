@@ -16,6 +16,9 @@
 #  include "builtin/intl/RelativeTimeFormat.h"
 #  include "builtin/intl/Segmenter.h"
 #endif
+#ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT
+#  include "builtin/AsyncDisposableStackObject.h"
+#endif
 #include "builtin/MapObject.h"
 #include "js/experimental/JitInfo.h"
 #include "vm/ArrayBufferObject.h"
@@ -90,6 +93,10 @@ const JSClass* js::jit::InlinableNativeGuardToClass(InlinableNative native) {
       return &IteratorHelperObject::class_;
     case InlinableNative::IntrinsicGuardToAsyncIteratorHelper:
       return &AsyncIteratorHelperObject::class_;
+#ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT
+    case InlinableNative::IntrinsicGuardToAsyncDisposableStack:
+      return &AsyncDisposableStackObject::class_;
+#endif
 
     case InlinableNative::IntrinsicGuardToMapObject:
       return &MapObject::class_;
@@ -129,6 +136,7 @@ bool js::jit::CanInlineNativeCrossRealm(InlinableNative native) {
     case InlinableNative::MathPow:
     case InlinableNative::MathImul:
     case InlinableNative::MathFRound:
+    case InlinableNative::MathF16Round:
     case InlinableNative::MathTrunc:
     case InlinableNative::MathSign:
     case InlinableNative::MathSin:
@@ -231,6 +239,9 @@ bool js::jit::CanInlineNativeCrossRealm(InlinableNative native) {
     case InlinableNative::IntrinsicTypedArrayByteOffset:
     case InlinableNative::IntrinsicTypedArrayElementSize:
     case InlinableNative::IntrinsicArrayIteratorPrototypeOptimizable:
+#ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT
+    case InlinableNative::IntrinsicGuardToAsyncDisposableStack:
+#endif
       MOZ_CRASH("Unexpected cross-realm intrinsic call");
 
     case InlinableNative::TestBailout:
@@ -255,6 +266,7 @@ bool js::jit::CanInlineNativeCrossRealm(InlinableNative native) {
     case InlinableNative::AtomicsOr:
     case InlinableNative::AtomicsXor:
     case InlinableNative::AtomicsIsLockFree:
+    case InlinableNative::BigInt:
     case InlinableNative::BigIntAsIntN:
     case InlinableNative::BigIntAsUintN:
     case InlinableNative::DataViewGetInt8:
@@ -263,6 +275,7 @@ bool js::jit::CanInlineNativeCrossRealm(InlinableNative native) {
     case InlinableNative::DataViewGetUint16:
     case InlinableNative::DataViewGetInt32:
     case InlinableNative::DataViewGetUint32:
+    case InlinableNative::DataViewGetFloat16:
     case InlinableNative::DataViewGetFloat32:
     case InlinableNative::DataViewGetFloat64:
     case InlinableNative::DataViewGetBigInt64:
@@ -273,6 +286,7 @@ bool js::jit::CanInlineNativeCrossRealm(InlinableNative native) {
     case InlinableNative::DataViewSetUint16:
     case InlinableNative::DataViewSetInt32:
     case InlinableNative::DataViewSetUint32:
+    case InlinableNative::DataViewSetFloat16:
     case InlinableNative::DataViewSetFloat32:
     case InlinableNative::DataViewSetFloat64:
     case InlinableNative::DataViewSetBigInt64:

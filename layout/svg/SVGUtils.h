@@ -258,9 +258,8 @@ class SVGUtils final {
   /*
    * Returns whether the frame is transformed and what those transforms are.
    */
-  static bool IsSVGTransformed(const nsIFrame* aFrame,
-                               gfx::Matrix* aOwnTransform,
-                               gfx::Matrix* aFromParentTransform);
+  static bool GetParentSVGTransforms(const nsIFrame* aFrame,
+                                     gfx::Matrix* aFromParentTransform);
 
   /**
    * Notify the descendants of aFrame of a change to one of their ancestors
@@ -346,6 +345,12 @@ class SVGUtils final {
     // For a frame with a clip-path, if this flag is set then the result
     // will not be clipped to the bbox of the content inside the clip-path.
     eDoNotClipToBBoxOfContentInsideClipPath = 1 << 10,
+    // For some cases, e.g. when using transform-box: stroke-box, we may have
+    // the cyclical dependency if any of the elements in the subtree has
+    // non-scaling-stroke. In this case, we should break it and use
+    // transform-box:fill-box instead.
+    // https://github.com/w3c/csswg-drafts/issues/9640
+    eAvoidCycleIfNonScalingStroke = 1 << 11,
   };
   /**
    * This function in primarily for implementing the SVG DOM function getBBox()
@@ -505,6 +510,13 @@ class SVGUtils final {
                : AntialiasMode::SUBPIXEL;
   }
 
+  static AntialiasMode ToAntialiasMode(StyleShapeRendering aShapeRendering) {
+    return (aShapeRendering == StyleShapeRendering::Optimizespeed ||
+            aShapeRendering == StyleShapeRendering::Crispedges)
+               ? AntialiasMode::NONE
+               : AntialiasMode::SUBPIXEL;
+  }
+
   /**
    * Render a SVG glyph.
    * @param aElement the SVG glyph element to render
@@ -606,14 +618,6 @@ class SVGUtils final {
    * its usual dev pixels to SVG user units/CSS px to keep the SVG code happy.
    */
   static gfxMatrix GetCSSPxToDevPxMatrix(const nsIFrame* aNonSVGFrame);
-
-  /**
-   * It is a replacement of
-   * SVGElement::PrependLocalTransformsTo(eUserSpaceToParent).
-   * If no CSS transform is involved, they should behave exactly the same;
-   * if there are CSS transforms, this one will take them into account
-   * while SVGElement::PrependLocalTransformsTo won't.
-   */
   static gfxMatrix GetTransformMatrixInUserSpace(const nsIFrame* aFrame);
 };
 

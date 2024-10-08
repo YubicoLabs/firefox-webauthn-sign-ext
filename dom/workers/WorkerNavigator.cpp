@@ -83,7 +83,10 @@ void WorkerNavigator::Invalidate() {
 
   mWebGpu = nullptr;
 
-  mLocks = nullptr;
+  if (mLocks) {
+    mLocks->Shutdown();
+    mLocks = nullptr;
+  }
 }
 
 JSObject* WorkerNavigator::WrapObject(JSContext* aCx,
@@ -97,7 +100,7 @@ bool WorkerNavigator::GlobalPrivacyControl() const {
     JSObject* jso = GetWrapper();
     if (const nsCOMPtr<nsIGlobalObject> global = xpc::NativeGlobal(jso)) {
       if (const nsCOMPtr<nsIPrincipal> principal = global->PrincipalOrNull()) {
-        gpcStatus = principal->GetPrivateBrowsingId() > 0 &&
+        gpcStatus = principal->GetIsInPrivateBrowsing() &&
                     StaticPrefs::privacy_globalprivacycontrol_pbmode_enabled();
       }
     }
@@ -139,21 +142,17 @@ void WorkerNavigator::GetPlatform(nsString& aPlatform, CallerType aCallerType,
   WorkerPrivate* workerPrivate = GetCurrentThreadWorkerPrivate();
   MOZ_ASSERT(workerPrivate);
 
-  if (aCallerType != CallerType::System) {
-    if (workerPrivate->ShouldResistFingerprinting(
-            RFPTarget::NavigatorPlatform)) {
-      // See nsRFPService.h for spoofed value.
-      aPlatform.AssignLiteral(SPOOFED_PLATFORM);
-      return;
-    }
-
-    if (!mProperties.mPlatformOverridden.IsEmpty()) {
-      aPlatform = mProperties.mPlatformOverridden;
-      return;
-    }
+  // navigator.platform is the same for default and spoofed values. The
+  // "general.platform.override" pref should override the default platform,
+  // but the spoofed platform should override the pref.
+  if (aCallerType == CallerType::System ||
+      workerPrivate->ShouldResistFingerprinting(RFPTarget::NavigatorPlatform) ||
+      mProperties.mPlatformOverridden.IsEmpty()) {
+    aPlatform = mProperties.mPlatform;
+  } else {
+    // from "general.platform.override" pref.
+    aPlatform = mProperties.mPlatformOverridden;
   }
-
-  aPlatform = mProperties.mPlatform;
 }
 
 namespace {
@@ -179,11 +178,14 @@ class GetUserAgentRunnable final : public WorkerMainThreadRunnable {
 
   virtual bool MainThreadRun() override {
     AssertIsOnMainThread();
+    MOZ_ASSERT(mWorkerRef);
 
-    nsCOMPtr<nsPIDOMWindowInner> window = mWorkerPrivate->GetWindow();
+    WorkerPrivate* workerPrivate = mWorkerRef->Private();
+
+    nsCOMPtr<nsPIDOMWindowInner> window = workerPrivate->GetWindow();
 
     nsresult rv =
-        dom::Navigator::GetUserAgent(window, mWorkerPrivate->GetDocument(),
+        dom::Navigator::GetUserAgent(window, workerPrivate->GetDocument(),
                                      Some(mShouldResistFingerprinting), mUA);
     if (NS_FAILED(rv)) {
       NS_WARNING("Failed to retrieve user-agent from the worker thread.");
@@ -204,7 +206,7 @@ void WorkerNavigator::GetUserAgent(nsString& aUserAgent, CallerType aCallerType,
       workerPrivate, aUserAgent,
       workerPrivate->ShouldResistFingerprinting(RFPTarget::NavigatorUserAgent));
 
-  runnable->Dispatch(Canceling, aRv);
+  runnable->Dispatch(workerPrivate, Canceling, aRv);
 }
 
 uint64_t WorkerNavigator::HardwareConcurrency() const {
@@ -227,6 +229,8 @@ StorageManager* WorkerNavigator::Storage() {
     MOZ_ASSERT(global);
 
     mStorageManager = new StorageManager(global);
+
+    workerPrivate->NotifyStorageKeyUsed();
   }
 
   return mStorageManager;

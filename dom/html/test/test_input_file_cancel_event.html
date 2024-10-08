@@ -14,7 +14,7 @@
 SimpleTest.waitForExplicitFinish();
 
 var MockFilePicker = SpecialPowers.MockFilePicker;
-MockFilePicker.init(window);
+MockFilePicker.init(SpecialPowers.wrap(window).browsingContext);
 MockFilePicker.useBlobFile();
 MockFilePicker.returnValue = MockFilePicker.returnCancel;
 
@@ -36,6 +36,8 @@ input.addEventListener('cancel', event => {
 input.addEventListener('change' , () => {
   ok(false, "unexpected change event");
 })
+
+SpecialPowers.wrap(document).notifyUserGestureActivation();
 input.click();
 </script>
 </body>

@@ -96,8 +96,7 @@ class TeardownRunnableOnWorker final : public WorkerControlRunnable,
  public:
   TeardownRunnableOnWorker(WorkerPrivate* aWorkerPrivate,
                            BroadcastChannelChild* aActor)
-      : WorkerControlRunnable(aWorkerPrivate, "TeardownRunnableOnWorker",
-                              WorkerThread),
+      : WorkerControlRunnable("TeardownRunnableOnWorker"),
         TeardownRunnable(aActor) {}
 
   bool WorkerRun(JSContext*, WorkerPrivate*) override {
@@ -340,7 +339,7 @@ void BroadcastChannel::Shutdown() {
 
       RefPtr<TeardownRunnableOnWorker> runnable =
           new TeardownRunnableOnWorker(workerPrivate, mActor);
-      runnable->Dispatch();
+      runnable->Dispatch(workerPrivate);
     }
 
     mActor = nullptr;
@@ -354,7 +353,7 @@ void BroadcastChannel::RemoveDocFromBFCache() {
     return;
   }
 
-  if (nsPIDOMWindowInner* window = GetOwner()) {
+  if (nsPIDOMWindowInner* window = GetOwnerWindow()) {
     window->RemoveFromBFCacheSync();
   }
 }

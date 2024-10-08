@@ -15,8 +15,8 @@ const HISTORY_EVENT = [["firefoxview_next", "history", "visits", undefined]];
 const SHOW_ALL_HISTORY_EVENT = [
   ["firefoxview_next", "show_all_history", "tabs", undefined],
 ];
-
 const NEVER_REMEMBER_HISTORY_PREF = "browser.privatebrowsing.autostart";
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 const today = new Date();
 const yesterday = new Date(Date.now() - DAY_MS);
@@ -24,6 +24,14 @@ const twoDaysAgo = new Date(Date.now() - DAY_MS * 2);
 const threeDaysAgo = new Date(Date.now() - DAY_MS * 3);
 const fourDaysAgo = new Date(Date.now() - DAY_MS * 4);
 const oneMonthAgo = new Date(today);
+const dates = [
+  today,
+  yesterday,
+  twoDaysAgo,
+  threeDaysAgo,
+  fourDaysAgo,
+  oneMonthAgo,
+];
 
 // Set the date for the first day of the last month
 oneMonthAgo.setDate(1);
@@ -47,16 +55,13 @@ function isElInViewport(element) {
   );
 }
 
-async function historyComponentReady(historyComponent) {
+async function historyComponentReady(historyComponent, expectedHistoryItems) {
   await TestUtils.waitForCondition(
-    () =>
-      [...historyComponent.allHistoryItems.values()].reduce(
-        (acc, { length }) => acc + length,
-        0
-      ) === 24
+    () => historyComponent.controller.totalVisitsCount === expectedHistoryItems,
+    "History component ready"
   );
 
-  let expected = historyComponent.historyMapByDate.length;
+  let expected = historyComponent.controller.historyVisits.length;
   let actual = historyComponent.cards.length;
 
   is(expected, actual, `Total number of cards should be ${expected}`);
@@ -148,10 +153,19 @@ async function addHistoryItems(dateAdded) {
   });
 }
 
+function createHistoryEntries() {
+  let historyEntries = [];
+  for (let i = 0; i < 4; i++) {
+    historyEntries.push({
+      url: URLs[i],
+      title: `Example Domain ${i}`,
+      visits: dates.map(date => [{ date }]),
+    });
+  }
+  return historyEntries;
+}
+
 add_setup(async () => {
-  await SpecialPowers.pushPrefEnv({
-    set: [["browser.firefox-view.search.enabled", true]],
-  });
   registerCleanupFunction(async () => {
     await SpecialPowers.popPrefEnv();
     await PlacesUtils.history.clear();
@@ -160,21 +174,20 @@ add_setup(async () => {
 
 add_task(async function test_list_ordering() {
   await PlacesUtils.history.clear();
-  await addHistoryItems(today);
-  await addHistoryItems(yesterday);
-  await addHistoryItems(twoDaysAgo);
-  await addHistoryItems(threeDaysAgo);
-  await addHistoryItems(fourDaysAgo);
-  await addHistoryItems(oneMonthAgo);
+  const historyEntries = createHistoryEntries();
+  await PlacesUtils.history.insertMany(historyEntries);
   await withFirefoxView({}, async browser => {
     const { document } = browser.contentWindow;
 
     await navigateToViewAndWait(document, "history");
 
-    let historyComponent = document.querySelector("view-history");
+    let historyComponent = await TestUtils.waitForCondition(
+      () => document.querySelector("view-history"),
+      "History component rendered"
+    );
     historyComponent.profileAge = 8;
 
-    await historyComponentReady(historyComponent);
+    await historyComponentReady(historyComponent, historyEntries.length);
 
     let firstCard = historyComponent.cards[0];
 
@@ -222,7 +235,7 @@ add_task(async function test_list_ordering() {
     await TestUtils.waitForCondition(() => historyComponent.fullyUpdated);
     await sortHistoryTelemetry(sortHistoryEvent);
 
-    let expectedNumOfCards = historyComponent.historyMapBySite.length;
+    let expectedNumOfCards = historyComponent.controller.historyVisits.length;
 
     info(`Total number of cards should be ${expectedNumOfCards}`);
     await BrowserTestUtils.waitForMutationCondition(
@@ -325,7 +338,7 @@ add_task(async function test_empty_states() {
       "Import history banner is shown"
     );
     let importHistoryCloseButton =
-      historyComponent.cards[0].querySelector("button.close");
+      historyComponent.cards[0].querySelector("moz-button.close");
     importHistoryCloseButton.click();
     await TestUtils.waitForCondition(() => historyComponent.fullyUpdated);
     ok(
@@ -390,12 +403,8 @@ add_task(async function test_observers_removed_when_view_is_hidden() {
 
 add_task(async function test_show_all_history_telemetry() {
   await PlacesUtils.history.clear();
-  await addHistoryItems(today);
-  await addHistoryItems(yesterday);
-  await addHistoryItems(twoDaysAgo);
-  await addHistoryItems(threeDaysAgo);
-  await addHistoryItems(fourDaysAgo);
-  await addHistoryItems(oneMonthAgo);
+  const historyEntries = createHistoryEntries();
+  await PlacesUtils.history.insertMany(historyEntries);
   await withFirefoxView({}, async browser => {
     const { document } = browser.contentWindow;
 
@@ -403,7 +412,7 @@ add_task(async function test_show_all_history_telemetry() {
 
     let historyComponent = document.querySelector("view-history");
     historyComponent.profileAge = 8;
-    await historyComponentReady(historyComponent);
+    await historyComponentReady(historyComponent, historyEntries.length);
 
     await clearAllParentTelemetryEvents();
     let showAllHistoryBtn = historyComponent.showAllHistoryBtn;
@@ -422,12 +431,15 @@ add_task(async function test_show_all_history_telemetry() {
 });
 
 add_task(async function test_search_history() {
+  await PlacesUtils.history.clear();
+  const historyEntries = createHistoryEntries();
+  await PlacesUtils.history.insertMany(historyEntries);
   await withFirefoxView({}, async browser => {
     const { document } = browser.contentWindow;
     await navigateToViewAndWait(document, "history");
     const historyComponent = document.querySelector("view-history");
     historyComponent.profileAge = 8;
-    await historyComponentReady(historyComponent);
+    await historyComponentReady(historyComponent, historyEntries.length);
     const searchTextbox = await TestUtils.waitForCondition(
       () => historyComponent.searchTextbox,
       "The search textbox is displayed."
@@ -447,7 +459,7 @@ add_task(async function test_search_history() {
     );
     await TestUtils.waitForCondition(() => {
       const { rowEls } = historyComponent.lists[0];
-      return rowEls.length === 1 && rowEls[0].mainEl.href === URLs[0];
+      return rowEls.length === 1 && rowEls[0].mainEl.href === URLs[1];
     }, "There is one matching search result.");
 
     info("Input a bogus search query.");
@@ -455,7 +467,7 @@ add_task(async function test_search_history() {
     EventUtils.sendString("Bogus Query", content);
     await TestUtils.waitForCondition(() => {
       const tabList = historyComponent.lists[0];
-      return tabList?.shadowRoot.querySelector("fxview-empty-state");
+      return tabList?.emptyState;
     }, "There are no matching search results.");
 
     info("Clear the search query.");
@@ -465,7 +477,7 @@ add_task(async function test_search_history() {
       { childList: true, subtree: true },
       () =>
         historyComponent.cards.length ===
-        historyComponent.historyMapByDate.length
+        historyComponent.controller.historyVisits.length
     );
     searchTextbox.blur();
 
@@ -474,7 +486,7 @@ add_task(async function test_search_history() {
     EventUtils.sendString("Bogus Query", content);
     await TestUtils.waitForCondition(() => {
       const tabList = historyComponent.lists[0];
-      return tabList?.shadowRoot.querySelector("fxview-empty-state");
+      return tabList?.emptyState;
     }, "There are no matching search results.");
 
     info("Clear the search query with keyboard.");
@@ -494,9 +506,67 @@ add_task(async function test_search_history() {
       { childList: true, subtree: true },
       () =>
         historyComponent.cards.length ===
-        historyComponent.historyMapByDate.length
+        historyComponent.controller.historyVisits.length
     );
   });
+});
+
+add_task(async function test_search_ignores_stale_queries() {
+  await PlacesUtils.history.clear();
+  const historyEntries = createHistoryEntries();
+  await PlacesUtils.history.insertMany(historyEntries);
+
+  let bogusQueryInProgress = false;
+  const searchDeferred = Promise.withResolvers();
+  const realDatabase = await PlacesUtils.promiseLargeCacheDBConnection();
+  const mockDatabase = {
+    executeCached: async (sql, options) => {
+      if (options.query === "Bogus Query") {
+        bogusQueryInProgress = true;
+        await searchDeferred.promise;
+      }
+      return realDatabase.executeCached(sql, options);
+    },
+    interrupt: () => searchDeferred.reject(),
+  };
+  const stub = sinon
+    .stub(PlacesUtils, "promiseLargeCacheDBConnection")
+    .resolves(mockDatabase);
+
+  await withFirefoxView({}, async browser => {
+    const { document } = browser.contentWindow;
+    await navigateToViewAndWait(document, "history");
+    const historyComponent = document.querySelector("view-history");
+    historyComponent.profileAge = 8;
+    await historyComponentReady(historyComponent, historyEntries.length);
+    const searchTextbox = await TestUtils.waitForCondition(
+      () => historyComponent.searchTextbox,
+      "The search textbox is displayed."
+    );
+
+    info("Input a bogus search query.");
+    EventUtils.synthesizeMouseAtCenter(searchTextbox, {}, content);
+    EventUtils.sendString("Bogus Query", content);
+    await TestUtils.waitForCondition(() => bogusQueryInProgress);
+
+    info("Clear the bogus query.");
+    EventUtils.synthesizeMouseAtCenter(searchTextbox.clearButton, {}, content);
+    await searchTextbox.updateComplete;
+
+    info("Input a real search query.");
+    EventUtils.synthesizeMouseAtCenter(searchTextbox, {}, content);
+    EventUtils.sendString("Example Domain 1", content);
+    await TestUtils.waitForCondition(() => {
+      const { rowEls } = historyComponent.lists[0];
+      return rowEls.length === 1 && rowEls[0].mainEl.href === URLs[1];
+    }, "There is one matching search result.");
+    searchDeferred.resolve();
+    await TestUtils.waitForTick();
+    const tabList = historyComponent.lists[0];
+    ok(!tabList.emptyState, "Empty state should not be shown.");
+  });
+
+  stub.restore();
 });
 
 add_task(async function test_persist_collapse_card_after_view_change() {
@@ -508,11 +578,7 @@ add_task(async function test_persist_collapse_card_after_view_change() {
     const historyComponent = document.querySelector("view-history");
     historyComponent.profileAge = 8;
     await TestUtils.waitForCondition(
-      () =>
-        [...historyComponent.allHistoryItems.values()].reduce(
-          (acc, { length }) => acc + length,
-          0
-        ) === 4
+      () => historyComponent.controller.totalVisitsCount === 4
     );
     let firstHistoryCard = historyComponent.cards[0];
     ok(

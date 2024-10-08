@@ -14,7 +14,6 @@
 
 import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
 import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
-import { ComponentUtils } from "resource://gre/modules/ComponentUtils.sys.mjs";
 import { TestUtils } from "resource://testing-common/TestUtils.sys.mjs";
 
 const lazy = {};
@@ -31,33 +30,9 @@ XPCOMUtils.defineLazyServiceGetters(lazy, {
   ],
 });
 
-const PROCESSSELECTOR_CONTRACTID = "@mozilla.org/ipc/processselector;1";
-const OUR_PROCESSSELECTOR_CID = Components.ID(
-  "{f9746211-3d53-4465-9aeb-ca0d96de0253}"
-);
-const EXISTING_JSID = Cc[PROCESSSELECTOR_CONTRACTID];
-const DEFAULT_PROCESSSELECTOR_CID = EXISTING_JSID
-  ? Components.ID(EXISTING_JSID.number)
-  : null;
-
 let gListenerId = 0;
 
-// A process selector that always asks for a new process.
-function NewProcessSelector() {}
-
-NewProcessSelector.prototype = {
-  classID: OUR_PROCESSSELECTOR_CID,
-  QueryInterface: ChromeUtils.generateQI(["nsIContentProcessProvider"]),
-
-  provideProcess() {
-    return Ci.nsIContentProcessProvider.NEW_PROCESS;
-  },
-};
-
-let registrar = Components.manager.QueryInterface(Ci.nsIComponentRegistrar);
-let selectorFactory =
-  ComponentUtils.generateSingletonFactory(NewProcessSelector);
-registrar.registerFactory(OUR_PROCESSSELECTOR_CID, "", null, selectorFactory);
+const DISABLE_CONTENT_PROCESS_REUSE_PREF = "dom.ipc.disableContentProcessReuse";
 
 const kAboutPageRegistrationContentScript =
   "chrome://mochikit/content/tests/BrowserTestUtils/content-about-page-utils.js";
@@ -228,18 +203,11 @@ export var BrowserTestUtils = {
 
     let promises, tab;
     try {
-      // If we're asked to force a new process, replace the normal process
-      // selector with one that always asks for a new process.
-      // If DEFAULT_PROCESSSELECTOR_CID is null, we're in non-e10s mode and we
-      // should skip this.
-      if (options.forceNewProcess && DEFAULT_PROCESSSELECTOR_CID) {
+      // If we're asked to force a new process, set the pref to disable process
+      // re-use while we insert this new tab.
+      if (options.forceNewProcess) {
         Services.ppmm.releaseCachedProcesses();
-        registrar.registerFactory(
-          OUR_PROCESSSELECTOR_CID,
-          "",
-          PROCESSSELECTOR_CONTRACTID,
-          null
-        );
+        Services.prefs.setBoolPref(DISABLE_CONTENT_PROCESS_REUSE_PREF, true);
       }
 
       promises = [
@@ -263,14 +231,9 @@ export var BrowserTestUtils = {
         promises.push(BrowserTestUtils.browserStopped(tab.linkedBrowser));
       }
     } finally {
-      // Restore the original process selector, if needed.
-      if (options.forceNewProcess && DEFAULT_PROCESSSELECTOR_CID) {
-        registrar.registerFactory(
-          DEFAULT_PROCESSSELECTOR_CID,
-          "",
-          PROCESSSELECTOR_CONTRACTID,
-          null
-        );
+      // Clear the pref once we're done, if needed.
+      if (options.forceNewProcess) {
+        Services.prefs.clearUserPref(DISABLE_CONTENT_PROCESS_REUSE_PREF);
       }
     }
     return Promise.all(promises).then(() => {
@@ -704,7 +667,7 @@ export var BrowserTestUtils = {
    * @resolves When STATE_START reaches the tab's progress listener
    */
   browserStarted(browser, expectedURI) {
-    let testFn = function (aStateFlags, aStatus) {
+    let testFn = function (aStateFlags) {
       return (
         aStateFlags & Ci.nsIWebProgressListener.STATE_IS_NETWORK &&
         aStateFlags & Ci.nsIWebProgressListener.STATE_START
@@ -745,7 +708,7 @@ export var BrowserTestUtils = {
    * @resolves With the {xul:tab} when a tab is opened and its location changes
    *           to the given URL and optionally that browser has loaded.
    *
-   * NB: this method will not work if you open a new tab with e.g. BrowserOpenTab
+   * NB: this method will not work if you open a new tab with e.g. BrowserCommands.openTab
    * and the tab does not load a URL, because no onLocationChange will fire.
    */
   waitForNewTab(
@@ -763,7 +726,7 @@ export var BrowserTestUtils = {
     } else {
       urlMatches = urlToMatch => urlToMatch != "about:blank";
     }
-    return new Promise((resolve, reject) => {
+    return new Promise(resolve => {
       tabbrowser.tabContainer.addEventListener(
         "TabOpen",
         function tabOpenListener(openEvent) {
@@ -822,31 +785,25 @@ export var BrowserTestUtils = {
    *
    * @param {tabbrowser} tabbrowser
    *        The tabbrowser to wait for the location change on.
-   * @param {string} url
+   * @param {string} [url]
    *        The string URL to look for. The URL must match the URL in the
    *        location bar exactly.
    * @return {Promise}
-   * @resolves When onLocationChange fires.
+   * @resolves {webProgress, request, flags} When onLocationChange fires.
    */
   waitForLocationChange(tabbrowser, url) {
-    return new Promise((resolve, reject) => {
+    return new Promise(resolve => {
       let progressListener = {
-        onLocationChange(
-          aBrowser,
-          aWebProgress,
-          aRequest,
-          aLocationURI,
-          aFlags
-        ) {
+        onLocationChange(browser, webProgress, request, newURI, flags) {
           if (
-            (url && aLocationURI.spec != url) ||
-            (!url && aLocationURI.spec == "about:blank")
+            (url && newURI.spec != url) ||
+            (!url && newURI.spec == "about:blank")
           ) {
             return;
           }
 
           tabbrowser.removeTabsProgressListener(progressListener);
-          resolve();
+          resolve({ webProgress, request, flags });
         },
       };
       tabbrowser.addTabsProgressListener(progressListener);
@@ -885,7 +842,7 @@ export var BrowserTestUtils = {
     }
 
     return new Promise((resolve, reject) => {
-      let observe = async (win, topic, data) => {
+      let observe = async (win, topic) => {
         if (topic != "domwindowopened") {
           return;
         }
@@ -1002,7 +959,7 @@ export var BrowserTestUtils = {
    */
   domWindowOpened(win, checkFn) {
     return new Promise(resolve => {
-      async function observer(subject, topic, data) {
+      async function observer(subject, topic) {
         if (topic == "domwindowopened" && (!win || subject === win)) {
           let observedWindow = subject;
           if (checkFn && !(await checkFn(observedWindow))) {
@@ -1055,7 +1012,7 @@ export var BrowserTestUtils = {
    */
   domWindowClosed(win) {
     return new Promise(resolve => {
-      function observer(subject, topic, data) {
+      function observer(subject, topic) {
         if (topic == "domwindowclosed" && (!win || subject === win)) {
           Services.ww.unregisterNotification(observer);
           resolve(subject);
@@ -1167,7 +1124,7 @@ export var BrowserTestUtils = {
           win.gBrowser._insertBrowser(win.gBrowser.getTabForBrowser(browser));
         });
 
-        let observer = (subject, topic, data) => {
+        let observer = subject => {
           if (browserSet.has(subject)) {
             browserSet.delete(subject);
           }
@@ -1202,7 +1159,7 @@ export var BrowserTestUtils = {
     return new Promise(resolve => {
       let browser = tab.linkedBrowser;
       let flushTopic = "sessionstore-browser-shutdown-flush";
-      let observer = (subject, topic, data) => {
+      let observer = subject => {
         if (subject === browser) {
           Services.obs.removeObserver(observer, flushTopic);
           // Wait for the next event tick to make sure other listeners are
@@ -1615,7 +1572,7 @@ export var BrowserTestUtils = {
     }
   },
 
-  observe(subject, topic, data) {
+  observe(subject, topic) {
     switch (topic) {
       case "test-complete":
         this._cleanupContentEventListeners();
@@ -1743,7 +1700,7 @@ export var BrowserTestUtils = {
   },
 
   /**
-   *  Versions of EventUtils.jsm synthesizeMouse functions that synthesize a
+   *  Versions of EventUtils.sys.mjs synthesizeMouse functions that synthesize a
    *  mouse event in a child process and return promises that resolve when the
    *  event has fired and completed. Instead of a window, a browser or
    *  browsing context is required to be passed to this function.
@@ -1760,7 +1717,7 @@ export var BrowserTestUtils = {
    * @param {integer} offsetY
    *        y offset from target's top bounding edge
    * @param {Object} event object
-   *        Additional arguments, similar to the EventUtils.jsm version
+   *        Additional arguments, similar to the EventUtils.sys.mjs version
    * @param {BrowserContext|MozFrameLoaderOwner} browsingContext
    *        Browsing context or browser element, must not be null
    * @param {boolean} handlingUserInput
@@ -1798,7 +1755,7 @@ export var BrowserTestUtils = {
   },
 
   /**
-   *  Versions of EventUtils.jsm synthesizeTouch functions that synthesize a
+   *  Versions of EventUtils.sys.mjs synthesizeTouch functions that synthesize a
    *  touch event in a child process and return promises that resolve when the
    *  event has fired and completed. Instead of a window, a browser or
    *  browsing context is required to be passed to this function.
@@ -1815,7 +1772,7 @@ export var BrowserTestUtils = {
    * @param {integer} offsetY
    *        y offset from target's top bounding edge
    * @param {Object} event object
-   *        Additional arguments, similar to the EventUtils.jsm version
+   *        Additional arguments, similar to the EventUtils.sys.mjs version
    * @param {BrowserContext|MozFrameLoaderOwner} browsingContext
    *        Browsing context or browser element, must not be null
    *
@@ -1963,6 +1920,18 @@ export var BrowserTestUtils = {
     let index = params.overflowAtStart ? 0 : undefined;
     let { gBrowser } = win;
     let arrowScrollbox = gBrowser.tabContainer.arrowScrollbox;
+    if (arrowScrollbox.hasAttribute("overflowing")) {
+      return;
+    }
+    let promises = [];
+    promises.push(
+      BrowserTestUtils.waitForEvent(
+        arrowScrollbox,
+        "overflow",
+        false,
+        e => e.target == arrowScrollbox
+      )
+    );
     const originalSmoothScroll = arrowScrollbox.smoothScroll;
     arrowScrollbox.smoothScroll = false;
     registerCleanupFunction(() => {
@@ -1977,11 +1946,14 @@ export var BrowserTestUtils = {
       (width(arrowScrollbox) / tabMinWidth) * params.overflowTabFactor
     );
     while (gBrowser.tabs.length < tabCountForOverflow) {
-      BrowserTestUtils.addTab(gBrowser, "about:blank", {
-        skipAnimation: true,
-        index,
-      });
+      promises.push(
+        BrowserTestUtils.addTab(gBrowser, "about:blank", {
+          skipAnimation: true,
+          index,
+        })
+      );
     }
+    await Promise.all(promises);
   },
 
   /**
@@ -2001,7 +1973,7 @@ export var BrowserTestUtils = {
    *        top level context if not supplied.
    * @param (object?) options
    *        An object with any of the following fields:
-   *          crashType: "CRASH_INVALID_POINTER_DEREF" | "CRASH_OOM"
+   *          crashType: "CRASH_INVALID_POINTER_DEREF" | "CRASH_OOM" | "CRASH_SYSCALL"
    *            The type of crash. If unspecified, default to "CRASH_INVALID_POINTER_DEREF"
    *          asyncCrash: bool
    *            If specified and `true`, cause the crash asynchronously.
@@ -2054,7 +2026,7 @@ export var BrowserTestUtils = {
     let expectedPromises = [];
 
     let crashCleanupPromise = new Promise((resolve, reject) => {
-      let observer = (subject, topic, data) => {
+      let observer = (subject, topic) => {
         if (topic != "ipc:content-shutdown") {
           reject("Received incorrect observer topic: " + topic);
           return;
@@ -2129,7 +2101,7 @@ export var BrowserTestUtils = {
 
     if (shouldShowTabCrashPage) {
       expectedPromises.push(
-        new Promise((resolve, reject) => {
+        new Promise(resolve => {
           browser.addEventListener(
             "AboutTabCrashedReady",
             function onCrash() {
@@ -2187,7 +2159,7 @@ export var BrowserTestUtils = {
     });
 
     let sawNormalCrash = false;
-    let observer = (subject, topic, data) => {
+    let observer = () => {
       sawNormalCrash = true;
     };
 
@@ -2232,7 +2204,7 @@ export var BrowserTestUtils = {
   waitForAttribute(attr, element, value) {
     let MutationObserver = element.ownerGlobal.MutationObserver;
     return new Promise(resolve => {
-      let mut = new MutationObserver(mutations => {
+      let mut = new MutationObserver(() => {
         if (
           (!value && element.hasAttribute(attr)) ||
           (value && element.getAttribute(attr) === value)
@@ -2263,7 +2235,7 @@ export var BrowserTestUtils = {
     let MutationObserver = element.ownerGlobal.MutationObserver;
     return new Promise(resolve => {
       dump("Waiting for removal\n");
-      let mut = new MutationObserver(mutations => {
+      let mut = new MutationObserver(() => {
         if (!element.hasAttribute(attr)) {
           resolve();
           mut.disconnect();

@@ -2,21 +2,7 @@
 // download occurs but not when a user manually saves a page.
 
 let MockFilePicker = SpecialPowers.MockFilePicker;
-MockFilePicker.init(window);
-
-async function promiseDownloadFinished(list) {
-  return new Promise(resolve => {
-    list.addView({
-      onDownloadChanged(download) {
-        download.launchWhenSucceeded = false;
-        if (download.succeeded || download.error) {
-          list.removeView(this);
-          resolve(download);
-        }
-      },
-    });
-  });
-}
+MockFilePicker.init(window.browsingContext);
 
 function openTestPage() {
   return BrowserTestUtils.openNewForegroundTab(

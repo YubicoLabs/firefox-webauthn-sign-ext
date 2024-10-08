@@ -6,7 +6,7 @@
 
 module.exports = {
   globals: {
-    // These are defined in the WebExtension script scopes by ExtensionCommon.jsm
+    // These are defined in the WebExtension script scopes by ExtensionCommon.sys.mjs
     Cc: true,
     Ci: true,
     Cr: true,
@@ -50,7 +50,7 @@ module.exports = {
     "no-unused-vars": [
       "error",
       {
-        args: "none",
+        argsIgnorePattern: "^_",
         vars: "all",
         varsIgnorePattern: "^console$",
       },
@@ -120,12 +120,6 @@ module.exports = {
     // Allow use of bitwise operators.
     "no-bitwise": "off",
 
-    // Disallow using the console API.
-    "no-console": "error",
-
-    // Allow using constant expressions in conditions like while (true)
-    "no-constant-condition": "off",
-
     // Allow use of the continue statement.
     "no-continue": "off",
 
@@ -168,9 +162,6 @@ module.exports = {
     // Disallow use of assignment in return statement. It is preferable for a
     // single line of code to have only one easily predictable effect.
     "no-return-assign": "error",
-
-    // Don't warn about declaration of variables already declared in the outer scope.
-    "no-shadow": "off",
 
     // Allow use of synchronous methods (not a node environment).
     "no-sync": "off",
@@ -229,7 +220,7 @@ module.exports = {
         "no-unused-vars": [
           "error",
           {
-            args: "none",
+            argsIgnorePattern: "^_",
             vars: "local",
           },
         ],

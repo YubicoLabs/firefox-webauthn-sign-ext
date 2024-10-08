@@ -114,6 +114,7 @@ nsPNGDecoder::nsPNGDecoder(RasterImage* aImage)
       mDisablePremultipliedAlpha(false),
       mGotInfoCallback(false),
       mUsePipeTransform(false),
+      mErrorIsRecoverable(false),
       mNumFrames(0) {}
 
 nsPNGDecoder::~nsPNGDecoder() {
@@ -382,7 +383,9 @@ LexerTransition<nsPNGDecoder::State> nsPNGDecoder::ReadPNGData(
 
   // libpng uses setjmp/longjmp for error handling.
   if (setjmp(png_jmpbuf(mPNG))) {
-    return Transition::TerminateFailure();
+    return (GetFrameCount() > 0 && mErrorIsRecoverable)
+               ? Transition::TerminateSuccess()
+               : Transition::TerminateFailure();
   }
 
   // Pass the data off to libpng.
@@ -592,7 +595,8 @@ void nsPNGDecoder::info_callback(png_structp png_ptr, png_infop info_ptr) {
         intent = pIntent;
       }
     }
-    if (!decoder->mInProfile || !decoder->GetCMSOutputProfile()) {
+    const bool hasColorInfo = decoder->mInProfile || sRGBTag;
+    if (!hasColorInfo || !decoder->GetCMSOutputProfile()) {
       png_set_gray_to_rgb(png_ptr);
 
       // only do gamma correction if CMS isn't entirely disabled
@@ -886,22 +890,31 @@ nsresult nsPNGDecoder::FinishInternal() {
   // We shouldn't be called in error cases.
   MOZ_ASSERT(!HasError(), "Can't call FinishInternal on error!");
 
+  int32_t loop_count = 0;
+  uint32_t frame_count = 1;
+#ifdef PNG_APNG_SUPPORTED
+  uint32_t num_plays = 0;
+  if (png_get_acTL(mPNG, mInfo, &frame_count, &num_plays)) {
+    loop_count = int32_t(num_plays) - 1;
+  } else {
+    frame_count = 1;
+  }
+#endif
+
+  PostLoopCount(loop_count);
+
+  if (WantsFrameCount()) {
+    PostFrameCount(frame_count);
+  }
+
   if (IsMetadataDecode()) {
     return NS_OK;
   }
 
-  int32_t loop_count = 0;
-#ifdef PNG_APNG_SUPPORTED
-  if (png_get_valid(mPNG, mInfo, PNG_INFO_acTL)) {
-    int32_t num_plays = png_get_num_plays(mPNG, mInfo);
-    loop_count = num_plays - 1;
-  }
-#endif
-
   if (InFrame()) {
     EndImageFrame();
   }
-  PostDecodeDone(loop_count);
+  PostDecodeDone();
 
   return NS_OK;
 }
@@ -991,6 +1004,16 @@ void nsPNGDecoder::end_callback(png_structp png_ptr, png_infop info_ptr) {
 void nsPNGDecoder::error_callback(png_structp png_ptr,
                                   png_const_charp error_msg) {
   MOZ_LOG(sPNGLog, LogLevel::Error, ("libpng error: %s\n", error_msg));
+
+  nsPNGDecoder* decoder =
+      static_cast<nsPNGDecoder*>(png_get_progressive_ptr(png_ptr));
+
+  if (strstr(error_msg, "invalid chunk type")) {
+    decoder->mErrorIsRecoverable = true;
+  } else {
+    decoder->mErrorIsRecoverable = false;
+  }
+
   png_longjmp(png_ptr, 1);
 }
 
@@ -1012,7 +1035,9 @@ bool nsPNGDecoder::IsValidICOResource() const {
   // we need to save the jump buffer here. Otherwise we'll end up without a
   // proper callstack.
   if (setjmp(png_jmpbuf(mPNG))) {
-    // We got here from a longjmp call indirectly from png_get_IHDR
+    // We got here from a longjmp call indirectly from png_get_IHDR via
+    // error_callback. Ignore mErrorIsRecoverable: if we got an invalid chunk
+    // error before even reading the IHDR we can't recover from that.
     return false;
   }
 

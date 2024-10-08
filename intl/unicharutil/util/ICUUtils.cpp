@@ -8,6 +8,7 @@
 #  include "mozilla/UniquePtr.h"
 
 #  include "ICUUtils.h"
+#  include "mozilla/ClearOnShutdown.h"
 #  include "mozilla/StaticPrefs_dom.h"
 #  include "mozilla/intl/LocaleService.h"
 #  include "mozilla/intl/FormatBuffer.h"
@@ -86,6 +87,9 @@ bool ICUUtils::LocalizeNumber(double aValue,
     auto& formatter = sCache->LookupOrInsertWith(langTag, [&] {
       nsAutoCString tag;
       langTag->ToUTF8String(tag);
+      if (tag.FindChar('\0') != kNotFound) {
+        return UniquePtr<intl::NumberFormat>();
+      }
       return intl::NumberFormat::TryCreate(tag, options).unwrapOr(nullptr);
     });
     if (!formatter) {
@@ -121,8 +125,11 @@ double ICUUtils::ParseNumber(const nsAString& aValue,
     auto& parser = sCache->LookupOrInsertWith(langTag, [&] {
       nsAutoCString tag;
       langTag->ToUTF8String(tag);
+      if (tag.FindChar('\0') != kNotFound) {
+        return UniquePtr<intl::NumberParser>();
+      }
       return intl::NumberParser::TryCreate(
-                 tag.get(), StaticPrefs::dom_forms_number_grouping())
+                 tag, StaticPrefs::dom_forms_number_grouping())
           .unwrapOr(nullptr);
     });
     if (!parser) {

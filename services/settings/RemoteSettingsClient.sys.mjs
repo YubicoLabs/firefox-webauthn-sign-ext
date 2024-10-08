@@ -22,7 +22,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   Utils: "resource://services-settings/Utils.sys.mjs",
 });
 
-const TELEMETRY_COMPONENT = "remotesettings";
+const TELEMETRY_COMPONENT = "Remotesettings";
 
 ChromeUtils.defineLazyGetter(lazy, "console", () => lazy.Utils.log);
 
@@ -34,7 +34,7 @@ ChromeUtils.defineLazyGetter(lazy, "console", () => lazy.Utils.log);
 function cacheProxy(target) {
   const cache = new Map();
   return new Proxy(target, {
-    get(target, prop, receiver) {
+    get(target, prop) {
       if (!cache.has(prop)) {
         cache.set(prop, target[prop]);
       }
@@ -204,11 +204,17 @@ class AttachmentDownloader extends Downloader {
       set: async (attachmentId, attachment) => {
         return this._client.db.saveAttachment(attachmentId, attachment);
       },
+      setMultiple: async attachmentsIdsBlobs => {
+        return this._client.db.saveAttachments(attachmentsIdsBlobs);
+      },
       delete: async attachmentId => {
         return this._client.db.saveAttachment(attachmentId, null);
       },
       prune: async excludeIds => {
         return this._client.db.pruneAttachments(excludeIds);
+      },
+      hasData: async () => {
+        return this._client.db.hasAttachments();
       },
     };
     Object.defineProperty(this, "cacheImpl", { value: cacheImpl });
@@ -235,6 +241,7 @@ class AttachmentDownloader extends Downloader {
       // If the file failed to be downloaded, report it as such in Telemetry.
       await lazy.UptakeTelemetry.report(TELEMETRY_COMPONENT, status, {
         source: this._client.identifier,
+        errorName: err.name,
       });
       throw err;
     }
@@ -469,9 +476,10 @@ export class RemoteSettingsClient extends EventEmitter {
         } else {
           lazy.console.debug(`${this.identifier} Awaiting existing import.`);
         }
-      } else if (hasLocalData && loadDumpIfNewer) {
+      } else if (hasLocalData && loadDumpIfNewer && lazy.Utils.LOAD_DUMPS) {
         // Check whether the local data is older than the packaged dump.
-        // If it is, load the packaged dump (which overwrites the local data).
+        // If it is and we are on production, load the packaged dump (which
+        // overwrites the local data).
         let lastModifiedDump = await lazy.Utils.getLocalDumpLastModified(
           this.bucketName,
           this.collectionName

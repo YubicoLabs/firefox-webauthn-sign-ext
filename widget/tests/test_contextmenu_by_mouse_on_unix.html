@@ -40,6 +40,8 @@ add_task(async function test_fire_contextmenu_by_mouseup() {
 });
 
 async function process_contextmenu_event({ isMousedown, preventEvent }) {
+  await SpecialPowers.contentTransformsReceived(window);
+
   const target = document.getElementById("target");
 
   let count = 0;
@@ -58,7 +60,7 @@ async function process_contextmenu_event({ isMousedown, preventEvent }) {
         is(count++, 1, "The second event is contextmenu");
         e.preventDefault();
       }, { once: true });
-      target.addEventListener("mouseup", e => {
+      target.addEventListener("mouseup", () => {
         is(count++, 2, "The third event is mouseup");
 	resolve();
       }, { once: true} );

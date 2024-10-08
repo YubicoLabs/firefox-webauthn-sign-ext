@@ -2,10 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-import {
-  actionCreators as ac,
-  actionTypes as at,
-} from "common/Actions.sys.mjs";
+import { actionCreators as ac, actionTypes as at } from "common/Actions.mjs";
 import { TOP_SITES_SOURCE } from "../TopSites/TopSitesConstants";
 import React from "react";
 
@@ -100,7 +97,14 @@ export class ImpressionStats extends React.PureComponent {
             type: this.props.flightId ? "spoc" : "organic",
             ...(link.shim ? { shim: link.shim } : {}),
             recommendation_id: link.recommendation_id,
+            fetchTimestamp: link.fetchTimestamp,
+            scheduled_corpus_item_id: link.scheduled_corpus_item_id,
+            recommended_at: link.recommended_at,
+            received_rank: link.received_rank,
+            topic: link.topic,
+            is_list_card: link.is_list_card,
           })),
+          firstVisibleTimestamp: this.props.firstVisibleTimestamp,
         })
       );
       this.impressionCardGuids = cards.map(link => link.id);
@@ -244,8 +248,8 @@ export class ImpressionStats extends React.PureComponent {
 }
 
 ImpressionStats.defaultProps = {
-  IntersectionObserver: global.IntersectionObserver,
-  document: global.document,
+  IntersectionObserver: globalThis.IntersectionObserver,
+  document: globalThis.document,
   rows: [],
   source: "",
 };

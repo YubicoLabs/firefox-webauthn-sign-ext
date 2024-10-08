@@ -9,7 +9,6 @@ import type {ChildProcess} from 'child_process';
 import type {Protocol} from 'devtools-protocol';
 
 import {
-  filterAsync,
   firstValueFrom,
   from,
   merge,
@@ -17,7 +16,13 @@ import {
 } from '../../third_party/rxjs/rxjs.js';
 import type {ProtocolType} from '../common/ConnectOptions.js';
 import {EventEmitter, type EventType} from '../common/EventEmitter.js';
-import {debugError, fromEmitterEvent, timeout} from '../common/util.js';
+import {
+  debugError,
+  fromEmitterEvent,
+  filterAsync,
+  timeout,
+  fromAbortSignal,
+} from '../common/util.js';
 import {asyncDisposeSymbol, disposeSymbol} from '../util/disposable.js';
 
 import type {BrowserContext} from './BrowserContext.js';
@@ -116,6 +121,11 @@ export interface WaitForTargetOptions {
    * @defaultValue `30_000`
    */
   timeout?: number;
+
+  /**
+   * A signal object that allows you to cancel a waitFor call.
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -136,7 +146,7 @@ export const enum BrowserEvent {
    * Emitted when the URL of a target changes. Contains a {@link Target}
    * instance.
    *
-   * @remarks Note that this includes target changes in incognito browser
+   * @remarks Note that this includes target changes in all browser
    * contexts.
    */
   TargetChanged = 'targetchanged',
@@ -147,7 +157,7 @@ export const enum BrowserEvent {
    *
    * Contains a {@link Target} instance.
    *
-   * @remarks Note that this includes target creations in incognito browser
+   * @remarks Note that this includes target creations in all browser
    * contexts.
    */
   TargetCreated = 'targetcreated',
@@ -155,7 +165,7 @@ export const enum BrowserEvent {
    * Emitted when a target is destroyed, for example when a page is closed.
    * Contains a {@link Target} instance.
    *
-   * @remarks Note that this includes target destructions in incognito browser
+   * @remarks Note that this includes target destructions in all browser
    * contexts.
    */
   TargetDestroyed = 'targetdestroyed',
@@ -164,13 +174,6 @@ export const enum BrowserEvent {
    */
   TargetDiscovered = 'targetdiscovered',
 }
-
-export {
-  /**
-   * @deprecated Use {@link BrowserEvent}.
-   */
-  BrowserEvent as BrowserEmittedEvents,
-};
 
 /**
  * @public
@@ -200,7 +203,7 @@ export interface DebugInfo {
  * - connected to via {@link Puppeteer.connect} or
  * - launched by {@link PuppeteerNode.launch}.
  *
- * {@link Browser} {@link EventEmitter | emits} various events which are
+ * {@link Browser} {@link EventEmitter.emit | emits} various events which are
  * documented in the {@link BrowserEvent} enum.
  *
  * @example Using a {@link Browser} to create a {@link Page}:
@@ -251,7 +254,7 @@ export abstract class Browser extends EventEmitter<BrowserEvents> {
   abstract process(): ChildProcess | null;
 
   /**
-   * Creates a new incognito {@link BrowserContext | browser context}.
+   * Creates a new {@link BrowserContext | browser context}.
    *
    * This won't share cookies/cache with other {@link BrowserContext | browser contexts}.
    *
@@ -261,15 +264,15 @@ export abstract class Browser extends EventEmitter<BrowserEvents> {
    * import puppeteer from 'puppeteer';
    *
    * const browser = await puppeteer.launch();
-   * // Create a new incognito browser context.
-   * const context = await browser.createIncognitoBrowserContext();
+   * // Create a new browser context.
+   * const context = await browser.createBrowserContext();
    * // Create a new page in a pristine context.
    * const page = await context.newPage();
    * // Do stuff
    * await page.goto('https://example.com');
    * ```
    */
-  abstract createIncognitoBrowserContext(
+  abstract createBrowserContext(
     options?: BrowserContextOptions
   ): Promise<BrowserContext>;
 
@@ -345,13 +348,16 @@ export abstract class Browser extends EventEmitter<BrowserEvents> {
     predicate: (x: Target) => boolean | Promise<boolean>,
     options: WaitForTargetOptions = {}
   ): Promise<Target> {
-    const {timeout: ms = 30000} = options;
+    const {timeout: ms = 30000, signal} = options;
     return await firstValueFrom(
       merge(
         fromEmitterEvent(this, BrowserEvent.TargetCreated),
         fromEmitterEvent(this, BrowserEvent.TargetChanged),
         from(this.targets())
-      ).pipe(filterAsync(predicate), raceWith(timeout(ms)))
+      ).pipe(
+        filterAsync(predicate),
+        raceWith(fromAbortSignal(signal), timeout(ms))
+      )
     );
   }
 
@@ -427,12 +433,18 @@ export abstract class Browser extends EventEmitter<BrowserEvents> {
 
   /** @internal */
   [disposeSymbol](): void {
-    return void this.close().catch(debugError);
+    if (this.process()) {
+      return void this.close().catch(debugError);
+    }
+    return void this.disconnect().catch(debugError);
   }
 
   /** @internal */
   [asyncDisposeSymbol](): Promise<void> {
-    return this.close();
+    if (this.process()) {
+      return this.close();
+    }
+    return this.disconnect();
   }
 
   /**

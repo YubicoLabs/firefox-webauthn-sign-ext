@@ -50,8 +50,8 @@ using namespace gfx;
 // Used so that we only ever attempt to check if the RDD/GPU/Utility processes
 // should be launched serially. Protects sLaunchPromise
 StaticMutex sLaunchMutex;
-static EnumeratedArray<RemoteDecodeIn, RemoteDecodeIn::SENTINEL,
-                       StaticRefPtr<GenericNonExclusivePromise>>
+static EnumeratedArray<RemoteDecodeIn, StaticRefPtr<GenericNonExclusivePromise>,
+                       size_t(RemoteDecodeIn::SENTINEL)>
     sLaunchPromises MOZ_GUARDED_BY(sLaunchMutex);
 
 // Only modified on the main-thread, read on any thread. While it could be read
@@ -61,8 +61,8 @@ static StaticDataMutex<StaticRefPtr<nsIThread>>
     sRemoteDecoderManagerChildThread("sRemoteDecoderManagerChildThread");
 
 // Only accessed from sRemoteDecoderManagerChildThread
-static EnumeratedArray<RemoteDecodeIn, RemoteDecodeIn::SENTINEL,
-                       StaticRefPtr<RemoteDecoderManagerChild>>
+static EnumeratedArray<RemoteDecodeIn, StaticRefPtr<RemoteDecoderManagerChild>,
+                       size_t(RemoteDecodeIn::SENTINEL)>
     sRemoteDecoderManagerChildForProcesses;
 
 static StaticAutoPtr<nsTArray<RefPtr<Runnable>>> sRecreateTasks;
@@ -70,8 +70,8 @@ static StaticAutoPtr<nsTArray<RefPtr<Runnable>>> sRecreateTasks;
 // Used for protecting codec support information collected from different remote
 // processes.
 StaticMutex sProcessSupportedMutex;
-static EnumeratedArray<RemoteDecodeIn, RemoteDecodeIn::SENTINEL,
-                       Maybe<media::MediaCodecsSupported>>
+static EnumeratedArray<RemoteDecodeIn, Maybe<media::MediaCodecsSupported>,
+                       size_t(RemoteDecodeIn::SENTINEL)>
     sProcessSupported MOZ_GUARDED_BY(sProcessSupportedMutex);
 
 class ShutdownObserver final : public nsIObserver {
@@ -96,7 +96,6 @@ StaticRefPtr<ShutdownObserver> sObserver;
 
 /* static */
 void RemoteDecoderManagerChild::Init() {
-  MOZ_ASSERT(NS_IsMainThread());
   LOG("RemoteDecoderManagerChild Init");
 
   auto remoteDecoderManagerThread = sRemoteDecoderManagerChildThread.Lock();
@@ -272,8 +271,16 @@ bool RemoteDecoderManagerChild::Supports(
       // process. As HEVC support is still a experimental feature, we don't want
       // to report support for it arbitrarily.
       if (MP4Decoder::IsHEVC(aParams.mConfig.mMimeType)) {
+#if defined(XP_WIN)
+        if (!StaticPrefs::media_wmf_hevc_enabled()) {
+          return false;
+        }
         return aLocation == RemoteDecodeIn::UtilityProcess_MFMediaEngineCDM ||
                aLocation == RemoteDecodeIn::GpuProcess;
+#else
+        // TODO : in the future, we need to add HEVC check on other platforms.
+        return false;
+#endif
       }
       return trackSupport.contains(TrackSupport::Video);
     }
@@ -306,6 +313,16 @@ RemoteDecoderManagerChild::CreateAudioDecoder(
     return PlatformDecoderModule::CreateDecoderPromise::CreateAndReject(
         MediaResult(NS_ERROR_DOM_MEDIA_CANCELED,
                     nsPrintfCString("%s doesn't support audio decoding",
+                                    RemoteDecodeInToStr(aLocation))
+                        .get()),
+        __func__);
+  }
+
+  if (!aParams.mMediaEngineId &&
+      aLocation == RemoteDecodeIn::UtilityProcess_MFMediaEngineCDM) {
+    return PlatformDecoderModule::CreateDecoderPromise::CreateAndReject(
+        MediaResult(NS_ERROR_DOM_MEDIA_NOT_SUPPORTED_ERR,
+                    nsPrintfCString("%s only support for media engine playback",
                                     RemoteDecodeInToStr(aLocation))
                         .get()),
         __func__);
@@ -380,6 +397,16 @@ RemoteDecoderManagerChild::CreateVideoDecoder(
     return PlatformDecoderModule::CreateDecoderPromise::CreateAndReject(
         MediaResult(NS_ERROR_DOM_MEDIA_CANCELED,
                     nsPrintfCString("%s doesn't support video decoding",
+                                    RemoteDecodeInToStr(aLocation))
+                        .get()),
+        __func__);
+  }
+
+  if (!aParams.mMediaEngineId &&
+      aLocation == RemoteDecodeIn::UtilityProcess_MFMediaEngineCDM) {
+    return PlatformDecoderModule::CreateDecoderPromise::CreateAndReject(
+        MediaResult(NS_ERROR_DOM_MEDIA_NOT_SUPPORTED_ERR,
+                    nsPrintfCString("%s only support for media engine playback",
                                     RemoteDecodeInToStr(aLocation))
                         .get()),
         __func__);
@@ -883,7 +910,7 @@ void RemoteDecoderManagerChild::DeallocateSurfaceDescriptor(
 }
 
 void RemoteDecoderManagerChild::HandleFatalError(const char* aMsg) {
-  dom::ContentChild::FatalErrorIfNotUsingGPUProcess(aMsg, OtherPid());
+  dom::ContentChild::FatalErrorIfNotUsingGPUProcess(aMsg, OtherChildID());
 }
 
 void RemoteDecoderManagerChild::SetSupported(

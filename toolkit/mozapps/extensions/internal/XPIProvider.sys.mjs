@@ -35,7 +35,6 @@ ChromeUtils.defineESModuleGetters(lazy, {
   FileUtils: "resource://gre/modules/FileUtils.sys.mjs",
   JSONFile: "resource://gre/modules/JSONFile.sys.mjs",
   Langpack: "resource://gre/modules/Extension.sys.mjs",
-  SitePermission: "resource://gre/modules/Extension.sys.mjs",
   TelemetrySession: "resource://gre/modules/TelemetrySession.sys.mjs",
 });
 
@@ -120,7 +119,7 @@ const XPI_PERMISSION = "install";
 
 const XPI_SIGNATURE_CHECK_PERIOD = 24 * 60 * 60;
 
-const DB_SCHEMA = 35;
+const DB_SCHEMA = 36;
 
 XPCOMUtils.defineLazyPreferenceGetter(
   lazy,
@@ -165,14 +164,7 @@ const BOOTSTRAP_REASONS = {
 // to return only supported add-ons. Without these, it is possible for
 // AddonManager.getAddonsByTypes to return addons from other providers, or even
 // add-on types that are no longer supported by XPIProvider.
-const ALL_XPI_TYPES = new Set([
-  "dictionary",
-  "extension",
-  "locale",
-  // TODO(Bug 1789718): Remove after the deprecated XPIProvider-based implementation is also removed.
-  "sitepermission-deprecated",
-  "theme",
-]);
+const ALL_XPI_TYPES = new Set(["dictionary", "extension", "locale", "theme"]);
 
 /**
  * Valid IDs fit this pattern.
@@ -185,7 +177,7 @@ import { Log } from "resource://gre/modules/Log.sys.mjs";
 const LOGGER_ID = "addons.xpi";
 
 // Create a new logger for use by all objects in this Addons XPI Provider module
-// (Requires AddonManager.jsm)
+// (Requires AddonManager.sys.mjs)
 var logger = Log.repository.getLogger(LOGGER_ID);
 
 /**
@@ -1598,7 +1590,7 @@ var XPIStates = {
    *
    * @returns {XPIState?}
    */
-  findAddon(aId, aFilter = location => true) {
+  findAddon(aId, aFilter = () => true) {
     // Fortunately the Map iterator returns in order of insertion, which is
     // also our highest -> lowest priority order.
     for (let location of this.locations()) {
@@ -1818,6 +1810,7 @@ class BootstrapScope {
       let params = {
         id: addon.id,
         version: addon.version,
+        type: addon.type,
         resourceURI: addon.resolvedRootURI,
         signedState: addon.signedState,
         temporarilyInstalled: addon.location.isTemporary,
@@ -1897,11 +1890,6 @@ class BootstrapScope {
         case "extension":
         case "theme":
           this.scope = lazy.Extension.getBootstrapScope();
-          break;
-
-        // TODO(Bug 1789718): Remove after the deprecated XPIProvider-based implementation is also removed.
-        case "sitepermission-deprecated":
-          this.scope = lazy.SitePermission.getBootstrapScope();
           break;
 
         case "locale":
@@ -2706,7 +2694,7 @@ export var XPIProvider = {
           "profile-before-change",
           "test-load-xpi-database",
         ];
-        let observer = (subject, topic, data) => {
+        let observer = (subject, topic) => {
           if (
             topic == "xul-window-visible" &&
             !Services.wm.getMostRecentWindow("devtools:toolbox")

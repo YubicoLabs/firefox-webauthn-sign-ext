@@ -9,6 +9,7 @@
 
 #include "mozilla/AsyncEventDispatcher.h"
 #include "mozilla/Attributes.h"
+#include "mozilla/dom/CloseWatcher.h"
 #include "nsGenericHTMLElement.h"
 #include "nsGkAtoms.h"
 
@@ -49,6 +50,11 @@ class HTMLDialogElement final : public nsGenericHTMLElement {
 
   int32_t TabIndexDefault() override;
 
+  bool IsValidInvokeAction(InvokeAction aAction) const override;
+  MOZ_CAN_RUN_SCRIPT bool HandleInvokeInternal(Element* invoker,
+                                               InvokeAction aAction,
+                                               ErrorResult& aRv) override;
+
   nsString mReturnValue;
 
  protected:
@@ -62,6 +68,11 @@ class HTMLDialogElement final : public nsGenericHTMLElement {
   void StorePreviouslyFocusedElement();
 
   nsWeakPtr mPreviouslyFocusedElement;
+
+  // This won't need to be cycle collected as CloseWatcher only has strong
+  // references to event listeners, which themselves have Weak References back
+  // to the Node.
+  RefPtr<CloseWatcher> mCloseWatcher;
 };
 
 }  // namespace mozilla::dom

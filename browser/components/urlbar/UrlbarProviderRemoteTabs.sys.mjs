@@ -167,7 +167,7 @@ class ProviderRemoteTabs extends UrlbarProvider {
         );
 
         // We want to return the most relevant remote tabs and thus the most
-        // recent ones. While SyncedTabs.jsm returns tabs that are sorted by
+        // recent ones. While SyncedTabs.sys.mjs returns tabs that are sorted by
         // most recent client, then most recent tab, we can do better. For
         // example, the most recent client might have one recent tab and then
         // many very stale tabs. Those very stale tabs will push out more recent
@@ -201,6 +201,8 @@ class ProviderRemoteTabs extends UrlbarProvider {
 
   /**
    * Build the in-memory structure we use.
+   *
+   * @returns {{tab: object, client: object}[]}
    */
   async buildItems() {
     // This is sorted by most recent client, most recent tab.
@@ -223,6 +225,8 @@ class ProviderRemoteTabs extends UrlbarProvider {
 
   /**
    * Ensure the cache is good.
+   *
+   * @returns {{tab: object, client: object}[]}
    */
   async ensureCache() {
     if (!_cache) {

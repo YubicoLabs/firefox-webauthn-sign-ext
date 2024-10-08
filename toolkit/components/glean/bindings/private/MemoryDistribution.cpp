@@ -11,6 +11,7 @@
 #include "mozilla/ResultVariant.h"
 #include "mozilla/dom/GleanMetricsBinding.h"
 #include "mozilla/glean/bindings/HistogramGIFFTMap.h"
+#include "mozilla/glean/bindings/ScalarGIFFTMap.h"
 #include "mozilla/glean/fog_ffi_generated.h"
 #include "nsIClassInfoImpl.h"
 #include "nsJSUtils.h"
@@ -26,6 +27,14 @@ void MemoryDistributionMetric::Accumulate(size_t aSample) const {
   auto hgramId = HistogramIdForMetric(mId);
   if (hgramId) {
     Telemetry::Accumulate(hgramId.extract(), aSample);
+  } else if (IsSubmetricId(mId)) {
+    GetLabeledDistributionMirrorLock().apply([&](const auto& lock) {
+      auto tuple = lock.ref()->MaybeGet(mId);
+      if (tuple) {
+        Telemetry::Accumulate(std::get<0>(tuple.ref()),
+                              std::get<1>(tuple.ref()), aSample);
+      }
+    });
   }
   static_assert(sizeof(size_t) <= sizeof(uint64_t),
                 "Memory distribution samples might overflow.");
@@ -44,9 +53,10 @@ MemoryDistributionMetric::TestGetValue(const nsACString& aPingName) const {
   nsTArray<uint64_t> buckets;
   nsTArray<uint64_t> counts;
   uint64_t sum;
-  fog_memory_distribution_test_get_value(mId, &aPingName, &sum, &buckets,
-                                         &counts);
-  return Some(DistributionData(buckets, counts, sum));
+  uint64_t count;
+  fog_memory_distribution_test_get_value(mId, &aPingName, &sum, &count,
+                                         &buckets, &counts);
+  return Some(DistributionData(buckets, counts, sum, count));
 }
 
 }  // namespace impl
@@ -76,6 +86,7 @@ void GleanMemoryDistribution::TestGetValue(
 
   dom::GleanDistributionData ret;
   ret.mSum = optresult.ref().sum;
+  ret.mCount = optresult.ref().count;
   auto& data = optresult.ref().values;
   for (const auto& entry : data) {
     dom::binding_detail::RecordEntry<nsCString, uint64_t> bucket;

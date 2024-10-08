@@ -18,7 +18,7 @@ struct GPUComputePassDescriptor;
 
 namespace webgpu {
 namespace ffi {
-struct WGPUComputePass;
+struct WGPURecordedComputePass;
 }  // namespace ffi
 
 class BindGroup;
@@ -27,7 +27,7 @@ class CommandEncoder;
 class ComputePipeline;
 
 struct ffiWGPUComputePassDeleter {
-  void operator()(ffi::WGPUComputePass*);
+  void operator()(ffi::WGPURecordedComputePass*);
 };
 
 class ComputePassEncoder final : public ObjectBase,
@@ -41,9 +41,10 @@ class ComputePassEncoder final : public ObjectBase,
 
  private:
   virtual ~ComputePassEncoder();
-  void Cleanup() {}
+  void Cleanup();
 
-  std::unique_ptr<ffi::WGPUComputePass, ffiWGPUComputePassDeleter> mPass;
+  std::unique_ptr<ffi::WGPURecordedComputePass, ffiWGPUComputePassDeleter>
+      mPass;
   // keep all the used objects alive while the pass is recorded
   nsTArray<RefPtr<const BindGroup>> mUsedBindGroups;
   nsTArray<RefPtr<const ComputePipeline>> mUsedPipelines;

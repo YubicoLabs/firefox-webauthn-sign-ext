@@ -4,12 +4,13 @@
 
 
 from taskgraph.transforms.base import TransformSequence
+from taskgraph.util.copy import deepcopy
 from taskgraph.util.schema import Schema, optionally_keyed_by, resolve_keyed_by
 from taskgraph.util.treeherder import join_symbol, split_symbol
 from voluptuous import Extra, Optional, Required
 
 from gecko_taskgraph.transforms.test import test_description_schema
-from gecko_taskgraph.util.copy_task import copy_task
+from gecko_taskgraph.util.perftest import is_external_browser
 
 transforms = TransformSequence()
 task_transforms = TransformSequence()
@@ -27,6 +28,9 @@ raptor_description_schema = Schema(
             Optional("subtests"): optionally_keyed_by("app", "test-platform", list),
             Optional("test"): str,
             Optional("test-url-param"): optionally_keyed_by(
+                "subtest", "test-platform", str
+            ),
+            Optional("lull-schedule"): optionally_keyed_by(
                 "subtest", "test-platform", str
             ),
         },
@@ -75,10 +79,10 @@ def split_apps(config, tests):
     app_symbols = {
         "chrome": "ChR",
         "chrome-m": "ChR",
-        "chromium": "Cr",
         "fenix": "fenix",
         "refbrow": "refbrow",
         "safari": "Saf",
+        "safari-tp": "STP",
         "custom-car": "CaR",
         "cstm-car-m": "CaR",
     }
@@ -100,7 +104,7 @@ def split_apps(config, tests):
             ] and test["attributes"].get("unittest_variant"):
                 continue
 
-            atest = copy_task(test)
+            atest = deepcopy(test)
             suffix = f"-{app}"
             atest["app"] = app
             atest["description"] += f" on {app.capitalize()}"
@@ -136,13 +140,13 @@ def split_raptor_subtests(config, tests):
         # test job for every subtest (i.e. split out each page-load URL into its own job)
         subtests = test["raptor"].pop("subtests", None)
         if not subtests:
-            if "macosx1300" not in test["test-platform"]:
+            if "macosx1400" not in test["test-platform"]:
                 yield test
             continue
 
         for chunk_number, subtest in enumerate(subtests):
             # Create new test job
-            chunked = copy_task(test)
+            chunked = deepcopy(test)
             chunked["chunk-number"] = 1 + chunk_number
             chunked["subtest"] = subtest
             chunked["subtest-symbol"] = subtest
@@ -162,6 +166,7 @@ def handle_keyed_by(config, tests):
         "raptor.run-visual-metrics",
         "raptor.activity",
         "raptor.binary-path",
+        "raptor.lull-schedule",
         "limit-platforms",
         "fetches.fetch",
         "max-run-time",
@@ -273,12 +278,14 @@ def add_extra_options(config, tests):
         test_platform = test["test-platform"]
         if test_platform.startswith("android-hw-a51"):
             extra_options.append("--device-name=a51")
+        elif test_platform.startswith("android-hw-a55"):
+            extra_options.append("--device-name=a55")
         elif test_platform.startswith("android-hw-p5"):
             extra_options.append("--device-name=p5_aarch64")
         elif test_platform.startswith("android-hw-p6"):
             extra_options.append("--device-name=p6_aarch64")
-        elif test_platform.startswith("android-hw-s21"):
-            extra_options.append("--device-name=s21_aarch64")
+        elif test_platform.startswith("android-hw-s24"):
+            extra_options.append("--device-name=s24_aarch64")
 
         if test["raptor"].pop("run-visual-metrics", False):
             extra_options.append("--browsertime-video")
@@ -311,8 +318,57 @@ def add_extra_options(config, tests):
                     "--test-url-params={}".format(param.replace(" ", ""))
                 )
 
+        if "android-hw-p6" in test_platform or "android-hw-s24" in test_platform:
+            extra_options.append("--power-test")
+        elif "windows" in test_platform and "speedometer3" in test["test-name"]:
+            extra_options.append("--power-test")
+
         extra_options.append("--project={}".format(config.params.get("project")))
 
+        yield test
+
+
+@transforms.add
+def modify_mozharness_configs(config, tests):
+    for test in tests:
+        if not is_external_browser(test["app"]):
+            yield test
+            continue
+
+        test_platform = test["test-platform"]
+        mozharness = test.setdefault("mozharness", {})
+        if "mac" in test_platform:
+            mozharness["config"] = ["raptor/mac_external_browser_config.py"]
+        elif "windows" in test_platform:
+            mozharness["config"] = ["raptor/windows_external_browser_config.py"]
+        elif "linux" in test_platform:
+            mozharness["config"] = ["raptor/linux_external_browser_config.py"]
+        elif "android" in test_platform:
+            test["target"] = "target.tar.bz2"
+            mozharness["config"] = ["raptor/android_hw_external_browser_config.py"]
+
+        yield test
+
+
+@transforms.add
+def handle_lull_schedule(config, tests):
+    # Setup lull schedule attribute here since the attributes
+    # can't have any keyed by settings
+    for test in tests:
+        if "lull-schedule" in test["raptor"]:
+            lull_schedule = test["raptor"].pop("lull-schedule")
+            if lull_schedule:
+                test.setdefault("attributes", {})["lull-schedule"] = lull_schedule
+        yield test
+
+
+@transforms.add
+def apply_raptor_device_optimization(config, tests):
+    # Bug 1919389
+    # For now, only change the back stop optimization strategy for A55 devices
+    for test in tests:
+        if test["test-platform"].startswith("android-hw-a55"):
+            test["optimization"] = {"skip-unless-backstop": None}
         yield test
 
 
@@ -323,4 +379,16 @@ def add_scopes_and_proxy(config, tasks):
         task.setdefault("scopes", []).append(
             "secrets:get:project/perftest/gecko/level-{level}/perftest-login"
         )
+        yield task
+
+
+@task_transforms.add
+def setup_lull_schedule(config, tasks):
+    for task in tasks:
+        attrs = task.setdefault("attributes", {})
+        if attrs.get("lull-schedule", None) is not None:
+            # Move the lull schedule attribute into the extras
+            # so that it can be accessible through mozci
+            lull_schedule = attrs.pop("lull-schedule")
+            task.setdefault("extra", {})["lull-schedule"] = lull_schedule
         yield task

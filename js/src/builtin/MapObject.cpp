@@ -198,11 +198,15 @@ const JSClass MapIteratorObject::class_ = {
     "Map Iterator",
     JSCLASS_HAS_RESERVED_SLOTS(MapIteratorObject::SlotCount) |
         JSCLASS_FOREGROUND_FINALIZE | JSCLASS_SKIP_NURSERY_FINALIZE,
-    &MapIteratorObjectClassOps, JS_NULL_CLASS_SPEC,
-    &MapIteratorObjectClassExtension};
+    &MapIteratorObjectClassOps,
+    JS_NULL_CLASS_SPEC,
+    &MapIteratorObjectClassExtension,
+};
 
 const JSFunctionSpec MapIteratorObject::methods[] = {
-    JS_SELF_HOSTED_FN("next", "MapIteratorNext", 0, 0), JS_FS_END};
+    JS_SELF_HOSTED_FN("next", "MapIteratorNext", 0, 0),
+    JS_FS_END,
+};
 
 static inline ValueMap::Range* MapIteratorObjectRange(NativeObject* obj) {
   MOZ_ASSERT(obj->is<MapIteratorObject>());
@@ -333,23 +337,42 @@ size_t MapIteratorObject::objectMoved(JSObject* obj, JSObject* old) {
   Nursery& nursery = iter->runtimeFromMainThread()->gc.nursery();
   if (!nursery.isInside(range)) {
     nursery.removeMallocedBufferDuringMinorGC(range);
-    return 0;
   }
 
+  size_t size = RoundUp(sizeof(ValueMap::Range), gc::CellAlignBytes);
   AutoEnterOOMUnsafeRegion oomUnsafe;
-  auto newRange = iter->zone()->new_<ValueMap::Range>(*range);
-  if (!newRange) {
-    oomUnsafe.crash(
-        "MapIteratorObject failed to allocate Range data while tenuring.");
+  void* buffer = nursery.allocateBufferSameLocation(obj, size, js::MallocArena);
+  if (!buffer) {
+    oomUnsafe.crash("MapIteratorObject::objectMoved");
   }
 
+  bool iteratorIsInNursery = IsInsideNursery(obj);
+  MOZ_ASSERT(iteratorIsInNursery == nursery.isInside(buffer));
+  auto* newRange = new (buffer) ValueMap::Range(*range, iteratorIsInNursery);
   range->~Range();
   iter->setReservedSlot(MapIteratorObject::RangeSlot, PrivateValue(newRange));
-  return sizeof(ValueMap::Range);
+
+  if (iteratorIsInNursery && iter->target()) {
+    SetHasNurseryMemory(iter->target(), true);
+  }
+
+  return size;
+}
+
+MapObject* MapIteratorObject::target() const {
+  Value value = getFixedSlot(TargetSlot);
+  if (value.isUndefined()) {
+    return nullptr;
+  }
+
+  return &MaybeForwarded(&value.toObject())->as<MapObject>();
 }
 
 template <typename Range>
 static void DestroyRange(JSObject* iterator, Range* range) {
+  MOZ_ASSERT(IsInsideNursery(iterator) ==
+             iterator->runtimeFromMainThread()->gc.nursery().isInside(range));
+
   range->~Range();
   if (!IsInsideNursery(iterator)) {
     js_free(range);
@@ -533,7 +556,7 @@ void MapObject::trace(JSTracer* trc, JSObject* obj) {
   }
 }
 
-using NurseryKeysVector = mozilla::Vector<Value, 0, SystemAllocPolicy>;
+using NurseryKeysVector = GCVector<Value, 0, SystemAllocPolicy>;
 
 template <typename TableObject>
 static NurseryKeysVector* GetNurseryKeys(TableObject* t) {
@@ -577,17 +600,34 @@ class js::OrderedHashTableRef : public gc::BufferableRef {
         reinterpret_cast<typename ObjectT::UnbarrieredTable*>(realTable);
     NurseryKeysVector* keys = GetNurseryKeys(object);
     MOZ_ASSERT(keys);
-    for (Value key : *keys) {
-      MOZ_ASSERT(unbarrieredTable->hash(key) ==
-                 realTable->hash(*reinterpret_cast<HashableValue*>(&key)));
-      // Note: we use a lambda to avoid tenuring keys that have been removed
-      // from the Map or Set.
-      unbarrieredTable->rekeyOneEntry(key, [trc](const Value& prior) {
-        Value key = prior;
-        TraceManuallyBarrieredEdge(trc, &key, "ordered hash table key");
-        return key;
-      });
+
+    keys->mutableEraseIf([&](Value& key) {
+      MOZ_ASSERT(
+          unbarrieredTable->hash(key) ==
+          realTable->hash(*reinterpret_cast<const HashableValue*>(&key)));
+      MOZ_ASSERT(IsInsideNursery(key.toGCThing()));
+
+      auto result =
+          unbarrieredTable->rekeyOneEntry(key, [trc](const Value& prior) {
+            Value key = prior;
+            TraceManuallyBarrieredEdge(trc, &key, "ordered hash table key");
+            return key;
+          });
+
+      if (result.isNothing()) {
+        return true;  // Key removed.
+      }
+
+      key = result.value();
+      return !IsInsideNursery(key.toGCThing());
+    });
+
+    if (!keys->empty()) {
+      trc->runtime()->gc.storeBuffer().putGeneric(
+          OrderedHashTableRef<ObjectT>(object));
+      return;
     }
+
     DeleteNurseryKeys(object);
   }
 };
@@ -739,6 +779,8 @@ void MapObject::finalize(JS::GCContext* gcx, JSObject* obj) {
     return;
   }
 
+  MOZ_ASSERT_IF(obj->isTenured(), !table->hasNurseryRanges());
+
   bool needsPostBarriers = obj->isTenured();
   if (needsPostBarriers) {
     // Use the ValueMap representation which has post barriers.
@@ -750,21 +792,36 @@ void MapObject::finalize(JS::GCContext* gcx, JSObject* obj) {
   }
 }
 
+void MapObject::clearNurseryRangesBeforeMinorGC() {
+  getTableUnchecked()->destroyNurseryRanges();
+  SetHasNurseryMemory(this, false);
+}
+
 /* static */
-void MapObject::sweepAfterMinorGC(JS::GCContext* gcx, MapObject* mapobj) {
-  bool wasInsideNursery = IsInsideNursery(mapobj);
-  if (wasInsideNursery && !IsForwarded(mapobj)) {
+MapObject* MapObject::sweepAfterMinorGC(JS::GCContext* gcx, MapObject* mapobj) {
+  Nursery& nursery = gcx->runtime()->gc.nursery();
+  bool wasInCollectedRegion = nursery.inCollectedRegion(mapobj);
+  if (wasInCollectedRegion && !IsForwarded(mapobj)) {
     finalize(gcx, mapobj);
-    return;
+    return nullptr;
   }
 
   mapobj = MaybeForwarded(mapobj);
-  mapobj->getTableUnchecked()->destroyNurseryRanges();
-  SetHasNurseryMemory(mapobj, false);
 
-  if (wasInsideNursery) {
+  bool insideNursery = IsInsideNursery(mapobj);
+  if (insideNursery) {
+    SetHasNurseryMemory(mapobj, true);
+  }
+
+  if (wasInCollectedRegion && mapobj->isTenured()) {
     AddCellMemory(mapobj, sizeof(ValueMap), MemoryUse::MapObjectTable);
   }
+
+  if (!HasNurseryMemory(mapobj)) {
+    return nullptr;
+  }
+
+  return mapobj;
 }
 
 bool MapObject::construct(JSContext* cx, unsigned argc, Value* vp) {
@@ -1073,11 +1130,15 @@ const JSClass SetIteratorObject::class_ = {
     "Set Iterator",
     JSCLASS_HAS_RESERVED_SLOTS(SetIteratorObject::SlotCount) |
         JSCLASS_FOREGROUND_FINALIZE | JSCLASS_SKIP_NURSERY_FINALIZE,
-    &SetIteratorObjectClassOps, JS_NULL_CLASS_SPEC,
-    &SetIteratorObjectClassExtension};
+    &SetIteratorObjectClassOps,
+    JS_NULL_CLASS_SPEC,
+    &SetIteratorObjectClassExtension,
+};
 
 const JSFunctionSpec SetIteratorObject::methods[] = {
-    JS_SELF_HOSTED_FN("next", "SetIteratorNext", 0, 0), JS_FS_END};
+    JS_SELF_HOSTED_FN("next", "SetIteratorNext", 0, 0),
+    JS_FS_END,
+};
 
 static inline ValueSet::Range* SetIteratorObjectRange(NativeObject* obj) {
   MOZ_ASSERT(obj->is<SetIteratorObject>());
@@ -1199,19 +1260,36 @@ size_t SetIteratorObject::objectMoved(JSObject* obj, JSObject* old) {
   Nursery& nursery = iter->runtimeFromMainThread()->gc.nursery();
   if (!nursery.isInside(range)) {
     nursery.removeMallocedBufferDuringMinorGC(range);
-    return 0;
   }
 
+  size_t size = RoundUp(sizeof(ValueSet::Range), gc::CellAlignBytes);
+  ;
   AutoEnterOOMUnsafeRegion oomUnsafe;
-  auto newRange = iter->zone()->new_<ValueSet::Range>(*range);
-  if (!newRange) {
-    oomUnsafe.crash(
-        "SetIteratorObject failed to allocate Range data while tenuring.");
+  void* buffer = nursery.allocateBufferSameLocation(obj, size, js::MallocArena);
+  if (!buffer) {
+    oomUnsafe.crash("SetIteratorObject::objectMoved");
   }
 
+  bool iteratorIsInNursery = IsInsideNursery(obj);
+  MOZ_ASSERT(iteratorIsInNursery == nursery.isInside(buffer));
+  auto* newRange = new (buffer) ValueSet::Range(*range, iteratorIsInNursery);
   range->~Range();
   iter->setReservedSlot(SetIteratorObject::RangeSlot, PrivateValue(newRange));
-  return sizeof(ValueSet::Range);
+
+  if (iteratorIsInNursery && iter->target()) {
+    SetHasNurseryMemory(iter->target(), true);
+  }
+
+  return size;
+}
+
+SetObject* SetIteratorObject::target() const {
+  Value value = getFixedSlot(TargetSlot);
+  if (value.isUndefined()) {
+    return nullptr;
+  }
+
+  return &MaybeForwarded(&value.toObject())->as<SetObject>();
 }
 
 bool SetIteratorObject::next(SetIteratorObject* setIterator,
@@ -1314,7 +1392,6 @@ const JSFunctionSpec SetObject::methods[] = {
     JS_FN("entries", entries, 0, 0),
     JS_FN("clear", clear, 0, 0),
     JS_SELF_HOSTED_FN("forEach", "SetForEach", 2, 0),
-#ifdef NIGHTLY_BUILD
     JS_SELF_HOSTED_FN("union", "SetUnion", 1, 0),
     JS_SELF_HOSTED_FN("difference", "SetDifference", 1, 0),
     JS_SELF_HOSTED_FN("intersection", "SetIntersection", 1, 0),
@@ -1322,7 +1399,6 @@ const JSFunctionSpec SetObject::methods[] = {
     JS_SELF_HOSTED_FN("isSubsetOf", "SetIsSubsetOf", 1, 0),
     JS_SELF_HOSTED_FN("isSupersetOf", "SetIsSupersetOf", 1, 0),
     JS_SELF_HOSTED_FN("isDisjointFrom", "SetIsDisjointFrom", 1, 0),
-#endif
     JS_FN("values", values, 0, 0),
     // @@iterator and |keys| re-defined in finishInit so that they have the
     // same identity as |values|.
@@ -1449,25 +1525,41 @@ void SetObject::finalize(JS::GCContext* gcx, JSObject* obj) {
   MOZ_ASSERT(gcx->onMainThread());
   SetObject* setobj = static_cast<SetObject*>(obj);
   if (ValueSet* set = setobj->getData()) {
+    MOZ_ASSERT_IF(obj->isTenured(), !set->hasNurseryRanges());
     gcx->delete_(obj, set, MemoryUse::MapObjectTable);
   }
 }
 
+void SetObject::clearNurseryRangesBeforeMinorGC() {
+  getTableUnchecked()->destroyNurseryRanges();
+  SetHasNurseryMemory(this, false);
+}
+
 /* static */
-void SetObject::sweepAfterMinorGC(JS::GCContext* gcx, SetObject* setobj) {
-  bool wasInsideNursery = IsInsideNursery(setobj);
-  if (wasInsideNursery && !IsForwarded(setobj)) {
+SetObject* SetObject::sweepAfterMinorGC(JS::GCContext* gcx, SetObject* setobj) {
+  Nursery& nursery = gcx->runtime()->gc.nursery();
+  bool wasInCollectedRegion = nursery.inCollectedRegion(setobj);
+  if (wasInCollectedRegion && !IsForwarded(setobj)) {
     finalize(gcx, setobj);
-    return;
+    return nullptr;
   }
 
   setobj = MaybeForwarded(setobj);
-  setobj->getData()->destroyNurseryRanges();
-  SetHasNurseryMemory(setobj, false);
 
-  if (wasInsideNursery) {
+  bool insideNursery = IsInsideNursery(setobj);
+  if (insideNursery) {
+    SetHasNurseryMemory(setobj, true);
+  }
+
+  if (wasInCollectedRegion && setobj->isTenured()) {
     AddCellMemory(setobj, sizeof(ValueSet), MemoryUse::MapObjectTable);
   }
+
+  if (!HasNurseryMemory(setobj)) {
+    return nullptr;
+  }
+
+  return setobj;
 }
 
 bool SetObject::isBuiltinAdd(HandleValue add) {

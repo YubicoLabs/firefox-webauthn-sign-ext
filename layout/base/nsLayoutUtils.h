@@ -7,32 +7,33 @@
 #ifndef nsLayoutUtils_h__
 #define nsLayoutUtils_h__
 
+#include <limits>
+#include <algorithm>
+
+#include "gfxPoint.h"
 #include "LayoutConstants.h"
-#include "mozilla/MemoryReporting.h"
 #include "mozilla/ArrayUtils.h"
+#include "mozilla/gfx/2D.h"
+#include "mozilla/layers/LayersTypes.h"
+#include "mozilla/layers/ScrollableLayerGuid.h"
+#include "mozilla/LayoutStructs.h"
 #include "mozilla/LookAndFeel.h"
 #include "mozilla/Maybe.h"
+#include "mozilla/MemoryReporting.h"
 #include "mozilla/RelativeTo.h"
+#include "mozilla/Span.h"
 #include "mozilla/StaticPrefs_nglayout.h"
 #include "mozilla/SurfaceFromElementResult.h"
 #include "mozilla/SVGImageContext.h"
 #include "mozilla/ToString.h"
 #include "mozilla/TypedEnumBits.h"
-#include "mozilla/Span.h"
 #include "mozilla/UniquePtr.h"
 #include "mozilla/WritingModes.h"
-#include "mozilla/layers/ScrollableLayerGuid.h"
-#include "mozilla/gfx/2D.h"
-
-#include "gfxPoint.h"
 #include "nsBoundingMetrics.h"
 #include "nsCSSPropertyIDSet.h"
 #include "nsFrameList.h"
 #include "nsThreadUtils.h"
 #include "Units.h"
-#include "mozilla/layers/LayersTypes.h"
-#include <limits>
-#include <algorithm>
 // If you're thinking of adding a new include here, please try hard to not.
 // This header file gets included just about everywhere and adding headers here
 // can dramatically increase avoidable build activity. Try instead:
@@ -49,7 +50,6 @@ class nsIContent;
 class nsIPrincipal;
 class nsIWidget;
 class nsAtom;
-class nsIScrollableFrame;
 class nsRegion;
 enum nsChangeHint : uint32_t;
 class nsFontMetrics;
@@ -82,6 +82,7 @@ class WritingMode;
 class DisplayItemClip;
 class EffectSet;
 struct ActiveScrolledRoot;
+class ScrollContainerFrame;
 enum class ScrollOrigin : uint8_t;
 enum class StyleImageOrientation : uint8_t;
 enum class StyleSystemFont : uint8_t;
@@ -213,25 +214,27 @@ class nsLayoutUtils {
   static nsIContent* FindContentFor(ViewID aId);
 
   /**
-   * Find the scrollable frame for a given content element.
+   * Find the scroll container frame for a given content element.
    */
-  static nsIScrollableFrame* FindScrollableFrameFor(nsIContent* aContent);
+  static mozilla::ScrollContainerFrame* FindScrollContainerFrameFor(
+      nsIContent* aContent);
 
   /**
-   * Find the scrollable frame for a given ID.
+   * Find the scroll container frame for a given ID.
    */
-  static nsIScrollableFrame* FindScrollableFrameFor(ViewID aId);
+  static mozilla::ScrollContainerFrame* FindScrollContainerFrameFor(ViewID aId);
 
   /**
-   * Helper for FindScrollableFrameFor(), also used in DisplayPortUtils.
-   * Most clients should use FindScrollableFrameFor().
+   * Helper for FindScrollContainerFrameFor(), also used in DisplayPortUtils.
+   * Most clients should use FindScrollContainerFrameFor().
    */
-  static nsIFrame* GetScrollFrameFromContent(nsIContent* aContent);
+  static nsIFrame* GetScrollContainerFrameFromContent(nsIContent* aContent);
 
   /**
-   * Find the ID for a given scrollable frame.
+   * Find the ID for a given scroll container frame.
    */
-  static ViewID FindIDForScrollableFrame(nsIScrollableFrame* aScrollable);
+  static ViewID FindIDForScrollContainerFrame(
+      mozilla::ScrollContainerFrame* aScrollContainerFrame);
 
   /**
    * Notify the scroll frame with the given scroll id that its scroll offset
@@ -521,9 +524,10 @@ class nsLayoutUtils {
   static ViewID ScrollIdForRootScrollFrame(nsPresContext* aPresContext);
 
   /**
-   * GetScrollableFrameFor returns the scrollable frame for a scrolled frame
+   * GetScrollContainerFrameFor returns the scroll container frame for a
+   * scrolled frame.
    */
-  static nsIScrollableFrame* GetScrollableFrameFor(
+  static mozilla::ScrollContainerFrame* GetScrollContainerFrameFor(
       const nsIFrame* aScrolledFrame);
 
   /**
@@ -536,9 +540,9 @@ class nsLayoutUtils {
    *
    * @param  aFrame the frame to start with
    * @param  aDirection Whether it's for horizontal or vertical scrolling.
-   * @return the nearest scrollable frame or nullptr if not found
+   * @return the nearest scroll container frame or nullptr if not found
    */
-  static nsIScrollableFrame* GetNearestScrollableFrameForDirection(
+  static mozilla::ScrollContainerFrame* GetNearestScrollableFrameForDirection(
       nsIFrame* aFrame, mozilla::layers::ScrollDirections aDirections);
 
   enum {
@@ -579,7 +583,7 @@ class nsLayoutUtils {
     SCROLLABLE_STOP_AT_PAGE = 0x20,
   };
   /**
-   * GetNearestScrollableFrame locates the first ancestor of aFrame
+   * GetNearestScrollContainerFrame locates the first ancestor of aFrame
    * (or aFrame itself) that is scrollable with overflow:scroll or
    * overflow:auto in some direction.
    *
@@ -587,10 +591,10 @@ class nsLayoutUtils {
    * @param  aFlags if SCROLLABLE_SAME_DOC is set, do not search across
    * document boundaries. If SCROLLABLE_INCLUDE_HIDDEN is set, include
    * frames scrollable with overflow:hidden.
-   * @return the nearest scrollable frame or nullptr if not found
+   * @return the nearest scroll container frame or nullptr if not found
    */
-  static nsIScrollableFrame* GetNearestScrollableFrame(nsIFrame* aFrame,
-                                                       uint32_t aFlags = 0);
+  static mozilla::ScrollContainerFrame* GetNearestScrollContainerFrame(
+      nsIFrame* aFrame, uint32_t aFlags = 0);
 
   /**
    * GetScrolledRect returns the range of allowable scroll offsets
@@ -783,12 +787,12 @@ class nsLayoutUtils {
     float mVisibleThreshold;
 
     FrameForPointOptions(Bits aBits, float aVisibleThreshold)
-        : mBits(aBits), mVisibleThreshold(aVisibleThreshold){};
+        : mBits(aBits), mVisibleThreshold(aVisibleThreshold) {};
 
     MOZ_IMPLICIT FrameForPointOptions(Bits aBits)
         : FrameForPointOptions(aBits, 1.0f) {}
 
-    FrameForPointOptions() : FrameForPointOptions(Bits()){};
+    FrameForPointOptions() : FrameForPointOptions(Bits()) {};
   };
 
   /**
@@ -1241,52 +1245,57 @@ class nsLayoutUtils {
 
   static nsIFrame* GetContainingBlockForClientRect(nsIFrame* aFrame);
 
-  enum {
-    RECTS_ACCOUNT_FOR_TRANSFORMS = 0x01,
-    // Two bits for specifying which box type to use.
-    // With neither bit set (default), use the border box.
-    RECTS_USE_CONTENT_BOX = 0x02,
-    RECTS_USE_PADDING_BOX = 0x04,
-    RECTS_USE_MARGIN_BOX = 0x06,  // both bits set
-    RECTS_WHICH_BOX_MASK = 0x06   // bitmask for these two bits
-  };
   /**
    * Collect all CSS boxes (content, padding, border, or margin) associated
    * with aFrame and its continuations, "drilling down" through table wrapper
    * frames and some anonymous blocks since they're not real CSS boxes.
+   *
    * The boxes are positioned relative to aRelativeTo (taking scrolling
    * into account) and passed to the callback in frame-tree order.
    * If aFrame is null, no boxes are returned.
+   *
    * For SVG frames, returns one rectangle, the bounding box.
-   * If aFlags includes RECTS_ACCOUNT_FOR_TRANSFORMS, then when converting
-   * the boxes into aRelativeTo coordinates, transforms (including CSS
-   * and SVG transforms) are taken into account.
-   * If aFlags includes one of RECTS_USE_CONTENT_BOX, RECTS_USE_PADDING_BOX,
-   * or RECTS_USE_MARGIN_BOX, the corresponding type of box is used.
-   * Otherwise (by default), the border box is used.
+   *
+   * If aFlags includes 'AccountForTransforms', then when converting the boxes
+   * into aRelativeTo coordinates, transforms (including CSS and SVG transforms)
+   * are taken into account.
+   *
+   * If aFlags includes one of 'UseContentBox', 'UsePaddingBox', 'UseMarginBox',
+   * or 'UseMarginBoxWithAutoResolvedAsZero', the corresponding type of box is
+   * used. Otherwise (by default), the border box is used. Note that these "Box"
+   * flags are meant to be mutually exclusive, though we don't enforce that. If
+   * multiple "Box" flags are used, we'll gracefully just use the first one in
+   * the order of the enum.
    */
+  enum class GetAllInFlowRectsFlag : uint8_t {
+    AccountForTransforms,
+    UseContentBox,
+    UsePaddingBox,
+    UseMarginBox,
+    // Similar to UseMarginBox, but the 'auto' margins are resolved as zero.
+    UseMarginBoxWithAutoResolvedAsZero,
+  };
+  using GetAllInFlowRectsFlags = mozilla::EnumSet<GetAllInFlowRectsFlag>;
   static void GetAllInFlowRects(nsIFrame* aFrame, const nsIFrame* aRelativeTo,
                                 mozilla::RectCallback* aCallback,
-                                uint32_t aFlags = 0);
+                                GetAllInFlowRectsFlags aFlags = {});
 
   static void GetAllInFlowRectsAndTexts(
       nsIFrame* aFrame, const nsIFrame* aRelativeTo,
       mozilla::RectCallback* aCallback,
-      mozilla::dom::Sequence<nsString>* aTextList, uint32_t aFlags = 0);
+      mozilla::dom::Sequence<nsString>* aTextList,
+      GetAllInFlowRectsFlags aFlags = {});
 
   /**
    * Computes the union of all rects returned by GetAllInFlowRects. If
    * the union is empty, returns the first rect.
-   * If aFlags includes RECTS_ACCOUNT_FOR_TRANSFORMS, then when converting
-   * the boxes into aRelativeTo coordinates, transforms (including CSS
-   * and SVG transforms) are taken into account.
-   * If aFlags includes one of RECTS_USE_CONTENT_BOX, RECTS_USE_PADDING_BOX,
-   * or RECTS_USE_MARGIN_BOX, the corresponding type of box is used.
-   * Otherwise (by default), the border box is used.
+   *
+   * See GetAllInFlowRects() documentation for the meaning of aRelativeTo and
+   * aFlags.
    */
   static nsRect GetAllInFlowRectsUnion(nsIFrame* aFrame,
                                        const nsIFrame* aRelativeTo,
-                                       uint32_t aFlags = 0);
+                                       GetAllInFlowRectsFlags aFlags = {});
 
   enum { EXCLUDE_BLUR_SHADOWS = 0x01 };
   /**
@@ -1462,6 +1471,8 @@ class nsLayoutUtils {
    * @param aMarginBoxMinSizeClamp make the result fit within this margin-box
    * size by reducing the *content size* (flooring at zero).  This is used for:
    * https://drafts.csswg.org/css-grid/#min-size-auto
+   * @param aSizeOverrides optional override values for size properties, which
+   * this function will use internally instead of the actual property values.
    */
   enum {
     IGNORE_PADDING = 0x01,
@@ -1472,14 +1483,17 @@ class nsLayoutUtils {
       mozilla::PhysicalAxis aAxis, gfxContext* aRenderingContext,
       nsIFrame* aFrame, mozilla::IntrinsicISizeType aType,
       const mozilla::Maybe<LogicalSize>& aPercentageBasis = mozilla::Nothing(),
-      uint32_t aFlags = 0, nscoord aMarginBoxMinSizeClamp = NS_MAXSIZE);
+      uint32_t aFlags = 0, nscoord aMarginBoxMinSizeClamp = NS_MAXSIZE,
+      const mozilla::StyleSizeOverrides& aSizeOverrides = {});
   /**
    * Calls IntrinsicForAxis with aFrame's parent's inline physical axis.
    */
-  static nscoord IntrinsicForContainer(gfxContext* aRenderingContext,
-                                       nsIFrame* aFrame,
-                                       mozilla::IntrinsicISizeType aType,
-                                       uint32_t aFlags = 0);
+  static nscoord IntrinsicForContainer(
+      gfxContext* aRenderingContext, nsIFrame* aFrame,
+      mozilla::IntrinsicISizeType aType,
+      const mozilla::Maybe<LogicalSize>& aPercentageBasis = mozilla::Nothing(),
+      uint32_t aFlags = 0,
+      const mozilla::StyleSizeOverrides& aSizeOverrides = {});
 
   /**
    * Get the definite size contribution of aFrame for the given physical axis.
@@ -1514,10 +1528,10 @@ class nsLayoutUtils {
    */
   static nscoord ComputeCBDependentValue(nscoord aPercentBasis,
                                          const LengthPercentage& aCoord) {
-    NS_ASSERTION(
-        aPercentBasis != NS_UNCONSTRAINEDSIZE,
-        "have unconstrained width or height; this should only result from very "
-        "large sizes, not attempts at intrinsic size calculation");
+    NS_ASSERTION(aPercentBasis != NS_UNCONSTRAINEDSIZE || !aCoord.HasPercent(),
+                 "Have unconstrained percentage basis when percentage "
+                 "resolution needed; this should only result from very "
+                 "large sizes, not attempts at intrinsic size calculation");
     return aCoord.Resolve(aPercentBasis);
   }
   static nscoord ComputeCBDependentValue(nscoord aPercentBasis,
@@ -1528,8 +1542,22 @@ class nsLayoutUtils {
     return ComputeCBDependentValue(aPercentBasis, aCoord.AsLengthPercentage());
   }
 
-  static nscoord ComputeBSizeDependentValue(nscoord aContainingBlockBSize,
-                                            const LengthPercentageOrAuto&);
+  static nscoord ComputeCBDependentValue(nscoord aPercentBasis,
+                                         const mozilla::StyleInset& aInset) {
+    if (!aInset.IsLengthPercentage()) {
+      // Callers are assumed to have handled other cases already.
+      return 0;
+    }
+    return ComputeCBDependentValue(aPercentBasis, aInset.AsLengthPercentage());
+  }
+
+  static nscoord ComputeCBDependentValue(nscoord aPercentBasis,
+                                         const mozilla::StyleMargin& aMargin) {
+    if (!aMargin.IsLengthPercentage()) {
+      return 0;
+    }
+    return ComputeCBDependentValue(aPercentBasis, aMargin.AsLengthPercentage());
+  }
 
   static nscoord ComputeBSizeValue(nscoord aContainingBlockBSize,
                                    nscoord aContentEdgeToBoxSizingBoxEdge,
@@ -1582,23 +1610,15 @@ class nsLayoutUtils {
       nscoord minWidth, nscoord minHeight, nscoord maxWidth, nscoord maxHeight,
       nscoord tentWidth, nscoord tentHeight);
 
-  // Implement nsIFrame::GetPrefISize in terms of nsIFrame::AddInlinePrefISize
-  static nscoord PrefISizeFromInline(nsIFrame* aFrame,
-                                     gfxContext* aRenderingContext);
-
-  // Implement nsIFrame::GetMinISize in terms of nsIFrame::AddInlineMinISize
-  static nscoord MinISizeFromInline(nsIFrame* aFrame,
-                                    gfxContext* aRenderingContext);
-
   // Get a suitable foreground color for painting aColor for aFrame.
   static nscolor DarkenColorIfNeeded(nsIFrame* aFrame, nscolor aColor);
 
-  // Get a suitable foreground color for painting aField for aFrame.
+  // Get a suitable text foreground color for painting aField for aFrame.
   // Type of aFrame is made a template parameter because nsIFrame is not
   // a complete type in the header. Type-safety is not harmed given that
   // DarkenColorIfNeeded requires an nsIFrame pointer.
   template <typename Frame, typename T, typename S>
-  static nscolor GetColor(Frame* aFrame, T S::*aField) {
+  static nscolor GetTextColor(Frame* aFrame, T S::*aField) {
     nscolor color = aFrame->GetVisitedDependentColor(aField);
     return DarkenColorIfNeeded(aFrame, color);
   }
@@ -2230,7 +2250,7 @@ class nsLayoutUtils {
   }
   static mozilla::SurfaceFromElementResult SurfaceFromElement(
       mozilla::dom::HTMLVideoElement* aElement, uint32_t aSurfaceFlags,
-      RefPtr<DrawTarget>& aTarget);
+      RefPtr<DrawTarget>& aTarget, bool aOptimizeSourceSurface = true);
 
   /**
    * When the document is editable by contenteditable attribute of its root
@@ -2411,12 +2431,6 @@ class nsLayoutUtils {
   static MatrixScales ComputeSuitableScaleForAnimation(
       const nsIFrame* aFrame, const nsSize& aVisibleSize,
       const nsSize& aDisplaySize);
-
-  /**
-   * Checks whether we want to use the GPU to scale images when
-   * possible.
-   */
-  static bool GPUImageScalingEnabled();
 
   /**
    * Unions the overflow areas of the children of aFrame with aOverflowAreas.
@@ -2652,12 +2666,13 @@ class nsLayoutUtils {
 
   /**
    * Calculate the scrollable rect for a frame. See FrameMetrics.h for
-   * defintion of scrollable rect. aScrollableFrame is the scroll frame to
-   * calculate the scrollable rect for. If it's null then we calculate the
-   * scrollable rect as the rect of the root frame.
+   * definition of scrollable rect. aScrollContainerFrame is the scroll
+   * container frame to calculate the scrollable rect for. If it's null then we
+   * calculate the scrollable rect as the rect of the root frame.
    */
   static nsRect CalculateScrollableRectForFrame(
-      const nsIScrollableFrame* aScrollableFrame, const nsIFrame* aRootFrame);
+      const mozilla::ScrollContainerFrame* aScrollContainerFrame,
+      const nsIFrame* aRootFrame);
 
   /**
    * Calculate the expanded scrollable rect for a frame. See FrameMetrics.h for
@@ -2742,13 +2757,14 @@ class nsLayoutUtils {
    * viewport offset; if you need the visual viewport offset, that needs to
    * be queried independently via PresShell::GetVisualViewportOffset().
    *
-   * By contrast, ComputeFrameMetrics() computes all the fields, but requires
+   * By contrast, ComputeScrollMetadata() computes all the fields, but requires
    * extra inputs and can only be called during frame layer building.
    */
   static FrameMetrics CalculateBasicFrameMetrics(
-      nsIScrollableFrame* aScrollFrame);
+      mozilla::ScrollContainerFrame* aScrollContainerFrame);
 
-  static nsIScrollableFrame* GetAsyncScrollableAncestorFrame(nsIFrame* aTarget);
+  static mozilla::ScrollContainerFrame* GetAsyncScrollableAncestorFrame(
+      nsIFrame* aTarget);
 
   static void SetBSizeFromFontMetrics(
       const nsIFrame* aFrame, mozilla::ReflowOutput& aMetrics,
@@ -2838,14 +2854,16 @@ class nsLayoutUtils {
    * rect. This rect is used to clip the result.
    */
   static CSSRect GetBoundingContentRect(
-      const nsIContent* aContent, const nsIScrollableFrame* aRootScrollFrame,
+      const nsIContent* aContent,
+      const mozilla::ScrollContainerFrame* aRootScrollContainerFrame,
       mozilla::Maybe<CSSRect>* aOutNearestScrollClip = nullptr);
 
   /**
    * Similar to GetBoundingContentRect for nsIFrame.
    */
   static CSSRect GetBoundingFrameRect(
-      nsIFrame* aFrame, const nsIScrollableFrame* aRootScrollFrame,
+      nsIFrame* aFrame,
+      const mozilla::ScrollContainerFrame* aRootScrollContainerFrame,
       mozilla::Maybe<CSSRect>* aOutNearestScrollClip = nullptr);
 
   /**
@@ -2913,7 +2931,13 @@ class nsLayoutUtils {
 
   // Compute the geometry box for SVG layout. The caller should map the CSS box
   // into the proper SVG box.
-  static nsRect ComputeSVGReferenceRect(nsIFrame*, StyleGeometryBox);
+  // |aMayHaveCyclicDependency| is used for stroke-box to avoid the cyclic
+  // dependency if any of its descendants uses non-scaling-stroke.
+  enum class MayHaveNonScalingStrokeCyclicDependency : bool { No, Yes };
+  static nsRect ComputeSVGReferenceRect(
+      nsIFrame*, StyleGeometryBox,
+      MayHaveNonScalingStrokeCyclicDependency =
+          MayHaveNonScalingStrokeCyclicDependency::No);
 
   // Compute the geometry box for CSS layout. The caller should map the SVG box
   // into the proper CSS box.

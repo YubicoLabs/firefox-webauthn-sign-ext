@@ -8,13 +8,13 @@ import pickle
 import sys
 from abc import ABCMeta, abstractmethod
 from collections import defaultdict
+from urllib.parse import urlsplit
 
 import mozpack.path as mozpath
 import six
 from manifestparser import TestManifest, combine_fields
 from mozbuild.base import MozbuildObject
 from mozbuild.testing import REFTEST_FLAVORS, TEST_MANIFESTS
-from mozbuild.util import OrderedDefaultDict
 from mozpack.files import FileFinder
 
 here = os.path.abspath(os.path.dirname(__file__))
@@ -610,9 +610,10 @@ class TestResolver(MozbuildObject):
         self._puppeteer_loaded = False
         self._tests_loaded = False
         self._wpt_loaded = False
+        self.meta_tags = {}
 
     def _reset_state(self):
-        self._tests_by_path = OrderedDefaultDict(list)
+        self._tests_by_path = defaultdict(list)
         self._tests_by_flavor = defaultdict(set)
         self._tests_by_manifest = defaultdict(list)
         self._test_dirs = set()
@@ -661,6 +662,43 @@ class TestResolver(MozbuildObject):
                 self._test_dirs.add(test["dir_relpath"])
         return self._test_dirs
 
+    def get_test_tags(self, test_tags, metadata_base, path):
+        paths = []
+
+        # similar logic to wpt TestLoader::load_dir_metadata
+        path_parts = os.path.dirname(path).split(os.path.sep)
+        for i in range(1, len(path_parts) + 1):
+            p = os.path.join(
+                metadata_base, os.path.sep.join(path_parts[:i]), "__dir__.ini"
+            )
+            if not p:
+                break
+            if os.path.exists(p):
+                paths.append(p)
+
+        paths.append(os.path.join(metadata_base, "%s.ini" % path))
+
+        for file_path in paths:
+            if file_path in self.meta_tags:
+                test_tags.extend(self.meta_tags[file_path])
+                continue
+
+            try:
+                with open(file_path, "rb") as f:
+                    # __dir__.ini are not proper .ini files, configParser doesn't work
+                    # WPT uses a custom reader for __dir__.ini, but hard to load/use here.
+                    data = f.read().decode("utf-8")
+                    for line in data.split("\n"):
+                        if "tags: [" in line:
+                            self.meta_tags[file_path] = (
+                                line.split("[")[1].split("]")[0].split(" ")
+                            )
+                            test_tags.extend(self.meta_tags[file_path])
+            except IOError:
+                pass
+
+        return list(set(test_tags))
+
     def _resolve(
         self, paths=None, flavor="", subsuite=None, under_path=None, tags=None
     ):
@@ -703,10 +741,14 @@ class TestResolver(MozbuildObject):
                     if flavor != "devtools" and test.get("flavor") != flavor:
                         continue
 
-                if subsuite and test.get("subsuite", "undefined") != subsuite:
+                test_subsuite = test.get("subsuite", "undefined")
+                if not test_subsuite:  # sometimes test['subsuite'] == ''
+                    test_subsuite = "undefined"
+                if subsuite and test_subsuite != subsuite:
                     continue
 
-                if tags and not (tags & set(test.get("tags", "").split())):
+                test_tags = set(test.get("tags", "").split())
+                if tags and not (tags & test_tags):
                     continue
 
                 if under_path and not test["file_relpath"].startswith(under_path):
@@ -851,13 +893,17 @@ class TestResolver(MozbuildObject):
         ):
             depth = depth + 1
 
+        # wpt canvas tests are mostly nested under subfolders of /html/canvas,
+        # increase the depth to ensure chunks can be balanced correctly.
+        if test["name"].startswith("/html/canvas"):
+            depth = depth + 1
+
         if test["name"].startswith("/_mozilla/webgpu"):
             depth = 9001
 
-        group = os.path.dirname(test["name"])
-        while group.count("/") > depth:
-            group = os.path.dirname(group)
-        return group
+        # We have a leading / so the first component is always ""
+        components = depth + 1
+        return "/".join(urlsplit(test["name"]).path.split("/")[:-1][:components])
 
     def add_wpt_manifest_data(self):
         """Adds manifest data for web-platform-tests into the list of available tests.
@@ -887,7 +933,6 @@ class TestResolver(MozbuildObject):
             self.topsrcdir,
             self.topobjdir,
             rebuild=False,
-            download=True,
             config_path=None,
             rewrite_config=True,
             update=True,
@@ -910,6 +955,9 @@ class TestResolver(MozbuildObject):
 
                 full_path = mozpath.join(tests_root, path)  # absolute path on disk
                 src_path = mozpath.relpath(full_path, self.topsrcdir)
+                test_tags = self.get_test_tags(
+                    [], manifests[manifest].get("metadata_path", ""), path
+                )
 
                 for test in tests:
                     testobj = {
@@ -923,6 +971,7 @@ class TestResolver(MozbuildObject):
                         "file_relpath": src_path,
                         "srcdir_relpath": src_path,
                         "dir_relpath": mozpath.dirname(src_path),
+                        "tags": " ".join(test_tags),
                     }
                     group = self.get_wpt_group(testobj)
                     testobj["manifest"] = group
@@ -1033,7 +1082,11 @@ class TestResolver(MozbuildObject):
 
             # Now look for file/directory matches in the TestResolver.
             relpath = self._wrap_path_argument(entry).relpath()
+            # since either path or tag can be defined (but not both), here we assume
+            # one or none are defined, but not both
             tests = list(self.resolve_tests(paths=[relpath]))
+            if not tests:
+                tests = list(self.resolve_tests(tags=entry))
             run_tests.extend(tests)
 
             if not tests:

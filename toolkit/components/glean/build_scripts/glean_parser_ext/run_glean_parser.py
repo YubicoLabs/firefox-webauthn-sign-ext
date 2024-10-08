@@ -5,6 +5,7 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 import os
+import pickle
 import sys
 from pathlib import Path
 
@@ -12,7 +13,7 @@ import cpp
 import jinja2
 import jog
 import rust
-from glean_parser import lint, parser, translate, util
+from glean_parser import lint, metrics, parser, translate, util
 from mozbuild.util import FileAvoidWrite, memoize
 from util import generate_metric_ids
 
@@ -36,7 +37,14 @@ class ParserError(Exception):
 
 GIFFT_TYPES = {
     "Event": ["event"],
-    "Histogram": ["timing_distribution", "memory_distribution", "custom_distribution"],
+    "Histogram": [
+        "custom_distribution",
+        "labeled_custom_distribution",
+        "memory_distribution",
+        "labeled_memory_distribution",
+        "timing_distribution",
+        "labeled_timing_distribution",
+    ],
     "Scalar": [
         "boolean",
         "labeled_boolean",
@@ -67,6 +75,19 @@ def parse(args):
     Parse and lint the input files,
     then return the parsed objects for further processing.
     """
+
+    if all(arg.endswith(".cached") for arg in args[:-1]):
+        objects = dict()
+        options = None
+        for cache_file in args[:-1]:
+            with open(cache_file, "rb") as cache:
+                cached_objects, cached_options = pickle.load(cache)
+                objects.update(cached_objects)
+                assert (
+                    options is None or cached_options == options
+                ), "consistent options"
+                options = options or cached_options
+        return objects, options
 
     # Unfortunately, GeneratedFile appends `flags` directly after `inputs`
     # instead of listifying either, so we need to pull stuff from a *args.
@@ -189,6 +210,19 @@ def output_gifft_map(output_fd, probe_type, all_objs, cpp_fd):
                         file=sys.stderr,
                     )
                     sys.exit(1)
+                # We only support mirrors for lifetime: ping
+                # If you understand and are okay with how Legacy Telemetry has no
+                # mechanism to which to mirror non-ping lifetimes,
+                # you may use `no_lint: [GIFFT_NON_PING_LIFETIME]`
+                elif (
+                    metric.lifetime != metrics.Lifetime.ping
+                    and "GIFFT_NON_PING_LIFETIME" not in metric.no_lint
+                ):
+                    print(
+                        f"Glean lifetime semantics are not mirrored. {category_name}.{metric.name}'s lifetime of {metric.lifetime} is not supported.",
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
 
     env = jinja2.Environment(
         loader=jinja2.PackageLoader("run_glean_parser", "templates"),
@@ -227,6 +261,33 @@ def jog_factory(output_fd, *args):
 def jog_file(output_fd, *args):
     all_objs, options = parse(args)
     jog.output_file(all_objs, output_fd, options)
+    return get_deps()
+
+
+def ohttp_pings(output_fd, *args):
+    all_objs, options = parse(args)
+    ohttp_pings = []
+    for ping in all_objs["pings"].values():
+        if ping.metadata.get("use_ohttp", False):
+            if ping.include_info_sections:
+                raise ParserError(
+                    "Cannot send pings with OHTTP that contain {client|ping}_info sections. Specify `metadata: include_info_sections: false`"
+                )
+            ohttp_pings.append(ping.name)
+
+    env = jinja2.Environment(
+        loader=jinja2.PackageLoader("run_glean_parser", "templates"),
+        trim_blocks=True,
+        lstrip_blocks=True,
+    )
+    env.filters["quote_and_join"] = lambda l: "\n| ".join(f'"{x}"' for x in l)
+    template = env.get_template("ohttp.jinja2")
+    output_fd.write(
+        template.render(
+            ohttp_pings=ohttp_pings,
+        )
+    )
+    output_fd.write("\n")
     return get_deps()
 
 

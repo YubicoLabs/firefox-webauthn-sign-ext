@@ -73,7 +73,7 @@ class Perftest(object):
         app,
         binary,
         run_local=False,
-        noinstall=False,
+        no_install=False,
         obj_path=None,
         profile_class=None,
         installerpath=None,
@@ -90,7 +90,7 @@ class Perftest(object):
         live_sites=False,
         is_release_build=False,
         debug_mode=False,
-        post_startup_delay=POST_DELAY_DEFAULT,
+        post_startup_delay=None,
         interrupt_handler=None,
         e10s=True,
         results_handler_class=RaptorResultsHandler,
@@ -110,6 +110,8 @@ class Perftest(object):
         benchmark_revision=None,
         benchmark_branch=None,
         clean=False,
+        screenshot_on_failure=False,
+        power_test=False,
         **kwargs
     ):
         self._remote_test_root = None
@@ -156,6 +158,8 @@ class Perftest(object):
             "benchmark_revision": benchmark_revision,
             "benchmark_branch": benchmark_branch,
             "clean": clean,
+            "screenshot_on_failure": screenshot_on_failure,
+            "power_test": power_test,
         }
 
         self.firefox_android_apps = FIREFOX_ANDROID_APPS
@@ -179,7 +183,6 @@ class Perftest(object):
         if self.config["app"] in (
             "chrome",
             "chrome-m",
-            "chromium",
             "custom-car",
             "cstm-car-m",
         ):
@@ -213,22 +216,28 @@ class Perftest(object):
         self.run_local = self.config["run_local"]
         self.debug_mode = debug_mode if self.run_local else False
 
-        # For the post startup delay, we want to max it to 1s when using the
-        # conditioned profiles.
-        if self.config.get("conditioned_profile"):
-            self.post_startup_delay = min(post_startup_delay, POST_DELAY_CONDPROF)
-        elif (
-            self.debug_mode
-        ):  # if running debug-mode reduce the pause after browser startup
-            self.post_startup_delay = min(post_startup_delay, POST_DELAY_DEBUG)
+        if post_startup_delay is None:
+            # For the post startup delay, we want to max it to 1s when using the
+            # conditioned profiles.
+            if self.config.get("conditioned_profile"):
+                self.post_startup_delay = POST_DELAY_CONDPROF
+            elif (
+                self.debug_mode
+            ):  # if running debug-mode reduce the pause after browser startup
+                self.post_startup_delay = POST_DELAY_DEBUG
+            else:
+                self.post_startup_delay = POST_DELAY_DEFAULT
+
+            if (
+                app in CHROME_ANDROID_APPS + FIREFOX_ANDROID_APPS
+                and not self.config.get("conditioned_profile")
+            ):
+                LOG.info("Mobile non-conditioned profile")
+                self.post_startup_delay = POST_DELAY_MOBILE
         else:
+            # User supplied a custom post_startup_delay value
             self.post_startup_delay = post_startup_delay
 
-        if app in CHROME_ANDROID_APPS + FIREFOX_ANDROID_APPS and not self.config.get(
-            "conditioned_profile"
-        ):
-            LOG.info("Mobile non-conditioned profile")
-            self.post_startup_delay = POST_DELAY_MOBILE
         LOG.info("Post startup delay set to %d ms" % self.post_startup_delay)
         LOG.info("main raptor init, config is: %s" % str(self.config))
 
@@ -688,7 +697,11 @@ class PerftestAndroid(Perftest):
             device = ADBDeviceFactory(verbose=True)
 
             # Chrome uses a specific binary that we don't set as a command line option
-            binary = "com.android.chrome"
+            binary = (
+                "com.android.chrome"
+                if self.config["app"] == "chrome-m"
+                else "org.chromium.chrome"
+            )
             if self.config["app"] not in CHROME_ANDROID_APPS:
                 binary = self.config["binary"]
 
@@ -803,8 +816,8 @@ class PerftestDesktop(Perftest):
 
     def desktop_chrome_args(self, test):
         """Returns cmd line options required to run pageload tests on Desktop Chrome
-        and Chromium. Also add the cmd line options to turn on the proxy and
-        ignore security certificate errors if using host localhost, 127.0.0.1.
+        and Chromium as Release (CaR). Also add the cmd line options to turn on the
+        proxy and ignore security certificate errors if using host localhost, 127.0.0.1.
         """
         chrome_args = ["--use-mock-keychain", "--no-default-browser-check"]
 

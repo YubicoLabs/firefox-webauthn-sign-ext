@@ -5,7 +5,7 @@
 /*---
 esid: sec-Intl.DurationFormat.prototype.format
 description: Test if format method formats duration correctly with different "style" arguments
-locale: [en-US]
+locale: [en]
 includes: [testIntl.js]
 features: [Intl.DurationFormat]
 ---*/
@@ -23,9 +23,10 @@ const duration = {
   nanoseconds: 9,
 };
 
-const expected = formatDurationFormatPattern(duration);
-
 const df = new Intl.DurationFormat("en");
+
+const expected = formatDurationFormatPattern(df, duration);
+
 assert.sameValue(df.format(duration), expected, `Assert DurationFormat format output using default style option`);
 
 reportCompare(0, 0);

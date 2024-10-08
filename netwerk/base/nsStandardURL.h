@@ -139,7 +139,6 @@ class nsStandardURL : public nsIFileURL,
   static void InitGlobalObjects();
   static void ShutdownGlobalObjects();
 
- public: /* internal -- HPUX compiler can't handle this being private */
   //
   // location and length of an url segment relative to mSpec
   //
@@ -171,6 +170,7 @@ class nsStandardURL : public nsIFileURL,
     }
   };
 
+ public:
   //
   // URL segment encoder : performs charset conversion and URL escaping.
   //
@@ -196,7 +196,7 @@ class nsStandardURL : public nsIFileURL,
   };
   friend class nsSegmentEncoder;
 
-  static nsresult NormalizeIPv4(const nsACString& host, nsCString& result);
+  static nsIIDNService* GetIDNService();
 
  protected:
   // enum used in a few places to specify how .ref attribute should be handled
@@ -257,9 +257,8 @@ class nsStandardURL : public nsIFileURL,
   void Clear();
   void InvalidateCache(bool invalidateCachedFile = true);
 
-  bool ValidIPv6orHostname(const char* host, uint32_t length);
   static bool IsValidOfBase(unsigned char c, const uint32_t base);
-  nsresult NormalizeIDN(const nsCString& host, nsCString& result);
+  nsresult NormalizeIDN(const nsACString& aHost, nsACString& aResult);
   nsresult CheckIfHostIsAscii();
   void CoalescePath(netCoalesceFlags coalesceFlag, char* path);
 

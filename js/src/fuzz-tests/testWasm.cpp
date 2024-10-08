@@ -9,6 +9,7 @@
 
 #include "fuzz-tests/tests.h"
 #include "js/CallAndConstruct.h"
+#include "js/Prefs.h"
 #include "js/PropertyAndElement.h"  // JS_Enumerate, JS_GetProperty, JS_GetPropertyById, JS_HasProperty, JS_SetProperty
 #include "vm/GlobalObject.h"
 #include "vm/Interpreter.h"
@@ -35,18 +36,30 @@ extern "C" {
 size_t gluesmith(uint8_t* data, size_t size, uint8_t* out, size_t maxsize);
 }
 
+// Filter and set only "always" preferences. "startup" preferences are
+// not allowed to be set after JS_Init.
+struct PrefsSetters {
+#define JS_PREF_SETTER(NAME, CPP_NAME, TYPE, SETTER_NAME, IS_STARTUP) \
+  template <typename T>                                               \
+  static void set_##CPP_NAME(T value) {                               \
+    if constexpr (!IS_STARTUP) {                                      \
+      JS::Prefs::SETTER_NAME(value);                                  \
+    }                                                                 \
+  }
+  FOR_EACH_JS_PREF(JS_PREF_SETTER)
+#undef JS_PREF_SETTER
+};
+
 static int testWasmInit(int* argc, char*** argv) {
   if (!wasm::HasSupport(gCx)) {
     MOZ_CRASH("Wasm is not supported");
   }
 
-  JS::ContextOptionsRef(gCx)
-#define WASM_FEATURE(NAME, LOWER_NAME, STAGE, COMPILE_PRED, COMPILER_PRED, \
-                     FLAG_PRED, FLAG_FORCE_ON, FLAG_FUZZ_ON, SHELL, PREF)  \
-  .setWasm##NAME(FLAG_FUZZ_ON)
-      JS_FOR_WASM_FEATURES(WASM_FEATURE)
+#define WASM_FEATURE(NAME, LOWER_NAME, COMPILE_PRED, COMPILER_PRED, FLAG_PRED, \
+                     FLAG_FORCE_ON, FLAG_FUZZ_ON, PREF)                        \
+  PrefsSetters::set_wasm_##PREF(FLAG_FUZZ_ON);
+  JS_FOR_WASM_FEATURES(WASM_FEATURE)
 #undef WASM_FEATURE
-          ;
 
   if (!GlobalObject::getOrCreateConstructor(gCx, JSProto_WebAssembly)) {
     MOZ_CRASH("Failed to initialize wasm engine");
@@ -277,7 +290,7 @@ static int testWasmFuzz(const uint8_t* buf, size_t size) {
 
     // At this point we have a valid module and we should try to ensure
     // that its import requirements are met for instantiation.
-    const ImportVector& importVec = module->imports();
+    const ImportVector& importVec = module->moduleMeta().imports;
 
     // Empty native function used to fill in function import slots if we
     // run out of functions exported by other modules.

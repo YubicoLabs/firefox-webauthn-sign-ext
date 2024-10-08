@@ -9,9 +9,9 @@
 const fs = require("fs");
 const path = require("path");
 
-function readFile(path) {
+function readFile(filePath) {
   return fs
-    .readFileSync(path, { encoding: "utf-8" })
+    .readFileSync(filePath, { encoding: "utf-8" })
     .split("\n")
     .filter(p => p && !p.startsWith("#"));
 }
@@ -65,7 +65,14 @@ module.exports = {
     "property-no-unknown": [
       true,
       {
-        ignoreProperties: ["overflow-clip-box"],
+        ignoreProperties: [
+          // overflow-clip-box is Gecko-specific and not exposed to web
+          // content. Might be replaced with overflow-clip-margin, see:
+          // https://github.com/w3c/csswg-drafts/issues/10745
+          "overflow-clip-box",
+          "overflow-clip-box-block",
+          "overflow-clip-box-inline",
+        ],
       },
     ],
 

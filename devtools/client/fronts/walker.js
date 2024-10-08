@@ -61,6 +61,9 @@ class WalkerFront extends FrontClassWithSpec(walkerSpec) {
     // calling watchRootNode, so we keep this assignment as a fallback.
     this.rootNode = types.getType("domnode").read(json.root, this);
 
+    // Bug 1861328: boolean set to true when color scheme can't be changed (happens when `privacy.resistFingerprinting` is set to true)
+    this.rfpCSSColorScheme = json.rfpCSSColorScheme;
+
     this.traits = json.traits;
   }
 
@@ -145,6 +148,11 @@ class WalkerFront extends FrontClassWithSpec(walkerSpec) {
 
   async querySelector(queryNode, selector) {
     const response = await super.querySelector(queryNode, selector);
+    return response.node;
+  }
+
+  async getIdrefNode(queryNode, id) {
+    const response = await super.getIdrefNode(queryNode, id);
     return response.node;
   }
 

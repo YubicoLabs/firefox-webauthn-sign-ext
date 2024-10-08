@@ -45,12 +45,15 @@ import androidx.annotation.AnyThread;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.UiThread;
+import androidx.core.view.OnApplyWindowInsetsListener;
+import androidx.core.view.WindowInsetsCompat;
 import java.io.File;
 import java.io.InputStream;
 import java.lang.Boolean;
 import java.lang.CharSequence;
 import java.lang.Class;
 import java.lang.Comparable;
+import java.lang.Deprecated;
 import java.lang.Double;
 import java.lang.Exception;
 import java.lang.Float;
@@ -85,6 +88,7 @@ import org.mozilla.geckoview.CompositorController;
 import org.mozilla.geckoview.ContentBlocking;
 import org.mozilla.geckoview.ContentBlockingController;
 import org.mozilla.geckoview.CrashHandler;
+import org.mozilla.geckoview.DeprecationSchedule;
 import org.mozilla.geckoview.ExperimentDelegate;
 import org.mozilla.geckoview.GeckoDisplay;
 import org.mozilla.geckoview.GeckoResult;
@@ -100,7 +104,6 @@ import org.mozilla.geckoview.OverscrollEdgeEffect;
 import org.mozilla.geckoview.PanZoomController;
 import org.mozilla.geckoview.ProfilerController;
 import org.mozilla.geckoview.RuntimeSettings;
-import org.mozilla.geckoview.RuntimeTelemetry;
 import org.mozilla.geckoview.ScreenLength;
 import org.mozilla.geckoview.SessionAccessibility;
 import org.mozilla.geckoview.SessionFinder;
@@ -253,6 +256,7 @@ package org.mozilla.geckoview {
   }
 
   public static class Autocomplete.LoginSelectOption extends Autocomplete.SelectOption<Autocomplete.LoginEntry> {
+    ctor public LoginSelectOption(@NonNull Autocomplete.LoginEntry, int);
     ctor public LoginSelectOption(@NonNull Autocomplete.LoginEntry);
   }
 
@@ -609,6 +613,7 @@ package org.mozilla.geckoview {
     field public static final int BLOCKED_EMAILTRACKING_CONTENT = 4194304;
     field public static final int BLOCKED_FINGERPRINTING_CONTENT = 64;
     field public static final int BLOCKED_SOCIALTRACKING_CONTENT = 65536;
+    field public static final int BLOCKED_SUSPICIOUS_FINGERPRINTING = 4;
     field public static final int BLOCKED_TRACKING_CONTENT = 4096;
     field public static final int BLOCKED_UNSAFE_CONTENT = 16384;
     field public static final int COOKIES_BLOCKED_ALL = 1073741824;
@@ -627,6 +632,7 @@ package org.mozilla.geckoview {
     field public static final int LOADED_LEVEL_1_TRACKING_CONTENT = 8192;
     field public static final int LOADED_LEVEL_2_TRACKING_CONTENT = 1048576;
     field public static final int LOADED_SOCIALTRACKING_CONTENT = 131072;
+    field public static final int PURGED_BOUNCETRACKER = 7;
     field public static final int REPLACED_TRACKING_CONTENT = 16;
   }
 
@@ -709,6 +715,7 @@ package org.mozilla.geckoview {
     method @UiThread public boolean shouldPinOnScreen();
     method @UiThread public void surfaceChanged(@NonNull GeckoDisplay.SurfaceInfo);
     method @UiThread public void surfaceDestroyed();
+    method @UiThread public void windowInsetsChanged(@NonNull WindowInsetsCompat);
   }
 
   public static interface GeckoDisplay.NewSurfaceProvider {
@@ -857,6 +864,7 @@ package org.mozilla.geckoview {
     method public boolean getConsoleOutputEnabled();
     method @NonNull public ContentBlocking.Settings getContentBlocking();
     method @Nullable public Class<? extends android.app.Service> getCrashHandler();
+    method @Nullable public Boolean getDisableShip();
     method @Nullable public Float getDisplayDensityOverride();
     method @Nullable public Integer getDisplayDpiOverride();
     method public boolean getDoubleTapZoomingEnabled();
@@ -867,6 +875,10 @@ package org.mozilla.geckoview {
     method @Nullable public Boolean getExtensionsProcessEnabled();
     method public boolean getExtensionsWebAPIEnabled();
     method @NonNull public Bundle getExtras();
+    method public boolean getFdlibmMathEnabled();
+    method public boolean getFingerprintingProtection();
+    method @NonNull public String getFingerprintingProtectionOverrides();
+    method public boolean getFingerprintingProtectionPrivateBrowsing();
     method public boolean getFontInflationEnabled();
     method public float getFontSizeFactor();
     method public boolean getForceEnableAccessibility();
@@ -884,11 +896,12 @@ package org.mozilla.geckoview {
     method public boolean getRemoteDebuggingEnabled();
     method @Nullable public GeckoRuntime getRuntime();
     method @Nullable public Rect getScreenSizeOverride();
-    method @Nullable public RuntimeTelemetry.Delegate getTelemetryDelegate();
     method public boolean getTranslationsOfferPopup();
     method @NonNull public String getTrustedRecursiveResolverUri();
     method public int getTrustedRecusiveResolverMode();
     method public boolean getUseMaxScreenDepth();
+    method @NonNull public int getUserCharacteristicPingCurrentVersion();
+    method @Nullable public Integer getWebContentIsolationStrategy();
     method public boolean getWebFontsEnabled();
     method public boolean getWebManifestEnabled();
     method @NonNull public GeckoRuntimeSettings setAboutConfigEnabled(boolean);
@@ -901,6 +914,10 @@ package org.mozilla.geckoview {
     method @NonNull public GeckoRuntimeSettings setExtensionsProcessCrashTimeframe(@NonNull Long);
     method @NonNull public GeckoRuntimeSettings setExtensionsProcessEnabled(boolean);
     method @NonNull public GeckoRuntimeSettings setExtensionsWebAPIEnabled(boolean);
+    method @NonNull public GeckoRuntimeSettings setFdlibmMathEnabled(boolean);
+    method @NonNull public GeckoRuntimeSettings setFingerprintingProtection(boolean);
+    method @NonNull public GeckoRuntimeSettings setFingerprintingProtectionOverrides(@NonNull String);
+    method @NonNull public GeckoRuntimeSettings setFingerprintingProtectionPrivateBrowsing(boolean);
     method @NonNull public GeckoRuntimeSettings setFontInflationEnabled(boolean);
     method @NonNull public GeckoRuntimeSettings setFontSizeFactor(float);
     method @NonNull public GeckoRuntimeSettings setForceEnableAccessibility(boolean);
@@ -917,6 +934,8 @@ package org.mozilla.geckoview {
     method @NonNull public GeckoRuntimeSettings setTranslationsOfferPopup(boolean);
     method @NonNull public GeckoRuntimeSettings setTrustedRecursiveResolverMode(int);
     method @NonNull public GeckoRuntimeSettings setTrustedRecursiveResolverUri(@NonNull String);
+    method @NonNull public GeckoRuntimeSettings setUserCharacteristicPingCurrentVersion(int);
+    method @NonNull public GeckoRuntimeSettings setWebContentIsolationStrategy(@NonNull Integer);
     method @NonNull public GeckoRuntimeSettings setWebFontsEnabled(boolean);
     method @NonNull public GeckoRuntimeSettings setWebManifestEnabled(boolean);
     field public static final int ALLOW_ALL = 0;
@@ -926,6 +945,9 @@ package org.mozilla.geckoview {
     field public static final Parcelable.Creator<GeckoRuntimeSettings> CREATOR;
     field public static final int HTTPS_ONLY = 2;
     field public static final int HTTPS_ONLY_PRIVATE = 1;
+    field public static final int STRATEGY_ISOLATE_EVERYTHING = 1;
+    field public static final int STRATEGY_ISOLATE_HIGH_VALUE = 2;
+    field public static final int STRATEGY_ISOLATE_NOTHING = 0;
     field public static final int TRR_MODE_DISABLED = 5;
     field public static final int TRR_MODE_FIRST = 2;
     field public static final int TRR_MODE_OFF = 0;
@@ -943,6 +965,7 @@ package org.mozilla.geckoview {
     method @NonNull public GeckoRuntimeSettings.Builder contentBlocking(@NonNull ContentBlocking.Settings);
     method @NonNull public GeckoRuntimeSettings.Builder crashHandler(@Nullable Class<? extends android.app.Service>);
     method @NonNull public GeckoRuntimeSettings.Builder debugLogging(boolean);
+    method @NonNull public GeckoRuntimeSettings.Builder disableShip(boolean);
     method @NonNull public GeckoRuntimeSettings.Builder displayDensityOverride(float);
     method @NonNull public GeckoRuntimeSettings.Builder displayDpiOverride(int);
     method @NonNull public GeckoRuntimeSettings.Builder doubleTapZoomingEnabled(boolean);
@@ -967,7 +990,6 @@ package org.mozilla.geckoview {
     method @NonNull public GeckoRuntimeSettings.Builder preferredColorScheme(int);
     method @NonNull public GeckoRuntimeSettings.Builder remoteDebuggingEnabled(boolean);
     method @NonNull public GeckoRuntimeSettings.Builder screenSizeOverride(int, int);
-    method @NonNull public GeckoRuntimeSettings.Builder telemetryDelegate(@NonNull RuntimeTelemetry.Delegate);
     method @NonNull public GeckoRuntimeSettings.Builder translationsOfferPopup(boolean);
     method @NonNull public GeckoRuntimeSettings.Builder trustedRecursiveResolverMode(int);
     method @NonNull public GeckoRuntimeSettings.Builder trustedRecursiveResolverUri(@NonNull String);
@@ -984,6 +1006,9 @@ package org.mozilla.geckoview {
   }
 
   @Retention(value=RetentionPolicy.SOURCE) public static interface GeckoRuntimeSettings.TrustedRecursiveResolverMode {
+  }
+
+  @Retention(value=RetentionPolicy.SOURCE) public static interface GeckoRuntimeSettings.WebContentIsolationStrategy {
   }
 
   public class GeckoSession {
@@ -1079,6 +1104,7 @@ package org.mozilla.geckoview {
     field public static final int FINDER_DISPLAY_DRAW_LINK_OUTLINE = 4;
     field public static final int FINDER_DISPLAY_HIGHLIGHT_ALL = 1;
     field public static final int FINDER_FIND_BACKWARDS = 1;
+    field public static final int FINDER_FIND_FORWARD = 0;
     field public static final int FINDER_FIND_LINKS_ONLY = 8;
     field public static final int FINDER_FIND_MATCH_CASE = 2;
     field public static final int FINDER_FIND_WHOLE_WORD = 4;
@@ -1125,12 +1151,12 @@ package org.mozilla.geckoview {
     method @UiThread default public void onFirstContentfulPaint(@NonNull GeckoSession);
     method @UiThread default public void onFocusRequest(@NonNull GeckoSession);
     method @UiThread default public void onFullScreen(@NonNull GeckoSession, boolean);
+    method @UiThread default public void onHideDynamicToolbar(@NonNull GeckoSession);
     method @UiThread default public void onKill(@NonNull GeckoSession);
     method @UiThread default public void onMetaViewportFitChange(@NonNull GeckoSession, @NonNull String);
     method @UiThread default public void onPaintStatusReset(@NonNull GeckoSession);
     method @UiThread default public void onPointerIconChange(@NonNull GeckoSession, @NonNull PointerIcon);
     method @UiThread default public void onPreviewImage(@NonNull GeckoSession, @NonNull String);
-    method @UiThread default public void onProductUrl(@NonNull GeckoSession);
     method @UiThread default public void onShowDynamicToolbar(@NonNull GeckoSession);
     method @Nullable @UiThread default public GeckoResult<SlowScriptResponse> onSlowScript(@NonNull GeckoSession, @NonNull String);
     method @UiThread default public void onTitleChange(@NonNull GeckoSession, @Nullable String);
@@ -1262,7 +1288,7 @@ package org.mozilla.geckoview {
     method @UiThread default public void onCanGoForward(@NonNull GeckoSession, boolean);
     method @Nullable @UiThread default public GeckoResult<String> onLoadError(@NonNull GeckoSession, @Nullable String, @NonNull WebRequestError);
     method @Nullable @UiThread default public GeckoResult<AllowOrDeny> onLoadRequest(@NonNull GeckoSession, @NonNull GeckoSession.NavigationDelegate.LoadRequest);
-    method @UiThread default public void onLocationChange(@NonNull GeckoSession, @Nullable String, @NonNull List<GeckoSession.PermissionDelegate.ContentPermission>);
+    method @UiThread default public void onLocationChange(@NonNull GeckoSession, @Nullable String, @NonNull List<GeckoSession.PermissionDelegate.ContentPermission>, @NonNull Boolean);
     method @Nullable @UiThread default public GeckoResult<GeckoSession> onNewSession(@NonNull GeckoSession, @NonNull String);
     method @Nullable @UiThread default public GeckoResult<AllowOrDeny> onSubframeLoadRequest(@NonNull GeckoSession, @NonNull GeckoSession.NavigationDelegate.LoadRequest);
     field public static final int LOAD_REQUEST_IS_REDIRECT = 8388608;
@@ -1936,6 +1962,7 @@ package org.mozilla.geckoview {
   @UiThread public class GeckoView extends FrameLayout implements GeckoDisplay.NewSurfaceProvider {
     ctor public GeckoView(Context);
     ctor public GeckoView(Context, AttributeSet);
+    method @UiThread public void addWindowInsetsListener(@NonNull String, @Nullable OnApplyWindowInsetsListener);
     method @NonNull @UiThread public GeckoResult<Bitmap> capturePixels();
     method public void coverUntilFirstPaint(int);
     method public void dispatchDraw(@Nullable Canvas);
@@ -1949,6 +1976,7 @@ package org.mozilla.geckoview {
     method public void onDetachedFromWindow();
     method @NonNull public GeckoResult<PanZoomController.InputResultDetail> onTouchEventForDetailResult(@NonNull MotionEvent);
     method @Nullable @UiThread public GeckoSession releaseSession();
+    method @UiThread public void removeWindowInsetsListener(@NonNull String);
     method public void setActivityContextDelegate(@Nullable GeckoView.ActivityContextDelegate);
     method public void setAutofillEnabled(boolean);
     method public void setDynamicToolbarMaxHeight(int);
@@ -2165,28 +2193,6 @@ package org.mozilla.geckoview {
     method @AnyThread @NonNull protected abstract Settings newSettings(@Nullable Settings);
   }
 
-  public final class RuntimeTelemetry {
-    ctor protected RuntimeTelemetry();
-  }
-
-  public static interface RuntimeTelemetry.Delegate {
-    method @AnyThread default public void onBooleanScalar(@NonNull RuntimeTelemetry.Metric<Boolean>);
-    method @AnyThread default public void onHistogram(@NonNull RuntimeTelemetry.Histogram);
-    method @AnyThread default public void onLongScalar(@NonNull RuntimeTelemetry.Metric<Long>);
-    method @AnyThread default public void onStringScalar(@NonNull RuntimeTelemetry.Metric<String>);
-  }
-
-  public static class RuntimeTelemetry.Histogram extends RuntimeTelemetry.Metric<long[]> {
-    ctor protected Histogram();
-    field public final boolean isCategorical;
-  }
-
-  public static class RuntimeTelemetry.Metric<T> {
-    ctor protected Metric();
-    field @NonNull public final String name;
-    field @NonNull public final T value;
-  }
-
   public class ScreenLength {
     method @AnyThread @NonNull public static ScreenLength bottom();
     method @AnyThread @NonNull public static ScreenLength fromPixels(double);
@@ -2393,9 +2399,10 @@ package org.mozilla.geckoview {
   }
 
   public static class TranslationsController.SessionTranslation.TranslationState {
-    ctor public TranslationState(@Nullable TranslationsController.SessionTranslation.TranslationPair, @Nullable String, @Nullable TranslationsController.SessionTranslation.DetectedLanguages, @NonNull Boolean);
+    ctor public TranslationState(@Nullable TranslationsController.SessionTranslation.TranslationPair, @Nullable String, @Nullable TranslationsController.SessionTranslation.DetectedLanguages, @NonNull Boolean, @NonNull Boolean);
     field @Nullable public final TranslationsController.SessionTranslation.DetectedLanguages detectedLanguages;
     field @Nullable public final String error;
+    field @NonNull public final Boolean hasVisibleChange;
     field @NonNull public final Boolean isEngineReady;
     field @Nullable public final TranslationsController.SessionTranslation.TranslationPair requestedTranslationPair;
   }
@@ -2625,6 +2632,7 @@ package org.mozilla.geckoview {
 
   public static class WebExtension.InstallException.ErrorCodes {
     ctor protected ErrorCodes();
+    field public static final int ERROR_ADMIN_INSTALL_ONLY = -13;
     field public static final int ERROR_BLOCKLISTED = -10;
     field public static final int ERROR_CORRUPT_FILE = -3;
     field public static final int ERROR_FILE_ACCESS = -4;
@@ -2674,15 +2682,22 @@ package org.mozilla.geckoview {
     field @Nullable public final String downloadUrl;
     field public final boolean enabled;
     field @Nullable public final String fullDescription;
+    field @NonNull public final String[] grantedOptionalOrigins;
+    field @NonNull public final String[] grantedOptionalPermissions;
     field @Nullable public final String homepageUrl;
     field @NonNull public final Image icon;
     field @Nullable public final String incognito;
     field public final boolean isRecommended;
     field @Nullable public final String name;
     field public final boolean openOptionsPageInTab;
+    field @NonNull public final String[] optionalOrigins;
+    field @NonNull public final String[] optionalPermissions;
     field @Nullable public final String optionsPageUrl;
-    field @NonNull public final String[] origins;
-    field @NonNull public final String[] permissions;
+    field @Deprecated @DeprecationSchedule(id="web-extension-required-origins",version=133) @NonNull public final String[] origins;
+    field @Deprecated @DeprecationSchedule(id="web-extension-required-permissions",version=133) @NonNull public final String[] permissions;
+    field @Deprecated @DeprecationSchedule(id="web-extension-required-permissions",version=133) @NonNull public final String[] promptPermissions;
+    field @NonNull public final String[] requiredOrigins;
+    field @NonNull public final String[] requiredPermissions;
     field public final int reviewCount;
     field @Nullable public final String reviewUrl;
     field public final int signedState;
@@ -2751,6 +2766,7 @@ package org.mozilla.geckoview {
   }
 
   public class WebExtensionController {
+    method @AnyThread @NonNull public GeckoResult<WebExtension> addOptionalPermissions(@NonNull String, @NonNull String[], @NonNull String[]);
     method @Nullable @UiThread public WebExtension.Download createDownload(int);
     method @AnyThread @NonNull public GeckoResult<WebExtension> disable(@NonNull WebExtension, int);
     method @AnyThread public void disableExtensionProcessSpawning();
@@ -2762,6 +2778,7 @@ package org.mozilla.geckoview {
     method @AnyThread @NonNull public GeckoResult<WebExtension> install(@NonNull String);
     method @AnyThread @NonNull public GeckoResult<WebExtension> installBuiltIn(@NonNull String);
     method @AnyThread @NonNull public GeckoResult<List<WebExtension>> list();
+    method @AnyThread @NonNull public GeckoResult<WebExtension> removeOptionalPermissions(@NonNull String, @NonNull String[], @NonNull String[]);
     method @UiThread public void setAddonManagerDelegate(@Nullable WebExtensionController.AddonManagerDelegate);
     method @AnyThread @NonNull public GeckoResult<WebExtension> setAllowedInPrivateBrowsing(@NonNull WebExtension, boolean);
     method @UiThread public void setDebuggerDelegate(@NonNull WebExtensionController.DebuggerDelegate);
@@ -2782,6 +2799,7 @@ package org.mozilla.geckoview {
     method @UiThread default public void onInstallationFailed(@Nullable WebExtension, @NonNull WebExtension.InstallException);
     method @UiThread default public void onInstalled(@NonNull WebExtension);
     method @UiThread default public void onInstalling(@NonNull WebExtension);
+    method @UiThread default public void onOptionalPermissionsChanged(@NonNull WebExtension);
     method @UiThread default public void onReady(@NonNull WebExtension);
     method @UiThread default public void onUninstalled(@NonNull WebExtension);
     method @UiThread default public void onUninstalling(@NonNull WebExtension);
@@ -2808,7 +2826,8 @@ package org.mozilla.geckoview {
   }
 
   @UiThread public static interface WebExtensionController.PromptDelegate {
-    method @Nullable default public GeckoResult<AllowOrDeny> onInstallPrompt(@NonNull WebExtension);
+    method @Deprecated @DeprecationSchedule(id="web-extension-required-permissions",version=133) @Nullable default public GeckoResult<AllowOrDeny> onInstallPrompt(@NonNull WebExtension);
+    method @Nullable default public GeckoResult<AllowOrDeny> onInstallPrompt(@NonNull WebExtension, @NonNull String[], @NonNull String[]);
     method @Nullable default public GeckoResult<AllowOrDeny> onOptionalPrompt(@NonNull WebExtension, @NonNull String[], @NonNull String[]);
     method @Nullable default public GeckoResult<AllowOrDeny> onUpdatePrompt(@NonNull WebExtension, @NonNull WebExtension, @NonNull String[], @NonNull String[]);
   }

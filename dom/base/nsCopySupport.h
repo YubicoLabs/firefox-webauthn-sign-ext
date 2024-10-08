@@ -11,6 +11,8 @@
 #include "mozilla/AlreadyAddRefed.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/BasicEvents.h"
+#include "mozilla/Maybe.h"
+#include "nsIClipboard.h"
 #include "nsStringFwd.h"
 
 class nsINode;
@@ -23,6 +25,7 @@ class PresShell;
 namespace dom {
 class Document;
 class Selection;
+class WindowContext;
 }  // namespace dom
 }  // namespace mozilla
 
@@ -36,7 +39,7 @@ class nsCopySupport {
    */
   static nsresult EncodeDocumentWithContextAndPutToClipboard(
       mozilla::dom::Selection* aSel, mozilla::dom::Document* aDoc,
-      int16_t aClipboardID, bool aWithRubyAnnotation);
+      nsIClipboard::ClipboardType aClipboardID, bool aWithRubyAnnotation);
 
   // Get the selection, or entire document, in the format specified by the mime
   // type (text/html or text/plain). If aSel is non-null, use it, otherwise get
@@ -46,7 +49,8 @@ class nsCopySupport {
                               mozilla::dom::Document* aDoc, nsAString& outdata);
 
   static nsresult ImageCopy(nsIImageLoadingContent* aImageElement,
-                            nsILoadContext* aLoadContext, int32_t aCopyFlags);
+                            nsILoadContext* aLoadContext, int32_t aCopyFlags,
+                            mozilla::dom::WindowContext* aSettingWindowContext);
 
   // Get the selection as a transferable.
   // @param aSelection Can be nullptr.
@@ -106,11 +110,11 @@ class nsCopySupport {
    * If the event is cancelled or an error occurs, false will be returned.
    */
   MOZ_CAN_RUN_SCRIPT_BOUNDARY
-  static bool FireClipboardEvent(mozilla::EventMessage aEventMessage,
-                                 int32_t aClipboardType,
-                                 mozilla::PresShell* aPresShell,
-                                 mozilla::dom::Selection* aSelection,
-                                 bool* aActionTaken = nullptr);
+  static bool FireClipboardEvent(
+      mozilla::EventMessage aEventMessage,
+      mozilla::Maybe<nsIClipboard::ClipboardType> aClipboardType,
+      mozilla::PresShell* aPresShell, mozilla::dom::Selection* aSelection,
+      bool* aActionTaken = nullptr);
 };
 
 #endif

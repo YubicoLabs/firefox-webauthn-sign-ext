@@ -8,7 +8,7 @@ const { TopSitesFeed, DEFAULT_TOP_SITES } = ChromeUtils.importESModule(
 );
 
 const { actionCreators: ac, actionTypes: at } = ChromeUtils.importESModule(
-  "resource://activity-stream/common/Actions.sys.mjs"
+  "resource://activity-stream/common/Actions.mjs"
 );
 
 ChromeUtils.defineESModuleGetters(this, {
@@ -94,7 +94,7 @@ function getTopSitesFeedForTest(sandbox) {
 add_setup(async () => {
   let sandbox = sinon.createSandbox();
   sandbox.stub(SearchService.prototype, "defaultEngine").get(() => {
-    return { identifier: "ddg", searchForm: "https://duckduckgo.com" };
+    return { identifier: "ddg", searchUrlDomain: "duckduckgo.com" };
   });
 
   gGetTopSitesStub = sandbox
@@ -2240,7 +2240,6 @@ add_task(async function test_improvesearch_noDefaultSearchTile_experiment() {
 
   sandbox.stub(SearchService.prototype, "getDefault").resolves({
     identifier: "google",
-    searchForm: "google.com",
   });
 
   {
@@ -2354,7 +2353,6 @@ add_task(
 
     sandbox.stub(SearchService.prototype, "getDefault").resolves({
       identifier: "google",
-      searchForm: "google.com",
     });
 
     {
@@ -2970,9 +2968,10 @@ add_task(async function test_ContileIntegration() {
 
     Assert.ok(fetched);
     // Both "foo" and "bar" should be filtered
-    Assert.equal(feed._contile.sites.length, 2);
+    Assert.equal(feed._contile.sites.length, 3);
     Assert.equal(feed._contile.sites[0].url, "https://www.test.com");
     Assert.equal(feed._contile.sites[1].url, "https://test1.com");
+    Assert.equal(feed._contile.sites[2].url, "https://test2.com");
   }
 
   {

@@ -46,7 +46,7 @@
 #include "js/PropertySpec.h"
 #include "js/Wrapper.h"
 #include "util/DifferentialTesting.h"
-#include "util/StringBuffer.h"
+#include "util/StringBuilder.h"
 #include "util/Text.h"
 #include "vm/DateObject.h"
 #include "vm/DateTime.h"
@@ -56,7 +56,6 @@
 #include "vm/JSObject.h"
 #include "vm/StringType.h"
 #include "vm/Time.h"
-#include "vm/Warnings.h"
 
 #include "vm/Compartment-inl.h"  // For js::UnwrapAndTypeCheckThis
 #include "vm/GeckoProfiler-inl.h"
@@ -1061,30 +1060,17 @@ done:
 #undef NEED_NDIGITS
 }
 
-int FixupNonFullYear(int year) {
+/**
+ * Non-ISO years < 100 get fixed up, to allow 2-digit year formats.
+ * year < 50 becomes 2000-2049, 50-99 becomes 1950-1999.
+ */
+int FixupYear(int year) {
   if (year < 50) {
     year += 2000;
   } else if (year >= 50 && year < 100) {
     year += 1900;
   }
   return year;
-}
-
-template <typename CharT>
-bool IsPrefixOfKeyword(const CharT* s, size_t len, const char* keyword) {
-  while (len > 0 && *keyword) {
-    MOZ_ASSERT(IsAsciiAlpha(*s));
-    MOZ_ASSERT(IsAsciiLowercaseAlpha(*keyword));
-
-    if (unicode::ToLowerCase(static_cast<Latin1Char>(*s)) != *keyword) {
-      break;
-    }
-
-    s++, keyword++;
-    len--;
-  }
-
-  return len == 0;
 }
 
 template <typename CharT>
@@ -1221,9 +1207,7 @@ static bool TryParseDashedDatePrefix(const CharT* s, size_t length,
     return false;
   }
 
-  if (yearDigits < 4) {
-    year = FixupNonFullYear(year);
-  }
+  year = FixupYear(year);
 
   *indexOut = i;
   *yearOut = year;
@@ -1313,9 +1297,7 @@ static bool TryParseDashedNumericDatePrefix(const CharT* s, size_t length,
     return false;
   }
 
-  if (year < 100) {
-    year = FixupNonFullYear(year);
-  }
+  year = FixupYear(year);
 
   *indexOut = i;
   *yearOut = year;
@@ -1328,10 +1310,6 @@ struct CharsAndAction {
   const char* chars;
   int action;
 };
-
-static constexpr const char* const days_of_week[] = {
-    "monday", "tuesday",  "wednesday", "thursday",
-    "friday", "saturday", "sunday"};
 
 static constexpr CharsAndAction keywords[] = {
     // clang-format off
@@ -1365,8 +1343,7 @@ constexpr size_t MinKeywordLength(const CharsAndAction (&keywords)[N]) {
 
 template <typename CharT>
 static bool ParseDate(DateTimeInfo::ForceUTC forceUTC, const CharT* s,
-                      size_t length, ClippedTime* result,
-                      bool* countLateWeekday) {
+                      size_t length, ClippedTime* result) {
   if (length == 0) {
     return false;
   }
@@ -1410,11 +1387,12 @@ static bool ParseDate(DateTimeInfo::ForceUTC forceUTC, const CharT* s,
       if (IsAsciiDigit(s[index])) {
         break;
       }
-    } else {
-      // Reject numbers directly after letters e.g. foo2
-      if (IsAsciiDigit(s[index]) && IsAsciiAlpha(s[index - 1])) {
-        return false;
-      }
+    } else if (!strchr(" ,.-/", s[index])) {
+      // We're only allowing the above delimiters after the day of
+      // week to prevent things such as "foo_1" from being parsed
+      // as a date, which may break software which uses this function
+      // to determine whether or not something is a date.
+      return false;
     }
   }
 
@@ -1434,8 +1412,6 @@ static bool ParseDate(DateTimeInfo::ForceUTC forceUTC, const CharT* s,
   bool negativeYear = false;
   // Includes "GMT", "UTC", "UT", and "Z" timezone keywords
   bool seenGmtAbbr = false;
-  // For telemetry purposes
-  bool seenLateWeekday = false;
 
   // Try parsing the leading dashed-date.
   //
@@ -1667,21 +1643,6 @@ static bool ParseDate(DateTimeInfo::ForceUTC forceUTC, const CharT* s,
         return false;
       }
 
-      // Completely ignore days of the week, and don't derive any semantics
-      // from them.
-      bool isLateWeekday = false;
-      for (const char* weekday : days_of_week) {
-        if (IsPrefixOfKeyword(s + start, index - start, weekday)) {
-          isLateWeekday = true;
-          seenLateWeekday = true;
-          break;
-        }
-      }
-      if (isLateWeekday) {
-        prevc = 0;
-        continue;
-      }
-
       // Record a month if it is a month name. Note that some numbers are
       // initially treated as months; if a numeric field has already been
       // interpreted as a month, store that value to the actually appropriate
@@ -1789,7 +1750,7 @@ static bool ParseDate(DateTimeInfo::ForceUTC forceUTC, const CharT* s,
       // (again, for Chrome parity)
       year = 2001;
     } else {
-      year = FixupNonFullYear(mon);
+      year = FixupYear(mon);
       mon = 1;
     }
   }
@@ -1849,13 +1810,7 @@ static bool ParseDate(DateTimeInfo::ForceUTC forceUTC, const CharT* s,
       }
     }
 
-    // If the year is greater than or equal to 50 and less than 100, it is
-    // considered to be the number of years after 1900. If the year is less
-    // than 50 it is considered to be the number of years after 2000,
-    // otherwise it is considered to be the number of years after 0.
-    if (!seenFullYear) {
-      year = FixupNonFullYear(year);
-    }
+    year = FixupYear(year);
 
     if (negativeYear) {
       year = -year;
@@ -1882,48 +1837,16 @@ static bool ParseDate(DateTimeInfo::ForceUTC forceUTC, const CharT* s,
     date += tzOffset * msPerMinute;
   }
 
-  // Setting this down here so that it only counts the telemetry in
-  // the case of a successful parse.
-  if (seenLateWeekday) {
-    *countLateWeekday = true;
-  }
-
   *result = TimeClip(date);
   return true;
 }
 
-static bool ParseDate(DateTimeInfo::ForceUTC forceUTC, JSLinearString* s,
-                      ClippedTime* result, JSContext* cx) {
-  bool countLateWeekday = false;
-  bool success;
-
-  {
-    AutoCheckCannotGC nogc;
-    success = s->hasLatin1Chars()
-                  ? ParseDate(forceUTC, s->latin1Chars(nogc), s->length(),
-                              result, &countLateWeekday)
-                  : ParseDate(forceUTC, s->twoByteChars(nogc), s->length(),
-                              result, &countLateWeekday);
-  }
-
-  // We are running telemetry to see if support for day of week after
-  // mday can be dropped. It is being done here to keep
-  // JSRuntime::setUseCounter out of AutoCheckCannotGC's scope.
-  if (countLateWeekday) {
-    cx->runtime()->setUseCounter(cx->global(), JSUseCounter::LATE_WEEKDAY);
-
-    if (!cx->realm()->warnedAboutDateLateWeekday) {
-      if (!WarnNumberASCII(cx, JSMSG_DEPRECATED_LATE_WEEKDAY)) {
-        // Proceed as if nothing happened if warning fails
-        if (cx->isExceptionPending()) {
-          cx->clearPendingException();
-        }
-      }
-      cx->realm()->warnedAboutDateLateWeekday = true;
-    }
-  }
-
-  return success;
+static bool ParseDate(DateTimeInfo::ForceUTC forceUTC, const JSLinearString* s,
+                      ClippedTime* result) {
+  AutoCheckCannotGC nogc;
+  return s->hasLatin1Chars()
+             ? ParseDate(forceUTC, s->latin1Chars(nogc), s->length(), result)
+             : ParseDate(forceUTC, s->twoByteChars(nogc), s->length(), result);
 }
 
 static bool date_parse(JSContext* cx, unsigned argc, Value* vp) {
@@ -1945,7 +1868,7 @@ static bool date_parse(JSContext* cx, unsigned argc, Value* vp) {
   }
 
   ClippedTime result;
-  if (!ParseDate(ForceUTC(cx->realm()), linearStr, &result, cx)) {
+  if (!ParseDate(ForceUTC(cx->realm()), linearStr, &result)) {
     args.rval().setNaN();
     return true;
   }
@@ -3552,7 +3475,7 @@ static bool date_toSource(JSContext* cx, unsigned argc, Value* vp) {
 
   JSStringBuilder sb(cx);
   if (!sb.append("(new Date(") ||
-      !NumberValueToStringBuffer(unwrapped->UTCTime(), sb) ||
+      !NumberValueToStringBuilder(unwrapped->UTCTime(), sb) ||
       !sb.append("))")) {
     return false;
   }
@@ -3656,8 +3579,11 @@ static bool date_toTemporalInstant(JSContext* cx, unsigned argc, Value* vp) {
 #endif /* JS_HAS_TEMPORAL_API */
 
 static const JSFunctionSpec date_static_methods[] = {
-    JS_FN("UTC", date_UTC, 7, 0), JS_FN("parse", date_parse, 1, 0),
-    JS_FN("now", date_now, 0, 0), JS_FS_END};
+    JS_FN("UTC", date_UTC, 7, 0),
+    JS_FN("parse", date_parse, 1, 0),
+    JS_FN("now", date_now, 0, 0),
+    JS_FS_END,
+};
 
 static const JSFunctionSpec date_methods[] = {
     JS_FN("getTime", date_getTime, 0, 0),
@@ -3716,7 +3642,8 @@ static const JSFunctionSpec date_methods[] = {
     JS_FN("toString", date_toString, 0, 0),
     JS_FN("valueOf", date_valueOf, 0, 0),
     JS_SYM_FN(toPrimitive, date_toPrimitive, 1, JSPROP_READONLY),
-    JS_FS_END};
+    JS_FS_END,
+};
 
 static bool NewDateObject(JSContext* cx, const CallArgs& args, ClippedTime t) {
   MOZ_ASSERT(args.isConstructing());
@@ -3740,8 +3667,8 @@ static bool ToDateString(JSContext* cx, const CallArgs& args, ClippedTime t) {
   if (!locale) {
     return false;
   }
-  return FormatDate(cx, ForceUTC(cx->realm()), locale,
-                    t.toDouble(), FormatSpec::DateTime, args.rval());
+  return FormatDate(cx, ForceUTC(cx->realm()), locale, t.toDouble(),
+                    FormatSpec::DateTime, args.rval());
 }
 
 static bool DateNoArguments(JSContext* cx, const CallArgs& args) {
@@ -3789,7 +3716,7 @@ static bool DateOneArgument(JSContext* cx, const CallArgs& args) {
         return false;
       }
 
-      if (!ParseDate(ForceUTC(cx->realm()), linearStr, &t, cx)) {
+      if (!ParseDate(ForceUTC(cx->realm()), linearStr, &t)) {
         t = ClippedTime::invalid();
       }
     } else {
@@ -3930,16 +3857,23 @@ static const ClassSpec DateObjectClassSpec = {
     nullptr,
     date_methods,
     nullptr,
-    FinishDateClassInit};
+    FinishDateClassInit,
+};
 
-const JSClass DateObject::class_ = {"Date",
-                                    JSCLASS_HAS_RESERVED_SLOTS(RESERVED_SLOTS) |
-                                        JSCLASS_HAS_CACHED_PROTO(JSProto_Date),
-                                    JS_NULL_CLASS_OPS, &DateObjectClassSpec};
+const JSClass DateObject::class_ = {
+    "Date",
+    JSCLASS_HAS_RESERVED_SLOTS(RESERVED_SLOTS) |
+        JSCLASS_HAS_CACHED_PROTO(JSProto_Date),
+    JS_NULL_CLASS_OPS,
+    &DateObjectClassSpec,
+};
 
 const JSClass DateObject::protoClass_ = {
-    "Date.prototype", JSCLASS_HAS_CACHED_PROTO(JSProto_Date), JS_NULL_CLASS_OPS,
-    &DateObjectClassSpec};
+    "Date.prototype",
+    JSCLASS_HAS_CACHED_PROTO(JSProto_Date),
+    JS_NULL_CLASS_OPS,
+    &DateObjectClassSpec,
+};
 
 JSObject* js::NewDateObjectMsec(JSContext* cx, ClippedTime t,
                                 HandleObject proto /* = nullptr */) {

@@ -72,7 +72,7 @@ class WorkerTargetActor extends BaseTargetActor {
     });
 
     // needed by the console actor
-    this.threadActor = new ThreadActor(this, this.workerGlobal);
+    this.threadActor = new ThreadActor(this);
 
     // needed by the thread actor to communicate with the console when evaluating logpoints.
     this._consoleActor = new WebConsoleActor(this.conn, this);
@@ -124,12 +124,6 @@ class WorkerTargetActor extends BaseTargetActor {
     }
 
     return this._sourcesManager;
-  }
-
-  // This is called from the ThreadActor#onAttach method
-  onThreadAttached() {
-    // This isn't an RDP event and is only listened to from startup/worker.js.
-    this.emit("worker-thread-attached");
   }
 
   destroy() {

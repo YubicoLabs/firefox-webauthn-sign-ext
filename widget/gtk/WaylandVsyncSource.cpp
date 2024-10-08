@@ -130,7 +130,8 @@ void WaylandVsyncSource::MaybeUpdateSource(
   }
 }
 
-void WaylandVsyncSource::Refresh(const MutexAutoLock& aProofOfLock) {
+void WaylandVsyncSource::Refresh(const MutexAutoLock& aProofOfLock)
+    MOZ_REQUIRES(mMutex) {
   mMutex.AssertCurrentThreadOwns();
 
   LOG("WaylandVsyncSource::Refresh fps %f\n", GetFPS(mVsyncRate));
@@ -221,11 +222,12 @@ void WaylandVsyncSource::SetupFrameCallback(const MutexAutoLock& aProofOfLock) {
       return;
     }
 
-    LOG("  register frame callback");
     MozClearPointer(mCallback, wl_callback_destroy);
     mCallback = wl_surface_frame(surface);
     wl_callback_add_listener(mCallback, &WaylandVsyncSourceCallbackListener,
                              this);
+
+    LOG("  register frame callback");
     wl_surface_commit(surface);
     wl_display_flush(WaylandDisplayGet()->GetDisplay());
 

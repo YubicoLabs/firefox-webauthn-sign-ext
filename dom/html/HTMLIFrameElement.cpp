@@ -255,8 +255,8 @@ void HTMLIFrameElement::MaybeStoreCrossOriginFeaturePolicy() {
   }
 
   if (ContentChild* cc = ContentChild::GetSingleton()) {
-    Unused << cc->SendSetContainerFeaturePolicy(browsingContext,
-                                                mFeaturePolicy);
+    Unused << cc->SendSetContainerFeaturePolicy(
+        browsingContext, Some(mFeaturePolicy->ToFeaturePolicyInfo()));
   }
 }
 
@@ -331,10 +331,6 @@ void HTMLIFrameElement::SetLazyLoading() {
     return;
   }
 
-  if (!StaticPrefs::dom_iframe_lazy_loading_enabled()) {
-    return;
-  }
-
   // https://html.spec.whatwg.org/multipage/urls-and-fetching.html#will-lazy-load-element-steps
   // "If scripting is disabled for element, then return false."
   Document* doc = OwnerDoc();
@@ -349,16 +345,7 @@ void HTMLIFrameElement::SetLazyLoading() {
 }
 
 void HTMLIFrameElement::StopLazyLoading() {
-  if (!mLazyLoading) {
-    return;
-  }
-
-  mLazyLoading = false;
-
-  Document* doc = OwnerDoc();
-  if (auto* obs = doc->GetLazyLoadObserver()) {
-    obs->Unobserve(*this);
-  }
+  CancelLazyLoading(false /* aClearLazyLoadState */);
 
   LoadSrc();
 
@@ -374,8 +361,27 @@ void HTMLIFrameElement::NodeInfoChanged(Document* aOldDoc) {
   if (mLazyLoading) {
     aOldDoc->GetLazyLoadObserver()->Unobserve(*this);
     mLazyLoading = false;
+  }
+
+  if (LoadingState() == Loading::Lazy) {
     SetLazyLoading();
   }
 }
 
+void HTMLIFrameElement::CancelLazyLoading(bool aClearLazyLoadState) {
+  if (!mLazyLoading) {
+    return;
+  }
+
+  Document* doc = OwnerDoc();
+  if (auto* obs = doc->GetLazyLoadObserver()) {
+    obs->Unobserve(*this);
+  }
+
+  mLazyLoading = false;
+
+  if (aClearLazyLoadState) {
+    mLazyLoadState.Clear();
+  }
+}
 }  // namespace mozilla::dom

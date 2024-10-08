@@ -49,11 +49,14 @@ add_task(async function () {
   await pushPref("devtools.inspector.draggable_properties", true);
   testDraggingClassIsAddedWhenNeeded(view);
 
-  await testIncrementAngleValue(view);
+  await testDraggingClassIsAddedOnValueUpdate(view);
   await testPressingEscapeWhileDragging(view);
+  await testPressingEscapeWhileDraggingWithinDeadzone(view);
   await testUpdateDisabledValue(view);
   await testWidthIncrements(view);
-  await testDraggingClassIsAddedOnValueUpdate(view);
+  // This needs to happen last as dragging angles are causing further trouble.
+  // This will be fixed as part of Bug 1885232.
+  await testIncrementAngleValue(view);
 });
 
 const PROPERTIES = [
@@ -163,6 +166,24 @@ async function testPressingEscapeWhileDragging(view) {
       expectedEndValueBeforeEscape: "100px",
       escape: true,
       distance: 100,
+      description: "Pressing escape to check if value has been reset",
+    },
+  ]);
+}
+
+async function testPressingEscapeWhileDraggingWithinDeadzone(view) {
+  info("Testing pressing escape while dragging with mouse within the deadzone");
+  const marginPropEditor = getTextProperty(view, 1, {
+    "margin-bottom": "0px",
+  }).editor;
+  await runIncrementTest(marginPropEditor, view, [
+    {
+      startValue: "0px",
+      expectedEndValue: "0px",
+      expectedEndValueBeforeEscape: "0px",
+      escape: true,
+      deadzoneIncluded: true,
+      distance: marginPropEditor._DRAGGING_DEADZONE_DISTANCE - 1,
       description: "Pressing escape to check if value has been reset",
     },
   ]);
@@ -335,12 +356,11 @@ async function runIncrementTest(editor, view, tests) {
  * @param  {String} options.description
  * @param  {Boolean} options.ctrl Small increment key
  * @param  {Boolean} options.alt Small increment key for macosx
- * @param  {Boolean} option.deadzoneIncluded True if the provided distance
+ * @param  {Boolean} options.deadzoneIncluded True if the provided distance
  *         accounts for the deadzone. When false, the deadzone will automatically
  *         be added to the distance.
- * @param  {CSSRuleView} view
  */
-async function testIncrement(editor, options, view) {
+async function testIncrement(editor, options) {
   info("Running subtest: " + options.description);
 
   editor.valueSpan.scrollIntoView();
@@ -409,9 +429,12 @@ async function synthesizeMouseDragging(editor, distance, options = {}) {
   );
 
   // If the drag will not trigger any update, simply wait for 100ms.
-  // Otherwise, wait for the next property-updated-by-dragging event.
+  // Otherwise, wait for the next property-updated-by-dragging event and the rule view change.
   const updated = updateExpected
-    ? editor.ruleView.once("property-updated-by-dragging")
+    ? Promise.all([
+        editor.ruleView.once("ruleview-changed"),
+        editor.ruleView.once("property-updated-by-dragging"),
+      ])
     : wait(100);
 
   EventUtils.synthesizeMouse(
@@ -439,14 +462,12 @@ async function synthesizeMouseDragging(editor, distance, options = {}) {
       options.expectedEndValueBeforeEscape,
       "testing value before pressing escape"
     );
+    const onRuleViewChanged = updateExpected
+      ? editor.ruleView.once("ruleview-changed")
+      : null;
     EventUtils.synthesizeKey("VK_ESCAPE", {}, styleWindow);
+    await onRuleViewChanged;
   }
-
-  // If the drag will not trigger any update, simply wait for 100ms.
-  // Otherwise, wait for the next ruleview-changed event.
-  const done = updateExpected
-    ? editor.ruleView.once("ruleview-changed")
-    : wait(100);
 
   EventUtils.synthesizeMouse(
     elm,
@@ -457,7 +478,6 @@ async function synthesizeMouseDragging(editor, distance, options = {}) {
     },
     styleWindow
   );
-  await done;
 
   // If the drag did not trigger any update, mouseup might open an inline editor.
   // Leave the editor.

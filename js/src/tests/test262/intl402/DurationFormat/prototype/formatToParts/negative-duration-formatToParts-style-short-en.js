@@ -6,7 +6,7 @@
 esid: sec-Intl.DurationFormat.prototype.formatToParts
 description: >
   Test formatToParts method with negative duration and "short" style
-locale: [en-US]
+locale: [en]
 includes: [testIntl.js]
 features: [Intl.DurationFormat]
 ---*/
@@ -44,9 +44,10 @@ const duration = {
   nanoseconds: -789,
 };
 
-const expected = partitionDurationFormatPattern(duration, style);
-
 const df = new Intl.DurationFormat("en", { style });
+
+const expected = partitionDurationFormatPattern(df, duration);
+
 compare(df.formatToParts(duration), expected, `Using style : ${style}`);
 
 reportCompare(0, 0);

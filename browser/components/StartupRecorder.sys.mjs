@@ -6,6 +6,23 @@ const Cm = Components.manager;
 Cm.QueryInterface(Ci.nsIServiceManager);
 
 import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
+import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
+
+const lazy = {};
+
+XPCOMUtils.defineLazyPreferenceGetter(
+  lazy,
+  "BROWSER_STARTUP_RECORD",
+  "browser.startup.record",
+  false
+);
+
+XPCOMUtils.defineLazyPreferenceGetter(
+  lazy,
+  "BROWSER_STARTUP_RECORD_IMAGES",
+  "browser.startup.recordImages",
+  false
+);
 
 let firstPaintNotification = "widget-first-paint";
 // widget-first-paint fires much later than expected on Linux.
@@ -63,7 +80,6 @@ export function StartupRecorder() {
       "image-loading": new Set(),
     },
     code: {},
-    extras: {},
     prefStats: {},
   };
   this.done = new Promise(resolve => {
@@ -86,9 +102,6 @@ StartupRecorder.prototype = {
         }
       }),
     };
-    this.data.extras[name] = {
-      hiddenWindowLoaded: Services.appShell.hasHiddenWindow,
-    };
   },
 
   observe(subject, topic, data) {
@@ -98,10 +111,7 @@ StartupRecorder.prototype = {
         return;
       }
 
-      if (
-        !Services.prefs.getBoolPref("browser.startup.record", false) &&
-        !Services.prefs.getBoolPref("browser.startup.recordImages", false)
-      ) {
+      if (!lazy.BROWSER_STARTUP_RECORD && !lazy.BROWSER_STARTUP_RECORD_IMAGES) {
         this._resolve();
         this._resolve = null;
         return;
@@ -118,7 +128,7 @@ StartupRecorder.prototype = {
         "browser-startup-idle-tasks-finished",
       ];
 
-      if (Services.prefs.getBoolPref("browser.startup.recordImages", false)) {
+      if (lazy.BROWSER_STARTUP_RECORD_IMAGES) {
         // For code simplicify, recording images excludes the other startup
         // recorder behaviors, so we can observe only the image topics.
         topics = [
@@ -180,7 +190,7 @@ StartupRecorder.prototype = {
         this.record.bind(this, "before handling user events")
       );
     } else if (topic == "browser-startup-idle-tasks-finished") {
-      if (Services.prefs.getBoolPref("browser.startup.recordImages", false)) {
+      if (lazy.BROWSER_STARTUP_RECORD_IMAGES) {
         Services.obs.removeObserver(this, "image-drawing");
         Services.obs.removeObserver(this, "image-loading");
         this._resolve();

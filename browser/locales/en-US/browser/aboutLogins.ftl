@@ -115,6 +115,8 @@ login-item-copied-username-button-text = Copied!
 login-item-password-label = Password
 login-item-password-reveal-checkbox =
   .aria-label = Show password
+login-item-password-conceal-checkbox =
+  .aria-label = Hide password
 login-item-copy-password-button-text = Copy
 login-item-copied-password-button-text = Copied!
 about-logins-login-item-save-changes-button = Save
@@ -139,6 +141,14 @@ about-logins-os-auth-dialog-caption = { -brand-full-name }
 ## The macOS strings are preceded by the operating system with "Firefox is trying to "
 ## and includes subtitle of "Enter password for the user "xxx" to allow this." These
 ## notes are only valid for English. Please test in your respected locale.
+
+# The macOS strings are preceded by the operating system with "Firefox is trying to ".
+# This message can be seen when attempting to disable osauth in about:preferences.
+about-logins-os-auth-dialog-message=
+  { PLATFORM() ->
+    [macos] change the settings for passwords
+    *[other] { -brand-short-name } is trying to change the settings for passwords. Use your device sign in to allow this.
+  }
 
 # This message can be seen when attempting to edit a login in about:logins on Windows.
 about-logins-edit-login-os-auth-dialog-message2-win = To edit your password, enter your Windows login credentials. This helps protect the security of your accounts.

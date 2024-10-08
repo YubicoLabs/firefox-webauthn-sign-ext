@@ -238,8 +238,7 @@ nsObjectLoadingContent::nsObjectLoadingContent()
       mIsStopping(false),
       mIsLoading(false),
       mScriptRequested(false),
-      mRewrittenYoutubeEmbed(false),
-      mLoadingSyntheticDocument(false) {}
+      mRewrittenYoutubeEmbed(false) {}
 
 nsObjectLoadingContent::~nsObjectLoadingContent() {
   // Should have been unbound from the tree at this point, and
@@ -675,6 +674,11 @@ bool nsObjectLoadingContent::CheckProcessPolicy(int16_t* aContentPolicy) {
   return true;
 }
 
+bool nsObjectLoadingContent::IsSyntheticImageDocument() const {
+  return mType == ObjectType::Document &&
+         imgLoader::SupportImageWithMimeType(mContentType);
+}
+
 nsObjectLoadingContent::ParameterUpdateFlags
 nsObjectLoadingContent::UpdateObjectParameters() {
   Element* el = AsElement();
@@ -702,7 +706,7 @@ nsObjectLoadingContent::UpdateObjectParameters() {
   // already opened a channel or tried to instantiate content, whereas channel
   // parameter changes require re-opening the channel even if we haven't gotten
   // that far.
-  nsObjectLoadingContent::ParameterUpdateFlags retval = eParamNoChange;
+  ParameterUpdateFlags retval = eParamNoChange;
 
   ///
   /// Initial MIME Type
@@ -766,6 +770,7 @@ nsObjectLoadingContent::UpdateObjectParameters() {
   }
 
   mRewrittenYoutubeEmbed = false;
+
   // Note that the baseURI changing could affect the newURI, even if uriStr did
   // not change.
   if (!uriStr.IsEmpty()) {
@@ -956,9 +961,6 @@ nsObjectLoadingContent::UpdateObjectParameters() {
     newType = ObjectType::Fallback;
     LOG(("OBJLC [%p]: NewType #4: %u", this, uint32_t(newType)));
   }
-
-  mLoadingSyntheticDocument = newType == ObjectType::Document &&
-                              imgLoader::SupportImageWithMimeType(newMime);
 
   ///
   /// Handle existing channels
@@ -1249,7 +1251,11 @@ nsresult nsObjectLoadingContent::LoadObject(bool aNotify, bool aForceLoad,
         break;
       }
 
-      rv = uriLoader->OpenChannel(mChannel, nsIURILoader::DONT_RETARGET, req,
+      uint32_t uriLoaderFlags = nsDocShell::ComputeURILoaderFlags(
+          docShell->GetBrowsingContext(), LOAD_NORMAL,
+          /* aIsDocumentLoad */ false);
+
+      rv = uriLoader->OpenChannel(mChannel, uriLoaderFlags, req,
                                   getter_AddRefs(finalListener));
       // finalListener will receive OnStartRequest either below, or if
       // `mChannel` is a `DocumentChannel`, it will be received after
@@ -1795,8 +1801,6 @@ void nsObjectLoadingContent::SubdocumentIntrinsicSizeOrRatioChanged(
 
 void nsObjectLoadingContent::SubdocumentImageLoadComplete(nsresult aResult) {
   ObjectType oldType = mType;
-  mLoadingSyntheticDocument = false;
-
   if (NS_FAILED(aResult)) {
     UnloadObject();
     mType = ObjectType::Fallback;
@@ -1834,7 +1838,8 @@ void nsObjectLoadingContent::MaybeStoreCrossOriginFeaturePolicy() {
 
   FeaturePolicy* featurePolicy = el->OwnerDoc()->FeaturePolicy();
 
-  if (ContentChild* cc = ContentChild::GetSingleton()) {
-    Unused << cc->SendSetContainerFeaturePolicy(browsingContext, featurePolicy);
+  if (ContentChild* cc = ContentChild::GetSingleton(); cc && featurePolicy) {
+    Unused << cc->SendSetContainerFeaturePolicy(
+        browsingContext, Some(featurePolicy->ToFeaturePolicyInfo()));
   }
 }

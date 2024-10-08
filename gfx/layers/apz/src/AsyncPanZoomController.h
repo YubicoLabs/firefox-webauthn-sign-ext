@@ -7,6 +7,7 @@
 #ifndef mozilla_layers_AsyncPanZoomController_h
 #define mozilla_layers_AsyncPanZoomController_h
 
+#include "Units.h"
 #include "mozilla/layers/GeckoContentController.h"
 #include "mozilla/layers/RepaintRequest.h"
 #include "mozilla/layers/SampleTime.h"
@@ -41,7 +42,7 @@ namespace mozilla {
 
 namespace ipc {
 
-class SharedMemoryBasic;
+class SharedMemory;
 
 }  // namespace ipc
 
@@ -545,7 +546,8 @@ class AsyncPanZoomController {
 
   // Return the directions in which this APZC allows handoff (as governed by
   // overscroll-behavior).
-  ScrollDirections GetAllowedHandoffDirections() const;
+  ScrollDirections GetAllowedHandoffDirections(
+      HandoffConsumer aConsumer = HandoffConsumer::Scrolling) const;
 
   // Return the directions in which this APZC allows overscrolling.
   ScrollDirections GetOverscrollableDirections() const;
@@ -1133,13 +1135,12 @@ class AsyncPanZoomController {
 
   UniquePtr<OverscrollEffectBase> mOverscrollEffect;
 
-  // Zoom animation id, used for zooming in WebRender. This should only be
-  // set on the APZC instance for the root content document (i.e. the one we
-  // support zooming on), and is only used if WebRender is enabled. The
-  // animation id itself refers to the transform animation id that was set on
-  // the stacking context in the WR display list. By changing the transform
-  // associated with this id, we can adjust the scaling that WebRender applies,
-  // thereby controlling the zoom.
+  // Zoom animation id, used for zooming. This should only be set on the APZC
+  // instance for the root content document (i.e. the one we support zooming
+  // on). The animation id itself refers to the transform animation id that was
+  // set on the stacking context in the WR display list. By changing the
+  // transform associated with this id, we can adjust the scaling that WebRender
+  // applies, thereby controlling the zoom.
   Maybe<uint64_t> mZoomAnimationId;
 
   // Position on screen where user first put their finger down.
@@ -1305,6 +1306,8 @@ class AsyncPanZoomController {
    */
   CSSRect GetCurrentScrollRangeInCssPixels() const;
 
+  bool AllowOneTouchPinch() const;
+
  private:
   /**
    * Advances to the next sample, if there is one, the list of sampled states
@@ -1371,6 +1374,9 @@ class AsyncPanZoomController {
    */
   std::tuple<ParentLayerPoint, ScreenPoint> GetDisplacementsForPanGesture(
       const PanGestureInput& aEvent);
+
+  CSSPoint ToCSSPixels(ParentLayerPoint value) const;
+  CSSCoord ToCSSPixels(ParentLayerCoord value) const;
 
  private:
   friend class AutoApplyAsyncTestAttributes;
@@ -1535,7 +1541,7 @@ class AsyncPanZoomController {
    * govern dynamic toolbar and pull-to-refresh behaviour).
    */
   PointerEventsConsumableFlags ArePointerEventsConsumable(
-      TouchBlockState* aBlock, const MultiTouchInput& aInput);
+      const TouchBlockState* aBlock, const MultiTouchInput& aInput) const;
 
   /**
    * Clear internal state relating to touch input handling.
@@ -1621,9 +1627,6 @@ class AsyncPanZoomController {
       const ParentLayerPoint& aVelocity, SideBits aOverscrollSideBits,
       const RefPtr<const OverscrollHandoffChain>& aOverscrollHandoffChain,
       const RefPtr<const AsyncPanZoomController>& aScrolledApzc);
-
-  void HandleSmoothScrollOverscroll(const ParentLayerPoint& aVelocity,
-                                    SideBits aOverscrollSideBits);
 
   // Start an overscroll animation with the given initial velocity.
   void StartOverscrollAnimation(const ParentLayerPoint& aVelocity,
@@ -1991,6 +1994,12 @@ class AsyncPanZoomController {
   Maybe<std::pair<MultiTouchInput, MultiTouchInput>> MaybeSplitTouchMoveEvent(
       const MultiTouchInput& aOriginalEvent, ScreenCoord aPanThreshold,
       float aVectorLength, ExternalPoint& aExtPoint);
+
+  // Fill out the overscroll gutter with the new expanded contents the
+  // overscroll amount is inside the new scroll range. Returns the scroll
+  // position change delta if filling out happened, CSSPoint() otherwise.
+  CSSPoint MaybeFillOutOverscrollGutter(
+      const RecursiveMutexAutoLock& aProofOfLock);
 
   friend std::ostream& operator<<(
       std::ostream& aOut, const AsyncPanZoomController::PanZoomState& aState);

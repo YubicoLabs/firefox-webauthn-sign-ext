@@ -29,10 +29,6 @@ add_task(async function selected_result_tip() {
       expected: "tip_onboard",
     },
     {
-      type: "searchTip_persist",
-      expected: "tip_persist",
-    },
-    {
       type: "searchTip_redirect",
       expected: "tip_redirect",
     },
@@ -69,7 +65,7 @@ add_task(async function selected_result_tip() {
     });
     UrlbarProvidersManager.registerProvider(provider);
 
-    await doTest(async browser => {
+    await doTest(async () => {
       await openPopup("example");
       await selectRowByType(type);
       EventUtils.synthesizeKey("VK_RETURN");
@@ -159,7 +155,7 @@ add_task(async function selected_result_intervention_update() {
 });
 
 async function doInterventionTest(keyword, type, dialog, expectedTelemetry) {
-  await doTest(async browser => {
+  await doTest(async () => {
     await openPopup(keyword);
     await selectRowByType(type);
     const onDialog = BrowserTestUtils.promiseAlertDialog("cancel", dialog, {

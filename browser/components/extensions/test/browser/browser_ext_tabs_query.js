@@ -283,7 +283,7 @@ add_task(async function () {
     },
 
     background: function () {
-      browser.test.onMessage.addListener(async msg => {
+      browser.test.onMessage.addListener(async () => {
         let tabs = await browser.tabs.query({ active: true });
 
         browser.test.assertEq(tabs.length, 1, "should have one tab");
@@ -311,7 +311,12 @@ add_task(async function () {
       "window has the required resolution"
     );
 
-    let { clientHeight, clientWidth } = gBrowser.selectedBrowser;
+    let clientHeight;
+    let clientWidth;
+    await window.promiseDocumentFlushed(() => {
+      clientHeight = gBrowser.selectedBrowser.clientHeight;
+      clientWidth = gBrowser.selectedBrowser.clientWidth;
+    });
 
     extension.sendMessage("check-size");
     let dims = await extension.awaitMessage("dims");

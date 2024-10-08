@@ -11,6 +11,7 @@ apt_packages=()
 apt_packages+=('curl')
 apt_packages+=('iproute2')
 apt_packages+=('locales')
+apt_packages+=('m4')
 apt_packages+=('graphviz')
 apt_packages+=('python3-pip')
 apt_packages+=('python-is-python3')
@@ -49,11 +50,6 @@ cd /build
 . install-node.sh
 
 npm install -g yarn@1.22.18
-
-/build/tooltool.py fetch -m /tmp/eslint.tt
-mv /build/node_modules /build/node_modules_eslint
-/build/tooltool.py fetch -m /tmp/eslint-plugin-mozilla.tt
-mv /build/node_modules /build/node_modules_eslint-plugin-mozilla
 
 ###
 # fzf setup

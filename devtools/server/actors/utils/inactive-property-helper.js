@@ -21,6 +21,11 @@ const TEXT_WRAP_BALANCE_LIMIT = Services.prefs.getIntPref(
   10
 );
 
+const ALIGN_CONTENT_BLOCKS = Services.prefs.getBoolPref(
+  "layout.css.align-content.blocks.enabled",
+  false
+);
+
 const VISITED_MDN_LINK = "https://developer.mozilla.org/docs/Web/CSS/:visited";
 const VISITED_INVALID_PROPERTIES = allCssPropertiesExcept([
   "all",
@@ -83,10 +88,10 @@ const HIGHLIGHT_PSEUDO_ELEMENTS_STYLING_SPEC_URL =
 const HIGHLIGHT_PSEUDO_ELEMENTS = [
   "::highlight",
   "::selection",
+  "::target-text",
   // Below are properties not yet implemented in Firefox (Bug 1694053)
   "::grammar-error",
   "::spelling-error",
-  "::target-text",
 ];
 const REGEXP_HIGHLIGHT_PSEUDO_ELEMENTS = new RegExp(
   `${HIGHLIGHT_PSEUDO_ELEMENTS.join("|")}`
@@ -227,12 +232,29 @@ class InactivePropertyHelper {
       // See https://bugzilla.mozilla.org/show_bug.cgi?id=1598730
       {
         invalidProperties: ["align-content"],
-        when: () =>
-          !this.style["align-content"].includes("baseline") &&
-          !this.gridContainer &&
-          !this.flexContainer,
-        fixId: "inactive-css-not-grid-or-flex-container-fix",
-        msgId: "inactive-css-not-grid-or-flex-container",
+        when: () => {
+          if (this.style["align-content"].includes("baseline")) {
+            return false;
+          }
+          const supportedDisplay = [
+            "flex",
+            "inline-flex",
+            "grid",
+            "inline-grid",
+            // Uncomment table-cell when Bug 1883357 is fixed.
+            // "table-cell"
+          ];
+          if (ALIGN_CONTENT_BLOCKS) {
+            supportedDisplay.push("block", "inline-block");
+          }
+          return !this.checkComputedStyle("display", supportedDisplay);
+        },
+        fixId: ALIGN_CONTENT_BLOCKS
+          ? "inactive-css-not-grid-or-flex-or-block-container-fix"
+          : "inactive-css-not-grid-or-flex-container-fix",
+        msgId: ALIGN_CONTENT_BLOCKS
+          ? "inactive-css-property-because-of-display"
+          : "inactive-css-not-grid-or-flex-container",
       },
       // column-gap and shorthands used on non-grid or non-flex or non-multi-col container.
       {
@@ -262,6 +284,13 @@ class InactivePropertyHelper {
         when: () => !this.multiColContainer,
         fixId: "inactive-css-not-multicol-container-fix",
         msgId: "inactive-css-not-multicol-container",
+      },
+      // column-span used within non-multi-column container.
+      {
+        invalidProperties: ["column-span"],
+        when: () => !this.inMultiColContainer,
+        fixId: "inactive-css-column-span-fix",
+        msgId: "inactive-css-column-span",
       },
       // Inline properties used on non-inline-level elements.
       {
@@ -352,7 +381,32 @@ class InactivePropertyHelper {
             "table-caption",
           ]),
         fixId: "inactive-css-not-display-block-on-floated-fix",
-        msgId: "inactive-css-not-display-block-on-floated",
+        msgId: "inactive-css-not-display-block-on-floated-2",
+      },
+      // float property used on non-floating elements.
+      {
+        invalidProperties: ["float"],
+        when: () => this.gridItem || this.flexItem,
+        fixId: "inactive-css-only-non-grid-or-flex-item-fix",
+        msgId: "inactive-css-only-non-grid-or-flex-item",
+      },
+      // clear property used on non-floating elements.
+      {
+        invalidProperties: ["clear"],
+        when: () => !this.isBlockLevel(),
+        fixId: "inactive-css-not-block-fix",
+        msgId: "inactive-css-not-block",
+      },
+      // shape-image-threshold, shape-margin, shape-outside properties used on non-floated elements.
+      {
+        invalidProperties: [
+          "shape-image-threshold",
+          "shape-margin",
+          "shape-outside",
+        ],
+        when: () => !this.isFloated,
+        fixId: "inactive-css-not-floated-fix",
+        msgId: "inactive-css-not-floated",
       },
       // The property is impossible to override due to :visited restriction.
       {
@@ -375,6 +429,13 @@ class InactivePropertyHelper {
         when: () => !this.isPositioned && !this.gridItem && !this.flexItem,
         fixId: "inactive-css-position-property-on-unpositioned-box-fix",
         msgId: "inactive-css-position-property-on-unpositioned-box",
+      },
+      // object-fit or object-position property used on non-replaced elements.
+      {
+        invalidProperties: ["object-fit", "object-position"],
+        when: () => !this.replaced,
+        fixId: "inactive-css-only-replaced-elements-fix",
+        msgId: "inactive-css-only-replaced-elements",
       },
       // text-overflow property used on elements for which 'overflow' is set to 'visible'
       // (the initial value) in the inline axis. Note that this validator only checks if
@@ -434,13 +495,24 @@ class InactivePropertyHelper {
         msgId:
           "inactive-css-not-for-internal-table-elements-except-table-cells",
       },
-      // table-layout used on non-table elements.
+      // table-related properties used on non-table elements.
       {
-        invalidProperties: ["table-layout"],
+        invalidProperties: [
+          "border-collapse",
+          "border-spacing",
+          "table-layout",
+        ],
         when: () =>
           !this.checkComputedStyle("display", ["table", "inline-table"]),
         fixId: "inactive-css-not-table-fix",
         msgId: "inactive-css-not-table",
+      },
+      // border-spacing property used on collapsed table borders.
+      {
+        invalidProperties: ["border-spacing"],
+        when: () => this.checkComputedStyle("border-collapse", ["collapse"]),
+        fixId: "inactive-css-collapsed-table-borders-fix",
+        msgId: "inactive-css-collapsed-table-borders",
       },
       // empty-cells property used on non-table-cell elements.
       {
@@ -498,6 +570,13 @@ class InactivePropertyHelper {
         fixId: "inactive-css-ruby-element-fix",
         msgId: "inactive-css-ruby-element",
       },
+      // resize property used on non-overflowing elements or replaced elements other than textarea.
+      {
+        invalidProperties: ["resize"],
+        when: () => !this.isScrollContainer && !this.isResizableReplacedElement,
+        fixId: "inactive-css-resize-fix",
+        msgId: "inactive-css-resize",
+      },
       // text-wrap: balance; used on elements exceeding the threshold line number
       {
         invalidProperties: ["text-wrap"],
@@ -531,6 +610,13 @@ class InactivePropertyHelper {
         },
         fixId: "inactive-css-text-wrap-balance-fragmented-fix",
         msgId: "inactive-css-text-wrap-balance-fragmented",
+      },
+      // box-sizing used on element ignoring width and height.
+      {
+        invalidProperties: ["box-sizing"],
+        when: () => this.nonReplacedInlineBox,
+        fixId: "learn-more",
+        msgId: "inactive-css-no-width-height",
       },
     ];
   }
@@ -732,7 +818,10 @@ class InactivePropertyHelper {
       if (validator.invalidProperties) {
         isRuleConcerned = validator.invalidProperties.includes(property);
       } else if (validator.acceptedProperties) {
-        isRuleConcerned = !validator.acceptedProperties.has(property);
+        isRuleConcerned =
+          !validator.acceptedProperties.has(property) &&
+          // custom properties can always be set
+          !property.startsWith("--");
       }
 
       if (!isRuleConcerned) {
@@ -872,6 +961,19 @@ class InactivePropertyHelper {
   }
 
   /**
+   *  Check if the current node is an block-level box.
+   */
+  isBlockLevel() {
+    return this.checkComputedStyle("display", [
+      "block",
+      "flow-root",
+      "flex",
+      "grid",
+      "table",
+    ]);
+  }
+
+  /**
    *  Check if the current node is an inline-level box.
    */
   isInlineLevel() {
@@ -928,6 +1030,14 @@ class InactivePropertyHelper {
     const autoColumnCount = this.checkComputedStyle("column-count", ["auto"]);
 
     return !autoColumnWidth || !autoColumnCount;
+  }
+
+  /**
+   * Check if the current node is in a multi-column container, i.e. a node element
+   * that has an ancestor with `column-width` or `column-count` property set to a value.
+   */
+  get inMultiColContainer() {
+    return !!this.getParentMultiColElement(this.node);
   }
 
   /**
@@ -1134,6 +1244,15 @@ class InactivePropertyHelper {
   }
 
   /**
+   * Check if the current node is a replaced element that can be resized.
+   */
+  get isResizableReplacedElement() {
+    // There might be more replaced elements that can be resized in the future.
+    // (See bug 1280920 and its dependencies.)
+    return this.localName === "textarea";
+  }
+
+  /**
    * Check if the current node is a replaced element i.e. an element with
    * content that will be replaced e.g. <img>, <audio>, <video> or <object>
    * elements.
@@ -1223,11 +1342,8 @@ class InactivePropertyHelper {
 
   /**
    * Check if a node is a grid item.
-   *
-   * @param {DOMNode} node
-   *        The node to check.
    */
-  isGridItem(node) {
+  isGridItem() {
     return !!this.getParentGridElement(this.node);
   }
 
@@ -1303,6 +1419,57 @@ class InactivePropertyHelper {
         return null; // Not a grid item, for sure.
       }
       // display: contents, walk to the parent
+    }
+    return null;
+  }
+
+  /**
+   * Return the multi-column container for a node if it exists.
+   *
+   * @param {DOMNode} The node we want the container for
+   * @param {DOMNode|null} The container element, or null if there is none.
+   */
+  getParentMultiColElement(node) {
+    // The documentElement can't be an element in a multi-column container,
+    // only a container, so bail out.
+    if (node.flattenedTreeParentNode === node.ownerDocument) {
+      return null;
+    }
+
+    // Ignore nodes that are not elements nor text nodes
+    if (
+      node.nodeType !== node.ELEMENT_NODE &&
+      node.nodeType !== node.TEXT_NODE
+    ) {
+      return null;
+    }
+
+    if (node.nodeType === node.ELEMENT_NODE) {
+      const display = this.style ? this.style.display : null;
+
+      if (!display || display === "none" || display === "contents") {
+        // Doesn't generate a box, not an element in a multi-column container.
+        return null;
+      }
+      if (this.isAbsolutelyPositioned) {
+        // Out of flow, not an element in a multi-column container.
+        return null;
+      }
+    }
+
+    // Walk up the tree to find the nearest multi-column container.
+    // Loop over flattenedTreeParentNode instead of parentNode to reach the
+    // shadow host from the shadow DOM.
+    for (
+      let p = node.flattenedTreeParentNode;
+      p && p !== node.ownerDocument;
+      p = p.flattenedTreeParentNode
+    ) {
+      const style = computedStyle(p, node.ownerGlobal);
+      if (style.columnWidth !== "auto" || style.columnCount !== "auto") {
+        // It's a multi-column container!
+        return p;
+      }
     }
     return null;
   }

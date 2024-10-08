@@ -67,8 +67,7 @@ class NavigationDelegateTest : BaseSessionTest() {
                 override fun onLoadRequest(
                     session: GeckoSession,
                     request: LoadRequest,
-                ):
-                    GeckoResult<AllowOrDeny>? {
+                ): GeckoResult<AllowOrDeny>? {
                     assertThat(
                         "URI should be " + testLoader.getUri(),
                         request.uri,
@@ -127,6 +126,7 @@ class NavigationDelegateTest : BaseSessionTest() {
                     session: GeckoSession,
                     url: String?,
                     perms: MutableList<PermissionDelegate.ContentPermission>,
+                    hasUserGesture: Boolean,
                 ) {
                     assertThat("URL should match", url, equalTo(testLoader.getUri()))
                 }
@@ -492,8 +492,7 @@ class NavigationDelegateTest : BaseSessionTest() {
                 override fun onLoadRequest(
                     session: GeckoSession,
                     request: LoadRequest,
-                ):
-                    GeckoResult<AllowOrDeny>? {
+                ): GeckoResult<AllowOrDeny>? {
                     assertThat("The URLs must match", request.uri, equalTo(forEachCall(uri, httpsUri)))
                     return null
                 }
@@ -552,8 +551,7 @@ class NavigationDelegateTest : BaseSessionTest() {
                 override fun onLoadRequest(
                     session: GeckoSession,
                     request: LoadRequest,
-                ):
-                    GeckoResult<AllowOrDeny>? {
+                ): GeckoResult<AllowOrDeny>? {
                     assertThat("The URLs must match", request.uri, equalTo(forEachCall(uri, httpsUri)))
                     return null
                 }
@@ -597,6 +595,7 @@ class NavigationDelegateTest : BaseSessionTest() {
                 session: GeckoSession,
                 url: String?,
                 perms: MutableList<PermissionDelegate.ContentPermission>,
+                hasUserGesture: Boolean,
             ) {
                 assertThat("URL should match", url, equalTo(httpsUri))
             }
@@ -611,8 +610,7 @@ class NavigationDelegateTest : BaseSessionTest() {
                 override fun onLoadRequest(
                     session: GeckoSession,
                     request: LoadRequest,
-                ):
-                    GeckoResult<AllowOrDeny>? {
+                ): GeckoResult<AllowOrDeny>? {
                     assertThat("The URLs must match", request.uri, equalTo(forEachCall(uri, httpsUri)))
                     return null
                 }
@@ -650,6 +648,7 @@ class NavigationDelegateTest : BaseSessionTest() {
                 session: GeckoSession,
                 url: String?,
                 perms: MutableList<PermissionDelegate.ContentPermission>,
+                hasUserGesture: Boolean,
             ) {
                 assertThat("URL should match", url, equalTo(httpsUri))
             }
@@ -665,8 +664,7 @@ class NavigationDelegateTest : BaseSessionTest() {
                 override fun onLoadRequest(
                     session: GeckoSession,
                     request: LoadRequest,
-                ):
-                    GeckoResult<AllowOrDeny>? {
+                ): GeckoResult<AllowOrDeny>? {
                     // We set http scheme only in case it's not iFrame
                     assertThat("The URLs must match", request.uri, equalTo(uri))
                     return null
@@ -697,8 +695,11 @@ class NavigationDelegateTest : BaseSessionTest() {
     }
 
     @Test fun loadHSTSBadCert() {
-        val httpsFirstPref = "dom.security.https_first"
-        assertThat("https pref should be false", sessionRule.getPrefs(httpsFirstPref)[0] as Boolean, equalTo(false))
+        sessionRule.setPrefsUntilTestEnd(
+            mapOf(
+                "dom.security.https_first" to false,
+            ),
+        )
 
         // load secure url with hsts header
         val uri = "https://example.com/tests/junit/hsts_header.sjs"
@@ -717,8 +718,7 @@ class NavigationDelegateTest : BaseSessionTest() {
             override fun onLoadRequest(
                 session: GeckoSession,
                 request: LoadRequest,
-            ):
-                GeckoResult<AllowOrDeny>? {
+            ): GeckoResult<AllowOrDeny>? {
                 assertThat(
                     "URI should be HTTP then redirected to HTTPS",
                     request.uri,
@@ -774,8 +774,7 @@ class NavigationDelegateTest : BaseSessionTest() {
             override fun onSubframeLoadRequest(
                 session: GeckoSession,
                 request: LoadRequest,
-            ):
-                GeckoResult<AllowOrDeny>? {
+            ): GeckoResult<AllowOrDeny>? {
                 assertThat("URI should not be null", request.uri, notNullValue())
                 assertThat("URI should match", request.uri, endsWith(iframeUri))
                 return null
@@ -862,8 +861,7 @@ class NavigationDelegateTest : BaseSessionTest() {
             override fun onLoadRequest(
                 session: GeckoSession,
                 request: LoadRequest,
-            ):
-                GeckoResult<AllowOrDeny>? {
+            ): GeckoResult<AllowOrDeny>? {
                 assertThat("Session should not be null", session, notNullValue())
                 assertThat("URI should not be null", request.uri, notNullValue())
                 assertThat(
@@ -913,8 +911,7 @@ class NavigationDelegateTest : BaseSessionTest() {
             override fun onLoadRequest(
                 session: GeckoSession,
                 request: LoadRequest,
-            ):
-                GeckoResult<AllowOrDeny>? {
+            ): GeckoResult<AllowOrDeny>? {
                 assertThat("Session should not be null", session, notNullValue())
                 assertThat("App requested this load", request.isDirectNavigation, equalTo(true))
                 assertThat("URI should not be null", request.uri, notNullValue())
@@ -927,8 +924,7 @@ class NavigationDelegateTest : BaseSessionTest() {
             override fun onSubframeLoadRequest(
                 session: GeckoSession,
                 request: LoadRequest,
-            ):
-                GeckoResult<AllowOrDeny>? {
+            ): GeckoResult<AllowOrDeny>? {
                 assertThat("Session should not be null", session, notNullValue())
                 assertThat("App did not request this load", request.isDirectNavigation, equalTo(false))
                 assertThat("URI should not be null", request.uri, notNullValue())
@@ -960,8 +956,7 @@ class NavigationDelegateTest : BaseSessionTest() {
                 override fun onLoadRequest(
                     session: GeckoSession,
                     request: LoadRequest,
-                ):
-                    GeckoResult<AllowOrDeny>? {
+                ): GeckoResult<AllowOrDeny>? {
                     assertThat("Session should not be null", session, notNullValue())
                     assertThat("URI should not be null", request.uri, notNullValue())
                     assertThat(
@@ -1023,8 +1018,7 @@ class NavigationDelegateTest : BaseSessionTest() {
             override fun onLoadRequest(
                 session: GeckoSession,
                 request: LoadRequest,
-            ):
-                GeckoResult<AllowOrDeny>? {
+            ): GeckoResult<AllowOrDeny>? {
                 assertThat("URL should match", request.uri, equalTo(forEachCall(uri, redirectUri)))
                 assertThat(
                     "From app should be correct",
@@ -1447,8 +1441,7 @@ class NavigationDelegateTest : BaseSessionTest() {
             override fun onLoadRequest(
                 session: GeckoSession,
                 request: LoadRequest,
-            ):
-                GeckoResult<AllowOrDeny>? {
+            ): GeckoResult<AllowOrDeny>? {
                 assertThat("Session should not be null", session, notNullValue())
                 assertThat("URI should not be null", request.uri, notNullValue())
                 assertThat("URI should match", request.uri, endsWith(HELLO_HTML_PATH))
@@ -1478,10 +1471,12 @@ class NavigationDelegateTest : BaseSessionTest() {
                 session: GeckoSession,
                 url: String?,
                 perms: MutableList<PermissionDelegate.ContentPermission>,
+                hasUserGesture: Boolean,
             ) {
                 assertThat("Session should not be null", session, notNullValue())
                 assertThat("URL should not be null", url, notNullValue())
                 assertThat("URL should match", url, endsWith(HELLO_HTML_PATH))
+                assertThat("Should not have user gesture", hasUserGesture, equalTo(false))
             }
 
             @AssertCalled(count = 1, order = [2])
@@ -1514,8 +1509,10 @@ class NavigationDelegateTest : BaseSessionTest() {
                 session: GeckoSession,
                 url: String?,
                 perms: MutableList<PermissionDelegate.ContentPermission>,
+                hasUserGesture: Boolean,
             ) {
                 assertThat("URL should match the provided data URL", url, equalTo(dataUrl))
+                assertThat("Should not have user gesture", hasUserGesture, equalTo(false))
             }
 
             @AssertCalled(count = 1)
@@ -1546,6 +1543,7 @@ class NavigationDelegateTest : BaseSessionTest() {
                 session: GeckoSession,
                 url: String?,
                 perms: MutableList<PermissionDelegate.ContentPermission>,
+                hasUserGesture: Boolean,
             ) {
                 onLocationCount++
             }
@@ -1587,12 +1585,14 @@ class NavigationDelegateTest : BaseSessionTest() {
                 session: GeckoSession,
                 url: String?,
                 perms: MutableList<PermissionDelegate.ContentPermission>,
+                hasUserGesture: Boolean,
             ) {
                 assertThat(
                     "URL should be a data URL",
                     url,
                     equalTo(createDataUri(dataString, mimeType)),
                 )
+                assertThat("Should not have user gesture", hasUserGesture, equalTo(false))
             }
 
             @AssertCalled(count = 1)
@@ -1612,8 +1612,10 @@ class NavigationDelegateTest : BaseSessionTest() {
                 session: GeckoSession,
                 url: String?,
                 perms: MutableList<PermissionDelegate.ContentPermission>,
+                hasUserGesture: Boolean,
             ) {
                 assertThat("URL should be a data URL", url, startsWith("data:"))
+                assertThat("Should not have user gesture", hasUserGesture, equalTo(false))
             }
 
             @AssertCalled(count = 1)
@@ -1641,8 +1643,10 @@ class NavigationDelegateTest : BaseSessionTest() {
                 session: GeckoSession,
                 url: String?,
                 perms: MutableList<PermissionDelegate.ContentPermission>,
+                hasUserGesture: Boolean,
             ) {
                 assertThat("URL should match", url, equalTo(createDataUri(bytes, "text/html")))
+                assertThat("Should not have user gesture", hasUserGesture, equalTo(false))
             }
 
             @AssertCalled(count = 1)
@@ -1683,8 +1687,10 @@ class NavigationDelegateTest : BaseSessionTest() {
                 session: GeckoSession,
                 url: String?,
                 perms: MutableList<PermissionDelegate.ContentPermission>,
+                hasUserGesture: Boolean,
             ) {
                 assertThat("URL should match", url, equalTo(createDataUri(bytes, mimeType)))
+                assertThat("Should not have user gesture", hasUserGesture, equalTo(false))
             }
 
             @AssertCalled(count = 1)
@@ -1714,8 +1720,7 @@ class NavigationDelegateTest : BaseSessionTest() {
             override fun onLoadRequest(
                 session: GeckoSession,
                 request: LoadRequest,
-            ):
-                GeckoResult<AllowOrDeny>? {
+            ): GeckoResult<AllowOrDeny>? {
                 assertThat("URI should match", request.uri, endsWith(HELLO_HTML_PATH))
                 assertThat(
                     "Trigger URL should be null",
@@ -1740,8 +1745,10 @@ class NavigationDelegateTest : BaseSessionTest() {
                 session: GeckoSession,
                 url: String?,
                 perms: MutableList<PermissionDelegate.ContentPermission>,
+                hasUserGesture: Boolean,
             ) {
                 assertThat("URL should match", url, endsWith(HELLO_HTML_PATH))
+                assertThat("Should not have user gesture", hasUserGesture, equalTo(false))
             }
 
             @AssertCalled(count = 1, order = [2])
@@ -1774,8 +1781,10 @@ class NavigationDelegateTest : BaseSessionTest() {
                 session: GeckoSession,
                 url: String?,
                 perms: MutableList<PermissionDelegate.ContentPermission>,
+                hasUserGesture: Boolean,
             ) {
                 assertThat("URL should match", url, endsWith(HELLO2_HTML_PATH))
+                assertThat("Should not have user gesture", hasUserGesture, equalTo(false))
             }
         })
 
@@ -1787,8 +1796,7 @@ class NavigationDelegateTest : BaseSessionTest() {
             override fun onLoadRequest(
                 session: GeckoSession,
                 request: LoadRequest,
-            ):
-                GeckoResult<AllowOrDeny>? {
+            ): GeckoResult<AllowOrDeny>? {
                 assertThat(
                     "Load should not be direct",
                     request.isDirectNavigation,
@@ -1802,8 +1810,10 @@ class NavigationDelegateTest : BaseSessionTest() {
                 session: GeckoSession,
                 url: String?,
                 perms: MutableList<PermissionDelegate.ContentPermission>,
+                hasUserGesture: Boolean,
             ) {
                 assertThat("URL should match", url, endsWith(HELLO_HTML_PATH))
+                assertThat("Should not have user gesture", hasUserGesture, equalTo(false))
             }
 
             @AssertCalled(count = 1, order = [2])
@@ -1830,8 +1840,7 @@ class NavigationDelegateTest : BaseSessionTest() {
             override fun onLoadRequest(
                 session: GeckoSession,
                 request: LoadRequest,
-            ):
-                GeckoResult<AllowOrDeny>? {
+            ): GeckoResult<AllowOrDeny>? {
                 assertThat(
                     "Load should not be direct",
                     request.isDirectNavigation,
@@ -1845,8 +1854,10 @@ class NavigationDelegateTest : BaseSessionTest() {
                 session: GeckoSession,
                 url: String?,
                 perms: MutableList<PermissionDelegate.ContentPermission>,
+                hasUserGesture: Boolean,
             ) {
                 assertThat("URL should match", url, endsWith(HELLO2_HTML_PATH))
+                assertThat("Should not have user gesture", hasUserGesture, equalTo(false))
             }
 
             @AssertCalled(count = 1, order = [2])
@@ -1872,8 +1883,7 @@ class NavigationDelegateTest : BaseSessionTest() {
             override fun onLoadRequest(
                 session: GeckoSession,
                 request: LoadRequest,
-            ):
-                GeckoResult<AllowOrDeny>? {
+            ): GeckoResult<AllowOrDeny>? {
                 if (request.uri.endsWith(HELLO_HTML_PATH)) {
                     return GeckoResult.deny()
                 } else {
@@ -1913,8 +1923,7 @@ class NavigationDelegateTest : BaseSessionTest() {
             override fun onLoadRequest(
                 session: GeckoSession,
                 request: LoadRequest,
-            ):
-                GeckoResult<AllowOrDeny>? {
+            ): GeckoResult<AllowOrDeny>? {
                 assertThat("URI should be correct", request.uri, endsWith(NEW_SESSION_CHILD_HTML_PATH))
                 assertThat(
                     "Trigger URL should match",
@@ -1969,8 +1978,7 @@ class NavigationDelegateTest : BaseSessionTest() {
             override fun onLoadRequest(
                 session: GeckoSession,
                 request: LoadRequest,
-            ):
-                GeckoResult<AllowOrDeny>? {
+            ): GeckoResult<AllowOrDeny>? {
                 assertThat("URI should be correct", request.uri, endsWith(NEW_SESSION_CHILD_HTML_PATH))
                 assertThat(
                     "Trigger URL should be null",
@@ -2080,8 +2088,7 @@ class NavigationDelegateTest : BaseSessionTest() {
             override fun onLoadRequest(
                 session: GeckoSession,
                 request: LoadRequest,
-            ):
-                GeckoResult<AllowOrDeny>? {
+            ): GeckoResult<AllowOrDeny>? {
                 // Pretend we handled the target="_blank" link click.
                 if (request.uri.endsWith(NEW_SESSION_CHILD_HTML_PATH)) {
                     return GeckoResult.deny()
@@ -2102,8 +2109,7 @@ class NavigationDelegateTest : BaseSessionTest() {
             override fun onLoadRequest(
                 session: GeckoSession,
                 request: LoadRequest,
-            ):
-                GeckoResult<AllowOrDeny>? {
+            ): GeckoResult<AllowOrDeny>? {
                 assertThat(
                     "URI must match",
                     request.uri,
@@ -2151,8 +2157,7 @@ class NavigationDelegateTest : BaseSessionTest() {
 
         mainSession.waitUntilCalled(object : NavigationDelegate {
             @AssertCalled(count = 1, order = [1])
-            override fun onLoadRequest(session: GeckoSession, request: LoadRequest):
-                GeckoResult<AllowOrDeny>? {
+            override fun onLoadRequest(session: GeckoSession, request: LoadRequest): GeckoResult<AllowOrDeny>? {
                 assertThat(
                     "URL should be correct",
                     request.uri,
@@ -2172,8 +2177,7 @@ class NavigationDelegateTest : BaseSessionTest() {
             }
 
             @AssertCalled(count = 1, order = [2])
-            override fun onNewSession(session: GeckoSession, uri: String):
-                GeckoResult<GeckoSession>? {
+            override fun onNewSession(session: GeckoSession, uri: String): GeckoResult<GeckoSession>? {
                 assertThat("URL should be correct", uri, endsWith("form_blank.html?"))
                 return null
             }
@@ -2219,6 +2223,30 @@ class NavigationDelegateTest : BaseSessionTest() {
             "Referrer should match",
             newSession.evaluateJS("document.referrer") as String,
             equalTo(referrer),
+        )
+    }
+
+    @Test fun loadUriInPrivateSessionReferrerSession() {
+        val uri = "https://example.com/bar"
+        val referrer = "https://example.org/"
+
+        mainSession.loadUri(referrer)
+        mainSession.waitForPageStop()
+
+        val privateSettings = GeckoSessionSettings.Builder().usePrivateMode(true).build()
+        val newSession = sessionRule.createOpenSession(privateSettings)
+        newSession.load(
+            Loader()
+                .uri(uri)
+                .referrer(mainSession)
+                .flags(GeckoSession.LOAD_FLAGS_NONE),
+        )
+        newSession.waitForPageStop()
+
+        assertThat(
+            "Referrer should not sent",
+            newSession.evaluateJS("document.referrer") as String,
+            equalTo(""),
         )
     }
 
@@ -2561,7 +2589,11 @@ class NavigationDelegateTest : BaseSessionTest() {
 
         sessionRule.delegateUntilTestEnd(object : WebExtensionController.PromptDelegate {
             @AssertCalled
-            override fun onInstallPrompt(extension: WebExtension): GeckoResult<AllowOrDeny> {
+            override fun onInstallPrompt(
+                extension: WebExtension,
+                permissions: Array<String>,
+                origins: Array<String>,
+            ): GeckoResult<AllowOrDeny> {
                 return GeckoResult.allow()
             }
         })
@@ -2621,6 +2653,7 @@ class NavigationDelegateTest : BaseSessionTest() {
                 session: GeckoSession,
                 url: String?,
                 perms: MutableList<PermissionDelegate.ContentPermission>,
+                hasUserGesture: Boolean,
             ) {
                 currentUrl = url
             }
@@ -2702,8 +2735,7 @@ class NavigationDelegateTest : BaseSessionTest() {
             override fun onLoadRequest(
                 session: GeckoSession,
                 request: LoadRequest,
-            ):
-                GeckoResult<AllowOrDeny>? {
+            ): GeckoResult<AllowOrDeny>? {
                 assertThat(
                     "Load should not be direct",
                     request.isDirectNavigation,
@@ -2717,8 +2749,10 @@ class NavigationDelegateTest : BaseSessionTest() {
                 session: GeckoSession,
                 url: String?,
                 perms: MutableList<PermissionDelegate.ContentPermission>,
+                hasUserGesture: Boolean,
             ) {
                 assertThat("URI should match", url, endsWith("#test1"))
+                assertThat("Should not have user gesture", hasUserGesture, equalTo(false))
             }
         })
 
@@ -2729,8 +2763,7 @@ class NavigationDelegateTest : BaseSessionTest() {
             override fun onLoadRequest(
                 session: GeckoSession,
                 request: LoadRequest,
-            ):
-                GeckoResult<AllowOrDeny>? {
+            ): GeckoResult<AllowOrDeny>? {
                 return null
             }
 
@@ -2739,8 +2772,10 @@ class NavigationDelegateTest : BaseSessionTest() {
                 session: GeckoSession,
                 url: String?,
                 perms: MutableList<PermissionDelegate.ContentPermission>,
+                hasUserGesture: Boolean,
             ) {
                 assertThat("URI should match", url, endsWith("#test2"))
+                assertThat("Should not have user gesture", hasUserGesture, equalTo(false))
             }
         })
     }
@@ -2826,6 +2861,54 @@ class NavigationDelegateTest : BaseSessionTest() {
                     equalTo(false),
                 )
                 return GeckoResult.allow()
+            }
+        })
+    }
+
+    @WithDisplay(width = 100, height = 100)
+    @Test
+    fun locationReplaceOnUserGesture() {
+        mainSession.loadUri("$TEST_ENDPOINT$CLICK_TO_REPLACE_HTML_PATH")
+        mainSession.waitForPageStop()
+
+        mainSession.synthesizeTap(50, 50)
+
+        sessionRule.waitUntilCalled(object : NavigationDelegate {
+            @AssertCalled(count = 1)
+            override fun onLocationChange(
+                session: GeckoSession,
+                url: String?,
+                perms: MutableList<PermissionDelegate.ContentPermission>,
+                hasUserGesture: Boolean,
+            ) {
+                assertThat("Should have a user gesture", hasUserGesture, equalTo(true))
+                assertThat(
+                    "Location should be replaced to replacedUrl",
+                    url,
+                    equalTo("replacedUrl"),
+                )
+            }
+        })
+    }
+
+    @WithDisplay(width = 100, height = 100)
+    @Test
+    fun locationNotReplaceOnNoUserGesture() {
+        mainSession.loadUri("$TEST_ENDPOINT$HELLO_HTML_PATH")
+        sessionRule.waitForPageStop()
+
+        sessionRule.forCallbacksDuringWait(object : NavigationDelegate {
+            @AssertCalled(count = 1, order = [2])
+            override fun onLocationChange(
+                session: GeckoSession,
+                url: String?,
+                perms: MutableList<PermissionDelegate.ContentPermission>,
+                hasUserGesture: Boolean,
+            ) {
+                assertThat("Session should not be null", session, notNullValue())
+                assertThat("URL should not be null", url, notNullValue())
+                assertThat("URL should match", url, endsWith(HELLO_HTML_PATH))
+                assertThat("Should not have user gesture", hasUserGesture, equalTo(false))
             }
         })
     }
@@ -3123,6 +3206,7 @@ class NavigationDelegateTest : BaseSessionTest() {
                 session: GeckoSession,
                 url: String?,
                 perms: MutableList<PermissionDelegate.ContentPermission>,
+                hasUserGesture: Boolean,
             ) {
                 assertThat("URL should match", url, endsWith(HELLO_HTML_PATH))
             }

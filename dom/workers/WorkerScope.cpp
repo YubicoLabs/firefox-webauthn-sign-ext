@@ -48,6 +48,7 @@
 #include "mozilla/dom/ClientSource.h"
 #include "mozilla/dom/Clients.h"
 #include "mozilla/dom/Console.h"
+#include "mozilla/dom/CookieStore.h"
 #include "mozilla/dom/DOMMozPromiseRequestHolder.h"
 #include "mozilla/dom/DebuggerNotification.h"
 #include "mozilla/dom/DebuggerNotificationBinding.h"
@@ -170,7 +171,8 @@ bool WorkerScriptTimeoutHandler::Call(const char* aExecutionReason) {
 
   JSContext* cx = aes.cx();
   JS::CompileOptions options(cx);
-  options.setFileAndLine(mFileName.get(), mLineNo).setNoScriptRval(true);
+  options.setFileAndLine(mCaller.FileName().get(), mCaller.mLine)
+      .setNoScriptRval(true);
   options.setIntroductionType("domTimer");
 
   JS::Rooted<JS::Value> unused(cx);
@@ -404,6 +406,7 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INHERITED(WorkerGlobalScope,
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mCrypto)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mPerformance)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mWebTaskScheduler)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mTrustedTypePolicyFactory)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mLocation)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mNavigator)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mFontFaceSet)
@@ -420,6 +423,7 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN_INHERITED(WorkerGlobalScope,
     tmp->mWebTaskScheduler->Disconnect();
     NS_IMPL_CYCLE_COLLECTION_UNLINK(mWebTaskScheduler)
   }
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mTrustedTypePolicyFactory)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mLocation)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mNavigator)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mFontFaceSet)
@@ -466,6 +470,7 @@ already_AddRefed<CacheStorage> WorkerGlobalScope::GetCaches(ErrorResult& aRv) {
   if (!mCacheStorage) {
     mCacheStorage = CacheStorage::CreateOnWorker(cache::DEFAULT_NAMESPACE, this,
                                                  mWorkerPrivate, aRv);
+    mWorkerPrivate->NotifyStorageKeyUsed();
   }
 
   RefPtr<CacheStorage> ref = mCacheStorage;
@@ -719,7 +724,7 @@ void WorkerGlobalScope::GetJSTestingFunctions(
 }
 
 already_AddRefed<Promise> WorkerGlobalScope::Fetch(
-    const RequestOrUSVString& aInput, const RequestInit& aInit,
+    const RequestOrUTF8String& aInput, const RequestInit& aInit,
     CallerType aCallerType, ErrorResult& aRv) {
   return FetchRequest(this, aInput, aInit, aCallerType, aRv);
 }
@@ -733,25 +738,28 @@ already_AddRefed<IDBFactory> WorkerGlobalScope::GetIndexedDB(
   if (!indexedDB) {
     StorageAccess access = mWorkerPrivate->StorageAccess();
 
+    bool allowed = true;
     if (access == StorageAccess::eDeny) {
       NS_WARNING("IndexedDB is not allowed in this worker!");
-      aErrorResult = NS_ERROR_DOM_SECURITY_ERR;
-      return nullptr;
+      allowed = false;
     }
 
     if (ShouldPartitionStorage(access) &&
         !StoragePartitioningEnabled(access,
                                     mWorkerPrivate->CookieJarSettings())) {
       NS_WARNING("IndexedDB is not allowed in this worker!");
-      aErrorResult = NS_ERROR_DOM_SECURITY_ERR;
-      return nullptr;
+      allowed = false;
     }
 
-    const PrincipalInfo& principalInfo =
-        mWorkerPrivate->GetEffectiveStoragePrincipalInfo();
+    auto windowID = mWorkerPrivate->WindowID();
 
-    auto res = IDBFactory::CreateForWorker(this, principalInfo,
-                                           mWorkerPrivate->WindowID());
+    auto principalInfoPtr =
+        allowed ? MakeUnique<PrincipalInfo>(
+                      mWorkerPrivate->GetEffectiveStoragePrincipalInfo())
+                : nullptr;
+    auto res = IDBFactory::CreateForWorker(this, std::move(principalInfoPtr),
+                                           windowID);
+
     if (NS_WARN_IF(res.isErr())) {
       aErrorResult = res.unwrapErr();
       return nullptr;
@@ -760,6 +768,8 @@ already_AddRefed<IDBFactory> WorkerGlobalScope::GetIndexedDB(
     indexedDB = res.unwrap();
     mIndexedDB = indexedDB;
   }
+
+  mWorkerPrivate->NotifyStorageKeyUsed();
 
   return indexedDB.forget();
 }
@@ -868,6 +878,14 @@ void WorkerGlobalScope::StorageAccessPermissionGranted() {
   mCacheStorage = nullptr;
 }
 
+TrustedTypePolicyFactory* WorkerGlobalScope::TrustedTypes() {
+  if (!mTrustedTypePolicyFactory) {
+    mTrustedTypePolicyFactory = MakeRefPtr<TrustedTypePolicyFactory>(this);
+  }
+
+  return mTrustedTypePolicyFactory;
+}
+
 bool WorkerGlobalScope::WindowInteractionAllowed() const {
   AssertIsOnWorkerThread();
   return mWindowInteractionsAllowed > 0;
@@ -934,7 +952,7 @@ void DedicatedWorkerGlobalScope::Close() {
   mWorkerPrivate->CloseInternal();
 }
 
-int32_t DedicatedWorkerGlobalScope::RequestAnimationFrame(
+uint32_t DedicatedWorkerGlobalScope::RequestAnimationFrame(
     FrameRequestCallback& aCallback, ErrorResult& aError) {
   AssertIsOnWorkerThread();
 
@@ -970,7 +988,7 @@ int32_t DedicatedWorkerGlobalScope::RequestAnimationFrame(
     }
   }
 
-  int32_t handle = 0;
+  uint32_t handle = 0;
   aError = mFrameRequestManager.Schedule(aCallback, &handle);
   if (!aError.Failed() && mDocumentVisible) {
     mVsyncChild->TryObserve();
@@ -978,7 +996,7 @@ int32_t DedicatedWorkerGlobalScope::RequestAnimationFrame(
   return handle;
 }
 
-void DedicatedWorkerGlobalScope::CancelAnimationFrame(int32_t aHandle,
+void DedicatedWorkerGlobalScope::CancelAnimationFrame(uint32_t aHandle,
                                                       ErrorResult& aError) {
   AssertIsOnWorkerThread();
 
@@ -1082,7 +1100,8 @@ void SharedWorkerGlobalScope::Close() {
 }
 
 NS_IMPL_CYCLE_COLLECTION_INHERITED(ServiceWorkerGlobalScope, WorkerGlobalScope,
-                                   mClients, mExtensionBrowser, mRegistration)
+                                   mClients, mExtensionBrowser, mRegistration,
+                                   mCookieStore)
 NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(ServiceWorkerGlobalScope)
 NS_INTERFACE_MAP_END_INHERITING(WorkerGlobalScope)
 
@@ -1140,9 +1159,7 @@ namespace {
 
 class ReportFetchListenerWarningRunnable final : public Runnable {
   const nsCString mScope;
-  nsString mSourceSpec;
-  uint32_t mLine;
-  uint32_t mColumn;
+  mozilla::JSCallingLocation mCaller;
 
  public:
   explicit ReportFetchListenerWarningRunnable(const nsString& aScope)
@@ -1153,7 +1170,7 @@ class ReportFetchListenerWarningRunnable final : public Runnable {
     JSContext* cx = workerPrivate->GetJSContext();
     MOZ_ASSERT(cx);
 
-    nsJSUtils::GetCallingLocation(cx, mSourceSpec, &mLine, &mColumn);
+    mCaller = JSCallingLocation::Get(cx);
   }
 
   NS_IMETHOD
@@ -1162,7 +1179,8 @@ class ReportFetchListenerWarningRunnable final : public Runnable {
 
     ServiceWorkerManager::LocalizeAndReportToAllClients(
         mScope, "ServiceWorkerNoFetchHandler", nsTArray<nsString>{},
-        nsIScriptError::warningFlag, mSourceSpec, u""_ns, mLine, mColumn);
+        nsIScriptError::warningFlag, mCaller.FileName(), u""_ns, mCaller.mLine,
+        mCaller.mColumn);
 
     return NS_OK;
   }
@@ -1228,6 +1246,14 @@ ServiceWorkerGlobalScope::AcquireExtensionBrowser() {
   }
 
   return mExtensionBrowser.clonePtr();
+}
+
+already_AddRefed<CookieStore> ServiceWorkerGlobalScope::CookieStore() {
+  if (!mCookieStore) {
+    mCookieStore = CookieStore::Create(this);
+  }
+
+  return do_AddRef(mCookieStore);
 }
 
 bool WorkerDebuggerGlobalScope::WrapGlobalObject(
@@ -1328,11 +1354,9 @@ void WorkerDebuggerGlobalScope::SetImmediate(Function& aHandler,
 
 void WorkerDebuggerGlobalScope::ReportError(JSContext* aCx,
                                             const nsAString& aMessage) {
-  JS::AutoFilename chars;
-  uint32_t lineno = 0;
-  JS::DescribeScriptedCaller(aCx, &chars, &lineno);
-  nsString filename(NS_ConvertUTF8toUTF16(chars.get()));
-  mWorkerPrivate->ReportErrorToDebugger(filename, lineno, aMessage);
+  auto caller = JSCallingLocation::Get(aCx);
+  mWorkerPrivate->ReportErrorToDebugger(caller.FileName(), caller.mLine,
+                                        aMessage);
 }
 
 void WorkerDebuggerGlobalScope::RetrieveConsoleEvents(

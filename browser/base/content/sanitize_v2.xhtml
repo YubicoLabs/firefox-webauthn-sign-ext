@@ -73,7 +73,11 @@
             data-l10n-id="clear-time-duration-value-last-4-hours"
             value="3"
           />
-          <menuitem data-l10n-id="clear-time-duration-value-today" value="4" />
+          <menuitem
+            data-l10n-id="clear-time-duration-value-today"
+            value="4"
+            id="sanitizeSinceMidnight"
+          />
           <menuseparator />
           <menuitem
             data-l10n-id="clear-time-duration-value-everything"
@@ -108,6 +112,7 @@
           <checkbox
             class="clearingItemCheckbox"
             data-l10n-id="item-history-form-data-downloads"
+            preference="privacy.clearHistory.historyFormDataAndDownloads"
             id="historyFormDataAndDownloads"
           />
           <description
@@ -123,6 +128,7 @@
             class="clearingItemCheckbox"
             data-l10n-id="item-cookies-site-data"
             aria-describedby="cookies-site-data-description"
+            preference="privacy.clearHistory.cookiesAndStorage"
             id="cookiesAndStorage"
           />
           <description
@@ -138,6 +144,7 @@
             class="clearingItemCheckbox"
             data-l10n-id="item-cached-content"
             aria-describedby="cached-content-description"
+            preference="privacy.clearHistory.cache"
             id="cache"
           />
           <description
@@ -153,6 +160,72 @@
             class="clearingItemCheckbox"
             data-l10n-id="item-site-prefs"
             aria-describedby="site-prefs-description"
+            preference="privacy.clearHistory.siteSettings"
+            id="siteSettings"
+          />
+          <description
+            id="site-prefs-description"
+            data-l10n-id="item-site-prefs-description"
+            class="sanitizeCheckboxDescription text-deemphasized"
+          />
+        </vbox>
+      </hbox>
+    </groupbox>
+    <groupbox id="clearSiteDataGroupbox">
+      <hbox class="checkboxWithDescription">
+        <vbox>
+          <checkbox
+            class="clearingItemCheckbox"
+            data-l10n-id="item-history-form-data-downloads"
+            preference="privacy.clearSiteData.historyFormDataAndDownloads"
+            id="historyFormDataAndDownloads"
+          />
+          <description
+            id="history-form-data-description"
+            data-l10n-id="item-history-form-data-downloads-description"
+            class="sanitizeCheckboxDescription text-deemphasized"
+          />
+        </vbox>
+      </hbox>
+      <hbox class="checkboxWithDescription">
+        <vbox>
+          <checkbox
+            class="clearingItemCheckbox"
+            data-l10n-id="item-cookies-site-data"
+            aria-describedby="cookies-site-data-description"
+            preference="privacy.clearSiteData.cookiesAndStorage"
+            id="cookiesAndStorage"
+          />
+          <description
+            id="cookies-site-data-description"
+            data-l10n-id="item-cookies-site-data-description"
+            class="sanitizeCheckboxDescription text-deemphasized"
+          />
+        </vbox>
+      </hbox>
+      <hbox class="checkboxWithDescription">
+        <vbox>
+          <checkbox
+            class="clearingItemCheckbox"
+            data-l10n-id="item-cached-content"
+            aria-describedby="cached-content-description"
+            preference="privacy.clearSiteData.cache"
+            id="cache"
+          />
+          <description
+            id="cached-content-description"
+            data-l10n-id="item-cached-content-description"
+            class="sanitizeCheckboxDescription text-deemphasized"
+          />
+        </vbox>
+      </hbox>
+      <hbox class="checkboxWithDescription">
+        <vbox>
+          <checkbox
+            class="clearingItemCheckbox"
+            data-l10n-id="item-site-prefs"
+            aria-describedby="site-prefs-description"
+            preference="privacy.clearSiteData.siteSettings"
             id="siteSettings"
           />
           <description

@@ -11,14 +11,7 @@ with Files("**"):
 with Files("*TextInput*"):
     BUG_COMPONENT = ("Core", "DOM: UI Events & Focus Handling")
 
-XPIDL_SOURCES += [
-    "nsPIWidgetCocoa.idl",
-]
-
-XPIDL_MODULE = "widget_cocoa"
-
 EXPORTS += [
-    "CFTypeRefPtr.h",
     "DesktopBackgroundImage.h",
     "MediaHardwareKeysEventSourceMac.h",
     "MediaHardwareKeysEventSourceMacMediaCenter.h",
@@ -30,7 +23,6 @@ EXPORTS += [
 ]
 
 UNIFIED_SOURCES += [
-    "AppearanceOverride.mm",
     "GfxInfo.mm",
     "MOZIconHelper.mm",
     "MOZMenuOpeningCoordinator.mm",
@@ -79,7 +71,6 @@ UNIFIED_SOURCES += [
     "TextRecognition.mm",
     "VibrancyManager.mm",
     "ViewRegion.mm",
-    "WidgetTraceEvent.mm",
 ]
 
 # These files cannot be built in unified mode because they cause symbol conflicts

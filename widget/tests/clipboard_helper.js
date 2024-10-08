@@ -157,19 +157,29 @@ function getClipboardData(aFlavor, aClipboardType) {
   }
 }
 
-function asyncGetClipboardData(aClipboardType) {
+function getClipboardDataSnapshotSync(aClipboardType) {
+  return clipboard.getDataSnapshotSync(
+    ["text/plain", "text/html", "image/png"],
+    aClipboardType
+  );
+}
+
+function getClipboardDataSnapshot(
+  aClipboardType,
+  aFormats = ["text/plain", "text/html", "image/png"]
+) {
   return new Promise((resolve, reject) => {
     try {
-      clipboard.asyncGetData(
-        ["text/plain", "text/html", "image/png"],
+      clipboard.getDataSnapshot(
+        aFormats,
         aClipboardType,
         null,
         SpecialPowers.Services.scriptSecurityManager.getSystemPrincipal(),
         {
           QueryInterface: SpecialPowers.ChromeUtils.generateQI([
-            "nsIAsyncClipboardGetCallback",
+            "nsIClipboardGetDataSnapshotCallback",
           ]),
-          // nsIAsyncClipboardGetCallback
+          // nsIClipboardGetDataSnapshotCallback
           onSuccess: SpecialPowers.wrapCallback(function (
             aAsyncGetClipboardData
           ) {
@@ -181,7 +191,7 @@ function asyncGetClipboardData(aClipboardType) {
         }
       );
     } catch (e) {
-      ok(false, `asyncGetData should not throw`);
+      ok(false, `getDataSnapshot should not throw`);
       reject(e);
     }
   });

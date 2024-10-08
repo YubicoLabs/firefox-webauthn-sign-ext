@@ -14,7 +14,10 @@ const { FormAutofill } = ChromeUtils.importESModule(
 
 add_setup(async function () {
   await SpecialPowers.pushPrefEnv({
-    set: [["extensions.formautofill.addresses.experiments.enabled", false]],
+    set: [
+      ["extensions.formautofill.addresses.experiments.enabled", false],
+      ["extensions.formautofill.addresses.supportedCountries", "FR"],
+    ],
   });
 });
 
@@ -38,7 +41,7 @@ add_task(async function test_address_autofill_feature_enabled() {
     "Address autofill should be available when feature is enabled in nimbus."
   );
 
-  await cleanupExperiment();
+  cleanupExperiment();
 });
 
 add_task(async function test_address_autofill_feature_disabled() {
@@ -63,5 +66,5 @@ add_task(async function test_address_autofill_feature_disabled() {
     "Address autofill shouldn't be available when feature is off in nimbus."
   );
 
-  await cleanupExperiment();
+  cleanupExperiment();
 });

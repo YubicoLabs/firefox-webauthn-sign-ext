@@ -10,11 +10,13 @@
 #include "mozilla/dom/BrowsingContext.h"
 #include "mozilla/dom/MediaControlKeySource.h"
 #include "mozilla/dom/BrowsingContextWebProgress.h"
+#include "mozilla/dom/FeaturePolicy.h"
 #include "mozilla/dom/ProcessIsolation.h"
 #include "mozilla/dom/Promise.h"
 #include "mozilla/dom/SessionHistoryEntry.h"
 #include "mozilla/dom/SessionStoreRestoreData.h"
 #include "mozilla/dom/SessionStoreUtils.h"
+#include "mozilla/dom/UniqueContentParentKeepAlive.h"
 #include "mozilla/dom/ipc/IdType.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/MozPromise.h"
@@ -94,8 +96,9 @@ class CanonicalBrowsingContext final : public BrowsingContext {
   // Only set for toplevel content BrowsingContexts, and may be from a different
   // BrowsingContextGroup.
   uint64_t GetCrossGroupOpenerId() const { return mCrossGroupOpenerId; }
+  already_AddRefed<CanonicalBrowsingContext> GetCrossGroupOpener() const;
   void SetCrossGroupOpenerId(uint64_t aOpenerId);
-  void SetCrossGroupOpener(CanonicalBrowsingContext& aCrossGroupOpener,
+  void SetCrossGroupOpener(CanonicalBrowsingContext* aCrossGroupOpener,
                            ErrorResult& aRv);
 
   void GetWindowGlobals(nsTArray<RefPtr<WindowGlobalParent>>& aWindows);
@@ -136,11 +139,16 @@ class CanonicalBrowsingContext final : public BrowsingContext {
   UniquePtr<LoadingSessionHistoryInfo> ReplaceLoadingSessionHistoryEntryForLoad(
       LoadingSessionHistoryInfo* aInfo, nsIChannel* aNewChannel);
 
-  using PrintPromise = MozPromise</* unused */ bool, nsresult, false>;
+  using PrintPromise =
+      MozPromise<MaybeDiscardedBrowsingContext, nsresult, false>;
   MOZ_CAN_RUN_SCRIPT RefPtr<PrintPromise> Print(nsIPrintSettings*);
   MOZ_CAN_RUN_SCRIPT already_AddRefed<Promise> PrintJS(nsIPrintSettings*,
                                                        ErrorResult&);
-
+  MOZ_CAN_RUN_SCRIPT RefPtr<PrintPromise> PrintWithNoContentAnalysis(
+      nsIPrintSettings* aPrintSettings, bool aForceStaticDocument,
+      const MaybeDiscardedBrowsingContext& aClonedStaticBrowsingContext);
+  MOZ_CAN_RUN_SCRIPT void ReleaseClonedPrint(
+      const MaybeDiscardedBrowsingContext& aClonedStaticBrowsingContext);
   // Call the given callback on all top-level descendant BrowsingContexts.
   // Return Callstate::Stop from the callback to stop calling further children.
   //
@@ -309,9 +317,10 @@ class CanonicalBrowsingContext final : public BrowsingContext {
 
   void ResetScalingZoom();
 
-  void SetContainerFeaturePolicy(FeaturePolicy* aContainerFeaturePolicy);
-  FeaturePolicy* GetContainerFeaturePolicy() const {
-    return mContainerFeaturePolicy;
+  void SetContainerFeaturePolicy(
+      Maybe<FeaturePolicyInfo>&& aContainerFeaturePolicyInfo);
+  const Maybe<FeaturePolicyInfo>& GetContainerFeaturePolicy() const {
+    return mContainerFeaturePolicyInfo;
   }
 
   void SetRestoreData(SessionStoreRestoreData* aData, ErrorResult& aError);
@@ -452,7 +461,7 @@ class CanonicalBrowsingContext final : public BrowsingContext {
 
     RefPtr<CanonicalBrowsingContext> mTarget;
     RefPtr<RemotenessPromise::Private> mPromise;
-    RefPtr<ContentParent> mContentParent;
+    UniqueContentParentKeepAlive mContentParentKeepAlive;
     RefPtr<BrowsingContextGroup> mSpecificGroup;
 
     bool mProcessReady = false;
@@ -576,7 +585,7 @@ class CanonicalBrowsingContext final : public BrowsingContext {
   nsCOMPtr<nsIWebProgressListener> mDocShellProgressBridge;
   RefPtr<nsBrowserStatusFilter> mStatusFilter;
 
-  RefPtr<FeaturePolicy> mContainerFeaturePolicy;
+  Maybe<FeaturePolicyInfo> mContainerFeaturePolicyInfo;
 
   friend class BrowserSessionStore;
   WeakPtr<SessionStoreFormData>& GetSessionStoreFormDataRef() {

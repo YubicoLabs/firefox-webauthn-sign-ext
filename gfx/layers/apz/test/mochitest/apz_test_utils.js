@@ -309,7 +309,7 @@ function promiseAfterPaint() {
 // occurred by the the returned promise resolves. If you want to wait
 // for those repaints, consider using promiseApzFlushedRepaints instead.
 function promiseOnlyApzControllerFlushedWithoutSetTimeout(aWindow = window) {
-  return new Promise(function (resolve, reject) {
+  return new Promise(function (resolve) {
     var repaintDone = function () {
       dump("PromiseApzRepaintsFlushed: APZ flush done\n");
       SpecialPowers.Services.obs.removeObserver(
@@ -518,7 +518,7 @@ function runSubtestsSeriallyInFreshWindows(aSubtests) {
         if (test.onload) {
           w.addEventListener(
             "load",
-            function (e) {
+            function () {
               test.onload(w);
             },
             { once: true }
@@ -1319,4 +1319,26 @@ function compareVisualViewport(
       `${p} should be same on ${aMessage}`
     );
   }
+}
+
+// Loads a URL in an iframe and waits until APZ is stable
+async function setupIframe(aIFrame, aURL) {
+  const iframeLoadPromise = promiseOneEvent(aIFrame, "load", null);
+  aIFrame.src = aURL;
+  await iframeLoadPromise;
+
+  await SpecialPowers.spawn(aIFrame, [], async () => {
+    await content.wrappedJSObject.waitUntilApzStable();
+  });
+}
+
+// Loads a URL in an iframe and replaces its origin to
+// create an out-of-process iframe
+async function setupCrossOriginIFrame(aIFrame, aUrl) {
+  let iframeURL = SimpleTest.getTestFileURL(aUrl);
+  iframeURL = iframeURL.replace(window.location.origin, "https://example.com");
+  await setupIframe(aIFrame, iframeURL);
+  await SpecialPowers.spawn(aIFrame, [], async () => {
+    await SpecialPowers.contentTransformsReceived(content);
+  });
 }

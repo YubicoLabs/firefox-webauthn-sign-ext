@@ -103,7 +103,8 @@ class FullParseHandler {
   bool isPropertyOrPrivateMemberAccess(Node node) {
     return node->isKind(ParseNodeKind::DotExpr) ||
            node->isKind(ParseNodeKind::ElemExpr) ||
-           node->isKind(ParseNodeKind::PrivateMemberExpr);
+           node->isKind(ParseNodeKind::PrivateMemberExpr) ||
+           node->isKind(ParseNodeKind::ArgumentsLength);
   }
 
   bool isOptionalPropertyOrPrivateMemberAccess(Node node) {
@@ -184,9 +185,8 @@ class FullParseHandler {
     return newResult<NumericLiteral>(value, decimalPoint, pos);
   }
 
-  BigIntLiteralResult newBigInt(BigIntIndex index, bool isZero,
-                                const TokenPos& pos) {
-    return newResult<BigIntLiteral>(index, isZero, pos);
+  BigIntLiteralResult newBigInt(BigIntIndex index, const TokenPos& pos) {
+    return newResult<BigIntLiteral>(index, pos);
   }
 
   BooleanLiteralResult newBooleanLiteral(bool cond, const TokenPos& pos) {
@@ -887,6 +887,11 @@ class FullParseHandler {
                                      key->pn_pos.end);
   }
 
+  ArgumentsLengthResult newArgumentsLength(Node expr, NameNodeType key) {
+    return newResult<ArgumentsLength>(expr, key, expr->pn_pos.begin,
+                                      key->pn_pos.end);
+  }
+
   PropertyByValueResult newPropertyByValue(Node lhs, Node index, uint32_t end) {
     return newResult<PropertyByValue>(lhs, index, lhs->pn_pos.begin, end);
   }
@@ -1137,6 +1142,12 @@ class FullParseHandler {
                TaggedParserAtomIndex::WellKnown::arguments();
   }
 
+  bool isLengthName(Node node) {
+    return node->isKind(ParseNodeKind::PropertyNameExpr) &&
+           node->as<NameNode>().atom() ==
+               TaggedParserAtomIndex::WellKnown::length();
+  }
+
   bool isEvalName(Node node) {
     return node->isKind(ParseNodeKind::Name) &&
            node->as<NameNode>().atom() ==
@@ -1148,6 +1159,10 @@ class FullParseHandler {
            node->pn_pos.begin + strlen("async") == node->pn_pos.end &&
            node->as<NameNode>().atom() ==
                TaggedParserAtomIndex::WellKnown::async();
+  }
+
+  bool isArgumentsLength(Node node) {
+    return node->isKind(ParseNodeKind::ArgumentsLength);
   }
 
   bool isPrivateName(Node node) {

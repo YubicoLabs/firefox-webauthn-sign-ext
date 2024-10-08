@@ -55,7 +55,7 @@ UrlClassifierRemoteSettingsService.prototype = {
     });
   },
 
-  // Parse the update request. See UrlClassifierListManager.jsm makeUpdateRequest
+  // Parse the update request. See UrlClassifierListManager.sys.mjs makeUpdateRequest
   // for more details about how we build the update request.
   //
   // @param aRequest the request payload of the update request
@@ -125,9 +125,11 @@ UrlClassifierRemoteSettingsService.prototype = {
     );
     stream.setData(payload, payload.length);
 
-    aListener.onStartRequest(null);
-    aListener.onDataAvailable(null, stream, 0, payload.length);
-    aListener.onStopRequest(null, Cr.NS_OK);
+    try {
+      aListener.onStartRequest(null);
+      aListener.onDataAvailable(null, stream, 0, payload.length);
+      aListener.onStopRequest(null, Cr.NS_OK);
+    } catch (e) {}
   },
 
   fetchList(aPayload, aListener) {

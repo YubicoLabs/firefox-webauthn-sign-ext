@@ -364,14 +364,18 @@ class CanvasRenderingContext2D : public nsICanvasRenderingContextInternal,
   }
 
   void ClosePath() {
-    EnsureWritablePath();
+    if (!EnsureWritablePath()) {
+      return;
+    }
 
     mPathBuilder->Close();
     mPathPruned = false;
   }
 
   void MoveTo(double aX, double aY) {
-    EnsureWritablePath();
+    if (!EnsureWritablePath()) {
+      return;
+    }
 
     mozilla::gfx::Point pos(ToFloat(aX), ToFloat(aY));
     if (!pos.IsFinite()) {
@@ -383,13 +387,17 @@ class CanvasRenderingContext2D : public nsICanvasRenderingContextInternal,
   }
 
   void LineTo(double aX, double aY) {
-    EnsureWritablePath();
+    if (!EnsureWritablePath()) {
+      return;
+    }
 
     LineTo(mozilla::gfx::Point(ToFloat(aX), ToFloat(aY)));
   }
 
   void QuadraticCurveTo(double aCpx, double aCpy, double aX, double aY) {
-    EnsureWritablePath();
+    if (!EnsureWritablePath()) {
+      return;
+    }
 
     mozilla::gfx::Point cp1(ToFloat(aCpx), ToFloat(aCpy));
     mozilla::gfx::Point cp2(ToFloat(aX), ToFloat(aY));
@@ -408,7 +416,9 @@ class CanvasRenderingContext2D : public nsICanvasRenderingContextInternal,
 
   void BezierCurveTo(double aCp1x, double aCp1y, double aCp2x, double aCp2y,
                      double aX, double aY) {
-    EnsureWritablePath();
+    if (!EnsureWritablePath()) {
+      return;
+    }
 
     BezierTo(mozilla::gfx::Point(ToFloat(aCp1x), ToFloat(aCp1y)),
              mozilla::gfx::Point(ToFloat(aCp2x), ToFloat(aCp2y)),
@@ -570,6 +580,10 @@ class CanvasRenderingContext2D : public nsICanvasRenderingContextInternal,
 
   void OnShutdown();
 
+  bool IsContextLost() const { return mIsContextLost; }
+  void OnRemoteCanvasLost();
+  void OnRemoteCanvasRestored();
+
   /**
    * Update CurrentState().filter with the filter description for
    * CurrentState().filterChain.
@@ -676,7 +690,7 @@ class CanvasRenderingContext2D : public nsICanvasRenderingContextInternal,
 
   /* This function ensures there is a writable pathbuilder available
    */
-  void EnsureWritablePath();
+  bool EnsureWritablePath();
 
   // Ensures a path in UserSpace is available.
   void EnsureUserSpacePath(
@@ -699,8 +713,16 @@ class CanvasRenderingContext2D : public nsICanvasRenderingContextInternal,
    *
    * Returns true on success.
    */
+  bool EnsureTarget(ErrorResult& aError,
+                    const gfx::Rect* aCoveredRect = nullptr,
+                    bool aWillClear = false, bool aSkipTransform = false);
+
   bool EnsureTarget(const gfx::Rect* aCoveredRect = nullptr,
-                    bool aWillClear = false);
+                    bool aWillClear = false, bool aSkipTransform = false) {
+    IgnoredErrorResult error;
+    return EnsureTarget(error, aCoveredRect, aWillClear, aSkipTransform);
+  }
+
   // Attempt to borrow a new target from an existing buffer provider.
   bool BorrowTarget(const gfx::IntRect& aPersistedRect, bool aNeedsClear);
 
@@ -714,7 +736,8 @@ class CanvasRenderingContext2D : public nsICanvasRenderingContextInternal,
                        RefPtr<layers::PersistentBufferProvider>& aOutProvider);
 
   bool TryBasicTarget(RefPtr<gfx::DrawTarget>& aOutDT,
-                      RefPtr<layers::PersistentBufferProvider>& aOutProvider);
+                      RefPtr<layers::PersistentBufferProvider>& aOutProvider,
+                      ErrorResult& aError);
 
   void RegisterAllocation();
 
@@ -753,7 +776,7 @@ class CanvasRenderingContext2D : public nsICanvasRenderingContextInternal,
    * Check if the target is valid after calling EnsureTarget.
    */
   bool IsTargetValid() const {
-    return !!mTarget && mTarget != sErrorTarget.get();
+    return !!mTarget && mTarget != sErrorTarget.get() && !mIsContextLost;
   }
 
   /**
@@ -788,7 +811,7 @@ class CanvasRenderingContext2D : public nsICanvasRenderingContextInternal,
     return CurrentState().font;
   }
 
-  bool GetEffectiveWillReadFrequently() const;
+  bool UseSoftwareRendering() const;
 
   // Member vars
   int32_t mWidth, mHeight;
@@ -834,10 +857,15 @@ class CanvasRenderingContext2D : public nsICanvasRenderingContextInternal,
   // Whether the application expects to use operations that perform poorly with
   // acceleration.
   bool mWillReadFrequently = false;
+  // Whether to force software rendering
+  bool mForceSoftwareRendering = false;
   // Whether or not we have already shutdown.
   bool mHasShutdown = false;
+  // Whether or not remote canvas is currently unavailable.
+  bool mIsContextLost = false;
+  // Whether or not we can restore the context after restoration.
+  bool mAllowContextRestore = true;
 
-  RefPtr<CanvasShutdownObserver> mShutdownObserver;
   bool AddShutdownObserver();
   void RemoveShutdownObserver();
   bool AlreadyShutDown() const { return mHasShutdown; }
@@ -1008,9 +1036,11 @@ class CanvasRenderingContext2D : public nsICanvasRenderingContextInternal,
     RefPtr<nsAtom> fontLanguage;
     nsFont fontFont;
 
-    EnumeratedArray<Style, Style::MAX, RefPtr<CanvasGradient>> gradientStyles;
-    EnumeratedArray<Style, Style::MAX, RefPtr<CanvasPattern>> patternStyles;
-    EnumeratedArray<Style, Style::MAX, nscolor> colorStyles;
+    EnumeratedArray<Style, RefPtr<CanvasGradient>, size_t(Style::MAX)>
+        gradientStyles;
+    EnumeratedArray<Style, RefPtr<CanvasPattern>, size_t(Style::MAX)>
+        patternStyles;
+    EnumeratedArray<Style, nscolor, size_t(Style::MAX)> colorStyles;
 
     nsCString font;
     CanvasTextAlign textAlign = CanvasTextAlign::Start;
@@ -1023,6 +1053,8 @@ class CanvasRenderingContext2D : public nsICanvasRenderingContextInternal,
 
     gfx::Float letterSpacing = 0.0f;
     gfx::Float wordSpacing = 0.0f;
+    mozilla::StyleLineHeight fontLineHeight =
+        mozilla::StyleLineHeight::Normal();
     nsCString letterSpacingStr;
     nsCString wordSpacingStr;
 

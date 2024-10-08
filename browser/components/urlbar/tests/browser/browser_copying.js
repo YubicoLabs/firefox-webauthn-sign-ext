@@ -51,9 +51,10 @@ async function test_copy_values(testValues, trimHttps) {
       );
     } else if (testCase.setURL) {
       gURLBar.value = testCase.setURL;
+      // After input only the visible text is copied.
+      UrlbarTestUtils.fireInputEvent(window);
     }
     if (testCase.setURL || testCase.loadURL) {
-      gURLBar.valueIsTyped = !!testCase.setURL;
       is(
         gURLBar.value,
         testCase.expectedURL,
@@ -616,7 +617,7 @@ function testCopy(copyVal, targetValue) {
 
   if (copyVal) {
     let offsets = [];
-    while (true) {
+    for (;;) {
       let startBracket = copyVal.indexOf("<");
       let endBracket = copyVal.indexOf(">");
       if (startBracket == -1 && endBracket == -1) {
@@ -727,7 +728,7 @@ add_task(async function loadingPageInBlank() {
 async function waitForNewTabWithLoadRequest() {
   return new Promise(resolve =>
     gBrowser.addTabsProgressListener({
-      onStateChange(aBrowser, aWebProgress, aRequest, aStateFlags, aStatus) {
+      onStateChange(aBrowser, aWebProgress, aRequest, aStateFlags) {
         if (aStateFlags & Ci.nsIWebProgressListener.STATE_START) {
           gBrowser.removeTabsProgressListener(this);
           resolve(gBrowser.getTabForBrowser(aBrowser));

@@ -24,7 +24,7 @@
 
 // Some platform hooks must be implemented for single-step profiling.
 #if defined(JS_SIMULATOR_ARM) || defined(JS_SIMULATOR_MIPS64) || \
-    defined(JS_SIMULATOR_MIPS32)
+    defined(JS_SIMULATOR_MIPS32) || defined(JS_SIMULATOR_ARM64)
 #  define SINGLESTEP_PROFILING
 #endif
 
@@ -112,11 +112,6 @@ extern bool enableWasm;
 extern bool enableSharedMemory;
 extern bool enableWasmBaseline;
 extern bool enableWasmOptimizing;
-
-#define WASM_FEATURE(NAME, ...) extern bool enableWasm##NAME;
-JS_FOR_WASM_FEATURES(WASM_FEATURE);
-#undef WASM_FEATURE
-
 extern bool enableWasmVerbose;
 extern bool enableTestWasmAwaitTier2;
 extern bool enableSourcePragmas;
@@ -132,12 +127,8 @@ extern bool enableWellFormedUnicodeStrings;
 extern bool enableArrayBufferTransfer;
 extern bool enableArrayBufferResizable;
 extern bool enableSymbolsAsWeakMapKeys;
-#ifdef ENABLE_JSON_PARSE_WITH_SOURCE
-extern bool enableJSONParseWithSource;
-#endif
 extern bool enableNewSetMethods;
 extern bool enableImportAttributes;
-extern bool enableImportAttributesAssertSyntax;
 extern bool enableDestructuringFuse;
 #ifdef JS_GC_ZEAL
 extern uint32_t gZealBits;
@@ -183,7 +174,7 @@ class NonshrinkingGCObjectVector
   }
 };
 
-using MarkBitObservers = WeakCache<NonshrinkingGCObjectVector>;
+using MarkBitObservers = JS::WeakCache<NonshrinkingGCObjectVector>;
 
 #ifdef SINGLESTEP_PROFILING
 using StackChars = Vector<char16_t, 0, SystemAllocPolicy>;

@@ -54,8 +54,8 @@ ChromeUtils.defineLazyGetter(lazy, "gEdgeDatabase", function () {
  *
  * @param {string}            tableName the name of the table to read.
  * @param {string[]|Function} columns   a list of column specifiers
- *                                      (see ESEDBReader.jsm) or a function that
- *                                      generates them based on the database
+ *                                      (see ESEDBReader.sys.mjs) or a function
+ *                                      that generates them based on the database
  *                                      reference once opened.
  * @param {nsIFile}           dbFile    the database file to use. Defaults to
  *                                      the main Edge database.
@@ -573,7 +573,7 @@ export class EdgeProfileMigrator extends MigratorBase {
   /**
    * @returns {Array|null}
    *   Somewhat counterintuitively, this returns
-   *   |null| to indicate "There is only 1 (default) profile".
+   *   ``null`` to indicate "There is only 1 (default) profile".
    *   See MigrationUtils.sys.mjs for slightly more info on how sourceProfiles is used.
    */
   getSourceProfiles() {

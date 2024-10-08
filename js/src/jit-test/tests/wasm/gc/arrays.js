@@ -101,7 +101,7 @@ for (let [valtype, def, nondef] of GENERAL_TESTS) {
     }
   }
 
-  for (let arrayLength = 0; arrayLength < 5; arrayLength++) {
+  for (let arrayLength = 0; arrayLength <= 25; arrayLength++) {
     checkArray(createDefault(arrayLength), arrayLength, def, nondef);
     checkArray(create(arrayLength, nondef), arrayLength, nondef, def);
   }
@@ -604,6 +604,51 @@ assertErrorMessage(() => wasmEvalText(`(module
     },WebAssembly.RuntimeError, /index out of bounds/);
 }
 
+// run: zero-length copies are allowed
+{
+  let { newData } = wasmEvalText(`(module
+      (type $a (array i8))
+      (data $d "1337")
+      (func (export "newData") (result eqref)
+              (; offset=0 into data ;) i32.const 0
+              (; size=0 into data ;) i32.const 0
+              array.new_data $a $d
+      )
+      )`).exports;
+  let arr = newData();
+  assertEq(wasmGcArrayLength(arr), 0);
+}
+
+// run: a zero-length copy from the end is allowed
+{
+  let { newData } = wasmEvalText(`(module
+      (type $a (array i8))
+      (data $d "1337")
+      (func (export "newData") (result eqref)
+              (; offset=4 into data ;) i32.const 4
+              (; size=0 into data ;) i32.const 0
+              array.new_data $a $d
+      )
+      )`).exports;
+  let arr = newData();
+  assertEq(wasmGcArrayLength(arr), 0);
+}
+
+// run: even empty data segments are allowed
+{
+  let { newData } = wasmEvalText(`(module
+      (type $a (array i8))
+      (data $d "")
+      (func (export "newData") (result eqref)
+              (; offset=0 into data ;) i32.const 0
+              (; size=0 into data ;) i32.const 0
+              array.new_data $a $d
+      )
+      )`).exports;
+  let arr = newData();
+  assertEq(wasmGcArrayLength(arr), 0);
+}
+
 // run: resulting array is as expected
 {
     let { newData } = wasmEvalText(`(module
@@ -800,6 +845,59 @@ assertErrorMessage(() => wasmEvalText(`(module
     assertErrorMessage(() => {
         newElem();
     },WebAssembly.RuntimeError, /index out of bounds/);
+}
+
+// run: zero-length copies are allowed
+{
+  let { newElem, f1, f2, f3, f4 } = wasmEvalText(`(module
+      (type $a (array funcref))
+      (elem $e func $f1 $f2 $f3 $f4)
+      (func $f1 (export "f1"))
+      (func $f2 (export "f2"))
+      (func $f3 (export "f3"))
+      (func $f4 (export "f4"))
+      (func (export "newElem") (result eqref)
+              (; offset=0 into elem ;) i32.const 0
+              (; size=0 into elem ;) i32.const 0
+              array.new_elem $a $e
+      )
+      )`).exports;
+  let arr = newElem();
+  assertEq(wasmGcArrayLength(arr), 0);
+}
+
+// run: a zero-length copy from the end is allowed
+{
+  let { newElem, f1, f2, f3, f4 } = wasmEvalText(`(module
+      (type $a (array funcref))
+      (elem $e func $f1 $f2 $f3 $f4)
+      (func $f1 (export "f1"))
+      (func $f2 (export "f2"))
+      (func $f3 (export "f3"))
+      (func $f4 (export "f4"))
+      (func (export "newElem") (result eqref)
+              (; offset=4 into elem ;) i32.const 4
+              (; size=0 into elem ;) i32.const 0
+              array.new_elem $a $e
+      )
+      )`).exports;
+  let arr = newElem();
+  assertEq(wasmGcArrayLength(arr), 0);
+}
+
+// run: even empty elem segments are allowed
+{
+    let { newElem, f1, f2, f3, f4 } = wasmEvalText(`(module
+        (type $a (array funcref))
+        (elem $e func)
+        (func (export "newElem") (result eqref)
+                (; offset=0 into elem ;) i32.const 0
+                (; size=0 into elem ;) i32.const 0
+                array.new_elem $a $e
+        )
+        )`).exports;
+    let arr = newElem();
+    assertEq(wasmGcArrayLength(arr), 0);
 }
 
 // run: resulting array is as expected
@@ -1128,6 +1226,29 @@ assertErrorMessage(() => wasmEvalText(`(module
   assertErrorMessage(() => {
     initData();
   },WebAssembly.RuntimeError, /index out of bounds/);
+}
+
+// run: zeroes everywhere
+{
+  let { initData } = wasmEvalText(`(module
+    (type $a (array (mut i8)))
+    (data $d "")
+    (func (export "initData") (result eqref)
+      (local $arr (ref $a))
+      (local.set $arr (array.new_default $a (i32.const 0)))
+
+      (; array to init ;)       local.get $arr
+      (; offset=0 into array ;) i32.const 0
+      (; offset=0 into data ;)  i32.const 0
+      (; size=0 elements ;)     i32.const 0
+      array.init_data $a $d
+
+      local.get $arr
+    )
+    (func data.drop 0) ;; force write of data count section, see https://github.com/bytecodealliance/wasm-tools/pull/1194
+  )`).exports;
+  let arr = initData();
+  assertEq(wasmGcArrayLength(arr), 0);
 }
 
 // run: resulting array is as expected
@@ -1486,6 +1607,28 @@ assertErrorMessage(() => wasmEvalText(`(module
   assertErrorMessage(() => {
     initElem();
   },WebAssembly.RuntimeError, /index out of bounds/);
+}
+
+// run: zeroes everywhere
+{
+  let { initElem, f1, f2, f3, f4 } = wasmEvalText(`(module
+    (type $a (array (mut funcref)))
+    (elem $e func)
+    (func (export "initElem") (result eqref)
+      (local $arr (ref $a))
+      (local.set $arr (array.new_default $a (i32.const 0)))
+
+      (; array to init ;)       local.get $arr
+      (; offset=0 into array ;) i32.const 0
+      (; offset=0 into elem ;)  i32.const 0
+      (; size=0 into elem ;)    i32.const 0
+      array.init_elem $a $e
+
+      local.get $arr
+    )
+  )`).exports;
+  let arr = initElem();
+  assertEq(wasmGcArrayLength(arr), 0);
 }
 
 // run: resulting array is as expected
@@ -1918,57 +2061,6 @@ assertErrorMessage(() => wasmEvalText(`(module
     assertEq(isDefault(arr, 3), 1, `expected default value for ${type} but got filled`);
   }
 }
-
-//////////////////////////////////////////////////////////////////////////////
-//
-// Checks for requests for oversize arrays (more than MaxArrayPayloadBytes),
-// where MaxArrayPayloadBytes == 1,987,654,321.
-
-// array.new
-assertErrorMessage(() => wasmEvalText(`(module
-    (type $a (array i32))
-    (func (export "test") (result eqref)
-        ;; request exactly 2,000,000,000 bytes
-        (array.new $a (i32.const 0xABCD1234) (i32.const 500000000))
-    )
-    (func $f
-      call 0
-      drop
-    )
-    (start $f)
-)
-`), WebAssembly.RuntimeError, /too many array elements/);
-
-// array.new_default
-assertErrorMessage(() => wasmEvalText(`(module
-    (type $a (array f64))
-    (func (export "test") (result eqref)
-        ;; request exactly 2,000,000,000 bytes
-        (array.new_default $a (i32.const 250000000))
-    )
-    (func $f
-      call 0
-      drop
-    )
-    (start $f)
-)
-`), WebAssembly.RuntimeError, /too many array elements/);
-
-// array.new_fixed
-// This is impossible to test because it would require to create, at a
-// minimum, 1,987,654,321 (MaxArrayPayloadBytes) / 16 = 124.3 million
-// values, if each value is a v128.  However, the max number of bytes per
-// function is 7,654,321 (MaxFunctionBytes).  Even if it were possible to
-// create a value using just one insn byte, there wouldn't be enough.
-
-// array.new_data
-// Similarly, impossible to test because the max data segment length is 1GB
-// (1,073,741,824 bytes) (MaxDataSegmentLengthPages * PageSize), which is less
-// than MaxArrayPayloadBytes.
-
-// array.new_element
-// Similarly, impossible to test because an element segment can contain at
-// most 10,000,000 (MaxElemSegmentLength) entries.
 
 // Test whether array data pointers are correctly tracked in stack maps.
 {

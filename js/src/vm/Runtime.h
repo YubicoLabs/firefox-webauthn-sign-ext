@@ -52,6 +52,7 @@
 #include "vm/GeckoProfiler.h"
 #include "vm/InvalidatingFuse.h"
 #include "vm/JSScript.h"
+#include "vm/Logging.h"
 #include "vm/OffThreadPromiseRuntimeState.h"  // js::OffThreadPromiseRuntimeState
 #include "vm/SharedScriptDataTableHolder.h"   // js::SharedScriptDataTableHolder
 #include "vm/Stack.h"
@@ -102,7 +103,7 @@ struct PcScriptCache;
 class CompileRuntime;
 
 #ifdef JS_SIMULATOR_ARM64
-typedef vixl::Simulator Simulator;
+using vixl::Simulator;
 #elif defined(JS_SIMULATOR)
 class Simulator;
 #endif
@@ -526,9 +527,9 @@ struct JSRuntime {
   js::GeckoProfilerRuntime& geckoProfiler() { return geckoProfiler_.ref(); }
 
   // Heap GC roots for PersistentRooted pointers.
-  js::MainThreadData<
-      mozilla::EnumeratedArray<JS::RootKind, JS::RootKind::Limit,
-                               mozilla::LinkedList<js::PersistentRootedBase>>>
+  js::MainThreadData<mozilla::EnumeratedArray<
+      JS::RootKind, mozilla::LinkedList<js::PersistentRootedBase>,
+      size_t(JS::RootKind::Limit)>>
       heapRoots;
 
   void tracePersistentRoots(JSTracer* trc);
@@ -561,13 +562,14 @@ struct JSRuntime {
  private:
   // List of non-ephemeron weak containers to sweep during
   // beginSweepingSweepGroup.
-  js::MainThreadData<mozilla::LinkedList<js::gc::WeakCacheBase>> weakCaches_;
+  js::MainThreadData<mozilla::LinkedList<JS::detail::WeakCacheBase>>
+      weakCaches_;
 
  public:
-  mozilla::LinkedList<js::gc::WeakCacheBase>& weakCaches() {
+  mozilla::LinkedList<JS::detail::WeakCacheBase>& weakCaches() {
     return weakCaches_.ref();
   }
-  void registerWeakCache(js::gc::WeakCacheBase* cachep) {
+  void registerWeakCache(JS::detail::WeakCacheBase* cachep) {
     weakCaches().insertBack(cachep);
   }
 

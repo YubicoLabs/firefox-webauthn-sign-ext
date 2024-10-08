@@ -216,10 +216,6 @@ urlbar.tips
     Incremented when the user picks the onboarding search tip.
   - ``searchTip_onboard-shown``
     Incremented when the onboarding search tip is shown.
-  - ``searchTip_persist-picked``
-    Incremented when the user picks the urlbar persisted search tip.
-  - ``searchTip_persist-shown``
-    Incremented when the url persisted search tip is shown.
   - ``searchTip_redirect-picked``
     Incremented when the user picks the redirect search tip.
   - ``searchTip_redirect-shown``
@@ -374,6 +370,14 @@ urlbar.picked.*
     A Firefox Suggest (a.k.a. quick suggest) suggestion.
   - ``remotetab``
     A tab synced from another device.
+  - ``restrict_keyword_actions``
+    A restrict keyword result to enter search mode for actions.
+  - ``restrict_keyword_bookmarks``
+    A restrict keyword result to enter search mode for bookmarks.
+  - ``restrict_keyword_history``
+    A restrict keyword result to enter search mode for history.
+  - ``restrict_keyword_tabs``
+    A restrict keyword result to enter search mode for tabs.
   - ``searchengine``
     A search result, but not a suggestion. May be the default search action
     or a search alias.
@@ -515,16 +519,19 @@ following documents for the details.
     complete an engagement action, usually unfocusing the urlbar. This also
     happens when the user switches to another window, if the results popup was
     opening.
-  - `Impression`_ :
-    It is defined as an action where the results had been shown to the user for
-    a while. In default, it will be recorded when the same results have been
-    shown and 1 sec has elapsed. The interval value can be modified through the
-    `browser.urlbar.searchEngagementTelemetry.pauseImpressionIntervalMs`
-    preference.
 
 .. _Engagement: https://dictionary.telemetry.mozilla.org/apps/firefox_desktop/metrics/urlbar_engagement
 .. _Abandonment: https://dictionary.telemetry.mozilla.org/apps/firefox_desktop/metrics/urlbar_abandonment
-.. _Impression: https://dictionary.telemetry.mozilla.org/apps/firefox_desktop/metrics/urlbar_impression
+
+Changelog
+  Firefox 128
+    The "actions" key was added to the engagement event. [Bug `1893067`_]
+
+  Firefox 125
+    The "impression" engagement event has been removed. [Bug `1878983`_]
+
+.. _1893067: https://bugzilla.mozilla.org/show_bug.cgi?id=1893067
+.. _1878983: https://bugzilla.mozilla.org/show_bug.cgi?id=1878983
 
 
 Custom pings for Contextual Services
@@ -554,7 +561,7 @@ Other telemetry relevant to the Address Bar
 Search Telemetry
 ~~~~~~~~~~~~~~~~
 
-  Some of the `search telemetry`_ is also relevant to the address bar.
+  Some of `the search telemetry`_ is also relevant to the address bar.
 
 contextual.services.topsites.*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -588,4 +595,4 @@ Firefox Suggest
   Telemetry specific to Firefox Suggest is described in the
   :doc:`firefox-suggest-telemetry` document.
 
-.. _search telemetry: /browser/search/telemetry.html
+.. _the search telemetry: /browser/search/telemetry.html

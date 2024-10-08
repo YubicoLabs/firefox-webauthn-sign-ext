@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "absl/types/optional.h"
+#include "api/audio/audio_processing_statistics.h"
 #include "api/audio_codecs/audio_encoder.h"
 #include "api/audio_options.h"
 #include "api/call/audio_sink.h"
@@ -45,7 +46,6 @@
 #include "media/base/codec.h"
 #include "media/base/media_constants.h"
 #include "media/base/stream_params.h"
-#include "modules/audio_processing/include/audio_processing_statistics.h"
 #include "modules/rtp_rtcp/include/report_block_data.h"
 #include "modules/rtp_rtcp/source/rtp_packet_received.h"
 #include "rtc_base/async_packet_socket.h"
@@ -95,7 +95,7 @@ static std::string ToStringIfSet(const char* key,
 
 template <class T>
 static std::string VectorToString(const std::vector<T>& vals) {
-  rtc::StringBuilder ost;  // no-presubmit-check TODO(webrtc:8982)
+  rtc::StringBuilder ost;
   ost << "[";
   for (size_t i = 0; i < vals.size(); ++i) {
     if (i > 0) {
@@ -472,6 +472,21 @@ struct MediaReceiverInfo {
   absl::optional<uint64_t> fec_packets_discarded;
   // https://w3c.github.io/webrtc-stats/#dom-rtcinboundrtpstreamstats-fecbytesreceived
   absl::optional<uint64_t> fec_bytes_received;
+  // https://www.w3.org/TR/webrtc-stats/#dom-rtcinboundrtpstreamstats-totalprocessingdelay
+  double total_processing_delay_seconds = 0.0;
+
+  // Remote outbound stats derived by the received RTCP sender reports.
+  // https://w3c.github.io/webrtc-stats/#remoteoutboundrtpstats-dict*
+  absl::optional<int64_t> last_sender_report_timestamp_ms;
+  absl::optional<int64_t> last_sender_report_remote_timestamp_ms;
+  uint64_t sender_reports_packets_sent = 0;
+  uint64_t sender_reports_bytes_sent = 0;
+  uint64_t sender_reports_reports_count = 0;
+  // These require a DLRR block, see
+  // https://w3c.github.io/webrtc-stats/#dom-rtcremoteoutboundrtpstreamstats-roundtriptime
+  absl::optional<webrtc::TimeDelta> round_trip_time;
+  webrtc::TimeDelta total_round_trip_time = webrtc::TimeDelta::Zero();
+  int round_trip_time_measurements = 0;
 };
 
 struct VoiceSenderInfo : public MediaSenderInfo {
@@ -547,16 +562,6 @@ struct VoiceReceiverInfo : public MediaReceiverInfo {
   // longer than 150 ms).
   int32_t interruption_count = 0;
   int32_t total_interruption_duration_ms = 0;
-  // Remote outbound stats derived by the received RTCP sender reports.
-  // https://w3c.github.io/webrtc-stats/#remoteoutboundrtpstats-dict*
-  absl::optional<int64_t> last_sender_report_timestamp_ms;
-  absl::optional<int64_t> last_sender_report_remote_timestamp_ms;
-  uint64_t sender_reports_packets_sent = 0;
-  uint64_t sender_reports_bytes_sent = 0;
-  uint64_t sender_reports_reports_count = 0;
-  absl::optional<webrtc::TimeDelta> round_trip_time;
-  webrtc::TimeDelta total_round_trip_time = webrtc::TimeDelta::Zero();
-  int round_trip_time_measurements = 0;
 };
 
 struct VideoSenderInfo : public MediaSenderInfo {
@@ -812,7 +817,7 @@ struct MediaChannelParameters {
 
   std::vector<Codec> codecs;
   std::vector<webrtc::RtpExtension> extensions;
-  // For a send stream this is true if we've neogtiated a send direction,
+  // For a send stream this is true if we've negotiated a send direction,
   // for a receive stream this is true if we've negotiated a receive direction.
   bool is_stream_active = true;
 
@@ -834,7 +839,10 @@ struct MediaChannelParameters {
  protected:
   virtual std::map<std::string, std::string> ToStringMap() const {
     return {{"codecs", VectorToString(codecs)},
-            {"extensions", VectorToString(extensions)}};
+            {"extensions", VectorToString(extensions)},
+            {"rtcp", "{reduced_size:" + rtc::ToString(rtcp.reduced_size) +
+                         ", remote_estimate:" +
+                         rtc::ToString(rtcp.remote_estimate) + "}"}};
   }
 };
 
@@ -911,6 +919,7 @@ class VoiceMediaReceiveChannelInterface : public MediaReceiveChannelInterface {
       std::unique_ptr<webrtc::AudioSinkInterface> sink) = 0;
   virtual bool GetStats(VoiceMediaReceiveInfo* stats, bool reset_legacy) = 0;
   virtual void SetReceiveNackEnabled(bool enabled) = 0;
+  virtual void SetRtcpMode(webrtc::RtcpMode mode) = 0;
   virtual void SetReceiveNonSenderRttEnabled(bool enabled) = 0;
 };
 

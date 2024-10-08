@@ -123,6 +123,10 @@ using namespace mozilla::a11y;
   if (state == states::BUSY) {
     [self moxPostNotification:@"AXElementBusyChanged"];
   }
+
+  if (state == states::EXPANDED) {
+    [self moxPostNotification:@"AXExpandedChanged"];
+  }
 }
 
 - (BOOL)providesLabelNotTitle {
@@ -295,7 +299,8 @@ using namespace mozilla::a11y;
 
 - (NSString*)moxRole {
 #define ROLE(geckoRole, stringRole, ariaRole, atkRole, macRole, macSubrole, \
-             msaaRole, ia2Role, androidClass, nameRule)                     \
+             msaaRole, ia2Role, androidClass, iosIsElement, uiaControlType, \
+             nameRule)                                                      \
   case roles::geckoRole:                                                    \
     return macRole;
 
@@ -366,7 +371,8 @@ using namespace mozilla::a11y;
   }
 
 #define ROLE(geckoRole, stringRole, ariaRole, atkRole, macRole, macSubrole, \
-             msaaRole, ia2Role, androidClass, nameRule)                     \
+             msaaRole, ia2Role, androidClass, iosIsElement, uiaControlType, \
+             nameRule)                                                      \
   case roles::geckoRole:                                                    \
     if (![macSubrole isEqualToString:NSAccessibilityUnknownSubrole]) {      \
       return macSubrole;                                                    \
@@ -646,6 +652,16 @@ struct RoleDescrComparator {
   return @"additions text";
 }
 
+- (NSString*)moxPlaceholderValue {
+  // First, check for plaecholder HTML attribute
+  if (NSString* placeholder = utils::GetAccAttr(self, nsGkAtoms::placeholder)) {
+    return placeholder;
+  }
+
+  // If no placeholder HTML attribute, check for the aria version.
+  return utils::GetAccAttr(self, nsGkAtoms::aria_placeholder);
+}
+
 - (id)moxTitleUIElement {
   MOZ_ASSERT(mGeckoAccessible);
 
@@ -743,6 +759,15 @@ struct RoleDescrComparator {
   // we can just return AXEditableAncestor since the main use case for this
   // is rich text editing with links.
   return [self moxEditableAncestor];
+}
+
+- (NSString*)moxLanguage {
+  MOZ_ASSERT(mGeckoAccessible);
+
+  nsAutoString lang;
+  mGeckoAccessible->Language(lang);
+
+  return nsCocoaUtils::ToNSString(lang);
 }
 
 #ifndef RELEASE_OR_BETA
@@ -867,10 +892,13 @@ struct RoleDescrComparator {
   // a random acc with the same ID) by checking:
   //  - The gecko acc is local, our a11y-announcement lives in browser.xhtml
   //  - The ID of the gecko acc is "a11y-announcement"
-  //  - The native acc is a direct descendent of the root
-  if (mGeckoAccessible->IsLocal() &&
-      [[self moxDOMIdentifier] isEqualToString:@"a11y-announcement"] &&
-      [[self moxParent] isKindOfClass:[mozRootAccessible class]]) {
+  //  - The native acc is a direct descendent of the chrome window (ChildView in
+  //  a non-headless context, mozRootAccessible in a headless context).
+  DocAccessible* maybeRoot = mGeckoAccessible->IsLocal()
+                                 ? mGeckoAccessible->AsLocal()->Document()
+                                 : nullptr;
+  if (maybeRoot && maybeRoot->IsRoot() &&
+      [[self moxDOMIdentifier] isEqualToString:@"a11y-announcement"]) {
     // Our actual announcement should be stored as a child of the alert,
     // so we verify a child exists, and then query that child below.
     NSArray* children = [self moxChildren];
@@ -887,20 +915,23 @@ struct RoleDescrComparator {
 
     NSDictionary* info = @{
       NSAccessibilityAnnouncementKey : key ? key : @(""),
-      NSAccessibilityPriorityKey : @(NSAccessibilityPriorityMedium)
+      // High priority means VO will stop what it is currently speaking
+      // to speak our announcement.
+      NSAccessibilityPriorityKey : @(NSAccessibilityPriorityHigh)
     };
-
-    id window = [self moxWindow];
 
     // This sends events via nsIObserverService to be consumed by our
     // mochitests. Normally we'd fire these events through moxPostNotification
-    // which takes care of this, but because the window we fetch above isn't
-    // derrived from MOXAccessibleBase, we do this (and post the notification)
-    // manually.
+    // which takes care of this, but because NSApp isn't derived
+    // from MOXAccessibleBase, we do this (and post the notification) manually.
+    // We used to fire this on the window, but per Chrome and Safari these
+    // notifs get dropped if fired on any non-main window. We now fire on NSApp
+    // to avoid this.
     xpcAccessibleMacEvent::FireEvent(
-        window, NSAccessibilityAnnouncementRequestedNotification, info);
+        GetNativeFromGeckoAccessible(maybeRoot),
+        NSAccessibilityAnnouncementRequestedNotification, info);
     NSAccessibilityPostNotificationWithUserInfo(
-        window, NSAccessibilityAnnouncementRequestedNotification, info);
+        NSApp, NSAccessibilityAnnouncementRequestedNotification, info);
   }
 }
 

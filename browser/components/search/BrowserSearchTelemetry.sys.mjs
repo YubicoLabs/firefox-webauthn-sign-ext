@@ -99,11 +99,13 @@ class BrowserSearchTelemetryHandler {
         : "FX_SEARCHBAR_SELECTED_RESULT_METHOD"
     );
     // command events are from the one-off context menu.  Treat them as clicks.
-    // Note that we don't care about MouseEvent subclasses here, since
-    // those are not clicks.
+    // Note that we only care about MouseEvent subclasses here when the
+    // event type is "click", or else the subclasses are associated with
+    // non-click interactions.
     let isClick =
       event &&
       (ChromeUtils.getClassName(event) == "MouseEvent" ||
+        event.type == "click" ||
         event.type == "command");
     let category;
     if (isClick) {
@@ -285,15 +287,6 @@ class BrowserSearchTelemetryHandler {
       "browser.engagement.navigation." + scalarSource,
       scalarKey,
       1
-    );
-    Services.telemetry.recordEvent(
-      "navigation",
-      "search",
-      scalarSource,
-      action,
-      {
-        engine: engine.telemetryId,
-      }
     );
   }
 

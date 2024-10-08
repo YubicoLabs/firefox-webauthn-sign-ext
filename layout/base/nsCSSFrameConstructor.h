@@ -20,27 +20,24 @@
 #include "mozilla/Maybe.h"
 #include "mozilla/ScrollStyles.h"
 #include "mozilla/UniquePtr.h"
-#include "mozilla/PresShell.h"
-
 #include "nsCOMPtr.h"
-#include "nsILayoutHistoryState.h"
-#include "nsIAnonymousContentCreator.h"
 #include "nsFrameManager.h"
+#include "nsIAnonymousContentCreator.h"
 #include "nsIFrame.h"
+#include "nsILayoutHistoryState.h"
 
 struct nsStyleDisplay;
 struct nsGenConInitializer;
 
 class nsBlockFrame;
 class nsContainerFrame;
-class nsFirstLineFrame;
-class nsFirstLetterFrame;
+class nsCanvasFrame;
 class nsCSSAnonBoxPseudoStaticAtom;
-class nsPageSequenceFrame;
-
-class nsPageContentFrame;
-
+class nsFirstLetterFrame;
+class nsFirstLineFrame;
 class nsFrameConstructorState;
+class nsPageContentFrame;
+class nsPageSequenceFrame;
 
 namespace mozilla {
 
@@ -48,6 +45,7 @@ class ComputedStyle;
 class PresShell;
 class PrintedSheetFrame;
 class RestyleManager;
+class ViewportFrame;
 
 namespace dom {
 
@@ -97,11 +95,9 @@ class nsCSSFrameConstructor final : public nsFrameManager {
     Async,
   };
 
-  mozilla::RestyleManager* RestyleManager() const {
-    return mPresShell->GetPresContext()->RestyleManager();
-  }
+  mozilla::RestyleManager* RestyleManager() const;
 
-  nsIFrame* ConstructRootFrame();
+  mozilla::ViewportFrame* ConstructRootFrame();
 
  private:
   enum Operation { CONTENTAPPEND, CONTENTINSERT };
@@ -297,11 +293,38 @@ class nsCSSFrameConstructor final : public nsFrameManager {
                                   nsContainerFrame* aParentFrame,
                                   bool aIsFluid = true);
 
-  void SetNextPageContentFramePageName(const nsAtom* aAtom) {
+  /**
+   * Sets the page name when a page break is being generated due to a change
+   * in page name.
+   *
+   * Should only be used during paginated reflow, to signal what page value
+   * the next page content frame should have.
+   *
+   * It is an error to set this if a new page name has already been set, either
+   * through SetNextPageContentFramePageName or
+   * MaybeSetNextPageContentFramePageName.
+   */
+  void SetNextPageContentFramePageName(const nsAtom* aPageName) {
+    MOZ_ASSERT(aPageName, "New page name should never be null");
     MOZ_ASSERT(!mNextPageContentFramePageName,
                "PageContentFrame page name was already set");
-    mNextPageContentFramePageName = aAtom;
+    mNextPageContentFramePageName = aPageName;
   }
+
+  /**
+   * If a new page name has not been set for the next page, sets the value
+   * using the given frame.
+   *
+   * |aFrame| should be a frame to be placed on the new page.
+   *
+   * This function handles the work of resolving an atom for the frame, and
+   * avoids doing this extra work when not necessary.
+   *
+   * This is used during block reflow when a page break has occurred but it was
+   * not caused by a change in page name. It should only be used during
+   * paginated reflow.
+   */
+  void MaybeSetNextPageContentFramePageName(const nsIFrame* aFrame);
 
   // Copy over fixed frames from aParentFrame's prev-in-flow
   nsresult ReplicateFixedFrames(nsPageContentFrame* aParentFrame);
@@ -450,7 +473,8 @@ class nsCSSFrameConstructor final : public nsFrameManager {
    */
   void CreateGeneratedContent(
       nsFrameConstructorState& aState, Element& aOriginatingElement,
-      ComputedStyle& aPseudoStyle, uint32_t aContentIndex,
+      ComputedStyle& aPseudoStyle, const mozilla::StyleContentItem& aItem,
+      size_t aContentIndex,
       const mozilla::FunctionRef<void(nsIContent*)> aAddChild);
 
   /**
@@ -696,10 +720,6 @@ class nsCSSFrameConstructor final : public nsFrameManager {
      This can be used with or without FCDATA_FUNC_IS_FULL_CTOR.
      The child items might still need table pseudo processing. */
 #define FCDATA_USE_CHILD_ITEMS 0x10000
-  /* If FCDATA_FORCED_NON_SCROLLABLE_BLOCK is set, then this block
-     would have been scrollable but has been forced to be
-     non-scrollable due to being in a paginated context. */
-#define FCDATA_FORCED_NON_SCROLLABLE_BLOCK 0x20000
   /* If FCDATA_CREATE_BLOCK_WRAPPER_FOR_ALL_KIDS is set, then create a
      block formatting context wrapper around the kids of this frame
      using the FrameConstructionData's mPseudoAtom for its anonymous
@@ -1361,14 +1381,6 @@ class nsCSSFrameConstructor final : public nsFrameManager {
                                              nsFrameState aTypeBit);
 
  private:
-  // ConstructSelectFrame puts the new frame in aFrameList and
-  // handles the kids of the select.
-  nsIFrame* ConstructSelectFrame(nsFrameConstructorState& aState,
-                                 FrameConstructionItem& aItem,
-                                 nsContainerFrame* aParentFrame,
-                                 const nsStyleDisplay* aStyleDisplay,
-                                 nsFrameList& aFrameList);
-
   // ConstructFieldSetFrame puts the new frame in aFrameList and
   // handles the kids of the fieldset
   nsIFrame* ConstructFieldSetFrame(nsFrameConstructorState& aState,
@@ -1376,6 +1388,12 @@ class nsCSSFrameConstructor final : public nsFrameManager {
                                    nsContainerFrame* aParentFrame,
                                    const nsStyleDisplay* aStyleDisplay,
                                    nsFrameList& aFrameList);
+
+  nsIFrame* ConstructListBoxSelectFrame(nsFrameConstructorState& aState,
+                                        FrameConstructionItem& aItem,
+                                        nsContainerFrame* aParentFrame,
+                                        const nsStyleDisplay* aStyleDisplay,
+                                        nsFrameList& aFrameList);
 
   // Creates a block frame wrapping an anonymous ruby frame.
   nsIFrame* ConstructBlockRubyFrame(nsFrameConstructorState& aState,
@@ -1402,18 +1420,8 @@ class nsCSSFrameConstructor final : public nsFrameManager {
   // for it.
   void ReframeTextIfNeeded(nsIContent* aContent);
 
-  enum InsertPageBreakLocation { eBefore, eAfter };
-  inline void AppendPageBreakItem(nsIContent* aContent,
-                                  FrameConstructionItemList& aItems) {
-    InsertPageBreakItem(aContent, aItems, InsertPageBreakLocation::eAfter);
-  }
-  inline void PrependPageBreakItem(nsIContent* aContent,
-                                   FrameConstructionItemList& aItems) {
-    InsertPageBreakItem(aContent, aItems, InsertPageBreakLocation::eBefore);
-  }
-  void InsertPageBreakItem(nsIContent* aContent,
-                           FrameConstructionItemList& aItems,
-                           InsertPageBreakLocation location);
+  void AppendPageBreakItem(nsIContent* aContent,
+                           FrameConstructionItemList& aItems);
 
   // Function to find FrameConstructionData for aElement.  Will return
   // null if aElement is not HTML.
@@ -1423,6 +1431,8 @@ class nsCSSFrameConstructor final : public nsFrameManager {
                                                    nsIFrame* aParentFrame,
                                                    ComputedStyle&);
   // HTML data-finding helper functions
+  static const FrameConstructionData* FindSelectData(const Element&,
+                                                     ComputedStyle&);
   static const FrameConstructionData* FindImgData(const Element&,
                                                   ComputedStyle&);
   static const FrameConstructionData* FindGeneratedImageData(const Element&,
@@ -1646,28 +1656,50 @@ class nsCSSFrameConstructor final : public nsFrameManager {
   nsContainerFrame* GetFloatContainingBlock(nsIFrame* aFrame);
 
  private:
-  // Build a scroll frame:
-  //  Calls BeginBuildingScrollFrame, InitAndRestoreFrame, and then
-  //  FinishBuildingScrollFrame.
-  // @param aNewFrame the created scrollframe --- output only
-  // @param aParentFrame the geometric parent that the scrollframe will have.
-  void BuildScrollFrame(nsFrameConstructorState& aState, nsIContent* aContent,
-                        ComputedStyle* aContentStyle, nsIFrame* aScrolledFrame,
-                        nsContainerFrame* aParentFrame,
-                        nsContainerFrame*& aNewFrame);
+  // Build a scroll container frame, and wrap the scrolled frame. The
+  // hierarchy will look like this:
+  //
+  //       ScrollContainerFrame
+  //                 ^
+  //                 |
+  //               Frame (scrolled frame you passed in as aScrolledFrame)
+  //
+  // @param aContent the content node of the child to wrap.
+  //
+  // @param aContentStyle the style that has already been resolved for the
+  // content being passed in.
+  //
+  // @param aScrolledFrame The frame of the content to wrap. This should not be
+  // initialized (i.e. Init() should not yet have been called). This method will
+  // initialize it with a scrolled pseudo and no nsIContent. The content will be
+  // attached to the scroll container frame that this function returns.
+  //
+  // @param aParentFrame The geometric parent to attach the scroll container
+  // frame to.
+  //
+  // @param aNewFrame [in/out] If this is not nullptr, we will just use it as
+  // the scroll container frame, rather than creating a new scroll container
+  // frame. Otherwise (i.e. if it's nullptr), we'll create a new scroll
+  // container frame, and return it by reference via this param.
+  void BuildScrollContainerFrame(nsFrameConstructorState& aState,
+                                 nsIContent* aContent,
+                                 ComputedStyle* aContentStyle,
+                                 nsIFrame* aScrolledFrame,
+                                 nsContainerFrame* aParentFrame,
+                                 nsContainerFrame*& aNewFrame);
 
-  // Builds the initial ScrollFrame
-  already_AddRefed<ComputedStyle> BeginBuildingScrollFrame(
+  // Builds the initial scroll container frame.
+  already_AddRefed<ComputedStyle> BeginBuildingScrollContainerFrame(
       nsFrameConstructorState& aState, nsIContent* aContent,
       ComputedStyle* aContentStyle, nsContainerFrame* aParentFrame,
       mozilla::PseudoStyleType aScrolledPseudo, bool aIsRoot,
       nsContainerFrame*& aNewFrame);
 
-  // Completes the building of the scrollframe:
+  // Completes the building of the scroll container frame.
   // Creates a view for the scrolledframe and makes it the child of the
-  // scrollframe.
-  void FinishBuildingScrollFrame(nsContainerFrame* aScrollFrame,
-                                 nsIFrame* aScrolledFrame);
+  // scroll container frame.
+  void FinishBuildingScrollContainerFrame(
+      nsContainerFrame* aScrollContainerFrame, nsIFrame* aScrolledFrame);
 
   void InitializeListboxSelect(nsFrameConstructorState& aState,
                                nsContainerFrame* aScrollFrame,

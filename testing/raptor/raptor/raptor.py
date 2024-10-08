@@ -88,7 +88,7 @@ def main(args=sys.argv[1:]):
             args.app,
             args.binary,
             run_local=args.run_local,
-            noinstall=args.noinstall,
+            no_install=args.no_install,
             installerpath=args.installerpath,
             obj_path=args.obj_path,
             gecko_profile=args.gecko_profile,
@@ -124,6 +124,8 @@ def main(args=sys.argv[1:]):
             benchmark_branch=args.benchmark_branch,
             page_timeout=args.page_timeout,
             clean=args.clean,
+            screenshot_on_failure=args.screenshot_on_failure,
+            power_test=args.power_test,
         )
     except Exception:
         traceback.print_exc()

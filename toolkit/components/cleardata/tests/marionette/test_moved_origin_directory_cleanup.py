@@ -16,6 +16,7 @@ class MovedOriginDirectoryCleanupTestCase(MarionetteTestCase):
                 "privacy.sanitize.sanitizeOnShutdown": True,
                 "privacy.clearOnShutdown.offlineApps": True,
                 "dom.quotaManager.backgroundTask.enabled": False,
+                "browser.sanitizer.loglevel": "All",
             }
         )
         self.moved_origin_directory = (
@@ -30,6 +31,13 @@ class MovedOriginDirectoryCleanupTestCase(MarionetteTestCase):
         with self.marionette.using_context("chrome"):
             self.marionette.execute_script(
                 """
+                let promise = new Promise(resolve => {
+                    function observer() {
+                        Services.obs.removeObserver(observer, "cookie-saved-on-disk");
+                        resolve();
+                    }
+                    Services.obs.addObserver(observer, "cookie-saved-on-disk");
+                });
                 Services.cookies.add(
                     "example.local",
                     "path",
@@ -43,8 +51,14 @@ class MovedOriginDirectoryCleanupTestCase(MarionetteTestCase):
                     Ci.nsICookie.SAMESITE_NONE,
                     Ci.nsICookie.SCHEME_UNSET
                 );
+                return promise;
                 """
             )
+
+    def read_prefs_file(self):
+        pref_path = Path(self.marionette.profile_path) / "prefs.js"
+        with open(pref_path) as f:
+            return f.read()
 
     def removeAllCookies(self):
         with self.marionette.using_context("chrome"):
@@ -81,6 +95,12 @@ class MovedOriginDirectoryCleanupTestCase(MarionetteTestCase):
                 "offlineApps" in self.marionette.get_pref("privacy.sanitize.pending"),
             ),
             message="privacy.sanitize.pending must include offlineApps",
+        )
+
+        # Make sure the pref is written to the file
+        Wait(self.marionette).until(
+            lambda _: "offlineApps" in self.read_prefs_file(),
+            message="prefs.js must include offlineApps",
         )
 
         # Cleanup happens via Sanitizer.onStartup after restart

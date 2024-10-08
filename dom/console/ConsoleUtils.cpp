@@ -14,6 +14,7 @@
 #include "mozilla/ClearOnShutdown.h"
 #include "mozilla/NullPrincipal.h"
 #include "mozilla/dom/ConsoleBinding.h"
+#include "mozilla/dom/ConsoleInstanceBinding.h"
 #include "mozilla/dom/RootedDictionary.h"
 #include "mozilla/dom/ScriptSettings.h"
 #include "js/PropertyAndElement.h"  // JS_DefineProperty
@@ -44,7 +45,7 @@ ConsoleUtils::~ConsoleUtils() = default;
 /* static */
 void ConsoleUtils::ReportForServiceWorkerScope(const nsAString& aScope,
                                                const nsAString& aMessage,
-                                               const nsAString& aFilename,
+                                               const nsACString& aFilename,
                                                uint32_t aLineNumber,
                                                uint32_t aColumnNumber,
                                                Level aLevel) {
@@ -61,7 +62,7 @@ void ConsoleUtils::ReportForServiceWorkerScope(const nsAString& aScope,
 
 void ConsoleUtils::ReportForServiceWorkerScopeInternal(
     const nsAString& aScope, const nsAString& aMessage,
-    const nsAString& aFilename, uint32_t aLineNumber, uint32_t aColumnNumber,
+    const nsACString& aFilename, uint32_t aLineNumber, uint32_t aColumnNumber,
     Level aLevel) {
   MOZ_ASSERT(NS_IsMainThread());
 

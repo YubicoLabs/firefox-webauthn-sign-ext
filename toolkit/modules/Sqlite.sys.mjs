@@ -96,7 +96,6 @@ function logScriptError(message) {
   consoleMessage.init(
     message,
     stack.fileName,
-    null,
     stack.lineNumber,
     0,
     Ci.nsIScriptError.errorFlag,
@@ -1184,9 +1183,15 @@ ConnectionData.prototype = Object.freeze({
    * @param {string} destFilePath
    *   The path on the local filesystem to write the database copy. Any existing
    *   file at this path will be overwritten.
+   * @param {number} [pagesPerStep=0]
+   *   The number of pages to copy per step. If not supplied or is 0, falls back
+   *   to the platform default which is currently 5.
+   * @param {number} [stepDelayMs=0]
+   *   The number of milliseconds to wait between copying step. If not supplied
+   *   or is 0, falls back to the platform default which is currently 250.
    * @return Promise<undefined, nsresult>
    */
-  async backupToFile(destFilePath) {
+  async backupToFile(destFilePath, pagesPerStep = 0, stepDelayMs = 0) {
     if (!this._dbConn) {
       return Promise.reject(
         new Error("No opened database connection to create a backup from.")
@@ -1194,13 +1199,18 @@ ConnectionData.prototype = Object.freeze({
     }
     let destFile = await IOUtils.getFile(destFilePath);
     return new Promise((resolve, reject) => {
-      this._dbConn.backupToFileAsync(destFile, result => {
-        if (Components.isSuccessCode(result)) {
-          resolve();
-        } else {
-          reject(result);
-        }
-      });
+      this._dbConn.backupToFileAsync(
+        destFile,
+        result => {
+          if (Components.isSuccessCode(result)) {
+            resolve();
+          } else {
+            reject(result);
+          }
+        },
+        pagesPerStep,
+        stepDelayMs
+      );
     });
   },
 });
@@ -1235,6 +1245,9 @@ ConnectionData.prototype = Object.freeze({
  *       USE WITH EXTREME CAUTION. This mode WILL produce incorrect results or
  *       return "false positive" corruption errors if other connections write
  *       to the DB at the same time.
+ *
+ *   openNotExclusive -- (bool) Whether to open the database without an exclusive
+ *       lock so the database can be accessed from multiple processes.
  *
  *   vacuumOnIdle -- (bool) Whether to register this connection to be vacuumed
  *       on idle by the VacuumManager component.
@@ -1372,6 +1385,9 @@ function openConnection(options) {
     if (options.ignoreLockingMode) {
       dbOpenOptions |= Ci.mozIStorageService.OPEN_IGNORE_LOCKING_MODE;
       dbOpenOptions |= Ci.mozIStorageService.OPEN_READONLY;
+    }
+    if (options.openNotExclusive) {
+      dbOpenOptions |= Ci.mozIStorageService.OPEN_NOT_EXCLUSIVE;
     }
 
     let dbConnectionOptions = Ci.mozIStorageService.CONNECTION_DEFAULT;
@@ -1688,10 +1704,21 @@ OpenedConnection.prototype = Object.freeze({
    * Returns the maximum number of bound parameters for statements executed
    * on this connection.
    *
-   * @type {number}
+   * @returns {number} The bound parameters limit.
    */
   get variableLimit() {
     return this.unsafeRawConnection.variableLimit;
+  },
+
+  /**
+   * Set the the maximum number of bound parameters for statements executed
+   * on this connection. If the passed-in value is higher than the maximum
+   * default value, it will be silently truncated.
+   *
+   * @param {number} newLimit The bound parameters limit.
+   */
+  set variableLimit(newLimit) {
+    this.unsafeRawConnection.variableLimit = newLimit;
   },
 
   /**
@@ -1991,10 +2018,20 @@ OpenedConnection.prototype = Object.freeze({
    * @param {string} destFilePath
    *   The path on the local filesystem to write the database copy. Any existing
    *   file at this path will be overwritten.
+   * @param {number} [pagesPerStep=0]
+   *   The number of pages to copy per step. If not supplied or is 0, falls back
+   *   to the platform default which is currently 5.
+   * @param {number} [stepDelayMs=0]
+   *   The number of milliseconds to wait between copying step. If not supplied
+   *   or is 0, falls back to the platform default which is currently 250.
    * @return Promise<undefined, nsresult>
    */
-  backup(destFilePath) {
-    return this._connectionData.backupToFile(destFilePath);
+  backup(destFilePath, pagesPerStep = 0, stepDelayMs = 0) {
+    return this._connectionData.backupToFile(
+      destFilePath,
+      pagesPerStep,
+      stepDelayMs
+    );
   },
 });
 

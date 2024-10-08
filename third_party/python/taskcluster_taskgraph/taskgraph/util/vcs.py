@@ -10,9 +10,6 @@ import subprocess
 from abc import ABC, abstractmethod, abstractproperty
 from shutil import which
 
-import requests
-from redo import retry
-
 from taskgraph.util.path import ancestors
 
 PUSHLOG_TMPL = "{}/json-pushes?version=2&changeset={}&tipsonly=1&full=1"
@@ -21,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class Repository(ABC):
-    # Both mercurial and git use sha1 as revision idenfiers. Luckily, both define
+    # Both mercurial and git use sha1 as revision identifiers. Luckily, both define
     # the same value as the null revision.
     #
     # https://github.com/git/git/blob/dc04167d378fb29d30e1647ff6ff51dd182bc9a3/t/oid-info/hash-info#L7
@@ -42,8 +39,8 @@ class Repository(ABC):
         cmd = (self.binary,) + args
 
         try:
-            return subprocess.check_output(
-                cmd, cwd=self.path, env=self._env, encoding="utf-8", **kwargs
+            return subprocess.check_output(  # type: ignore
+                cmd, cwd=self.path, env=self._env, encoding="utf-8", **kwargs  # type: ignore
             )
         except subprocess.CalledProcessError as e:
             if e.returncode in return_codes:
@@ -51,11 +48,11 @@ class Repository(ABC):
             raise
 
     @abstractproperty
-    def tool(self) -> str:
+    def tool(self) -> str:  # type: ignore
         """Version control system being used, either 'hg' or 'git'."""
 
     @abstractproperty
-    def head_rev(self) -> str:
+    def head_rev(self) -> str:  # type: ignore
         """Hash of HEAD revision."""
 
     @abstractproperty
@@ -82,13 +79,13 @@ class Repository(ABC):
 
     def _get_most_suitable_remote(self, remote_instructions):
         remotes = self.all_remote_names
-        if len(remotes) == 1:
-            return remotes[0]
+        if len(remotes) == 1:  # type: ignore
+            return remotes[0]  # type: ignore
 
-        if self.default_remote_name in remotes:
+        if self.default_remote_name in remotes:  # type: ignore
             return self.default_remote_name
 
-        first_remote = remotes[0]
+        first_remote = remotes[0]  # type: ignore
         logger.warning(
             f"Unable to determine which remote repository to use between: {remotes}. "
             f'Arbitrarily using the first one "{first_remote}". Please set an '
@@ -180,8 +177,8 @@ class Repository(ABC):
 
 
 class HgRepository(Repository):
-    tool = "hg"
-    default_remote_name = "default"
+    tool = "hg"  # type: ignore
+    default_remote_name = "default"  # type: ignore
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -320,8 +317,8 @@ class HgRepository(Repository):
 
 
 class GitRepository(Repository):
-    tool = "git"
-    default_remote_name = "origin"
+    tool = "git"  # type: ignore
+    default_remote_name = "origin"  # type: ignore
 
     _LS_REMOTE_PATTERN = re.compile(r"ref:\s+refs/heads/(?P<branch_name>\S+)\s+HEAD")
 
@@ -392,7 +389,7 @@ class GitRepository(Repository):
     def _get_default_branch_from_remote_query(self):
         # This function requires network access to the repo
         remote_name = self.remote_name
-        output = self.run("ls-remote", "--symref", remote_name, "HEAD")
+        output = self.run("ls-remote", "--symref", remote_name, "HEAD")  # type: ignore
         matches = self._LS_REMOTE_PATTERN.search(output)
         if not matches:
             raise RuntimeError(
@@ -448,6 +445,9 @@ class GitRepository(Repository):
             cmd = ["log", "--format=format:", revision_argument]
 
         cmd.append("--name-only")
+        cmd.append(
+            "--no-renames"
+        )  # Consider renames as deletion of old, addition of new.
         cmd.append("--diff-filter=" + diff_filter.upper())
 
         files = self.run(*cmd).splitlines()
@@ -519,34 +519,3 @@ def get_repository(path):
             return GitRepository(path)
 
     raise RuntimeError("Current directory is neither a git or hg repository")
-
-
-def find_hg_revision_push_info(repository, revision):
-    """Given the parameters for this action and a revision, find the
-    pushlog_id of the revision."""
-    pushlog_url = PUSHLOG_TMPL.format(repository, revision)
-
-    def query_pushlog(url):
-        r = requests.get(pushlog_url, timeout=60)
-        r.raise_for_status()
-        return r
-
-    r = retry(
-        query_pushlog,
-        args=(pushlog_url,),
-        attempts=5,
-        sleeptime=10,
-    )
-    pushes = r.json()["pushes"]
-    if len(pushes) != 1:
-        raise RuntimeError(
-            "Unable to find a single pushlog_id for {} revision {}: {}".format(
-                repository, revision, pushes
-            )
-        )
-    pushid = list(pushes.keys())[0]
-    return {
-        "pushdate": pushes[pushid]["date"],
-        "pushid": pushid,
-        "user": pushes[pushid]["user"],
-    }

@@ -16,23 +16,27 @@ bitflags::bitflags! {
         /// This flag is required on types of local variables, function
         /// arguments, array elements, and struct members.
         ///
-        /// This includes all types except `Image`, `Sampler`,
-        /// and some `Pointer` types.
+        /// This includes all types except [`Image`], [`Sampler`],
+        /// and some [`Pointer`] types.
+        ///
+        /// [`Image`]: crate::TypeInner::Image
+        /// [`Sampler`]: crate::TypeInner::Sampler
+        /// [`Pointer`]: crate::TypeInner::Pointer
         const DATA = 0x1;
 
         /// The data type has a size known by pipeline creation time.
         ///
         /// Unsized types are quite restricted. The only unsized types permitted
         /// by Naga, other than the non-[`DATA`] types like [`Image`] and
-        /// [`Sampler`], are dynamically-sized [`Array`s], and [`Struct`s] whose
+        /// [`Sampler`], are dynamically-sized [`Array`]s, and [`Struct`]s whose
         /// last members are such arrays. See the documentation for those types
         /// for details.
         ///
         /// [`DATA`]: TypeFlags::DATA
-        /// [`Image`]: crate::Type::Image
-        /// [`Sampler`]: crate::Type::Sampler
-        /// [`Array`]: crate::Type::Array
-        /// [`Struct`]: crate::Type::struct
+        /// [`Image`]: crate::TypeInner::Image
+        /// [`Sampler`]: crate::TypeInner::Sampler
+        /// [`Array`]: crate::TypeInner::Array
+        /// [`Struct`]: crate::TypeInner::Struct
         const SIZED = 0x2;
 
         /// The data can be copied around.
@@ -43,6 +47,8 @@ bitflags::bitflags! {
         /// This covers anything that can be in [`Location`] binding:
         /// non-bool scalars and vectors, matrices, and structs and
         /// arrays containing only interface types.
+        ///
+        /// [`Location`]: crate::Binding::Location
         const IO_SHAREABLE = 0x8;
 
         /// Can be used for host-shareable structures.
@@ -63,6 +69,7 @@ bitflags::bitflags! {
 }
 
 #[derive(Clone, Copy, Debug, thiserror::Error)]
+#[cfg_attr(test, derive(PartialEq))]
 pub enum Disalignment {
     #[error("The array stride {stride} is not a multiple of the required alignment {alignment}")]
     ArrayStride { stride: u32, alignment: Alignment },
@@ -87,6 +94,7 @@ pub enum Disalignment {
 }
 
 #[derive(Clone, Debug, thiserror::Error)]
+#[cfg_attr(test, derive(PartialEq))]
 pub enum TypeError {
     #[error("Capability {0:?} is required")]
     MissingCapability(Capabilities),
@@ -107,6 +115,12 @@ pub enum TypeError {
     MatrixElementNotFloat,
     #[error("The constant {0:?} is specialized, and cannot be used as an array size")]
     UnsupportedSpecializedArrayLength(Handle<crate::Constant>),
+    #[error("{} of dimensionality {dim:?} and class {class:?} are not supported", if *.arrayed {"Arrayed images"} else {"Images"})]
+    UnsupportedImageType {
+        dim: crate::ImageDimension,
+        arrayed: bool,
+        class: crate::ImageClass,
+    },
     #[error("Array stride {stride} does not match the expected {expected}")]
     InvalidArrayStride { stride: u32, expected: u32 },
     #[error("Field '{0}' can't be dynamically-sized, has type {1:?}")]
@@ -140,9 +154,6 @@ pub enum WidthError {
         name: &'static str,
         flag: &'static str,
     },
-
-    #[error("64-bit integers are not yet supported")]
-    Unsupported64Bit,
 
     #[error("Abstract types may only appear in constant expressions")]
     Abstract,
@@ -245,11 +256,31 @@ impl super::Validator {
                     scalar.width == 4
                 }
             }
-            crate::ScalarKind::Sint | crate::ScalarKind::Uint => {
+            crate::ScalarKind::Sint => {
                 if scalar.width == 8 {
-                    return Err(WidthError::Unsupported64Bit);
+                    if !self.capabilities.contains(Capabilities::SHADER_INT64) {
+                        return Err(WidthError::MissingCapability {
+                            name: "i64",
+                            flag: "SHADER_INT64",
+                        });
+                    }
+                    true
+                } else {
+                    scalar.width == 4
                 }
-                scalar.width == 4
+            }
+            crate::ScalarKind::Uint => {
+                if scalar.width == 8 {
+                    if !self.capabilities.contains(Capabilities::SHADER_INT64) {
+                        return Err(WidthError::MissingCapability {
+                            name: "u64",
+                            flag: "SHADER_INT64",
+                        });
+                    }
+                    true
+                } else {
+                    scalar.width == 4
+                }
             }
             crate::ScalarKind::AbstractInt | crate::ScalarKind::AbstractFloat => {
                 return Err(WidthError::Abstract);
@@ -303,7 +334,6 @@ impl super::Validator {
                     TypeFlags::DATA
                         | TypeFlags::SIZED
                         | TypeFlags::COPY
-                        | TypeFlags::HOST_SHAREABLE
                         | TypeFlags::ARGUMENT
                         | TypeFlags::CONSTRUCTIBLE
                         | shareable,
@@ -330,16 +360,28 @@ impl super::Validator {
                 )
             }
             Ti::Atomic(crate::Scalar { kind, width }) => {
-                let good = match kind {
+                match kind {
                     crate::ScalarKind::Bool
                     | crate::ScalarKind::Float
                     | crate::ScalarKind::AbstractInt
-                    | crate::ScalarKind::AbstractFloat => false,
-                    crate::ScalarKind::Sint | crate::ScalarKind::Uint => width == 4,
+                    | crate::ScalarKind::AbstractFloat => {
+                        return Err(TypeError::InvalidAtomicWidth(kind, width))
+                    }
+                    crate::ScalarKind::Sint | crate::ScalarKind::Uint => {
+                        if width == 8 {
+                            if !self.capabilities.intersects(
+                                Capabilities::SHADER_INT64_ATOMIC_ALL_OPS
+                                    | Capabilities::SHADER_INT64_ATOMIC_MIN_MAX,
+                            ) {
+                                return Err(TypeError::MissingCapability(
+                                    Capabilities::SHADER_INT64_ATOMIC_ALL_OPS,
+                                ));
+                            }
+                        } else if width != 4 {
+                            return Err(TypeError::InvalidAtomicWidth(kind, width));
+                        }
+                    }
                 };
-                if !good {
-                    return Err(TypeError::InvalidAtomicWidth(kind, width));
-                }
                 TypeInfo::new(
                     TypeFlags::DATA | TypeFlags::SIZED | TypeFlags::HOST_SHAREABLE,
                     Alignment::from_width(width),
@@ -487,7 +529,6 @@ impl super::Validator {
                 ti.uniform_layout = Ok(Alignment::MIN_UNIFORM);
 
                 let mut min_offset = 0;
-
                 let mut prev_struct_data: Option<(u32, u32)> = None;
 
                 for (i, member) in members.iter().enumerate() {
@@ -596,8 +637,15 @@ impl super::Validator {
             Ti::Image {
                 dim,
                 arrayed,
-                class: _,
+                class,
             } => {
+                if arrayed && matches!(dim, crate::ImageDimension::D3) {
+                    return Err(TypeError::UnsupportedImageType {
+                        dim,
+                        arrayed,
+                        class,
+                    });
+                }
                 if arrayed && matches!(dim, crate::ImageDimension::Cube) {
                     self.require_type_capability(Capabilities::CUBE_ARRAY_TEXTURES)?;
                 }
@@ -632,6 +680,7 @@ impl super::Validator {
                     // Currently Naga only supports binding arrays of structs for non-handle types.
                     match gctx.types[base].inner {
                         crate::TypeInner::Struct { .. } => {}
+                        crate::TypeInner::Array { .. } => {}
                         _ => return Err(TypeError::BindingArrayBaseTypeNotStruct(base)),
                     };
                 }

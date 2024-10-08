@@ -166,22 +166,17 @@ DownloadLegacyTransfer.prototype = {
   onLocationChange() {},
 
   // nsIWebProgressListener
-  onStatusChange: function DLT_onStatusChange(
-    aWebProgress,
-    aRequest,
-    aStatus,
-    aMessage
-  ) {
+  onStatusChange(webProgress, request, status, message) {
     // The status change may optionally be received in addition to the state
     // change, but if no network request actually started, it is possible that
     // we only receive a status change with an error status code.
-    if (!Components.isSuccessCode(aStatus)) {
+    if (!Components.isSuccessCode(status)) {
       this._componentFailed = true;
 
       // Wait for the associated Download object to be available.
       this._promiseDownload
         .then(download => {
-          download.saver.onTransferFinished(aStatus);
+          download.saver.onTransferFinished(status, message);
         })
         .catch(console.error);
     }
@@ -243,12 +238,7 @@ DownloadLegacyTransfer.prototype = {
   _delayedMaxTotalProgress: 0,
 
   // nsIWebProgressListener2
-  onRefreshAttempted: function DLT_onRefreshAttempted(
-    aWebProgress,
-    aRefreshURI,
-    aMillis,
-    aSameURI
-  ) {
+  onRefreshAttempted: function DLT_onRefreshAttempted() {
     // Indicate that refreshes and redirects are allowed by default.  However,
     // note that download components don't usually call this method at all.
     return true;
@@ -351,7 +341,8 @@ DownloadLegacyTransfer.prototype = {
     this._cancelable = aCancelable;
     let launchWhenSucceeded = false,
       contentType = null,
-      launcherPath = null;
+      launcherPath = null,
+      launcherId = null;
 
     if (aMIMEInfo instanceof Ci.nsIMIMEInfo) {
       launchWhenSucceeded =
@@ -359,11 +350,12 @@ DownloadLegacyTransfer.prototype = {
       contentType = aMIMEInfo.type;
 
       let appHandler = aMIMEInfo.preferredApplicationHandler;
-      if (
-        aMIMEInfo.preferredAction == Ci.nsIMIMEInfo.useHelperApp &&
-        appHandler instanceof Ci.nsILocalHandlerApp
-      ) {
-        launcherPath = appHandler.executable.path;
+      if (aMIMEInfo.preferredAction == Ci.nsIMIMEInfo.useHelperApp) {
+        if (appHandler instanceof Ci.nsILocalHandlerApp) {
+          launcherPath = appHandler.executable.path;
+        } else if (appHandler instanceof Ci.nsIGIOHandlerApp) {
+          launcherId = appHandler.id;
+        }
       }
     }
     // Create a new Download object associated to a DownloadLegacySaver, and
@@ -393,6 +385,7 @@ DownloadLegacyTransfer.prototype = {
       launchWhenSucceeded,
       contentType,
       launcherPath,
+      launcherId,
       handleInternally,
       openDownloadsListOnStart,
     };
@@ -448,6 +441,10 @@ DownloadLegacyTransfer.prototype = {
         }
       })
       .catch(console.error);
+  },
+
+  get downloadPromise() {
+    return this._promiseDownload;
   },
 
   setSha256Hash(hash) {

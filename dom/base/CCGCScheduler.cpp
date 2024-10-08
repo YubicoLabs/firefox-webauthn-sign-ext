@@ -128,103 +128,6 @@ const TimeDuration kMaxCCLockedoutTime = TimeDuration::FromSeconds(30);
  * various kinds.
  */
 
-namespace geckoprofiler::markers {
-struct CCIntervalMarker : public mozilla::BaseMarkerType<CCIntervalMarker> {
-  static constexpr const char* Name = "CC";
-  static constexpr const char* Description =
-      "Summary data for the core part of a cycle collection, possibly "
-      "encompassing a set of incremental slices. The main thread is not "
-      "blocked for the entire major CC interval, only for the individual "
-      "slices.";
-
-  using MS = mozilla::MarkerSchema;
-  static constexpr MS::PayloadField PayloadFields[] = {
-      {"mReason", MS::InputType::CString, "Reason", MS::Format::String,
-       MS::PayloadFlags::Searchable},
-      {"mMaxSliceTime", MS::InputType::TimeDuration, "Max Slice Time",
-       MS::Format::Duration},
-      {"mSuspected", MS::InputType::Uint32, "Suspected Objects",
-       MS::Format::Integer},
-      {"mSlices", MS::InputType::Uint32, "Number of Slices",
-       MS::Format::Integer},
-      {"mAnyManual", MS::InputType::Boolean, "Manually Triggered",
-       MS::Format::Integer},
-      {"mForcedGC", MS::InputType::Boolean, "GC Forced", MS::Format::Integer},
-      {"mMergedZones", MS::InputType::Boolean, "Zones Merged",
-       MS::Format::Integer},
-      {"mForgetSkippable", MS::InputType::Uint32, "Forget Skippables",
-       MS::Format::Integer},
-      {"mVisitedRefCounted", MS::InputType::Uint32,
-       "Refcounted Objects Visited", MS::Format::Integer},
-      {"mVisitedGCed", MS::InputType::Uint32, "GC Objects Visited",
-       MS::Format::Integer},
-      {"mFreedRefCounted", MS::InputType::Uint32, "GC Objects Freed",
-       MS::Format::Integer},
-      {"mFreedGCed", MS::InputType::Uint32, "GC Objects Freed",
-       MS::Format::Integer},
-      {"mFreedJSZones", MS::InputType::Uint32, "JS Zones Freed",
-       MS::Format::Integer},
-      {"mRemovedPurples", MS::InputType::Uint32,
-       "Objects Removed From Purple Buffer", MS::Format::Integer}};
-
-  static constexpr MS::Location Locations[] = {MS::Location::MarkerChart,
-                                               MS::Location::MarkerTable,
-                                               MS::Location::TimelineMemory};
-  static constexpr MS::ETWMarkerGroup Group = MS::ETWMarkerGroup::Memory;
-
-  static void TranslateMarkerInputToSchema(
-      void* aContext, bool aIsStart,
-      const mozilla::ProfilerString8View& aReason,
-      uint32_t aForgetSkippableBeforeCC, uint32_t aSuspectedAtCCStart,
-      uint32_t aRemovedPurples, const mozilla::CycleCollectorResults& aResults,
-      const mozilla::TimeDuration& aMaxSliceTime) {
-    uint32_t none = 0;
-    if (aIsStart) {
-      ETW::OutputMarkerSchema(aContext, CCIntervalMarker{}, aReason,
-                              mozilla::TimeDuration{}, aSuspectedAtCCStart,
-                              none, false, false, false,
-                              aForgetSkippableBeforeCC, none, none, none, none,
-                              none, aRemovedPurples);
-    } else {
-      ETW::OutputMarkerSchema(
-          aContext, CCIntervalMarker{}, mozilla::ProfilerStringView(""),
-          aMaxSliceTime, none, aResults.mNumSlices, aResults.mAnyManual,
-          aResults.mForcedGC, aResults.mMergedZones, none,
-          aResults.mVisitedRefCounted, aResults.mVisitedGCed,
-          aResults.mFreedRefCounted, aResults.mFreedGCed,
-          aResults.mFreedJSZones, none);
-    }
-  }
-
-  static void StreamJSONMarkerData(
-      mozilla::baseprofiler::SpliceableJSONWriter& aWriter, bool aIsStart,
-      const mozilla::ProfilerString8View& aReason,
-      uint32_t aForgetSkippableBeforeCC, uint32_t aSuspectedAtCCStart,
-      uint32_t aRemovedPurples, const mozilla::CycleCollectorResults& aResults,
-      mozilla::TimeDuration aMaxSliceTime) {
-    if (aIsStart) {
-      aWriter.StringProperty("mReason", aReason);
-      aWriter.IntProperty("mSuspected", aSuspectedAtCCStart);
-      aWriter.IntProperty("mForgetSkippable", aForgetSkippableBeforeCC);
-      aWriter.IntProperty("mRemovedPurples", aRemovedPurples);
-    } else {
-      aWriter.TimeDoubleMsProperty("mMaxSliceTime",
-                                   aMaxSliceTime.ToMilliseconds());
-      aWriter.IntProperty("mSlices", aResults.mNumSlices);
-
-      aWriter.BoolProperty("mAnyManual", aResults.mAnyManual);
-      aWriter.BoolProperty("mForcedGC", aResults.mForcedGC);
-      aWriter.BoolProperty("mMergedZones", aResults.mMergedZones);
-      aWriter.IntProperty("mVisitedRefCounted", aResults.mVisitedRefCounted);
-      aWriter.IntProperty("mVisitedGCed", aResults.mVisitedGCed);
-      aWriter.IntProperty("mFreedRefCounted", aResults.mFreedRefCounted);
-      aWriter.IntProperty("mFreedGCed", aResults.mFreedGCed);
-      aWriter.IntProperty("mFreedJSZones", aResults.mFreedJSZones);
-    }
-  }
-};
-}  // namespace geckoprofiler::markers
-
 namespace mozilla {
 
 void CCGCScheduler::NoteGCBegin(JS::GCReason aReason) {
@@ -324,31 +227,12 @@ void CCGCScheduler::NoteGCSliceEnd(TimeStamp aStart, TimeStamp aEnd) {
   mTriggeredGCDeadline.reset();
 }
 
-void CCGCScheduler::NoteCCBegin(CCReason aReason, TimeStamp aWhen,
-                                uint32_t aNumForgetSkippables,
-                                uint32_t aSuspected, uint32_t aRemovedPurples) {
-  CycleCollectorResults ignoredResults;
-  PROFILER_MARKER(
-      "CC", GCCC, MarkerOptions(MarkerTiming::IntervalStart(aWhen)),
-      CCIntervalMarker,
-      /* aIsStart */ true,
-      ProfilerString8View::WrapNullTerminatedString(CCReasonToString(aReason)),
-      aNumForgetSkippables, aSuspected, aRemovedPurples, ignoredResults,
-      TimeDuration());
-
-  mIsCollectingCycles = true;
-}
+void CCGCScheduler::NoteCCBegin() { mIsCollectingCycles = true; }
 
 void CCGCScheduler::NoteCCEnd(const CycleCollectorResults& aResults,
-                              TimeStamp aWhen,
-                              mozilla::TimeDuration aMaxSliceTime) {
+                              TimeStamp aWhen) {
   mCCollectedWaitingForGC += aResults.mFreedGCed;
   mCCollectedZonesWaitingForGC += aResults.mFreedJSZones;
-
-  PROFILER_MARKER("CC", GCCC, MarkerOptions(MarkerTiming::IntervalEnd(aWhen)),
-                  CCIntervalMarker, /* aIsStart */ false, nullptr, 0, 0, 0,
-                  aResults, aMaxSliceTime);
-
   mIsCollectingCycles = false;
   mLastCCEndTime = aWhen;
   mNeedsFullCC = CCReason::NO_REASON;
@@ -465,7 +349,7 @@ bool CCGCScheduler::GCRunnerFiredDoGC(TimeStamp aDeadline,
 
   MOZ_ASSERT(mActiveIntersliceGCBudget);
   TimeStamp startTimeStamp = TimeStamp::Now();
-  js::SliceBudget budget = ComputeInterSliceGCBudget(aDeadline, startTimeStamp);
+  JS::SliceBudget budget = ComputeInterSliceGCBudget(aDeadline, startTimeStamp);
   nsJSContext::RunIncrementalGCSlice(aStep.mReason, is_shrinking, budget);
 
   // If the GC doesn't have any more work to do on the foreground thread (and
@@ -775,7 +659,7 @@ void CCGCScheduler::KillAllTimersAndRunners() {
   KillGCRunner();
 }
 
-js::SliceBudget CCGCScheduler::ComputeCCSliceBudget(
+JS::SliceBudget CCGCScheduler::ComputeCCSliceBudget(
     TimeStamp aDeadline, TimeStamp aCCBeginTime, TimeStamp aPrevSliceEndTime,
     TimeStamp aNow, bool* aPreferShorterSlices) const {
   *aPreferShorterSlices =
@@ -786,14 +670,14 @@ js::SliceBudget CCGCScheduler::ComputeCCSliceBudget(
 
   if (aPrevSliceEndTime.IsNull()) {
     // The first slice gets the standard slice time.
-    return js::SliceBudget(js::TimeBudget(baseBudget));
+    return JS::SliceBudget(JS::TimeBudget(baseBudget));
   }
 
   // Only run a limited slice if we're within the max running time.
   MOZ_ASSERT(aNow >= aCCBeginTime);
   TimeDuration runningTime = aNow - aCCBeginTime;
   if (runningTime >= kMaxICCDuration) {
-    return js::SliceBudget::unlimited();
+    return JS::SliceBudget::unlimited();
   }
 
   const TimeDuration maxSlice =
@@ -815,11 +699,11 @@ js::SliceBudget CCGCScheduler::ComputeCCSliceBudget(
   // Note: We may have already overshot the deadline, in which case
   // baseBudget will be negative and we will end up returning
   // laterSliceBudget.
-  return js::SliceBudget(js::TimeBudget(
+  return JS::SliceBudget(JS::TimeBudget(
       std::max({delaySliceBudget, laterSliceBudget, baseBudget})));
 }
 
-js::SliceBudget CCGCScheduler::ComputeInterSliceGCBudget(TimeStamp aDeadline,
+JS::SliceBudget CCGCScheduler::ComputeInterSliceGCBudget(TimeStamp aDeadline,
                                                          TimeStamp aNow) {
   // We use longer budgets when the CC has been locked out but the CC has
   // tried to run since that means we may have a significant amount of
@@ -842,7 +726,7 @@ js::SliceBudget CCGCScheduler::ComputeInterSliceGCBudget(TimeStamp aDeadline,
   }
 
   // If the budget is being extended, do not allow it to be interrupted.
-  auto result = js::SliceBudget(js::TimeBudget(extendedBudget), nullptr);
+  auto result = JS::SliceBudget(JS::TimeBudget(extendedBudget), nullptr);
   result.idle = !aDeadline.IsNull();
   result.extended = true;
   return result;
@@ -1095,7 +979,7 @@ GCRunnerStep CCGCScheduler::GetNextGCRunnerAction(TimeStamp aDeadline) const {
   return {GCRunnerAction::None, JS::GCReason::NO_REASON};
 }
 
-js::SliceBudget CCGCScheduler::ComputeForgetSkippableBudget(
+JS::SliceBudget CCGCScheduler::ComputeForgetSkippableBudget(
     TimeStamp aStartTimeStamp, TimeStamp aDeadline) {
   if (mForgetSkippableFrequencyStartTime.IsNull()) {
     mForgetSkippableFrequencyStartTime = aStartTimeStamp;
@@ -1122,7 +1006,7 @@ js::SliceBudget CCGCScheduler::ComputeForgetSkippableBudget(
 
   TimeDuration budgetTime =
       aDeadline ? (aDeadline - aStartTimeStamp) : kForgetSkippableSliceDuration;
-  return js::SliceBudget(budgetTime);
+  return JS::SliceBudget(budgetTime);
 }
 
 }  // namespace mozilla

@@ -1400,6 +1400,10 @@ export class StyleEditorUI extends EventEmitter {
         type.append(this.#panelDoc.createTextNode(`@${rule.type}\u00A0`));
         if (rule.type == "layer" && rule.layerName) {
           type.append(this.#panelDoc.createTextNode(`${rule.layerName}\u00A0`));
+        } else if (rule.type === "property") {
+          type.append(
+            this.#panelDoc.createTextNode(`${rule.propertyName}\u00A0`)
+          );
         }
 
         const cond = this.#panelDoc.createElementNS(HTML_NS, "span");
@@ -1549,6 +1553,7 @@ export class StyleEditorUI extends EventEmitter {
 
     this.#loadingStyleSheets = null;
     this.#root.classList.remove("loading");
+    this.emit("reloaded");
   }
 
   async #handleStyleSheetResource(resource) {
@@ -1576,7 +1581,7 @@ export class StyleEditorUI extends EventEmitter {
 
   // onAvailable is a mandatory argument for watchTargets,
   // but we don't do anything when a new target gets created.
-  #onTargetAvailable = ({ targetFront }) => {};
+  #onTargetAvailable = () => {};
 
   #onTargetDestroyed = ({ targetFront }) => {
     // Iterate over a copy of the list in order to prevent skipping
@@ -1621,6 +1626,11 @@ export class StyleEditorUI extends EventEmitter {
   };
 
   #onResourceUpdated = async updates => {
+    // The editors are instantiated asynchronously from onResourceAvailable,
+    // but we may receive updates right after due to throttling.
+    // Ensure waiting for this async work before trying to update the related editors.
+    await this.#waitForLoadingStyleSheets();
+
     for (const { resource, update } of updates) {
       if (
         update.resourceType === this.#toolbox.resourceCommand.TYPES.STYLESHEET
@@ -1628,6 +1638,13 @@ export class StyleEditorUI extends EventEmitter {
         const editor = this.editors.find(
           e => e.resourceId === update.resourceId
         );
+
+        if (!editor) {
+          console.warn(
+            "Could not find StyleEditor to apply STYLESHEET resource update"
+          );
+          continue;
+        }
 
         switch (update.updateType) {
           case "style-applied": {

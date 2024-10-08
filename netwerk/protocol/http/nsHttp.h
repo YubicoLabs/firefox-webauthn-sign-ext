@@ -83,8 +83,8 @@ inline bool IsHttp3(SupportedAlpnRank aRank) {
   return aRank >= SupportedAlpnRank::HTTP_3_DRAFT_29;
 }
 
-extern const uint32_t kHttp3VersionCount;
-extern const nsCString kHttp3Versions[];
+constexpr nsLiteralCString kHttp3Versions[] = {"h3-29"_ns, "h3-30"_ns,
+                                               "h3-31"_ns, "h3-32"_ns, "h3"_ns};
 
 //-----------------------------------------------------------------------------
 // http connection capabilities
@@ -185,6 +185,10 @@ extern const nsCString kHttp3Versions[];
 
 // When set, disallow to connect to a HTTP/2 proxy.
 #define NS_HTTP_DISALLOW_HTTP2_PROXY (1 << 28)
+
+// When set, setup TLS tunnel even when HTTP proxy is used.
+// Need to be used together with NS_HTTP_CONNECT_ONLY
+#define NS_HTTP_TLS_TUNNEL (1 << 29)
 
 #define NS_HTTP_TRR_FLAGS_FROM_MODE(x) ((static_cast<uint32_t>(x) & 3) << 19)
 
@@ -499,8 +503,6 @@ static inline bool AllowedErrorForHTTPSRRFallback(nsresult aError) {
          aError == NS_ERROR_UNKNOWN_HOST || aError == NS_ERROR_NET_TIMEOUT;
 }
 
-bool SecurityErrorThatMayNeedRestart(nsresult aReason);
-
 [[nodiscard]] nsresult MakeOriginURL(const nsACString& origin,
                                      nsCOMPtr<nsIURI>& url);
 
@@ -520,6 +522,22 @@ uint8_t GetWebTransportErrorFromNSResult(nsresult aResult);
 uint64_t WebTransportErrorToHttp3Error(uint8_t aErrorCode);
 
 uint8_t Http3ErrorToWebTransportError(uint64_t aErrorCode);
+
+bool PossibleZeroRTTRetryError(nsresult aReason);
+
+void DisallowHTTPSRR(uint32_t& aCaps);
+
+nsLiteralCString HttpVersionToTelemetryLabel(HttpVersion version);
+
+enum class ProxyDNSStrategy : uint8_t {
+  // To resolve the origin of the end server we are connecting
+  // to.
+  ORIGIN = 1 << 0,
+  // To resolve the host name of the proxy.
+  PROXY = 1 << 1
+};
+
+ProxyDNSStrategy GetProxyDNSStrategyHelper(const char* aType, uint32_t aFlag);
 
 }  // namespace net
 }  // namespace mozilla

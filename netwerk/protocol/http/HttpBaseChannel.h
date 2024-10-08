@@ -13,8 +13,10 @@
 #include "OpaqueResponseUtils.h"
 #include "mozilla/AtomicBitfields.h"
 #include "mozilla/Atomics.h"
+#include "mozilla/CompactPair.h"
 #include "mozilla/dom/DOMTypes.h"
 #include "mozilla/DataMutex.h"
+#include <mozilla/Maybe.h>
 #include "mozilla/net/DNS.h"
 #include "mozilla/net/NeckoChannelParams.h"
 #include "mozilla/net/NeckoCommon.h"
@@ -227,7 +229,10 @@ class HttpBaseChannel : public nsHashPropertyBag,
   NS_IMETHOD GetResponseStatusText(nsACString& aValue) override;
   NS_IMETHOD GetRequestSucceeded(bool* aValue) override;
   NS_IMETHOD RedirectTo(nsIURI* newURI) override;
+  NS_IMETHOD InternalRedirectTo(nsIURI* newURI) override;
   NS_IMETHOD UpgradeToSecure() override;
+  NS_IMETHOD GetRequestObserversCalled(bool* aCalled) override;
+  NS_IMETHOD SetRequestObserversCalled(bool aCalled) override;
   NS_IMETHOD GetRequestContextID(uint64_t* aRCID) override;
   NS_IMETHOD GetTransferSize(uint64_t* aTransferSize) override;
   NS_IMETHOD GetRequestSize(uint64_t* aRequestSize) override;
@@ -271,7 +276,7 @@ class HttpBaseChannel : public nsHashPropertyBag,
   NS_IMETHOD GetRemoteAddress(nsACString& addr) override;
   NS_IMETHOD GetRemotePort(int32_t* port) override;
   NS_IMETHOD GetOnlyConnect(bool* aOnlyConnect) override;
-  NS_IMETHOD SetConnectOnly() override;
+  NS_IMETHOD SetConnectOnly(bool aTlsTunnel) override;
   NS_IMETHOD GetAllowSpdy(bool* aAllowSpdy) override;
   NS_IMETHOD SetAllowSpdy(bool aAllowSpdy) override;
   NS_IMETHOD GetAllowHttp3(bool* aAllowHttp3) override;
@@ -319,7 +324,7 @@ class HttpBaseChannel : public nsHashPropertyBag,
   NS_IMETHOD GetProxyURI(nsIURI** proxyURI) override;
   virtual void SetCorsPreflightParameters(
       const nsTArray<nsCString>& unsafeHeaders,
-      bool aShouldStripRequestBodyHeader) override;
+      bool aShouldStripRequestBodyHeader, bool aShouldStripAuthHeader) override;
   virtual void SetAltDataForChild(bool aIsForChild) override;
   virtual void DisableAltDataCache() override {
     StoreDisableAltDataCache(true);
@@ -354,8 +359,6 @@ class HttpBaseChannel : public nsHashPropertyBag,
                          nsIHttpUpgradeListener* aListener) override;
   void DoDiagnosticAssertWhenOnStopNotCalledOnDestroy() override;
 
-  NS_IMETHOD SetWaitForHTTPSSVCRecord() override;
-
   NS_IMETHOD SetEarlyHintPreloaderId(uint64_t aEarlyHintPreloaderId) override;
   NS_IMETHOD GetEarlyHintPreloaderId(uint64_t* aEarlyHintPreloaderId) override;
 
@@ -364,6 +367,17 @@ class HttpBaseChannel : public nsHashPropertyBag,
 
   NS_IMETHOD SetIsUserAgentHeaderModified(bool value) override;
   NS_IMETHOD GetIsUserAgentHeaderModified(bool* value) override;
+
+  NS_IMETHOD GetLastTransportStatus(nsresult* aLastTransportStatus) override;
+
+  NS_IMETHOD GetCaps(uint32_t* aCaps) override {
+    if (!aCaps) {
+      return NS_ERROR_INVALID_ARG;
+    }
+
+    *aCaps = mCaps;
+    return NS_OK;
+  }
 
   NS_IMETHOD SetClassicScriptHintCharset(
       const nsAString& aClassicScriptHintCharset) override;
@@ -391,6 +405,20 @@ class HttpBaseChannel : public nsHashPropertyBag,
     *outIncremental = mClassOfService.Incremental();
     return NS_OK;
   }
+
+  NS_IMETHOD GetFetchPriority(
+      nsIClassOfService::FetchPriority* aFetchPriority) override {
+    *aFetchPriority = mClassOfService.FetchPriority();
+    return NS_OK;
+  }
+
+  NS_IMETHOD SetFetchPriority(
+      nsIClassOfService::FetchPriority aFetchPriority) override {
+    mClassOfService.SetFetchPriority(aFetchPriority);
+    return NS_OK;
+  }
+
+  void SetFetchPriorityDOM(mozilla::dom::FetchPriority aPriority) override;
 
   // nsIResumableChannel
   NS_IMETHOD GetEntityID(nsACString& aEntityID) override;
@@ -457,7 +485,7 @@ class HttpBaseChannel : public nsHashPropertyBag,
     return mResponseTrailers.get();
   }
 
-  void SetDummyChannelForImageCache();
+  void SetDummyChannelForCachedResource();
 
   const NetAddr& GetSelfAddr() { return mSelfAddr; }
   const NetAddr& GetPeerAddr() { return mPeerAddr; }
@@ -598,12 +626,6 @@ class HttpBaseChannel : public nsHashPropertyBag,
   // Call AsyncAbort().
   virtual void DoAsyncAbort(nsresult aStatus) = 0;
 
-  // This is fired only when a cookie is created due to the presence of
-  // Set-Cookie header in the response header of any network request.
-  // This notification will come only after the "http-on-examine-response"
-  // was fired.
-  void NotifySetCookie(const nsACString& aCookie);
-
   void MaybeReportTimingData();
   nsIURI* GetReferringPage();
   nsPIDOMWindowInner* GetInnerDOMWindow();
@@ -651,7 +673,7 @@ class HttpBaseChannel : public nsHashPropertyBag,
   static void CallTypeSniffers(void* aClosure, const uint8_t* aData,
                                uint32_t aCount);
 
-  nsresult CheckRedirectLimit(uint32_t aRedirectFlags) const;
+  nsresult CheckRedirectLimit(nsIURI* aNewURI, uint32_t aRedirectFlags) const;
 
   bool MaybeWaitForUploadStreamNormalization(nsIStreamListener* aListener,
                                              nsISupports* aContext);
@@ -690,6 +712,9 @@ class HttpBaseChannel : public nsHashPropertyBag,
   void SetChannelBlockedByOpaqueResponse();
   bool Http3Allowed() const;
 
+  virtual void ExplicitSetUploadStreamLength(uint64_t aContentLength,
+                                             bool aSetContentLengthHeader);
+
   friend class OpaqueResponseBlocker;
   friend class PrivateBrowsingChannel<HttpBaseChannel>;
   friend class InterceptFailedOnStop;
@@ -706,7 +731,10 @@ class HttpBaseChannel : public nsHashPropertyBag,
   nsCOMPtr<nsIInterfaceRequestor> mCallbacks;
   nsCOMPtr<nsIProgressEventSink> mProgressSink;
   nsCOMPtr<nsIReferrerInfo> mReferrerInfo;
-  nsCOMPtr<nsIURI> mAPIRedirectToURI;
+  // The first parameter is the URI we would like to redirect to
+  // The second parameter should be true if internal redirect otherwise false
+  // mAPIRedirectTo is Nothing if and only if the URI is null.
+  mozilla::Maybe<mozilla::CompactPair<nsCOMPtr<nsIURI>, bool>> mAPIRedirectTo;
   nsCOMPtr<nsIURI> mProxyURI;
   nsCOMPtr<nsIPrincipal> mPrincipal;
   nsCOMPtr<nsIURI> mTopWindowURI;
@@ -721,10 +749,11 @@ class HttpBaseChannel : public nsHashPropertyBag,
   // Proxy release all members above on main thread.
   void ReleaseMainThreadOnlyReferences();
 
-  void ExplicitSetUploadStreamLength(uint64_t aContentLength,
-                                     bool aSetContentLengthHeader);
-
   void MaybeResumeAsyncOpen();
+
+  nsresult SetRequestHeaderInternal(const nsACString& aHeader,
+                                    const nsACString& aValue, bool aMerge,
+                                    nsHttpHeaderArray::HeaderVariety aVariety);
 
  protected:
   nsCString mSpec;  // ASCII encoded URL spec
@@ -1011,9 +1040,12 @@ class HttpBaseChannel : public nsHashPropertyBag,
   const bool mCachedOpaqueResponseBlockingPref;
   bool mChannelBlockedByOpaqueResponse;
 
-  bool mDummyChannelForImageCache;
+  bool mDummyChannelForCachedResource;
 
   bool mHasContentDecompressed;
+
+  // A flag that should be false if render-blocking is not stated
+  bool mRenderBlocking;
 
   // clang-format off
   MOZ_ATOMIC_BITFIELDS(mAtomicBitfields3, 8, (
@@ -1081,6 +1113,8 @@ class HttpBaseChannel : public nsHashPropertyBag,
   void RemoveAsNonTailRequest();
 
   void EnsureBrowserId();
+
+  bool PerformCORSCheck();
 };
 
 NS_DEFINE_STATIC_IID_ACCESSOR(HttpBaseChannel, HTTP_BASE_CHANNEL_IID)

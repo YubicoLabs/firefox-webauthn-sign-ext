@@ -32,7 +32,7 @@ const PROPERTIES_RESET_WHEN_ACTIVE = [
   "text-shadow",
 ];
 
-// Duplicated in SelectChild.jsm
+// Duplicated in SelectChild.sys.mjs
 // Please keep these lists in sync.
 const SUPPORTED_OPTION_OPTGROUP_PROPERTIES = [
   "direction",
@@ -670,8 +670,9 @@ export var SelectParentHelper = {
       if (!currentItem.hiddenByContent) {
         // Get label and tooltip (title) from option and change to
         // lower case for comparison
-        let itemLabel = currentItem.getAttribute("label").toLowerCase();
-        let itemTooltip = currentItem.getAttribute("title").toLowerCase();
+        let itemLabel = currentItem.getAttribute("label")?.toLowerCase() || "";
+        let itemTooltip =
+          currentItem.getAttribute("title")?.toLowerCase() || "";
 
         // If search input is empty, all options should be shown
         if (!input) {
@@ -749,6 +750,7 @@ export class SelectParent extends JSWindowActorParent {
     popup.setAttribute("id", "ContentSelectDropdownPopup");
     popup.setAttribute("activateontab", "true");
     popup.setAttribute("position", "after_start");
+    popup.setAttribute("tabspecific", "true");
     popup.setAttribute("level", "parent");
     if (AppConstants.platform == "win") {
       popup.setAttribute("consumeoutsideclicks", "false");

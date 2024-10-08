@@ -189,6 +189,14 @@ var sdputils = {
     return updated_sdp;
   },
 
+  removeCodecs(sdp, codecs) {
+    var updated_sdp = sdp;
+    codecs.forEach(codec => {
+      updated_sdp = this.removeCodec(updated_sdp, codec);
+    });
+    return updated_sdp;
+  },
+
   removeAllButPayloadType(sdp, pt) {
     return sdp.replace(
       new RegExp("m=(\\w+ \\w+) UDP/TLS/RTP/SAVPF .*" + pt + ".*\\r\\n", "gi"),
@@ -358,7 +366,9 @@ var sdputils = {
       if (testOptions.h264) {
         ok(
           desc.sdp.includes("a=rtpmap:126 H264/90000") ||
-            desc.sdp.includes("a=rtpmap:97 H264/90000"),
+            desc.sdp.includes("a=rtpmap:97 H264/90000") ||
+            desc.sdp.includes("a=rtpmap:103 H264/90000") ||
+            desc.sdp.includes("a=rtpmap:105 H264/90000"),
           "H.264 codec is present in SDP"
         );
       } else {

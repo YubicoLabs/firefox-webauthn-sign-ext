@@ -74,7 +74,7 @@ NS_QUERYFRAME_TAIL_INHERITING(nsHTMLButtonControlFrame)
 // label from a string bundle as is done for all other UI strings.
 // See bug 16999 for further details.
 nsresult nsGfxButtonControlFrame::GetDefaultLabel(nsAString& aString) const {
-  nsCOMPtr<nsIFormControl> form = do_QueryInterface(mContent);
+  const auto* form = nsIFormControl::FromNodeOrNull(mContent);
   NS_ENSURE_TRUE(form, NS_ERROR_UNEXPECTED);
 
   auto type = form->ControlType();
@@ -158,10 +158,6 @@ nsresult nsGfxButtonControlFrame::AttributeChanged(int32_t aNameSpaceID,
                                                     aModType);
   }
   return rv;
-}
-
-nsContainerFrame* nsGfxButtonControlFrame::GetContentInsertionFrame() {
-  return this;
 }
 
 nsresult nsGfxButtonControlFrame::HandleEvent(nsPresContext* aPresContext,

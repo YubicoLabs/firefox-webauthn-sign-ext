@@ -15,7 +15,7 @@ describe('device request prompt', function () {
     state = await launch(
       {
         args: ['--enable-features=WebBluetoothNewPermissionsBackend'],
-        ignoreHTTPSErrors: true,
+        acceptInsecureCerts: true,
       },
       {
         after: 'all',
@@ -28,7 +28,7 @@ describe('device request prompt', function () {
   });
 
   beforeEach(async () => {
-    state.context = await state.browser.createIncognitoBrowserContext();
+    state.context = await state.browser.createBrowserContext();
     state.page = await state.context.newPage();
   });
 
@@ -49,5 +49,17 @@ describe('device request prompt', function () {
         timeout: 10,
       })
     ).rejects.toThrow(TimeoutError);
+  });
+
+  it('can be aborted', async function () {
+    const {page} = state;
+
+    const abortController = new AbortController();
+    const task = page.waitForDevicePrompt({
+      signal: abortController.signal,
+    });
+
+    abortController.abort();
+    await expect(task).rejects.toThrow(/aborted/);
   });
 });

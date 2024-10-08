@@ -13,6 +13,7 @@
 #include <vector>
 #include "mozilla/Mutex.h"
 #include "WindowSurface.h"
+#include "MozContainerSurfaceLock.h"
 
 /*
  * MozContainer
@@ -42,7 +43,6 @@ struct MozContainerWayland {
   struct wp_viewport* viewport = nullptr;
   struct wp_fractional_scale_v1* fractional_scale = nullptr;
   gboolean opaque_region_needs_updates = false;
-  int opaque_region_corner_radius = 0;
   gboolean opaque_region_used = false;
   gboolean ready_to_draw = false;
   gboolean commit_to_parent = false;
@@ -62,15 +62,12 @@ struct _MozContainerClass;
 typedef struct _MozContainer MozContainer;
 typedef struct _MozContainerClass MozContainerClass;
 
-class MozContainerSurfaceLock {
-  MozContainer* mContainer;
-  struct wl_surface* mSurface;
-
- public:
-  explicit MozContainerSurfaceLock(MozContainer* aContainer);
-  ~MozContainerSurfaceLock();
-  struct wl_surface* GetSurface();
-};
+// Lock mozcontainer and get wayland surface of it. You need to pair with
+// moz_container_wayland_surface_unlock() even
+// if moz_container_wayland_surface_lock() fails and returns nullptr.
+struct wl_surface* moz_container_wayland_surface_lock(MozContainer* container);
+void moz_container_wayland_surface_unlock(MozContainer* container,
+                                          struct wl_surface** surface);
 
 void moz_container_wayland_map(GtkWidget*);
 gboolean moz_container_wayland_map_event(GtkWidget*, GdkEventAny*);
@@ -97,8 +94,7 @@ void moz_container_wayland_add_or_fire_initial_draw_callback(
 void moz_container_wayland_clear_initial_draw_callback(MozContainer* container);
 
 wl_surface* moz_gtk_widget_get_wl_surface(GtkWidget* aWidget);
-void moz_container_wayland_update_opaque_region(MozContainer* container,
-                                                int corner_radius);
+void moz_container_wayland_update_opaque_region(MozContainer* container);
 gboolean moz_container_wayland_can_draw(MozContainer* container);
 double moz_container_wayland_get_scale(MozContainer* container);
 double moz_container_wayland_get_fractional_scale(MozContainer* container);

@@ -81,6 +81,14 @@
   </hbox>
 </groupbox>
 
+<groupbox id="dataBackupGroup" data-category="paneGeneral" hidden="true"
+          data-hidden-from-search="true">
+  <label><html:h2 data-l10n-id="settings-data-backup-header"/></label>
+  <hbox flex="1">
+    <html:backup-settings />
+  </hbox>
+</groupbox>
+
 <!-- Tab preferences -->
 <groupbox data-category="paneGeneral"
           hidden="true">
@@ -111,7 +119,7 @@
 #endif
 
     <checkbox id="tabPreviewShowThumbnails" data-l10n-id="settings-tabs-show-image-in-preview"
-              preference="browser.tabs.cardPreview.showThumbnails" hidden="true"/>
+              preference="browser.tabs.hoverPreview.showThumbnails" hidden="true"/>
 
     <vbox id="browserContainersbox" hidden="true">
       <hbox id="browserContainersExtensionContent"
@@ -159,14 +167,10 @@
   <html:h2 data-l10n-id="preferences-web-appearance-header"/>
   <html:div id="webAppearanceSettings">
     <description class="description-deemphasized" data-l10n-id="preferences-web-appearance-description"/>
-    <html:div id="web-appearance-override-warning" class="info-box-container">
-      <html:div class="info-icon-container">
-        <html:img class="info-icon"/>
-      </html:div>
-      <description data-l10n-id="preferences-web-appearance-override-warning">
-        <html:a class="text-link" data-l10n-name="colors-link" id="web-appearance-manage-colors-link" href="#"/>
-      </description>
-    </html:div>
+    <html:moz-message-bar id="web-appearance-override-warning" data-l10n-id="preferences-web-appearance-override-warning2"
+        data-l10n-attrs="message">
+        <button slot="actions" class="accessory-button" data-l10n-id="preferences-colors-manage-button" id="web-appearance-manage-colors-button"/>
+    </html:moz-message-bar>
     <form xmlns="http://www.w3.org/1999/xhtml" id="web-appearance-chooser" autocomplete="off">
       <label class="web-appearance-choice" data-l10n-id="preferences-web-appearance-choice-tooltip-auto">
         <div class="web-appearance-choice-image-container"><img role="presentation" alt="" width="54" height="42" /></div>
@@ -388,18 +392,18 @@
   <vbox id="translationsGroup" hidden="true" data-subcategory="translations">
     <label><html:h2 data-l10n-id="translations-manage-header"/></label>
     <hbox id="translations-manage-description" align="center">
-      <description flex="1" data-l10n-id="translations-manage-intro"/>
+      <description flex="1" data-l10n-id="translations-manage-intro-2"/>
       <button id="translations-manage-settings-button"
               is="highlightable-button"
               class="accessory-button"
               data-l10n-id="translations-manage-settings-button"/>
     </hbox>
     <vbox>
-      <html:div id="translations-manage-install-list" hidden="true">
+      <html:div id="translations-manage-install-list" hidden="true" tabindex="-1">
         <hbox class="translations-manage-language">
-          <label data-l10n-id="translations-manage-install-description"></label>
+          <label data-l10n-id="translations-manage-download-description"></label>
           <button id="translations-manage-install-all"
-                  data-l10n-id="translations-manage-language-install-all-button"></button>
+                  data-l10n-id="translations-manage-language-download-all-button"></button>
           <button id="translations-manage-delete-all"
                   data-l10n-id="translations-manage-language-remove-all-button"></button>
         </hbox>
@@ -817,6 +821,7 @@
               connection-proxy-option-no.label,
               connection-proxy-option-auto.label,
               connection-proxy-option-system.label,
+              connection-proxy-option-wpad.label,
               connection-proxy-option-manual.label,
               connection-proxy-http,
               connection-proxy-https,

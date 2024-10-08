@@ -16,7 +16,6 @@ import { getEditor } from "../../utils/editor/index";
 import { searchKeys } from "../../constants";
 
 import { getRelativePath } from "../../utils/sources-tree/utils";
-import { getFormattedSourceId } from "../../utils/source";
 import {
   getProjectSearchQuery,
   getNavigateCounter,
@@ -78,18 +77,8 @@ export class ProjectSearch extends Component {
     return {
       doSearchForHighlight: PropTypes.func.isRequired,
       query: PropTypes.string.isRequired,
-      results: PropTypes.array.isRequired,
       searchSources: PropTypes.func.isRequired,
       selectSpecificLocationOrSameUrl: PropTypes.func.isRequired,
-      status: PropTypes.oneOf([
-        "INITIAL",
-        "FETCHING",
-        "CANCELED",
-        "DONE",
-        "ERROR",
-      ]).isRequired,
-      modifiers: PropTypes.object,
-      toggleProjectSearchModifier: PropTypes.func,
     };
   }
 
@@ -265,7 +254,7 @@ export class ProjectSearch extends Component {
         },
         file.location.source.url
           ? getRelativePath(file.location.source.url)
-          : getFormattedSourceId(file.location.source.id)
+          : file.location.source.shortName
       ),
       span(
         {
@@ -353,7 +342,7 @@ export class ProjectSearch extends Component {
         autoExpandAll: true,
         autoExpandDepth: 1,
         autoExpandNodeChildrenLimit: 100,
-        getParent: item => null,
+        getParent: () => null,
         getPath: getFilePath,
         renderItem: this.renderItem,
         focused: this.state.focusedItem,
@@ -376,6 +365,7 @@ export class ProjectSearch extends Component {
             expanded,
           });
         },
+        preventBlur: true,
         getKey: getFilePath,
       });
     }

@@ -26,12 +26,12 @@ export class ContextMenu extends React.PureComponent {
   componentDidMount() {
     this.onShow();
     setTimeout(() => {
-      global.addEventListener("click", this.hideContext);
+      globalThis.addEventListener("click", this.hideContext);
     }, 0);
   }
 
   componentWillUnmount() {
-    global.removeEventListener("click", this.hideContext);
+    globalThis.removeEventListener("click", this.hideContext);
   }
 
   onClick(event) {
@@ -95,16 +95,16 @@ export class _ContextMenuItem extends React.PureComponent {
 
   // This selects the correct node based on the key pressed
   focusSibling(target, key) {
-    const parent = target.parentNode;
+    const { parentNode } = target;
     const closestSiblingSelector =
       key === "ArrowUp" ? "previousSibling" : "nextSibling";
-    if (!parent[closestSiblingSelector]) {
+    if (!parentNode[closestSiblingSelector]) {
       return;
     }
-    if (parent[closestSiblingSelector].firstElementChild) {
-      parent[closestSiblingSelector].firstElementChild.focus();
+    if (parentNode[closestSiblingSelector].firstElementChild) {
+      parentNode[closestSiblingSelector].firstElementChild.focus();
     } else {
-      parent[closestSiblingSelector][
+      parentNode[closestSiblingSelector][
         closestSiblingSelector
       ].firstElementChild.focus();
     }

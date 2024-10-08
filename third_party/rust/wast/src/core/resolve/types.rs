@@ -51,11 +51,11 @@ impl<'a> Expander<'a> {
         match item {
             ModuleField::Type(ty) => {
                 let id = gensym::fill(ty.span, &mut ty.id);
-                match &mut ty.def {
-                    TypeDef::Func(f) => {
+                match &mut ty.def.kind {
+                    InnerTypeKind::Func(f) => {
                         f.key().insert(self, Index::Id(id));
                     }
-                    TypeDef::Array(_) | TypeDef::Struct(_) => {}
+                    InnerTypeKind::Array(_) | InnerTypeKind::Struct(_) => {}
                 }
             }
             _ => {}
@@ -139,7 +139,6 @@ impl<'a> Expander<'a> {
             Instruction::Block(bt)
             | Instruction::If(bt)
             | Instruction::Loop(bt)
-            | Instruction::Let(LetType { block: bt, .. })
             | Instruction::Try(bt)
             | Instruction::TryTable(TryTable { block: bt, .. }) => {
                 // No expansion necessary, a type reference is already here.
@@ -173,9 +172,6 @@ impl<'a> Expander<'a> {
                     }
                 }
                 self.expand_type_use(&mut bt.ty);
-            }
-            Instruction::FuncBind(b) => {
-                self.expand_type_use(&mut b.ty);
             }
             Instruction::CallIndirect(c) | Instruction::ReturnCallIndirect(c) => {
                 self.expand_type_use(&mut c.ty);
@@ -259,10 +255,13 @@ impl<'a> TypeKey<'a> for FuncKey<'a> {
     }
 
     fn to_def(&self, _span: Span) -> TypeDef<'a> {
-        TypeDef::Func(FunctionType {
-            params: self.0.iter().map(|t| (None, None, *t)).collect(),
-            results: self.1.clone(),
-        })
+        TypeDef {
+            kind: InnerTypeKind::Func(FunctionType {
+                params: self.0.iter().map(|t| (None, None, *t)).collect(),
+                results: self.1.clone(),
+            }),
+            shared: false, // TODO: handle shared
+        }
     }
 
     fn insert(&self, cx: &mut Expander<'a>, idx: Index<'a>) {

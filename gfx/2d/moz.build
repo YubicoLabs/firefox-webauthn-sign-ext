@@ -22,12 +22,14 @@ EXPORTS.mozilla.gfx += [
     "BorrowedContext.h",
     "Coord.h",
     "CriticalSection.h",
+    "DataSourceSurfaceWrapper.h",
     "DataSurfaceHelpers.h",
     "DrawEventRecorder.h",
     "DrawTargetOffset.h",
     "DrawTargetRecording.h",
     "DrawTargetSkia.h",
     "Filters.h",
+    "FontFeature.h",
     "FontVariation.h",
     "Helpers.h",
     "HelpersCairo.h",
@@ -69,6 +71,7 @@ if CONFIG["MOZ_WIDGET_TOOLKIT"] in ("cocoa", "uikit"):
         "UnscaledFontMac.h",
     ]
     UNIFIED_SOURCES += [
+        "MacIOSurface.cpp",
         "NativeFontResourceMac.cpp",
         "ScaledFontMac.cpp",
     ]
@@ -187,11 +190,6 @@ UNIFIED_SOURCES += [
 SOURCES += [
     "InlineTranslator.cpp",
 ]
-
-if CONFIG["MOZ_WIDGET_TOOLKIT"] == "cocoa":
-    SOURCES += [
-        "MacIOSurface.cpp",
-    ]
 
 if CONFIG["TARGET_CPU"] == "aarch64" or CONFIG["BUILD_ARM_NEON"]:
     SOURCES += [

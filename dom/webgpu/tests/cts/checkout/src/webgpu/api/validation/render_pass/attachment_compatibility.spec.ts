@@ -85,15 +85,13 @@ const kFeaturesForDepthStencilAttachmentFormats = getFeaturesForFormats([
 
 class F extends ValidationTest {
   createAttachmentTextureView(format: GPUTextureFormat, sampleCount?: number) {
-    return this.device
-      .createTexture({
-        // Size matching the "arbitrary" size used by ValidationTest helpers.
-        size: [16, 16, 1],
-        format,
-        usage: GPUTextureUsage.RENDER_ATTACHMENT,
-        sampleCount,
-      })
-      .createView();
+    return this.createTextureTracked({
+      // Size matching the "arbitrary" size used by ValidationTest helpers.
+      size: [16, 16, 1],
+      format,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT,
+      sampleCount,
+    }).createView();
   }
 
   createColorAttachment(
@@ -551,13 +549,6 @@ Test that the depth stencil read only state in render passes or bundles is compa
       .filter(p => {
         if (p.format) {
           const depthStencilInfo = kTextureFormatInfo[p.format];
-          // For combined depth/stencil formats the depth and stencil read only state must match
-          // in order to create a valid render bundle or render pass.
-          if (depthStencilInfo.depth && depthStencilInfo.stencil) {
-            if (p.depthReadOnly !== p.stencilReadOnly) {
-              return false;
-            }
-          }
           // If the format has no depth aspect, the depthReadOnly, depthWriteEnabled of the pipeline must not be true
           // in order to create a valid render pipeline.
           if (!depthStencilInfo.depth && p.depthWriteEnabled) {

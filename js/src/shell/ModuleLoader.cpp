@@ -27,6 +27,8 @@
 #include "vm/JSContext.h"
 #include "vm/StringType.h"
 
+#include "vm/NativeObject-inl.h"
+
 using namespace js;
 using namespace js::shell;
 
@@ -122,7 +124,7 @@ bool ModuleLoader::ImportModuleDynamically(JSContext* cx,
 
 bool ModuleLoader::loadRootModule(JSContext* cx, HandleString path) {
   RootedValue rval(cx);
-  if (!loadAndExecute(cx, path, &rval)) {
+  if (!loadAndExecute(cx, path, nullptr, &rval)) {
     return false;
   }
 
@@ -147,7 +149,10 @@ bool ModuleLoader::registerTestModule(JSContext* cx, HandleObject moduleRequest,
     return false;
   }
 
-  return addModuleToRegistry(cx, path, module);
+  JS::ModuleType moduleType =
+      moduleRequest->as<ModuleRequestObject>().moduleType();
+
+  return addModuleToRegistry(cx, moduleType, path, module);
 }
 
 void ModuleLoader::clearModules(JSContext* cx) {
@@ -156,8 +161,9 @@ void ModuleLoader::clearModules(JSContext* cx) {
 }
 
 bool ModuleLoader::loadAndExecute(JSContext* cx, HandleString path,
+                                  HandleObject moduleRequestArg,
                                   MutableHandleValue rval) {
-  RootedObject module(cx, loadAndParse(cx, path));
+  RootedObject module(cx, loadAndParse(cx, path, moduleRequestArg));
   if (!module) {
     return false;
   }
@@ -178,7 +184,7 @@ JSObject* ModuleLoader::resolveImportedModule(
     return nullptr;
   }
 
-  return loadAndParse(cx, path);
+  return loadAndParse(cx, path, moduleRequest);
 }
 
 bool ModuleLoader::populateImportMeta(JSContext* cx,
@@ -328,7 +334,7 @@ bool ModuleLoader::tryDynamicImport(JSContext* cx,
     return false;
   }
 
-  return loadAndExecute(cx, path, rval);
+  return loadAndExecute(cx, path, moduleRequest, rval);
 }
 
 JSLinearString* ModuleLoader::resolve(JSContext* cx,
@@ -418,7 +424,8 @@ JSLinearString* ModuleLoader::resolve(JSContext* cx, HandleString specifier,
   return normalizePath(cx, linear);
 }
 
-JSObject* ModuleLoader::loadAndParse(JSContext* cx, HandleString pathArg) {
+JSObject* ModuleLoader::loadAndParse(JSContext* cx, HandleString pathArg,
+                                     JS::HandleObject moduleRequestArg) {
   Rooted<JSLinearString*> path(cx, JS_EnsureLinearString(cx, pathArg));
   if (!path) {
     return nullptr;
@@ -429,8 +436,13 @@ JSObject* ModuleLoader::loadAndParse(JSContext* cx, HandleString pathArg) {
     return nullptr;
   }
 
+  JS::ModuleType moduleType = JS::ModuleType::JavaScript;
+  if (moduleRequestArg) {
+    moduleType = moduleRequestArg->as<ModuleRequestObject>().moduleType();
+  }
+
   RootedObject module(cx);
-  if (!lookupModuleInRegistry(cx, path, &module)) {
+  if (!lookupModuleInRegistry(cx, moduleType, path, &module)) {
     return nullptr;
   }
 
@@ -461,30 +473,46 @@ JSObject* ModuleLoader::loadAndParse(JSContext* cx, HandleString pathArg) {
     return nullptr;
   }
 
-  module = JS::CompileModule(cx, options, srcBuf);
-  if (!module) {
-    return nullptr;
+  switch (moduleType) {
+    case JS::ModuleType::Unknown:
+      JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
+                                JSMSG_BAD_MODULE_TYPE);
+      return nullptr;
+    case JS::ModuleType::JavaScript: {
+      module = JS::CompileModule(cx, options, srcBuf);
+      if (!module) {
+        return nullptr;
+      }
+
+      RootedObject info(cx, js::CreateScriptPrivate(cx, path));
+      if (!info) {
+        return nullptr;
+      }
+
+      JS::SetModulePrivate(module, ObjectValue(*info));
+    } break;
+    case JS::ModuleType::JSON:
+      module = JS::CompileJsonModule(cx, options, srcBuf);
+      if (!module) {
+        return nullptr;
+      }
+      break;
   }
 
-  RootedObject info(cx, js::CreateScriptPrivate(cx, path));
-  if (!info) {
-    return nullptr;
-  }
-
-  JS::SetModulePrivate(module, ObjectValue(*info));
-
-  if (!addModuleToRegistry(cx, path, module)) {
+  if (!addModuleToRegistry(cx, moduleType, path, module)) {
     return nullptr;
   }
 
   return module;
 }
 
-bool ModuleLoader::lookupModuleInRegistry(JSContext* cx, HandleString path,
+bool ModuleLoader::lookupModuleInRegistry(JSContext* cx,
+                                          JS::ModuleType moduleType,
+                                          HandleString path,
                                           MutableHandleObject moduleOut) {
   moduleOut.set(nullptr);
 
-  RootedObject registry(cx, getOrCreateModuleRegistry(cx));
+  RootedObject registry(cx, getOrCreateModuleRegistry(cx, moduleType));
   if (!registry) {
     return false;
   }
@@ -502,9 +530,9 @@ bool ModuleLoader::lookupModuleInRegistry(JSContext* cx, HandleString path,
   return true;
 }
 
-bool ModuleLoader::addModuleToRegistry(JSContext* cx, HandleString path,
-                                       HandleObject module) {
-  RootedObject registry(cx, getOrCreateModuleRegistry(cx));
+bool ModuleLoader::addModuleToRegistry(JSContext* cx, JS::ModuleType moduleType,
+                                       HandleString path, HandleObject module) {
+  RootedObject registry(cx, getOrCreateModuleRegistry(cx, moduleType));
   if (!registry) {
     return false;
   }
@@ -514,20 +542,46 @@ bool ModuleLoader::addModuleToRegistry(JSContext* cx, HandleString path,
   return JS::MapSet(cx, registry, pathValue, moduleValue);
 }
 
-JSObject* ModuleLoader::getOrCreateModuleRegistry(JSContext* cx) {
+static ArrayObject* GetOrCreateRootRegistry(JSContext* cx) {
   Handle<GlobalObject*> global = cx->global();
   RootedValue value(cx, global->getReservedSlot(GlobalAppSlotModuleRegistry));
   if (!value.isUndefined()) {
-    return &value.toObject();
+    return &value.toObject().as<ArrayObject>();
   }
 
-  JSObject* registry = JS::NewMapObject(cx);
+  uint32_t numberOfModuleTypes = uint32_t(JS::ModuleType::Limit) + 1;
+
+  Rooted<ArrayObject*> registry(
+      cx, NewDenseFullyAllocatedArray(cx, numberOfModuleTypes, TenuredObject));
   if (!registry) {
     return nullptr;
   }
+  registry->ensureDenseInitializedLength(0, numberOfModuleTypes);
+
+  Rooted<JSObject*> innerRegistry(cx);
+  for (size_t i = 0; i < numberOfModuleTypes; ++i) {
+    innerRegistry = JS::NewMapObject(cx);
+    if (!innerRegistry) {
+      return nullptr;
+    }
+    registry->initDenseElement(i, ObjectValue(*innerRegistry));
+  }
 
   global->setReservedSlot(GlobalAppSlotModuleRegistry, ObjectValue(*registry));
+
   return registry;
+}
+
+JSObject* ModuleLoader::getOrCreateModuleRegistry(JSContext* cx,
+                                                  JS::ModuleType moduleType) {
+  Rooted<ArrayObject*> rootRegistry(cx, GetOrCreateRootRegistry(cx));
+  if (!rootRegistry) {
+    return nullptr;
+  }
+
+  uint32_t index = uint32_t(moduleType);
+  MOZ_ASSERT(rootRegistry->containsDenseElement(index));
+  return &rootRegistry->getDenseElement(index).toObject();
 }
 
 bool ModuleLoader::getScriptPath(JSContext* cx, HandleValue privateValue,

@@ -20,25 +20,25 @@ ChromeUtils.defineESModuleGetters(this, {
  * A test provider that waits before returning results to simulate a slow DB
  * lookup.
  */
-class SlowHeuristicProvider extends TestProvider {
-  get type() {
-    return UrlbarUtils.PROVIDER_TYPE.HEURISTIC;
-  }
-
-  async startQuery(context, add) {
-    this._context = context;
-    // eslint-disable-next-line mozilla/no-arbitrary-setTimeout
-    await new Promise(resolve => setTimeout(resolve, 300));
-    for (let result of this.results) {
-      add(this, result);
-    }
+class SlowHeuristicProvider extends UrlbarTestUtils.TestProvider {
+  constructor({ results }) {
+    const delayResultsPromise = new Promise(resolve =>
+      // eslint-disable-next-line mozilla/no-arbitrary-setTimeout
+      setTimeout(resolve, 300)
+    );
+    super({
+      name: "MyProvider",
+      type: UrlbarUtils.PROVIDER_TYPE.HEURISTIC,
+      results,
+      delayResultsPromise,
+    });
   }
 }
 
 /**
  * A fast provider that alerts the test when it has added its results.
  */
-class FastHeuristicProvider extends TestProvider {
+class FastHeuristicProvider extends UrlbarTestUtils.TestProvider {
   get type() {
     return UrlbarUtils.PROVIDER_TYPE.HEURISTIC;
   }
@@ -126,7 +126,7 @@ add_task(async function timerIsCancelled() {
   // Then they will be queued up in a _heuristicProvidersTimer, waiting for
   // the results from SlowProvider.
   let resultsAddedPromise = new Promise(resolve => {
-    let observe = async (subject, topic, data) => {
+    let observe = async () => {
       Services.obs.removeObserver(observe, "results-added");
       // Fire the second query to cancel the first.
       await controller.startQuery(secondContext);

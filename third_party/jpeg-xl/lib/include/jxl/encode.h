@@ -25,7 +25,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#if defined(__cplusplus) || defined(c_plusplus)
+#ifdef __cplusplus
 extern "C" {
 #endif
 
@@ -126,7 +126,7 @@ typedef enum {
 typedef enum {
   /** Sets encoder effort/speed level without affecting decoding speed. Valid
    * values are, from faster to slower speed: 1:lightning 2:thunder 3:falcon
-   * 4:cheetah 5:hare 6:wombat 7:squirrel 8:kitten 9:tortoise.
+   * 4:cheetah 5:hare 6:wombat 7:squirrel 8:kitten 9:tortoise 10:glacier.
    * Default: squirrel (7).
    */
   JXL_ENC_FRAME_SETTING_EFFORT = 0,
@@ -387,6 +387,11 @@ typedef enum {
    * 0 = disabled, 1 = enabled (default)
    */
   JXL_ENC_FRAME_SETTING_USE_FULL_IMAGE_HEURISTICS = 38,
+
+  /** Disable perceptual optimizations. 0 = optimizations enabled (default), 1 =
+   * optimizations disabled.
+   */
+  JXL_ENC_FRAME_SETTING_DISABLE_PERCEPTUAL_HEURISTICS = 39,
 
   /** Enum value not to be used as an option. This value is added to force the
    * C compiler to have the enum to take a known size.
@@ -1530,7 +1535,7 @@ JXL_EXPORT void JxlColorEncodingSetToLinearSRGB(
 /**
  * Enables usage of expert options.
  *
- * At the moment, the only expert option is setting an effort value of 10,
+ * At the moment, the only expert option is setting an effort value of 11,
  * which gives the best compression for pixel-lossless modes but is very slow.
  *
  * @param enc encoder object.
@@ -1588,7 +1593,7 @@ JXL_EXPORT void JxlEncoderSetDebugImageCallback(
 JXL_EXPORT void JxlEncoderCollectStats(JxlEncoderFrameSettings* frame_settings,
                                        JxlEncoderStats* stats);
 
-#if defined(__cplusplus) || defined(c_plusplus)
+#ifdef __cplusplus
 }
 #endif
 

@@ -2,50 +2,71 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-const CONFIG_DEFAULT = [
+const CONFIG_V2 = [
   {
-    webExtension: { id: "basic@search.mozilla.org" },
-    urls: {
-      trending: {
-        fullPath:
-          "https://example.com/browser/browser/components/search/test/browser/trendingSuggestionEngine.sjs?richsuggestions=true",
-        query: "",
+    recordType: "engine",
+    identifier: "basic",
+    base: {
+      name: "basic",
+      urls: {
+        search: {
+          base: "https://example.com",
+          searchTermParamName: "q",
+        },
+        trending: {
+          base: "https://example.com/browser/browser/components/search/test/browser/trendingSuggestionEngine.sjs",
+          method: "GET",
+          params: [
+            {
+              name: "richsuggestions",
+              value: "true",
+            },
+          ],
+        },
+        suggestions: {
+          base: "https://example.com/browser/browser/components/search/test/browser/trendingSuggestionEngine.sjs",
+          method: "GET",
+          params: [
+            {
+              name: "richsuggestions",
+              value: "true",
+            },
+          ],
+          searchTermParamName: "query",
+        },
       },
+      aliases: ["basic"],
     },
-    appliesTo: [{ included: { everywhere: true } }],
-    default: "yes",
+    variants: [
+      {
+        environment: { allRegionsAndLocales: true },
+      },
+    ],
+  },
+  {
+    recordType: "defaultEngines",
+    globalDefault: "basic",
+    specificDefaults: [],
+  },
+  {
+    recordType: "engineOrders",
+    orders: [],
   },
 ];
 
 SearchTestUtils.init(this);
 
 add_setup(async () => {
-  // Use engines in test directory
-  let searchExtensions = getChromeDir(getResolvedURI(gTestPath));
-  searchExtensions.append("search-engines");
-  await SearchTestUtils.useMochitestEngines(searchExtensions);
-
   await SpecialPowers.pushPrefEnv({
     set: [
+      ["browser.urlbar.recentsearches.featureGate", false],
       ["browser.urlbar.suggest.searches", true],
       ["browser.urlbar.trending.featureGate", true],
       ["browser.urlbar.trending.requireSearchMode", false],
-      // Bug 1775917: Disable the persisted-search-terms search tip because if
-      // not dismissed, it can cause issues with other search tests.
-      ["browser.urlbar.tipShownCount.searchTip_persist", 999],
     ],
   });
 
-  SearchTestUtils.useMockIdleService();
-  await SearchTestUtils.updateRemoteSettingsConfig(CONFIG_DEFAULT);
-
-  registerCleanupFunction(async () => {
-    let settingsWritten = SearchTestUtils.promiseSearchNotification(
-      "write-settings-to-disk-complete"
-    );
-    await SearchTestUtils.updateRemoteSettingsConfig();
-    await settingsWritten;
-  });
+  await SearchTestUtils.updateRemoteSettingsConfig(CONFIG_V2);
 });
 
 add_task(async function test_trending_results() {

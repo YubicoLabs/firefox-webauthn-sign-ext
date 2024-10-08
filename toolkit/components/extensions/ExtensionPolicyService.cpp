@@ -84,9 +84,9 @@ mozIExtensionProcessScript& ExtensionPolicyService::ProcessScript() {
   MOZ_ASSERT(NS_IsMainThread());
 
   if (MOZ_UNLIKELY(!sProcessScript)) {
-    sProcessScript =
-        do_ImportModule("resource://gre/modules/ExtensionProcessScript.jsm",
-                        "ExtensionProcessScript");
+    sProcessScript = do_ImportESModule(
+        "resource://gre/modules/ExtensionProcessScript.sys.mjs",
+        "ExtensionProcessScript");
     ClearOnShutdown(&sProcessScript);
   }
   return *sProcessScript;
@@ -110,6 +110,15 @@ RefPtr<extensions::WebExtensionPolicyCore>
 ExtensionPolicyService::GetCoreByHost(const nsACString& aHost) {
   StaticAutoReadLock lock(sEPSLock);
   return sCoreByHost ? sCoreByHost->Get(aHost) : nullptr;
+}
+
+/* static */
+RefPtr<extensions::WebExtensionPolicyCore> ExtensionPolicyService::GetCoreByURL(
+    const URLInfo& aURL) {
+  if (aURL.Scheme() == nsGkAtoms::moz_extension) {
+    return GetCoreByHost(aURL.Host());
+  }
+  return nullptr;
 }
 
 ExtensionPolicyService::ExtensionPolicyService() {
@@ -406,10 +415,9 @@ nsresult ExtensionPolicyService::InjectContentScripts(
     DocInfo docInfo(win);
 
     using RunAt = dom::ContentScriptRunAt;
-    namespace RunAtValues = dom::ContentScriptRunAtValues;
     using Scripts = AutoTArray<RefPtr<WebExtensionContentScript>, 8>;
 
-    Scripts scripts[RunAtValues::Count];
+    Scripts scripts[ContiguousEnumSize<RunAt>::value];
 
     auto GetScripts = [&](RunAt aRunAt) -> Scripts&& {
       static_assert(sizeof(aRunAt) == 1, "Our cast is wrong");
@@ -727,11 +735,13 @@ nsresult ExtensionPolicyService::GetExtensionName(const nsAString& aAddonId,
 }
 
 nsresult ExtensionPolicyService::SourceMayLoadExtensionURI(
-    nsIURI* aSourceURI, nsIURI* aExtensionURI, bool* aResult) {
+    nsIURI* aSourceURI, nsIURI* aExtensionURI, bool aFromPrivateWindow,
+    bool* aResult) {
   URLInfo source(aSourceURI);
   URLInfo url(aExtensionURI);
-  if (WebExtensionPolicy* policy = GetByURL(url)) {
-    *aResult = policy->SourceMayAccessPath(source, url.FilePath());
+  if (RefPtr<WebExtensionPolicyCore> policy = GetCoreByURL(url)) {
+    *aResult = (!aFromPrivateWindow || policy->PrivateBrowsingAllowed()) &&
+               policy->SourceMayAccessPath(source, url.FilePath());
     return NS_OK;
   }
   return NS_ERROR_INVALID_ARG;

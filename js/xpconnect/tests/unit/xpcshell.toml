@@ -15,7 +15,6 @@ support-files = [
   "importer.jsm",
   "recursive_importA.jsm",
   "recursive_importB.jsm",
-  "ReturnCodeChild.jsm",
   "ReturnCodeChild.sys.mjs",
   "syntax_error.jsm",
   "uninitialized_lexical.jsm",
@@ -300,9 +299,16 @@ skip-if = [
 
 ["test_js_weak_references.js"]
 
+["test_json_parse_with_source.js"]
+prefs = [
+  "javascript.options.experimental.json_parse_with_source=true",
+]
+
 ["test_loadedESModules.js"]
 
 ["test_localeCompare.js"]
+
+["test_locks.js"]
 
 ["test_malformed_utf8.js"]
 
@@ -359,6 +365,8 @@ head = "head_ongc.js"
 
 ["test_sandbox_name.js"]
 
+["test_scriptable_nsIClassInfo.js"]
+
 ["test_storage.js"]
 
 ["test_structuredClone.js"]
@@ -385,6 +393,12 @@ skip-if = [
 ["test_want_components.js"]
 
 ["test_wasm_tailcalls_profiler.js"]
+skip-if = [
+  "tsan",
+  "!nightly_build",
+]
+
+["test_wasm_jspi_profiler.js"]
 skip-if = [
   "tsan",
   "!nightly_build",

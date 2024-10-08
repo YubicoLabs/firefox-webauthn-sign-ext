@@ -27,9 +27,6 @@ class JS_PUBLIC_API ContextOptions {
         wasmVerbose_(false),
         wasmBaseline_(true),
         wasmIon_(true),
-#define WASM_FEATURE(NAME, LOWER_NAME, STAGE, ...) wasm##NAME##_(STAGE == WasmFeatureStage::Default),
-        JS_FOR_WASM_FEATURES(WASM_FEATURE)
-#undef WASM_FEATURE
         testWasmAwaitTier2_(false),
         disableIon_(false),
         disableEvalSecurityChecks_(false),
@@ -98,15 +95,6 @@ class JS_PUBLIC_API ContextOptions {
     return *this;
   }
 
-#define WASM_FEATURE(NAME, ...)                     \
-  bool wasm##NAME() const { return wasm##NAME##_; } \
-  ContextOptions& setWasm##NAME(bool flag) {        \
-    wasm##NAME##_ = flag;                           \
-    return *this;                                   \
-  }
-  JS_FOR_WASM_FEATURES(WASM_FEATURE)
-#undef WASM_FEATURE
-
   bool throwOnAsmJSValidationFailure() const {
     return compileOptions_.throwOnAsmJSValidationFailure();
   }
@@ -131,14 +119,6 @@ class JS_PUBLIC_API ContextOptions {
   bool importAttributes() const { return compileOptions_.importAttributes(); }
   ContextOptions& setImportAttributes(bool enabled) {
     compileOptions_.setImportAttributes(enabled);
-    return *this;
-  }
-
-  bool importAttributesAssertSyntax() const {
-    return compileOptions_.importAttributesAssertSyntax();
-  }
-  ContextOptions& setImportAttributesAssertSyntax(bool enabled) {
-    compileOptions_.setImportAttributesAssertSyntax(enabled);
     return *this;
   }
 
@@ -224,9 +204,6 @@ class JS_PUBLIC_API ContextOptions {
   bool wasmVerbose_ : 1;
   bool wasmBaseline_ : 1;
   bool wasmIon_ : 1;
-#define WASM_FEATURE(NAME, ...) bool wasm##NAME##_ : 1;
-  JS_FOR_WASM_FEATURES(WASM_FEATURE)
-#undef WASM_FEATURE
   bool testWasmAwaitTier2_ : 1;
 
   // JIT options.

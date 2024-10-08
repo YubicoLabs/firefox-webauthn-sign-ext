@@ -19,6 +19,8 @@
 #include "gc/AllocKind.h"
 #include "js/ScalarType.h"
 #include "js/TypeDecls.h"
+#include "vm/TypeofEqOperand.h"
+#include "vm/UsingHint.h"
 
 class JSJitInfo;
 class JSLinearString;
@@ -27,7 +29,6 @@ namespace js {
 
 class AbstractGeneratorObject;
 class ArrayObject;
-class FixedLengthTypedArrayObject;
 class GlobalObject;
 class InterpreterFrame;
 class LexicalScope;
@@ -496,6 +497,19 @@ ArrayObject* InitRestParameter(JSContext* cx, uint32_t length, Value* rest,
 [[nodiscard]] bool PushVarEnv(JSContext* cx, BaselineFrame* frame,
                               Handle<Scope*> scope);
 
+#ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT
+[[nodiscard]] bool AddDisposableResource(JSContext* cx, BaselineFrame* frame,
+                                         JS::Handle<JS::Value> val,
+                                         JS::Handle<JS::Value> method,
+                                         JS::Handle<JS::Value> needsClosure,
+                                         UsingHint hint);
+
+[[nodiscard]] bool CreateSuppressedError(JSContext* cx, BaselineFrame* frame,
+                                         JS::Handle<JS::Value> error,
+                                         JS::Handle<JS::Value> suppressed,
+                                         JS::MutableHandle<JS::Value> rval);
+#endif
+
 [[nodiscard]] bool InitBaselineFrameForOsr(BaselineFrame* frame,
                                            InterpreterFrame* interpFrame,
                                            uint32_t numStackValues);
@@ -562,6 +576,14 @@ bool GetNativeDataPropertyByValuePure(JSContext* cx, JSObject* obj,
                                       MegamorphicCacheEntry* cacheEntry,
                                       Value* vp);
 
+bool GetPropMaybeCached(JSContext* cx, HandleObject obj, HandleId id,
+                        MegamorphicCacheEntry* cacheEntry,
+                        MutableHandleValue result);
+
+bool GetElemMaybeCached(JSContext* cx, HandleObject obj, HandleValue id,
+                        MegamorphicCacheEntry* cacheEntry,
+                        MutableHandleValue result);
+
 template <bool HasOwn>
 bool HasNativeDataPropertyPure(JSContext* cx, JSObject* obj,
                                MegamorphicCacheEntry* cacheEntry, Value* vp);
@@ -582,6 +604,8 @@ bool SetPropertyMegamorphic(JSContext* cx, HandleObject obj, HandleId id,
 
 JSString* TypeOfNameObject(JSObject* obj, JSRuntime* rt);
 
+bool TypeOfEqObject(JSObject* obj, TypeofEqOperand operand);
+
 bool GetPrototypeOf(JSContext* cx, HandleObject target,
                     MutableHandleValue rval);
 
@@ -601,6 +625,8 @@ void TraceCreateObject(JSObject* obj);
 #endif
 
 bool DoStringToInt64(JSContext* cx, HandleString str, uint64_t* res);
+
+BigInt* CreateBigIntFromInt32(JSContext* cx, int32_t i32);
 
 #if JS_BITS_PER_WORD == 32
 BigInt* CreateBigIntFromInt64(JSContext* cx, uint32_t low, uint32_t high);
@@ -640,11 +666,11 @@ bool StringBigIntCompare(JSContext* cx, HandleString x, HandleBigInt y,
 BigInt* BigIntAsIntN(JSContext* cx, HandleBigInt x, int32_t bits);
 BigInt* BigIntAsUintN(JSContext* cx, HandleBigInt x, int32_t bits);
 
-using AtomicsCompareExchangeFn = int32_t (*)(FixedLengthTypedArrayObject*,
-                                             size_t, int32_t, int32_t);
+using AtomicsCompareExchangeFn = int32_t (*)(TypedArrayObject*, size_t, int32_t,
+                                             int32_t);
 
-using AtomicsReadWriteModifyFn = int32_t (*)(FixedLengthTypedArrayObject*,
-                                             size_t, int32_t);
+using AtomicsReadWriteModifyFn = int32_t (*)(TypedArrayObject*, size_t,
+                                             int32_t);
 
 AtomicsCompareExchangeFn AtomicsCompareExchange(Scalar::Type elementType);
 AtomicsReadWriteModifyFn AtomicsExchange(Scalar::Type elementType);
@@ -654,31 +680,36 @@ AtomicsReadWriteModifyFn AtomicsAnd(Scalar::Type elementType);
 AtomicsReadWriteModifyFn AtomicsOr(Scalar::Type elementType);
 AtomicsReadWriteModifyFn AtomicsXor(Scalar::Type elementType);
 
-BigInt* AtomicsLoad64(JSContext* cx, FixedLengthTypedArrayObject* typedArray,
+BigInt* AtomicsLoad64(JSContext* cx, TypedArrayObject* typedArray,
                       size_t index);
 
-void AtomicsStore64(FixedLengthTypedArrayObject* typedArray, size_t index,
+void AtomicsStore64(TypedArrayObject* typedArray, size_t index,
                     const BigInt* value);
 
-BigInt* AtomicsCompareExchange64(JSContext* cx,
-                                 FixedLengthTypedArrayObject* typedArray,
+BigInt* AtomicsCompareExchange64(JSContext* cx, TypedArrayObject* typedArray,
                                  size_t index, const BigInt* expected,
                                  const BigInt* replacement);
 
-BigInt* AtomicsExchange64(JSContext* cx,
-                          FixedLengthTypedArrayObject* typedArray, size_t index,
-                          const BigInt* value);
+BigInt* AtomicsExchange64(JSContext* cx, TypedArrayObject* typedArray,
+                          size_t index, const BigInt* value);
 
-BigInt* AtomicsAdd64(JSContext* cx, FixedLengthTypedArrayObject* typedArray,
-                     size_t index, const BigInt* value);
-BigInt* AtomicsAnd64(JSContext* cx, FixedLengthTypedArrayObject* typedArray,
-                     size_t index, const BigInt* value);
-BigInt* AtomicsOr64(JSContext* cx, FixedLengthTypedArrayObject* typedArray,
-                    size_t index, const BigInt* value);
-BigInt* AtomicsSub64(JSContext* cx, FixedLengthTypedArrayObject* typedArray,
-                     size_t index, const BigInt* value);
-BigInt* AtomicsXor64(JSContext* cx, FixedLengthTypedArrayObject* typedArray,
-                     size_t index, const BigInt* value);
+BigInt* AtomicsAdd64(JSContext* cx, TypedArrayObject* typedArray, size_t index,
+                     const BigInt* value);
+BigInt* AtomicsAnd64(JSContext* cx, TypedArrayObject* typedArray, size_t index,
+                     const BigInt* value);
+BigInt* AtomicsOr64(JSContext* cx, TypedArrayObject* typedArray, size_t index,
+                    const BigInt* value);
+BigInt* AtomicsSub64(JSContext* cx, TypedArrayObject* typedArray, size_t index,
+                     const BigInt* value);
+BigInt* AtomicsXor64(JSContext* cx, TypedArrayObject* typedArray, size_t index,
+                     const BigInt* value);
+
+float RoundFloat16ToFloat32(int32_t d);
+float RoundFloat16ToFloat32(float d);
+float RoundFloat16ToFloat32(double d);
+
+float Float16ToFloat32(int32_t value);
+int32_t Float32ToFloat16(float value);
 
 JSAtom* AtomizeStringNoGC(JSContext* cx, JSString* str);
 

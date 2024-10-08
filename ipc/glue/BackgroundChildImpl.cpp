@@ -19,6 +19,7 @@
 #include "mozilla/dom/PBackgroundLSRequestChild.h"
 #include "mozilla/dom/PBackgroundLSSimpleRequestChild.h"
 #include "mozilla/dom/PBackgroundSDBConnectionChild.h"
+#include "mozilla/dom/CookieStoreChild.h"
 #include "mozilla/dom/PFileSystemRequestChild.h"
 #include "mozilla/dom/EndpointForReportChild.h"
 #include "mozilla/dom/PVsync.h"
@@ -69,11 +70,9 @@ namespace mozilla::ipc {
 using mozilla::dom::UDPSocketChild;
 using mozilla::net::PUDPSocketChild;
 
-using mozilla::dom::PRemoteWorkerChild;
 using mozilla::dom::PServiceWorkerChild;
 using mozilla::dom::PServiceWorkerContainerChild;
 using mozilla::dom::PServiceWorkerRegistrationChild;
-using mozilla::dom::RemoteWorkerChild;
 using mozilla::dom::StorageDBChild;
 using mozilla::dom::cache::PCacheChild;
 using mozilla::dom::cache::PCacheStreamControlChild;
@@ -138,9 +137,8 @@ void BackgroundChildImpl::ProcessingError(Result aCode, const char* aReason) {
       MOZ_CRASH("Unknown error code!");
   }
 
-  nsDependentCString reason(aReason);
-  CrashReporter::AnnotateCrashReport(
-      CrashReporter::Annotation::ipc_channel_error, reason);
+  CrashReporter::RecordAnnotationCString(
+      CrashReporter::Annotation::ipc_channel_error, aReason);
 
   MOZ_CRASH_UNSAFE_PRINTF("%s: %s", abortMessage.get(), aReason);
 }
@@ -253,18 +251,6 @@ bool BackgroundChildImpl::DeallocPBackgroundStorageChild(
   return true;
 }
 
-already_AddRefed<PRemoteWorkerChild>
-BackgroundChildImpl::AllocPRemoteWorkerChild(const RemoteWorkerData& aData) {
-  return MakeAndAddRef<RemoteWorkerChild>(aData);
-}
-
-IPCResult BackgroundChildImpl::RecvPRemoteWorkerConstructor(
-    PRemoteWorkerChild* aActor, const RemoteWorkerData& aData) {
-  dom::RemoteWorkerChild* actor = static_cast<dom::RemoteWorkerChild*>(aActor);
-  actor->ExecWorker(aData);
-  return IPC_OK();
-}
-
 dom::PSharedWorkerChild* BackgroundChildImpl::AllocPSharedWorkerChild(
     const dom::RemoteWorkerData& aData, const uint64_t& aWindowID,
     const dom::MessagePortIdentifier& aPortIdentifier) {
@@ -334,6 +320,26 @@ bool BackgroundChildImpl::DeallocPBroadcastChannelChild(
   MOZ_ASSERT(child);
   return true;
 }
+
+// -----------------------------------------------------------------------------
+// CookieStore API
+// -----------------------------------------------------------------------------
+
+dom::PCookieStoreChild* BackgroundChildImpl::AllocPCookieStoreChild() {
+  RefPtr<dom::CookieStoreChild> child = new dom::CookieStoreChild();
+  return child.forget().take();
+}
+
+bool BackgroundChildImpl::DeallocPCookieStoreChild(PCookieStoreChild* aActor) {
+  RefPtr<dom::CookieStoreChild> child =
+      dont_AddRef(static_cast<dom::CookieStoreChild*>(aActor));
+  MOZ_ASSERT(child);
+  return true;
+}
+
+// -----------------------------------------------------------------------------
+// Camera API
+// -----------------------------------------------------------------------------
 
 camera::PCamerasChild* BackgroundChildImpl::AllocPCamerasChild() {
 #ifdef MOZ_WEBRTC

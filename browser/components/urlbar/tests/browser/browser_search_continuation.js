@@ -6,18 +6,62 @@
  * Tests how trending and recent searches work together.
  */
 
-const CONFIG_DEFAULT = [
+const CONFIG_V2 = [
   {
-    webExtension: { id: "basic@search.mozilla.org" },
-    urls: {
-      trending: {
-        fullPath:
-          "https://example.com/browser/browser/components/search/test/browser/trendingSuggestionEngine.sjs",
-        query: "",
+    recordType: "engine",
+    identifier: "basic",
+    base: {
+      name: "basic",
+      urls: {
+        search: {
+          base: "https://example.com",
+          searchTermParamName: "q",
+        },
+        trending: {
+          base: "https://example.com/browser/browser/components/search/test/browser/trendingSuggestionEngine.sjs",
+          method: "GET",
+        },
       },
+      aliases: ["basic"],
     },
-    appliesTo: [{ included: { everywhere: true } }],
-    default: "yes",
+    variants: [
+      {
+        environment: { allRegionsAndLocales: true },
+      },
+    ],
+  },
+  {
+    recordType: "engine",
+    identifier: "private",
+    base: {
+      name: "private",
+      urls: {
+        search: {
+          base: "https://example.com",
+          searchTermParamName: "q",
+        },
+        suggestions: {
+          base: "https://example.com",
+          method: "GET",
+          searchTermParamName: "search",
+        },
+      },
+      aliases: ["private"],
+    },
+    variants: [
+      {
+        environment: { allRegionsAndLocales: true },
+      },
+    ],
+  },
+  {
+    recordType: "defaultEngines",
+    globalDefault: "basic",
+    specificDefaults: [],
+  },
+  {
+    recordType: "engineOrders",
+    orders: [],
   },
 ];
 
@@ -39,7 +83,7 @@ add_setup(async () => {
   });
 
   await UrlbarTestUtils.formHistory.clear();
-  await SearchTestUtils.setupTestEngines("search-engines", CONFIG_DEFAULT);
+  await SearchTestUtils.updateRemoteSettingsConfig(CONFIG_V2);
 
   registerCleanupFunction(async () => {
     await UrlbarTestUtils.formHistory.clear();

@@ -1,3 +1,5 @@
+// |jit-test| --enable-arraybuffer-resizable
+
 const constructors = [
     Int8Array,
     Uint8Array,
@@ -6,6 +8,7 @@ const constructors = [
     Uint16Array,
     Int32Array,
     Uint32Array,
+    Float16Array,
     Float32Array,
     Float64Array ];
 
@@ -72,6 +75,16 @@ function test() {
         view0 = new Uint8Array(ab);
         const big = new ctor(ab);
         messWith(big, ab);
+    }
+
+    // With resizable buffer.
+    for (const ctor of constructors) {
+        let ab = new ArrayBuffer(32, {maxByteLength: 64});
+        const small = new ctor(ab);
+        messWith(small, small);
+        ab = new ArrayBuffer(4000, {maxByteLength: 4096});
+        const big = new ctor(ab);
+        messWith(big, big);
     }
 }
 

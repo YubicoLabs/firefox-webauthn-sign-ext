@@ -37,7 +37,7 @@ class DebuggerMessageEventRunnable final : public WorkerDebuggerRunnable {
  public:
   DebuggerMessageEventRunnable(WorkerPrivate* aWorkerPrivate,
                                const nsAString& aMessage)
-      : WorkerDebuggerRunnable(aWorkerPrivate, "DebuggerMessageEventRunnable"),
+      : WorkerDebuggerRunnable("DebuggerMessageEventRunnable"),
         mMessage(aMessage) {}
 
  private:
@@ -74,7 +74,7 @@ class CompileDebuggerScriptRunnable final : public WorkerDebuggerRunnable {
   CompileDebuggerScriptRunnable(WorkerPrivate* aWorkerPrivate,
                                 const nsAString& aScriptURL,
                                 const mozilla::Encoding* aDocumentEncoding)
-      : WorkerDebuggerRunnable(aWorkerPrivate, "CompileDebuggerScriptRunnable"),
+      : WorkerDebuggerRunnable("CompileDebuggerScriptRunnable"),
         mScriptURL(aScriptURL),
         mDocumentEncoding(aDocumentEncoding) {}
 
@@ -146,13 +146,13 @@ class WorkerDebugger::PostDebuggerMessageRunnable final : public Runnable {
 
 class WorkerDebugger::ReportDebuggerErrorRunnable final : public Runnable {
   WorkerDebugger* mDebugger;
-  nsString mFilename;
+  nsCString mFilename;
   uint32_t mLineno;
   nsString mMessage;
 
  public:
   ReportDebuggerErrorRunnable(WorkerDebugger* aDebugger,
-                              const nsAString& aFilename, uint32_t aLineno,
+                              const nsACString& aFilename, uint32_t aLineno,
                               const nsAString& aMessage)
       : Runnable("ReportDebuggerErrorRunnable"),
         mDebugger(aDebugger),
@@ -192,7 +192,7 @@ NS_IMETHODIMP
 WorkerDebugger::GetIsClosed(bool* aResult) {
   AssertIsOnMainThread();
 
-  *aResult = !mWorkerPrivate;
+  *aResult = !mWorkerPrivate || mWorkerPrivate->IsDead();
   return NS_OK;
 }
 
@@ -376,7 +376,7 @@ WorkerDebugger::Initialize(const nsAString& aURL) {
     RefPtr<CompileDebuggerScriptRunnable> runnable =
         new CompileDebuggerScriptRunnable(mWorkerPrivate, aURL,
                                           aDocumentEncoding);
-    if (!runnable->Dispatch()) {
+    if (!runnable->Dispatch(mWorkerPrivate)) {
       return NS_ERROR_FAILURE;
     }
 
@@ -396,7 +396,7 @@ WorkerDebugger::PostMessageMoz(const nsAString& aMessage) {
 
   RefPtr<DebuggerMessageEventRunnable> runnable =
       new DebuggerMessageEventRunnable(mWorkerPrivate, aMessage);
-  if (!runnable->Dispatch()) {
+  if (!runnable->Dispatch(mWorkerPrivate)) {
     return NS_ERROR_FAILURE;
   }
 
@@ -461,7 +461,7 @@ void WorkerDebugger::PostMessageToDebuggerOnMainThread(
   }
 }
 
-void WorkerDebugger::ReportErrorToDebugger(const nsAString& aFilename,
+void WorkerDebugger::ReportErrorToDebugger(const nsACString& aFilename,
                                            uint32_t aLineno,
                                            const nsAString& aMessage) {
   mWorkerPrivate->AssertIsOnWorkerThread();
@@ -475,7 +475,7 @@ void WorkerDebugger::ReportErrorToDebugger(const nsAString& aFilename,
 }
 
 void WorkerDebugger::ReportErrorToDebuggerOnMainThread(
-    const nsAString& aFilename, uint32_t aLineno, const nsAString& aMessage) {
+    const nsACString& aFilename, uint32_t aLineno, const nsAString& aMessage) {
   AssertIsOnMainThread();
 
   for (const auto& listener : mListeners.Clone()) {

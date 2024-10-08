@@ -48,6 +48,7 @@
 #include "mozilla/Attributes.h"
 #include "mozilla/BaseProfilerMarkersPrerequisites.h"
 #include "mozilla/BasicEvents.h"
+#include "mozilla/BounceTrackingStorageObserver.h"
 #include "mozilla/CallState.h"
 #include "mozilla/CycleCollectedJSContext.h"
 #include "mozilla/DOMEventTargetHelper.h"
@@ -71,6 +72,7 @@
 #include "mozilla/ProcessHangMonitor.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/Result.h"
+#include "mozilla/ScrollContainerFrame.h"
 #include "mozilla/ScrollTypes.h"
 #include "mozilla/Components.h"
 #include "mozilla/SizeOfState.h"
@@ -96,6 +98,7 @@
 #include "mozilla/dom/BindingUtils.h"
 #include "mozilla/dom/BrowserChild.h"
 #include "mozilla/dom/BrowsingContext.h"
+#include "mozilla/dom/Credential.h"
 #include "mozilla/dom/CSPEvalChecker.h"
 #include "mozilla/dom/CallbackDebuggerNotification.h"
 #include "mozilla/dom/ChromeMessageBroadcaster.h"
@@ -104,7 +107,10 @@
 #include "mozilla/dom/ClientSource.h"
 #include "mozilla/dom/ClientState.h"
 #include "mozilla/dom/ClientsBinding.h"
+#include "mozilla/dom/CloseWatcher.h"
+#include "mozilla/dom/CloseWatcherManager.h"
 #include "mozilla/dom/Console.h"
+#include "mozilla/dom/CookieStore.h"
 #include "mozilla/dom/ContentChild.h"
 #include "mozilla/dom/ContentFrameMessageManager.h"
 #include "mozilla/dom/ContentMediaController.h"
@@ -138,6 +144,7 @@
 #include "mozilla/dom/Location.h"
 #include "mozilla/dom/MediaDevices.h"
 #include "mozilla/dom/MediaKeys.h"
+#include "mozilla/dom/Navigation.h"
 #include "mozilla/dom/NavigatorBinding.h"
 #include "mozilla/dom/Nullable.h"
 #include "mozilla/dom/PartitionedLocalStorage.h"
@@ -167,6 +174,7 @@
 #include "mozilla/dom/TimeoutHandler.h"
 #include "mozilla/dom/TimeoutManager.h"
 #include "mozilla/dom/ToJSValue.h"
+#include "mozilla/dom/TrustedTypePolicyFactory.h"
 #include "mozilla/dom/VRDisplay.h"
 #include "mozilla/dom/VRDisplayEvent.h"
 #include "mozilla/dom/VRDisplayEventBinding.h"
@@ -224,6 +232,7 @@
 #include "nsIBrowserChild.h"
 #include "nsICancelableRunnable.h"
 #include "nsIChannel.h"
+#include "nsIClipboard.h"
 #include "nsIContentSecurityPolicy.h"
 #include "nsIControllers.h"
 #include "nsICookieJarSettings.h"
@@ -260,7 +269,6 @@
 #include "nsIScriptContext.h"
 #include "nsIScriptGlobalObject.h"
 #include "nsIScriptObjectPrincipal.h"
-#include "nsIScrollableFrame.h"
 #include "nsISerialEventTarget.h"
 #include "nsISimpleEnumerator.h"
 #include "nsISizeOfEventTarget.h"
@@ -603,7 +611,7 @@ nsresult IdleRequestExecutor::Cancel() {
   MOZ_ASSERT(NS_IsMainThread());
 
   if (mDelayedExecutorHandle && mWindow) {
-    mWindow->TimeoutManager().ClearTimeout(
+    mWindow->GetTimeoutManager()->ClearTimeout(
         mDelayedExecutorHandle.value(), Timeout::Reason::eIdleCallbackTimeout);
   }
 
@@ -668,7 +676,7 @@ void IdleRequestExecutor::DelayedDispatch(uint32_t aDelay) {
   MOZ_ASSERT(mWindow);
   MOZ_ASSERT(mDelayedExecutorHandle.isNothing());
   int32_t handle;
-  mWindow->TimeoutManager().SetTimeout(
+  mWindow->GetTimeoutManager()->SetTimeout(
       mDelayedExecutorDispatcher, aDelay, false,
       Timeout::Reason::eIdleCallbackTimeout, &handle);
   mDelayedExecutorHandle = Some(handle);
@@ -1126,7 +1134,6 @@ void nsGlobalWindowInner::FreeInnerObjects() {
   // Make sure that this is called before we null out the document and
   // other members that the window destroyed observers could
   // re-create.
-  NotifyDOMWindowDestroyed(this);
   if (auto* reporter = nsWindowMemoryReporter::Get()) {
     reporter->ObserveDOMWindowDetached(this);
   }
@@ -1256,6 +1263,7 @@ void nsGlobalWindowInner::FreeInnerObjects() {
   mScrollbars = nullptr;
 
   mConsole = nullptr;
+  mCookieStore = nullptr;
 
   mPaintWorklet = nullptr;
 
@@ -1282,6 +1290,8 @@ void nsGlobalWindowInner::FreeInnerObjects() {
     mWebTaskScheduler->Disconnect();
     mWebTaskScheduler = nullptr;
   }
+
+  mTrustedTypePolicyFactory = nullptr;
 
   mSharedWorkers.Clear();
 
@@ -1378,6 +1388,8 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INTERNAL(nsGlobalWindowInner)
 
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mWebTaskScheduler)
 
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mTrustedTypePolicyFactory)
+
 #ifdef MOZ_WEBSPEECH
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mSpeechSynthesis)
 #endif
@@ -1399,6 +1411,7 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INTERNAL(nsGlobalWindowInner)
 
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mLocation)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mHistory)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mNavigation)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mCustomElements)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mSharedWorkers)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mLocalStorage)
@@ -1432,6 +1445,7 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INTERNAL(nsGlobalWindowInner)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mFocusedElement)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mBrowsingContext)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mWindowGlobalChild)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mCloseWatcherManager)
 
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mMenubar)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mToolbar)
@@ -1441,11 +1455,13 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN_INTERNAL(nsGlobalWindowInner)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mScrollbars)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mCrypto)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mConsole)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mCookieStore)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mPaintWorklet)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mExternal)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mInstallTrigger)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mIntlUtils)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mVisualViewport)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mCurrentPasteDataTransfer)
 
   tmp->TraverseObjectsInGlobal(cb);
 
@@ -1481,6 +1497,8 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsGlobalWindowInner)
     NS_IMPL_CYCLE_COLLECTION_UNLINK(mWebTaskScheduler)
   }
 
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mTrustedTypePolicyFactory)
+
 #ifdef MOZ_WEBSPEECH
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mSpeechSynthesis)
 #endif
@@ -1507,6 +1525,7 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsGlobalWindowInner)
 
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mLocation)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mHistory)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mNavigation)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mCustomElements)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mSharedWorkers)
   if (tmp->mLocalStorage) {
@@ -1549,11 +1568,13 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(nsGlobalWindowInner)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mScrollbars)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mCrypto)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mConsole)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mCookieStore)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mPaintWorklet)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mExternal)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mInstallTrigger)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mIntlUtils)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mVisualViewport)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mCurrentPasteDataTransfer)
 
   tmp->UnlinkObjectsInGlobal();
 
@@ -1850,12 +1871,9 @@ nsresult nsGlobalWindowInner::EnsureClientSource() {
 
     bool ignoreLoadInfo = false;
 
-    // Note, this is mostly copied from NS_IsAboutBlank().  Its duplicated
-    // here so we can efficiently check about:srcdoc as well.
     if (uri->SchemeIs("about")) {
-      nsCString spec = uri->GetSpecOrDefault();
-      ignoreLoadInfo = spec.EqualsLiteral("about:blank") ||
-                       spec.EqualsLiteral("about:srcdoc");
+      ignoreLoadInfo =
+          NS_IsAboutBlankAllowQueryAndFragment(uri) || NS_IsAboutSrcdoc(uri);
     } else {
       // Its not an about: URL, so now check for our other URL types.
       ignoreLoadInfo = uri->SchemeIs("data") || uri->SchemeIs("blob");
@@ -2410,6 +2428,14 @@ nsHistory* nsGlobalWindowInner::GetHistory(ErrorResult& aError) {
   return mHistory;
 }
 
+Navigation* nsGlobalWindowInner::Navigation() {
+  if (!mNavigation && Navigation::IsAPIEnabled(nullptr, nullptr)) {
+    mNavigation = new mozilla::dom::Navigation();
+  }
+
+  return mNavigation;
+}
+
 CustomElementRegistry* nsGlobalWindowInner::CustomElements() {
   if (!mCustomElements) {
     mCustomElements = new CustomElementRegistry(this);
@@ -2762,12 +2788,12 @@ bool nsPIDOMWindowInner::IsPlayingAudio() {
 
 bool nsPIDOMWindowInner::IsDocumentLoaded() const { return mIsDocumentLoaded; }
 
-mozilla::dom::TimeoutManager& nsPIDOMWindowInner::TimeoutManager() {
-  return *mTimeoutManager;
+mozilla::dom::TimeoutManager* nsGlobalWindowInner::GetTimeoutManager() {
+  return mTimeoutManager.get();
 }
 
-bool nsPIDOMWindowInner::IsRunningTimeout() {
-  return TimeoutManager().IsRunningTimeout();
+bool nsGlobalWindowInner::IsRunningTimeout() {
+  return GetTimeoutManager()->IsRunningTimeout();
 }
 
 void nsPIDOMWindowInner::TryToCacheTopInnerWindow() {
@@ -3294,12 +3320,6 @@ bool nsGlobalWindowInner::CachesEnabled(JSContext* aCx, JSObject* aObj) {
 }
 
 /* static */
-bool nsGlobalWindowInner::IsSizeToContentEnabled(JSContext* aCx, JSObject*) {
-  return StaticPrefs::dom_window_sizeToContent_enabled() ||
-         nsContentUtils::IsSystemCaller(aCx);
-}
-
-/* static */
 bool nsGlobalWindowInner::IsGleanNeeded(JSContext* aCx, JSObject* aObj) {
   // Glean is needed in ChromeOnly contexts and also in privileged about pages.
   nsIPrincipal* principal = nsContentUtils::SubjectPrincipal(aCx);
@@ -3492,18 +3512,7 @@ double nsGlobalWindowInner::GetDevicePixelRatio(CallerType aCallerType,
 
   if (nsIGlobalObject::ShouldResistFingerprinting(
           aCallerType, RFPTarget::WindowDevicePixelRatio)) {
-    // Spoofing the DevicePixelRatio causes blurriness in some situations
-    // on HiDPI displays. pdf.js is a non-system caller; but it can't
-    // expose the fingerprintable information, so we can safely disable
-    // spoofing in this situation. It doesn't address the issue for
-    // web-rendered content (including pdf.js instances on the web.)
-    // In the future we hope to have a better solution to fix all HiDPI
-    // blurriness...
-    nsAutoCString origin;
-    nsresult rv = this->GetPrincipal()->GetOrigin(origin);
-    if (NS_FAILED(rv) || origin != "resource://pdf.js"_ns) {
-      return 1.0;
-    }
+    return 2.0;
   }
 
   if (aCallerType == CallerType::NonSystem) {
@@ -3526,7 +3535,7 @@ double nsGlobalWindowInner::GetDesktopToDeviceScale(ErrorResult& aError) {
   return presContext->DeviceContext()->GetDesktopToDeviceScale().scale;
 }
 
-int32_t nsGlobalWindowInner::RequestAnimationFrame(
+uint32_t nsGlobalWindowInner::RequestAnimationFrame(
     FrameRequestCallback& aCallback, ErrorResult& aError) {
   if (!mDoc) {
     return 0;
@@ -3539,12 +3548,12 @@ int32_t nsGlobalWindowInner::RequestAnimationFrame(
   DebuggerNotificationDispatch(this,
                                DebuggerNotificationType::RequestAnimationFrame);
 
-  int32_t handle;
+  uint32_t handle;
   aError = mDoc->ScheduleFrameRequestCallback(aCallback, &handle);
   return handle;
 }
 
-void nsGlobalWindowInner::CancelAnimationFrame(int32_t aHandle,
+void nsGlobalWindowInner::CancelAnimationFrame(uint32_t aHandle,
                                                ErrorResult& aError) {
   if (!mDoc) {
     return;
@@ -3693,7 +3702,7 @@ bool nsGlobalWindowInner::Confirm(const nsAString& aMessage,
 }
 
 already_AddRefed<Promise> nsGlobalWindowInner::Fetch(
-    const RequestOrUSVString& aInput, const RequestInit& aInit,
+    const RequestOrUTF8String& aInput, const RequestInit& aInit,
     CallerType aCallerType, ErrorResult& aRv) {
   return FetchRequest(this, aInput, aInit, aCallerType, aRv);
 }
@@ -3742,7 +3751,7 @@ Nullable<WindowProxyHolder> nsGlobalWindowInner::PrintPreview(
        /* aRemotePrintJob = */ nullptr, aListener, aDocShellToCloneInto,
        nsGlobalWindowOuter::IsPreview::Yes,
        nsGlobalWindowOuter::IsForWindowDotPrint::No,
-       /* aPrintPreviewCallback = */ nullptr, aError),
+       /* aPrintPreviewCallback = */ nullptr, nullptr, aError),
       aError, nullptr);
 }
 
@@ -3772,16 +3781,10 @@ void nsGlobalWindowInner::ResizeBy(int32_t aWidthDif, int32_t aHeightDif,
       ResizeByOuter, (aWidthDif, aHeightDif, aCallerType, aError), aError, );
 }
 
-void nsGlobalWindowInner::SizeToContent(CallerType aCallerType,
-                                        ErrorResult& aError) {
-  FORWARD_TO_OUTER_OR_THROW(SizeToContentOuter, (aCallerType, {}, aError),
-                            aError, );
-}
-
-void nsGlobalWindowInner::SizeToContentConstrained(
+void nsGlobalWindowInner::SizeToContent(
     const SizeToContentConstraints& aConstraints, ErrorResult& aError) {
-  FORWARD_TO_OUTER_OR_THROW(
-      SizeToContentOuter, (CallerType::System, aConstraints, aError), aError, );
+  FORWARD_TO_OUTER_OR_THROW(SizeToContentOuter, (aConstraints, aError),
+                            aError, );
 }
 
 already_AddRefed<nsPIWindowRoot> nsGlobalWindowInner::GetTopWindowRoot() {
@@ -3792,162 +3795,140 @@ already_AddRefed<nsPIWindowRoot> nsGlobalWindowInner::GetTopWindowRoot() {
   return outer->GetTopWindowRoot();
 }
 
-void nsGlobalWindowInner::Scroll(double aXScroll, double aYScroll) {
-  // Convert -Inf, Inf, and NaN to 0; otherwise, convert by C-style cast.
-  auto scrollPos = CSSIntPoint::Truncate(mozilla::ToZeroIfNonfinite(aXScroll),
-                                         mozilla::ToZeroIfNonfinite(aYScroll));
-  ScrollTo(scrollPos, ScrollOptions());
-}
-
 void nsGlobalWindowInner::ScrollTo(double aXScroll, double aYScroll) {
-  // Convert -Inf, Inf, and NaN to 0; otherwise, convert by C-style cast.
-  auto scrollPos = CSSIntPoint::Truncate(mozilla::ToZeroIfNonfinite(aXScroll),
-                                         mozilla::ToZeroIfNonfinite(aYScroll));
-  ScrollTo(scrollPos, ScrollOptions());
+  ScrollToOptions options;
+  options.mLeft.Construct(aXScroll);
+  options.mTop.Construct(aYScroll);
+  ScrollTo(options);
 }
 
 void nsGlobalWindowInner::ScrollTo(const ScrollToOptions& aOptions) {
+  Maybe<int32_t> left;
+  Maybe<int32_t> top;
+  if (aOptions.mLeft.WasPassed()) {
+    left.emplace(static_cast<int32_t>(
+        mozilla::ToZeroIfNonfinite(aOptions.mLeft.Value())));
+  }
+  if (aOptions.mTop.WasPassed()) {
+    top.emplace(static_cast<int32_t>(
+        mozilla::ToZeroIfNonfinite(aOptions.mTop.Value())));
+  }
+
   // When scrolling to a non-zero offset, we need to determine whether that
   // position is within our scrollable range, so we need updated layout
-  // information which requires a layout flush, otherwise all we need is to
-  // flush frames to be able to access our scrollable frame here.
-  FlushType flushType =
-      ((aOptions.mLeft.WasPassed() && aOptions.mLeft.Value() > 0) ||
-       (aOptions.mTop.WasPassed() && aOptions.mTop.Value() > 0))
-          ? FlushType::Layout
-          : FlushType::Frames;
-  FlushPendingNotifications(flushType);
-  nsIScrollableFrame* sf = GetScrollFrame();
-
-  if (sf) {
-    CSSIntPoint scrollPos = sf->GetRoundedScrollPositionCSSPixels();
-    if (aOptions.mLeft.WasPassed()) {
-      scrollPos.x = static_cast<int32_t>(
-          mozilla::ToZeroIfNonfinite(aOptions.mLeft.Value()));
-    }
-    if (aOptions.mTop.WasPassed()) {
-      scrollPos.y = static_cast<int32_t>(
-          mozilla::ToZeroIfNonfinite(aOptions.mTop.Value()));
-    }
-
-    ScrollTo(scrollPos, aOptions);
+  // information.
+  if ((top && *top != 0) || (left && *left != 0)) {
+    FlushPendingNotifications(FlushType::Layout);
   }
-}
 
-void nsGlobalWindowInner::Scroll(const ScrollToOptions& aOptions) {
-  ScrollTo(aOptions);
-}
-
-void nsGlobalWindowInner::ScrollTo(const CSSIntPoint& aScroll,
-                                   const ScrollOptions& aOptions) {
-  // When scrolling to a non-zero offset, we need to determine whether that
-  // position is within our scrollable range, so we need updated layout
-  // information which requires a layout flush, otherwise all we need is to
-  // flush frames to be able to access our scrollable frame here.
-  FlushType flushType =
-      (aScroll.x || aScroll.y) ? FlushType::Layout : FlushType::Frames;
-  FlushPendingNotifications(flushType);
-  nsIScrollableFrame* sf = GetScrollFrame();
-
-  if (sf) {
-    // Here we calculate what the max pixel value is that we can
-    // scroll to, we do this by dividing maxint with the pixel to
-    // twips conversion factor, and subtracting 4, the 4 comes from
-    // experimenting with this value, anything less makes the view
-    // code not scroll correctly, I have no idea why. -- jst
-    const int32_t maxpx = nsPresContext::AppUnitsToIntCSSPixels(0x7fffffff) - 4;
-
-    CSSIntPoint scroll(aScroll);
-    if (scroll.x > maxpx) {
-      scroll.x = maxpx;
-    }
-
-    if (scroll.y > maxpx) {
-      scroll.y = maxpx;
-    }
-
-    ScrollMode scrollMode = sf->IsSmoothScroll(aOptions.mBehavior)
-                                ? ScrollMode::SmoothMsd
-                                : ScrollMode::Instant;
-
-    sf->ScrollToCSSPixels(scroll, scrollMode);
+  ScrollContainerFrame* sf = GetScrollContainerFrame();
+  if (!sf) {
+    return;
   }
+  CSSIntPoint scrollPos = sf->GetRoundedScrollPositionCSSPixels();
+  if (left) {
+    scrollPos.x = *left;
+  }
+  if (top) {
+    scrollPos.y = *top;
+  }
+  // Here we calculate what the max pixel value is that we can
+  // scroll to, we do this by dividing maxint with the pixel to
+  // twips conversion factor, and subtracting 4, the 4 comes from
+  // experimenting with this value, anything less makes the view
+  // code not scroll correctly, I have no idea why. -- jst
+  const int32_t maxpx = nsPresContext::AppUnitsToIntCSSPixels(0x7fffffff) - 4;
+  if (scrollPos.x > maxpx) {
+    scrollPos.x = maxpx;
+  }
+  if (scrollPos.y > maxpx) {
+    scrollPos.y = maxpx;
+  }
+  auto scrollMode = sf->IsSmoothScroll(aOptions.mBehavior)
+                        ? ScrollMode::SmoothMsd
+                        : ScrollMode::Instant;
+  sf->ScrollToCSSPixels(scrollPos, scrollMode);
 }
 
 void nsGlobalWindowInner::ScrollBy(double aXScrollDif, double aYScrollDif) {
-  FlushPendingNotifications(FlushType::Layout);
-  nsIScrollableFrame* sf = GetScrollFrame();
-
-  if (sf) {
-    // It seems like it would make more sense for ScrollBy to use
-    // SMOOTH mode, but tests seem to depend on the synchronous behaviour.
-    // Perhaps Web content does too.
-    ScrollToOptions options;
-    options.mLeft.Construct(aXScrollDif);
-    options.mTop.Construct(aYScrollDif);
-    ScrollBy(options);
-  }
+  ScrollToOptions options;
+  options.mLeft.Construct(aXScrollDif);
+  options.mTop.Construct(aYScrollDif);
+  // It seems like it would make more sense for ScrollBy to use
+  // SMOOTH mode, but tests seem to depend on the synchronous behaviour.
+  // Perhaps Web content does too.
+  ScrollBy(options);
 }
 
 void nsGlobalWindowInner::ScrollBy(const ScrollToOptions& aOptions) {
-  FlushPendingNotifications(FlushType::Layout);
-  nsIScrollableFrame* sf = GetScrollFrame();
-
-  if (sf) {
-    CSSIntPoint scrollDelta;
-    if (aOptions.mLeft.WasPassed()) {
-      scrollDelta.x = static_cast<int32_t>(
-          mozilla::ToZeroIfNonfinite(aOptions.mLeft.Value()));
-    }
-    if (aOptions.mTop.WasPassed()) {
-      scrollDelta.y = static_cast<int32_t>(
-          mozilla::ToZeroIfNonfinite(aOptions.mTop.Value()));
-    }
-
-    ScrollMode scrollMode = sf->IsSmoothScroll(aOptions.mBehavior)
-                                ? ScrollMode::SmoothMsd
-                                : ScrollMode::Instant;
-
-    sf->ScrollByCSSPixels(scrollDelta, scrollMode);
+  CSSIntPoint scrollDelta;
+  if (aOptions.mLeft.WasPassed()) {
+    scrollDelta.x = static_cast<int32_t>(
+        mozilla::ToZeroIfNonfinite(aOptions.mLeft.Value()));
   }
+  if (aOptions.mTop.WasPassed()) {
+    scrollDelta.y =
+        static_cast<int32_t>(mozilla::ToZeroIfNonfinite(aOptions.mTop.Value()));
+  }
+
+  if (!scrollDelta.x && !scrollDelta.y) {
+    return;
+  }
+
+  FlushPendingNotifications(FlushType::Layout);
+  ScrollContainerFrame* sf = GetScrollContainerFrame();
+  if (!sf) {
+    return;
+  }
+
+  auto scrollMode = sf->IsSmoothScroll(aOptions.mBehavior)
+                        ? ScrollMode::SmoothMsd
+                        : ScrollMode::Instant;
+  sf->ScrollByCSSPixels(scrollDelta, scrollMode);
 }
 
 void nsGlobalWindowInner::ScrollByLines(int32_t numLines,
                                         const ScrollOptions& aOptions) {
-  FlushPendingNotifications(FlushType::Layout);
-  nsIScrollableFrame* sf = GetScrollFrame();
-  if (sf) {
-    // It seems like it would make more sense for ScrollByLines to use
-    // SMOOTH mode, but tests seem to depend on the synchronous behaviour.
-    // Perhaps Web content does too.
-    ScrollMode scrollMode = sf->IsSmoothScroll(aOptions.mBehavior)
-                                ? ScrollMode::SmoothMsd
-                                : ScrollMode::Instant;
-
-    sf->ScrollBy(nsIntPoint(0, numLines), ScrollUnit::LINES, scrollMode);
+  if (!numLines) {
+    return;
   }
+  FlushPendingNotifications(FlushType::Layout);
+  ScrollContainerFrame* sf = GetScrollContainerFrame();
+  if (!sf) {
+    return;
+  }
+  // It seems like it would make more sense for ScrollByLines to use
+  // SMOOTH mode, but tests seem to depend on the synchronous behaviour.
+  // Perhaps Web content does too.
+  ScrollMode scrollMode = sf->IsSmoothScroll(aOptions.mBehavior)
+                              ? ScrollMode::SmoothMsd
+                              : ScrollMode::Instant;
+  sf->ScrollBy(nsIntPoint(0, numLines), ScrollUnit::LINES, scrollMode);
 }
 
 void nsGlobalWindowInner::ScrollByPages(int32_t numPages,
                                         const ScrollOptions& aOptions) {
-  FlushPendingNotifications(FlushType::Layout);
-  nsIScrollableFrame* sf = GetScrollFrame();
-  if (sf) {
-    // It seems like it would make more sense for ScrollByPages to use
-    // SMOOTH mode, but tests seem to depend on the synchronous behaviour.
-    // Perhaps Web content does too.
-    ScrollMode scrollMode = sf->IsSmoothScroll(aOptions.mBehavior)
-                                ? ScrollMode::SmoothMsd
-                                : ScrollMode::Instant;
-
-    sf->ScrollBy(nsIntPoint(0, numPages), ScrollUnit::PAGES, scrollMode);
+  if (!numPages) {
+    return;
   }
+  FlushPendingNotifications(FlushType::Layout);
+  ScrollContainerFrame* sf = GetScrollContainerFrame();
+  if (!sf) {
+    return;
+  }
+  // It seems like it would make more sense for ScrollByPages to use
+  // SMOOTH mode, but tests seem to depend on the synchronous behaviour.
+  // Perhaps Web content does too.
+  ScrollMode scrollMode = sf->IsSmoothScroll(aOptions.mBehavior)
+                              ? ScrollMode::SmoothMsd
+                              : ScrollMode::Instant;
+
+  sf->ScrollBy(nsIntPoint(0, numPages), ScrollUnit::PAGES, scrollMode);
 }
 
 void nsGlobalWindowInner::MozScrollSnap() {
   FlushPendingNotifications(FlushType::Layout);
-  nsIScrollableFrame* sf = GetScrollFrame();
-  if (sf) {
+  if (ScrollContainerFrame* sf = GetScrollContainerFrame()) {
     sf->ScrollSnap();
   }
 }
@@ -4064,44 +4045,10 @@ bool nsGlobalWindowInner::IsInModalState() {
   FORWARD_TO_OUTER(IsInModalState, (), false);
 }
 
-// static
-void nsGlobalWindowInner::NotifyDOMWindowDestroyed(
-    nsGlobalWindowInner* aWindow) {
-  nsCOMPtr<nsIObserverService> observerService = services::GetObserverService();
-  if (observerService) {
-    observerService->NotifyObservers(ToSupports(aWindow),
-                                     DOM_WINDOW_DESTROYED_TOPIC, nullptr);
-  }
-}
-
 void nsGlobalWindowInner::NotifyWindowIDDestroyed(const char* aTopic) {
   nsCOMPtr<nsIRunnable> runnable =
       new WindowDestroyedEvent(this, mWindowID, aTopic);
   Dispatch(runnable.forget());
-}
-
-// static
-void nsGlobalWindowInner::NotifyDOMWindowFrozen(nsGlobalWindowInner* aWindow) {
-  if (aWindow) {
-    nsCOMPtr<nsIObserverService> observerService =
-        services::GetObserverService();
-    if (observerService) {
-      observerService->NotifyObservers(ToSupports(aWindow),
-                                       DOM_WINDOW_FROZEN_TOPIC, nullptr);
-    }
-  }
-}
-
-// static
-void nsGlobalWindowInner::NotifyDOMWindowThawed(nsGlobalWindowInner* aWindow) {
-  if (aWindow) {
-    nsCOMPtr<nsIObserverService> observerService =
-        services::GetObserverService();
-    if (observerService) {
-      observerService->NotifyObservers(ToSupports(aWindow),
-                                       DOM_WINDOW_THAWED_TOPIC, nullptr);
-    }
-  }
 }
 
 Element* nsGlobalWindowInner::GetFrameElement(nsIPrincipal& aSubjectPrincipal,
@@ -4457,14 +4404,15 @@ void nsGlobalWindowInner::SetReadyForFocus() {
   }
 }
 
-void nsGlobalWindowInner::PageHidden() {
+void nsGlobalWindowInner::PageHidden(bool aIsEnteringBFCacheInParent) {
   // the window is being hidden, so tell the focus manager that the frame is
   // no longer valid. Use the persisted field to determine if the document
   // is being destroyed.
 
   if (RefPtr<nsFocusManager> fm = nsFocusManager::GetFocusManager()) {
     nsCOMPtr<nsPIDOMWindowOuter> outerWindow = GetOuterWindow();
-    fm->WindowHidden(outerWindow, nsFocusManager::GenerateFocusActionId());
+    fm->WindowHidden(outerWindow, nsFocusManager::GenerateFocusActionId(),
+                     aIsEnteringBFCacheInParent);
   }
 
   mNeedsFocus = true;
@@ -4638,6 +4586,19 @@ already_AddRefed<nsICSSDeclaration> nsGlobalWindowInner::GetComputedStyleHelper(
                             aError, nullptr);
 }
 
+void nsGlobalWindowInner::MaybeNotifyStorageKeyUsed() {
+  // Only notify once per window lifetime.
+  if (hasNotifiedStorageKeyUsed) {
+    return;
+  }
+  nsresult rv =
+      BounceTrackingStorageObserver::OnInitialStorageAccess(GetWindowContext());
+  if (NS_WARN_IF(NS_FAILED(rv))) {
+    return;
+  }
+  hasNotifiedStorageKeyUsed = true;
+}
+
 Storage* nsGlobalWindowInner::GetSessionStorage(ErrorResult& aError) {
   nsIPrincipal* principal = GetPrincipal();
   nsIPrincipal* storagePrincipal;
@@ -4759,6 +4720,8 @@ Storage* nsGlobalWindowInner::GetSessionStorage(ErrorResult& aError) {
       return nullptr;
     }
   }
+
+  MaybeNotifyStorageKeyUsed();
 
   MOZ_LOG(gDOMLeakPRLogInner, LogLevel::Debug,
           ("nsGlobalWindowInner %p returns %p sessionStorage", this,
@@ -4928,6 +4891,8 @@ Storage* nsGlobalWindowInner::GetLocalStorage(ErrorResult& aError) {
         new PartitionedLocalStorage(this, principal, storagePrincipal, cache);
   }
 
+  MaybeNotifyStorageKeyUsed();
+
   MOZ_ASSERT(mLocalStorage);
   MOZ_ASSERT(
       mLocalStorage->Type() ==
@@ -4946,6 +4911,8 @@ IDBFactory* nsGlobalWindowInner::GetIndexedDB(JSContext* aCx,
       mIndexedDB = res.unwrap();
     }
   }
+
+  MaybeNotifyStorageKeyUsed();
 
   return mIndexedDB;
 }
@@ -5082,7 +5049,7 @@ nsGlobalWindowInner::ShowSlowScriptDialog(JSContext* aCx,
   }
 
   // Reached only on non-e10s - once per slow script dialog.
-  // On e10s - we probe once at ProcessHangsMonitor.jsm
+  // On e10s - we probe once at ProcessHangsMonitor.sys.mjs
   Telemetry::Accumulate(Telemetry::SLOW_SCRIPT_NOTICE_COUNT, 1);
 
   // Get the nsIPrompt interface from the docshell
@@ -5666,7 +5633,7 @@ void nsGlobalWindowInner::FreezeInternal(bool aIncludeSubWindows) {
     mClientSource->Freeze();
   }
 
-  NotifyDOMWindowFrozen(this);
+  NotifyGlobalFrozen();
 }
 
 void nsGlobalWindowInner::Thaw(bool aIncludeSubWindows) {
@@ -5704,7 +5671,7 @@ void nsGlobalWindowInner::ThawInternal(bool aIncludeSubWindows) {
     pinnedWorker->Thaw();
   }
 
-  NotifyDOMWindowThawed(this);
+  NotifyGlobalThawed();
 }
 
 bool nsGlobalWindowInner::IsFrozen() const {
@@ -5762,6 +5729,8 @@ void nsGlobalWindowInner::UpdateBackgroundState() {
     devices->BackgroundStateChanged();
   }
   mTimeoutManager->UpdateBackgroundState();
+
+  UpdateWorkersBackgroundState(*this, IsBackgroundInternal());
 }
 
 template <typename Method, typename... Args>
@@ -5954,6 +5923,10 @@ nsresult nsGlobalWindowInner::FireDelayedDOMEvents(bool aIncludeSubWindows) {
   // Fires an offline status event if the offline status has changed
   FireOfflineStatusEventIfChanged();
 
+  if (mCookieStore) {
+    mCookieStore->FireDelayedDOMEvents();
+  }
+
   if (!aIncludeSubWindows) {
     return NS_OK;
   }
@@ -6090,7 +6063,7 @@ bool WindowScriptTimeoutHandler::Call(const char* aExecutionReason) {
   nsAutoMicroTask mt;
   AutoEntryScript aes(mGlobal, aExecutionReason, true);
   JS::CompileOptions options(aes.cx());
-  options.setFileAndLine(mFileName.get(), mLineNo);
+  options.setFileAndLine(mCaller.FileName().get(), mCaller.mLine);
   options.setNoScriptRval(true);
   options.setIntroductionType("domTimer");
   JS::Rooted<JSObject*> global(aes.cx(), mGlobal->GetGlobalJSObject());
@@ -6360,8 +6333,8 @@ nsGlobalWindowInner::GetWebBrowserChrome() {
   return browserChrome.forget();
 }
 
-nsIScrollableFrame* nsGlobalWindowInner::GetScrollFrame() {
-  FORWARD_TO_OUTER(GetScrollFrame, (), nullptr);
+ScrollContainerFrame* nsGlobalWindowInner::GetScrollContainerFrame() {
+  FORWARD_TO_OUTER(GetScrollContainerFrame, (), nullptr);
 }
 
 bool nsGlobalWindowInner::IsPrivateBrowsing() {
@@ -6764,6 +6737,18 @@ void nsGlobalWindowInner::GetGamepads(nsTArray<RefPtr<Gamepad>>& aGamepads) {
     aGamepads.EnsureLengthAtLeast(gamepad->Index() + 1);
     aGamepads[gamepad->Index()] = gamepad;
   }
+}
+
+already_AddRefed<mozilla::dom::Promise> nsGlobalWindowInner::RequestAllGamepads(
+    ErrorResult& aRv) {
+  RefPtr<GamepadManager> gamepadManager(GamepadManager::GetService());
+
+  if (!gamepadManager) {
+    aRv.Throw(NS_ERROR_UNEXPECTED);
+    return nullptr;
+  }
+
+  return gamepadManager->RequestAllGamepads(this, aRv);
 }
 
 already_AddRefed<Gamepad> nsGlobalWindowInner::GetGamepad(
@@ -7277,11 +7262,13 @@ void nsGlobalWindowInner::InitWasOffline() { mWasOffline = NS_IsOffline(); }
 int16_t nsGlobalWindowInner::Orientation(CallerType aCallerType) {
   // GetOrientationAngle() returns 0, 90, 180 or 270.
   // window.orientation returns -90, 0, 90 or 180.
+  uint16_t screenAngle = Screen()->GetOrientationAngle();
   if (nsIGlobalObject::ShouldResistFingerprinting(
           aCallerType, RFPTarget::ScreenOrientation)) {
-    return 0;
+    CSSIntSize size = mBrowsingContext->GetTopInnerSizeForRFP();
+    screenAngle = nsRFPService::ViewportSizeToAngle(size.width, size.height);
   }
-  int16_t angle = AssertedCast<int16_t>(Screen()->GetOrientationAngle());
+  int16_t angle = AssertedCast<int16_t>(screenAngle);
   return angle <= 180 ? angle : angle - 360;
 }
 
@@ -7296,6 +7283,14 @@ already_AddRefed<Console> nsGlobalWindowInner::GetConsole(JSContext* aCx,
 
   RefPtr<Console> console = mConsole;
   return console.forget();
+}
+
+already_AddRefed<CookieStore> nsGlobalWindowInner::CookieStore() {
+  if (!mCookieStore) {
+    mCookieStore = CookieStore::Create(this);
+  }
+
+  return do_AddRef(mCookieStore);
 }
 
 bool nsGlobalWindowInner::IsSecureContext() const {
@@ -7561,7 +7556,7 @@ void nsGlobalWindowInner::SetScrollMarks(const nsTArray<uint32_t>& aScrollMarks,
   if (mDoc) {
     PresShell* presShell = mDoc->GetPresShell();
     if (presShell) {
-      nsIScrollableFrame* sf = presShell->GetRootScrollFrameAsScrollable();
+      ScrollContainerFrame* sf = presShell->GetRootScrollContainerFrame();
       if (sf) {
         sf->InvalidateScrollbars();
       }
@@ -7601,6 +7596,27 @@ JS::loader::ModuleLoaderBase* nsGlobalWindowInner::GetModuleLoader(
   }
 
   return loader->GetModuleLoader();
+}
+
+void nsGlobalWindowInner::SetCurrentPasteDataTransfer(
+    DataTransfer* aDataTransfer) {
+  MOZ_ASSERT_IF(aDataTransfer, aDataTransfer->GetEventMessage() == ePaste);
+  MOZ_ASSERT_IF(aDataTransfer, aDataTransfer->ClipboardType() ==
+                                   Some(nsIClipboard::kGlobalClipboard));
+  MOZ_ASSERT_IF(aDataTransfer, aDataTransfer->GetClipboardDataSnapshot());
+  mCurrentPasteDataTransfer = aDataTransfer;
+}
+
+DataTransfer* nsGlobalWindowInner::GetCurrentPasteDataTransfer() const {
+  return mCurrentPasteDataTransfer;
+}
+
+TrustedTypePolicyFactory* nsGlobalWindowInner::TrustedTypes() {
+  if (!mTrustedTypePolicyFactory) {
+    mTrustedTypePolicyFactory = MakeRefPtr<TrustedTypePolicyFactory>(this);
+  }
+
+  return mTrustedTypePolicyFactory;
 }
 
 nsIURI* nsPIDOMWindowInner::GetDocumentURI() const {
@@ -7684,6 +7700,13 @@ bool nsPIDOMWindowInner::UsingStorageAccess() {
   return wc->GetUsingStorageAccess();
 }
 
+CloseWatcherManager* nsPIDOMWindowInner::EnsureCloseWatcherManager() {
+  if (!mCloseWatcherManager) {
+    mCloseWatcherManager = new CloseWatcherManager();
+  }
+  return mCloseWatcherManager;
+}
+
 nsPIDOMWindowInner::nsPIDOMWindowInner(nsPIDOMWindowOuter* aOuterWindow,
                                        WindowGlobalChild* aActor)
     : mMutationBits(0),
@@ -7697,6 +7720,7 @@ nsPIDOMWindowInner::nsPIDOMWindowInner(nsPIDOMWindowOuter* aOuterWindow,
       mMayHaveMouseEnterLeaveEventListener(false),
       mMayHavePointerEnterLeaveEventListener(false),
       mMayHaveTransitionEventListener(false),
+      mMayHaveSMILTimeEventListener(false),
       mMayHaveBeforeInputEventListenerForTelemetry(false),
       mMutationObserverHasObservedNodeForTelemetry(false),
       mOuterWindow(aOuterWindow),

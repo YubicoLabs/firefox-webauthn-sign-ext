@@ -247,7 +247,7 @@ export class SpecialPowersParent extends JSWindowActorParent {
     swm.removeListener(this._serviceWorkerListener);
   }
 
-  observe(aSubject, aTopic, aData) {
+  observe(aSubject, aTopic) {
     function addDumpIDToMessage(propertyName) {
       try {
         var id = aSubject.getPropertyAsAString(propertyName);
@@ -1341,9 +1341,7 @@ export class SpecialPowersParent extends JSWindowActorParent {
           let id = aMessage.data.id;
           let extension = this._extensions.get(id);
           this._extensions.delete(id);
-          return extension.shutdown().then(() => {
-            return extension._uninstallPromise;
-          });
+          return lazy.ExtensionTestCommon.unloadTestExtension(extension);
         }
 
         case "SPExtensionTerminateBackground": {

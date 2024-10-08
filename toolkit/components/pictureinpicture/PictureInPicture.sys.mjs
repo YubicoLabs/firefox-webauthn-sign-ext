@@ -64,6 +64,12 @@ XPCOMUtils.defineLazyPreferenceGetter(
   "media.videocontrols.picture-in-picture.respect-disablePictureInPicture",
   true
 );
+XPCOMUtils.defineLazyPreferenceGetter(
+  lazy,
+  "PIP_WHEN_SWITCHING_TABS",
+  "media.videocontrols.picture-in-picture.enable-when-switching-tabs.enabled",
+  true
+);
 
 /**
  * Tracks the number of currently open player windows for Telemetry tracking
@@ -115,6 +121,36 @@ export class PictureInPictureToggleParent extends JSWindowActorParent {
       case "PictureInPicture:SetHasUsed": {
         let { hasUsed } = aMessage.data;
         PictureInPicture.setHasUsed(hasUsed);
+        break;
+      }
+      case "PictureInPicture:VideoTabHidden": {
+        if (!lazy.PIP_ENABLED || !lazy.PIP_WHEN_SWITCHING_TABS) {
+          break;
+        }
+        // If the tab is still selected, then we can ignore this event
+        if (browser.ownerGlobal.gBrowser.selectedBrowser == browser) {
+          break;
+        }
+        let actor = browsingContext.currentWindowGlobal.getActor(
+          "PictureInPictureLauncher"
+        );
+        actor.sendAsyncMessage("PictureInPicture:AutoToggle");
+        break;
+      }
+      case "PictureInPicture:VideoTabShown": {
+        if (!lazy.PIP_ENABLED || !lazy.PIP_WHEN_SWITCHING_TABS) {
+          break;
+        }
+        if (browser.ownerGlobal.gBrowser.selectedBrowser != browser) {
+          break;
+        }
+        for (let win of Services.wm.getEnumerator(WINDOW_TYPE)) {
+          let originatingBrowser = PictureInPicture.weakWinToBrowser.get(win);
+          if (browser == originatingBrowser) {
+            win.closeFromForeground();
+            break;
+          }
+        }
         break;
       }
     }
@@ -246,8 +282,6 @@ export var PictureInPicture = {
     let panel = browser.ownerDocument.querySelector("#PictureInPicturePanel");
 
     if (!panel) {
-      browser.ownerGlobal.ensureCustomElements("moz-toggle");
-      browser.ownerGlobal.ensureCustomElements("moz-support-link");
       let template = browser.ownerDocument.querySelector(
         "#PictureInPicturePanelTemplate"
       );
@@ -444,7 +478,7 @@ export var PictureInPicture = {
     tab.ownerGlobal.focus();
 
     gBrowser.selectedTab = tab;
-    await this.closeSinglePipWindow({ reason: "unpip", actorRef: pipActor });
+    await this.closeSinglePipWindow({ reason: "Unpip", actorRef: pipActor });
   },
 
   /**
@@ -461,11 +495,7 @@ export var PictureInPicture = {
       respectPipDisabled
     );
 
-    Services.telemetry.recordEvent(
-      "pictureinpicture",
-      "disrespect_disable",
-      "urlBar"
-    );
+    Glean.pictureinpicture.disrespectDisableUrlBar.record();
   },
 
   /**
@@ -635,7 +665,7 @@ export var PictureInPicture = {
               )
             );
             if (callout) {
-              eventExtraKeys.callout = "true";
+              eventExtraKeys.callout = true;
             }
           }
         }
@@ -681,13 +711,9 @@ export var PictureInPicture = {
       );
 
       pipPanel.openPopup(anchor, "bottomright topright");
-      Services.telemetry.recordEvent(
-        "pictureinpicture",
-        "opened_method",
-        "urlBar",
-        null,
-        { disableDialog: "true" }
-      );
+      Glean.pictureinpicture.openedMethodUrlBar.record({
+        disableDialog: true,
+      });
     } else {
       pipPanel.hidePopup();
     }
@@ -795,12 +821,7 @@ export var PictureInPicture = {
     }
     this.removePiPBrowserFromWeakMap(this.weakWinToBrowser.get(win));
 
-    Services.telemetry.recordEvent(
-      "pictureinpicture",
-      "closed_method",
-      reason,
-      null
-    );
+    Glean.pictureinpicture["closedMethod" + reason].record();
     await this.closePipWindow(win);
   },
 
@@ -849,7 +870,7 @@ export var PictureInPicture = {
     tab.addEventListener("TabSwapPictureInPicture", this);
 
     let pipId = gNextWindowID.toString();
-    win.setupPlayer(pipId, wgp, videoData.videoRef);
+    win.setupPlayer(pipId, wgp, videoData.videoRef, videoData.autoFocus);
     gNextWindowID++;
 
     this.weakWinToBrowser.set(win, browser);
@@ -862,22 +883,15 @@ export var PictureInPicture = {
 
     Services.prefs.setBoolPref(TOGGLE_HAS_USED_PREF, true);
 
-    let args = {
-      width: win.innerWidth.toString(),
-      height: win.innerHeight.toString(),
-      screenX: win.screenX.toString(),
-      screenY: win.screenY.toString(),
-      ccEnabled: videoData.ccEnabled.toString(),
-      webVTTSubtitles: videoData.webVTTSubtitles.toString(),
-    };
-
-    Services.telemetry.recordEvent(
-      "pictureinpicture",
-      "create",
-      "player",
-      pipId,
-      args
-    );
+    Glean.pictureinpicture.createPlayer.record({
+      value: pipId,
+      width: win.innerWidth,
+      height: win.innerHeight,
+      screenX: win.screenX,
+      screenY: win.screenY,
+      ccEnabled: videoData.ccEnabled,
+      webVTTSubtitles: videoData.webVTTSubtitles,
+    });
   },
 
   /**
@@ -1430,38 +1444,36 @@ export var PictureInPicture = {
 
     // We synthesize a new MouseEvent to propagate the inputSource to the
     // subsequently triggered popupshowing event.
-    let newEvent = document.createEvent("MouseEvent");
-    let screenX = data.screenXDevPx / window.devicePixelRatio;
-    let screenY = data.screenYDevPx / window.devicePixelRatio;
-    newEvent.initNSMouseEvent(
-      "contextmenu",
-      true,
-      true,
-      null,
-      0,
-      screenX,
-      screenY,
-      0,
-      0,
-      false,
-      false,
-      false,
-      false,
-      0,
-      null,
-      0,
-      data.inputSource
-    );
+    let newEvent = new PointerEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      screenX: data.screenXDevPx / window.devicePixelRatio,
+      screenY: data.screenYDevPx / window.devicePixelRatio,
+      pointerType: (() => {
+        switch (data.inputSource) {
+          case MouseEvent.MOZ_SOURCE_MOUSE:
+            return "mouse";
+          case MouseEvent.MOZ_SOURCE_PEN:
+            return "pen";
+          case MouseEvent.MOZ_SOURCE_ERASER:
+            return "eraser";
+          case MouseEvent.MOZ_SOURCE_CURSOR:
+            return "cursor";
+          case MouseEvent.MOZ_SOURCE_TOUCH:
+            return "touch";
+          case MouseEvent.MOZ_SOURCE_KEYBOARD:
+            return "keyboard";
+          default:
+            return "";
+        }
+      })(),
+    });
     popup.openPopupAtScreen(newEvent.screenX, newEvent.screenY, true, newEvent);
   },
 
   hideToggle() {
     Services.prefs.setBoolPref(TOGGLE_ENABLED_PREF, false);
-    Services.telemetry.recordEvent(
-      "pictureinpicture.settings",
-      "disable",
-      "player"
-    );
+    Glean.pictureinpictureSettings.disablePlayer.record();
   },
 
   /**

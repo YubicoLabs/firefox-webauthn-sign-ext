@@ -76,6 +76,7 @@ already_AddRefed<DataTransferItem> DataTransferItem::Clone(
   it->mData = mData;
   it->mPrincipal = mPrincipal;
   it->mChromeOnly = mChromeOnly;
+  it->mDoNotAttemptToLoadData = mDoNotAttemptToLoadData;
 
   return it.forget();
 }
@@ -144,7 +145,7 @@ void DataTransferItem::SetData(nsIVariant* aData) {
 }
 
 void DataTransferItem::FillInExternalData() {
-  if (mData) {
+  if (mData || mDoNotAttemptToLoadData) {
     return;
   }
 
@@ -167,9 +168,13 @@ void DataTransferItem::FillInExternalData() {
     if (mDataTransfer->GetEventMessage() == ePaste) {
       MOZ_ASSERT(mIndex == 0, "index in clipboard must be 0");
 
+      if (mDataTransfer->ClipboardType().isNothing()) {
+        return;
+      }
+
       nsCOMPtr<nsIClipboard> clipboard =
           do_GetService("@mozilla.org/widget/clipboard;1");
-      if (!clipboard || mDataTransfer->ClipboardType() < 0) {
+      if (!clipboard) {
         return;
       }
 
@@ -180,13 +185,19 @@ void DataTransferItem::FillInExternalData() {
         windowContext = innerWindow ? innerWindow->GetWindowContext() : nullptr;
       }
       MOZ_ASSERT(windowContext);
-      nsresult rv = clipboard->GetData(trans, mDataTransfer->ClipboardType(),
+      nsresult rv = clipboard->GetData(trans, *mDataTransfer->ClipboardType(),
                                        windowContext);
       if (NS_WARN_IF(NS_FAILED(rv))) {
+        if (rv == NS_ERROR_CONTENT_BLOCKED) {
+          // If the load of this content was blocked by Content Analysis,
+          // do not attempt to load it again.
+          mDoNotAttemptToLoadData = true;
+        }
         return;
       }
     } else {
-      nsCOMPtr<nsIDragSession> dragSession = nsContentUtils::GetDragSession();
+      nsCOMPtr<nsIDragSession> dragSession =
+          mDataTransfer->GetOwnerDragSession();
       if (!dragSession) {
         return;
       }

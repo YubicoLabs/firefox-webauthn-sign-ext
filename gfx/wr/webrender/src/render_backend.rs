@@ -16,6 +16,7 @@ use api::{FramePublishId, PrimitiveKeyKind, RenderReasons};
 use api::units::*;
 use api::channel::{single_msg_channel, Sender, Receiver};
 use crate::AsyncPropertySampler;
+use crate::box_shadow::BoxShadow;
 #[cfg(any(feature = "capture", feature = "replay"))]
 use crate::render_api::CaptureBits;
 #[cfg(feature = "replay")]
@@ -56,8 +57,10 @@ use crate::spatial_tree::SpatialTree;
 #[cfg(feature = "replay")]
 use crate::spatial_tree::SceneSpatialTree;
 use crate::telemetry::Telemetry;
-#[cfg(feature = "serialize")]
-use serde::{Serialize, Deserialize};
+#[cfg(feature = "capture")]
+use serde::Serialize;
+#[cfg(feature = "replay")]
+use serde::Deserialize;
 #[cfg(feature = "replay")]
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::sync::Arc;
@@ -281,6 +284,10 @@ impl DataStores {
             }
             PrimitiveInstanceKind::BackdropRender { data_handle, .. } => {
                 let prim_data = &self.backdrop_render[data_handle];
+                &prim_data.common
+            }
+            PrimitiveInstanceKind::BoxShadow { data_handle, .. } => {
+                let prim_data = &self.box_shadow[data_handle];
                 &prim_data.common
             }
         }
@@ -545,12 +552,12 @@ impl Document {
         self.frame_is_valid = true;
         self.dirty_rects_are_valid = true;
 
-        let is_new_scene = self.has_built_scene;
         self.has_built_scene = false;
 
         let frame_build_time_ms =
             profiler::ns_to_ms(precise_time_ns() - frame_build_start_time);
         self.profile.set(profiler::FRAME_BUILDING_TIME, frame_build_time_ms);
+        self.profile.start_time(profiler::FRAME_SEND_TIME);
 
         let frame_stats = frame_stats.map(|mut stats| {
             stats.frame_build_time += frame_build_time_ms;
@@ -559,7 +566,6 @@ impl Document {
 
         RenderedDocument {
             frame,
-            is_new_scene,
             profile: self.profile.take_and_reset(),
             frame_stats: frame_stats,
             render_reasons,
@@ -661,7 +667,10 @@ impl Document {
             resource_cache,
         );
 
-        self.scene = built_scene;
+
+        let old_scene = std::mem::replace(&mut self.scene, built_scene);
+        old_scene.recycle();
+
         self.scratch.recycle(recycler);
     }
 }
@@ -1354,6 +1363,8 @@ impl RenderBackend {
         has_built_scene: bool,
         start_time: Option<u64>
     ) -> bool {
+        let update_doc_start = precise_time_ns();
+
         let requested_frame = render_frame;
 
         let requires_frame_build = self.requires_frame_build();
@@ -1502,6 +1513,9 @@ impl RenderBackend {
                 },
                 None => {},
             }
+
+            let update_doc_time = profiler::ns_to_ms(precise_time_ns() - update_doc_start);
+            rendered_document.profile.set(profiler::UPDATE_DOCUMENT_TIME, update_doc_time);
 
             let msg = ResultMsg::PublishPipelineInfo(doc.updated_pipeline_info());
             self.result_tx.send(msg).unwrap();
@@ -1918,7 +1932,6 @@ impl RenderBackend {
                         id,
                         RenderedDocument {
                             frame,
-                            is_new_scene: true,
                             profile: TransactionProfile::new(),
                             render_reasons: RenderReasons::empty(),
                             frame_stats: None,

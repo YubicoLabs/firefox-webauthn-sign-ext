@@ -124,6 +124,11 @@ const uint8_t ATTR_GLOBAL = 0x1 << 3;
  */
 const uint8_t ATTR_VALINT = 0x1 << 4;
 
+/**
+ * Indicates that the attribute can have reflected elements.
+ */
+const uint8_t ATTR_REFLECT_ELEMENTS = 0x1 << 5;
+
 ////////////////////////////////////////////////////////////////////////////////
 // State map entry
 
@@ -234,6 +239,19 @@ const uint8_t LANDMARK_ROLE_MAP_ENTRY_INDEX = UINT8_MAX;
  */
 const nsRoleMapEntry* GetRoleMap(dom::Element* aEl);
 
+/*
+ * Get the role map entry pointer's index for a given DOM node, skipping any
+ * given roles. This will use the first valid ARIA role if the role attribute
+ * provides a space delimited list of roles, excluding any given roles.
+ *
+ * @param aEl          [in] the DOM node to get the role map entry for
+ * @param aRolesToSkip [in] the roles to skip when searching the role string
+ * @return             the index of the pointer to the role map entry for the
+ *                     ARIA role, or NO_ROLE_MAP_ENTRY_INDEX if none
+ */
+uint8_t GetFirstValidRoleMapIndexExcluding(
+    dom::Element* aEl, std::initializer_list<nsStaticAtom*> aRolesToSkip);
+
 /**
  * Get the role map entry pointer's index for a given DOM node. This will use
  * the first ARIA role if the role attribute provides a space delimited list of
@@ -292,6 +310,11 @@ uint8_t AttrCharacteristicsFor(nsAtom* aAtom);
 bool HasDefinedARIAHidden(nsIContent* aContent);
 
 /**
+ * Get the role map entry for a given ARIA role.
+ */
+const nsRoleMapEntry* GetRoleMap(const nsStaticAtom* aAriaRole);
+
+/**
  * Represents a simple enumerator for iterating through ARIA attributes
  * exposed as object attributes on a given accessible.
  */
@@ -326,6 +349,26 @@ class AttrIterator {
   uint32_t mAttrCount;
   RefPtr<nsAtom> mAttrAtom;
   uint8_t mAttrCharacteristics;
+};
+
+class AttrWithCharacteristicsIterator {
+ public:
+  explicit AttrWithCharacteristicsIterator(uint8_t aCharacteristics)
+      : mIdx(-1), mCharacteristics(aCharacteristics) {}
+
+  bool Next();
+
+  nsStaticAtom* AttrName() const;
+
+ private:
+  AttrWithCharacteristicsIterator() = delete;
+  AttrWithCharacteristicsIterator(const AttrWithCharacteristicsIterator&) =
+      delete;
+  AttrWithCharacteristicsIterator& operator=(
+      const AttrWithCharacteristicsIterator&) = delete;
+
+  int32_t mIdx;
+  uint8_t mCharacteristics;
 };
 
 }  // namespace aria

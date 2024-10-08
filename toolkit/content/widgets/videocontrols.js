@@ -5,7 +5,7 @@
 "use strict";
 
 // This is a UA widget. It runs in per-origin UA widget scope,
-// to be loaded by UAWidgetsChild.jsm.
+// to be loaded by UAWidgetsChild.sys.mjs.
 
 /*
  * This is the class of entry. It will construct the actual implementation
@@ -64,11 +64,8 @@ this.VideoControlsWidget = class {
     // the underlying element state hasn't changed in ways that we
     // care about. This can happen if the property is set again
     // without a value change.
-    if (
-      this.impl &&
-      this.impl.constructor == newImpl &&
-      this.impl.elementStateMatches(this.element)
-    ) {
+    if (this.impl && this.impl.constructor == newImpl) {
+      this.impl.onchange();
       return;
     }
     if (this.impl) {
@@ -420,10 +417,9 @@ this.VideoControlsImplWidget = class {
           }
 
           // We have to check again if the media has audio here.
-          if (!this.isAudioOnly && !this.video.mozHasAudio) {
-            this.muteButton.setAttribute("noAudio", "true");
-            this.muteButton.disabled = true;
-          }
+          let noAudio = !this.isAudioOnly && !this.video.mozHasAudio;
+          this.muteButton.toggleAttribute("noAudio", noAudio);
+          this.muteButton.disabled = noAudio;
         }
 
         // The video itself might not be fullscreen, but part of the
@@ -458,9 +454,9 @@ this.VideoControlsImplWidget = class {
           this.statusIcon.setAttribute("type", "error");
           this.updateErrorText();
           this.setupStatusFader(true);
-        } else if (VideoControlsWidget.isPictureInPictureVideo(this.video)) {
-          this.setShowPictureInPictureMessage(true);
         }
+
+        this.updatePictureInPictureMessage();
 
         if (this.video.readyState >= this.video.HAVE_METADATA) {
           // According to the spec[1], at the HAVE_METADATA (or later) state, we know
@@ -758,7 +754,7 @@ this.VideoControlsImplWidget = class {
               );
             }
             break;
-          case "loadedmetadata":
+          case "loadedmetadata": {
             // If a <video> doesn't have any video data, treat it as <audio>
             // and show the controls (they won't fade back out)
             if (
@@ -774,13 +770,13 @@ this.VideoControlsImplWidget = class {
               Math.round(this.video.currentTime * 1000),
               Math.round(this.video.duration * 1000)
             );
-            if (!this.isAudioOnly && !this.video.mozHasAudio) {
-              this.muteButton.setAttribute("noAudio", "true");
-              this.muteButton.disabled = true;
-            }
+            let noAudio = !this.isAudioOnly && !this.video.mozHasAudio;
+            this.muteButton.toggleAttribute("noAudio", noAudio);
+            this.muteButton.disabled = noAudio;
             this.adjustControlSize();
             this.updatePictureInPictureToggleDisplay();
             break;
+          }
           case "durationchange":
             this.updatePictureInPictureToggleDisplay();
             break;
@@ -934,6 +930,8 @@ this.VideoControlsImplWidget = class {
             // Since this event come from the layout, this is the only place
             // we are sure of that probing into layout won't trigger or force
             // reflow.
+            // FIXME(emilio): We should rewrite this to just use
+            // ResizeObserver, probably.
             this.reflowTriggeringCallValidator.isReflowTriggeringPropsAllowed = true;
             this.updateReflowedDimensions();
             this.reflowTriggeringCallValidator.isReflowTriggeringPropsAllowed = false;
@@ -1095,7 +1093,10 @@ this.VideoControlsImplWidget = class {
         );
       },
 
-      setShowPictureInPictureMessage(showMessage) {
+      updatePictureInPictureMessage() {
+        let showMessage =
+          !this.hasError() &&
+          VideoControlsWidget.isPictureInPictureVideo(this.video);
         this.pictureInPictureOverlay.hidden = !showMessage;
         this.isShowingPictureInPictureMessage = showMessage;
       },
@@ -1188,7 +1189,7 @@ this.VideoControlsImplWidget = class {
         }
       },
 
-      onScrubberInput(e) {
+      onScrubberInput() {
         const duration = Math.round(this.video.duration * 1000); // in ms
         let time = this.scrubber.value;
 
@@ -1200,7 +1201,7 @@ this.VideoControlsImplWidget = class {
         this.pauseVideoDuringDragging();
       },
 
-      onScrubberChange(e) {
+      onScrubberChange() {
         this.scrubber.isDragging = false;
 
         if (this.isPausedByDragging) {
@@ -1815,12 +1816,7 @@ this.VideoControlsImplWidget = class {
 
       updateMuteButtonState() {
         var muted = this.isEffectivelyMuted;
-
-        if (muted) {
-          this.muteButton.setAttribute("muted", "true");
-        } else {
-          this.muteButton.removeAttribute("muted");
-        }
+        this.muteButton.toggleAttribute("muted", muted);
 
         var id = muted
           ? "videocontrols-unmute-button"
@@ -2026,12 +2022,7 @@ this.VideoControlsImplWidget = class {
       },
 
       setCastingButtonState() {
-        if (this.isCastingOn) {
-          this.castingButton.setAttribute("enabled", "true");
-        } else {
-          this.castingButton.removeAttribute("enabled");
-        }
-
+        this.castingButton.toggleAttribute("enabled", this.isCastingOn);
         this.adjustControlSize();
       },
 
@@ -2058,22 +2049,15 @@ this.VideoControlsImplWidget = class {
       },
 
       setClosedCaptionButtonState() {
-        if (this.isClosedCaptionOn) {
-          this.closedCaptionButton.setAttribute("enabled", "true");
-        } else {
-          this.closedCaptionButton.removeAttribute("enabled");
-        }
-
+        this.closedCaptionButton.toggleAttribute(
+          "enabled",
+          this.isClosedCaptionOn
+        );
         let ttItems = this.textTrackList.childNodes;
 
         for (let tti of ttItems) {
           const idx = +tti.getAttribute("index");
-
-          if (idx == this.currentTextTrackIndex) {
-            tti.setAttribute("aria-checked", "true");
-          } else {
-            tti.setAttribute("aria-checked", "false");
-          }
+          tti.setAttribute("aria-checked", idx == this.currentTextTrackIndex);
         }
 
         this.adjustControlSize();
@@ -2804,10 +2788,6 @@ this.VideoControlsImplWidget = class {
     if (this.Utils.isTouchControls) {
       this.TouchUtils.init(this.shadowRoot, this.Utils);
     }
-    this.shadowRoot.firstChild.dispatchEvent(
-      new this.window.CustomEvent("VideoBindingAttached")
-    );
-
     this._setupEventListeners();
   }
 
@@ -2920,9 +2900,9 @@ this.VideoControlsImplWidget = class {
     this.l10n.translateRoots();
   }
 
-  elementStateMatches(element) {
-    let elementInPiP = VideoControlsWidget.isPictureInPictureVideo(element);
-    return this.isShowingPictureInPictureMessage == elementInPiP;
+  onchange() {
+    this.Utils.updatePictureInPictureMessage();
+    this.shadowRoot.firstChild.removeAttribute("flipped");
   }
 
   teardown() {
@@ -3080,14 +3060,9 @@ this.NoControlsMobileImplWidget = class {
       },
     };
     this.Utils.init(this.shadowRoot);
-    this.Utils.video.dispatchEvent(
-      new this.window.CustomEvent("MozNoControlsVideoBindingAttached")
-    );
   }
 
-  elementStateMatches(element) {
-    return true;
-  }
+  onchange() {}
 
   teardown() {
     this.Utils.terminate();
@@ -3135,9 +3110,7 @@ this.NoControlsPictureInPictureImplWidget = class {
     this.shadowRoot.firstElementChild.setAttribute("localedir", direction);
   }
 
-  elementStateMatches(element) {
-    return true;
-  }
+  onchange() {}
 
   teardown() {}
 
@@ -3312,9 +3285,7 @@ this.NoControlsDesktopImplWidget = class {
     this.Utils.init(this.shadowRoot, this.prefs);
   }
 
-  elementStateMatches(element) {
-    return true;
-  }
+  onchange() {}
 
   teardown() {
     this.Utils.terminate();

@@ -17,8 +17,11 @@
 #include "mozilla/Telemetry.h"
 #include "mozilla/TimeStamp.h"
 #include "mozilla/UniquePtr.h"
-#include "nsString.h"
+#include "mozilla/glean/GleanMetrics.h"
+#include "mozpkix/pkixder.h"
 #include "mozpkix/pkixtypes.h"
+#include "nsString.h"
+#include "signature_cache_ffi.h"
 #include "sslt.h"
 
 #if defined(_MSC_VER)
@@ -39,7 +42,6 @@ namespace ct {
 // dependent headers and force us to export them in moz.build.
 // Just forward-declare the classes here instead.
 class MultiLogCTVerifier;
-class CTDiversityPolicy;
 
 }  // namespace ct
 }  // namespace mozilla
@@ -105,9 +107,7 @@ class PinningTelemetryInfo {
 
 class CertificateTransparencyInfo {
  public:
-  CertificateTransparencyInfo()
-      : enabled(false),
-        policyCompliance(mozilla::ct::CTPolicyCompliance::Unknown) {
+  CertificateTransparencyInfo() : enabled(false), policyCompliance(Nothing()) {
     Reset();
   }
 
@@ -116,7 +116,7 @@ class CertificateTransparencyInfo {
   // Verification result of the processed SCTs.
   mozilla::ct::CTVerifyResult verifyResult;
   // Connection compliance to the CT Policy.
-  mozilla::ct::CTPolicyCompliance policyCompliance;
+  Maybe<mozilla::ct::CTPolicyCompliance> policyCompliance;
 
   void Reset();
 };
@@ -133,6 +133,31 @@ class DelegatedCredentialInfo {
 
   // The size of the key, in bits.
   uint32_t authKeyBits;
+};
+
+class SkipInvalidSANsForNonBuiltInRootsPolicy
+    : public pkix::NameMatchingPolicy {
+ public:
+  explicit SkipInvalidSANsForNonBuiltInRootsPolicy(bool rootIsBuiltIn)
+      : mRootIsBuiltIn(rootIsBuiltIn) {}
+
+  virtual pkix::Result FallBackToCommonName(
+      pkix::Time,
+      /*out*/ pkix::FallBackToSearchWithinSubject& fallBackToCommonName)
+      override {
+    fallBackToCommonName = pkix::FallBackToSearchWithinSubject::No;
+    return pkix::Success;
+  }
+
+  virtual pkix::HandleInvalidSubjectAlternativeNamesBy
+  HandleInvalidSubjectAlternativeNames() override {
+    return mRootIsBuiltIn
+               ? pkix::HandleInvalidSubjectAlternativeNamesBy::Halting
+               : pkix::HandleInvalidSubjectAlternativeNamesBy::Skipping;
+  }
+
+ private:
+  bool mRootIsBuiltIn;
 };
 
 class NSSCertDBTrustDomain;
@@ -241,7 +266,13 @@ class CertVerifier {
   // We only have a forward declarations of these classes (see above)
   // so we must allocate dynamically.
   UniquePtr<mozilla::ct::MultiLogCTVerifier> mCTVerifier;
-  UniquePtr<mozilla::ct::CTDiversityPolicy> mCTDiversityPolicy;
+
+  // If many connections are made to a site using a particular certificate,
+  // this cache will speed up verifications after the first one by saving the
+  // results of signature verification.
+  // This will also be beneficial in situations where different sites use
+  // different certificates that happen to be issued by the same intermediate.
+  UniquePtr<SignatureCache, decltype(&signature_cache_free)> mSignatureCache;
 
   void LoadKnownCTLogs();
   mozilla::pkix::Result VerifyCertificateTransparencyPolicy(
@@ -255,6 +286,18 @@ mozilla::pkix::Result IsCertBuiltInRoot(pkix::Input certInput, bool& result);
 mozilla::pkix::Result CertListContainsExpectedKeys(const CERTCertList* certList,
                                                    const char* hostname,
                                                    mozilla::pkix::Time time);
+
+// Verify signed data, making use of the given SignatureCache. That is, if the
+// (data, digestAlgorithm, signature, subjectPublicKeyInfo) tuple has already
+// been verified and is in the cache, this skips the work of verifying the
+// signature (which is slow) and returns the already-known result.
+mozilla::pkix::Result VerifySignedDataWithCache(
+    mozilla::pkix::der::PublicKeyAlgorithm publicKeyAlg,
+    mozilla::glean::impl::DenominatorMetric telemetryDenominator,
+    mozilla::glean::impl::NumeratorMetric telemetryNumerator,
+    mozilla::pkix::Input data, mozilla::pkix::DigestAlgorithm digestAlgorithm,
+    mozilla::pkix::Input signature, mozilla::pkix::Input subjectPublicKeyInfo,
+    SignatureCache* signatureCache, void* pinArg);
 
 }  // namespace psm
 }  // namespace mozilla

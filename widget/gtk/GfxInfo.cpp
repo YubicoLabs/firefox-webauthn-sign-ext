@@ -75,17 +75,17 @@ nsresult GfxInfo::Init() {
 }
 
 void GfxInfo::AddCrashReportAnnotations() {
-  CrashReporter::AnnotateCrashReport(CrashReporter::Annotation::AdapterVendorID,
-                                     mVendorId);
-  CrashReporter::AnnotateCrashReport(CrashReporter::Annotation::AdapterDeviceID,
-                                     mDeviceId);
-  CrashReporter::AnnotateCrashReport(
+  CrashReporter::RecordAnnotationNSCString(
+      CrashReporter::Annotation::AdapterVendorID, mVendorId);
+  CrashReporter::RecordAnnotationNSCString(
+      CrashReporter::Annotation::AdapterDeviceID, mDeviceId);
+  CrashReporter::RecordAnnotationNSCString(
       CrashReporter::Annotation::AdapterDriverVendor, mDriverVendor);
-  CrashReporter::AnnotateCrashReport(
+  CrashReporter::RecordAnnotationNSCString(
       CrashReporter::Annotation::AdapterDriverVersion, mDriverVersion);
-  CrashReporter::AnnotateCrashReport(CrashReporter::Annotation::IsWayland,
-                                     mIsWayland);
-  CrashReporter::AnnotateCrashReport(
+  CrashReporter::RecordAnnotationBool(CrashReporter::Annotation::IsWayland,
+                                      mIsWayland);
+  CrashReporter::RecordAnnotationNSCString(
       CrashReporter::Annotation::DesktopEnvironment,
       GetDesktopEnvironmentIdentifier());
 
@@ -957,14 +957,14 @@ const nsTArray<GfxDriverInfo>& GfxInfo::GetGfxDriverInfo() {
     // Bug 1635186 - Poor performance with video playing in a background window
     // on XWayland. Keep in sync with FEATURE_X11_EGL below to only enable them
     // together by default. Only Mesa and Nvidia binary drivers are expected
-    // on Wayland rigth now.
+    // on Wayland right now.
     APPEND_TO_DRIVER_BLOCKLIST_EXT(
         OperatingSystem::Linux, ScreenSizeStatus::All, BatteryStatus::All,
         WindowProtocol::XWayland, DriverVendor::MesaAll, DeviceFamily::All,
         nsIGfxInfo::FEATURE_WEBRENDER,
         nsIGfxInfo::FEATURE_BLOCKED_DRIVER_VERSION, DRIVER_LESS_THAN,
-        V(21, 0, 0, 0), "FEATURE_FAILURE_WEBRENDER_BUG_1635186",
-        "Mesa 21.0.0.0");
+        V(17, 0, 0, 0), "FEATURE_FAILURE_WEBRENDER_BUG_1635186",
+        "Mesa 17.0.0.0");
 
     // Bug 1815481 - Disable mesa drivers in virtual machines.
     APPEND_TO_DRIVER_BLOCKLIST_EXT(
@@ -1022,7 +1022,6 @@ const nsTArray<GfxDriverInfo>& GfxInfo::GetGfxDriverInfo() {
 
     ////////////////////////////////////
     // FEATURE_DMABUF
-#ifdef EARLY_BETA_OR_EARLIER
     // Disabled due to high volume crash tracked in bug 1788573, fixed in the
     // 545 driver.
     APPEND_TO_DRIVER_BLOCKLIST_EXT(
@@ -1030,42 +1029,25 @@ const nsTArray<GfxDriverInfo>& GfxInfo::GetGfxDriverInfo() {
         WindowProtocol::All, DriverVendor::NonMesaAll, DeviceFamily::NvidiaAll,
         nsIGfxInfo::FEATURE_DMABUF, nsIGfxInfo::FEATURE_BLOCKED_DEVICE,
         DRIVER_LESS_THAN, V(545, 23, 6, 0), "FEATURE_FAILURE_BUG_1788573", "");
-#else
-    // Disabled due to high volume crash tracked in bug 1788573.
+
+    // Disabled due to high volume crash tracked in bug 1913778. It appears that
+    // only this version of the driver is affected.
     APPEND_TO_DRIVER_BLOCKLIST_EXT(
         OperatingSystem::Linux, ScreenSizeStatus::All, BatteryStatus::All,
-        WindowProtocol::All, DriverVendor::NonMesaAll, DeviceFamily::NvidiaAll,
-        nsIGfxInfo::FEATURE_DMABUF, nsIGfxInfo::FEATURE_BLOCKED_DEVICE,
-        DRIVER_COMPARISON_IGNORED, V(0, 0, 0, 0), "FEATURE_FAILURE_BUG_1788573",
-        "");
-#endif
+        WindowProtocol::All, DriverVendor::MesaRadeonsi, DeviceFamily::AtiAll,
+        nsIGfxInfo::FEATURE_DMABUF, nsIGfxInfo::FEATURE_BLOCKED_DRIVER_VERSION,
+        DRIVER_EQUAL, V(24, 1, 3, 0), "FEATURE_FAILURE_BUG_1913778", "");
 
     ////////////////////////////////////
     // FEATURE_DMABUF_SURFACE_EXPORT
-    // Disabled due to:
+    // Disabled on all Mesa drivers due to various issue, among them:
     // https://gitlab.freedesktop.org/mesa/mesa/-/issues/6666
     // https://gitlab.freedesktop.org/mesa/mesa/-/issues/6796
-    APPEND_TO_DRIVER_BLOCKLIST_EXT(
-        OperatingSystem::Linux, ScreenSizeStatus::All, BatteryStatus::All,
-        WindowProtocol::All, DriverVendor::MesaAll, DeviceFamily::AtiAll,
-        nsIGfxInfo::FEATURE_DMABUF_SURFACE_EXPORT,
-        nsIGfxInfo::FEATURE_BLOCKED_DEVICE, DRIVER_COMPARISON_IGNORED,
-        V(0, 0, 0, 0), "FEATURE_FAILURE_BROKEN_DRIVER", "");
-
-    // Disabled due to:
     // https://gitlab.freedesktop.org/mesa/mesa/-/issues/6688
-    APPEND_TO_DRIVER_BLOCKLIST_EXT(
-        OperatingSystem::Linux, ScreenSizeStatus::All, BatteryStatus::All,
-        WindowProtocol::All, DriverVendor::MesaAll, DeviceFamily::IntelAll,
-        nsIGfxInfo::FEATURE_DMABUF_SURFACE_EXPORT,
-        nsIGfxInfo::FEATURE_BLOCKED_DEVICE, DRIVER_COMPARISON_IGNORED,
-        V(0, 0, 0, 0), "FEATURE_FAILURE_BROKEN_DRIVER", "");
-
-    // Disabled due to:
     // https://gitlab.freedesktop.org/mesa/mesa/-/issues/6988
     APPEND_TO_DRIVER_BLOCKLIST_EXT(
         OperatingSystem::Linux, ScreenSizeStatus::All, BatteryStatus::All,
-        WindowProtocol::All, DriverVendor::MesaAll, DeviceFamily::QualcommAll,
+        WindowProtocol::All, DriverVendor::MesaAll, DeviceFamily::All,
         nsIGfxInfo::FEATURE_DMABUF_SURFACE_EXPORT,
         nsIGfxInfo::FEATURE_BLOCKED_DEVICE, DRIVER_COMPARISON_IGNORED,
         V(0, 0, 0, 0), "FEATURE_FAILURE_BROKEN_DRIVER", "");
@@ -1145,6 +1127,14 @@ const nsTArray<GfxDriverInfo>& GfxInfo::GetGfxDriverInfo() {
         nsIGfxInfo::FEATURE_BLOCKED_DEVICE, DRIVER_COMPARISON_IGNORED,
         V(0, 0, 0, 0), "FEATURE_ROLLOUT_WR_PARTIAL_PRESENT_NVIDIA_BINARY", "");
 
+    APPEND_TO_DRIVER_BLOCKLIST_EXT(
+        OperatingSystem::Linux, ScreenSizeStatus::All, BatteryStatus::All,
+        WindowProtocol::XWayland, DriverVendor::MesaAll, DeviceFamily::All,
+        nsIGfxInfo::FEATURE_WEBRENDER_PARTIAL_PRESENT,
+        nsIGfxInfo::FEATURE_BLOCKED_DRIVER_VERSION, DRIVER_LESS_THAN,
+        V(21, 0, 0, 0), "FEATURE_FAILURE_WEBRENDER_PARTIAL_PRESENT_BUG_1677892",
+        "Mesa 21.0.0.0");
+
     ////////////////////////////////////
 
     APPEND_TO_DRIVER_BLOCKLIST_EXT(
@@ -1154,7 +1144,6 @@ const nsTArray<GfxDriverInfo>& GfxInfo::GetGfxDriverInfo() {
         DRIVER_COMPARISON_IGNORED, V(0, 0, 0, 0),
         "FEATURE_FAILURE_THREADSAFE_GL_NOUVEAU", "");
 
-#ifdef EARLY_BETA_OR_EARLIER
     // Disabled due to high volume crash tracked in bug 1788573, fixed in the
     // 545 driver.
     APPEND_TO_DRIVER_BLOCKLIST_EXT(
@@ -1162,15 +1151,6 @@ const nsTArray<GfxDriverInfo>& GfxInfo::GetGfxDriverInfo() {
         WindowProtocol::All, DriverVendor::NonMesaAll, DeviceFamily::NvidiaAll,
         nsIGfxInfo::FEATURE_THREADSAFE_GL, nsIGfxInfo::FEATURE_BLOCKED_DEVICE,
         DRIVER_LESS_THAN, V(545, 23, 6, 0), "FEATURE_FAILURE_BUG_1788573", "");
-#else
-    // Disabled due to high volume crash tracked in bug 1788573.
-    APPEND_TO_DRIVER_BLOCKLIST_EXT(
-        OperatingSystem::Linux, ScreenSizeStatus::All, BatteryStatus::All,
-        WindowProtocol::All, DriverVendor::NonMesaAll, DeviceFamily::NvidiaAll,
-        nsIGfxInfo::FEATURE_THREADSAFE_GL, nsIGfxInfo::FEATURE_BLOCKED_DEVICE,
-        DRIVER_COMPARISON_IGNORED, V(0, 0, 0, 0), "FEATURE_FAILURE_BUG_1788573",
-        "");
-#endif
 
     // AMD R600 family does not perform well with WebRender.
     APPEND_TO_DRIVER_BLOCKLIST(

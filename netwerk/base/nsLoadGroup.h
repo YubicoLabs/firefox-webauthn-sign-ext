@@ -93,11 +93,15 @@ class nsLoadGroup : public nsILoadGroup,
   nsWeakPtr mParentLoadGroup;
 
   nsresult mStatus{NS_OK};
+  nsresult mDefaultStatus{NS_OK};
   bool mIsCanceling{false};
   bool mDefaultLoadIsTimed{false};
   bool mBrowsingContextDiscarded{false};
   bool mExternalRequestContext{false};
   bool mNotifyObserverAboutBackgroundRequests{false};
+
+  // size of requests with keepalive flag for this load group
+  uint64_t mPendingKeepaliveRequestSize{0};
 
   /* Telemetry */
   mozilla::TimeStamp mDefaultRequestCreationTime;

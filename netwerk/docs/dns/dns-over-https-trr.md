@@ -61,7 +61,7 @@ _nsHostResolver::NameLookup_ will trigger either a DoH or a Do53 request.
 First it checks the effective TRR mode of the request is as requests
 could have a different mode from the global one. If the request may use
 TRR, then we dispatch a request in _nsHostResolver::TrrLookup_. Since we
-usually reolve both IPv4 and IPv6 names, a **TRRQuery** object is
+usually resolve both IPv4 and IPv6 names, a **TRRQuery** object is
 created to perform and combine both responses.
 
 Once done, _nsHostResolver::CompleteLookup_ is called. If the DoH server
@@ -142,7 +142,7 @@ Some domains will never be resolved via TRR. This includes:
 
 
 A small set of TRR providers are only available on certain networks.
-Detection is performed in DoHHeuristics.jsm followed by a call to
+Detection is performed in DoHHeuristics.sys.mjs followed by a call to
 _TRRService::SetDetectedURI_. This causes Firefox to use the
 network specific TRR provider until a network change occurs.
 

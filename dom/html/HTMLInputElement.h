@@ -162,7 +162,7 @@ class HTMLInputElement final : public TextControlElement,
   void FieldSetDisabledChanged(bool aNotify) override;
 
   // nsIContent
-  bool IsHTMLFocusable(bool aWithMouse, bool* aIsFocusable,
+  bool IsHTMLFocusable(IsFocusableFlags, bool* aIsFocusable,
                        int32_t* aTabIndex) override;
 
   bool ParseAttribute(int32_t aNamespaceID, nsAtom* aAttribute,
@@ -230,7 +230,7 @@ class HTMLInputElement final : public TextControlElement,
   bool IsSingleLineTextControl() const override;
   bool IsTextArea() const override;
   bool IsPasswordTextControl() const override;
-  int32_t GetCols() override;
+  Maybe<int32_t> GetCols() override;
   int32_t GetWrapCols() override;
   int32_t GetRows() override;
   void GetDefaultValueFromContent(nsAString& aValue, bool aForDisplay) override;
@@ -248,6 +248,12 @@ class HTMLInputElement final : public TextControlElement,
   MOZ_CAN_RUN_SCRIPT nsresult CreateEditor() override;
   void SetPreviewValue(const nsAString& aValue) override;
   void GetPreviewValue(nsAString& aValue) override;
+  void SetAutofillState(const nsAString& aState) override {
+    SetFormAutofillState(aState);
+  }
+  void GetAutofillState(nsAString& aState) override {
+    GetFormAutofillState(aState);
+  }
   void EnablePreview() override;
   bool IsPreviewEnabled() override;
   void InitializeKeyboardEventListeners() override;
@@ -644,6 +650,10 @@ class HTMLInputElement final : public TextControlElement,
                 ErrorResult& aRv);
   void GetValue(nsAString& aValue, CallerType aCallerType);
 
+  // Generic getter for the value that doesn't do experimental control type
+  // sanitization.
+  void GetValueInternal(nsAString& aValue, CallerType aCallerType) const;
+
   void GetValueAsDate(JSContext* aCx, JS::MutableHandle<JSObject*> aObj,
                       ErrorResult& aRv);
 
@@ -663,9 +673,8 @@ class HTMLInputElement final : public TextControlElement,
     SetUnsignedIntAttr(nsGkAtoms::width, aValue, 0, aRv);
   }
 
-  void StepUp(int32_t aN, ErrorResult& aRv) { aRv = ApplyStep(aN); }
-
-  void StepDown(int32_t aN, ErrorResult& aRv) { aRv = ApplyStep(-aN); }
+  void StepUp(int32_t aN, ErrorResult& aRv) { ApplyStep(aN, aRv); }
+  void StepDown(int32_t aN, ErrorResult& aRv) { ApplyStep(-aN, aRv); }
 
   /**
    * Returns the current step value.
@@ -867,6 +876,13 @@ class HTMLInputElement final : public TextControlElement,
   // Parse a simple (hex) color.
   static mozilla::Maybe<nscolor> ParseSimpleColor(const nsAString& aColor);
 
+  /**
+   * https://html.spec.whatwg.org/#auto-directionality-form-associated-elements
+   */
+  bool IsAutoDirectionalityAssociated() const {
+    return IsAutoDirectionalityAssociated(mType);
+  }
+
  protected:
   MOZ_CAN_RUN_SCRIPT_BOUNDARY virtual ~HTMLInputElement();
 
@@ -935,10 +951,6 @@ class HTMLInputElement final : public TextControlElement,
     return SetValueInternal(aValue, nullptr, aOptions);
   }
 
-  // Generic getter for the value that doesn't do experimental control type
-  // sanitization.
-  void GetValueInternal(nsAString& aValue, CallerType aCallerType) const;
-
   // A getter for callers that know we're not dealing with a file input, so they
   // don't have to think about the caller type.
   void GetNonFileValueInternal(nsAString& aValue) const;
@@ -966,7 +978,7 @@ class HTMLInputElement final : public TextControlElement,
 
   void ResultForDialogSubmit(nsAString& aResult) override;
 
-  void SelectAll(nsPresContext* aPresContext);
+  MOZ_CAN_RUN_SCRIPT void SelectAll();
   bool IsImage() const {
     return AttrValueIs(kNameSpaceID_None, nsGkAtoms::type, nsGkAtoms::image,
                        eIgnoreCase);
@@ -1102,13 +1114,6 @@ class HTMLInputElement final : public TextControlElement,
    */
   MOZ_CAN_RUN_SCRIPT
   nsresult SetDefaultValueAsValue();
-
-  /**
-   * Sets the direction from the input value. if aKnownValue is provided, it
-   * saves a GetValue call.
-   */
-  void SetAutoDirectionality(bool aNotify,
-                             const nsAString* aKnownValue = nullptr);
 
   /**
    * Returns the radio group container within the DOM tree that the element
@@ -1311,22 +1316,17 @@ class HTMLInputElement final : public TextControlElement,
    */
   Decimal GetDefaultStep() const;
 
-  enum StepCallerType { CALLED_FOR_USER_EVENT, CALLED_FOR_SCRIPT };
+  enum class StepCallerType { ForUserEvent, ForScript };
 
   /**
-   * Sets the aValue outparam to the value that this input would take if
-   * someone tries to step aStep steps and this input's value would change as
-   * a result. Leaves aValue untouched if this inputs value would not change
-   * (e.g. already at max, and asking for the next step up).
+   * Returns the value that this input would take if someone tries to step
+   * aStepCount steps and this input's value would change as a result, or
+   * Decimal::nan() otherwise (e.g., if this inputs value would not change due
+   * to it being already at max, and asking for the next step up).
    *
    * Negative aStep means step down, positive means step up.
-   *
-   * Returns NS_OK or else the error values that should be thrown if this call
-   * was initiated by a stepUp()/stepDown() call from script under conditions
-   * that such a call should throw.
    */
-  nsresult GetValueIfStepped(int32_t aStepCount, StepCallerType aCallerType,
-                             Decimal* aNextStep);
+  Decimal GetValueIfStepped(int32_t aStepCount, StepCallerType, ErrorResult&);
 
   /**
    * Apply a step change from stepUp or stepDown by multiplying aStep by the
@@ -1334,7 +1334,7 @@ class HTMLInputElement final : public TextControlElement,
    *
    * @param aStep The value used to be multiplied against the step value.
    */
-  nsresult ApplyStep(int32_t aStep);
+  void ApplyStep(int32_t aStep, ErrorResult&);
 
   /**
    * Returns if the current type is an experimental mobile type.
@@ -1520,7 +1520,6 @@ class HTMLInputElement final : public TextControlElement,
   bool mLastValueChangeWasInteractive : 1;
   bool mCheckedChanged : 1;
   bool mChecked : 1;
-  bool mHandlingSelectEvent : 1;
   bool mShouldInitChecked : 1;
   bool mDoneCreating : 1;
   bool mInInternalActivate : 1;
@@ -1537,6 +1536,7 @@ class HTMLInputElement final : public TextControlElement,
   bool mHasPatternAttribute : 1;
 
  private:
+  Maybe<int32_t> GetNumberInputCols() const;
   static void ImageInputMapAttributesIntoRule(MappedDeclarationsBuilder&);
 
   /**
@@ -1580,10 +1580,6 @@ class HTMLInputElement final : public TextControlElement,
       default:
         return false;
     }
-  }
-
-  bool IsAutoDirectionalityAssociated() const {
-    return IsAutoDirectionalityAssociated(mType);
   }
 
   static bool CreatesDateTimeWidget(FormControlType aType) {

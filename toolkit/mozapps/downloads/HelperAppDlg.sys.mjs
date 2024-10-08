@@ -72,33 +72,19 @@ nsUnknownContentTypeDialogProgressListener.prototype = {
   },
 
   // Ignore onProgressChange, onProgressChange64, onStateChange, onLocationChange, onSecurityChange, onContentBlockingEvent and onRefreshAttempted notifications.
-  onProgressChange(
-    aWebProgress,
-    aRequest,
-    aCurSelfProgress,
-    aMaxSelfProgress,
-    aCurTotalProgress,
-    aMaxTotalProgress
-  ) {},
+  onProgressChange() {},
 
-  onProgressChange64(
-    aWebProgress,
-    aRequest,
-    aCurSelfProgress,
-    aMaxSelfProgress,
-    aCurTotalProgress,
-    aMaxTotalProgress
-  ) {},
+  onProgressChange64() {},
 
-  onStateChange(aWebProgress, aRequest, aStateFlags, aStatus) {},
+  onStateChange() {},
 
-  onLocationChange(aWebProgress, aRequest, aLocation, aFlags) {},
+  onLocationChange() {},
 
-  onSecurityChange(aWebProgress, aRequest, aState) {},
+  onSecurityChange() {},
 
-  onContentBlockingEvent(aWebProgress, aRequest, aEvent) {},
+  onContentBlockingEvent() {},
 
-  onRefreshAttempted(aWebProgress, aURI, aDelay, aSameURI) {
+  onRefreshAttempted() {
     return true;
   },
 };
@@ -309,7 +295,7 @@ nsUnknownContentTypeDialog.prototype = {
       var picker =
         Cc["@mozilla.org/filepicker;1"].createInstance(nsIFilePicker);
       var windowTitle = bundle.GetStringFromName("saveDialogTitle");
-      picker.init(parent, windowTitle, nsIFilePicker.modeSave);
+      picker.init(parent.browsingContext, windowTitle, nsIFilePicker.modeSave);
       if (aDefaultFileName) {
         picker.defaultString = this.getFinalLeafName(aDefaultFileName);
       }
@@ -691,17 +677,17 @@ nsUnknownContentTypeDialog.prototype = {
       }
     }
     // When the length is unknown, contentLength would be -1
+    let value = typeString;
     if (this.mLauncher.contentLength >= 0) {
       let [size, unit] = DownloadUtils.convertByteUnits(
         this.mLauncher.contentLength
       );
-      type.value = this.dialogElement("strings").getFormattedString(
+      value = this.dialogElement("strings").getFormattedString(
         "orderedFileSizeWithType",
         [typeString, size, unit]
       );
-    } else {
-      type.value = typeString;
     }
+    type.textContent = value;
   },
 
   // Returns true if opening the default application makes sense.
@@ -784,6 +770,17 @@ nsUnknownContentTypeDialog.prototype = {
     } catch (e) {
       this.chosenApp = null;
     }
+    if (!this.chosenApp) {
+      try {
+        this.chosenApp =
+          this.mLauncher.MIMEInfo.preferredApplicationHandler.QueryInterface(
+            Ci.nsIGIOHandlerApp
+          );
+      } catch (e) {
+        this.chosenApp = null;
+      }
+    }
+
     // Initialize "default application" field.
     this.initDefaultApp();
 
@@ -792,6 +789,7 @@ nsUnknownContentTypeDialog.prototype = {
     // Fill application name textbox.
     if (
       this.chosenApp &&
+      this.chosenApp instanceof Ci.nsILocalHandlerApp &&
       this.chosenApp.executable &&
       this.chosenApp.executable.path
     ) {
@@ -801,6 +799,16 @@ nsUnknownContentTypeDialog.prototype = {
       );
 
       otherHandler.label = this.getFileDisplayName(this.chosenApp.executable);
+      otherHandler.hidden = false;
+    }
+
+    if (
+      this.chosenApp &&
+      this.chosenApp instanceof Ci.nsIGIOHandlerApp &&
+      this.chosenApp.id
+    ) {
+      otherHandler.setAttribute("appid", this.chooseApp.id);
+      otherHandler.label = this.chosenApp.name;
       otherHandler.hidden = false;
     }
 
@@ -918,7 +926,10 @@ nsUnknownContentTypeDialog.prototype = {
           // the user chose an app....
           ok =
             this.chosenApp ||
-            /\S/.test(this.dialogElement("otherHandler").getAttribute("path"));
+            /\S/.test(
+              this.dialogElement("otherHandler").getAttribute("path")
+            ) ||
+            /\S/.test(this.dialogElement("otherHandler").getAttribute("appid"));
           break;
       }
     }
@@ -1033,9 +1044,9 @@ nsUnknownContentTypeDialog.prototype = {
     if (this.useOtherHandler) {
       var helperApp = this.helperAppChoice();
       if (
-        !helperApp ||
-        !helperApp.executable ||
-        !helperApp.executable.exists()
+        helperApp &&
+        helperApp instanceof Ci.nsILocalHandlerApp &&
+        !helperApp.executable?.exists()
       ) {
         // Show alert and try again.
         var bundle = this.dialogElement("strings");
@@ -1170,10 +1181,14 @@ nsUnknownContentTypeDialog.prototype = {
       // Update dialog.
       var otherHandler = this.dialogElement("otherHandler");
       otherHandler.removeAttribute("hidden");
-      otherHandler.setAttribute(
-        "path",
-        this.getPath(this.chosenApp.executable)
-      );
+      if (this.chosenApp instanceof Ci.nsIGIOHandlerApp) {
+        otherHandler.setAttribute("appid", this.chosenApp.id);
+      } else {
+        otherHandler.setAttribute(
+          "path",
+          this.getPath(this.chosenApp.executable)
+        );
+      }
       if (AppConstants.platform == "win") {
         otherHandler.label = this.getFileDisplayName(this.chosenApp.executable);
       } else {
@@ -1256,9 +1271,13 @@ nsUnknownContentTypeDialog.prototype = {
       );
       var contentTypeDialogObj = this;
       let appChooserCallback = function appChooserCallback_done(aResult) {
-        if (aResult) {
+        if (aResult instanceof Ci.nsILocalHandlerApp) {
           contentTypeDialogObj.chosenApp = aResult.QueryInterface(
             Ci.nsILocalHandlerApp
+          );
+        } else if (aResult && aResult instanceof Ci.nsIGIOHandlerApp) {
+          contentTypeDialogObj.chosenApp = aResult.QueryInterface(
+            Ci.nsIGIOHandlerApp
           );
         }
         contentTypeDialogObj.finishChooseApp();
@@ -1270,7 +1289,7 @@ nsUnknownContentTypeDialog.prototype = {
       var nsIFilePicker = Ci.nsIFilePicker;
       var fp = Cc["@mozilla.org/filepicker;1"].createInstance(nsIFilePicker);
       fp.init(
-        this.mDialog,
+        this.mDialog.browsingContext,
         this.dialogElement("strings").getString("chooseAppFilePickerTitle"),
         nsIFilePicker.modeOpen
       );

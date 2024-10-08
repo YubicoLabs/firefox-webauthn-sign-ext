@@ -146,6 +146,11 @@ class nsHostResolver : public nsISupports, public AHostResolver {
                                                     nsresult* aRv);
 
   /**
+   * return a mock HTTPS record
+   */
+  already_AddRefed<nsHostRecord> InitMockHTTPSRecord(const nsHostKey& key);
+
+  /**
    * removes the specified callback from the nsHostRecord for the given
    * hostname, originAttributes, flags, and address family.  these parameters
    * should correspond to the parameters passed to ResolveHost.  this function
@@ -339,6 +344,8 @@ class nsHostResolver : public nsISupports, public AHostResolver {
    * Called by the networking dashboard via the DnsService2
    */
   void GetDNSCacheEntries(nsTArray<mozilla::net::DNSCacheEntries>*);
+
+  static bool IsNativeHTTPSEnabled();
 };
 
 #endif  // nsHostResolver_h__

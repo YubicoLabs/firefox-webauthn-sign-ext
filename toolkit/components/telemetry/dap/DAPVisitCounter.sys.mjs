@@ -50,7 +50,7 @@ export const DAPVisitCounter = new (class {
       }
     };
 
-    lazy.NimbusFeatures.dapTelemetry.onUpdate(async (event, reason) => {
+    lazy.NimbusFeatures.dapTelemetry.onUpdate(async () => {
       if (typeof this.counters !== "undefined") {
         await this.send(30 * 1000, "nimbus-update");
       }
@@ -138,15 +138,18 @@ export const DAPVisitCounter = new (class {
       };
 
       send_promises.push(
-        DAPTelemetrySender.sendDAPMeasurement(
-          task,
-          measurement,
+        DAPTelemetrySender.sendDAPMeasurement(task, measurement, {
           timeout,
-          reason
-        )
+          reason,
+        })
       );
     }
-    await Promise.all(send_promises);
+
+    try {
+      await Promise.all(send_promises);
+    } catch (e) {
+      lazy.logConsole.error("Failed to send report: ", e);
+    }
   }
 
   show() {

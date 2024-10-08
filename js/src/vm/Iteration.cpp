@@ -9,7 +9,6 @@
 #include "vm/Iteration.h"
 
 #include "mozilla/ArrayUtils.h"
-#include "mozilla/DebugOnly.h"
 #include "mozilla/Likely.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/MemoryReporting.h"
@@ -51,7 +50,6 @@
 using namespace js;
 
 using mozilla::ArrayEqual;
-using mozilla::DebugOnly;
 using mozilla::Maybe;
 using mozilla::PodCopy;
 
@@ -829,7 +827,7 @@ static PropertyIteratorObject* CreatePropertyIterator(
     bool supportsIndices, PropertyIndexVector* indices,
     uint32_t cacheableProtoChainLength) {
   MOZ_ASSERT_IF(indices, supportsIndices);
-  if (props.length() > NativeIterator::PropCountLimit) {
+  if (props.length() >= NativeIterator::PropCountLimit) {
     ReportAllocationOverflow(cx);
     return nullptr;
   }
@@ -1452,9 +1450,13 @@ const JSClassOps PropertyIteratorObject::classOps_ = {
 const JSClass PropertyIteratorObject::class_ = {
     "Iterator",
     JSCLASS_HAS_RESERVED_SLOTS(SlotCount) | JSCLASS_BACKGROUND_FINALIZE,
-    &PropertyIteratorObject::classOps_};
+    &PropertyIteratorObject::classOps_,
+};
 
-static const JSClass ArrayIteratorPrototypeClass = {"Array Iterator", 0};
+static const JSClass ArrayIteratorPrototypeClass = {
+    "Array Iterator",
+    0,
+};
 
 enum {
   ArrayIteratorSlotIteratedObject,
@@ -1464,7 +1466,9 @@ enum {
 };
 
 const JSClass ArrayIteratorObject::class_ = {
-    "Array Iterator", JSCLASS_HAS_RESERVED_SLOTS(ArrayIteratorSlotCount)};
+    "Array Iterator",
+    JSCLASS_HAS_RESERVED_SLOTS(ArrayIteratorSlotCount),
+};
 
 ArrayIteratorObject* js::NewArrayIteratorTemplate(JSContext* cx) {
   RootedObject proto(
@@ -1487,9 +1491,14 @@ ArrayIteratorObject* js::NewArrayIterator(JSContext* cx) {
 }
 
 static const JSFunctionSpec array_iterator_methods[] = {
-    JS_SELF_HOSTED_FN("next", "ArrayIteratorNext", 0, 0), JS_FS_END};
+    JS_SELF_HOSTED_FN("next", "ArrayIteratorNext", 0, 0),
+    JS_FS_END,
+};
 
-static const JSClass StringIteratorPrototypeClass = {"String Iterator", 0};
+static const JSClass StringIteratorPrototypeClass = {
+    "String Iterator",
+    0,
+};
 
 enum {
   StringIteratorSlotIteratedObject,
@@ -1498,10 +1507,14 @@ enum {
 };
 
 const JSClass StringIteratorObject::class_ = {
-    "String Iterator", JSCLASS_HAS_RESERVED_SLOTS(StringIteratorSlotCount)};
+    "String Iterator",
+    JSCLASS_HAS_RESERVED_SLOTS(StringIteratorSlotCount),
+};
 
 static const JSFunctionSpec string_iterator_methods[] = {
-    JS_SELF_HOSTED_FN("next", "StringIteratorNext", 0, 0), JS_FS_END};
+    JS_SELF_HOSTED_FN("next", "StringIteratorNext", 0, 0),
+    JS_FS_END,
+};
 
 StringIteratorObject* js::NewStringIteratorTemplate(JSContext* cx) {
   RootedObject proto(
@@ -1524,7 +1537,9 @@ StringIteratorObject* js::NewStringIterator(JSContext* cx) {
 }
 
 static const JSClass RegExpStringIteratorPrototypeClass = {
-    "RegExp String Iterator", 0};
+    "RegExp String Iterator",
+    0,
+};
 
 enum {
   // The regular expression used for iteration. May hold the original RegExp
@@ -1574,12 +1589,14 @@ static_assert(RegExpStringIteratorSlotLastIndex ==
 
 const JSClass RegExpStringIteratorObject::class_ = {
     "RegExp String Iterator",
-    JSCLASS_HAS_RESERVED_SLOTS(RegExpStringIteratorSlotCount)};
+    JSCLASS_HAS_RESERVED_SLOTS(RegExpStringIteratorSlotCount),
+};
 
 static const JSFunctionSpec regexp_string_iterator_methods[] = {
     JS_SELF_HOSTED_FN("next", "RegExpStringIteratorNext", 0, 0),
 
-    JS_FS_END};
+    JS_FS_END,
+};
 
 RegExpStringIteratorObject* js::NewRegExpStringIteratorTemplate(JSContext* cx) {
   RootedObject proto(cx, GlobalObject::getOrCreateRegExpStringIteratorPrototype(
@@ -1914,6 +1931,9 @@ void js::AssertDenseElementsNotIterated(NativeObject* obj) {
 
 static const JSFunctionSpec iterator_methods[] = {
     JS_SELF_HOSTED_SYM_FN(iterator, "IteratorIdentity", 0, 0),
+#ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT
+    JS_SELF_HOSTED_SYM_FN(dispose, "IteratorDispose", 0, 0),
+#endif
     JS_FS_END,
 };
 
@@ -1937,13 +1957,119 @@ static const JSFunctionSpec iterator_methods_with_helpers[] = {
     JS_SELF_HOSTED_FN("every", "IteratorEvery", 1, 0),
     JS_SELF_HOSTED_FN("find", "IteratorFind", 1, 0),
     JS_SELF_HOSTED_SYM_FN(iterator, "IteratorIdentity", 0, 0),
+#ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT
+    JS_SELF_HOSTED_SYM_FN(dispose, "IteratorDispose", 0, 0),
+#endif
     JS_FS_END,
 };
 
+// https://tc39.es/proposal-iterator-helpers/#sec-SetterThatIgnoresPrototypeProperties
+static bool SetterThatIgnoresPrototypeProperties(JSContext* cx,
+                                                 Handle<Value> thisv,
+                                                 Handle<PropertyKey> prop,
+                                                 Handle<Value> value) {
+  // Step 1.
+  Rooted<JSObject*> thisObj(cx,
+                            RequireObject(cx, JSMSG_OBJECT_REQUIRED, thisv));
+  if (!thisObj) {
+    return false;
+  }
+
+  // Step 2.
+  Rooted<JSObject*> home(
+      cx, GlobalObject::getOrCreateIteratorPrototype(cx, cx->global()));
+  if (!home) {
+    return false;
+  }
+  if (thisObj == home) {
+    UniqueChars propName =
+        IdToPrintableUTF8(cx, prop, IdToPrintableBehavior::IdIsPropertyKey);
+    if (!propName) {
+      return false;
+    }
+
+    // Step 2.b.
+    JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_READ_ONLY,
+                              propName.get());
+    return false;
+  }
+
+  // Step 3.
+  Rooted<Maybe<PropertyDescriptor>> desc(cx);
+  if (!GetOwnPropertyDescriptor(cx, thisObj, prop, &desc)) {
+    return false;
+  }
+
+  // Step 4.
+  if (desc.isNothing()) {
+    // Step 4.a.
+    return DefineDataProperty(cx, thisObj, prop, value, JSPROP_ENUMERATE);
+  }
+
+  // Step 5.
+  return SetProperty(cx, thisObj, prop, value);
+}
+
+// https://tc39.es/proposal-iterator-helpers/#sec-get-iteratorprototype-@@tostringtag
+static bool toStringTagGetter(JSContext* cx, unsigned argc, Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+
+  // Step 1.
+  args.rval().setString(cx->names().Iterator);
+  return true;
+}
+
+// https://tc39.es/proposal-iterator-helpers/#sec-set-iteratorprototype-@@tostringtag
+static bool toStringTagSetter(JSContext* cx, unsigned argc, Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+
+  // Step 1.
+  Rooted<PropertyKey> prop(
+      cx, PropertyKey::Symbol(cx->wellKnownSymbols().toStringTag));
+  if (!SetterThatIgnoresPrototypeProperties(cx, args.thisv(), prop,
+                                            args.get(0))) {
+    return false;
+  }
+
+  // Step 2.
+  args.rval().setUndefined();
+  return true;
+}
+
+// https://tc39.es/proposal-iterator-helpers/#sec-get-iteratorprototype-constructor
+static bool constructorGetter(JSContext* cx, unsigned argc, Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+
+  // Step 1.
+  Rooted<JSObject*> constructor(
+      cx, GlobalObject::getOrCreateConstructor(cx, JSProto_Iterator));
+  if (!constructor) {
+    return false;
+  }
+  args.rval().setObject(*constructor);
+  return true;
+}
+
+// https://tc39.es/proposal-iterator-helpers/#sec-set-iteratorprototype-constructor
+static bool constructorSetter(JSContext* cx, unsigned argc, Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+
+  // Step 1.
+  Rooted<PropertyKey> prop(cx, NameToId(cx->names().constructor));
+  if (!SetterThatIgnoresPrototypeProperties(cx, args.thisv(), prop,
+                                            args.get(0))) {
+    return false;
+  }
+
+  // Step 2.
+  args.rval().setUndefined();
+  return true;
+}
+
 static const JSPropertySpec iterator_properties[] = {
-    // NOTE: Contrary to most other @@toStringTag properties, this property is
-    // writable.
-    JS_STRING_SYM_PS(toStringTag, "Iterator", 0),
+    // NOTE: Contrary to most other @@toStringTag properties, this property
+    // has a special setter (and a getter).
+    JS_SYM_GETSET(toStringTag, toStringTagGetter, toStringTagSetter, 0),
     JS_PS_END,
 };
 
@@ -2081,7 +2207,7 @@ static const ClassSpec IteratorObjectClassSpec = {
     nullptr,
     iterator_methods_with_helpers,
     iterator_properties,
-    nullptr,
+    IteratorObject::finishInit,
 };
 
 const JSClass IteratorObject::class_ = {
@@ -2098,6 +2224,13 @@ const JSClass IteratorObject::protoClass_ = {
     &IteratorObjectClassSpec,
 };
 
+/* static */ bool IteratorObject::finishInit(JSContext* cx, HandleObject ctor,
+                                             HandleObject proto) {
+  Rooted<PropertyKey> id(cx, NameToId(cx->names().constructor));
+  return JS_DefinePropertyById(cx, proto, id, constructorGetter,
+                               constructorSetter, 0);
+}
+
 // Set up WrapForValidIteratorObject class and its prototype.
 static const JSFunctionSpec wrap_for_valid_iterator_methods[] = {
     JS_SELF_HOSTED_FN("next", "WrapForValidIteratorNext", 0, 0),
@@ -2106,7 +2239,9 @@ static const JSFunctionSpec wrap_for_valid_iterator_methods[] = {
 };
 
 static const JSClass WrapForValidIteratorPrototypeClass = {
-    "Wrap For Valid Iterator", 0};
+    "Wrap For Valid Iterator",
+    0,
+};
 
 const JSClass WrapForValidIteratorObject::class_ = {
     "Wrap For Valid Iterator",
@@ -2140,7 +2275,10 @@ static const JSFunctionSpec iterator_helper_methods[] = {
     JS_FS_END,
 };
 
-static const JSClass IteratorHelperPrototypeClass = {"Iterator Helper", 0};
+static const JSClass IteratorHelperPrototypeClass = {
+    "Iterator Helper",
+    0,
+};
 
 const JSClass IteratorHelperObject::class_ = {
     "Iterator Helper",

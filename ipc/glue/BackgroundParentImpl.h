@@ -31,11 +31,12 @@ class BackgroundParentImpl : public PBackgroundParent {
   bool DeallocPBackgroundTestParent(PBackgroundTestParent* aActor) override;
 
   already_AddRefed<PBackgroundIDBFactoryParent>
-  AllocPBackgroundIDBFactoryParent(const LoggingInfo& aLoggingInfo) override;
+  AllocPBackgroundIDBFactoryParent(const LoggingInfo& aLoggingInfo,
+                                   const nsACString& aSystemLocale) override;
 
   mozilla::ipc::IPCResult RecvPBackgroundIDBFactoryConstructor(
-      PBackgroundIDBFactoryParent* aActor,
-      const LoggingInfo& aLoggingInfo) override;
+      PBackgroundIDBFactoryParent* aActor, const LoggingInfo& aLoggingInfo,
+      const nsACString& aSystemLocale) override;
 
   PBackgroundIndexedDBUtilsParent* AllocPBackgroundIndexedDBUtilsParent()
       override;
@@ -168,12 +169,6 @@ class BackgroundParentImpl : public PBackgroundParent {
       mozilla::dom::PRemoteWorkerControllerParent* aActor,
       const mozilla::dom::RemoteWorkerData& aRemoteWorkerData) override;
 
-  already_AddRefed<PRemoteWorkerServiceParent> AllocPRemoteWorkerServiceParent()
-      override;
-
-  mozilla::ipc::IPCResult RecvPRemoteWorkerServiceConstructor(
-      PRemoteWorkerServiceParent* aActor) override;
-
   mozilla::dom::PSharedWorkerParent* AllocPSharedWorkerParent(
       const mozilla::dom::RemoteWorkerData& aData, const uint64_t& aWindowID,
       const mozilla::dom::MessagePortIdentifier& aPortIdentifier) override;
@@ -196,6 +191,10 @@ class BackgroundParentImpl : public PBackgroundParent {
       const nsACString& origin, const nsAString& channel) override;
 
   bool DeallocPBroadcastChannelParent(PBroadcastChannelParent* aActor) override;
+
+  virtual PCookieStoreParent* AllocPCookieStoreParent() override;
+
+  virtual bool DeallocPCookieStoreParent(PCookieStoreParent* aActor) override;
 
   PServiceWorkerManagerParent* AllocPServiceWorkerManagerParent() override;
 
@@ -352,8 +351,12 @@ class BackgroundParentImpl : public PBackgroundParent {
       const nsAString& aGroupName, const nsACString& aEndpointURL,
       const PrincipalInfo& aPrincipalInfo) override;
 
+  mozilla::ipc::IPCResult RecvPLockManagerConstructor(
+      PLockManagerParent* actor, mozilla::NotNull<nsIPrincipal*> aPrincipalInfo,
+      const Maybe<nsID>& aClientId) override;
+
   already_AddRefed<PLockManagerParent> AllocPLockManagerParent(
-      NotNull<nsIPrincipal*> aPrincipal, const nsID& aClientId) final;
+      NotNull<nsIPrincipal*> aPrincipal, const Maybe<nsID>& aClientId) final;
 
   already_AddRefed<PFetchParent> AllocPFetchParent() override;
 };

@@ -171,8 +171,8 @@ add_task(async function urlbar_context() {
   let contextMenu = document.getElementById("toolbar-context-menu");
   let shownPromise = popupShown(contextMenu);
   let urlBarContainer = document.getElementById("urlbar-container");
-  // Need to make sure not to click within an edit field.
-  EventUtils.synthesizeMouse(urlBarContainer, 100, 1, {
+  // This clicks in the urlbar container margin, to avoid hitting the urlbar field.
+  EventUtils.synthesizeMouse(urlBarContainer, -2, 4, {
     type: "contextmenu",
     button: 2,
   });
@@ -204,9 +204,7 @@ add_task(async function searchbar_context_move_to_panel_and_back() {
   // This is specifically testing the addToPanel function for the search bar, so
   // we have to move it to its correct position in the navigation toolbar first.
   // The preference will be restored when the customizations are reset later.
-  Services.prefs.setBoolPref("browser.search.widget.inNavBar", true);
-
-  let searchbar = document.getElementById("searchbar");
+  let searchbar = await gCUITestUtils.addSearchBar();
   // This fails if the screen resolution is small and the search bar overflows
   // from the nav bar.
   await gCustomizeMode.addToPanel(searchbar);
@@ -549,7 +547,7 @@ add_task(async function custom_context_menus() {
   await startCustomizing();
   is(
     widget.getAttribute("context"),
-    "",
+    null,
     "Should not have own context menu in the toolbar now that we're customizing."
   );
   is(
@@ -562,7 +560,7 @@ add_task(async function custom_context_menus() {
   simulateItemDrag(widget, panel);
   is(
     widget.getAttribute("context"),
-    "",
+    null,
     "Should not have own context menu when in the panel."
   );
   is(
@@ -577,7 +575,7 @@ add_task(async function custom_context_menus() {
   );
   is(
     widget.getAttribute("context"),
-    "",
+    null,
     "Should not have own context menu when back in toolbar because we're still customizing."
   );
   is(

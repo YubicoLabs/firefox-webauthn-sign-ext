@@ -87,8 +87,8 @@ void VRProcessManager::DestroyProcess() {
   mProcess = nullptr;
   mVRChild = nullptr;
 
-  CrashReporter::AnnotateCrashReport(CrashReporter::Annotation::VRProcessStatus,
-                                     "Destroyed"_ns);
+  CrashReporter::RecordAnnotationCString(
+      CrashReporter::Annotation::VRProcessStatus, "Destroyed");
 }
 
 bool VRProcessManager::EnsureVRReady() {
@@ -134,8 +134,8 @@ void VRProcessManager::OnProcessLaunchComplete(VRProcessParent* aParent) {
   }
   mQueuedPrefs.Clear();
 
-  CrashReporter::AnnotateCrashReport(CrashReporter::Annotation::VRProcessStatus,
-                                     "Running"_ns);
+  CrashReporter::RecordAnnotationCString(
+      CrashReporter::Annotation::VRProcessStatus, "Running");
 }
 
 void VRProcessManager::OnProcessUnexpectedShutdown(VRProcessParent* aParent) {
@@ -145,7 +145,7 @@ void VRProcessManager::OnProcessUnexpectedShutdown(VRProcessParent* aParent) {
 }
 
 bool VRProcessManager::CreateGPUBridges(
-    base::ProcessId aOtherProcess,
+    mozilla::ipc::EndpointProcInfo aOtherProcess,
     mozilla::ipc::Endpoint<PVRGPUChild>* aOutVRBridge) {
   if (!CreateGPUVRManager(aOtherProcess, aOutVRBridge)) {
     return false;
@@ -154,21 +154,21 @@ bool VRProcessManager::CreateGPUBridges(
 }
 
 bool VRProcessManager::CreateGPUVRManager(
-    base::ProcessId aOtherProcess,
+    mozilla::ipc::EndpointProcInfo aOtherProcess,
     mozilla::ipc::Endpoint<PVRGPUChild>* aOutEndpoint) {
   if (mProcess && !mProcess->IsConnected()) {
     NS_WARNING("VR process haven't connected with the parent process yet");
     return false;
   }
 
-  base::ProcessId vrparentPid = mProcess
-                                    ? mProcess->OtherPid()  // VR process id.
-                                    : base::GetCurrentProcId();
+  ipc::EndpointProcInfo vrparentInfo =
+      mProcess ? ipc::EndpointProcInfo{.mPid = mProcess->GetChildProcessId(),
+                                       .mChildID = mProcess->GetChildID()}
+               : ipc::EndpointProcInfo::Current();
 
   ipc::Endpoint<PVRGPUParent> vrparentPipe;
   ipc::Endpoint<PVRGPUChild> vrchildPipe;
-  nsresult rv = PVRGPU::CreateEndpoints(vrparentPid,    // vr process id
-                                        aOtherProcess,  // gpu process id
+  nsresult rv = PVRGPU::CreateEndpoints(vrparentInfo, aOtherProcess,
                                         &vrparentPipe, &vrchildPipe);
 
   if (NS_FAILED(rv)) {

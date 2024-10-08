@@ -35,9 +35,11 @@ support-files = [
 # https://bugzilla.mozilla.org/show_bug.cgi?id=1816325
 # Several tests rely on redirecting to data: URIs, which was allowed for a long
 # time but now forbidden. So we enable it just for these tests.
+# Native HTTPS query changes timings for some tests. Disable it for now.
 prefs = [
   "dom.serviceWorkers.enabled=true",
- "network.allow_redirect_to_data=true",
+  "network.allow_redirect_to_data=true",
+  "network.dns.native_https_query=false",
 ]
 
 ["test_1073747.js"]
@@ -106,13 +108,12 @@ skip-if = [
 
 ["test_auth_dialog_permission.js"]
 
-["test_auth_jar.js"]
-
 ["test_auth_multiple.js"]
 
 ["test_auth_proxy.js"]
 
 ["test_authentication.js"]
+requesttimeoutfactor = 2
 
 ["test_authpromptwrapper.js"]
 
@@ -309,6 +310,22 @@ skip-if = [
 ["test_bug1725766.js"]
 skip-if = ["os == 'android'"] # skip because of bug 1589327
 
+["test_bug1883496.js"]
+skip-if = [
+  "os != 'android'",
+]
+
+["test_bug1889130.js"]
+skip-if = ["os == 'win'"] # skip because 0.0.0.0 is invalid in windows platform
+
+["test_bug1913022.js"]
+
+["test_bug_1918928.js"]
+skip-if = [
+  "socketprocess_networking", # confirmation state isn't passed cross-process
+  "appname == 'thunderbird'", # bug 1760097
+]
+
 ["test_cache-control_request.js"]
 
 ["test_cache-entry-id.js"]
@@ -419,6 +436,9 @@ skip-if = ["true"]
 
 ["test_cache2-32-clear-origin.js"]
 
+["test_cache2_clear_with_usercontext_oa.js"]
+run-sequentially = "httpd server"
+
 ["test_cache_204_response.js"]
 
 ["test_cache_jar.js"]
@@ -434,7 +454,6 @@ run-sequentially = "node server exceptions dont replay well"
 run-sequentially = "node server exceptions dont replay well"
 
 ["test_channel_close.js"]
-skip-if = ["os == 'win' && socketprocess_networking && !debug"]
 
 ["test_channel_long_domain.js"]
 
@@ -444,7 +463,9 @@ skip-if = ["os == 'win' && socketprocess_networking && !debug"]
 prefs = ["security.allow_eval_with_system_principal=true"]
 
 ["test_client_auth_with_proxy.js"]
-skip-if = ["os == 'android'"]
+skip-if = [
+  "os == 'android'",
+]
 
 ["test_coaleasing_h2_and_h3_connection.js"]
 skip-if = [
@@ -458,6 +479,8 @@ run-sequentially = "http3server"
 ["test_compressappend.js"]
 
 ["test_connection_based_auth.js"]
+
+["test_connection_coalescing.js"]
 
 ["test_content_encoding_gzip.js"]
 
@@ -497,13 +520,13 @@ skip-if = ["os == 'android'"] # Bug 1700483
 
 ["test_cookies_thirdparty.js"]
 
-["test_cookies_thirdparty_session.js"]
-
 ["test_cookies_upgrade_10.js"]
 
 ["test_data_protocol.js"]
 
 ["test_defaultURI.js"]
+
+["test_default_uri_bypass.js"]
 
 ["test_dns_by_type_resolve.js"]
 
@@ -600,12 +623,18 @@ run-sequentially = "node server exceptions dont replay well"
 ["test_hostnameIsSharedIPAddress.js"]
 
 ["test_hpke_config_manager.js"]
-skip-if = ["!nightly_build"] # OHTTP Config manager not currently shipped to release.
+
+["test_hpke_out_of_process.js"]
+firefox-appdir = "browser"
+skip-if = ["os == 'android'"] # Bug 1904406
 
 ["test_http1-proxy.js"]
 
 ["test_http2-proxy-failing.js"]
 run-sequentially = "node server exceptions dont replay well"
+skip-if = [
+  "os == 'win'" # https://bugzilla.mozilla.org/show_bug.cgi?id=1881334
+]
 
 ["test_http2-proxy.js"]
 run-sequentially = "one http2 node proxy is used for all tests, this test is using global session counter"
@@ -621,7 +650,6 @@ head = "head_channels.js head_cache.js head_cookies.js head_servers.js head_trr.
 
 ["test_http3.js"]
 skip-if = [
-  "os == 'android'", # bug 1622901
   "os == 'win' && msix", # https://bugzilla.mozilla.org/show_bug.cgi?id=1807931
 ]
 run-sequentially = "http3server"
@@ -629,7 +657,6 @@ run-sequentially = "http3server"
 ["test_http3_0rtt.js"]
 skip-if = [
   "os == 'win'",
-  "os == 'android'",
 ]
 
 ["test_http3_421.js"]
@@ -650,30 +677,28 @@ run-sequentially = "http3server"
 skip-if = [
   "os == 'android'",
   "socketprocess_networking",
-  "os == 'win' && msix", # https://bugzilla.mozilla.org/show_bug.cgi?id=1808049
+  "os == 'win'", # https://bugzilla.mozilla.org/show_bug.cgi?id=1808049
   "apple_silicon", # https://bugzilla.mozilla.org/show_bug.cgi?id=1866067
 ]
 run-sequentially = "node server exceptions dont replay well"
 
 ["test_http3_direct_proxy.js"]
 skip-if = [
-  "os == 'android'",
-  "os == 'win' && msix", # https://bugzilla.mozilla.org/show_bug.cgi?id=1808049
+  "os == 'win'", # https://bugzilla.mozilla.org/show_bug.cgi?id=1808049
 ]
 run-sequentially = "node server exceptions dont replay well"
 
 ["test_http3_dns_retry.js"]
 skip-if = [
   "os == 'android'",
-  "os == 'win' && msix",
+  "os == 'win'",
 ]
 run-sequentially = "node server exceptions dont replay well"
 
 ["test_http3_early_hint_listener.js"]
 skip-if = [
-  "os == 'android'",
   "os == 'linux'", # Bug 1773916
-  "os == 'win' && msix", # https://bugzilla.mozilla.org/show_bug.cgi?id=1808049
+  "os == 'win'", # https://bugzilla.mozilla.org/show_bug.cgi?id=1808049
 ]
 run-sequentially = "http3server"
 
@@ -698,32 +723,28 @@ skip-if = [
 ]
 run-sequentially = "node server exceptions dont replay well"
 
-["test_http3_large_post.js"]
+["test_http3_kyber.js"]
 skip-if = [
   "os == 'win'",
   "os == 'android'",
 ]
 
-["test_http3_large_post_telemetry.js"]
-disabled = "bug 1771744 - telemetry probe expired"
-# skip-if =
-#   asan
-#   tsan
-#   os == 'win'
-#   os == 'android'
-#   socketprocess_networking
+["test_http3_large_post.js"]
+skip-if = [
+  "os == 'win'",
+]
+run-sequentially = "http3server"
 
 ["test_http3_perf.js"]
 skip-if = [
   "os == 'android'",
-  "os == 'win' && msix", # https://bugzilla.mozilla.org/show_bug.cgi?id=1807931
+  "os == 'win'", # https://bugzilla.mozilla.org/show_bug.cgi?id=1807931
 ]
 run-sequentially = "http3server"
 
 ["test_http3_prio_disabled.js"]
 skip-if = [
-  "os == 'android'",
-  "os == 'win' && msix", # https://bugzilla.mozilla.org/show_bug.cgi?id=1807931
+  "os == 'win'", # https://bugzilla.mozilla.org/show_bug.cgi?id=1807931
 ]
 run-sequentially = "http3server"
 
@@ -731,6 +752,7 @@ run-sequentially = "http3server"
 skip-if = [
   "os == 'android'",
   "os == 'win' && msix", # https://bugzilla.mozilla.org/show_bug.cgi?id=1807931
+  "true", # Will be reenabled in bug 1865394
 ]
 run-sequentially = "http3server"
 
@@ -748,7 +770,6 @@ run-sequentially = "node server exceptions dont replay well"
 
 ["test_http3_trans_close.js"]
 skip-if = [
-  "os == 'android'",
   "os == 'win' && msix", # https://bugzilla.mozilla.org/show_bug.cgi?id=1807931
 ]
 run-sequentially = "http3server"
@@ -756,7 +777,6 @@ run-sequentially = "http3server"
 ["test_http3_version1.js"]
 skip-if = [
   "os == 'win'",
-  "os == 'android'",
 ]
 run-sequentially = "node server exceptions dont replay well"
 
@@ -805,7 +825,7 @@ skip-if = [
   "os == 'android'", # bug 1622901
   "os == 'mac' && !debug",
   "asan",
-  "os == 'win' && msix", # https://bugzilla.mozilla.org/show_bug.cgi?id=1808048
+  "os == 'win'", # https://bugzilla.mozilla.org/show_bug.cgi?id=1808048
 ]
 run-sequentially = "node server exceptions dont replay well"
 
@@ -830,6 +850,8 @@ run-sequentially = "node server exceptions dont replay well"
 
 ["test_inhibit_caching.js"]
 
+["test_internal_redirect.js"]
+
 ["test_ioservice.js"]
 
 ["test_large_port.js"]
@@ -846,11 +868,15 @@ run-sequentially = "node server exceptions dont replay well"
 
 ["test_multipart_byteranges.js"]
 
+["test_multipart_set_cookie.js"]
+
 ["test_multipart_streamconv-byte-by-byte.js"]
 
 ["test_multipart_streamconv.js"]
 
 ["test_multipart_streamconv_empty.js"]
+
+["test_multipart_streamconv_inputstream.js"]
 
 ["test_multipart_streamconv_missing_boundary_lead_dashes.js"]
 
@@ -924,6 +950,8 @@ skip-if = ["os == 'win' && socketprocess_networking"]
 
 ["test_predictor.js"]
 
+["test_prio_header_override_forbid.js"]
+
 ["test_private_cookie_changed.js"]
 
 ["test_private_necko_channel.js"]
@@ -933,7 +961,6 @@ skip-if = ["os == 'win' && socketprocess_networking"]
 ["test_progress_no_proxy_and_proxy.js"]
 skip-if = [
   "os == 'win'",
-  "os == 'android'",
 ]
 run-sequentially = "node server exceptions dont replay well"
 
@@ -960,10 +987,21 @@ run-sequentially = "node server exceptions dont replay well"
 
 ["test_proxy_pac.js"]
 
+["test_proxyDNS_leak.js"]
+skip-if = [
+  "os == 'android'",
+  "socketprocess_networking",
+]
+
 ["test_proxyconnect.js"]
 skip-if = [
   "tsan",
   "socketprocess_networking", # Bug 1614708
+]
+
+["test_proxyconnect_https.js"]
+skip-if = [
+"socketprocess_networking",
 ]
 
 ["test_psl.js"]
@@ -1036,11 +1074,13 @@ run-sequentially = "tlsserver uses fixed port"
 
 ["test_safeoutputstream_append.js"]
 
-["test_schema_13_db.js"]
+["test_schema_10_migration.js"]
 
 ["test_schema_12_migration.js"]
 
-["test_schema_10_migration.js"]
+["test_schema_13_db.js"]
+
+["test_schema_14_migration.js"]
 
 ["test_schema_2_migration.js"]
 
@@ -1108,7 +1148,6 @@ fail-if = ["os == 'android'"]
 
 ["test_tls13_disabled.js"]
 skip-if = [
-  "os == 'android'",
   "verify && os == 'win'",
   "os == 'win' && msix", # https://bugzilla.mozilla.org/show_bug.cgi?id=1808049
 ]
@@ -1252,7 +1291,6 @@ run-sequentially = "node server exceptions dont replay well"
 
 ["test_websocket_with_h3_active.js"]
 skip-if = [
-  "os == 'android'",
   "verify && os == 'win'",
   "os == 'win' && msix", # https://bugzilla.mozilla.org/show_bug.cgi?id=1808049
 ]

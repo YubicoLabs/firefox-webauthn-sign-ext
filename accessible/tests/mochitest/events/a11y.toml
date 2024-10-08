@@ -22,8 +22,6 @@ support-files = [
 
 ["test_attrchange.html"]
 
-["test_attrs.html"]
-
 ["test_bug1322593-2.html"]
 
 ["test_bug1322593.html"]
@@ -39,8 +37,6 @@ support-files = [
 ["test_dragndrop.html"]
 
 ["test_flush.html"]
-
-["test_focus_aria_activedescendant.html"]
 
 ["test_focus_autocomplete.html"]
 

@@ -680,20 +680,6 @@ void SandboxBrokerPolicyFactory::InitContentPolicy() {
   AddDynamicPathList(policy, "security.sandbox.content.read_path_whitelist",
                      rdonly);
 
-#if defined(MOZ_CONTENT_TEMP_DIR)
-  // Add write permissions on the content process specific temporary dir.
-  nsCOMPtr<nsIFile> tmpDir;
-  rv = NS_GetSpecialDirectory(NS_APP_CONTENT_PROCESS_TEMP_DIR,
-                              getter_AddRefs(tmpDir));
-  if (NS_SUCCEEDED(rv)) {
-    nsAutoCString tmpPath;
-    rv = tmpDir->GetNativePath(tmpPath);
-    if (NS_SUCCEEDED(rv)) {
-      policy->AddDir(rdwrcr, tmpPath.get());
-    }
-  }
-#endif
-
   // userContent.css and the extensions dir sit in the profile, which is
   // normally blocked.
   nsCOMPtr<nsIFile> profileDir;
@@ -960,6 +946,20 @@ SandboxBrokerPolicyFactory::GetRDDPolicy(int aPid) {
 #ifdef MOZ_ENABLE_V4L2
   AddV4l2Dependencies(policy.get());
 #endif  // MOZ_ENABLE_V4L2
+
+  // Bug 1903688: NVIDIA Tegra hardware decoding from Linux4Tegra
+  // Only built on ARM64 since Tegra is ARM64 SoC with different drivers, so the
+  // path are not needed on e.g. x86-64
+#if defined(__aarch64__)
+  policy->AddDir(rdonly, "/sys/devices/system/present");
+  policy->AddDir(rdonly, "/sys/module/tegra_fuse");
+  policy->AddPath(rdwr, "/dev/nvmap");
+  policy->AddPath(rdwr, "/dev/nvhost-ctrl");
+  policy->AddPath(rdwr, "/dev/nvhost-ctrl-gpu");
+  policy->AddPath(rdwr, "/dev/nvhost-nvdec");
+  policy->AddPath(rdwr, "/dev/nvhost-nvdec1");
+  policy->AddPath(rdwr, "/dev/nvhost-vic");
+#endif  // defined(__aarch64__)
 
   if (policy->IsEmpty()) {
     policy = nullptr;

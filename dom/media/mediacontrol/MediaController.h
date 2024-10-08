@@ -36,8 +36,8 @@ class IMediaController {
   virtual void Stop() = 0;
   virtual void PrevTrack() = 0;
   virtual void NextTrack() = 0;
-  virtual void SeekBackward() = 0;
-  virtual void SeekForward() = 0;
+  virtual void SeekBackward(double aSeekOffset) = 0;
+  virtual void SeekForward(double aSeekOffset) = 0;
   virtual void SkipAd() = 0;
   virtual void SeekTo(double aSeekTime, bool aFastSeek) = 0;
 
@@ -104,8 +104,8 @@ class MediaController final : public DOMEventTargetHelper,
   void Stop() override;
   void PrevTrack() override;
   void NextTrack() override;
-  void SeekBackward() override;
-  void SeekForward() override;
+  void SeekBackward(double aSeekOffset) override;
+  void SeekForward(double aSeekOffset) override;
   void SkipAd() override;
   void SeekTo(double aSeekTime, bool aFastSeek) override;
 
@@ -159,7 +159,7 @@ class MediaController final : public DOMEventTargetHelper,
   void HandleSupportedMediaSessionActionsChanged(
       const nsTArray<MediaSessionAction>& aSupportedAction);
 
-  void HandlePositionStateChanged(const PositionState& aState);
+  void HandlePositionStateChanged(const Maybe<PositionState>& aState);
   void HandleMetadataChanged(const MediaMetadataBase& aMetadata);
 
   // This would register controller to the media control service that takes a

@@ -28,6 +28,7 @@
 #include "nsIXULAppInfo.h"
 #include "mozilla/BinarySearch.h"
 #include "mozilla/ClearOnShutdown.h"
+#include "mozilla/LookAndFeel.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/StaticPrefs_gfx.h"
 #include "mozilla/gfx/2D.h"
@@ -278,6 +279,12 @@ static const char* GetPrefNameForFeature(int32_t aFeature) {
       break;
     case nsIGfxInfo::FEATURE_WEBGL_USE_HARDWARE:
       name = BLOCKLIST_PREF_BRANCH "webgl-use-hardware";
+      break;
+    case nsIGfxInfo::FEATURE_OVERLAY_VP_AUTO_HDR:
+      name = BLOCKLIST_PREF_BRANCH "overlay-vp-auto-hdr";
+      break;
+    case nsIGfxInfo::FEATURE_OVERLAY_VP_SUPER_RESOLUTION:
+      name = BLOCKLIST_PREF_BRANCH "overlay-vp-super-resolution";
       break;
     default:
       MOZ_ASSERT_UNREACHABLE("Unexpected nsIGfxInfo feature?!");
@@ -554,6 +561,12 @@ static int32_t BlocklistFeatureToGfxFeature(const nsAString& aFeature) {
   }
   if (aFeature.EqualsLiteral("ACCELERATED_CANVAS2D")) {
     return nsIGfxInfo::FEATURE_ACCELERATED_CANVAS2D;
+  }
+  if (aFeature.EqualsLiteral("FEATURE_OVERLAY_VP_AUTO_HDR")) {
+    return nsIGfxInfo::FEATURE_OVERLAY_VP_AUTO_HDR;
+  }
+  if (aFeature.EqualsLiteral("FEATURE_OVERLAY_VP_SUPER_RESOLUTION")) {
+    return nsIGfxInfo::FEATURE_OVERLAY_VP_SUPER_RESOLUTION;
   }
   if (aFeature.EqualsLiteral("ALL")) {
     return GfxDriverInfo::allFeatures;
@@ -1276,8 +1289,7 @@ bool GfxInfoBase::DoesDriverVendorMatch(const nsAString& aBlocklistVendor,
 }
 
 bool GfxInfoBase::IsFeatureAllowlisted(int32_t aFeature) const {
-  return aFeature == nsIGfxInfo::FEATURE_VIDEO_OVERLAY ||
-         aFeature == nsIGfxInfo::FEATURE_HW_DECODED_VIDEO_ZERO_COPY;
+  return aFeature == nsIGfxInfo::FEATURE_HW_DECODED_VIDEO_ZERO_COPY;
 }
 
 nsresult GfxInfoBase::GetFeatureStatusImpl(
@@ -1585,13 +1597,14 @@ static void AppendMonitor(JSContext* aCx, widget::Screen& aScreen,
   JS::Rooted<JS::Value> screenHeight(aCx, JS::Int32Value(screenSize.height));
   JS_SetProperty(aCx, obj, "screenHeight", screenHeight);
 
-  // XXX Just preserving behavior since this is exposed to telemetry, but we
-  // could consider including this everywhere.
-#ifdef XP_MACOSX
-  JS::Rooted<JS::Value> scale(
+  JS::Rooted<JS::Value> defaultCssScaleFactor(
+      aCx,
+      JS::Float32Value(static_cast<float>(aScreen.GetDefaultCSSScaleFactor())));
+  JS_SetProperty(aCx, obj, "defaultCSSScaleFactor", defaultCssScaleFactor);
+
+  JS::Rooted<JS::Value> contentsScaleFactor(
       aCx, JS::NumberValue(aScreen.GetContentsScaleFactor()));
-  JS_SetProperty(aCx, obj, "scale", scale);
-#endif
+  JS_SetProperty(aCx, obj, "contentsScaleFactor", contentsScaleFactor);
 
 #ifdef XP_WIN
   JS::Rooted<JS::Value> refreshRate(aCx,
@@ -1925,7 +1938,7 @@ using Device = nsIGfxInfo::FontVisibilityDeviceDetermination;
 static StaticAutoPtr<std::pair<Device, nsString>> ret;
 
 std::pair<Device, nsString>* GfxInfoBase::GetFontVisibilityDeterminationPair() {
-  if(!ret) {
+  if (!ret) {
     ret = new std::pair<Device, nsString>();
     ret->first = Device::Unassigned;
     ret->second = u""_ns;
@@ -2150,6 +2163,18 @@ GfxInfoBase::GetUsingGPUProcess(bool* aOutValue) {
   return NS_OK;
 }
 
+NS_IMETHODIMP
+GfxInfoBase::GetUsingRemoteCanvas(bool* aOutValue) {
+  *aOutValue = gfx::gfxVars::RemoteCanvasEnabled();
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+GfxInfoBase::GetUsingAcceleratedCanvas(bool* aOutValue) {
+  *aOutValue = gfx::gfxVars::UseAcceleratedCanvas2D();
+  return NS_OK;
+}
+
 NS_IMETHODIMP_(int32_t)
 GfxInfoBase::GetMaxRefreshRate(bool* aMixed) {
   if (aMixed) {
@@ -2166,6 +2191,12 @@ GfxInfoBase::GetMaxRefreshRate(bool* aMixed) {
   }
 
   return maxRefreshRate > 0 ? maxRefreshRate : -1;
+}
+
+NS_IMETHODIMP
+GfxInfoBase::GetTextScaleFactor(float* aOutValue) {
+  *aOutValue = LookAndFeel::GetTextScaleFactor();
+  return NS_OK;
 }
 
 NS_IMETHODIMP

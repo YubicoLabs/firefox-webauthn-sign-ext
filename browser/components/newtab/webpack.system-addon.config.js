@@ -48,11 +48,8 @@ module.exports = (env = {}) => ({
   },
   // This resolve config allows us to import with paths relative to the root directory, e.g. "lib/ActivityStream.sys.mjs"
   resolve: {
-    extensions: [".js", ".jsx"],
+    extensions: [".js", ".jsx", ".mjs"],
     modules: ["node_modules", "."],
-    fallback: {
-      stream: require.resolve("stream-browserify"),
-    },
   },
   externals: {
     "prop-types": "PropTypes",

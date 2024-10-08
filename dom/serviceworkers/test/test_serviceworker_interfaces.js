@@ -40,6 +40,7 @@ let wasmGlobalInterfaces = [
   { name: "Function", insecureContext: true, nightly: true },
   { name: "Exception", insecureContext: true },
   { name: "Tag", insecureContext: true },
+  { name: "JSTag", insecureContext: true },
   { name: "compile", insecureContext: true },
   { name: "compileStreaming", insecureContext: true },
   { name: "instantiate", insecureContext: true },
@@ -62,6 +63,7 @@ let ecmaGlobals = [
   "Error",
   "EvalError",
   "FinalizationRegistry",
+  "Float16Array",
   "Float32Array",
   "Float64Array",
   "Function",
@@ -71,6 +73,7 @@ let ecmaGlobals = [
   "Int8Array",
   "InternalError",
   "Intl",
+  "Iterator",
   "JSON",
   "Map",
   "Math",
@@ -148,6 +151,10 @@ let interfaceNamesInGlobalScope = [
   "CompressionStream",
   // IMPORTANT: Do not change this list without review from a DOM peer!
   "CountQueuingStrategy",
+  // IMPORTANT: Do not change this list without review from a DOM peer!
+  { name: "CookieChangeEvent", nightly: true },
+  // IMPORTANT: Do not change this list without review from a DOM peer!
+  { name: "CookieStore", nightly: true },
   // IMPORTANT: Do not change this list without review from a DOM peer!
   "Crypto",
   // IMPORTANT: Do not change this list without review from a DOM peer!
@@ -246,8 +253,6 @@ let interfaceNamesInGlobalScope = [
   "LockManager",
   // IMPORTANT: Do not change this list without review from a DOM peer!
   "MediaCapabilities",
-  // IMPORTANT: Do not change this list without review from a DOM peer!
-  "MediaCapabilitiesInfo",
   // IMPORTANT: Do not change this list without review from a DOM peer!
   "MessageChannel",
   // IMPORTANT: Do not change this list without review from a DOM peer!
@@ -416,6 +421,8 @@ let interfaceNamesInGlobalScope = [
   "clients",
   // IMPORTANT: Do not change this list without review from a DOM peer!
   "console",
+  // IMPORTANT: Do not change this list without review from a DOM peer!
+  { name: "cookieStore", nightly: true },
   // IMPORTANT: Do not change this list without review from a DOM peer!
   "onactivate",
   // IMPORTANT: Do not change this list without review from a DOM peer!

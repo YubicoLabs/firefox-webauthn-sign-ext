@@ -46,7 +46,8 @@ class MFMediaSource : public Microsoft::WRL::RuntimeClass<
 
   HRESULT RuntimeClassInitialize(const Maybe<AudioInfo>& aAudio,
                                  const Maybe<VideoInfo>& aVideo,
-                                 nsISerialEventTarget* aManagerThread);
+                                 nsISerialEventTarget* aManagerThread,
+                                 bool aIsEncrytpedCustomInit);
 
   // Methods for IMFMediaSource
   IFACEMETHODIMP GetCharacteristics(DWORD* aCharacteristics) override;
@@ -131,8 +132,6 @@ class MFMediaSource : public Microsoft::WRL::RuntimeClass<
  private:
   void AssertOnManagerThread() const;
   void AssertOnMFThreadPool() const;
-
-  void NotifyEndOfStreamInternal(TrackInfo::TrackType aType);
 
   bool IsSeekable() const;
 

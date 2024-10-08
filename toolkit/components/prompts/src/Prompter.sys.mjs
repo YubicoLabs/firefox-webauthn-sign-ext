@@ -1058,7 +1058,7 @@ class ModalPrompter {
         closed = true;
       });
     Services.tm.spinEventLoopUntilOrQuit(
-      "prompts/Prompter.jsm:openPromptSync",
+      "prompts/Prompter.sys.mjs:openPromptSync",
       () => closed
     );
   }
@@ -1257,7 +1257,7 @@ class ModalPrompter {
   }
 
   async openInternalWindowPrompt(parentWindow, args) {
-    if (!parentWindow?.gDialogBox || !ModalPrompter.windowPromptSubDialog) {
+    if (!parentWindow?.gDialogBox) {
       this.openWindowPrompt(parentWindow, args);
       return;
     }
@@ -1474,7 +1474,7 @@ class ModalPrompter {
     }
 
     if (flags & Ci.nsIPrompt.SHOW_SPINNER) {
-      args.showSpinner = true;
+      args.headerIconCSSValue = "url('chrome://global/skin/icons/loading.svg')";
     }
 
     if (this.async) {
@@ -1719,15 +1719,7 @@ class ModalPrompter {
     return result;
   }
 
-  asyncPromptAuth(
-    channel,
-    callback,
-    context,
-    level,
-    authInfo,
-    checkLabel,
-    checkValue
-  ) {
+  asyncPromptAuth() {
     // Nothing calls this directly; netwerk ends up going through
     // nsIPromptService::GetPrompt, which delegates to login manager.
     // Login manger handles the async bits itself, and only calls out
@@ -1756,13 +1748,6 @@ XPCOMUtils.defineLazyPreferenceGetter(
   MODAL_TYPE_WINDOW
 );
 
-XPCOMUtils.defineLazyPreferenceGetter(
-  ModalPrompter,
-  "windowPromptSubDialog",
-  "prompts.windowPromptSubDialog",
-  false
-);
-
 export function AuthPromptAdapterFactory() {}
 AuthPromptAdapterFactory.prototype = {
   classID: Components.ID("{6e134924-6c3a-4d86-81ac-69432dd971dc}"),
@@ -1785,7 +1770,7 @@ AuthPromptAdapter.prototype = {
 
   /* ----------  nsIAuthPrompt2 ---------- */
 
-  promptAuth(channel, level, authInfo, checkLabel, checkValue) {
+  promptAuth(channel, level, authInfo) {
     let message = InternalPromptUtils.makeAuthMessage(
       this.oldPrompter,
       channel,
@@ -1832,15 +1817,7 @@ AuthPromptAdapter.prototype = {
     return ok;
   },
 
-  asyncPromptAuth(
-    channel,
-    callback,
-    context,
-    level,
-    authInfo,
-    checkLabel,
-    checkValue
-  ) {
+  asyncPromptAuth() {
     throw Components.Exception("", Cr.NS_ERROR_NOT_IMPLEMENTED);
   },
 };

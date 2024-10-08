@@ -17,7 +17,6 @@ from mozhttpd import MozHttpd
 from mozprofile import FirefoxProfile, Preferences
 from mozprofile.permissions import ServerLocations
 from mozrunner import CLI, FirefoxRunner
-from six import string_types
 
 PORT = 8888
 
@@ -120,7 +119,7 @@ if __name__ == "__main__":
         interpolation = {"server": "%s:%d" % httpd.httpd.server_address}
         sp3_interpolation = {"server": "%s:%d" % sp3_httpd.httpd.server_address}
         for k, v in prefs.items():
-            if isinstance(v, string_types):
+            if isinstance(v, str):
                 v = v.format(**interpolation)
             prefs[k] = Preferences.cast(v)
 
@@ -146,8 +145,8 @@ if __name__ == "__main__":
         env["MOZ_DISABLE_SOCKET_PROCESS_SANDBOX"] = "1"
         env["MOZ_DISABLE_GPU_SANDBOX"] = "1"
         env["MOZ_DISABLE_GMP_SANDBOX"] = "1"
-        env["MOZ_DISABLE_NPAPI_SANDBOX"] = "1"
         env["MOZ_DISABLE_VR_SANDBOX"] = "1"
+        env["MOZ_DISABLE_UTILITY_SANDBOX"] = "1"
 
         # Ensure different pids write to different files
         env["LLVM_PROFILE_FILE"] = "default_%p_random_%m.profraw"

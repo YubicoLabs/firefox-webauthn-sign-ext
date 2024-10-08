@@ -40,7 +40,7 @@ static bool IsOptionInteractivelySelectable(HTMLSelectElement& aSelect,
   // options in a display: contents subtree interactively.
   // test_select_key_navigation_bug1498769.html tests for this and should
   // probably be changed (and this loop removed) or alternatively
-  // SelectChild.jsm should be changed to match it.
+  // SelectChild.sys.mjs should be changed to match it.
   for (Element* el = &aOption; el && el != &aSelect;
        el = el->GetParentElement()) {
     if (Servo_Element_IsDisplayContents(el)) {
@@ -412,7 +412,10 @@ nsresult HTMLSelectEventListener::MouseDown(dom::Event* aMouseEvent) {
   }
 
   if (mIsCombobox) {
-    uint16_t inputSource = mouseEvent->InputSource();
+    // inputSource is used to apply padding for touch events, but
+    // the dropdown is rendered in another process, the webpage won't
+    // have access to it. It is fine to use CallerType::System here.
+    uint16_t inputSource = mouseEvent->InputSource(CallerType::System);
     if (mElement->OpenInParentProcess()) {
       nsCOMPtr<nsIContent> target = do_QueryInterface(aMouseEvent->GetTarget());
       if (target && target->IsHTMLElement(nsGkAtoms::option)) {

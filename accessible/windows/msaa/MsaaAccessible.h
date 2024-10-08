@@ -12,8 +12,9 @@
 #include "ia2AccessibleHyperlink.h"
 #include "ia2AccessibleValue.h"
 #include "IUnknownImpl.h"
-#include "mozilla/a11y/MsaaIdGenerator.h"
+#include "MsaaIdGenerator.h"
 #include "nsXULAppAPI.h"
+#include "uiaRawElmProvider.h"
 
 namespace mozilla {
 namespace a11y {
@@ -25,11 +26,12 @@ class sdnAccessible;
 class MsaaAccessible : public ia2Accessible,
                        public ia2AccessibleComponent,
                        public ia2AccessibleHyperlink,
-                       public ia2AccessibleValue {
+                       public ia2AccessibleValue,
+                       public uiaRawElmProvider {
  public:
   static MsaaAccessible* Create(Accessible* aAcc);
 
-  Accessible* Acc() { return mAcc; }
+  Accessible* Acc() const { return mAcc; }
   AccessibleWrap* LocalAcc();
 
   uint32_t GetExistingID() const { return mID; }
@@ -143,6 +145,10 @@ class MsaaAccessible : public ia2Accessible,
                                            VARIANT* pVarResult,
                                            EXCEPINFO* pExcepInfo,
                                            UINT* puArgErr) override;
+
+  // UIA's IInvokeProvider has a method called Invoke too, but it's fine because
+  // it accepts very different parameters.
+  using uiaRawElmProvider::Invoke;
 
  protected:
   explicit MsaaAccessible(Accessible* aAcc);

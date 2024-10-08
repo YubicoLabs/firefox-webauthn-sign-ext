@@ -5,6 +5,8 @@
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
+  AppProvidedSearchEngine:
+    "resource://gre/modules/AppProvidedSearchEngine.sys.mjs",
   DeferredTask: "resource://gre/modules/DeferredTask.sys.mjs",
   ObjectUtils: "resource://gre/modules/ObjectUtils.sys.mjs",
   SearchUtils: "resource://gre/modules/SearchUtils.sys.mjs",
@@ -18,6 +20,27 @@ ChromeUtils.defineLazyGetter(lazy, "logConsole", () => {
 });
 
 const SETTINGS_FILENAME = "search.json.mozlz4";
+
+/**
+ * A map of engine ids to their previous names. These are required for
+ * ensuring that user's settings are correctly migrated for users upgrading
+ * from a settings file prior to settings version 7 (Firefox 108).
+ *
+ * @type {Map<string, string>}
+ */
+const ENGINE_ID_TO_OLD_NAME_MAP = new Map([
+  ["wikipedia-hy", "Wikipedia (hy)"],
+  ["wikipedia-kn", "Wikipedia (kn)"],
+  ["wikipedia-lv", "Vikipēdija"],
+  ["wikipedia-NO", "Wikipedia (no)"],
+  ["wikipedia-el", "Wikipedia (el)"],
+  ["wikipedia-lt", "Wikipedia (lt)"],
+  ["wikipedia-my", "Wikipedia (my)"],
+  ["wikipedia-pa", "Wikipedia (pa)"],
+  ["wikipedia-pt", "Wikipedia (pt)"],
+  ["wikipedia-si", "Wikipedia (si)"],
+  ["wikipedia-tr", "Wikipedia (tr)"],
+]);
 
 /**
  * This class manages the saves search settings.
@@ -94,11 +117,14 @@ export class SearchSettings {
   #settings = null;
 
   /**
-   * @type {object} A deep copy of #settings.
-   *   #cachedSettings is updated when we read the settings from disk and when
-   *   we write settings to disk. #cachedSettings is compared with #settings
-   *   before we do a write to disk. If there's no change to the settings
-   *   attributes, then we don't write the settings to disk.
+   * #cachedSettings is updated when we read the settings from disk and when
+   * we write settings to disk. #cachedSettings is compared with #settings
+   * before we do a write to disk. If there's no change to the settings
+   * attributes, then we don't write the settings to disk.
+   *
+   * This is a deep copy of #settings.
+   *
+   * @type {object}
    */
   #cachedSettings = {};
 
@@ -181,6 +207,38 @@ export class SearchSettings {
         );
       }
       Services.prefs.clearUserPref("browser.search.hiddenOneOffs");
+    }
+
+    // Migration for new AppProvidedSearchEngine ID format
+    if (
+      this.#settings.version > 6 &&
+      this.#settings.version < 10 &&
+      this.#settings.engines
+    ) {
+      let changedEngines = new Map();
+      for (let engine of this.#settings.engines) {
+        if (engine._isAppProvided && engine.id) {
+          let oldId = engine.id;
+          engine.id = engine.id
+            .replace("@search.mozilla.orgdefault", "")
+            .replace("@search.mozilla.org", "-");
+          changedEngines.set(oldId, engine.id);
+        }
+      }
+
+      const PROPERTIES_CONTAINING_IDS = [
+        "privateDefaultEngineId",
+        "appDefaultEngineId",
+        "defaultEngineId",
+      ];
+
+      for (let prop of PROPERTIES_CONTAINING_IDS) {
+        if (changedEngines.has(this.#settings.metaData[prop])) {
+          this.#settings.metaData[prop] = changedEngines.get(
+            this.#settings.metaData[prop]
+          );
+        }
+      }
     }
 
     return structuredClone(json);
@@ -362,7 +420,6 @@ export class SearchSettings {
    *
    * @returns {*}
    *   A copy of the settings metadata object.
-   *
    */
   getSettingsMetaData() {
     return { ...this.#settings.metaData };
@@ -380,7 +437,6 @@ export class SearchSettings {
    *   The value of the attribute.
    *   We return undefined if the value of the attribute is not known or does
    *   not match the verification hash.
-   *
    */
   getVerifiedMetaDataAttribute(name, isAppProvided) {
     let attribute = this.getMetaDataAttribute(name);
@@ -498,6 +554,15 @@ export class SearchSettings {
           case lazy.SearchUtils.MODIFIED_TYPE.REMOVED:
             this._delayedWrite();
             break;
+          case lazy.SearchUtils.MODIFIED_TYPE.ICON_CHANGED:
+            // Application Provided Search Engines have their icons stored in
+            // Remote Settings, so we don't need to update the saved settings.
+            if (
+              !(engine?.wrappedJSObject instanceof lazy.AppProvidedSearchEngine)
+            ) {
+              this._delayedWrite();
+            }
+            break;
         }
         break;
       case lazy.SearchUtils.TOPIC_SEARCH_SERVICE:
@@ -610,6 +675,38 @@ export class SearchSettings {
         );
       }
     }
+  }
+
+  /**
+   * Finds the settings for the engine, based on the version of the settings
+   * passed in. Older versions of settings used the engine name as the key,
+   * whereas newer versions now use the engine id.
+   *
+   * @param {object} settings
+   *   The saved settings object.
+   * @param {string} engineId
+   *   The id of the engine.
+   * @param {string} engineName
+   *   The name of the engine.
+   * @returns {object|undefined}
+   *   The engine settings if found, undefined otherwise.
+   */
+  static findSettingsForEngine(settings, engineId, engineName) {
+    if (settings.version <= 6) {
+      let engineSettings = settings.engines?.find(e => e._name == engineName);
+      if (!engineSettings) {
+        // If we can't find the engine settings with the current name,
+        // see if there was an older name.
+        let oldEngineName = ENGINE_ID_TO_OLD_NAME_MAP.get(engineId);
+        if (oldEngineName) {
+          engineSettings = settings.engines?.find(
+            e => e._name == oldEngineName
+          );
+        }
+      }
+      return engineSettings;
+    }
+    return settings.engines?.find(e => e.id == engineId);
   }
 
   /**

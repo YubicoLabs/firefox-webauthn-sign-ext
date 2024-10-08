@@ -5,16 +5,23 @@
 //! Color support functions.
 
 /// cbindgen:ignore
+mod color_function;
+
+/// cbindgen:ignore
 pub mod convert;
+
+pub mod component;
 pub mod mix;
 pub mod parsing;
+mod to_css;
 
+use self::parsing::ChannelKeyword;
+use component::ColorComponent;
 use cssparser::color::PredefinedColorSpace;
-use std::fmt::{self, Write};
-use style_traits::{CssWriter, ToCss};
 
 /// The 3 components that make up a color.  (Does not include the alpha component)
 #[derive(Copy, Clone, Debug, MallocSizeOf, PartialEq, ToShmem)]
+#[cfg_attr(feature = "servo", derive(Deserialize, Serialize))]
 #[repr(C)]
 pub struct ColorComponents(pub f32, pub f32, pub f32);
 
@@ -59,6 +66,7 @@ impl std::ops::Div for ColorComponents {
     ToResolvedValue,
     ToShmem,
 )]
+#[cfg_attr(feature = "servo", derive(Deserialize, Serialize))]
 #[repr(u8)]
 pub enum ColorSpace {
     /// A color specified in the sRGB color space with either the rgb/rgba(..)
@@ -184,6 +192,7 @@ bitflags! {
 /// An absolutely specified color, using either rgb(), rgba(), lab(), lch(),
 /// oklab(), oklch() or color().
 #[derive(Copy, Clone, Debug, MallocSizeOf, PartialEq, ToShmem)]
+#[cfg_attr(feature = "servo", derive(Deserialize, Serialize))]
 #[repr(C)]
 pub struct AbsoluteColor {
     /// The 3 components that make up colors in any color space.
@@ -247,6 +256,22 @@ impl From<u8> for ComponentDetails {
 impl From<Option<f32>> for ComponentDetails {
     fn from(value: Option<f32>) -> Self {
         if let Some(value) = value {
+            Self {
+                value,
+                is_none: false,
+            }
+        } else {
+            Self {
+                value: 0.0,
+                is_none: true,
+            }
+        }
+    }
+}
+
+impl From<ColorComponent<f32>> for ComponentDetails {
+    fn from(value: ColorComponent<f32>) -> Self {
+        if let ColorComponent::Value(value) = value {
             Self {
                 value,
                 is_none: false,
@@ -428,6 +453,76 @@ impl AbsoluteColor {
         }
     }
 
+    /// Return the value of a component by its channel keyword.
+    pub fn get_component_by_channel_keyword(
+        &self,
+        channel_keyword: ChannelKeyword,
+    ) -> Result<Option<f32>, ()> {
+        if channel_keyword == ChannelKeyword::Alpha {
+            return Ok(self.alpha());
+        }
+
+        Ok(match self.color_space {
+            ColorSpace::Srgb => {
+                if self.flags.contains(ColorFlags::IS_LEGACY_SRGB) {
+                    match channel_keyword {
+                        ChannelKeyword::R => self.c0().map(|v| v * 255.0),
+                        ChannelKeyword::G => self.c1().map(|v| v * 255.0),
+                        ChannelKeyword::B => self.c2().map(|v| v * 255.0),
+                        _ => return Err(()),
+                    }
+                } else {
+                    match channel_keyword {
+                        ChannelKeyword::R => self.c0(),
+                        ChannelKeyword::G => self.c1(),
+                        ChannelKeyword::B => self.c2(),
+                        _ => return Err(()),
+                    }
+                }
+            },
+            ColorSpace::Hsl => match channel_keyword {
+                ChannelKeyword::H => self.c0(),
+                ChannelKeyword::S => self.c1(),
+                ChannelKeyword::L => self.c2(),
+                _ => return Err(()),
+            },
+            ColorSpace::Hwb => match channel_keyword {
+                ChannelKeyword::H => self.c0(),
+                ChannelKeyword::W => self.c1(),
+                ChannelKeyword::B => self.c2(),
+                _ => return Err(()),
+            },
+            ColorSpace::Lab | ColorSpace::Oklab => match channel_keyword {
+                ChannelKeyword::L => self.c0(),
+                ChannelKeyword::A => self.c1(),
+                ChannelKeyword::B => self.c2(),
+                _ => return Err(()),
+            },
+            ColorSpace::Lch | ColorSpace::Oklch => match channel_keyword {
+                ChannelKeyword::L => self.c0(),
+                ChannelKeyword::C => self.c1(),
+                ChannelKeyword::H => self.c2(),
+                _ => return Err(()),
+            },
+            ColorSpace::SrgbLinear |
+            ColorSpace::DisplayP3 |
+            ColorSpace::A98Rgb |
+            ColorSpace::ProphotoRgb |
+            ColorSpace::Rec2020 => match channel_keyword {
+                ChannelKeyword::R => self.c0(),
+                ChannelKeyword::G => self.c1(),
+                ChannelKeyword::B => self.c2(),
+                _ => return Err(()),
+            },
+            ColorSpace::XyzD50 | ColorSpace::XyzD65 => match channel_keyword {
+                ChannelKeyword::X => self.c0(),
+                ChannelKeyword::Y => self.c1(),
+                ChannelKeyword::Z => self.c2(),
+                _ => return Err(()),
+            },
+        })
+    }
+
     /// Convert this color to the specified color space.
     pub fn to_color_space(&self, color_space: ColorSpace) -> Self {
         use ColorSpace::*;
@@ -463,7 +558,10 @@ impl AbsoluteColor {
             (Srgb, Hwb) => convert::rgb_to_hwb(&components),
             (Hsl, Srgb) => convert::hsl_to_rgb(&components),
             (Hwb, Srgb) => convert::hwb_to_rgb(&components),
-            (Lab, Lch) | (Oklab, Oklch) => convert::orthogonal_to_polar(&components),
+            (Lab, Lch) | (Oklab, Oklch) => convert::orthogonal_to_polar(
+                &components,
+                convert::epsilon_for_range(0.0, if color_space == Lch { 100.0 } else { 1.0 }),
+            ),
             (Lch, Lab) | (Oklch, Oklab) => convert::polar_to_orthogonal(&components),
 
             // All other conversions need to convert to XYZ first.
@@ -537,77 +635,6 @@ impl From<PredefinedColorSpace> for ColorSpace {
             PredefinedColorSpace::Rec2020 => ColorSpace::Rec2020,
             PredefinedColorSpace::XyzD50 => ColorSpace::XyzD50,
             PredefinedColorSpace::XyzD65 => ColorSpace::XyzD65,
-        }
-    }
-}
-
-impl ToCss for AbsoluteColor {
-    fn to_css<W>(&self, dest: &mut CssWriter<W>) -> fmt::Result
-    where
-        W: Write,
-    {
-        match self.color_space {
-            ColorSpace::Srgb if self.flags.contains(ColorFlags::IS_LEGACY_SRGB) => {
-                // The "none" keyword is not supported in the rgb/rgba legacy syntax.
-                cssparser::ToCss::to_css(
-                    &parsing::RgbaLegacy::from_floats(
-                        self.components.0,
-                        self.components.1,
-                        self.components.2,
-                        self.alpha,
-                    ),
-                    dest,
-                )
-            },
-            ColorSpace::Hsl | ColorSpace::Hwb => self.into_srgb_legacy().to_css(dest),
-            ColorSpace::Lab => cssparser::ToCss::to_css(
-                &parsing::Lab::new(self.c0(), self.c1(), self.c2(), self.alpha()),
-                dest,
-            ),
-            ColorSpace::Lch => cssparser::ToCss::to_css(
-                &parsing::Lch::new(self.c0(), self.c1(), self.c2(), self.alpha()),
-                dest,
-            ),
-            ColorSpace::Oklab => cssparser::ToCss::to_css(
-                &parsing::Oklab::new(self.c0(), self.c1(), self.c2(), self.alpha()),
-                dest,
-            ),
-            ColorSpace::Oklch => cssparser::ToCss::to_css(
-                &parsing::Oklch::new(self.c0(), self.c1(), self.c2(), self.alpha()),
-                dest,
-            ),
-            _ => {
-                let color_space = match self.color_space {
-                    ColorSpace::Srgb => {
-                        debug_assert!(
-                            !self.flags.contains(ColorFlags::IS_LEGACY_SRGB),
-                            "legacy srgb is not a color function"
-                        );
-                        PredefinedColorSpace::Srgb
-                    },
-                    ColorSpace::SrgbLinear => PredefinedColorSpace::SrgbLinear,
-                    ColorSpace::DisplayP3 => PredefinedColorSpace::DisplayP3,
-                    ColorSpace::A98Rgb => PredefinedColorSpace::A98Rgb,
-                    ColorSpace::ProphotoRgb => PredefinedColorSpace::ProphotoRgb,
-                    ColorSpace::Rec2020 => PredefinedColorSpace::Rec2020,
-                    ColorSpace::XyzD50 => PredefinedColorSpace::XyzD50,
-                    ColorSpace::XyzD65 => PredefinedColorSpace::XyzD65,
-
-                    _ => {
-                        unreachable!("other color spaces do not support color() syntax")
-                    },
-                };
-
-                let color_function = parsing::ColorFunction {
-                    color_space,
-                    c1: self.c0(),
-                    c2: self.c1(),
-                    c3: self.c2(),
-                    alpha: self.alpha(),
-                };
-                let color = parsing::Color::ColorFunction(color_function);
-                cssparser::ToCss::to_css(&color, dest)
-            },
         }
     }
 }

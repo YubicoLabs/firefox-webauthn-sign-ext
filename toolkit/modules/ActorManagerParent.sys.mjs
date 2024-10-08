@@ -43,6 +43,13 @@ let JSPROCESSACTORS = {
     includeParent: true,
   },
 
+  HPKEConfigManager: {
+    remoteTypes: ["privilegedabout"],
+    parent: {
+      esModuleURI: "resource://gre/modules/HPKEConfigManager.sys.mjs",
+    },
+  },
+
   ProcessConduits: {
     parent: {
       esModuleURI: "resource://gre/modules/ConduitsParent.sys.mjs",
@@ -127,8 +134,8 @@ let JSWINDOWACTORS = {
       esModuleURI: "resource://gre/actors/AutoCompleteParent.sys.mjs",
       // These two messages are also used, but are currently synchronous calls
       // through the per-process message manager.
-      // "FormAutoComplete:GetSelectedIndex",
-      // "FormAutoComplete:SelectBy"
+      // "AutoComplete:GetSelectedIndex",
+      // "AutoComplete:SelectBy"
     },
 
     child: {
@@ -324,6 +331,20 @@ let JSWINDOWACTORS = {
     allFrames: true,
   },
 
+  FormHandler: {
+    parent: {
+      esModuleURI: "resource://gre/actors/FormHandlerParent.sys.mjs",
+    },
+    child: {
+      esModuleURI: "resource://gre/actors/FormHandlerChild.sys.mjs",
+      events: {
+        DOMFormBeforeSubmit: { createActor: false },
+      },
+    },
+
+    allFrames: true,
+  },
+
   InlineSpellChecker: {
     parent: {
       esModuleURI: "resource://gre/actors/InlineSpellCheckerParent.sys.mjs",
@@ -355,9 +376,10 @@ let JSWINDOWACTORS = {
     child: {
       esModuleURI: "resource://gre/modules/LoginManagerChild.sys.mjs",
       events: {
-        DOMFormBeforeSubmit: {},
+        "form-submission-detected": { createActor: false },
+        "before-form-submission": { createActor: false },
         DOMFormHasPassword: {},
-        DOMFormHasPossibleUsername: {},
+        DOMPossibleUsernameInputAdded: {},
         DOMInputPasswordAdded: {},
       },
     },

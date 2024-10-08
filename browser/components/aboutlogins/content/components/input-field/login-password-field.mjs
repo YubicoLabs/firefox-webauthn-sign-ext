@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-import { html, classMap } from "chrome://global/content/vendor/lit.all.mjs";
+import { html } from "chrome://global/content/vendor/lit.all.mjs";
 import { MozLitElement } from "chrome://global/content/lit-utils.mjs";
 import { editableFieldTemplate, stylesTemplate } from "./input-field.mjs";
 
@@ -34,13 +34,15 @@ class LoginPasswordField extends MozLitElement {
       : this._value;
   }
 
+  #revealIconSrc(concealed) {
+    return concealed
+      ? "chrome://browser/content/aboutlogins/icons/password-hide.svg"
+      : "chrome://browser/content/aboutlogins/icons/password.svg";
+  }
+
   render() {
     return html`
       ${stylesTemplate()}
-      <label
-        class="field-label"
-        data-l10n-id="login-item-password-label"
-      ></label>
       ${editableFieldTemplate({
         type: this.#type,
         value: this.#password,
@@ -48,15 +50,18 @@ class LoginPasswordField extends MozLitElement {
         disabled: this.readonly,
         onFocus: this.handleFocus,
         onBlur: this.handleBlur,
+        labelL10nId: "login-item-password-label",
+        noteL10nId: "passwords-password-tooltip",
       })}
-      <button
-        class=${classMap({
-          revealed: this.visible,
-          "reveal-password-button": true,
-        })}
-        data-l10n-id="login-item-password-reveal-checkbox"
+      <moz-button
+        data-l10n-id=${this.visible
+          ? "login-item-password-conceal-checkbox"
+          : "login-item-password-reveal-checkbox"}
+        class="reveal-password-button"
+        type="icon ghost"
+        iconSrc=${this.#revealIconSrc(this.visible)}
         @click=${this.toggleVisibility}
-      ></button>
+      ></moz-button>
     `;
   }
 
@@ -77,7 +82,6 @@ class LoginPasswordField extends MozLitElement {
     if (this.visible) {
       this.onPasswordVisible?.();
     }
-    this.input.focus();
   }
 }
 

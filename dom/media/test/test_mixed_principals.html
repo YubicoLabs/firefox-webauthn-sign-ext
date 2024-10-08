@@ -5,7 +5,6 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=489415
 -->
 <head>
   <title>Test for Bug 489415</title>
-  <script type="application/javascript" src="/MochiKit/MochiKit.js"></script>
   <script src="/tests/SimpleTest/SimpleTest.js"></script>
   <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css" />
   <script type="text/javascript" src="manifest.js"></script>
@@ -46,7 +45,7 @@ https://bugzilla.mozilla.org/show_bug.cgi?id=489415
     }
 
     function runTest(origin, shouldReadBackOnLoad) {
-      return new Promise(function (resolve, reject) {
+      return new Promise(function (resolve) {
         // Load will redirect mid-flight, which will be detected and should error,
         // and we should no longer be able to readback.
         var video = document.createElement("video");

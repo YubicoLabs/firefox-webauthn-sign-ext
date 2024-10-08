@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use chrono::{DateTime, FixedOffset};
 use once_cell::sync::OnceCell;
@@ -16,7 +17,7 @@ use crate::event_database::EventDatabase;
 use crate::internal_metrics::{AdditionalMetrics, CoreMetrics, DatabaseMetrics};
 use crate::internal_pings::InternalPings;
 use crate::metrics::{
-    self, ExperimentMetric, Metric, MetricType, MetricsEnabledConfig, PingType, RecordedExperiment,
+    self, ExperimentMetric, Metric, MetricType, PingType, RecordedExperiment, RemoteSettingsConfig,
 };
 use crate::ping::PingMaker;
 use crate::storage::{StorageManager, INTERNAL_STORAGE};
@@ -118,11 +119,15 @@ where
 ///     trim_data_to_registered_pings: false,
 ///     log_level: None,
 ///     rate_limit: None,
-///     enable_event_timestamps: false,
+///     enable_event_timestamps: true,
 ///     experimentation_id: None,
+///     enable_internal_pings: true,
+///     ping_schedule: Default::default(),
+///     ping_lifetime_threshold: 1000,
+///     ping_lifetime_max_time: 2000,
 /// };
 /// let mut glean = Glean::new(cfg).unwrap();
-/// let ping = PingType::new("sample", true, false, true, vec![]);
+/// let ping = PingType::new("sample", true, false, true, true, true, vec![], vec![]);
 /// glean.register_ping_type(&ping);
 ///
 /// let call_counter: CounterMetric = CounterMetric::new(CommonMetricData {
@@ -161,8 +166,9 @@ pub struct Glean {
     pub(crate) app_build: String,
     pub(crate) schedule_metrics_pings: bool,
     pub(crate) remote_settings_epoch: AtomicU8,
-    pub(crate) remote_settings_metrics_config: Arc<Mutex<MetricsEnabledConfig>>,
+    pub(crate) remote_settings_config: Arc<Mutex<RemoteSettingsConfig>>,
     pub(crate) with_timestamps: bool,
+    pub(crate) ping_schedule: HashMap<String, Vec<String>>,
 }
 
 impl Glean {
@@ -208,7 +214,7 @@ impl Glean {
             core_metrics: CoreMetrics::new(),
             additional_metrics: AdditionalMetrics::new(),
             database_metrics: DatabaseMetrics::new(),
-            internal_pings: InternalPings::new(),
+            internal_pings: InternalPings::new(cfg.enable_internal_pings),
             upload_manager,
             data_path: PathBuf::from(&cfg.data_path),
             application_id,
@@ -221,8 +227,9 @@ impl Glean {
             // Subprocess doesn't use "metrics" pings so has no need for a scheduler.
             schedule_metrics_pings: false,
             remote_settings_epoch: AtomicU8::new(0),
-            remote_settings_metrics_config: Arc::new(Mutex::new(MetricsEnabledConfig::new())),
+            remote_settings_config: Arc::new(Mutex::new(RemoteSettingsConfig::new())),
             with_timestamps: cfg.enable_event_timestamps,
+            ping_schedule: cfg.ping_schedule.clone(),
         };
 
         // Ensuring these pings are registered.
@@ -246,7 +253,14 @@ impl Glean {
         // Creating the data store creates the necessary path as well.
         // If that fails we bail out and don't initialize further.
         let data_path = Path::new(&cfg.data_path);
-        glean.data_store = Some(Database::new(data_path, cfg.delay_ping_lifetime_io)?);
+        let ping_lifetime_threshold = cfg.ping_lifetime_threshold as usize;
+        let ping_lifetime_max_time = Duration::from_millis(cfg.ping_lifetime_max_time);
+        glean.data_store = Some(Database::new(
+            data_path,
+            cfg.delay_ping_lifetime_io,
+            ping_lifetime_threshold,
+            ping_lifetime_max_time,
+        )?);
 
         // Set experimentation identifier (if any)
         if let Some(experimentation_id) = &cfg.experimentation_id {
@@ -288,7 +302,9 @@ impl Glean {
         }
 
         // We set this only for non-subprocess situations.
-        glean.schedule_metrics_pings = cfg.use_core_mps;
+        // If internal pings are disabled, we don't set up the MPS either,
+        // it wouldn't send any data anyway.
+        glean.schedule_metrics_pings = cfg.enable_internal_pings && cfg.use_core_mps;
 
         // We only scan the pendings pings directories **after** dealing with the upload state.
         // If upload is disabled, we delete all pending pings files
@@ -305,6 +321,7 @@ impl Glean {
         data_path: &str,
         application_id: &str,
         upload_enabled: bool,
+        enable_internal_pings: bool,
     ) -> Self {
         let cfg = InternalConfiguration {
             data_path: data_path.into(),
@@ -318,8 +335,12 @@ impl Glean {
             trim_data_to_registered_pings: false,
             log_level: None,
             rate_limit: None,
-            enable_event_timestamps: false,
+            enable_event_timestamps: true,
             experimentation_id: None,
+            enable_internal_pings,
+            ping_schedule: Default::default(),
+            ping_lifetime_threshold: 0,
+            ping_lifetime_max_time: 0,
         };
 
         let mut glean = Self::new(cfg).unwrap();
@@ -585,7 +606,13 @@ impl Glean {
 
     /// Gets the maximum number of events to store before sending a ping.
     pub fn get_max_events(&self) -> usize {
-        self.max_events as usize
+        let remote_settings_config = self.remote_settings_config.lock().unwrap();
+
+        if let Some(max_events) = remote_settings_config.event_threshold {
+            max_events as usize
+        } else {
+            self.max_events as usize
+        }
     }
 
     /// Gets the next task for an uploader.
@@ -753,19 +780,28 @@ impl Glean {
             .get_value(self, None)
     }
 
-    /// Set configuration to override the default metric enabled/disabled state, typically from a
+    /// Set configuration to override the default state, typically initiated from a
     /// remote_settings experiment or rollout
     ///
     /// # Arguments
     ///
-    /// * `json` - The stringified JSON representation of a `MetricsEnabledConfig` object
-    pub fn set_metrics_enabled_config(&self, cfg: MetricsEnabledConfig) {
-        // Set the current MetricsEnabledConfig, keeping the lock until the epoch is
+    /// * `cfg` - The stringified JSON representation of a `RemoteSettingsConfig` object
+    pub fn apply_server_knobs_config(&self, cfg: RemoteSettingsConfig) {
+        // Set the current RemoteSettingsConfig, keeping the lock until the epoch is
         // updated to prevent against reading a "new" config but an "old" epoch
-        let mut metric_config = self.remote_settings_metrics_config.lock().unwrap();
+        let mut remote_settings_config = self.remote_settings_config.lock().unwrap();
 
-        // Merge the exising configuration with the supplied one
-        metric_config.metrics_enabled.extend(cfg.metrics_enabled);
+        // Merge the exising metrics configuration with the supplied one
+        remote_settings_config
+            .metrics_enabled
+            .extend(cfg.metrics_enabled);
+
+        // Merge the exising ping configuration with the supplied one
+        remote_settings_config
+            .pings_enabled
+            .extend(cfg.pings_enabled);
+
+        remote_settings_config.event_threshold = cfg.event_threshold;
 
         // Update remote_settings epoch
         self.remote_settings_epoch.fetch_add(1, Ordering::SeqCst);

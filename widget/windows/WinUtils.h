@@ -416,6 +416,11 @@ class WinUtils {
    * returns the LayoutDeviceIntRegion.
    */
   static LayoutDeviceIntRegion ConvertHRGNToRegion(HRGN aRgn);
+  /**
+   * Performs the inverse of ConvertHRGNToRegion.
+   * The region must be cleaned up with DeleteObject().
+   */
+  static HRGN RegionToHRGN(const LayoutDeviceIntRegion&);
 
   /**
    * ToIntRect converts a Windows RECT to a LayoutDeviceIntRect.
@@ -424,6 +429,8 @@ class WinUtils {
    * returns the LayoutDeviceIntRect.
    */
   static LayoutDeviceIntRect ToIntRect(const RECT& aRect);
+  /** Performs the inverse of ToIntRect */
+  static RECT ToWinRect(const LayoutDeviceIntRect& aRect);
 
   /**
    * Returns true if the context or IME state is enabled.  Otherwise, false.
@@ -575,23 +582,32 @@ class WinUtils {
 #endif
 };
 
+typedef MozPromise<nsString, nsresult, true> ObtainCachedIconFileAsyncPromise;
+
 #ifdef MOZ_PLACES
 class AsyncFaviconDataReady final : public nsIFaviconDataCallback {
  public:
   NS_DECL_ISUPPORTS
   NS_DECL_NSIFAVICONDATACALLBACK
 
-  AsyncFaviconDataReady(nsIURI* aNewURI, RefPtr<LazyIdleThread>& aIOThread,
-                        const bool aURLShortcut,
-                        already_AddRefed<nsIRunnable> aRunnable);
+  AsyncFaviconDataReady(
+      nsIURI* aNewURI, RefPtr<nsISerialEventTarget> aIOThread,
+      const bool aURLShortcut, already_AddRefed<nsIRunnable> aRunnable,
+      UniquePtr<MozPromiseHolder<ObtainCachedIconFileAsyncPromise>>
+          aPromiseHolder = nullptr);
   nsresult OnFaviconDataNotAvailable(void);
 
  private:
-  ~AsyncFaviconDataReady() {}
+  ~AsyncFaviconDataReady() {
+    if (mPromiseHolder) {
+      mPromiseHolder->RejectIfExists(NS_ERROR_FAILURE, __func__);
+    }
+  }
 
   nsCOMPtr<nsIURI> mNewURI;
-  RefPtr<LazyIdleThread> mIOThread;
+  RefPtr<nsISerialEventTarget> mIOThread;
   nsCOMPtr<nsIRunnable> mRunnable;
+  UniquePtr<MozPromiseHolder<ObtainCachedIconFileAsyncPromise>> mPromiseHolder;
   const bool mURLShortcut;
 };
 #endif
@@ -606,10 +622,12 @@ class AsyncEncodeAndWriteIcon : public nsIRunnable {
 
   // Warning: AsyncEncodeAndWriteIcon assumes ownership of the aData buffer
   // passed in
-  AsyncEncodeAndWriteIcon(const nsAString& aIconPath,
-                          UniquePtr<uint8_t[]> aData, uint32_t aStride,
-                          uint32_t aWidth, uint32_t aHeight,
-                          already_AddRefed<nsIRunnable> aRunnable);
+  AsyncEncodeAndWriteIcon(
+      const nsAString& aIconPath, UniquePtr<uint8_t[]> aData, uint32_t aStride,
+      uint32_t aWidth, uint32_t aHeight,
+      already_AddRefed<nsIRunnable> aRunnable,
+      UniquePtr<MozPromiseHolder<ObtainCachedIconFileAsyncPromise>>
+          aPromiseHolder = nullptr);
 
  private:
   virtual ~AsyncEncodeAndWriteIcon();
@@ -617,6 +635,7 @@ class AsyncEncodeAndWriteIcon : public nsIRunnable {
   nsAutoString mIconPath;
   UniquePtr<uint8_t[]> mBuffer;
   nsCOMPtr<nsIRunnable> mRunnable;
+  UniquePtr<MozPromiseHolder<ObtainCachedIconFileAsyncPromise>> mPromiseHolder;
   uint32_t mStride;
   uint32_t mWidth;
   uint32_t mHeight;
@@ -639,12 +658,20 @@ class AsyncDeleteAllFaviconsFromDisk : public nsIRunnable {
 
 class FaviconHelper {
  public:
+  enum class IconCacheDir : uint8_t {
+    JumpListCacheDir = 1,
+    ShortcutCacheDir = 2
+  };
+
   static const char kJumpListCacheDir[];
   static const char kShortcutCacheDir[];
   static nsresult ObtainCachedIconFile(
       nsCOMPtr<nsIURI> aFaviconPageURI, nsString& aICOFilePath,
       RefPtr<LazyIdleThread>& aIOThread, bool aURLShortcut,
       already_AddRefed<nsIRunnable> aRunnable = nullptr);
+  static RefPtr<ObtainCachedIconFileAsyncPromise> ObtainCachedIconFileAsync(
+      nsCOMPtr<nsIURI> aFaviconPageURI, RefPtr<LazyIdleThread>& aIOThread,
+      IconCacheDir aCacheDir);
 
   static nsresult GetOutputIconPath(nsCOMPtr<nsIURI> aFaviconPageURI,
                                     nsCOMPtr<nsIFile>& aICOFile,
@@ -652,8 +679,10 @@ class FaviconHelper {
 
   static nsresult CacheIconFileFromFaviconURIAsync(
       nsCOMPtr<nsIURI> aFaviconPageURI, nsCOMPtr<nsIFile> aICOFile,
-      RefPtr<LazyIdleThread>& aIOThread, bool aURLShortcut,
-      already_AddRefed<nsIRunnable> aRunnable);
+      RefPtr<nsISerialEventTarget> aIOThread, bool aURLShortcut,
+      already_AddRefed<nsIRunnable> aRunnable,
+      UniquePtr<MozPromiseHolder<ObtainCachedIconFileAsyncPromise>>
+          aPromiseHolder);
 
   static int32_t GetICOCacheSecondsTimeout();
 };

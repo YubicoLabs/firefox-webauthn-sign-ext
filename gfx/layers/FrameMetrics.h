@@ -243,11 +243,9 @@ struct FrameMetrics {
   }
 
   /*
-   * Returns true if the layout scroll offset or visual scroll offset changed
-   * and returns the visual scroll offset change delta.
+   * Returns true if the layout scroll offset or visual scroll offset changed.
    */
-  std::pair<bool, CSSPoint> ApplyAbsoluteScrollUpdateFrom(
-      const ScrollPositionUpdate& aUpdate);
+  bool ApplyScrollUpdateFrom(const ScrollPositionUpdate& aUpdate);
 
   /**
    * Applies the relative scroll offset update contained in aOther to the
@@ -702,7 +700,7 @@ MOZ_DEFINE_ENUM_CLASS_WITH_BASE(
 std::ostream& operator<<(std::ostream& aStream,
                          const OverscrollBehavior& aBehavior);
 
-struct OverscrollBehaviorInfo {
+struct OverscrollBehaviorInfo final {
   OverscrollBehaviorInfo();
 
   // Construct from StyleOverscrollBehavior values.
@@ -713,8 +711,19 @@ struct OverscrollBehaviorInfo {
   friend std::ostream& operator<<(std::ostream& aStream,
                                   const OverscrollBehaviorInfo& aInfo);
 
+  auto MutTiedFields() { return std::tie(mBehaviorX, mBehaviorY); }
+
   OverscrollBehavior mBehaviorX;
   OverscrollBehavior mBehaviorY;
+};
+
+struct OverflowInfo final {
+  StyleOverflow mOverflowX = StyleOverflow::Visible;
+  StyleOverflow mOverflowY = StyleOverflow::Visible;
+
+  bool operator==(const OverflowInfo& aOther) const;
+
+  auto MutTiedFields() { return std::tie(mOverflowX, mOverflowY); }
 };
 
 /**
@@ -770,6 +779,7 @@ struct ScrollMetadata {
            mIsPaginatedPresentation == aOther.mIsPaginatedPresentation &&
            mDisregardedDirection == aOther.mDisregardedDirection &&
            mOverscrollBehavior == aOther.mOverscrollBehavior &&
+           mOverflow == aOther.mOverflow &&
            mScrollUpdates == aOther.mScrollUpdates;
   }
 
@@ -876,6 +886,9 @@ struct ScrollMetadata {
     return mOverscrollBehavior;
   }
 
+  void SetOverflow(const OverflowInfo& aOverflow) { mOverflow = aOverflow; }
+  const OverflowInfo& GetOverflow() const { return mOverflow; }
+
   void SetScrollUpdates(const nsTArray<ScrollPositionUpdate>& aUpdates) {
     mScrollUpdates = aUpdates;
   }
@@ -891,6 +904,12 @@ struct ScrollMetadata {
     mDidContentGetPainted = false;
     mScrollUpdates.Clear();
     mScrollUpdates.AppendElements(std::move(aUpdates));
+  }
+
+  void PrependUpdates(const nsTArray<ScrollPositionUpdate>& aUpdates) {
+    MOZ_ASSERT(!aUpdates.IsEmpty());
+
+    mScrollUpdates.InsertElementsAt(0, aUpdates);
   }
 
  private:
@@ -975,6 +994,12 @@ struct ScrollMetadata {
 
   // The overscroll behavior for this scroll frame.
   OverscrollBehaviorInfo mOverscrollBehavior;
+
+  // The CSS overflow styles for this scroll frame.
+  // For a root scroll frame, this stores the viewport styles
+  // as defined in https://drafts.csswg.org/css-overflow/#overflow-propagation
+  // (i.e. they will always be 'auto', 'hidden', or 'scrol').
+  OverflowInfo mOverflow;
 
   // The ordered list of scroll position updates for this scroll frame since
   // the last transaction.

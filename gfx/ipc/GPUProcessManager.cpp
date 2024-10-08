@@ -24,6 +24,7 @@
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/gfx/gfxVars.h"
 #include "mozilla/gfx/GPUChild.h"
+#include "mozilla/gfx/GPUParent.h"
 #include "mozilla/glean/GleanMetrics.h"
 #include "mozilla/ipc/Endpoint.h"
 #include "mozilla/ipc/ProcessChild.h"
@@ -142,6 +143,22 @@ GPUProcessManager::Observer::Observe(nsISupports* aSubject, const char* aTopic,
   return NS_OK;
 }
 
+GPUProcessManager::BatteryObserver::BatteryObserver(GPUProcessManager* aManager)
+    : mManager(aManager) {
+  hal::RegisterBatteryObserver(this);
+}
+
+void GPUProcessManager::BatteryObserver::Notify(
+    const hal::BatteryInformation& aBatteryInfo) {
+  mManager->NotifyBatteryInfo(aBatteryInfo);
+}
+
+void GPUProcessManager::BatteryObserver::ShutDown() {
+  hal::UnregisterBatteryObserver(this);
+}
+
+GPUProcessManager::BatteryObserver::~BatteryObserver() {}
+
 void GPUProcessManager::OnXPCOMShutdown() {
   if (mObserver) {
     nsContentUtils::UnregisterShutdownObserver(mObserver);
@@ -183,6 +200,13 @@ void GPUProcessManager::ScreenInformationChanged() {
 #endif
 }
 
+void GPUProcessManager::NotifyBatteryInfo(
+    const hal::BatteryInformation& aBatteryInfo) {
+  if (mGPUChild) {
+    mGPUChild->SendNotifyBatteryInfo(aBatteryInfo);
+  }
+}
+
 void GPUProcessManager::ResetProcessStable() {
   mTotalProcessAttempts++;
   mProcessStable = false;
@@ -190,6 +214,17 @@ void GPUProcessManager::ResetProcessStable() {
 }
 
 bool GPUProcessManager::IsProcessStable(const TimeStamp& aNow) {
+#ifdef MOZ_WIDGET_ANDROID
+  // On Android if the process is lost whilst in the background it was probably
+  // killed by the OS, and it may never have had a chance to have been declared
+  // stable prior to being killed. We don't want this happening repeatedly to
+  // result in the GPU process being disabled, so treat any process lost whilst
+  // in the background as stable.
+  if (!mAppInForeground) {
+    return true;
+  }
+#endif
+
   if (mTotalProcessAttempts > 0) {
     auto delta = (int32_t)(aNow - mProcessAttemptLastTime).ToMilliseconds();
     if (delta < StaticPrefs::layers_gpu_process_stable_min_uptime_ms()) {
@@ -225,32 +260,10 @@ bool GPUProcessManager::LaunchGPUProcess() {
   // Start the Vsync I/O thread so can use it as soon as the process launches.
   EnsureVsyncIOThread();
 
-  // If the previous process didn't live long enough, increment our unstable
-  // attempts counter so that we don't end up in a restart loop. If the process
-  // did live long enough, reset the counter so that we don't disable the
-  // process too eagerly.
-  auto newTime = TimeStamp::Now();
-  if (IsProcessStable(newTime)) {
-    mUnstableProcessAttempts = 0;
-  } else {
-    mUnstableProcessAttempts++;
-    mozilla::glean::gpu_process::unstable_launch_attempts.Set(
-        mUnstableProcessAttempts);
-  }
   mTotalProcessAttempts++;
   mozilla::glean::gpu_process::total_launch_attempts.Set(mTotalProcessAttempts);
-  mProcessAttemptLastTime = newTime;
+  mProcessAttemptLastTime = TimeStamp::Now();
   mProcessStable = false;
-
-  // If the process is launched whilst we're in the background it may never get
-  // a chance to be declared stable before it is killed again. We don't want
-  // this happening repeatedly to result in the GPU process being disabled, so
-  // we assume that processes launched whilst in the background are stable.
-  if (!mAppInForeground) {
-    gfxCriticalNote
-        << "GPU process is being launched whilst app is in background";
-    mProcessStable = true;
-  }
 
   std::vector<std::string> extraArgs;
   ipc::ProcessChild::AddPlatformBuildID(extraArgs);
@@ -282,6 +295,7 @@ bool GPUProcessManager::MaybeDisableGPUProcess(const char* aMessage,
 
   if (!aAllowRestart) {
     gfxConfig::SetFailed(Feature::GPU_PROCESS, FeatureStatus::Failed, aMessage);
+    gfxVars::SetGPUProcessEnabled(false);
   }
 
   bool wantRestart;
@@ -302,6 +316,7 @@ bool GPUProcessManager::MaybeDisableGPUProcess(const char* aMessage,
 
   if (aAllowRestart) {
     gfxConfig::SetFailed(Feature::GPU_PROCESS, FeatureStatus::Failed, aMessage);
+    gfxVars::SetGPUProcessEnabled(false);
   }
 
   MOZ_ASSERT(!gfxConfig::IsEnabled(Feature::GPU_PROCESS));
@@ -438,8 +453,9 @@ bool GPUProcessManager::EnsureCompositorManagerChild() {
 
   ipc::Endpoint<PCompositorManagerParent> parentPipe;
   ipc::Endpoint<PCompositorManagerChild> childPipe;
-  rv = PCompositorManager::CreateEndpoints(
-      mGPUChild->OtherPid(), base::GetCurrentProcId(), &parentPipe, &childPipe);
+  rv = PCompositorManager::CreateEndpoints(mGPUChild->OtherEndpointProcInfo(),
+                                           ipc::EndpointProcInfo::Current(),
+                                           &parentPipe, &childPipe);
   if (NS_FAILED(rv)) {
     DisableGPUProcess("Failed to create PCompositorManager endpoints");
     return true;
@@ -469,8 +485,9 @@ bool GPUProcessManager::EnsureImageBridgeChild() {
 
   ipc::Endpoint<PImageBridgeParent> parentPipe;
   ipc::Endpoint<PImageBridgeChild> childPipe;
-  rv = PImageBridge::CreateEndpoints(
-      mGPUChild->OtherPid(), base::GetCurrentProcId(), &parentPipe, &childPipe);
+  rv = PImageBridge::CreateEndpoints(mGPUChild->OtherEndpointProcInfo(),
+                                     ipc::EndpointProcInfo::Current(),
+                                     &parentPipe, &childPipe);
   if (NS_FAILED(rv)) {
     DisableGPUProcess("Failed to create PImageBridge endpoints");
     return true;
@@ -499,8 +516,9 @@ bool GPUProcessManager::EnsureVRManager() {
 
   ipc::Endpoint<PVRManagerParent> parentPipe;
   ipc::Endpoint<PVRManagerChild> childPipe;
-  rv = PVRManager::CreateEndpoints(
-      mGPUChild->OtherPid(), base::GetCurrentProcId(), &parentPipe, &childPipe);
+  rv = PVRManager::CreateEndpoints(mGPUChild->OtherEndpointProcInfo(),
+                                   ipc::EndpointProcInfo::Current(),
+                                   &parentPipe, &childPipe);
   if (NS_FAILED(rv)) {
     DisableGPUProcess("Failed to create PVRManager endpoints");
     return true;
@@ -527,9 +545,9 @@ GPUProcessManager::CreateUiCompositorController(nsBaseWidget* aWidget,
   } else {
     ipc::Endpoint<PUiCompositorControllerParent> parentPipe;
     ipc::Endpoint<PUiCompositorControllerChild> childPipe;
-    rv = PUiCompositorController::CreateEndpoints(mGPUChild->OtherPid(),
-                                                  base::GetCurrentProcId(),
-                                                  &parentPipe, &childPipe);
+    rv = PUiCompositorController::CreateEndpoints(
+        mGPUChild->OtherEndpointProcInfo(), ipc::EndpointProcInfo::Current(),
+        &parentPipe, &childPipe);
     if (NS_FAILED(rv)) {
       DisableGPUProcess("Failed to create PUiCompositorController endpoints");
       return nullptr;
@@ -566,9 +584,9 @@ void GPUProcessManager::OnProcessLaunchComplete(GPUProcessHost* aHost) {
 
   ipc::Endpoint<PVsyncBridgeParent> vsyncParent;
   ipc::Endpoint<PVsyncBridgeChild> vsyncChild;
-  nsresult rv = PVsyncBridge::CreateEndpoints(mGPUChild->OtherPid(),
-                                              base::GetCurrentProcId(),
-                                              &vsyncParent, &vsyncChild);
+  nsresult rv = PVsyncBridge::CreateEndpoints(
+      mGPUChild->OtherEndpointProcInfo(), ipc::EndpointProcInfo::Current(),
+      &vsyncParent, &vsyncChild);
   if (NS_FAILED(rv)) {
     DisableGPUProcess("Failed to create PVsyncBridge endpoints");
     return;
@@ -578,6 +596,9 @@ void GPUProcessManager::OnProcessLaunchComplete(GPUProcessHost* aHost) {
                                           std::move(vsyncChild));
   mGPUChild->SendInitVsyncBridge(std::move(vsyncParent));
 
+  MOZ_ASSERT(!mBatteryObserver);
+  mBatteryObserver = new BatteryObserver(this);
+
   // Flush any pref updates that happened during launch and weren't
   // included in the blobs set up in LaunchGPUProcess.
   for (const mozilla::dom::Pref& pref : mQueuedPrefs) {
@@ -585,12 +606,11 @@ void GPUProcessManager::OnProcessLaunchComplete(GPUProcessHost* aHost) {
   }
   mQueuedPrefs.Clear();
 
-  CrashReporter::AnnotateCrashReport(
-      CrashReporter::Annotation::GPUProcessStatus, "Running"_ns);
+  CrashReporter::RecordAnnotationCString(
+      CrashReporter::Annotation::GPUProcessStatus, "Running");
 
-  CrashReporter::AnnotateCrashReport(
-      CrashReporter::Annotation::GPUProcessLaunchCount,
-      static_cast<int>(mTotalProcessAttempts));
+  CrashReporter::RecordAnnotationU32(
+      CrashReporter::Annotation::GPUProcessLaunchCount, mTotalProcessAttempts);
 
   ReinitializeRendering();
 }
@@ -689,7 +709,7 @@ bool GPUProcessManager::DisableWebRenderConfig(wr::WebRenderError aError,
   // hopefully alleviate the situation.
   if (IsProcessStable(TimeStamp::Now())) {
     if (mProcess) {
-      mProcess->KillProcess();
+      mProcess->KillProcess(/* aGenerateMinidump */ false);
     } else {
       SimulateDeviceReset();
     }
@@ -760,14 +780,44 @@ void GPUProcessManager::NotifyWebRenderError(wr::WebRenderError aError) {
   DisableWebRender(aError, nsCString());
 }
 
-/* static */ void GPUProcessManager::RecordDeviceReset(
-    DeviceResetReason aReason) {
+/* static */
+void GPUProcessManager::RecordDeviceReset(DeviceResetReason aReason) {
   if (aReason != DeviceResetReason::FORCED_RESET) {
     Telemetry::Accumulate(Telemetry::DEVICE_RESET_REASON, uint32_t(aReason));
   }
 
-  CrashReporter::AnnotateCrashReport(
-      CrashReporter::Annotation::DeviceResetReason, int(aReason));
+  CrashReporter::RecordAnnotationU32(
+      CrashReporter::Annotation::DeviceResetReason,
+      static_cast<uint32_t>(aReason));
+}
+
+/* static */
+void GPUProcessManager::NotifyDeviceReset(DeviceResetReason aReason,
+                                          DeviceResetDetectPlace aPlace) {
+  if (XRE_IsGPUProcess()) {
+    if (!GPUParent::GetSingleton()) {
+      MOZ_ASSERT_UNREACHABLE("unexpected to be called");
+      return;
+    }
+    // End up to GPUProcessManager::OnRemoteProcessDeviceReset()
+    GPUParent::GetSingleton()->NotifyDeviceReset(aReason, aPlace);
+  } else {
+    if (!GPUProcessManager::Get()) {
+      MOZ_ASSERT_UNREACHABLE("unexpected to be called");
+      return;
+    }
+
+    if (NS_IsMainThread()) {
+      GPUProcessManager::Get()->OnInProcessDeviceReset(aReason, aPlace);
+    } else {
+      NS_DispatchToMainThread(NS_NewRunnableFunction(
+          "gfx::GPUProcessManager::OnInProcessDeviceReset",
+          [aReason, aPlace]() -> void {
+            gfx::GPUProcessManager::Get()->OnInProcessDeviceReset(aReason,
+                                                                  aPlace);
+          }));
+    }
+  }
 }
 
 bool GPUProcessManager::OnDeviceReset(bool aTrackThreshold) {
@@ -788,8 +838,24 @@ bool GPUProcessManager::OnDeviceReset(bool aTrackThreshold) {
   return ShouldLimitDeviceResets(mDeviceResetCount, delta);
 }
 
-void GPUProcessManager::OnInProcessDeviceReset(bool aTrackThreshold) {
-  if (OnDeviceReset(aTrackThreshold)) {
+void GPUProcessManager::OnInProcessDeviceReset(DeviceResetReason aReason,
+                                               DeviceResetDetectPlace aPlace) {
+  gfxCriticalNote << "Detect DeviceReset " << aReason << " " << aPlace
+                  << " in Parent process";
+
+  bool guilty;
+  switch (aReason) {
+    case DeviceResetReason::HUNG:
+    case DeviceResetReason::RESET:
+    case DeviceResetReason::INVALID_CALL:
+      guilty = true;
+      break;
+    default:
+      guilty = false;
+      break;
+  }
+
+  if (OnDeviceReset(guilty)) {
     gfxCriticalNoteOnce << "In-process device reset threshold exceeded";
 #ifdef MOZ_WIDGET_GTK
     // FIXME(aosmond): Should we disable WebRender on other platforms?
@@ -805,7 +871,12 @@ void GPUProcessManager::OnInProcessDeviceReset(bool aTrackThreshold) {
   NotifyListenersOnCompositeDeviceReset();
 }
 
-void GPUProcessManager::OnRemoteProcessDeviceReset(GPUProcessHost* aHost) {
+void GPUProcessManager::OnRemoteProcessDeviceReset(
+    GPUProcessHost* aHost, const DeviceResetReason& aReason,
+    const DeviceResetDetectPlace& aPlace) {
+  gfxCriticalNote << "Detect DeviceReset " << aReason << " " << aPlace
+                  << " in GPU process";
+
   if (OnDeviceReset(/* aTrackThreshold */ true) &&
       !DisableWebRenderConfig(wr::WebRenderError::EXCESSIVE_RESETS,
                               nsCString())) {
@@ -840,6 +911,18 @@ void GPUProcessManager::OnProcessUnexpectedShutdown(GPUProcessHost* aHost) {
 
   CompositorManagerChild::OnGPUProcessLost(aHost->GetProcessToken());
   DestroyProcess(/* aUnexpectedShutdown */ true);
+
+  // If the process didn't live long enough, increment our unstable attempts
+  // counter so that we don't end up in a restart loop. If the process did live
+  // long enough, reset the counter so that we don't disable the process too
+  // eagerly.
+  if (IsProcessStable(TimeStamp::Now())) {
+    mUnstableProcessAttempts = 0;
+  } else {
+    mUnstableProcessAttempts++;
+    mozilla::glean::gpu_process::unstable_launch_attempts.Set(
+        mUnstableProcessAttempts);
+  }
 
   if (mUnstableProcessAttempts >
       uint32_t(StaticPrefs::layers_gpu_process_max_restarts())) {
@@ -1044,12 +1127,19 @@ void GPUProcessManager::CleanShutdown() {
   mVsyncIOThread = nullptr;
 }
 
-void GPUProcessManager::KillProcess() {
+void GPUProcessManager::KillProcess(bool aGenerateMinidump) {
+  if (!NS_IsMainThread()) {
+    RefPtr<Runnable> task = mTaskFactory.NewRunnableMethod(
+        &GPUProcessManager::KillProcess, aGenerateMinidump);
+    NS_DispatchToMainThread(task.forget());
+    return;
+  }
+
   if (!mProcess) {
     return;
   }
 
-  mProcess->KillProcess();
+  mProcess->KillProcess(aGenerateMinidump);
 }
 
 void GPUProcessManager::CrashProcess() {
@@ -1074,9 +1164,13 @@ void GPUProcessManager::DestroyProcess(bool aUnexpectedShutdown) {
     mVsyncBridge->Close();
     mVsyncBridge = nullptr;
   }
+  if (mBatteryObserver) {
+    mBatteryObserver->ShutDown();
+    mBatteryObserver = nullptr;
+  }
 
-  CrashReporter::AnnotateCrashReport(
-      CrashReporter::Annotation::GPUProcessStatus, "Destroyed"_ns);
+  CrashReporter::RecordAnnotationCString(
+      CrashReporter::Annotation::GPUProcessStatus, "Destroyed");
 }
 
 already_AddRefed<CompositorSession> GPUProcessManager::CreateTopLevelCompositor(
@@ -1191,9 +1285,9 @@ RefPtr<CompositorSession> GPUProcessManager::CreateRemoteSession(
 
     ipc::Endpoint<PAPZInputBridgeParent> parentPipe;
     ipc::Endpoint<PAPZInputBridgeChild> childPipe;
-    nsresult rv = PAPZInputBridge::CreateEndpoints(mGPUChild->OtherPid(),
-                                                   base::GetCurrentProcId(),
-                                                   &parentPipe, &childPipe);
+    nsresult rv = PAPZInputBridge::CreateEndpoints(
+        mGPUChild->OtherEndpointProcInfo(), ipc::EndpointProcInfo::Current(),
+        &parentPipe, &childPipe);
     if (NS_FAILED(rv)) {
       return nullptr;
     }
@@ -1217,7 +1311,7 @@ RefPtr<CompositorSession> GPUProcessManager::CreateRemoteSession(
 }
 
 bool GPUProcessManager::CreateContentBridges(
-    base::ProcessId aOtherProcess,
+    ipc::EndpointProcInfo aOtherProcess,
     ipc::Endpoint<PCompositorManagerChild>* aOutCompositor,
     ipc::Endpoint<PImageBridgeChild>* aOutImageBridge,
     ipc::Endpoint<PVRManagerChild>* aOutVRBridge,
@@ -1242,7 +1336,7 @@ bool GPUProcessManager::CreateContentBridges(
 }
 
 bool GPUProcessManager::CreateContentCompositorManager(
-    base::ProcessId aOtherProcess, dom::ContentParentId aChildId,
+    ipc::EndpointProcInfo aOtherProcess, dom::ContentParentId aChildId,
     uint32_t aNamespace, ipc::Endpoint<PCompositorManagerChild>* aOutEndpoint) {
   ipc::Endpoint<PCompositorManagerParent> parentPipe;
   ipc::Endpoint<PCompositorManagerChild> childPipe;
@@ -1252,10 +1346,11 @@ bool GPUProcessManager::CreateContentCompositorManager(
     return false;
   }
 
-  base::ProcessId parentPid =
-      NS_SUCCEEDED(rv) ? mGPUChild->OtherPid() : base::GetCurrentProcId();
+  ipc::EndpointProcInfo parentInfo = NS_SUCCEEDED(rv)
+                                         ? mGPUChild->OtherEndpointProcInfo()
+                                         : ipc::EndpointProcInfo::Current();
 
-  rv = PCompositorManager::CreateEndpoints(parentPid, aOtherProcess,
+  rv = PCompositorManager::CreateEndpoints(parentInfo, aOtherProcess,
                                            &parentPipe, &childPipe);
   if (NS_FAILED(rv)) {
     gfxCriticalNote << "Could not create content compositor manager: "
@@ -1277,7 +1372,7 @@ bool GPUProcessManager::CreateContentCompositorManager(
 }
 
 bool GPUProcessManager::CreateContentImageBridge(
-    base::ProcessId aOtherProcess, dom::ContentParentId aChildId,
+    ipc::EndpointProcInfo aOtherProcess, dom::ContentParentId aChildId,
     ipc::Endpoint<PImageBridgeChild>* aOutEndpoint) {
   if (!EnsureImageBridgeChild()) {
     return false;
@@ -1288,12 +1383,13 @@ bool GPUProcessManager::CreateContentImageBridge(
     return false;
   }
 
-  base::ProcessId parentPid =
-      NS_SUCCEEDED(rv) ? mGPUChild->OtherPid() : base::GetCurrentProcId();
+  ipc::EndpointProcInfo parentInfo = NS_SUCCEEDED(rv)
+                                         ? mGPUChild->OtherEndpointProcInfo()
+                                         : ipc::EndpointProcInfo::Current();
 
   ipc::Endpoint<PImageBridgeParent> parentPipe;
   ipc::Endpoint<PImageBridgeChild> childPipe;
-  rv = PImageBridge::CreateEndpoints(parentPid, aOtherProcess, &parentPipe,
+  rv = PImageBridge::CreateEndpoints(parentInfo, aOtherProcess, &parentPipe,
                                      &childPipe);
   if (NS_FAILED(rv)) {
     gfxCriticalNote << "Could not create content compositor bridge: "
@@ -1319,8 +1415,13 @@ base::ProcessId GPUProcessManager::GPUProcessPid() {
   return gpuPid;
 }
 
+ipc::EndpointProcInfo GPUProcessManager::GPUEndpointProcInfo() {
+  return mGPUChild ? mGPUChild->OtherEndpointProcInfo()
+                   : ipc::EndpointProcInfo::Invalid();
+}
+
 bool GPUProcessManager::CreateContentVRManager(
-    base::ProcessId aOtherProcess, dom::ContentParentId aChildId,
+    ipc::EndpointProcInfo aOtherProcess, dom::ContentParentId aChildId,
     ipc::Endpoint<PVRManagerChild>* aOutEndpoint) {
   if (NS_WARN_IF(!EnsureVRManager())) {
     return false;
@@ -1331,12 +1432,13 @@ bool GPUProcessManager::CreateContentVRManager(
     return false;
   }
 
-  base::ProcessId parentPid =
-      NS_SUCCEEDED(rv) ? mGPUChild->OtherPid() : base::GetCurrentProcId();
+  ipc::EndpointProcInfo parentInfo = NS_SUCCEEDED(rv)
+                                         ? mGPUChild->OtherEndpointProcInfo()
+                                         : ipc::EndpointProcInfo::Current();
 
   ipc::Endpoint<PVRManagerParent> parentPipe;
   ipc::Endpoint<PVRManagerChild> childPipe;
-  rv = PVRManager::CreateEndpoints(parentPid, aOtherProcess, &parentPipe,
+  rv = PVRManager::CreateEndpoints(parentInfo, aOtherProcess, &parentPipe,
                                    &childPipe);
   if (NS_FAILED(rv)) {
     gfxCriticalNote << "Could not create content compositor bridge: "
@@ -1357,7 +1459,7 @@ bool GPUProcessManager::CreateContentVRManager(
 }
 
 void GPUProcessManager::CreateContentRemoteDecoderManager(
-    base::ProcessId aOtherProcess, dom::ContentParentId aChildId,
+    ipc::EndpointProcInfo aOtherProcess, dom::ContentParentId aChildId,
     ipc::Endpoint<PRemoteDecoderManagerChild>* aOutEndpoint) {
   nsresult rv = EnsureGPUReady();
   if (NS_WARN_IF(rv == NS_ERROR_ILLEGAL_DURING_SHUTDOWN)) {
@@ -1373,7 +1475,8 @@ void GPUProcessManager::CreateContentRemoteDecoderManager(
   ipc::Endpoint<PRemoteDecoderManagerChild> childPipe;
 
   rv = PRemoteDecoderManager::CreateEndpoints(
-      mGPUChild->OtherPid(), aOtherProcess, &parentPipe, &childPipe);
+      mGPUChild->OtherEndpointProcInfo(), aOtherProcess, &parentPipe,
+      &childPipe);
   if (NS_FAILED(rv)) {
     gfxCriticalNote << "Could not create content video decoder: "
                     << hexa(int(rv));

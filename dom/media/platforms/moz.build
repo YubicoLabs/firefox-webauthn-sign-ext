@@ -8,9 +8,9 @@ EXPORTS += [
     "agnostic/AgnosticDecoderModule.h",
     "agnostic/BlankDecoderModule.h",
     "agnostic/DummyMediaDataDecoder.h",
-    "agnostic/TheoraDecoder.h",
     "agnostic/VPXDecoder.h",
     "AllocationPolicy.h",
+    "EncoderConfig.h",
     "MediaCodecsSupport.h",
     "MediaTelemetryConstants.h",
     "PDMFactory.h",
@@ -22,6 +22,7 @@ EXPORTS += [
     "wrappers/AudioTrimmer.h",
     "wrappers/MediaChangeMonitor.h",
     "wrappers/MediaDataDecoderProxy.h",
+    "wrappers/MediaDataEncoderProxy.h",
 ]
 
 UNIFIED_SOURCES += [
@@ -29,9 +30,9 @@ UNIFIED_SOURCES += [
     "agnostic/BlankDecoderModule.cpp",
     "agnostic/DummyMediaDataDecoder.cpp",
     "agnostic/NullDecoderModule.cpp",
-    "agnostic/TheoraDecoder.cpp",
     "agnostic/VPXDecoder.cpp",
     "AllocationPolicy.cpp",
+    "EncoderConfig.cpp",
     "MediaCodecsSupport.cpp",
     "PDMFactory.cpp",
     "PEMFactory.cpp",
@@ -40,6 +41,7 @@ UNIFIED_SOURCES += [
     "wrappers/AudioTrimmer.cpp",
     "wrappers/MediaChangeMonitor.cpp",
     "wrappers/MediaDataDecoderProxy.cpp",
+    "wrappers/MediaDataEncoderProxy.cpp",
 ]
 
 DIRS += ["agnostic/bytestreams", "agnostic/eme", "agnostic/gmp", "omx"]
@@ -47,19 +49,13 @@ DIRS += ["agnostic/bytestreams", "agnostic/eme", "agnostic/gmp", "omx"]
 if CONFIG["MOZ_WMF"]:
     DIRS += ["wmf"]
 
-if CONFIG["MOZ_FFVPX"] or CONFIG["MOZ_FFMPEG"]:
-    # common code to either FFmpeg or FFVPX
-    EXPORTS += [
-        "ffmpeg/FFmpegRDFTTypes.h",
-    ]
-    UNIFIED_SOURCES += [
-        "ffmpeg/FFmpegLibWrapper.cpp",
-    ]
+UNIFIED_SOURCES += [
+    "ffmpeg/FFmpegLibWrapper.cpp",
+]
 
-if CONFIG["MOZ_FFVPX"]:
-    DIRS += [
-        "ffmpeg/ffvpx",
-    ]
+DIRS += [
+    "ffmpeg/ffvpx",
+]
 
 if CONFIG["MOZ_FFMPEG"]:
     DIRS += [

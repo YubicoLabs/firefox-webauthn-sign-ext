@@ -584,7 +584,7 @@ class BCP47Parser (object):
 						self.grandfathered.add (subtag.lower ())
 				elif line.startswith ('Description: '):
 					description = line.split (' ', 1)[1].replace (' (individual language)', '')
-					description = re.sub (' (\(family\)|\((individual |macro)language\)|languages)$', '',
+					description = re.sub (r' (\(family\)|\((individual |macro)language\)|languages)$', '',
 							description)
 					if subtag in self.names:
 						self.names[subtag] += '\n' + description
@@ -699,8 +699,6 @@ ot.add_language ('ber', 'BBR')
 ot.remove_language_ot ('PGR')
 ot.add_language ('el-polyton', 'PGR')
 
-bcp_47.macrolanguages['et'] = {'ekk'}
-
 bcp_47.names['flm'] = 'Falam Chin'
 bcp_47.scopes['flm'] = ' (retired code)'
 bcp_47.macrolanguages['flm'] = {'cfm'}
@@ -711,17 +709,12 @@ ot.add_language ('und-fonipa', 'IPPH')
 
 ot.add_language ('und-fonnapa', 'APPH')
 
-ot.remove_language_ot ('IRT')
 ot.add_language ('ga-Latg', 'IRT')
 
 ot.add_language ('hy-arevmda', 'HYE')
 
 ot.remove_language_ot ('KGE')
 ot.add_language ('und-Geok', 'KGE')
-
-bcp_47.macrolanguages['id'] = {'in'}
-
-bcp_47.macrolanguages['ijo'] = {'ijc'}
 
 ot.add_language ('kht', 'KHN')
 ot.names['KHN'] = ot.names['KHT'] + ' (Microsoft fonts)'
@@ -808,8 +801,6 @@ ot.add_language ('lzh', 'ZHT')
 ot.add_language ('lzh-Hans', 'ZHS')
 ot.add_language ('yue', 'ZHH')
 ot.add_language ('yue-Hans', 'ZHS')
-
-bcp_47.macrolanguages['zom'] = {'yos'}
 
 def rank_delta (bcp_47, ot):
 	"""Return a delta to apply to a BCP 47 tag's rank.
@@ -1127,9 +1118,10 @@ print (' * hb_ot_ambiguous_tag_to_language')
 print (' * @tag: A language tag.')
 print (' *')
 print (' * Converts @tag to a BCP 47 language tag if it is ambiguous (it corresponds to')
-print (' * many language tags) and the best tag is not the alphabetically first, or if')
-print (' * the best tag consists of multiple subtags, or if the best tag does not appear')
-print (' * in #ot_languages.')
+print (' * many language tags) and the best tag is not the first (sorted alphabetically,')
+print (' * with two-letter tags having priority over all three-letter tags), or if the')
+print (' * best tag consists of multiple subtags, or if the best tag does not appear in')
+print (' * #ot_languages2 or #ot_languages3.')
 print (' *')
 print (' * Return value: The #hb_language_t corresponding to the BCP 47 language tag,')
 print (' * or #HB_LANGUAGE_INVALID if @tag is not ambiguous.')
@@ -1170,7 +1162,8 @@ def verify_disambiguation_dict ():
 			if '-' in primary_tags[0]:
 				disambiguation[ot_tag] = primary_tags[0]
 			else:
-				first_tag = sorted (t for t in bcp_47_tags if t not in bcp_47.grandfathered and ot_tag in ot.from_bcp_47.get (t))[0]
+				first_tag = sorted ((t for t in bcp_47_tags if t not in bcp_47.grandfathered and ot_tag in ot.from_bcp_47.get (t)),
+						key=lambda t: (len (t), t))[0]
 				if primary_tags[0] != first_tag:
 					disambiguation[ot_tag] = primary_tags[0]
 		elif len (primary_tags) == 0:
@@ -1186,14 +1179,20 @@ def verify_disambiguation_dict ():
 			if len (macrolanguages) != 1:
 				macrolanguages = list (t for t in primary_tags if 'retired code' not in bcp_47.scopes.get (t, ''))
 			if len (macrolanguages) != 1:
-				expect (ot_tag in disambiguation, 'ambiguous OT tag: %s %s' % (ot_tag, str (macrolanguages)))
+				macrolanguages = list (t for t in primary_tags if t.lower () == ISO_639_3_TO_1.get (ot_tag.lower (), ot_tag.lower ()))
+			if len (macrolanguages) != 1:
+				macrolanguages = list (t for t in primary_tags if '-' not in t)
+			if len (macrolanguages) != 1:
+				expect (ot_tag in disambiguation, 'ambiguous OT tag: %s %s' % (ot_tag, sorted (primary_tags)))
 				expect (disambiguation[ot_tag] in bcp_47_tags,
 						'%s is not a valid disambiguation for %s' % (disambiguation[ot_tag], ot_tag))
 			elif ot_tag not in disambiguation:
 				disambiguation[ot_tag] = macrolanguages[0]
-			different_bcp_47_tags = sorted (t for t in bcp_47_tags if not same_tag (t, ot.from_bcp_47.get (t)))
-			if different_bcp_47_tags and disambiguation[ot_tag] == different_bcp_47_tags[0] and '-' not in disambiguation[ot_tag]:
-				del disambiguation[ot_tag]
+			if '-' not in disambiguation[ot_tag]:
+				different_bcp_47_tags = sorted ((t for t in bcp_47_tags if not same_tag (t, ot.from_bcp_47.get (t))),
+						key=lambda t: (len (t), t))
+				if different_bcp_47_tags and disambiguation[ot_tag] == different_bcp_47_tags[0]:
+					del disambiguation[ot_tag]
 	for ot_tag in disambiguation.keys ():
 		expect (ot_tag in ot.to_bcp_47, 'unknown OT tag: %s' % ot_tag)
 

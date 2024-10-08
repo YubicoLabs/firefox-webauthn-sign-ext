@@ -7,6 +7,8 @@ import { WindowGlobalBiDiModule } from "chrome://remote/content/webdriver-bidi/m
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
+  accessibility:
+    "chrome://remote/content/shared/webdriver/Accessibility.sys.mjs",
   AnimationFramePromise: "chrome://remote/content/shared/Sync.sys.mjs",
   assert: "chrome://remote/content/shared/webdriver/Assert.sys.mjs",
   ClipRectangleType:
@@ -17,6 +19,9 @@ ChromeUtils.defineESModuleGetters(lazy, {
     "chrome://remote/content/webdriver-bidi/modules/root/browsingContext.sys.mjs",
   OriginType:
     "chrome://remote/content/webdriver-bidi/modules/root/browsingContext.sys.mjs",
+  OwnershipModel: "chrome://remote/content/webdriver-bidi/RemoteValue.sys.mjs",
+  PollPromise: "chrome://remote/content/shared/Sync.sys.mjs",
+  pprint: "chrome://remote/content/shared/Format.sys.mjs",
 });
 
 const DOCUMENT_FRAGMENT_NODE = 11;
@@ -44,6 +49,66 @@ class BrowsingContextModule extends WindowGlobalBiDiModule {
   destroy() {
     this.#loadListener.destroy();
     this.#subscribedEvents = null;
+  }
+
+  /**
+   * Collect nodes using accessibility attributes.
+   *
+   * @see https://w3c.github.io/webdriver-bidi/#collect-nodes-using-accessibility-attributes
+   */
+  async #collectNodesUsingAccessibilityAttributes(
+    contextNodes,
+    selector,
+    maxReturnedNodeCount,
+    returnedNodes
+  ) {
+    if (returnedNodes === null) {
+      returnedNodes = [];
+    }
+
+    for (const contextNode of contextNodes) {
+      let match = true;
+
+      if (contextNode.nodeType === ELEMENT_NODE) {
+        if ("role" in selector) {
+          const role = await lazy.accessibility.getComputedRole(contextNode);
+
+          if (selector.role !== role) {
+            match = false;
+          }
+        }
+
+        if ("name" in selector) {
+          const name = await lazy.accessibility.getAccessibleName(contextNode);
+          if (selector.name !== name) {
+            match = false;
+          }
+        }
+      } else {
+        match = false;
+      }
+
+      if (match) {
+        if (
+          maxReturnedNodeCount !== null &&
+          returnedNodes.length === maxReturnedNodeCount
+        ) {
+          break;
+        }
+        returnedNodes.push(contextNode);
+      }
+
+      const childNodes = [...contextNode.children];
+
+      await this.#collectNodesUsingAccessibilityAttributes(
+        childNodes,
+        selector,
+        maxReturnedNodeCount,
+        returnedNodes
+      );
+    }
+
+    return returnedNodes;
   }
 
   #getNavigationInfo(data) {
@@ -83,75 +148,29 @@ class BrowsingContextModule extends WindowGlobalBiDiModule {
     );
   }
 
-  #startListening() {
-    if (this.#subscribedEvents.size == 0) {
-      this.#loadListener.startListening();
-    }
-  }
-
-  #stopListening() {
-    if (this.#subscribedEvents.size == 0) {
-      this.#loadListener.stopListening();
-    }
-  }
-
-  #subscribeEvent(event) {
-    switch (event) {
-      case "browsingContext._documentInteractive":
-        this.#startListening();
-        this.#subscribedEvents.add("browsingContext._documentInteractive");
-        break;
-      case "browsingContext.domContentLoaded":
-        this.#startListening();
-        this.#subscribedEvents.add("browsingContext.domContentLoaded");
-        break;
-      case "browsingContext.load":
-        this.#startListening();
-        this.#subscribedEvents.add("browsingContext.load");
-        break;
-    }
-  }
-
-  #unsubscribeEvent(event) {
-    switch (event) {
-      case "browsingContext._documentInteractive":
-        this.#subscribedEvents.delete("browsingContext._documentInteractive");
-        break;
-      case "browsingContext.domContentLoaded":
-        this.#subscribedEvents.delete("browsingContext.domContentLoaded");
-        break;
-      case "browsingContext.load":
-        this.#subscribedEvents.delete("browsingContext.load");
-        break;
-    }
-
-    this.#stopListening();
-  }
-
-  #onDOMContentLoaded = (eventName, data) => {
-    if (this.#subscribedEvents.has("browsingContext._documentInteractive")) {
-      this.messageHandler.emitEvent("browsingContext._documentInteractive", {
-        baseURL: data.target.baseURI,
-        contextId: this.messageHandler.contextId,
-        documentURL: data.target.URL,
-        innerWindowId: this.messageHandler.innerWindowId,
-        readyState: data.target.readyState,
-      });
-    }
-
-    if (this.#subscribedEvents.has("browsingContext.domContentLoaded")) {
-      this.emitEvent(
-        "browsingContext.domContentLoaded",
-        this.#getNavigationInfo(data)
+  /**
+   * Locate nodes using accessibility attributes.
+   *
+   * @see https://w3c.github.io/webdriver-bidi/#locate-nodes-using-accessibility-attributes
+   */
+  async #locateNodesUsingAccessibilityAttributes(
+    contextNodes,
+    selector,
+    maxReturnedNodeCount
+  ) {
+    if (!("role" in selector) && !("name" in selector)) {
+      throw new lazy.error.InvalidSelectorError(
+        "Locating nodes by accessibility attributes requires `role` or `name` arguments"
       );
     }
-  };
 
-  #onLoad = (eventName, data) => {
-    if (this.#subscribedEvents.has("browsingContext.load")) {
-      this.emitEvent("browsingContext.load", this.#getNavigationInfo(data));
-    }
-  };
+    return this.#collectNodesUsingAccessibilityAttributes(
+      contextNodes,
+      selector,
+      maxReturnedNodeCount,
+      null
+    );
+  }
 
   /**
    * Locate nodes using css selector.
@@ -257,6 +276,31 @@ class BrowsingContextModule extends WindowGlobalBiDiModule {
     return new DOMRect(x, y, width, height);
   }
 
+  #onDOMContentLoaded = (eventName, data) => {
+    if (this.#subscribedEvents.has("browsingContext._documentInteractive")) {
+      this.messageHandler.emitEvent("browsingContext._documentInteractive", {
+        baseURL: data.target.baseURI,
+        contextId: this.messageHandler.contextId,
+        documentURL: data.target.URL,
+        innerWindowId: this.messageHandler.innerWindowId,
+        readyState: data.target.readyState,
+      });
+    }
+
+    if (this.#subscribedEvents.has("browsingContext.domContentLoaded")) {
+      this.emitEvent(
+        "browsingContext.domContentLoaded",
+        this.#getNavigationInfo(data)
+      );
+    }
+  };
+
+  #onLoad = (eventName, data) => {
+    if (this.#subscribedEvents.has("browsingContext.load")) {
+      this.emitEvent("browsingContext.load", this.#getNavigationInfo(data));
+    }
+  };
+
   /**
    * Create a new rectangle which will be an intersection of
    * rectangles specified as arguments.
@@ -284,6 +328,51 @@ class BrowsingContextModule extends WindowGlobalBiDiModule {
     const height = Math.max(y_max - y_min, 0);
 
     return new DOMRect(x_min, y_min, width, height);
+  }
+
+  #startListening() {
+    if (this.#subscribedEvents.size == 0) {
+      this.#loadListener.startListening();
+    }
+  }
+
+  #stopListening() {
+    if (this.#subscribedEvents.size == 0) {
+      this.#loadListener.stopListening();
+    }
+  }
+
+  #subscribeEvent(event) {
+    switch (event) {
+      case "browsingContext._documentInteractive":
+        this.#startListening();
+        this.#subscribedEvents.add("browsingContext._documentInteractive");
+        break;
+      case "browsingContext.domContentLoaded":
+        this.#startListening();
+        this.#subscribedEvents.add("browsingContext.domContentLoaded");
+        break;
+      case "browsingContext.load":
+        this.#startListening();
+        this.#subscribedEvents.add("browsingContext.load");
+        break;
+    }
+  }
+
+  #unsubscribeEvent(event) {
+    switch (event) {
+      case "browsingContext._documentInteractive":
+        this.#subscribedEvents.delete("browsingContext._documentInteractive");
+        break;
+      case "browsingContext.domContentLoaded":
+        this.#subscribedEvents.delete("browsingContext.domContentLoaded");
+        break;
+      case "browsingContext.load":
+        this.#subscribedEvents.delete("browsingContext.load");
+        break;
+    }
+
+    this.#stopListening();
   }
 
   /**
@@ -356,6 +445,29 @@ class BrowsingContextModule extends WindowGlobalBiDiModule {
     });
   }
 
+  /**
+   * Waits until the visibility state of the document has the expected value.
+   *
+   * @param {object} options
+   * @param {number} options.value
+   *     Expected value of the visibility state.
+   *
+   * @returns {Promise}
+   *     Promise that resolves when the visibility state has the expected value.
+   */
+  async _awaitVisibilityState(options) {
+    const { value } = options;
+    const win = this.messageHandler.window;
+
+    await lazy.PollPromise((resolve, reject) => {
+      if (win.document.visibilityState === value) {
+        resolve();
+      } else {
+        reject();
+      }
+    });
+  }
+
   _getBaseURL() {
     return this.messageHandler.window.document.baseURI;
   }
@@ -400,17 +512,10 @@ class BrowsingContextModule extends WindowGlobalBiDiModule {
     return this.#rectangleIntersection(originRect, clipRect);
   }
 
-  _locateNodes(params = {}) {
-    const {
-      locator,
-      maxNodeCount,
-      resultOwnership,
-      sandbox,
-      serializationOptions,
-      startNodes,
-    } = params;
+  async _locateNodes(params = {}) {
+    const { locator, maxNodeCount, serializationOptions, startNodes } = params;
 
-    const realm = this.messageHandler.getRealm({ sandboxName: sandbox });
+    const realm = this.messageHandler.getRealm();
 
     const contextNodes = [];
     if (startNodes === null) {
@@ -424,7 +529,7 @@ class BrowsingContextModule extends WindowGlobalBiDiModule {
             [DOCUMENT_FRAGMENT_NODE, DOCUMENT_NODE, ELEMENT_NODE].includes(
               startNode.nodeType
             ),
-          `Expected an item of "startNodes" to be an Element, got ${startNode}`
+          lazy.pprint`Expected an item of "startNodes" to be an Element, got ${startNode}`
         )(startNode);
 
         contextNodes.push(startNode);
@@ -433,6 +538,14 @@ class BrowsingContextModule extends WindowGlobalBiDiModule {
 
     let returnedNodes;
     switch (locator.type) {
+      case lazy.LocatorType.accessibility: {
+        returnedNodes = await this.#locateNodesUsingAccessibilityAttributes(
+          contextNodes,
+          locator.value,
+          maxNodeCount
+        );
+        break;
+      }
       case lazy.LocatorType.css: {
         returnedNodes = this.#locateNodesUsingCss(
           contextNodes,
@@ -458,7 +571,7 @@ class BrowsingContextModule extends WindowGlobalBiDiModule {
         this.serialize(
           returnedNode,
           serializationOptions,
-          resultOwnership,
+          lazy.OwnershipModel.None,
           realm,
           { seenNodeIds }
         )

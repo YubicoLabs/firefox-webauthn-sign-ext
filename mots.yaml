@@ -8,7 +8,7 @@
 # documentation and how to modify this file.
 repo: mozilla-central
 created_at: '2021-10-14T12:50:40.073465'
-updated_at: '2024-02-12T11:38:43.189353'
+updated_at: '2024-09-06T16:55:45.997727'
 export:
   path: ./docs/mots/index.rst
   format: rst
@@ -23,6 +23,10 @@ people:
     bmo_id: 334927
     name: Drew Willcoxon
     nick: adw
+  - &afranchuk
+    bmo_id: 719881
+    name: Alex Franchuk
+    nick: afranchuk
   - &agashlin
     bmo_id: 583776
     name: Adam Gashlin
@@ -33,12 +37,16 @@ people:
     nick: agi
   - &aglavic
     bmo_id: 692423
-    name: Andrej Glavic
+    name: Andrej
     nick: aglavic
   - &ahal
     bmo_id: 382067
     name: Andrew Halberstadt
     nick: ahal
+  - &ahochheiden
+    bmo_id: 693303
+    name: Alex Hochheiden
+    nick: ahochheiden
   - &allstarschh
     bmo_id: 434670
     name: Yoshi Cheng-Hao Huang
@@ -47,6 +55,10 @@ people:
     bmo_id: 517691
     name: Alastor Wu
     nick: alwu
+  - &amejia
+    bmo_id: 623634
+    name: Arturo Mejia
+    nick: amejia
   - &aminomancer
     bmo_id: 636965
     name: Shane Hughes
@@ -87,10 +99,6 @@ people:
     bmo_id: 446257
     name: Andrea Marchesini
     nick: baku
-  - &barret
-    bmo_id: 529428
-    name: Barret Rennie
-    nick: barret
   - &basschouten
     bmo_id: 272464
     name: Bas Schouten
@@ -107,14 +115,14 @@ people:
     bmo_id: 424312
     name: Ben Bangert
     nick: benbangert
+  - &beth
+    bmo_id: 529428
+    name: Beth Rennie
+    nick: beth
   - &beurdouche
     bmo_id: 622637
     name: Benjamin Beurdouche
     nick: beurdouche
-  - &bevis
-    bmo_id: 483302
-    name: Bevis Tseng
-    nick: bevis
   - &bhearsum
     bmo_id: 259016
     name: bhearsum
@@ -131,6 +139,10 @@ people:
     bmo_id: 458623
     name: Bob Owen
     nick: bobowen
+  - &boek
+    bmo_id: 599885
+    name: Jeff Boek
+    nick: boek
   - &bomsy
     bmo_id: 656417
     name: Hubert Boma Manilla
@@ -231,10 +243,10 @@ people:
     bmo_id: 468905
     name: Danny Coates
     nick: dcoates
-  - &deantessman
+  - &deanis74
     bmo_id: 7924
-    name: Dean Tessman
-    nick: dean_tessman
+    name: ''
+    nick: deanis74
   - &deian
     bmo_id: 637163
     name: Deian Stefan
@@ -247,14 +259,14 @@ people:
     bmo_id: 278074
     name: Daniel Holbert
     nick: dholbert
-  - &dimi
-    bmo_id: 468232
-    name: Dimi Lee
-    nick: dimi
   - &djackson
     bmo_id: 644159
     name: Dennis Jackson
     nick: djackson
+  - &dlee
+    bmo_id: 468232
+    name: Dimi Lee
+    nick: dlee
   - &dlrobertson
     bmo_id: 705145
     name: Dan Robertson
@@ -279,6 +291,10 @@ people:
     bmo_id: 713270
     name: DJ
     nick: dwalker
+  - &edenchuang
+    bmo_id: 516138
+    name: Eden Chuang
+    nick: edenchuang
   - &edgar
     bmo_id: 455480
     name: Edgar Chen
@@ -341,14 +357,14 @@ people:
     bmo_id: 149052
     name: Florian Quèze
     nick: florian
+  - &fredwang
+    bmo_id: 739410
+    name: Frédéric Wang
+    nick: fred.wang
   - &freddy
     bmo_id: 428608
     name: Frederik Braun
     nick: freddy
-  - &fredw
-    bmo_id: 739410
-    name: Frédéric Wang
-    nick: fredw
   - &froydnj
     bmo_id: 417288
     name: Nathan Froyd
@@ -369,6 +385,14 @@ people:
     bmo_id: 159069
     name: ''
     nick: Gijs
+  - &giorga
+    bmo_id: 698576
+    name: Iorga Gabriel
+    nick: giorga
+  - &gl
+    bmo_id: 475223
+    name: Gabriel Luong
+    nick: gl
   - &glandium
     bmo_id: 47192
     name: Mike Hommey
@@ -460,6 +484,10 @@ people:
     bmo_id: 559949
     name: Julian Descottes
     nick: jdescottes
+  - &jeddai
+    bmo_id: 710471
+    name: Charlie Humphreys
+    nick: jeddai
   - &jesup
     bmo_id: 11539
     name: Randell Jesup
@@ -496,6 +524,10 @@ people:
     bmo_id: 279663
     name: Jim Mathies
     nick: jimm
+  - &jjalkanen
+    bmo_id: 689836
+    name: Jari Jalkanen
+    nick: jjalkanen
   - &jld
     bmo_id: 462836
     name: Jed Davis
@@ -571,6 +603,10 @@ people:
     bmo_id: 274246
     name: Karl Tomlinson
     nick: karlt
+  - &kaya
+    bmo_id: 712933
+    name: Kayacan Kaya
+    nick: kaya
   - &kcochrane
     bmo_id: 707663
     name: Kelly Cochrane
@@ -659,10 +695,18 @@ people:
     bmo_id: 275214
     name: Matjaz Horvat
     nick: mathjazz
+  - &matttighe
+    bmo_id: 701804
+    name: Matt Tighe
+    nick: matt-tighe
   - &MattN
     bmo_id: 305228
     name: Matthew N
     nick: MattN
+  - &mcarare
+    bmo_id: 648814
+    name: Mihai Adrian Carare
+    nick: mcarare
   - &mccr8
     bmo_id: 406194
     name: Andrew McCreight
@@ -679,10 +723,6 @@ people:
     bmo_id: 607045
     name: Matthew Gaudet
     nick: mgaudet
-  - &mhowell
-    bmo_id: 550257
-    name: Molly Howell
-    nick: mhowell
   - &micah
     bmo_id: 585815
     name: Micah Tigley
@@ -691,14 +731,14 @@ people:
     bmo_id: 547538
     name: Miko Mynttinen
     nick: mikokm
-  - &mixedpuppy
-    bmo_id: 443354
-    name: Shane Caraveo
-    nick: mixedpuppy
   - &mkaply
     bmo_id: 7313
     name: Mike Kaply
     nick: mkaply
+  - &molly
+    bmo_id: 550257
+    name: Molly Howell
+    nick: molly
   - &morgan
     bmo_id: 618000
     name: Morgan Reschenberg
@@ -791,6 +831,10 @@ people:
     bmo_id: 404637
     name: Paul Adenot
     nick: padenot
+  - &pbone
+    bmo_id: 595166
+    name: Paul Bone
+    nick: pbone
   - &pbz
     bmo_id: 636491
     name: Paul Zühlcke
@@ -831,6 +875,10 @@ people:
     bmo_id: 447061
     name: Rob Wu
     nick: robwu
+  - &royang
+    bmo_id: 644746
+    name: Roger Yang
+    nick: royang
   - &rpl
     bmo_id: 339062
     name: Luca Greco
@@ -839,6 +887,10 @@ people:
     bmo_id: 11099
     name: Robert Relyea
     nick: rrelyea
+  - &rsainani
+    bmo_id: 718207
+    name: Rahul Sainani
+    nick: rsainani
   - &ryansleevi
     bmo_id: 381992
     name: Ryan Sleevi
@@ -851,6 +903,10 @@ people:
     bmo_id: 704132
     name: Alexandra Borovova
     nick: Sasha
+  - &scaraveo
+    bmo_id: 443354
+    name: ''
+    nick: scaraveo
   - &sclements
     bmo_id: 603840
     name: Sarah Clements
@@ -1040,6 +1096,20 @@ modules:
     peers: []
     machine_name: _firefoxtoplevel
 
+  - machine_name: android_components
+    name: Android Components
+    description: A collection of independent, reusable Android library components
+      to make it easier to build browsers and browser-like applications.
+    includes:
+      - mobile/android/android-components/**/*
+    excludes: []
+    owners:
+      - *amejia
+      - *matttighe
+    peers:
+      - *kaya
+      - *jonalmeida
+    meta:
   - machine_name: code_coverage
     name: Code Coverage
     description: Tools for code coverage instrumentation, and coverage data parsing
@@ -1127,7 +1197,7 @@ modules:
       - *timhuang
     peers:
       - *bvandersloot
-      - *dimi
+      - *dlee
       - *pbz
     machine_name: core_antitracking
 
@@ -1152,22 +1222,6 @@ modules:
       - *hiro
       - *mstange
     machine_name: core_apz_graphics_submodule
-
-  - name: 'Core: Browser WebAPI'
-    description: Web API for rendering apps, browser windows and widgets.
-    includes:
-      - dom/browser-element/**/*
-    meta:
-      owners_emeritus:
-        - Kan-Ru Chen
-      peers_emeritus:
-        - Fabrice Desré
-      group: dev-webapi
-      components:
-        - Core::DOM
-    owners:
-      - *smaug
-    machine_name: core_browser_webapi
 
   - name: 'Core: Build and Release Tools'
     description: Tools related to build and release automation and configuration of
@@ -1222,6 +1276,7 @@ modules:
       - *glandium
     peers:
       - *andi
+      - *ahochheiden
     submodules:
 
       - name: 'Core: Build Config - Fennec'
@@ -1350,6 +1405,7 @@ modules:
     meta:
       peers_emeritus:
         - Aria Beingessner
+        - Kris Wright
       group: dev-platform
       url: :ref:`Crash Reporter`
       components:
@@ -1357,8 +1413,8 @@ modules:
     owners:
       - *gsvelto
     peers:
-      - *KrisWright
       - *calixte
+      - *afranchuk
     machine_name: core_crash_reporting
 
   - machine_name: core_credentials
@@ -1435,12 +1491,14 @@ modules:
       owners_emeritus:
         - Aaron Klotz
         - *toshi
+      peers_emeritus:
+        - *molly
       components:
         - Core::DLL Services
     owners:
       - *handyman
     peers:
-      - *mhowell
+      - *gstoll
     machine_name: core_dll_services
 
   - name: 'Core: docshell'
@@ -1459,7 +1517,7 @@ modules:
         - Kyle Machulis
       group: dev-platform
       components:
-        - Core::DOM: Navigation
+        - 'Core::DOM: Navigation'
     owners:
       - *smaug
       - *nika
@@ -1594,6 +1652,7 @@ modules:
       - *ahal
     peers:
       - *Sylvestre
+      - *marco
     meta:
       components:
         - Developer Infrastructure::Source Documentation
@@ -1613,7 +1672,7 @@ modules:
         - Nicholas Nethercote
         - Gerald Squelart
         - Kannan Vijayan
-        - Barret Rennie
+        - Beth Rennie
         - Greg Tatum
       group: dev-platform
       url: https://firefox-source-docs.mozilla.org/tools/profiler/
@@ -1633,6 +1692,10 @@ modules:
       - mobile/android/**/*
       - widget/android/**/*
       - hal/android/**/*
+    excludes:
+      - mobile/android/fenix/**/*
+      - mobile/android/focus-android/**/*
+      - mobile/android/android-components/**/*
     meta:
       owners_emeritus:
         - James Willcox
@@ -1643,6 +1706,7 @@ modules:
         - Aaron Klotz
         - Jim Chen
         - Randall E. Barker
+        - Jon Almeida
       url: https://wiki.mozilla.org/Mobile/GeckoView
       components:
         - GeckoView::General
@@ -1650,7 +1714,6 @@ modules:
       - *owlish
     peers:
       - *calu
-      - *jonalmeida
       - *mkato
       - *olivia
     machine_name: core_geckoview
@@ -1702,9 +1765,9 @@ modules:
         - 'Core::Graphics: Layers'
         - 'Core::Graphics: Text'
         - 'Core::Graphics: WebRender'
-        - 'Core::GFX: Color Management'
-        - 'Core::Canvas: 2D'
-        - 'Core::Canvas: WebGL'
+        - 'Core::Graphics: Color Management'
+        - 'Core::Graphics: Canvas2D'
+        - 'Core::Graphics: CanvasWebGL'
     owners:
       - *jrmuizel
     peers:
@@ -1803,6 +1866,8 @@ modules:
       peers_emeritus:
         - Jonas Sicking
         - Kyle Huey
+        - Bevis Tseng
+        - Andrea Marchesini
       group: dev-platform
       url: https://developer.mozilla.org/en/IndexedDB
       components:
@@ -1811,9 +1876,8 @@ modules:
     owners:
       - *janv
     peers:
-      - *bevis
       - *asuth
-      - *baku
+      - *jjalkanen
     machine_name: core_indexeddb
 
   - name: 'Core: IPC'
@@ -2043,7 +2107,7 @@ modules:
     owners:
       - *emilio
     peers:
-      - *fredw
+      - *fredwang
       - *jfkthame
     machine_name: core_mathml
 
@@ -2057,7 +2121,6 @@ modules:
       - media/libnestegg/**/*
       - media/libogg/**/*
       - media/libopus/**/*
-      - media/libtheora/**/*
       - media/libtremor/**/*
       - media/libvorbis/**/*
       - media/libvpx/**/*
@@ -2112,7 +2175,8 @@ modules:
         - Core::jemalloc
     owners:
       - *glandium
-    peers: []
+    peers:
+      - *pbone
     machine_name: core_memory_allocator
 
   - name: 'Core: mfbt'
@@ -2229,10 +2293,10 @@ modules:
         - Core::Networking
         - 'Core::Networking: Cache'
         - 'Core::Networking: Cookies'
-        - 'Core::Networking: FTP'
         - 'Core::Networking: File'
         - 'Core::Networking: HTTP'
         - 'Core::Networking: JAR'
+        - 'Core::Networking: Proxy'
         - 'Core::Networking: Websockets'
         - 'Core::DOM: Networking'
     owners:
@@ -2267,6 +2331,28 @@ modules:
       - *Mardak
       - *mossop
     machine_name: core_nodejs_usage_tools_and_style
+
+  - name: 'Core: Notifications'
+    description: The infrastructure for Web Notifications API and the Firefox Desktop
+      notifications.
+    includes:
+      - dom/notification/**/*
+      - toolkit/components/alerts/**/*
+      - toolkit/system/gnome/nsAlertsIconListener*
+      - toolkit/system/gnome/nsSystemAlertsService*
+      - widget/windows/ToastNotification*
+      - widget/cocoa/OSXNotificationCenter*
+    meta:
+      group: dev-platform
+      components:
+        - 'Core::DOM: Notifications'
+        - Toolkit::Alerts Service
+    owners:
+      - *saschanaz
+    peers:
+      - *nalexander
+      - *nrishel
+    machine_name: core_notifications
 
   - name: 'Core: NSPR'
     description: Netscape Portable Runtime
@@ -2360,6 +2446,7 @@ modules:
     meta:
       owners_emeritus:
         - Nicholas Nethercote
+        - *KrisWright
       peers_emeritus:
         - Felipe Gomes
         - Eric Rahm
@@ -2367,10 +2454,8 @@ modules:
       components:
         - 'Core::Preferences: Backend'
     owners:
-      - *KrisWright
     peers:
       - *glandium
-      - *KrisWright
     machine_name: core_preferences
 
   - name: 'Core: Private Browsing'
@@ -2416,11 +2501,12 @@ modules:
       - *ckerschb
     machine_name: core_privilege_manager
 
-  - name: 'Core: Push Notifications'
+  - name: 'Core: Push Subscriptions'
     description: Push is a way for application developers to send messages to their
       web applications.
     includes:
       - dom/push/**/*
+      - dom/interfaces/push/**/*
     meta:
       owners_emeritus:
         - Doug Turner
@@ -2428,11 +2514,11 @@ modules:
       peers_emeritus:
         - Nikhil Marathe
         - Dragana Damjanovic
+        - *mt
       components:
-        - 'Core::DOM: Notifications'
-    peers:
-      - *mt
-    machine_name: core_push_notifications
+        - 'Core::DOM: Push Subscriptions'
+    peers: []
+    machine_name: core_push_subscriptions
 
   - name: 'Core: Sandboxing (Linux)'
     description: Sandboxing for the Linux platform
@@ -2579,16 +2665,18 @@ modules:
       - *jrmuizel
     machine_name: core_static_analysis_rewriting_for_c
 
-  - name: 'Core: storage'
-    description: Storage APIs with a SQLite backend
+  - name: 'Core: SQLite and Embedded Database Bindings'
+    description: Embedded database engines and their code bindings.
     includes:
-      - third_party/sqlite3/**/*
       - storage/**/*
+      - third_party/sqlite3/**/*
+      - toolkit/components/kvstore/**/*
+      - toolkit/modules/Sqlite.sys.mjs
     meta:
       group: dev-platform
-      url: http://developer.mozilla.org/en/docs/Storage
+      url: https://firefox-source-docs.mozilla.org/storage/index.html
       components:
-        - Toolkit::Storage, Core::SQL
+        - Core::SQLite and Embedded Database Bindings
       owners_emeritus:
         - Shawn Wilsher
     owners:
@@ -2596,6 +2684,7 @@ modules:
     peers:
       - *asuth
       - *janv
+      - *lina
     machine_name: core_storage
 
   - name: 'Core: String'
@@ -2641,6 +2730,23 @@ modules:
       - *tlouw
       - *zrhoffman
     machine_name: core_style_system
+
+  - name: 'Core: Supply Chain'
+    description: Policy management for third-party Rust dependencies
+    includes:
+      - supply-chain/**/*
+    meta:
+      peers_emeritus:
+        - Aria Beingessner
+      group: dev-platform
+      components:
+        - Firefox Build System::General
+    owners:
+      - *bholley
+    peers:
+      - *nika
+      - *tjr
+    machine_name: core_supply_chain
 
   - name: 'Core: SVG'
     description: Scalable Vector Graphics
@@ -2744,10 +2850,12 @@ modules:
   - name: 'Core: Web Workers'
     description: ''
     includes:
+      - dom/serviceworkers/**/*
       - dom/workers/**/*
     meta:
       owners_emeritus:
         - Ben Turner
+        - Andrea Marchesini
       peers_emeritus:
         - Blake Kaplan
         - Jonas Sicking
@@ -2762,12 +2870,15 @@ modules:
     owners:
       - *asuth
     peers:
-      - *baku
+      - *edenchuang
+      - *jstutte
+      - *smaug
     machine_name: core_web_workers
 
   - name: 'Core: WebGPU (Graphics submodule)'
     description: WebGPU implementation
     includes:
+      - dom/webidl/WebGPU.webidl
       - dom/webgpu/**/*
       - gfx/wgpu_bindings/**/*
       - third_party/rust/naga/**/*
@@ -2928,6 +3039,7 @@ modules:
       - *karlt
     peers:
       - *stransky
+      - *emilio
     machine_name: core_widget_gtk
 
   - name: 'Core: Widget - Headless'
@@ -2992,7 +3104,7 @@ modules:
       - *cmartin
     peers:
       - *handyman
-      - *mhowell
+      - *molly
     machine_name: core_widget_windows
 
   - name: 'Core: XML'
@@ -3028,7 +3140,7 @@ modules:
       peers_emeritus:
         - Josh 'timeless' Soref
     peers:
-      - *deantessman
+      - *deanis74
     machine_name: core_xpapps
 
   - name: 'Core: XPCOM'
@@ -3055,6 +3167,7 @@ modules:
         - Doug Turner
         - Eric Rahm
         - Simon Giesecke
+        - *KrisWright
       group: dev-platform
       url: :ref:`XPCOM`
       components:
@@ -3064,9 +3177,8 @@ modules:
       - *nika
     peers:
       - *kmag
-      - *barret
+      - *beth
       - *jstutte
-      - *KrisWright
       - *mccr8
       - *emilio
     machine_name: core_xpcom
@@ -3147,6 +3259,7 @@ modules:
         - Felipe Gomes
         - Tim Guan-tin Chien
         - Johann Hofmann
+        - Molly Howell
         - KM Lee Rex
         - Fred Lin
         - Ray Lin
@@ -3174,7 +3287,7 @@ modules:
       - *dao
       - *mak
       - *mconley
-      - *mhowell
+      - *sclements
     submodules:
 
       - name: Add-ons Manager
@@ -3187,7 +3300,7 @@ modules:
             - Andrew Swan
             - Kris Maglione
         owners:
-          - *mixedpuppy
+          - *scaraveo
           - *rpl
         peers:
           - *rpl
@@ -3205,7 +3318,7 @@ modules:
             - Robert Strong
             - Andrew Swan
         owners:
-          - *mixedpuppy
+          - *scaraveo
           - *mstriemer
         peers:
           - *rpl
@@ -3214,6 +3327,25 @@ modules:
           - *willdurand
         machine_name: addons_manager_ui
 
+      - machine_name: address_bar
+        name: Address Bar
+        description: The address bar and address bar autocomplete.
+        includes:
+          - browser/components/urlbar/**/*
+          - browser/themes/shared/urlbar*
+        owners:
+          - *adw
+        peers:
+          - *daisuke
+          - *dao
+          - *mak
+          - *standard8
+          - *jteow
+        meta:
+          components:
+            - Firefox::Address Bar
+          review_group: urlbar-reviewers
+
       - name: Application Update
         description: The application update services.
         includes:
@@ -3221,7 +3353,7 @@ modules:
         owners:
           - *bytesized
         peers:
-          - *mhowell
+          - *molly
         machine_name: application_update
         meta:
           peers_emeritus:
@@ -3261,19 +3393,20 @@ modules:
         meta:
           peers_emeritus:
             - Tim Nguyen
+            - *amy
           components:
             - Firefox::Theme
             - Toolkit::Themes
         owners:
           - *dao
         peers:
-          - *itielyn8
-          - *sfoster
-          - *amy
-          - *emilio
-          - *jules
           - *cmkm
+          - *emilio
+          - *hjones
+          - *itielyn8
+          - *jules
           - *kcochrane
+          - *sfoster
         machine_name: desktop_theme
 
       - name: Desktop UI
@@ -3335,10 +3468,11 @@ modules:
             - Firefox::Nimbus Desktop Client
           url: https://experimenter.info/
         owners:
-          - *barret
+          - *beth
         peers:
           - *Gijs
           - *emcminn
+          - *jeddai
         machine_name: normandy
 
       - machine_name: firefox_view
@@ -3366,7 +3500,7 @@ modules:
           - *serg
         peers:
           - *tgiles
-          - *dimi
+          - *dlee
         machine_name: form_autofill
 
       - name: In-product Messaging
@@ -3408,7 +3542,7 @@ modules:
         owners:
           - *rkraesig
         peers:
-          - *mhowell
+          - *molly
           - *gstoll
           - *handyman
         machine_name: launcher_process
@@ -3463,7 +3597,7 @@ modules:
           - *serg
         peers:
           - *tgiles
-          - *dimi
+          - *dlee
           - *sfoster
         machine_name: password_manager
 
@@ -3477,7 +3611,7 @@ modules:
         meta:
           owners_emeritus:
             - *micah
-            - *mhowell
+            - *molly
         excludes: []
         owners:
           - *mconley
@@ -3513,33 +3647,29 @@ modules:
             - Firefox::Screenshots
         owners:
           - *sfoster
+          - *niklas
         peers:
           - *jhirsch
-          - *niklas
         machine_name: screenshots
 
-      - name: Search and Address Bar
-        description: The search service, address bar and address bar autocomplete.
+      - name: Search
+        description: The search service and search bar.
         includes:
           - browser/components/search/**/*
-          - browser/components/urlbar/**/*
           - toolkit/components/search/**/*
         meta:
           components:
-            - Firefox::Address Bar
             - Firefox::Search
           peers_emeritus:
             - Michael de Boer
+          review_group: search-reviewers
         owners:
           - *standard8
-          - *adw
         peers:
           - *daleharvey
-          - *mak
-          - *dao
           - *mcheang
           - *jteow
-        machine_name: search_and_address_bar
+        machine_name: search
 
       - name: Security and Privacy UI
         description: The front-end to our security and privacy features, including
@@ -3608,15 +3738,8 @@ modules:
       - name: Tabbed Browser
         description: The UI component controlling browser tabs.
         includes:
-          - browser/base/content/tabbrowser*
-          - browser/base/content/browser-allTabsMenu.js
-          - browser/base/content/browser-ctrlTab.js
-          - browser/base/content/browser-fullZoom.js
-          - browser/modules/AsyncTabSwitcher.sys.mjs
-          - browser/modules/NewTabPagePreloading.sys.mjs
-          - browser/modules/OpenInTabsUtils.sys.mjs
-          - browser/modules/TabsList.sys.mjs
-          - browser/modules/TabUnloader.sys.mjs
+          - browser/components/tabbrowser/**/*
+          - browser/themes/shared/tabbrowser/*
         meta:
           components:
             - Firefox::Tabbed Browser
@@ -3628,6 +3751,8 @@ modules:
         peers:
           - *mak
           - *mconley
+          - *dwalker
+          - *niklas
         machine_name: tabbed_browser
 
       - name: Windows Installer
@@ -3639,7 +3764,7 @@ modules:
           components:
             - Firefox::Installer
         owners:
-          - *mhowell
+          - *molly
         peers:
           - *agashlin
           - *nalexander
@@ -3705,15 +3830,41 @@ modules:
       url: http://firefox-dev.tools/
       components:
         - DevTools
+  - machine_name: fenix
+    name: Fenix
+    description: Android Project to build Firefox for Android
+    includes:
+      - mobile/android/fenix/**/*
+    excludes: []
+    owners:
+      - *boek
+      - *gl
+    peers:
+      - *royang
+      - *rsainani
+    meta:
+  - machine_name: focus_android
+    name: Focus for Android
+    description: Android Project to build Focus for Android
+    includes:
+      - mobile/android/focus-android/**/*
+    excludes: []
+    owners:
+      - *mcarare
+      - *royang
+    peers:
+      - *giorga
+    meta:
   - machine_name: javascript_usage
     name: JavaScript usage, tools, and style
     description: Aspects of JavaScript use such as language feature usage, tooling
       such as lint configurations, formatting and naming style.
     includes:
       - .eslintrc-test-paths.js
-      - '**/.eslintignore'
-      - '**/.eslintrc.js'
+      - '**/.eslintrc*.js'
       - tools/lint/eslint/**/*
+      - .prettier*
+      - .stylelint*
     excludes: []
     owners:
       - *mossop
@@ -3722,6 +3873,7 @@ modules:
       - *standard8
       - *jandem
     meta:
+      review_group: frontend-codestyle-reviewers
 
   - name: mots config
     includes:
@@ -3932,7 +4084,7 @@ modules:
       - testing/gtest/**/*
     excludes: []
     owners:
-      - *gbrown
+      - *jmaher
     peers: []
     meta:
       components:
@@ -3968,7 +4120,6 @@ modules:
       - *ahal
     peers:
       - *jmaher
-      - *gbrown
     meta:
       components:
         - 'Testing :: Mochitest'
@@ -3979,7 +4130,7 @@ modules:
       - testing/mozbase
     excludes: []
     owners:
-      - *gbrown
+      - *jmaher
     peers:
       - *ahal
       - *ato
@@ -4076,8 +4227,6 @@ modules:
     excludes: []
     owners:
       - *jmaher
-    peers:
-      - *gbrown
     meta:
       components:
         - Testing::XPCShell Harness
@@ -4100,7 +4249,7 @@ modules:
       - *dao
       - *mak
       - *mconley
-      - *mhowell
+      - *molly
     submodules:
 
       - name: Application Startup
@@ -4133,12 +4282,13 @@ modules:
             - Georg Fritzsche
           group: fx-data-dev
           url: :ref:`Telemetry`
+          peers_emeritus:
+            - *perrymcmanis
         owners:
           - *chutten
         peers:
           - *Dexter
           - *janerik
-          - *perrymcmanis
           - *travis
         machine_name: telemetry
 
@@ -4169,7 +4319,7 @@ modules:
             - Andrew Swan
             - Kris Maglione
         owners:
-          - *mixedpuppy
+          - *scaraveo
           - *zombie
         peers:
           - *rpl
@@ -4208,7 +4358,7 @@ modules:
       - netwerk/url-classifier/**/*
     excludes: []
     owners:
-      - *dimi
+      - *dlee
       - *groovecoder
     peers:
       - *timhuang
@@ -4223,5 +4373,5 @@ modules:
         - Ryan Tilder
       group: dev-platform
 hashes:
-  config: 308df3f31d4c18ad2b33ff42089ec56cca1566a1
-  export: de95c24371652728c9a29fb28c859cc845d9e04a
+  config: b0a2d988ddc8781d3d99f49a0a301240973d6840
+  export: 68143dfe5fd186c06cbca8f40852df22f235c259

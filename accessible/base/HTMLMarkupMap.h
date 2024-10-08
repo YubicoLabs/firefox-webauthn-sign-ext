@@ -34,7 +34,12 @@ MARKUPMAP(address, New_HyperText, roles::GROUPING)
 
 MARKUPMAP(article, New_HyperText, roles::ARTICLE, Attr(xmlroles, article))
 
-MARKUPMAP(aside, New_HyperText, roles::LANDMARK)
+MARKUPMAP(
+    aside,
+    [](Element* aElement, LocalAccessible* aContext) -> LocalAccessible* {
+      return new HTMLAsideAccessible(aElement, aContext->Document());
+    },
+    0)
 
 MARKUPMAP(blockquote, New_HyperText, roles::BLOCKQUOTE)
 
@@ -371,7 +376,7 @@ MARKUPMAP(
 MARKUPMAP(time, New_HyperText, roles::TIME, Attr(xmlroles, time),
           AttrFromDOM(datetime, datetime))
 
-MARKUPMAP(tbody, nullptr, roles::GROUPING)
+MARKUPMAP(tbody, nullptr, roles::ROWGROUP)
 
 MARKUPMAP(
     td,
@@ -387,7 +392,7 @@ MARKUPMAP(
     },
     0)
 
-MARKUPMAP(tfoot, nullptr, roles::GROUPING)
+MARKUPMAP(tfoot, nullptr, roles::ROWGROUP)
 
 MARKUPMAP(
     th,
@@ -399,7 +404,7 @@ MARKUPMAP(
     },
     0)
 
-MARKUPMAP(thead, nullptr, roles::GROUPING)
+MARKUPMAP(thead, nullptr, roles::ROWGROUP)
 
 MARKUPMAP(
     tr,

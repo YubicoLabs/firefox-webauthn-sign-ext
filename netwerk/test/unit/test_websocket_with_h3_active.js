@@ -21,18 +21,18 @@ add_task(async function pre_setup() {
 });
 
 add_task(async function setup() {
-  await http3_setup_tests("h3");
+  await http3_setup_tests("h3", true);
 });
 
 WebSocketListener.prototype = {
-  onAcknowledge(aContext, aSize) {},
-  onBinaryMessageAvailable(aContext, aMsg) {},
-  onMessageAvailable(aContext, aMsg) {},
-  onServerClose(aContext, aCode, aReason) {},
-  onStart(aContext) {
+  onAcknowledge() {},
+  onBinaryMessageAvailable() {},
+  onMessageAvailable() {},
+  onServerClose() {},
+  onStart() {
     this.finish();
   },
-  onStop(aContext, aStatusCode) {},
+  onStop() {},
 };
 
 function makeH2Chan() {

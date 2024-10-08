@@ -2,7 +2,7 @@
  * @licstart The following is the entire license notice for the
  * JavaScript code in this page
  *
- * Copyright 2023 Mozilla Foundation
+ * Copyright 2024 Mozilla Foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -126,7 +126,7 @@ const GlobalConstants = Object.freeze({
   IDS_GT_AND_LT: "Invalid value: must be greater than or equal to % s " + "and less than or equal to % s.",
   IDS_LESS_THAN: "Invalid value: must be less than or equal to % s.",
   IDS_INVALID_MONTH: "** Invalid **",
-  IDS_INVALID_DATE: "Invalid date / time: please ensure that the date / time exists.Field",
+  IDS_INVALID_DATE: "Invalid date / time: please ensure that the date / time exists. Field",
   IDS_INVALID_DATE2: " should match format ",
   IDS_INVALID_VALUE: "The value entered does not match the format of the field",
   IDS_AM: "am",
@@ -1015,11 +1015,26 @@ class AForm {
     }
     return date;
   }
-  _parseDate(cFormat, cDate) {
+  _parseDate(cFormat, cDate, strict = false) {
     let date = null;
     try {
       date = this._util.scand(cFormat, cDate);
     } catch {}
+    if (!date) {
+      if (strict) {
+        return null;
+      }
+      let format = cFormat;
+      if (/mm(?!m)/.test(format)) {
+        format = format.replace("mm", "m");
+      }
+      if (/dd(?!d)/.test(format)) {
+        format = format.replace("dd", "d");
+      }
+      try {
+        date = this._util.scand(format, cDate);
+      } catch {}
+    }
     if (!date) {
       date = Date.parse(cDate);
       date = isNaN(date) ? this._tryToGuessDate(cFormat, cDate) : new Date(date);
@@ -1187,7 +1202,7 @@ class AForm {
     if (!value) {
       return;
     }
-    if (this._parseDate(cFormat, value) === null) {
+    if (this._parseDate(cFormat, value, true) === null) {
       const invalid = GlobalConstants.IDS_INVALID_DATE;
       const invalid2 = GlobalConstants.IDS_INVALID_DATE2;
       const err = `${invalid} ${this._mkTargetName(event)}${invalid2}${cFormat}`;
@@ -1284,13 +1299,11 @@ class AForm {
       }
       for (const child of field.getArray()) {
         const number = this.AFMakeNumber(child.value);
-        if (number !== null) {
-          values.push(number);
-        }
+        values.push(number ?? 0);
       }
     }
     if (values.length === 0) {
-      event.value = cFunction === "PRD" ? 1 : 0;
+      event.value = 0;
       return;
     }
     const res = actions[cFunction](values);
@@ -1322,6 +1335,16 @@ class AForm {
     event.value = this._util.printx(formatStr, event.value);
   }
   AFSpecial_KeystrokeEx(cMask) {
+    const event = globalThis.event;
+    const simplifiedFormatStr = cMask.replaceAll(/[^9AOX]/g, "");
+    this.#AFSpecial_KeystrokeEx_helper(simplifiedFormatStr, false);
+    if (event.rc) {
+      return;
+    }
+    event.rc = true;
+    this.#AFSpecial_KeystrokeEx_helper(cMask, true);
+  }
+  #AFSpecial_KeystrokeEx_helper(cMask, warn) {
     if (!cMask) {
       return;
     }
@@ -1348,18 +1371,24 @@ class AForm {
     }
     const err = `${GlobalConstants.IDS_INVALID_VALUE} = "${cMask}"`;
     if (value.length > cMask.length) {
-      this._app.alert(err);
+      if (warn) {
+        this._app.alert(err);
+      }
       event.rc = false;
       return;
     }
     if (event.willCommit) {
       if (value.length < cMask.length) {
-        this._app.alert(err);
+        if (warn) {
+          this._app.alert(err);
+        }
         event.rc = false;
         return;
       }
       if (!_checkValidity(value, cMask)) {
-        this._app.alert(err);
+        if (warn) {
+          this._app.alert(err);
+        }
         event.rc = false;
         return;
       }
@@ -1370,7 +1399,9 @@ class AForm {
       cMask = cMask.substring(0, value.length);
     }
     if (!_checkValidity(value, cMask)) {
-      this._app.alert(err);
+      if (warn) {
+        this._app.alert(err);
+      }
       event.rc = false;
     }
   }
@@ -1387,7 +1418,7 @@ class AForm {
         break;
       case 2:
         const value = this.AFMergeChange(event);
-        formatStr = value.length > 8 || value.startsWith("(") ? "(999) 999-9999" : "999-9999";
+        formatStr = value.startsWith("(") || value.length > 7 && /^\p{N}+$/.test(value) ? "(999) 999-9999" : "999-9999";
         break;
       case 3:
         formatStr = "999-99-9999";
@@ -1613,7 +1644,7 @@ class EventDispatcher {
   formatAll() {
     const event = globalThis.event = new Event({});
     for (const source of Object.values(this._objects)) {
-      event.value = source.obj.value;
+      event.value = source.obj._getValue();
       this.runActions(source, source, event, "Format");
     }
   }
@@ -1622,8 +1653,7 @@ class EventDispatcher {
     if (event.rc) {
       source.obj.value = event.value;
       this.runCalculate(source, event);
-      const savedValue = source.obj._getValue();
-      event.value = source.obj.value;
+      const savedValue = event.value = source.obj._getValue();
       let formattedValue = null;
       if (this.runActions(source, source, event, "Format")) {
         formattedValue = event.value?.toString?.();
@@ -1684,7 +1714,15 @@ class EventDispatcher {
       event.value = null;
       const target = this._objects[targetId];
       let savedValue = target.obj._getValue();
-      this.runActions(source, target, event, "Calculate");
+      try {
+        this.runActions(source, target, event, "Calculate");
+      } catch (error) {
+        const fieldId = target.obj._id;
+        const serializedError = serializeError(error);
+        serializedError.value = `Error when calculating value for field "${fieldId}"\n${serializedError.value}`;
+        this._externalCall("send", [serializedError]);
+        continue;
+      }
       if (!event.rc) {
         continue;
       }
@@ -2488,10 +2526,11 @@ class Doc extends PDFObject {
     this._zoom = data.zoom || 100;
     this._actions = createActionsMap(data.actions);
     this._globalEval = data.globalEval;
-    this._pageActions = new Map();
+    this._pageActions = null;
     this._userActivation = false;
     this._disablePrinting = false;
     this._disableSaving = false;
+    this._otherPageActions = null;
   }
   _initActions() {
     const dontRun = new Set(["WillClose", "WillSave", "DidSave", "WillPrint", "DidPrint", "OpenAction"]);
@@ -2534,15 +2573,18 @@ class Doc extends PDFObject {
   }
   _dispatchPageEvent(name, actions, pageNumber) {
     if (name === "PageOpen") {
+      this._pageActions ||= new Map();
       if (!this._pageActions.has(pageNumber)) {
         this._pageActions.set(pageNumber, createActionsMap(actions));
       }
       this._pageNum = pageNumber - 1;
     }
-    actions = this._pageActions.get(pageNumber)?.get(name);
-    if (actions) {
-      for (const action of actions) {
-        this._globalEval(action);
+    for (const acts of [this._pageActions, this._otherPageActions]) {
+      actions = acts?.get(pageNumber)?.get(name);
+      if (actions) {
+        for (const action of actions) {
+          this._globalEval(action);
+        }
       }
     }
   }
@@ -2558,6 +2600,32 @@ class Doc extends PDFObject {
     this._fields.set(name, field);
     this._fieldNames.push(name);
     this._numFields++;
+    const po = field.obj._actions.get("PageOpen");
+    const pc = field.obj._actions.get("PageClose");
+    if (po || pc) {
+      this._otherPageActions ||= new Map();
+      let actions = this._otherPageActions.get(field.obj._page + 1);
+      if (!actions) {
+        actions = new Map();
+        this._otherPageActions.set(field.obj._page + 1, actions);
+      }
+      if (po) {
+        let poActions = actions.get("PageOpen");
+        if (!poActions) {
+          poActions = [];
+          actions.set("PageOpen", poActions);
+        }
+        poActions.push(...po);
+      }
+      if (pc) {
+        let pcActions = actions.get("PageClose");
+        if (!pcActions) {
+          pcActions = [];
+          actions.set("PageClose", pcActions);
+        }
+        pcActions.push(...pc);
+      }
+    }
   }
   _getDate(date) {
     if (!date || date.length < 15 || !date.startsWith("D:")) {
@@ -3438,7 +3506,12 @@ class Util extends PDFObject {
       if (cConvChar === "f") {
         decPart = nPrecision !== undefined ? Math.abs(arg - intPart).toFixed(nPrecision) : Math.abs(arg - intPart).toString();
         if (decPart.length > 2) {
-          decPart = `${decimalSep}${decPart.substring(2)}`;
+          if (/^1\.0+$/.test(decPart)) {
+            intPart += Math.sign(arg);
+            decPart = `${decimalSep}${decPart.split(".")[1]}`;
+          } else {
+            decPart = `${decimalSep}${decPart.substring(2)}`;
+          }
         } else {
           if (decPart === "1") {
             intPart += Math.sign(arg);
@@ -3957,8 +4030,8 @@ function initSandbox(params) {
 
 ;// CONCATENATED MODULE: ./src/pdf.scripting.js
 
-const pdfjsVersion = "4.1.181";
-const pdfjsBuild = "14874e50b";
+const pdfjsVersion = "4.7.18";
+const pdfjsBuild = "9735a840a";
 globalThis.pdfjsScripting = {
   initSandbox: initSandbox
 };

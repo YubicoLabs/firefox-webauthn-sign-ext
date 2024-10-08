@@ -60,6 +60,7 @@
 
 #if defined(XP_LINUX) && defined(MOZ_SANDBOX)
 #  include "mozilla/Sandbox.h"
+#  include "mozilla/SandboxProfilerObserver.h"
 #endif
 
 #include "ChildProfilerController.h"
@@ -194,8 +195,7 @@ bool SocketProcessChild::Init(mozilla::ipc::UntypedEndpoint&& aEndpoint,
   }
 
   // Initialize DNS Service here, since it needs to be done in main thread.
-  nsCOMPtr<nsIDNSService> dns =
-      do_GetService("@mozilla.org/network/dns-service;1", &rv);
+  mozilla::components::DNS::Service(&rv);
   if (NS_FAILED(rv)) {
     return false;
   }
@@ -210,7 +210,7 @@ bool SocketProcessChild::Init(mozilla::ipc::UntypedEndpoint&& aEndpoint,
     Unused << obs->AddObserver(observer, "profile-change-net-teardown", false);
   }
 
-  mSocketThread = do_GetService(NS_SOCKETTRANSPORTSERVICE_CONTRACTID);
+  mSocketThread = mozilla::components::SocketTransport::Service();
   if (!mSocketThread) {
     return false;
   }
@@ -225,6 +225,10 @@ void SocketProcessChild::ActorDestroy(ActorDestroyReason aWhy) {
     MutexAutoLock lock(mMutex);
     mShuttingDown = true;
   }
+
+#if defined(XP_LINUX) && defined(MOZ_SANDBOX)
+  DestroySandboxProfiler();
+#endif
 
   if (AbnormalShutdown == aWhy) {
     NS_WARNING("Shutting down Socket process early due to a crash!");
@@ -340,6 +344,7 @@ mozilla::ipc::IPCResult SocketProcessChild::RecvInitLinuxSandbox(
   if (aBrokerFd.isSome()) {
     fd = aBrokerFd.value().ClonePlatformHandle().release();
   }
+  RegisterProfilerObserversForSandboxProfiler();
   SetSocketProcessSandbox(fd);
 #endif  // XP_LINUX && MOZ_SANDBOX
   return IPC_OK();
@@ -440,8 +445,9 @@ mozilla::ipc::IPCResult SocketProcessChild::RecvUpdateDeviceModelId(
 mozilla::ipc::IPCResult
 SocketProcessChild::RecvOnHttpActivityDistributorActivated(
     const bool& aIsActivated) {
-  if (nsCOMPtr<nsIHttpActivityObserver> distributor =
-          components::HttpActivityDistributor::Service()) {
+  nsCOMPtr<nsIHttpActivityObserver> distributor;
+  distributor = mozilla::components::HttpActivityDistributor::Service();
+  if (distributor) {
     distributor->SetIsActive(aIsActivated);
   }
   return IPC_OK();
@@ -450,8 +456,8 @@ SocketProcessChild::RecvOnHttpActivityDistributorActivated(
 mozilla::ipc::IPCResult
 SocketProcessChild::RecvOnHttpActivityDistributorObserveProxyResponse(
     const bool& aIsEnabled) {
-  nsCOMPtr<nsIHttpActivityDistributor> distributor =
-      do_GetService("@mozilla.org/network/http-activity-distributor;1");
+  nsCOMPtr<nsIHttpActivityDistributor> distributor;
+  distributor = mozilla::components::HttpActivityDistributor::Service();
   if (distributor) {
     Unused << distributor->SetObserveProxyResponse(aIsEnabled);
   }
@@ -461,8 +467,8 @@ SocketProcessChild::RecvOnHttpActivityDistributorObserveProxyResponse(
 mozilla::ipc::IPCResult
 SocketProcessChild::RecvOnHttpActivityDistributorObserveConnection(
     const bool& aIsEnabled) {
-  nsCOMPtr<nsIHttpActivityDistributor> distributor =
-      do_GetService("@mozilla.org/network/http-activity-distributor;1");
+  nsCOMPtr<nsIHttpActivityDistributor> distributor;
+  distributor = mozilla::components::HttpActivityDistributor::Service();
   if (distributor) {
     Unused << distributor->SetObserveConnection(aIsEnabled);
   }
@@ -641,8 +647,8 @@ mozilla::ipc::IPCResult SocketProcessChild::RecvGetSocketData(
 mozilla::ipc::IPCResult SocketProcessChild::RecvGetDNSCacheEntries(
     GetDNSCacheEntriesResolver&& aResolve) {
   nsresult rv = NS_OK;
-  nsCOMPtr<nsIDNSService> dns =
-      do_GetService("@mozilla.org/network/dns-service;1", &rv);
+  nsCOMPtr<nsIDNSService> dns;
+  dns = mozilla::components::DNS::Service(&rv);
   if (NS_FAILED(rv)) {
     aResolve(nsTArray<DNSCacheEntries>());
     return IPC_OK();

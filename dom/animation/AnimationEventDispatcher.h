@@ -7,107 +7,20 @@
 #ifndef mozilla_AnimationEventDispatcher_h
 #define mozilla_AnimationEventDispatcher_h
 
-#include <algorithm>  // For <std::stable_sort>
 #include "mozilla/AnimationComparator.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/ContentEvents.h"
 #include "mozilla/EventDispatcher.h"
+#include "mozilla/EventListenerManager.h"
 #include "mozilla/Variant.h"
-#include "mozilla/dom/AnimationEffect.h"
 #include "mozilla/dom/AnimationPlaybackEvent.h"
 #include "mozilla/dom/KeyframeEffect.h"
 #include "mozilla/ProfilerMarkers.h"
-#include "nsCSSProps.h"
 #include "nsCycleCollectionParticipant.h"
 #include "nsPresContext.h"
 
 class nsRefreshDriver;
-
-namespace geckoprofiler::markers {
-
-using namespace mozilla;
-
-struct CSSAnimationMarker {
-  static constexpr Span<const char> MarkerTypeName() {
-    return MakeStringSpan("CSSAnimation");
-  }
-  static void StreamJSONMarkerData(baseprofiler::SpliceableJSONWriter& aWriter,
-                                   const nsCString& aName,
-                                   const nsCString& aTarget,
-                                   nsCSSPropertyIDSet aPropertySet) {
-    aWriter.StringProperty("Name", aName);
-    aWriter.StringProperty("Target", aTarget);
-    nsAutoCString properties;
-    nsAutoCString oncompositor;
-    for (nsCSSPropertyID property : aPropertySet) {
-      if (!properties.IsEmpty()) {
-        properties.AppendLiteral(", ");
-        oncompositor.AppendLiteral(", ");
-      }
-      properties.Append(nsCSSProps::GetStringValue(property));
-      oncompositor.Append(
-          property != eCSSPropertyExtra_variable &&
-                  nsCSSProps::PropHasFlags(property,
-                                           CSSPropFlags::CanAnimateOnCompositor)
-              ? "true"
-              : "false");
-    }
-
-    aWriter.StringProperty("properties", properties);
-    aWriter.StringProperty("oncompositor", oncompositor);
-  }
-  static MarkerSchema MarkerTypeDisplay() {
-    using MS = MarkerSchema;
-    MS schema{MS::Location::MarkerChart, MS::Location::MarkerTable};
-    schema.AddKeyFormatSearchable("Name", MS::Format::String,
-                                  MS::Searchable::Searchable);
-    schema.AddKeyLabelFormat("properties", "Animated Properties",
-                             MS::Format::String);
-    schema.AddKeyLabelFormat("oncompositor", "Can Run on Compositor",
-                             MS::Format::String);
-    schema.AddKeyFormat("Target", MS::Format::String);
-    schema.SetChartLabel("{marker.data.Name}");
-    schema.SetTableLabel(
-        "{marker.name} - {marker.data.Name}: {marker.data.properties}");
-    return schema;
-  }
-};
-
-struct CSSTransitionMarker {
-  static constexpr Span<const char> MarkerTypeName() {
-    return MakeStringSpan("CSSTransition");
-  }
-  static void StreamJSONMarkerData(baseprofiler::SpliceableJSONWriter& aWriter,
-                                   const nsCString& aTarget,
-                                   nsCSSPropertyID aProperty, bool aCanceled) {
-    aWriter.StringProperty("Target", aTarget);
-    aWriter.StringProperty("property", nsCSSProps::GetStringValue(aProperty));
-    aWriter.BoolProperty(
-        "oncompositor",
-        aProperty != eCSSPropertyExtra_variable &&
-            nsCSSProps::PropHasFlags(aProperty,
-                                     CSSPropFlags::CanAnimateOnCompositor));
-    if (aCanceled) {
-      aWriter.BoolProperty("Canceled", aCanceled);
-    }
-  }
-  static MarkerSchema MarkerTypeDisplay() {
-    using MS = MarkerSchema;
-    MS schema{MS::Location::MarkerChart, MS::Location::MarkerTable};
-    schema.AddKeyLabelFormat("property", "Animated Property",
-                             MS::Format::String);
-    schema.AddKeyLabelFormat("oncompositor", "Can Run on Compositor",
-                             MS::Format::String);
-    schema.AddKeyFormat("Canceled", MS::Format::String);
-    schema.AddKeyFormat("Target", MS::Format::String);
-    schema.SetChartLabel("{marker.data.property}");
-    schema.SetTableLabel("{marker.name} - {marker.data.property}");
-    return schema;
-  }
-};
-
-}  // namespace geckoprofiler::markers
 
 namespace mozilla {
 
@@ -132,7 +45,10 @@ struct AnimationEventInfo {
   };
 
   struct WebAnimationData {
-    RefPtr<dom::AnimationPlaybackEvent> mEvent;
+    const RefPtr<nsAtom> mOnEvent;
+    const dom::Nullable<double> mCurrentTime;
+    const dom::Nullable<double> mTimelineTime;
+    const TimeStamp mEventEnqueueTimeStamp{TimeStamp::Now()};
   };
 
   using Data = Variant<CssAnimationData, CssTransitionData, WebAnimationData>;
@@ -188,12 +104,15 @@ struct AnimationEventInfo {
   }
 
   // For web animation events
-  AnimationEventInfo(RefPtr<dom::AnimationPlaybackEvent>&& aEvent,
+  AnimationEventInfo(nsAtom* aOnEvent,
+                     const dom::Nullable<double>& aCurrentTime,
+                     const dom::Nullable<double>& aTimelineTime,
                      TimeStamp&& aScheduledEventTimeStamp,
                      dom::Animation* aAnimation)
       : mAnimation(aAnimation),
         mScheduledEventTimeStamp(std::move(aScheduledEventTimeStamp)),
-        mData(WebAnimationData{std::move(aEvent)}) {}
+        mData(WebAnimationData{RefPtr{aOnEvent}, aCurrentTime, aTimelineTime}) {
+  }
 
   AnimationEventInfo(const AnimationEventInfo& aOther) = delete;
   AnimationEventInfo& operator=(const AnimationEventInfo& aOther) = delete;
@@ -225,10 +144,27 @@ struct AnimationEventInfo {
   // TODO: Convert this to MOZ_CAN_RUN_SCRIPT (bug 1415230)
   MOZ_CAN_RUN_SCRIPT_BOUNDARY void Dispatch(nsPresContext* aPresContext) {
     if (mData.is<WebAnimationData>()) {
-      RefPtr playbackEvent = mData.as<WebAnimationData>().mEvent;
+      const auto& data = mData.as<WebAnimationData>();
+      EventListenerManager* elm = mAnimation->GetExistingListenerManager();
+      if (!elm || !elm->HasListenersFor(data.mOnEvent)) {
+        return;
+      }
+
+      dom::AnimationPlaybackEventInit init;
+      init.mCurrentTime = data.mCurrentTime;
+      init.mTimelineTime = data.mTimelineTime;
+      MOZ_ASSERT(nsDependentAtomString(data.mOnEvent).Find(u"on"_ns) == 0,
+                 "mOnEvent atom should start with 'on'!");
+      RefPtr<dom::AnimationPlaybackEvent> event =
+          dom::AnimationPlaybackEvent::Constructor(
+              mAnimation, Substring(nsDependentAtomString(data.mOnEvent), 2),
+              init);
+      event->SetTrusted(true);
+      event->WidgetEventPtr()->AssignEventTime(
+          WidgetEventTime(data.mEventEnqueueTimeStamp));
       RefPtr target = mAnimation;
       EventDispatcher::DispatchDOMEvent(target, nullptr /* WidgetEvent */,
-                                        playbackEvent, aPresContext,
+                                        event, aPresContext,
                                         nullptr /* nsEventStatus */);
       return;
     }

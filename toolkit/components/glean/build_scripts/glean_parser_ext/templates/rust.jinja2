@@ -8,6 +8,45 @@ Jinja2 template is not. Please file bugs! #}
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+{% macro generate_structure(name, struct) %}
+{% if struct.type == "array" %}
+    pub type {{ name }} = Vec<{{ name }}Item>;
+
+    {{ generate_structure(name ~ "Item", struct["items"]) -}}
+
+{% elif struct.type == "object" %}
+    #[derive(Debug, Hash, Eq, PartialEq, ::glean::traits::__serde::Serialize, ::glean::traits::__serde::Deserialize)]
+    #[allow(non_snake_case)]
+    #[serde(deny_unknown_fields)]
+    pub struct {{ name }} {
+        {% for itemname, val in struct.properties.items() %}
+          {% if val.type == "object" %}
+          #[serde(skip_serializing_if = "Option::is_none")]
+          pub {{itemname|snake_case}}: Option<{{ name ~ "Item" ~ itemname|Camelize ~ "Object" }}>,
+          {% elif val.type == "array" %}
+          #[serde(skip_serializing_if = "Vec::is_empty", default = "Vec::new")]
+          pub {{itemname|snake_case}}: {{ name ~ "Item" ~ itemname|Camelize }},
+          {% else %}
+          #[serde(skip_serializing_if = "Option::is_none")]
+          pub {{itemname|snake_case}}: Option<{{val.type|structure_type_name}}>,
+          {% endif %}
+        {% endfor %}
+    }
+
+    {% for itemname, val in struct.properties.items() %}
+        {% if val.type == "array" %}
+        {% set nested_name = name ~ "Item" ~ itemname|Camelize %}
+        {{ generate_structure(nested_name, val) -}}
+        {% elif val.type == "object" %}
+        {% set nested_name = name ~ "Item" ~ itemname|Camelize ~ "Object" %}
+        {{ generate_structure(nested_name, val) -}}
+        {% endif %}
+    {% endfor %}
+{% else %}
+pub type {{ name }} = {{ struct.type|structure_type_name }};
+{% endif %}
+{% endmacro %}
+
 {% macro generate_extra_keys(obj) -%}
 {% for name, _ in obj["_generate_enums"] %}
 {# we always use the `extra` suffix, because we only expose the new event API #}
@@ -20,9 +59,10 @@ Jinja2 template is not. Please file bugs! #}
 
 {%- macro extra_keys_with_types(obj, name, suffix) -%}
 #[derive(Default, Debug, Clone, Hash, Eq, PartialEq)]
+#[allow(non_snake_case)]
 pub struct {{ obj.name|Camelize }}{{ suffix }} {
     {% for item, type in obj|attr(name) %}
-    pub {{ item|snake_case }}: Option<{{type|extra_type_name}}>,
+    pub r#{{ item }}: Option<{{type|extra_type_name}}>,
     {% endfor %}
 }
 
@@ -32,7 +72,7 @@ impl ExtraKeys for {{ obj.name|Camelize }}{{ suffix }} {
     fn into_ffi_extra(self) -> ::std::collections::HashMap<String, String> {
       let mut map = ::std::collections::HashMap::new();
       {% for key, _ in obj|attr(name) %}
-      self.{{key|snake_case}}.and_then(|val| map.insert("{{key|snake_case}}".into(), val.to_string()));
+      self.r#{{key|snake_case}}.and_then(|val| map.insert("{{key|snake_case}}".into(), val.to_string()));
       {% endfor %}
       map
     }
@@ -44,7 +84,7 @@ impl ExtraKeys for {{ obj.name|Camelize }}{{ suffix }} {
 pub enum {{ obj.name|Camelize }}Label {
     {% for label in obj.ordered_labels %}
     {# Specifically _not_ using r# as C++ doesn't have it #}
-    {{ label|Camelize }} = {{loop.index0}},
+    E{{ label|Camelize }} = {{loop.index0}},
     {% endfor %}
     __Other__,
 }
@@ -52,7 +92,7 @@ impl From<u16> for {{ obj.name|Camelize }}Label {
     fn from(v: u16) -> Self {
         match v {
             {% for label in obj.ordered_labels %}
-            {{ loop.index0 }} => Self::{{ label|Camelize }},
+            {{ loop.index0 }} => Self::E{{ label|Camelize }},
             {% endfor %}
             _ => Self::__Other__,
         }
@@ -62,11 +102,20 @@ impl Into<&'static str> for {{ obj.name|Camelize }}Label {
     fn into(self) -> &'static str {
         match self {
             {% for label in obj.ordered_labels %}
-            Self::{{ label| Camelize }} => "{{label}}",
+            Self::E{{ label| Camelize }} => "{{label}}",
             {% endfor %}
             Self::__Other__ => "__other__",
         }
     }
+}
+{%- endmacro -%}
+
+{% macro common_metric_data(obj) %}
+CommonMetricData {
+    {% for arg_name in common_metric_data_args if obj[arg_name] is defined %}
+    {{ arg_name }}: {{ obj[arg_name]|rust }},
+    {% endfor %}
+    ..Default::default()
 }
 {%- endmacro -%}
 
@@ -81,12 +130,18 @@ pub mod {{ category_name|snake_case }} {
     use glean::HistogramType;
     use once_cell::sync::Lazy;
 
+    #[allow(unused_imports)]
+    use std::convert::TryFrom;
+
     {% for obj in objs.values() %}
     {% if obj|attr("_generate_enums") %}
 {{ generate_extra_keys(obj) }}
     {%- endif %}
     {% if obj.labeled and obj.labels and obj.labels|length %}
     {{ generate_label_enum(obj)|indent }}
+    {% endif %}
+    {% if obj|attr("_generate_structure") %}
+    {{ generate_structure(obj.name|Camelize ~ "Object", obj._generate_structure) -}}
     {% endif %}
     #[allow(non_upper_case_globals)]
     /// generated from {{ category_name }}.{{ obj.name }}
@@ -104,13 +159,37 @@ pub mod {{ category_name|snake_case }} {
     });
     {% else %}
     pub static {{ obj.name|snake_case }}: Lazy<{{ obj|type_name }}> = Lazy::new(|| {
-        {{ obj|ctor }}({{obj|metric_id}}.into(), CommonMetricData {
-            {% for arg_name in common_metric_data_args if obj[arg_name] is defined %}
-            {{ arg_name }}: {{ obj[arg_name]|rust }},
-            {% endfor %}
-            ..Default::default()
-        }
-        {%- for arg_name in extra_args if obj[arg_name] is defined and arg_name not in common_metric_data_args and arg_name != 'allowed_extra_keys' -%}
+        let meta =
+            {% if obj.type == "labeled_custom_distribution" %}
+            LabeledMetricData::CustomDistribution {
+                cmd: {{ common_metric_data(obj)|indent(16) }}
+                {%- for arg_name in extra_args if obj[arg_name] is defined and arg_name not in common_metric_data_args and arg_name != 'allowed_extra_keys' -%}
+                    , {{ arg_name }}: {{ obj[arg_name]|rust }}
+                {%- endfor -%}
+            };
+            {% elif obj.type == "labeled_memory_distribution" %}
+            LabeledMetricData::MemoryDistribution {
+                cmd: {{ common_metric_data(obj)|indent(16) }}
+                {%- for arg_name in extra_args if obj[arg_name] is defined and arg_name not in common_metric_data_args and arg_name != 'allowed_extra_keys' -%}
+                    , {{ "unit" if arg_name == "memory_unit" else arg_name }}: {{ obj[arg_name]|rust }}
+                {%- endfor -%}
+            };
+            {% elif obj.type == "labeled_timing_distribution" %}
+            LabeledMetricData::TimingDistribution {
+                cmd: {{ common_metric_data(obj)|indent(16) }}
+                {%- for arg_name in extra_args if obj[arg_name] is defined and arg_name not in common_metric_data_args and arg_name != 'allowed_extra_keys' -%}
+                    , {{ "unit" if arg_name == "time_unit" else arg_name }}: {{ obj[arg_name]|rust }}
+                {%- endfor -%}
+            };
+            {% elif obj.labeled %}
+            LabeledMetricData::Common {
+                cmd: {{ common_metric_data(obj)|indent(16) }},
+            };
+            {% else %}
+            {{ common_metric_data(obj)|indent(12) }};
+            {% endif %}
+        {{ obj|ctor }}({{obj|metric_id}}.into(), meta
+        {%- for arg_name in extra_args if not obj.labeled and obj[arg_name] is defined and arg_name not in common_metric_data_args and arg_name != 'allowed_extra_keys' -%}
             , {{ obj[arg_name]|rust }}
         {%- endfor -%}
         {{ ", " if obj.labeled else ")\n" }}
@@ -147,6 +226,71 @@ pub(crate) mod __glean_metric_maps {
     });
 
 {% endfor %}
+
+    pub(crate) fn set_object_by_id(metric_id: u32, value: String) -> Result<(), ()> {
+        match metric_id {
+{% for metric_id, object in objects_by_id.items() %}
+          {{metric_id}} => {
+              super::{{object}}.set_string(value);
+              Ok(())
+          }
+{% endfor %}
+           _ => Err(()),
+        }
+    }
+
+    /// Wrapper to get the currently stored object for object metric as a string.
+    ///
+    /// # Arguments
+    ///
+    /// * `metric_id` - The metric's ID to look up
+    /// * `ping_name` - (Optional) The ping name to look into.
+    ///                 Defaults to the first value in `send_in_pings`.
+    ///
+    /// # Returns
+    ///
+    /// Returns the recorded object serialized as a JSON string or `None` if nothing stored.
+    ///
+    /// # Panics
+    ///
+    /// Panics if no object by the given metric ID could be found.
+    pub(crate) fn object_test_get_value(metric_id: u32, ping_name: Option<String>) -> Option<String> {
+        match metric_id {
+{% for metric_id, object in objects_by_id.items() %}
+           {{metric_id}} => super::{{object}}.test_get_value_as_str(ping_name.as_deref()),
+{% endfor %}
+           _ => panic!("No object for metric id {}", metric_id),
+        }
+    }
+
+    /// Check the provided object for errors.
+    ///
+    /// # Arguments
+    ///
+    /// * `metric_id` - The metric's ID to look up
+    ///
+    /// # Returns
+    ///
+    /// Returns a string for the recorded error or `None`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if no object by the given metric ID could be found.
+    #[allow(unused_variables)]
+    pub(crate) fn object_test_get_error(metric_id: u32) -> Option<String> {
+        #[cfg(feature = "with_gecko")]
+        match metric_id {
+{% for metric_id, object in objects_by_id.items() %}
+           {{metric_id}} => test_get_errors!(super::{{object}}),
+{% endfor %}
+           _ => panic!("No object for metric id {}", metric_id),
+        }
+
+        #[cfg(not(feature = "with_gecko"))]
+        {
+            return None;
+        }
+    }
 
     /// Wrapper to record an event based on its metric ID.
     ///
@@ -344,7 +488,7 @@ pub(crate) mod __glean_metric_maps {
         );
 
 {% for typ, metrics in metric_by_type.items() %}
-{% if typ.0 in ('BOOLEAN_MAP', 'COUNTER_MAP', 'STRING_MAP') %}
+{% if typ.0 in ('BOOLEAN_MAP', 'COUNTER_MAP', 'CUSTOM_DISTRIBUTION_MAP', 'MEMORY_DISTRIBUTION_MAP', 'STRING_MAP', 'TIMING_DISTRIBUTION_MAP') %}
         pub static {{typ.0}}: Lazy<RwLock<HashMap<MetricId, Labeled{{typ.1}}>>> = Lazy::new(||
             RwLock::new(HashMap::new())
         );

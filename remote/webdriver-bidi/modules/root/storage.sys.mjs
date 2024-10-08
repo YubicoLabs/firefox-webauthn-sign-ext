@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-import { Module } from "chrome://remote/content/shared/messagehandler/Module.sys.mjs";
+import { RootBiDiModule } from "chrome://remote/content/webdriver-bidi/modules/RootBiDiModule.sys.mjs";
 
 const lazy = {};
 
@@ -10,9 +10,22 @@ ChromeUtils.defineESModuleGetters(lazy, {
   assert: "chrome://remote/content/shared/webdriver/Assert.sys.mjs",
   BytesValueType:
     "chrome://remote/content/webdriver-bidi/modules/root/network.sys.mjs",
+  deserializeBytesValue:
+    "chrome://remote/content/webdriver-bidi/modules/root/network.sys.mjs",
   error: "chrome://remote/content/shared/webdriver/Errors.sys.mjs",
+  pprint: "chrome://remote/content/shared/Format.sys.mjs",
   TabManager: "chrome://remote/content/shared/TabManager.sys.mjs",
+  UserContextManager:
+    "chrome://remote/content/shared/UserContextManager.sys.mjs",
 });
+
+const PREF_COOKIE_CHIPS_ENABLED = "network.cookie.CHIPS.enabled";
+const PREF_COOKIE_BEHAVIOR = "network.cookie.cookieBehavior";
+
+// This is a static preference, so it cannot be modified during runtime and we can cache its value.
+ChromeUtils.defineLazyGetter(lazy, "cookieCHIPSEnabled", () =>
+  Services.prefs.getBoolPref(PREF_COOKIE_CHIPS_ENABLED)
+);
 
 const CookieFieldsMapping = {
   domain: "host",
@@ -55,7 +68,7 @@ const SameSiteType = {
   [Ci.nsICookie.SAMESITE_STRICT]: "strict",
 };
 
-class StorageModule extends Module {
+class StorageModule extends RootBiDiModule {
   destroy() {}
 
   /**
@@ -96,14 +109,14 @@ class StorageModule extends Module {
    *
    * @property {PartitionType} [type=PartitionType.storageKey]
    * @property {string=} sourceOrigin
-   * @property {string=} userContext (not supported)
+   * @property {string=} userContext
    */
 
   /**
    * @typedef PartitionKey
    *
    * @property {string=} sourceOrigin
-   * @property {string=} userContext (not supported)
+   * @property {string=} userContext
    */
 
   /**
@@ -117,6 +130,48 @@ class StorageModule extends Module {
    *    An object which represent the partition key which was used
    *    to retrieve the cookies.
    */
+
+  /**
+   * Remove zero or more cookies which match a set of provided parameters.
+   *
+   * @param {object=} options
+   * @param {CookieFilter=} options.filter
+   *     An object which holds field names and values, which
+   *     should be used to filter the output of the command.
+   * @param {PartitionDescriptor=} options.partition
+   *     An object which holds the information which
+   *     should be used to build a partition key.
+   *
+   * @returns {PartitionKey}
+   *     An object with the partition key which was used to
+   *     retrieve cookies which had to be removed.
+   * @throws {InvalidArgumentError}
+   *     If the provided arguments are not valid.
+   * @throws {NoSuchFrameError}
+   *     If the provided browsing context cannot be found.
+   */
+  async deleteCookies(options = {}) {
+    let { filter = {} } = options;
+    const { partition: partitionSpec = null } = options;
+
+    this.#assertPartition(partitionSpec);
+    filter = this.#assertCookieFilter(filter);
+
+    const partitionKey = this.#expandStoragePartitionSpec(partitionSpec);
+    const store = this.#getTheCookieStore(partitionKey);
+    const cookies = this.#getMatchingCookies(store, filter);
+
+    for (const cookie of cookies) {
+      Services.cookies.remove(
+        cookie.host,
+        cookie.name,
+        cookie.path,
+        cookie.originAttributes
+      );
+    }
+
+    return { partitionKey: this.#formatPartitionKey(partitionKey) };
+  }
 
   /**
    * Retrieve zero or more cookies which match a set of provided parameters.
@@ -136,27 +191,27 @@ class StorageModule extends Module {
    *     If the provided arguments are not valid.
    * @throws {NoSuchFrameError}
    *     If the provided browsing context cannot be found.
-   * @throws {UnsupportedOperationError}
-   *     Raised when the command is called with `userContext` as
-   *     in `partition` argument.
    */
   async getCookies(options = {}) {
     let { filter = {} } = options;
     const { partition: partitionSpec = null } = options;
 
     this.#assertPartition(partitionSpec);
-    filter = this.#assertGetCookieFilter(filter);
+    filter = this.#assertCookieFilter(filter);
 
     const partitionKey = this.#expandStoragePartitionSpec(partitionSpec);
     const store = this.#getTheCookieStore(partitionKey);
     const cookies = this.#getMatchingCookies(store, filter);
+    const serializedCookies = [];
 
-    // Bug 1875255. Exchange platform id for Webdriver BiDi id for the user context to return it to the client.
-    // For now we use platform user context id for returning cookies for a specific browsing context in the platform API,
-    // but we can not return it directly to the client, so for now we just remove it from the response.
-    delete partitionKey.userContext;
+    for (const cookie of cookies) {
+      serializedCookies.push(this.#serializeCookie(cookie));
+    }
 
-    return { cookies, partitionKey };
+    return {
+      cookies: serializedCookies,
+      partitionKey: this.#formatPartitionKey(partitionKey),
+    };
   }
 
   /**
@@ -195,15 +250,12 @@ class StorageModule extends Module {
    *     If the provided browsing context cannot be found.
    * @throws {UnableToSetCookieError}
    *     If the cookie was not added.
-   * @throws {UnsupportedOperationError}
-   *     Raised when the command is called with `userContext` as
-   *     in `partition` argument.
    */
   async setCookie(options = {}) {
     const { cookie: cookieSpec, partition: partitionSpec = null } = options;
     lazy.assert.object(
       cookieSpec,
-      `Expected "cookie" to be an object, got ${cookieSpec}`
+      lazy.pprint`Expected "cookie" to be an object, got ${cookieSpec}`
     );
 
     const {
@@ -231,9 +283,10 @@ class StorageModule extends Module {
     const partitionKey = this.#expandStoragePartitionSpec(partitionSpec);
 
     // The cookie store is defined by originAttributes.
-    const originAttributes = this.#getOriginAttributes(partitionKey);
+    const originAttributes = this.#getOriginAttributes(partitionKey, domain);
 
-    const deserializedValue = this.#deserializeProtocolBytes(value);
+    // The cookie value is a network.BytesValue.
+    const deserializedValue = lazy.deserializeBytesValue(value);
 
     // The XPCOM interface requires to be specified if a cookie is session.
     const isSession = expiry === null;
@@ -264,18 +317,15 @@ class StorageModule extends Module {
       throw new lazy.error.UnableToSetCookieError(e);
     }
 
-    // Bug 1875255. Exchange platform id for Webdriver BiDi id for the user context to return it to the client.
-    // For now we use platform user context id for returning cookies for a specific browsing context in the platform API,
-    // but we can not return it directly to the client, so for now we just remove it from the response.
-    delete partitionKey.userContext;
-
-    return { partitionKey };
+    return {
+      partitionKey: this.#formatPartitionKey(partitionKey, originAttributes),
+    };
   }
 
   #assertCookie(cookie) {
     lazy.assert.object(
       cookie,
-      `Expected "cookie" to be an object, got ${cookie}`
+      lazy.pprint`Expected "cookie" to be an object, got ${cookie}`
     );
 
     const { domain, expiry, httpOnly, name, path, sameSite, secure, value } =
@@ -283,29 +333,35 @@ class StorageModule extends Module {
 
     lazy.assert.string(
       domain,
-      `Expected "domain" to be a string, got ${domain}`
+      lazy.pprint`Expected cookie "domain" to be a string, got ${domain}`
     );
 
-    lazy.assert.string(name, `Expected "name" to be a string, got ${name}`);
+    lazy.assert.string(
+      name,
+      lazy.pprint`Expected cookie "name" to be a string, got ${name}`
+    );
 
     this.#assertValue(value);
 
     if (expiry !== null) {
       lazy.assert.positiveInteger(
         expiry,
-        `Expected "expiry" to be a positive number, got ${expiry}`
+        lazy.pprint`Expected cookie "expiry" to be a positive integer, got ${expiry}`
       );
     }
 
     if (httpOnly !== null) {
       lazy.assert.boolean(
         httpOnly,
-        `Expected "httpOnly" to be a boolean, got ${httpOnly}`
+        lazy.pprint`Expected cookie "httpOnly" to be a boolean, got ${httpOnly}`
       );
     }
 
     if (path !== null) {
-      lazy.assert.string(path, `Expected "path" to be a string, got ${path}`);
+      lazy.assert.string(
+        path,
+        lazy.pprint`Expected cookie "path" to be a string, got ${path}`
+      );
     }
 
     this.#assertSameSite(sameSite);
@@ -313,15 +369,15 @@ class StorageModule extends Module {
     if (secure !== null) {
       lazy.assert.boolean(
         secure,
-        `Expected "secure" to be a boolean, got ${secure}`
+        lazy.pprint`Expected cookie "secure" to be a boolean, got ${secure}`
       );
     }
   }
 
-  #assertGetCookieFilter(filter) {
+  #assertCookieFilter(filter) {
     lazy.assert.object(
       filter,
-      `Expected "filter" to be an object, got ${filter}`
+      lazy.pprint`Expected "filter" to be an object, got ${filter}`
     );
 
     const {
@@ -339,35 +395,35 @@ class StorageModule extends Module {
     if (domain !== null) {
       lazy.assert.string(
         domain,
-        `Expected "filter.domain" to be a string, got ${domain}`
+        lazy.pprint`Expected filter "domain" to be a string, got ${domain}`
       );
     }
 
     if (expiry !== null) {
       lazy.assert.positiveInteger(
         expiry,
-        `Expected "filter.expiry" to be a positive number, got ${expiry}`
+        lazy.pprint`Expected filter "expiry" to be a positive integer, got ${expiry}`
       );
     }
 
     if (httpOnly !== null) {
       lazy.assert.boolean(
         httpOnly,
-        `Expected "filter.httpOnly" to be a boolean, got ${httpOnly}`
+        lazy.pprint`Expected filter "httpOnly" to be a boolean, got ${httpOnly}`
       );
     }
 
     if (name !== null) {
       lazy.assert.string(
         name,
-        `Expected "filter.name" to be a string, got ${name}`
+        lazy.pprint`Expected filter "name" to be a string, got ${name}`
       );
     }
 
     if (path !== null) {
       lazy.assert.string(
         path,
-        `Expected "filter.path" to be a string, got ${path}`
+        lazy.pprint`Expected filter "path" to be a string, got ${path}`
       );
     }
 
@@ -376,14 +432,14 @@ class StorageModule extends Module {
     if (secure !== null) {
       lazy.assert.boolean(
         secure,
-        `Expected "filter.secure" to be a boolean, got ${secure}`
+        lazy.pprint`Expected filter "secure" to be a boolean, got ${secure}`
       );
     }
 
     if (size !== null) {
       lazy.assert.positiveInteger(
         size,
-        `Expected "filter.size" to be a positive number, got ${size}`
+        lazy.pprint`Expected filter "size" to be a positive integer, got ${size}`
       );
     }
 
@@ -410,13 +466,13 @@ class StorageModule extends Module {
     }
     lazy.assert.object(
       partitionSpec,
-      `Expected "partition" to be an object, got ${partitionSpec}`
+      lazy.pprint`Expected "partition" to be an object, got ${partitionSpec}`
     );
 
     const { type } = partitionSpec;
     lazy.assert.string(
       type,
-      `Expected "partition.type" to be a string, got ${type}`
+      lazy.pprint`Expected partition "type" to be a string, got ${type}`
     );
 
     switch (type) {
@@ -424,7 +480,7 @@ class StorageModule extends Module {
         const { context } = partitionSpec;
         lazy.assert.string(
           context,
-          `Expected "partition.context" to be a string, got ${context}`
+          lazy.pprint`Expected partition "context" to be a string, got ${context}`
         );
 
         break;
@@ -435,29 +491,30 @@ class StorageModule extends Module {
         if (sourceOrigin !== null) {
           lazy.assert.string(
             sourceOrigin,
-            `Expected "partition.sourceOrigin" to be a string, got ${sourceOrigin}`
+            lazy.pprint`Expected partition "sourceOrigin" to be a string, got ${sourceOrigin}`
           );
           lazy.assert.that(
             sourceOrigin => URL.canParse(sourceOrigin),
-            `Expected "partition.sourceOrigin" to be a valid URL, got ${sourceOrigin}`
+            lazy.pprint`Expected partition "sourceOrigin" to be a valid URL, got ${sourceOrigin}`
           )(sourceOrigin);
 
           const url = new URL(sourceOrigin);
           lazy.assert.that(
             url => url.pathname === "/" && url.hash === "" && url.search === "",
-            `Expected "partition.sourceOrigin" to contain only origin, got ${sourceOrigin}`
+            lazy.pprint`Expected partition "sourceOrigin" to contain only origin, got ${sourceOrigin}`
           )(url);
         }
         if (userContext !== null) {
           lazy.assert.string(
             userContext,
-            `Expected "partition.userContext" to be a string, got ${userContext}`
+            lazy.pprint`Expected partition "userContext" to be a string, got ${userContext}`
           );
 
-          // TODO: Bug 1875255. Implement support for "userContext" field.
-          throw new lazy.error.UnsupportedOperationError(
-            `"userContext" as a field on "partition" argument is not supported yet for "storage.getCookies" command`
-          );
+          if (!lazy.UserContextManager.hasUserContextId(userContext)) {
+            throw new lazy.error.NoSuchUserContextError(
+              `User Context with id ${userContext} was not found`
+            );
+          }
         }
         break;
       }
@@ -478,7 +535,8 @@ class StorageModule extends Module {
       lazy.assert.in(
         sameSite,
         sameSiteTypeValue,
-        `Expected "${fieldName}" to be one of ${sameSiteTypeValue}, got ${sameSite}`
+        `Expected "${fieldName}" to be one of ${sameSiteTypeValue}, ` +
+          lazy.pprint`got ${sameSite}`
       );
     }
   }
@@ -486,7 +544,7 @@ class StorageModule extends Module {
   #assertValue(value, fieldName = "value") {
     lazy.assert.object(
       value,
-      `Expected "${fieldName}" to be an object, got ${value}`
+      `Expected "${fieldName}" to be an object, ` + lazy.pprint`got ${value}`
     );
 
     const { type, value: protocolBytesValue } = value;
@@ -495,28 +553,49 @@ class StorageModule extends Module {
     lazy.assert.in(
       type,
       bytesValueTypeValue,
-      `Expected "${fieldName}.type" to be one of ${bytesValueTypeValue}, got ${type}`
+      `Expected ${fieldName} "type" to be one of ${bytesValueTypeValue}, ` +
+        lazy.pprint`got ${type}`
     );
 
     lazy.assert.string(
       protocolBytesValue,
-      `Expected "${fieldName}.value" to be string, got ${protocolBytesValue}`
+      `Expected ${fieldName} "value" to be string, ` +
+        lazy.pprint`got ${protocolBytesValue}`
     );
   }
 
   /**
-   * Deserialize the value to string, since platform API
-   * returns cookie's value as a string.
+   * Deserialize filter.
+   *
+   * @see https://w3c.github.io/webdriver-bidi/#deserialize-filter
    */
-  #deserializeProtocolBytes(cookieValue) {
-    const { type, value } = cookieValue;
+  #deserializeFilter(filter) {
+    const deserializedFilter = {};
+    for (const [fieldName, value] of Object.entries(filter)) {
+      if (value === null) {
+        continue;
+      }
 
-    if (type === lazy.BytesValueType.String) {
-      return value;
+      const deserializedName = CookieFieldsMapping[fieldName];
+      let deserializedValue;
+
+      switch (deserializedName) {
+        case "sameSite":
+          deserializedValue = this.#getSameSitePlatformProperty(value);
+          break;
+
+        case "value":
+          deserializedValue = lazy.deserializeBytesValue(value);
+          break;
+
+        default:
+          deserializedValue = value;
+      }
+
+      deserializedFilter[deserializedName] = deserializedValue;
     }
 
-    // For type === BytesValueType.Base64.
-    return atob(value);
+    return deserializedFilter;
   }
 
   /**
@@ -532,10 +611,22 @@ class StorageModule extends Module {
     if (partitionSpec.type === PartitionType.Context) {
       const { context: contextId } = partitionSpec;
       const browsingContext = this.#getBrowsingContext(contextId);
+      const principal = Services.scriptSecurityManager.createContentPrincipal(
+        browsingContext.currentURI,
+        {}
+      );
 
       // Define browsing context’s associated storage partition as combination of user context id
-      // and the origin of the document in this browsing context.
+      // and the origin of the document in this browsing context. We also add here `isThirdPartyURI`
+      // which is required to filter out third-party cookies in case they are not allowed.
       return {
+        // In case we have the browsing context of an iframe here, we perform a check
+        // if the URI of the top context is considered third-party to the URI of the iframe principal.
+        // It's considered a third-party if base domains or hosts (in case one or both base domains
+        // can not be determined) do not match.
+        isThirdPartyURI: browsingContext.parent
+          ? principal.isThirdPartyURI(browsingContext.top.currentURI)
+          : false,
         sourceOrigin: browsingContext.currentURI.prePath,
         userContext: browsingContext.originAttributes.userContextId,
       };
@@ -544,9 +635,44 @@ class StorageModule extends Module {
     const partitionKey = {};
     for (const keyName of PartitionKeyAttributes) {
       if (keyName in partitionSpec) {
-        partitionKey[keyName] = partitionSpec[keyName];
+        // Retrieve a platform user context id.
+        if (keyName === "userContext") {
+          partitionKey[keyName] = lazy.UserContextManager.getInternalIdById(
+            partitionSpec.userContext
+          );
+        } else {
+          partitionKey[keyName] = partitionSpec[keyName];
+        }
       }
     }
+
+    return partitionKey;
+  }
+
+  /**
+   * Prepare the partition key in the right format for returning to a client.
+   */
+  #formatPartitionKey(partitionKey, originAttributes) {
+    if ("userContext" in partitionKey) {
+      // Exchange platform id for Webdriver BiDi id for the user context to return it to the client.
+      partitionKey.userContext = lazy.UserContextManager.getIdByInternalId(
+        partitionKey.userContext
+      );
+    }
+
+    // If sourceOrigin matches the cookie domain we don't set the partitionKey
+    // in the setCookie command. In that case we should also remove sourceOrigin
+    // from the returned partitionKey.
+    if (
+      originAttributes &&
+      "sourceOrigin" in partitionKey &&
+      originAttributes.partitionKey === ""
+    ) {
+      delete partitionKey.sourceOrigin;
+    }
+
+    // This key is not used for partitioning and was required to only filter out third-party cookies.
+    delete partitionKey.isThirdPartyURI;
 
     return partitionKey;
   }
@@ -595,11 +721,11 @@ class StorageModule extends Module {
    */
   #getMatchingCookies(cookieStore, filter) {
     const cookies = [];
+    const deserializedFilter = this.#deserializeFilter(filter);
 
     for (const storedCookie of cookieStore) {
-      const serializedCookie = this.#serializeCookie(storedCookie);
-      if (this.#matchCookie(serializedCookie, filter)) {
-        cookies.push(serializedCookie);
+      if (this.#matchCookie(storedCookie, deserializedFilter)) {
+        cookies.push(storedCookie);
       }
     }
     return cookies;
@@ -608,13 +734,42 @@ class StorageModule extends Module {
   /**
    * Prepare the data in the required for platform API format.
    */
-  #getOriginAttributes(partitionKey) {
+  #getOriginAttributes(partitionKey, domain) {
     const originAttributes = {};
 
     if (partitionKey.sourceOrigin) {
-      originAttributes.partitionKey = ChromeUtils.getPartitionKeyFromURL(
-        partitionKey.sourceOrigin
-      );
+      if (
+        "isThirdPartyURI" in partitionKey &&
+        domain &&
+        !this.#shouldIncludePartitionedCookies() &&
+        partitionKey.sourceOrigin !== "about:"
+      ) {
+        // This is a workaround until CHIPS support is enabled (see Bug 1898253).
+        // It handles the "context" type partitioning of the `setCookie` command
+        // (when domain is provided) and if partitioned cookies are disabled,
+        // but ignore `about` pаges.
+        const principal =
+          Services.scriptSecurityManager.createContentPrincipalFromOrigin(
+            partitionKey.sourceOrigin
+          );
+
+        // Do not set partition key if the cookie domain matches the `sourceOrigin`.
+        if (principal.host.endsWith(domain)) {
+          originAttributes.partitionKey = "";
+        } else {
+          originAttributes.partitionKey = ChromeUtils.getPartitionKeyFromURL(
+            partitionKey.sourceOrigin,
+            "",
+            false
+          );
+        }
+      } else {
+        originAttributes.partitionKey = ChromeUtils.getPartitionKeyFromURL(
+          partitionKey.sourceOrigin,
+          "",
+          false
+        );
+      }
     }
     if ("userContext" in partitionKey) {
       originAttributes.userContextId = partitionKey.userContext;
@@ -649,49 +804,61 @@ class StorageModule extends Module {
 
     // Prepare the data in the format required for the platform API.
     const originAttributes = this.#getOriginAttributes(storagePartitionKey);
-    // In case we want to get the cookies for a certain `sourceOrigin`,
-    // we have to additionally specify `hostname`. When `sourceOrigin` is not present
-    // `hostname` will stay equal undefined.
-    let hostname;
 
-    // In case we want to get the cookies for a certain `sourceOrigin`,
-    // we have to separately retrieve cookies for a hostname built from `sourceOrigin`,
-    // and with `partitionKey` equal an empty string to retrieve the cookies that which were set
-    // by this hostname but without `partitionKey`, e.g. with `document.cookie`
-    if (storagePartitionKey.sourceOrigin) {
-      const url = new URL(storagePartitionKey.sourceOrigin);
-      hostname = url.hostname;
-
-      const principal = Services.scriptSecurityManager.createContentPrincipal(
-        Services.io.newURI(url),
-        {}
+    // Retrieve the cookies which exactly match a built partition attributes.
+    const cookiesWithOriginAttributes =
+      Services.cookies.getCookiesWithOriginAttributes(
+        JSON.stringify(originAttributes)
       );
-      const isSecureProtocol = principal.isOriginPotentiallyTrustworthy;
 
-      // We want to keep `userContext` id here, if it's present,
-      // but set the `partitionKey` to an empty string.
-      const cookiesMatchingHostname =
-        Services.cookies.getCookiesWithOriginAttributes(
-          JSON.stringify({ ...originAttributes, partitionKey: "" }),
-          hostname
+    const isFirstPartyOrCrossSiteAllowed =
+      !storagePartitionKey.isThirdPartyURI ||
+      this.#shouldIncludeCrossSiteCookie();
+
+    // Check if we accessing the first party storage or cross-site cookies are allowed.
+    if (isFirstPartyOrCrossSiteAllowed) {
+      // In case we want to get the cookies for a certain `sourceOrigin`,
+      // we have to separately retrieve cookies for a hostname built from `sourceOrigin`,
+      // and with `partitionKey` equal an empty string to retrieve the cookies that which were set
+      // by this hostname but without `partitionKey`, e.g. with `document.cookie`.
+      if (storagePartitionKey.sourceOrigin) {
+        const url = new URL(storagePartitionKey.sourceOrigin);
+        const hostname = url.hostname;
+
+        const principal = Services.scriptSecurityManager.createContentPrincipal(
+          Services.io.newURI(url),
+          {}
         );
+        const isSecureProtocol = principal.isOriginPotentiallyTrustworthy;
 
-      for (const cookie of cookiesMatchingHostname) {
-        // Ignore secure cookies for non-secure protocols.
-        if (cookie.isSecure && !isSecureProtocol) {
-          continue;
+        // We want to keep `userContext` id here, if it's present,
+        // but set the `partitionKey` to an empty string.
+        const cookiesMatchingHostname =
+          Services.cookies.getCookiesWithOriginAttributes(
+            JSON.stringify({ ...originAttributes, partitionKey: "" }),
+            hostname
+          );
+        for (const cookie of cookiesMatchingHostname) {
+          // Ignore secure cookies for non-secure protocols.
+          if (cookie.isSecure && !isSecureProtocol) {
+            continue;
+          }
+          store.push(cookie);
         }
-        store.push(cookie);
+      }
+
+      store = store.concat(cookiesWithOriginAttributes);
+    }
+    // If we're trying to access the store in the third party context and
+    // the preferences imply that we shouldn't include cross site cookies,
+    // but we should include partitioned cookies, add only partitioned cookies.
+    else if (this.#shouldIncludePartitionedCookies()) {
+      for (const cookie of cookiesWithOriginAttributes) {
+        if (cookie.isPartitioned) {
+          store.push(cookie);
+        }
       }
     }
-
-    // Add the cookies which exactly match a built partition attributes.
-    store = store.concat(
-      Services.cookies.getCookiesWithOriginAttributes(
-        JSON.stringify(originAttributes),
-        hostname
-      )
-    );
 
     return store;
   }
@@ -702,19 +869,23 @@ class StorageModule extends Module {
    * @see https://w3c.github.io/webdriver-bidi/#match-cookie
    */
   #matchCookie(storedCookie, filter) {
-    for (const [fieldName] of Object.entries(CookieFieldsMapping)) {
-      let value = filter[fieldName];
-      if (value !== null) {
-        let storedCookieValue = storedCookie[fieldName];
+    for (const [fieldName, value] of Object.entries(filter)) {
+      // Since we set `null` to not specified values, we have to check for `null` here
+      // and not match on these values.
+      if (value === null) {
+        continue;
+      }
 
-        if (fieldName === "value") {
-          value = this.#deserializeProtocolBytes(value);
-          storedCookieValue = this.#deserializeProtocolBytes(storedCookieValue);
-        }
+      let storedCookieValue = storedCookie[fieldName];
 
-        if (storedCookieValue !== value) {
-          return false;
-        }
+      // The platform represantation of cookie doesn't contain a size field,
+      // so we have to calculate it to match.
+      if (fieldName === "size") {
+        storedCookieValue = this.#getCookieSize(storedCookie);
+      }
+
+      if (storedCookieValue !== value) {
+        return false;
       }
     }
 
@@ -764,6 +935,30 @@ class StorageModule extends Module {
     }
 
     return cookie;
+  }
+
+  #shouldIncludeCrossSiteCookie() {
+    const cookieBehavior = Services.prefs.getIntPref(PREF_COOKIE_BEHAVIOR);
+
+    if (
+      cookieBehavior === Ci.nsICookieService.BEHAVIOR_REJECT_FOREIGN ||
+      cookieBehavior ===
+        Ci.nsICookieService.BEHAVIOR_REJECT_TRACKER_AND_PARTITION_FOREIGN
+    ) {
+      return false;
+    }
+
+    return true;
+  }
+
+  #shouldIncludePartitionedCookies() {
+    const cookieBehavior = Services.prefs.getIntPref(PREF_COOKIE_BEHAVIOR);
+
+    return (
+      cookieBehavior ===
+        Ci.nsICookieService.BEHAVIOR_REJECT_TRACKER_AND_PARTITION_FOREIGN &&
+      lazy.cookieCHIPSEnabled
+    );
   }
 }
 

@@ -866,7 +866,13 @@ bool WebGLContext::DoReadPixelsAndConvert(
   const auto& x = desc.srcOffset.x;
   const auto& y = desc.srcOffset.y;
   const auto size = *ivec2::From(desc.size);
-  const auto& pi = desc.pi;
+
+  auto pi = desc.pi;
+  if (mRemapImplReadType_HalfFloatOes) {
+    if (pi.type == LOCAL_GL_HALF_FLOAT_OES) {
+      pi.type = LOCAL_GL_HALF_FLOAT;
+    }
+  }
 
   // On at least Win+NV, we'll get PBO errors if we don't have at least
   // `rowStride * height` bytes available to read into.
@@ -990,8 +996,7 @@ static webgl::PackingInfo DefaultReadPixelPI(
   }
 }
 
-static bool ArePossiblePackEnums(const WebGLContext* webgl,
-                                 const webgl::PackingInfo& pi) {
+static bool ArePossiblePackEnums(const webgl::PackingInfo& pi) {
   // OpenGL ES 2.0 $4.3.1 - IMPLEMENTATION_COLOR_READ_{TYPE/FORMAT} is a valid
   // combination for glReadPixels()...
 
@@ -1030,7 +1035,14 @@ webgl::PackingInfo WebGLContext::ValidImplementationColorReadPI(
   gl->fGetIntegerv(LOCAL_GL_IMPLEMENTATION_COLOR_READ_TYPE,
                    (GLint*)&implPI.type);
 
-  if (!ArePossiblePackEnums(this, implPI)) return defaultPI;
+  if (!IsWebGL2()) {
+    if (implPI.type == LOCAL_GL_HALF_FLOAT) {
+      mRemapImplReadType_HalfFloatOes = true;
+      implPI.type = LOCAL_GL_HALF_FLOAT_OES;
+    }
+  }
+
+  if (!ArePossiblePackEnums(implPI)) return defaultPI;
 
   return implPI;
 }
@@ -1038,7 +1050,7 @@ webgl::PackingInfo WebGLContext::ValidImplementationColorReadPI(
 static bool ValidateReadPixelsFormatAndType(
     const webgl::FormatUsageInfo* srcUsage, const webgl::PackingInfo& pi,
     gl::GLContext* gl, WebGLContext* webgl) {
-  if (!ArePossiblePackEnums(webgl, pi)) {
+  if (!ArePossiblePackEnums(pi)) {
     webgl->ErrorInvalidEnum("Unexpected format or type.");
     return false;
   }
@@ -1280,7 +1292,7 @@ void WebGLContext::StencilOpSeparate(GLenum face, GLenum sfail, GLenum dpfail,
 
 void WebGLContext::UniformData(
     const uint32_t loc, const bool transpose,
-    const Range<const webgl::UniformDataVal>& data) const {
+    const Span<const webgl::UniformDataVal>& data) const {
   const FuncScope funcScope(*this, "uniform setter");
 
   if (!IsWebGL2() && transpose) {
@@ -1291,7 +1303,10 @@ void WebGLContext::UniformData(
   // -
 
   const auto& link = mActiveProgramLinkInfo;
-  if (!link) return;
+  if (!link) {
+    GenerateError(LOCAL_GL_INVALID_OPERATION, "Active program is not linked.");
+    return;
+  }
 
   const auto locInfo = MaybeFind(link->locationMap, loc);
   if (!locInfo) {
@@ -1306,13 +1321,13 @@ void WebGLContext::UniformData(
 
   // -
 
-  const auto lengthInType = data.length();
+  const auto lengthInType = data.size();
   const auto elemCount = lengthInType / channels;
   if (elemCount > 1 && !validationInfo.isArray) {
     GenerateError(
         LOCAL_GL_INVALID_OPERATION,
         "(uniform %s) `values` length (%u) must exactly match size of %s.",
-        activeInfo.name.c_str(), lengthInType,
+        activeInfo.name.c_str(), (uint32_t)lengthInType,
         EnumString(activeInfo.elemType).c_str());
     return;
   }
@@ -1321,9 +1336,9 @@ void WebGLContext::UniformData(
 
   const auto& samplerInfo = locInfo->samplerInfo;
   if (samplerInfo) {
-    const auto idata = reinterpret_cast<const uint32_t*>(data.begin().get());
+    const auto idata = ReinterpretToSpan<const uint32_t>::From(data);
     const auto maxTexUnits = GLMaxTextureUnits();
-    for (const auto& val : Range<const uint32_t>(idata, elemCount)) {
+    for (const auto& val : idata) {
       if (val >= maxTexUnits) {
         ErrorInvalidValue(
             "This uniform location is a sampler, but %d"
@@ -1337,7 +1352,7 @@ void WebGLContext::UniformData(
   // -
 
   // This is a little galaxy-brain, sorry!
-  const auto ptr = static_cast<const void*>(data.begin().get());
+  const auto ptr = static_cast<const void*>(data.data());
   (*pfn)(*gl, static_cast<GLint>(loc), elemCount, transpose, ptr);
 
   // -
@@ -1345,12 +1360,12 @@ void WebGLContext::UniformData(
   if (samplerInfo) {
     auto& texUnits = samplerInfo->texUnits;
 
-    const auto srcBegin = reinterpret_cast<const uint32_t*>(data.begin().get());
+    const auto srcBegin = reinterpret_cast<const uint32_t*>(data.data());
     auto destIndex = locInfo->indexIntoUniform;
     if (destIndex < texUnits.length()) {
       // Only sample as many indexes as available tex units allow.
       const auto destCount = std::min(elemCount, texUnits.length() - destIndex);
-      for (const auto& val : Range<const uint32_t>(srcBegin, destCount)) {
+      for (const auto& val : Span<const uint32_t>(srcBegin, destCount)) {
         texUnits[destIndex] = AssertedCast<uint8_t>(val);
         destIndex += 1;
       }

@@ -4,7 +4,6 @@
 /*
  * Main tests for SearchSERPTelemetry - general engine visiting and
  * link clicking with Web Extensions.
- *
  */
 
 "use strict";
@@ -42,7 +41,6 @@ add_setup(async function () {
       ],
       // Ensure to add search suggestion telemetry as search_suggestion not search_formhistory.
       ["browser.urlbar.maxHistoricalSearchSuggestions", 0],
-      ["browser.search.serpEventTelemetry.enabled", true],
     ],
   });
   // Enable local telemetry recording for the duration of the tests.
@@ -127,6 +125,7 @@ async function track_ad_click(
         is_shopping_page: "false",
         is_private: "false",
         shopping_tab_displayed: "false",
+        is_signed_in: "false",
       },
       engagements: [
         {
@@ -152,7 +151,7 @@ async function track_ad_click(
 
 add_task(async function test_source_webextension_search() {
   /* global browser */
-  async function background(SEARCH_TERM) {
+  async function background() {
     // Search with no tabId
     browser.search.search({ query: "searchSuggestion", engine: "Example" });
   }
@@ -184,7 +183,7 @@ add_task(async function test_source_webextension_search() {
 });
 
 add_task(async function test_source_webextension_query() {
-  async function background(SEARCH_TERM) {
+  async function background() {
     // Search with no tabId
     browser.search.query({
       text: "searchSuggestion",

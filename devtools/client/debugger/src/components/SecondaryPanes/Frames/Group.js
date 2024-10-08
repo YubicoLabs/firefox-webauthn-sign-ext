@@ -66,6 +66,7 @@ export default class Group extends Component {
       selectFrame: PropTypes.func.isRequired,
       selectLocation: PropTypes.func,
       selectedFrame: PropTypes.object,
+      isTracerFrameSelected: PropTypes.bool.isRequired,
       showFrameContextMenu: PropTypes.func.isRequired,
     };
   }
@@ -91,6 +92,7 @@ export default class Group extends Component {
       selectFrame,
       selectLocation,
       selectedFrame,
+      isTracerFrameSelected,
       displayFullUrl,
       getFrameTitle,
       disableContextMenu,
@@ -110,18 +112,19 @@ export default class Group extends Component {
       },
       group.map(frame =>
         React.createElement(FrameComponent, {
-          frame: frame,
-          showFrameContextMenu: showFrameContextMenu,
+          frame,
+          showFrameContextMenu,
           hideLocation: true,
           key: frame.id,
-          selectedFrame: selectedFrame,
-          selectFrame: selectFrame,
-          selectLocation: selectLocation,
+          selectedFrame,
+          isTracerFrameSelected,
+          selectFrame,
+          selectLocation,
           shouldMapDisplayName: false,
-          displayFullUrl: displayFullUrl,
-          getFrameTitle: getFrameTitle,
-          disableContextMenu: disableContextMenu,
-          panel: panel,
+          displayFullUrl,
+          getFrameTitle,
+          disableContextMenu,
+          panel,
           isInGroup: true,
         })
       )

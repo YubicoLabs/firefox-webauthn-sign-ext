@@ -20,7 +20,8 @@ void StoreBuffer::checkAccess() const {
   // The GC runs tasks that may access the storebuffer in parallel and so must
   // take a lock. The mutator may only access the storebuffer from the main
   // thread.
-  if (runtime_->heapState() != JS::HeapState::Idle) {
+  if (runtime_->heapState() != JS::HeapState::Idle &&
+      runtime_->heapState() != JS::HeapState::MinorCollecting) {
     MOZ_ASSERT(!CurrentThreadIsGCMarking());
     runtime_->gc.assertCurrentThreadHasLockedStoreBuffer();
   } else {
@@ -30,10 +31,9 @@ void StoreBuffer::checkAccess() const {
 #endif
 
 bool StoreBuffer::WholeCellBuffer::init() {
-  MOZ_ASSERT(!stringHead_);
-  MOZ_ASSERT(!nonStringHead_);
+  MOZ_ASSERT(!head_);
   if (!storage_) {
-    storage_ = MakeUnique<LifoAlloc>(LifoAllocBlockSize);
+    storage_ = MakeUnique<LifoAlloc>(LifoAllocBlockSize, js::MallocArena);
     // This prevents LifoAlloc::Enum from crashing with a release
     // assertion if we ever allocate one entry larger than
     // LifoAllocBlockSize.
@@ -47,7 +47,7 @@ bool StoreBuffer::WholeCellBuffer::init() {
 
 bool StoreBuffer::GenericBuffer::init() {
   if (!storage_) {
-    storage_ = MakeUnique<LifoAlloc>(LifoAllocBlockSize);
+    storage_ = MakeUnique<LifoAlloc>(LifoAllocBlockSize, js::MallocArena);
   }
   clear();
   return bool(storage_);
@@ -75,8 +75,7 @@ StoreBuffer::StoreBuffer(JSRuntime* rt)
       mayHavePointersToDeadCells_(false)
 #ifdef DEBUG
       ,
-      mEntered(false),
-      markingNondeduplicatable(false)
+      mEntered(false)
 #endif
 {
 }
@@ -97,13 +96,11 @@ StoreBuffer::StoreBuffer(StoreBuffer&& other)
       mayHavePointersToDeadCells_(other.mayHavePointersToDeadCells_)
 #ifdef DEBUG
       ,
-      mEntered(other.mEntered),
-      markingNondeduplicatable(other.markingNondeduplicatable)
+      mEntered(other.mEntered)
 #endif
 {
   MOZ_ASSERT(enabled_);
   MOZ_ASSERT(!mEntered);
-  MOZ_ASSERT(!markingNondeduplicatable);
   other.disable();
 }
 
@@ -199,7 +196,7 @@ ArenaCellSet::ArenaCellSet(Arena* arena, ArenaCellSet* next)
 #ifdef DEBUG
       ,
       minorGCNumberAtCreation(
-          arena->zone->runtimeFromMainThread()->gc.minorGCCount())
+          arena->zone()->runtimeFromMainThread()->gc.minorGCCount())
 #endif
 {
   MOZ_ASSERT(arena);
@@ -207,27 +204,20 @@ ArenaCellSet::ArenaCellSet(Arena* arena, ArenaCellSet* next)
 }
 
 ArenaCellSet* StoreBuffer::WholeCellBuffer::allocateCellSet(Arena* arena) {
-  Zone* zone = arena->zone;
+  Zone* zone = arena->zone();
   JSRuntime* rt = zone->runtimeFromMainThread();
   if (!rt->gc.nursery().isEnabled()) {
     return nullptr;
   }
 
-  // Maintain separate lists for strings and non-strings, so that all buffered
-  // string whole cells will be processed before anything else (to prevent them
-  // from being deduplicated when their chars are used by a tenured string.)
-  bool isString =
-      MapAllocToTraceKind(arena->getAllocKind()) == JS::TraceKind::String;
-
   AutoEnterOOMUnsafeRegion oomUnsafe;
-  ArenaCellSet*& head = isString ? stringHead_ : nonStringHead_;
-  auto* cells = storage_->new_<ArenaCellSet>(arena, head);
+  auto* cells = storage_->new_<ArenaCellSet>(arena, head_);
   if (!cells) {
     oomUnsafe.crash("Failed to allocate ArenaCellSet");
   }
 
   arena->bufferedCells() = cells;
-  head = cells;
+  head_ = cells;
 
   if (isAboutToOverflow()) {
     rt->gc.storeBuffer().setAboutToOverflow(
@@ -243,12 +233,10 @@ void gc::CellHeaderPostWriteBarrier(JSObject** ptr, JSObject* prev,
 }
 
 void StoreBuffer::WholeCellBuffer::clear() {
-  for (auto** headPtr : {&stringHead_, &nonStringHead_}) {
-    for (auto* set = *headPtr; set; set = set->next) {
-      set->arena->bufferedCells() = &ArenaCellSet::Empty;
-    }
-    *headPtr = nullptr;
+  for (auto* set = head_; set; set = set->next) {
+    set->arena->bufferedCells() = &ArenaCellSet::Empty;
   }
+  head_ = nullptr;
 
   if (storage_) {
     storage_->used() ? storage_->releaseAll() : storage_->freeAll();

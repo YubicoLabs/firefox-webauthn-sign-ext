@@ -103,6 +103,10 @@ class MockGfxInfo final : public nsIGfxInfo {
     return mMaxRefreshRate;
   }
 
+  NS_IMETHOD GetTextScaleFactor(float* aTextScaleFactor) override {
+    return NS_ERROR_NOT_IMPLEMENTED;
+  }
+
   NS_IMETHODIMP GetEmbeddedInFirefoxReality(
       bool* aEmbeddedInFirefoxReality) override {
     return NS_ERROR_NOT_IMPLEMENTED;
@@ -157,6 +161,12 @@ class MockGfxInfo final : public nsIGfxInfo {
     return NS_ERROR_NOT_IMPLEMENTED;
   }
   NS_IMETHOD GetUsingGPUProcess(bool* aOutValue) override {
+    return NS_ERROR_NOT_IMPLEMENTED;
+  }
+  NS_IMETHOD GetUsingRemoteCanvas(bool* aOutValue) override {
+    return NS_ERROR_NOT_IMPLEMENTED;
+  }
+  NS_IMETHOD GetUsingAcceleratedCanvas(bool* aOutValue) override {
     return NS_ERROR_NOT_IMPLEMENTED;
   }
   NS_IMETHOD GetIsHeadless(bool* aIsHeadless) override {

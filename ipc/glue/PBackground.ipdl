@@ -20,6 +20,7 @@ include protocol PCache;
 include protocol PCacheStorage;
 include protocol PCacheStreamControl;
 include protocol PClientManager;
+include protocol PCookieStore;
 include protocol PEndpointForReport;
 include protocol PFileSystemManager;
 include protocol PFileSystemRequest;
@@ -27,7 +28,6 @@ include protocol PGamepadEventChannel;
 include protocol PGamepadTestChannel;
 include protocol PHttpBackgroundChannel;
 include protocol PIdleScheduler;
-include protocol PRemoteWorker;
 include protocol PRemoteWorkerController;
 include protocol PRemoteWorkerService;
 include protocol PSharedWorker;
@@ -100,6 +100,7 @@ sync protocol PBackground
   manages PCacheStorage;
   manages PCacheStreamControl;
   manages PClientManager;
+  manages PCookieStore;
   manages PEndpointForReport;
   manages PFileSystemRequest;
   manages PGamepadEventChannel;
@@ -107,9 +108,7 @@ sync protocol PBackground
   manages PHttpBackgroundChannel;
   manages PIdleScheduler;
   manages PLockManager;
-  manages PRemoteWorker;
   manages PRemoteWorkerController;
-  manages PRemoteWorkerService;
   manages PSharedWorker;
   manages PTemporaryIPCBlob;
   manages PFileCreator;
@@ -129,7 +128,8 @@ parent:
   // Only called at startup during mochitests to check the basic infrastructure.
   async PBackgroundTest(nsCString testArg);
 
-  async PBackgroundIDBFactory(LoggingInfo loggingInfo);
+  async PBackgroundIDBFactory(LoggingInfo loggingInfo,
+                              nsCString systemLocale);
 
   async PBackgroundIndexedDBUtils();
 
@@ -199,6 +199,8 @@ parent:
   async PUDPSocket(PrincipalInfo? pInfo, nsCString filter);
   async PBroadcastChannel(PrincipalInfo pInfo, nsCString origin, nsString channel);
 
+  async PCookieStore();
+
   async PServiceWorkerManager();
 
   async ShutdownServiceWorkerRegistrar();
@@ -260,8 +262,6 @@ parent:
 
   async PRemoteWorkerController(RemoteWorkerData aData);
 
-  async PRemoteWorkerService();
-
   async PServiceWorkerContainer();
 
   async PServiceWorkerRegistration(IPCServiceWorkerRegistrationDescriptor aDescriptor);
@@ -279,7 +279,7 @@ parent:
   async EnsureUtilityProcessAndCreateBridge(RemoteDecodeIn aLocation)
       returns (nsresult rv, Endpoint<PRemoteDecoderManagerChild> aEndpoint);
 
-  async PLockManager(nsIPrincipal aPrincipalInfo, nsID aClientId);
+  async PLockManager(nsIPrincipal aPrincipalInfo, nsID? aClientId);
 
   async PFetch();
 
@@ -288,8 +288,6 @@ parent:
 child:
   async PCache();
   async PCacheStreamControl();
-
-  async PRemoteWorker(RemoteWorkerData data);
 };
 
 } // namespace ipc

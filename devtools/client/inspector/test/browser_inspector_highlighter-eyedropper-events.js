@@ -5,7 +5,10 @@
 
 // Test the eyedropper mouse and keyboard handling.
 
-const HIGHLIGHTER_TYPE = "EyeDropper";
+const { TYPES } = ChromeUtils.importESModule(
+  "resource://devtools/shared/highlighters.mjs"
+);
+const HIGHLIGHTER_TYPE = TYPES.EYEDROPPER;
 const ID = "eye-dropper-";
 const TEST_URI = `
 <style>
@@ -60,10 +63,10 @@ const MOVE_EVENTS_DATA = [
   // Mouse initialization for right snapping
   {
     type: "mouse",
-    x: (width, height) => width - 5,
+    x: width => width - 5,
     y: 0,
     expected: {
-      x: (width, height) => width - 5,
+      x: width => width - 5,
       y: 0,
     },
   },
@@ -73,7 +76,7 @@ const MOVE_EVENTS_DATA = [
     key: "VK_RIGHT",
     shift: true,
     expected: {
-      x: (width, height) => width,
+      x: width => width,
       y: 0,
     },
     desc: "Right snapping to x=max window width available",

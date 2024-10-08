@@ -11,9 +11,9 @@ ChromeUtils.defineESModuleGetters(lazy, {
   FormAutofillNameUtils:
     "resource://gre/modules/shared/FormAutofillNameUtils.sys.mjs",
   FormAutofillUtils: "resource://gre/modules/shared/FormAutofillUtils.sys.mjs",
-  PhoneNumber: "resource://autofill/phonenumberutils/PhoneNumber.sys.mjs",
+  PhoneNumber: "resource://gre/modules/shared/PhoneNumber.sys.mjs",
   PhoneNumberNormalizer:
-    "resource://autofill/phonenumberutils/PhoneNumberNormalizer.sys.mjs",
+    "resource://gre/modules/shared/PhoneNumberNormalizer.sys.mjs",
 });
 
 /**
@@ -201,7 +201,7 @@ class StreetAddress extends AddressField {
     super(value, region);
 
     this.#structuredStreetAddress = lazy.AddressParser.parseStreetAddress(
-      lazy.AddressParser.replaceControlCharacters(this.userValue, " ")
+      lazy.AddressParser.replaceControlCharacters(this.userValue)
     );
   }
 
@@ -412,7 +412,6 @@ class State extends AddressField {
 
     const options = {
       merge_whitespace: true,
-      remove_punctuation: true,
     };
     this.#state = lazy.FormAutofillUtils.getAbbreviatedSubregionName(
       this.normalizeUserValue(options),
@@ -491,7 +490,7 @@ class Country extends AddressField {
     return this.country_code == other.country_code;
   }
 
-  contains(other) {
+  contains(_other) {
     return false;
   }
 
@@ -841,7 +840,7 @@ class Email extends AddressField {
     );
   }
 
-  contains(other) {
+  contains(_other) {
     return false;
   }
 
@@ -991,7 +990,7 @@ export class AddressComparison {
  * country, postal code, etc. The class provides a compare methods
  * to compare another AddressComponent against the current instance.
  *
- * Note. This class assumes records that pass to it have already been normalized.
+ * Note: This class assumes records that pass to it have already been normalized.
  */
 export class AddressComponent {
   /**

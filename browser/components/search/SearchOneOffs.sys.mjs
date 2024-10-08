@@ -14,7 +14,7 @@ const EMPTY_ADD_ENGINES = [];
 /**
  * Defines the search one-off button elements. These are displayed at the bottom
  * of the address bar and search bar. The address bar buttons are a subclass in
- * browser/components/urlbar/UrlbarSearchOneOffs.jsm. If you are adding a new
+ * browser/components/urlbar/UrlbarSearchOneOffs.sys.mjs. If you are adding a new
  * subclass, see "Methods for subclasses to override" below.
  */
 export class SearchOneOffs {
@@ -466,7 +466,7 @@ export class SearchOneOffs {
     this.settingsButton.id = origin + "-anon-search-settings";
 
     let engines = (await this.getEngineInfo()).engines;
-    this._rebuildEngineList(engines, addEngines);
+    await this._rebuildEngineList(engines, addEngines);
   }
 
   /**
@@ -477,14 +477,14 @@ export class SearchOneOffs {
    * @param {Array} addEngines
    *        The engines that can be added.
    */
-  _rebuildEngineList(engines, addEngines) {
+  async _rebuildEngineList(engines, addEngines) {
     for (let i = 0; i < engines.length; ++i) {
       let engine = engines[i];
       let button = this.document.createXULElement("button");
       button.engine = engine;
       button.id = this._buttonIDForEngine(engine);
       let iconURL =
-        engine.getIconURL() ||
+        (await engine.getIconURL()) ||
         "chrome://browser/skin/search-engine-placeholder.png";
       button.setAttribute("image", iconURL);
       button.setAttribute("class", "searchbar-engine-one-off-item");
@@ -975,13 +975,19 @@ export class SearchOneOffs {
       return;
     }
 
+    if (!this.textbox.value) {
+      if (event.shiftKey) {
+        this.popup.openSearchForm(event, engine);
+      }
+      return;
+    }
     // Select the clicked button so that consumers can easily tell which
     // button was acted on.
     this.selectedButton = button;
     this.handleSearchCommand(event, engine);
   }
 
-  _on_command(event) {
+  async _on_command(event) {
     let target = event.target;
 
     if (target == this.settingsButton) {
@@ -1014,7 +1020,11 @@ export class SearchOneOffs {
       // Select the context-clicked button so that consumers can easily
       // tell which button was acted on.
       this.selectedButton = target.closest("menupopup")._triggerButton;
-      this.handleSearchCommand(event, this.selectedButton.engine, true);
+      if (this.textbox.value) {
+        this.handleSearchCommand(event, this.selectedButton.engine, true);
+      } else {
+        this.popup.openSearchForm(event, this.selectedButton.engine, true);
+      }
     }
 
     const isPrivateButton = target.classList.contains(
@@ -1043,7 +1053,7 @@ export class SearchOneOffs {
         // search engine first. Doing this as opposed to rebuilding all the
         // one-off buttons avoids flicker.
         let iconURL =
-          currentEngine.getIconURL() ||
+          (await currentEngine.getIconURL()) ||
           "chrome://browser/skin/search-engine-placeholder.png";
         button.setAttribute("image", iconURL);
         button.setAttribute("tooltiptext", currentEngine.name);

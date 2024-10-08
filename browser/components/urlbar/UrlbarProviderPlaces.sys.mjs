@@ -330,17 +330,26 @@ function makeUrlbarResult(tokens, info) {
               action.params.searchSuggestion.toLocaleLowerCase(),
           })
         );
-      case "switchtab":
+      case "switchtab": {
+        let payload = lazy.UrlbarResult.payloadAndSimpleHighlights(tokens, {
+          url: [action.params.url, UrlbarUtils.HIGHLIGHT.TYPED],
+          title: [info.comment, UrlbarUtils.HIGHLIGHT.TYPED],
+          icon: info.icon,
+          userContextId: info.userContextId,
+        });
+        if (
+          lazy.UrlbarPrefs.getScotchBonnetPref("secondaryActions.featureGate")
+        ) {
+          payload[0].action = UrlbarUtils.createTabSwitchSecondaryAction(
+            info.userContextId
+          );
+        }
         return new lazy.UrlbarResult(
           UrlbarUtils.RESULT_TYPE.TAB_SWITCH,
           UrlbarUtils.RESULT_SOURCE.TABS,
-          ...lazy.UrlbarResult.payloadAndSimpleHighlights(tokens, {
-            url: [action.params.url, UrlbarUtils.HIGHLIGHT.TYPED],
-            title: [info.comment, UrlbarUtils.HIGHLIGHT.TYPED],
-            icon: info.icon,
-            userContextId: info.userContextId,
-          })
+          ...payload
         );
+      }
       case "visiturl":
         return new lazy.UrlbarResult(
           UrlbarUtils.RESULT_TYPE.URL,
@@ -1439,8 +1448,7 @@ class ProviderPlaces extends UrlbarProvider {
   isActive(queryContext) {
     if (
       !queryContext.trimmedSearchString &&
-      queryContext.searchMode?.engineName &&
-      lazy.UrlbarPrefs.get("update2.emptySearchBehavior") < 2
+      queryContext.searchMode?.engineName
     ) {
       return false;
     }
@@ -1472,10 +1480,8 @@ class ProviderPlaces extends UrlbarProvider {
 
   /**
    * Cancels a running query.
-   *
-   * @param {object} queryContext The query context object
    */
-  cancelQuery(queryContext) {
+  cancelQuery() {
     if (this._currentSearch) {
       this._currentSearch.stop();
     }
@@ -1519,12 +1525,8 @@ class ProviderPlaces extends UrlbarProvider {
     search.notifyResult(false);
   }
 
-  onEngagement(state, queryContext, details, controller) {
+  onEngagement(queryContext, controller, details) {
     let { result } = details;
-    if (result?.providerName != this.name) {
-      return;
-    }
-
     if (details.selType == "dismiss") {
       switch (result.type) {
         case UrlbarUtils.RESULT_TYPE.SEARCH:

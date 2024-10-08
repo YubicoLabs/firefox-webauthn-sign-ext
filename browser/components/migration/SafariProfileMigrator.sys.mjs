@@ -98,7 +98,7 @@ Bookmarks.prototype = {
       let rows = await MigrationUtils.getRowsFromDBWithoutLocks(
         dbPath,
         "Safari favicons",
-        `SELECT I.uuid, I.url AS favicon_url, P.url 
+        `SELECT I.uuid, I.url AS favicon_url, P.url
         FROM icon_info I
         INNER JOIN page_url P ON I.uuid = P.uuid;`
       );
@@ -253,7 +253,7 @@ Bookmarks.prototype = {
       parentGuid
     );
 
-    MigrationUtils.insertManyFavicons(favicons);
+    MigrationUtils.insertManyFavicons(favicons).catch(console.error);
   },
 
   /**
@@ -632,7 +632,7 @@ export class SafariProfileMigrator extends MigratorBase {
     while (!(await this.hasPermissions())) {
       let fp = Cc["@mozilla.org/filepicker;1"].createInstance(Ci.nsIFilePicker);
       // The title (second arg) is not displayed on macOS, so leave it blank.
-      fp.init(win, "", Ci.nsIFilePicker.modeGetFolder);
+      fp.init(win?.browsingContext, "", Ci.nsIFilePicker.modeGetFolder);
       fp.filterIndex = 1;
       fp.displayDirectory = FileUtils.getDir("ULibDir", [""]);
       // Now wait for the filepicker to open and close. If the user picks

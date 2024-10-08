@@ -214,7 +214,10 @@ pub extern "C" fn mozurl_real_port(url: &MozURL) -> i32 {
 
 #[no_mangle]
 pub extern "C" fn mozurl_host_port(url: &MozURL) -> SpecSlice {
-    (&url[Position::BeforeHost..Position::BeforePath]).into()
+    if url.port().is_some() {
+        return (&url[Position::BeforeHost..Position::BeforePath]).into();
+    }
+    url.host_str().unwrap_or("").into()
 }
 
 #[no_mangle]
@@ -329,6 +332,9 @@ fn get_base_domain(url: &MozURL) -> Result<Option<String>, nsresult> {
 
             if host_str.starts_with('[') && host_str.ends_with(']') {
                 host_str = &host_str[1..host_str.len() - 1];
+                // IPv6 is its own base domain, and GetBaseDomainFromSchemeHost
+                // does not work with the square brackets omitted.
+                return Ok(Some(host_str.to_string()))
             }
 
             let host = nsCString::from(host_str);
@@ -436,6 +442,11 @@ pub extern "C" fn mozurl_set_hostname(url: &mut MozURL, host: &nsACString) -> ns
 #[no_mangle]
 pub extern "C" fn mozurl_set_port_no(url: &mut MozURL, new_port: i32) -> nsresult {
     debug_assert_mut!(url);
+
+    if new_port > u16::MAX as i32 {
+        return NS_ERROR_UNEXPECTED;
+    }
+
     if url.cannot_be_a_base() {
         return NS_ERROR_MALFORMED_URI;
     }

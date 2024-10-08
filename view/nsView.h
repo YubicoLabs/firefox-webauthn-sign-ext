@@ -15,6 +15,7 @@
 #include "nsIWidgetListener.h"
 #include "Units.h"
 #include "mozilla/Attributes.h"
+#include "mozilla/CallState.h"
 #include "mozilla/EventForwards.h"
 #include "mozilla/UniquePtr.h"
 
@@ -24,6 +25,9 @@ class nsIFrame;
 
 namespace mozilla {
 class PresShell;
+namespace dom {
+class BrowserParent;
+}  // namespace dom
 namespace widget {
 struct InitData;
 enum class TransparencyMode : uint8_t;
@@ -97,9 +101,6 @@ enum class WindowType : uint8_t;
 enum class ViewVisibility : uint8_t { Hide = 0, Show = 1 };
 
 // Public view flags
-
-// Indicates that the view is using auto z-indexing
-#define NS_VIEW_FLAG_AUTO_ZINDEX 0x0004
 
 // Indicates that the view is a floating view.
 #define NS_VIEW_FLAG_FLOATING 0x0008
@@ -217,13 +218,6 @@ class nsView final : public nsIWidgetListener {
    * The offset is expressed in appunits of |this|.
    */
   nsPoint GetOffsetToWidget(nsIWidget* aWidget) const;
-
-  /**
-   * Takes a point aPt that is in the coordinate system of |this|'s parent view
-   * and converts it to be in the coordinate system of |this| taking into
-   * account the offset and any app unit per dev pixel ratio differences.
-   */
-  nsPoint ConvertFromParentCoords(nsPoint aPt) const;
 
   /**
    * Called to query the visibility state of a view.
@@ -412,22 +406,6 @@ class nsView final : public nsIWidgetListener {
    * @param y new y position
    */
   void SetPosition(nscoord aX, nscoord aY);
-
-  /**
-   * Called to indicate that the z-index of a view has been changed.
-   * The z-index is relative to all siblings of the view.
-   * @param aAuto Indicate that the z-index of a view is "auto". An "auto"
-   *              z-index means that the view does not define a new stacking
-   *              context, which means that the z-indicies of the view's
-   *              children are relative to the view's siblings.
-   * @param zindex new z depth
-   */
-  void SetZIndex(bool aAuto, int32_t aZIndex);
-  bool GetZIndexIsAuto() const {
-    return (mVFlags & NS_VIEW_FLAG_AUTO_ZINDEX) != 0;
-  }
-  int32_t GetZIndex() const { return mZIndex; }
-
   void SetParent(nsView* aParent) { mParent = aParent; }
   void SetNextSibling(nsView* aSibling) {
     NS_ASSERTION(aSibling != this, "Can't be our own sibling!");
@@ -455,6 +433,7 @@ class nsView final : public nsIWidgetListener {
       mozilla::ScreenIntCoord aHeight) override;
   virtual void DynamicToolbarOffsetChanged(
       mozilla::ScreenIntCoord aOffset) override;
+  virtual void KeyboardHeightChanged(mozilla::ScreenIntCoord aHeight) override;
 #endif
   virtual bool RequestWindowClose(nsIWidget* aWidget) override;
   MOZ_CAN_RUN_SCRIPT_BOUNDARY
@@ -525,9 +504,6 @@ class nsView final : public nsIWidgetListener {
   // parent, if we can)
   void DropMouseGrabbing();
 
-  // Same as GetBounds but converts to parent appunits if they are different.
-  nsRect GetBoundsInParentUnits() const;
-
   bool HasNonEmptyDirtyRegion() {
     return mDirtyRegion && !mDirtyRegion->IsEmpty();
   }
@@ -543,6 +519,10 @@ class nsView final : public nsIWidgetListener {
   // Update the cached RootViewManager for all view manager descendents.
   void InvalidateHierarchy();
 
+  void CallOnAllRemoteChildren(
+      const std::function<mozilla::CallState(mozilla::dom::BrowserParent*)>&
+          aCallback);
+
   nsViewManager* mViewManager;
   nsView* mParent;
   nsCOMPtr<nsIWidget> mWindow;
@@ -551,7 +531,6 @@ class nsView final : public nsIWidgetListener {
   nsView* mFirstChild;
   nsIFrame* mFrame;
   mozilla::UniquePtr<nsRegion> mDirtyRegion;
-  int32_t mZIndex;
   ViewVisibility mVis;
   // position relative our parent view origin but in our appunits
   nscoord mPosX, mPosY;

@@ -430,8 +430,8 @@ export var DownloadUtils = {
       // This might fail if it's an IP address or doesn't have more than 1 part
       let baseDomain = Services.eTLD.getBaseDomain(uri);
 
-      // Convert base domain for display; ignore the isAscii out param
-      displayHost = idnService.convertToDisplayIDN(baseDomain, {});
+      // Convert base domain for display
+      displayHost = idnService.convertToDisplayIDN(baseDomain);
     } catch (e) {
       // Default to the host name
       displayHost = fullHost;
@@ -610,7 +610,7 @@ function convertTimeUnitsUnits(timeValue, aIndex) {
  *        Error message to log or an array of strings to concat
  */
 // function log(aMsg) {
-//   let msg = "DownloadUtils.jsm: " + (aMsg.join ? aMsg.join("") : aMsg);
+//   let msg = "DownloadUtils.sys.mjs: " + (aMsg.join ? aMsg.join("") : aMsg);
 //   Services.console.logStringMessage(msg);
 //   dump(msg + "\n");
 // }

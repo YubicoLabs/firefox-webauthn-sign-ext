@@ -16,11 +16,11 @@ add_task(async function () {
       get: () => "elem0",
     });
     Object.defineProperty(array, 1, {
-      set: x => {},
+      set: () => {},
     });
     Object.defineProperty(array, 2, {
       get: () => "elem2",
-      set: x => {},
+      set: () => {},
     });
     content.wrappedJSObject.console.log("oi-array-test", array);
   });
@@ -36,8 +36,7 @@ add_task(async function () {
     "Elements with getter/setter should be shown correctly"
   );
 
-  expandObjectInspectorNode(oi);
-  await waitFor(() => getObjectInspectorNodes(oi).length > 1);
+  await expandObjectInspectorNode(oi.querySelector(".tree-node"));
 
   await testGetter(oi, "0");
   await testSetterOnly(oi, "1");

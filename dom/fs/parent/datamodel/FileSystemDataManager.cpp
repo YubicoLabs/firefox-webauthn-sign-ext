@@ -26,6 +26,7 @@
 #include "mozilla/dom/QMResult.h"
 #include "mozilla/dom/quota/ClientImpl.h"
 #include "mozilla/dom/quota/DirectoryLock.h"
+#include "mozilla/dom/quota/DirectoryLockInlines.h"
 #include "mozilla/dom/quota/QuotaCommon.h"
 #include "mozilla/dom/quota/QuotaManager.h"
 #include "mozilla/dom/quota/ResultExtensions.h"
@@ -56,8 +57,11 @@ class nsCStringHashKeyDM : public nsCStringHashKey {
 // When CheckedUnsafePtr's checking is enabled, it's necessary to ensure that
 // the hashtable uses the copy constructor instead of memmove for moving entries
 // since memmove will break CheckedUnsafePtr in a memory-corrupting way.
+
+// The assertion type must be the same as the assertion type used for defining
+// the base class for FileSystemDataManager in FileSystemDataManager.h!
 using FileSystemDataManagerHashKey =
-    std::conditional<DiagnosticAssertEnabled::value, nsCStringHashKeyDM,
+    std::conditional<ReleaseAssertEnabled::value, nsCStringHashKeyDM,
                      nsCStringHashKey>::type;
 
 // Raw (but checked when the diagnostic assert is enabled) references as we
@@ -539,6 +543,10 @@ RefPtr<BoolPromise> FileSystemDataManager::BeginOpen() {
 
             self->mDirectoryLock = std::move(value.ResolveValue());
 
+            if (self->mDirectoryLock->Invalidated()) {
+              return BoolPromise::CreateAndReject(NS_ERROR_ABORT, __func__);
+            }
+
             return BoolPromise::CreateAndResolve(true, __func__);
           })
       ->Then(mQuotaManager->IOThread(), __func__,
@@ -657,7 +665,7 @@ RefPtr<BoolPromise> FileSystemDataManager::BeginClose() {
       ->Then(MutableBackgroundTargetPtr(), __func__,
              [self = RefPtr<FileSystemDataManager>(this)](
                  const ShutdownPromise::ResolveOrRejectValue&) {
-               self->mDirectoryLock = nullptr;
+               SafeDropDirectoryLock(self->mDirectoryLock);
 
                RemoveFileSystemDataManager(self->mOriginMetadata.mOrigin);
 

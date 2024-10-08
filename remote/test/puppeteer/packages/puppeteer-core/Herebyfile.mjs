@@ -1,9 +1,18 @@
+/**
+ * @license
+ * Copyright 2024 Google Inc.
+ * SPDX-License-Identifier: Apache-2.0
+ */
 import {mkdir, readFile, readdir, writeFile} from 'fs/promises';
-import {join} from 'path/posix';
+import Module from 'node:module';
+import path from 'path';
+import posixPath from 'path/posix';
 
 import esbuild from 'esbuild';
 import {execa} from 'execa';
 import {task} from 'hereby';
+
+const require = Module.createRequire(import.meta.url);
 
 export const generateVersionTask = task({
   name: 'generate:version',
@@ -19,12 +28,12 @@ export const generateVersionTask = task({
     );
     if (process.env['PUBLISH']) {
       await writeFile(
-        '../../versions.js',
+        '../../versions.json',
         (
-          await readFile('../../versions.js', {
+          await readFile('../../versions.json', {
             encoding: 'utf-8',
           })
-        ).replace("'NEXT'", `'v${version}'`)
+        ).replace(`"NEXT"`, `"v${version}"`)
       );
     }
   },
@@ -39,9 +48,10 @@ export const generateInjectedTask = task({
       entryPoints: ['src/injected/injected.ts'],
       bundle: true,
       format: 'cjs',
-      target: ['chrome117', 'firefox118'],
+      target: ['chrome125', 'firefox125'],
       minify: true,
       write: false,
+      legalComments: 'none',
     });
     const template = await readFile('src/templates/injected.ts.tmpl', 'utf8');
     await mkdir('src/generated', {recursive: true});
@@ -91,19 +101,63 @@ export const buildTask = task({
       });
     const builders = [];
     for (const format of formats) {
-      const folder = join('lib', format, 'third_party');
+      const folder = posixPath.join('lib', format, 'third_party');
       for (const name of packages) {
-        const path = join(folder, name, `${name}.js`);
+        const entrypoint = posixPath.join(folder, name, `${name}.js`);
         builders.push(
           await esbuild.build({
-            entryPoints: [path],
-            outfile: path,
+            entryPoints: [entrypoint],
+            outfile: entrypoint,
             bundle: true,
             allowOverwrite: true,
             format,
-            target: 'node16',
-            minify: true,
+            target: 'node18',
+            // Do not minify for readability and leave minification to
+            // consumers.
+            minify: false,
+            legalComments: 'inline',
           })
+        );
+        let license = '';
+        switch (name) {
+          case 'rxjs':
+            license = await readFile(
+              path.join(
+                path.dirname(require.resolve('rxjs')),
+                '..',
+                '..',
+                'LICENSE.txt'
+              ),
+              'utf-8'
+            );
+            break;
+          case 'mitt':
+            license = await readFile(
+              path.join(path.dirname(require.resolve('mitt')), '..', 'LICENSE'),
+              'utf-8'
+            );
+            break;
+          case 'parsel-js':
+            license = await readFile(
+              path.join(
+                path.dirname(require.resolve('parsel-js')),
+                '..',
+                'LICENSE'
+              ),
+              'utf-8'
+            );
+            break;
+          default:
+            throw new Error(`Add license handling for ${path}`);
+        }
+        const content = await readFile(entrypoint, 'utf-8');
+        await writeFile(
+          entrypoint,
+          `/**
+${license}
+*/
+${content}`,
+          'utf-8'
         );
       }
     }

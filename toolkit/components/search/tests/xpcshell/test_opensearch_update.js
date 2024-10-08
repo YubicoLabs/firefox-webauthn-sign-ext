@@ -9,9 +9,8 @@ const KEYWORD = "keyword";
 let timerManager;
 
 add_setup(async function () {
-  let server = useHttpServer("");
+  let server = useHttpServer();
   server.registerContentType("sjs", "sjs");
-  await AddonTestUtils.promiseStartupManager();
   await Services.search.init();
 
   timerManager = Cc["@mozilla.org/updates/timer-manager;1"].getService(
@@ -21,7 +20,7 @@ add_setup(async function () {
 
 add_task(async function test_installEngine_with_updates_disabled() {
   const engineData = {
-    baseURL: gDataUrl,
+    baseURL: `${gHttpURL}/`,
     name: "test engine",
     method: "GET",
     updateFile: "opensearch/simple.xml",
@@ -33,8 +32,8 @@ add_task(async function test_installEngine_with_updates_disabled() {
     "Should not have registered the update timer already"
   );
 
-  await SearchTestUtils.promiseNewSearchEngine({
-    url: `${gDataUrl}data/engineMaker.sjs?${JSON.stringify(engineData)}`,
+  await SearchTestUtils.installOpenSearchEngine({
+    url: `${gHttpURL}/sjs/engineMaker.sjs?${JSON.stringify(engineData)}`,
   });
 
   Assert.ok(
@@ -49,7 +48,7 @@ add_task(async function test_installEngine_with_updates_disabled() {
 
 add_task(async function test_installEngine_with_updates_enabled() {
   const engineData = {
-    baseURL: gDataUrl,
+    baseURL: `${gHttpURL}/`,
     name: "original engine",
     method: "GET",
     updateFile: "opensearch/simple.xml",
@@ -62,8 +61,8 @@ add_task(async function test_installEngine_with_updates_enabled() {
     "Should not have registered the update timer already"
   );
 
-  let engine = await SearchTestUtils.promiseNewSearchEngine({
-    url: `${gDataUrl}data/engineMaker.sjs?${JSON.stringify(engineData)}`,
+  let engine = await SearchTestUtils.installOpenSearchEngine({
+    url: `${gHttpURL}/sjs/engineMaker.sjs?${JSON.stringify(engineData)}`,
   });
 
   Assert.ok(

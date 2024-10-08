@@ -15,6 +15,9 @@ EXTRA_JS_MODULES.shared += [
     "shared/AddressMetaDataExtension.sys.mjs",
     "shared/AddressMetaDataLoader.sys.mjs",
     "shared/AddressParser.sys.mjs",
+    "shared/AddressRecord.sys.mjs",
+    "shared/AutofillFormFactory.sys.mjs",
+    "shared/AutofillTelemetry.sys.mjs",
     "shared/CreditCardRecord.sys.mjs",
     "shared/CreditCardRuleset.sys.mjs",
     "shared/FieldScanner.sys.mjs",
@@ -26,6 +29,9 @@ EXTRA_JS_MODULES.shared += [
     "shared/FormStateManager.sys.mjs",
     "shared/HeuristicsRegExp.sys.mjs",
     "shared/LabelUtils.sys.mjs",
+    "shared/PhoneNumber.sys.mjs",
+    "shared/PhoneNumberMetaData.sys.mjs",
+    "shared/PhoneNumberNormalizer.sys.mjs",
 ]
 
 EXPORTS.mozilla += ["FormAutofillNative.h"]

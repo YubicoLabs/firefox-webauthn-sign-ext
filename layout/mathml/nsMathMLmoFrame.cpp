@@ -8,6 +8,7 @@
 
 #include "gfxContext.h"
 #include "mozilla/PresShell.h"
+#include "mozilla/StaticPrefs_mathml.h"
 #include "nsCSSValue.h"
 #include "nsLayoutUtils.h"
 #include "nsPresContext.h"
@@ -58,7 +59,7 @@ bool nsMathMLmoFrame::IsFrameInSelection(nsIFrame* aFrame) {
 bool nsMathMLmoFrame::UseMathMLChar() {
   return (NS_MATHML_OPERATOR_GET_FORM(mFlags) &&
           NS_MATHML_OPERATOR_IS_MUTABLE(mFlags)) ||
-         NS_MATHML_OPERATOR_IS_CENTERED(mFlags);
+         NS_MATHML_OPERATOR_FORCES_MATHML_CHAR(mFlags);
 }
 
 void nsMathMLmoFrame::BuildDisplayList(nsDisplayListBuilder* aBuilder,
@@ -83,12 +84,6 @@ void nsMathMLmoFrame::BuildDisplayList(nsDisplayListBuilder* aBuilder,
     }
     mMathMLChar.Display(aBuilder, this, aLists, 0,
                         isSelected ? &selectedRect : nullptr);
-
-#if defined(DEBUG) && defined(SHOW_BOUNDING_BOX)
-    // for visual debug
-    DisplayBoundingMetrics(aBuilder, this, mReference, mBoundingMetrics,
-                           aLists);
-#endif
   }
 }
 
@@ -123,6 +118,7 @@ void nsMathMLmoFrame::ProcessTextData() {
   if (1 == length && ch == '-') {
     ch = 0x2212;
     data = ch;
+    mFlags |= NS_MATHML_OPERATOR_FORCE_MATHML_CHAR;
   }
 
   // cache the special bits: mutable, accent, movablelimits, centered.
@@ -145,15 +141,18 @@ void nsMathMLmoFrame::ProcessTextData() {
   mFlags |= allFlags & NS_MATHML_OPERATOR_ACCENT;
   mFlags |= allFlags & NS_MATHML_OPERATOR_MOVABLELIMITS;
 
-  // see if this is an operator that should be centered to cater for
-  // fonts that are not math-aware
-  if (1 == length) {
-    if ((ch == '+') || (ch == '=') || (ch == '*') ||
-        (ch == 0x2212) ||  // &minus;
-        (ch == 0x2264) ||  // &le;
-        (ch == 0x2265) ||  // &ge;
-        (ch == 0x00D7)) {  // &times;
-      mFlags |= NS_MATHML_OPERATOR_CENTERED;
+  if (!StaticPrefs::mathml_centered_operators_disabled()) {
+    // see if this is an operator that should be centered to cater for
+    // fonts that are not math-aware
+    if (1 == length) {
+      if ((ch == '+') || (ch == '=') || (ch == '*') ||
+          (ch == 0x2212) ||  // &minus;
+          (ch == 0x2264) ||  // &le;
+          (ch == 0x2265) ||  // &ge;
+          (ch == 0x00D7)) {  // &times;
+        mFlags |= NS_MATHML_OPERATOR_CENTERED;
+        mFlags |= NS_MATHML_OPERATOR_FORCE_MATHML_CHAR;
+      }
     }
   }
 
@@ -194,7 +193,7 @@ void nsMathMLmoFrame::ProcessOperatorData() {
   // Also remember the other special bits that we want to carry forward.
   mFlags &= NS_MATHML_OPERATOR_MUTABLE | NS_MATHML_OPERATOR_ACCENT |
             NS_MATHML_OPERATOR_MOVABLELIMITS | NS_MATHML_OPERATOR_CENTERED |
-            NS_MATHML_OPERATOR_INVISIBLE;
+            NS_MATHML_OPERATOR_INVISIBLE | NS_MATHML_OPERATOR_FORCE_MATHML_CHAR;
 
   if (!mEmbellishData.coreFrame) {
     // i.e., we haven't been here before, the default form is infix
@@ -234,17 +233,19 @@ void nsMathMLmoFrame::ProcessOperatorData() {
 
     // see if the accent attribute is there
     mContent->AsElement()->GetAttr(nsGkAtoms::accent_, value);
-    if (value.EqualsLiteral("true"))
+    if (value.LowerCaseEqualsLiteral("true")) {
       mEmbellishData.flags |= NS_MATHML_EMBELLISH_ACCENT;
-    else if (value.EqualsLiteral("false"))
+    } else if (value.LowerCaseEqualsLiteral("false")) {
       mEmbellishData.flags &= ~NS_MATHML_EMBELLISH_ACCENT;
+    }
 
     // see if the movablelimits attribute is there
     mContent->AsElement()->GetAttr(nsGkAtoms::movablelimits_, value);
-    if (value.EqualsLiteral("true"))
+    if (value.LowerCaseEqualsLiteral("true")) {
       mEmbellishData.flags |= NS_MATHML_EMBELLISH_MOVABLELIMITS;
-    else if (value.EqualsLiteral("false"))
+    } else if (value.LowerCaseEqualsLiteral("false")) {
       mEmbellishData.flags &= ~NS_MATHML_EMBELLISH_MOVABLELIMITS;
+    }
 
     // ---------------------------------------------------------------------
     // we will be called again to re-sync the rest of our state next time...
@@ -441,36 +442,39 @@ void nsMathMLmoFrame::ProcessOperatorData() {
   // don't process them here
 
   mContent->AsElement()->GetAttr(nsGkAtoms::stretchy_, value);
-  if (value.EqualsLiteral("false")) {
+  if (value.LowerCaseEqualsLiteral("false")) {
     mFlags &= ~NS_MATHML_OPERATOR_STRETCHY;
-  } else if (value.EqualsLiteral("true")) {
+  } else if (value.LowerCaseEqualsLiteral("true")) {
     mFlags |= NS_MATHML_OPERATOR_STRETCHY;
   }
   if (NS_MATHML_OPERATOR_IS_FENCE(mFlags)) {
     mContent->AsElement()->GetAttr(nsGkAtoms::fence_, value);
-    if (value.EqualsLiteral("false"))
+    if (value.LowerCaseEqualsLiteral("false")) {
       mFlags &= ~NS_MATHML_OPERATOR_FENCE;
-    else
+    } else {
       mEmbellishData.flags |= NS_MATHML_EMBELLISH_FENCE;
+    }
   }
   mContent->AsElement()->GetAttr(nsGkAtoms::largeop_, value);
-  if (value.EqualsLiteral("false")) {
+  if (value.LowerCaseEqualsLiteral("false")) {
     mFlags &= ~NS_MATHML_OPERATOR_LARGEOP;
-  } else if (value.EqualsLiteral("true")) {
+  } else if (value.LowerCaseEqualsLiteral("true")) {
     mFlags |= NS_MATHML_OPERATOR_LARGEOP;
   }
   if (NS_MATHML_OPERATOR_IS_SEPARATOR(mFlags)) {
     mContent->AsElement()->GetAttr(nsGkAtoms::separator_, value);
-    if (value.EqualsLiteral("false"))
+    if (value.LowerCaseEqualsLiteral("false")) {
       mFlags &= ~NS_MATHML_OPERATOR_SEPARATOR;
-    else
+    } else {
       mEmbellishData.flags |= NS_MATHML_EMBELLISH_SEPARATOR;
+    }
   }
   mContent->AsElement()->GetAttr(nsGkAtoms::symmetric_, value);
-  if (value.EqualsLiteral("false"))
+  if (value.LowerCaseEqualsLiteral("false")) {
     mFlags &= ~NS_MATHML_OPERATOR_SYMMETRIC;
-  else if (value.EqualsLiteral("true"))
+  } else if (value.LowerCaseEqualsLiteral("true")) {
     mFlags |= NS_MATHML_OPERATOR_SYMMETRIC;
+  }
 
   // minsize
   //
@@ -593,9 +597,15 @@ nsMathMLmoFrame::Stretch(DrawTarget* aDrawTarget,
 
   // get the leading to be left at the top and the bottom of the stretched char
   // this seems more reliable than using fm->GetLeading() on suspicious fonts
-  nscoord em;
-  GetEmHeight(fm, em);
-  nscoord leading = NSToCoordRound(0.2f * em);
+  const nscoord leading = [&fm] {
+    if (StaticPrefs::
+            mathml_top_bottom_spacing_for_stretchy_operators_disabled()) {
+      return 0;
+    }
+    nscoord em;
+    GetEmHeight(fm, em);
+    return NSToCoordRound(0.2f * (float)em);
+  }();
 
   // Operators that are stretchy, or those that are to be centered
   // to cater for fonts that are not math-aware, are handled by the MathMLChar
@@ -729,10 +739,11 @@ nsMathMLmoFrame::Stretch(DrawTarget* aDrawTarget,
     }
   }
 
-  // Place our children using the default method
+  // Place our children using the default method and no border/padding.
   // This will allow our child text frame to get its DidReflow()
-  nsresult rv = Place(aDrawTarget, true, aDesiredStretchSize);
-  if (NS_MATHML_HAS_ERROR(mPresentationData.flags) || NS_FAILED(rv)) {
+  PlaceFlags flags = PlaceFlag::IgnoreBorderPadding;
+  nsresult rv = Place(aDrawTarget, flags, aDesiredStretchSize);
+  if (NS_FAILED(rv)) {
     // Make sure the child frames get their DidReflow() calls.
     DidReflowChildren(mFrames.FirstChild());
   }
@@ -829,17 +840,20 @@ nsMathMLmoFrame::Stretch(DrawTarget* aDrawTarget,
   // container and so we put the spacing, otherwise we don't include the
   // spacing, the outermost embellished container will take care of it.
 
+  nscoord leadingSpace = 0, trailingSpace = 0;
   if (!NS_MATHML_OPERATOR_HAS_EMBELLISH_ANCESTOR(mFlags)) {
     // Account the spacing if we are not an accent with explicit attributes
-    nscoord leadingSpace = mEmbellishData.leadingSpace;
-    if (isAccent && !NS_MATHML_OPERATOR_HAS_LSPACE_ATTR(mFlags)) {
-      leadingSpace = 0;
+    if (!isAccent || NS_MATHML_OPERATOR_HAS_LSPACE_ATTR(mFlags)) {
+      leadingSpace = mEmbellishData.leadingSpace;
     }
-    nscoord trailingSpace = mEmbellishData.trailingSpace;
-    if (isAccent && !NS_MATHML_OPERATOR_HAS_RSPACE_ATTR(mFlags)) {
-      trailingSpace = 0;
+    if (!isAccent || NS_MATHML_OPERATOR_HAS_RSPACE_ATTR(mFlags)) {
+      trailingSpace = mEmbellishData.trailingSpace;
     }
+  }
 
+  flags = PlaceFlags();
+  auto borderPadding = GetBorderPaddingForPlace(flags);
+  if (leadingSpace || trailingSpace || !borderPadding.IsAllZero()) {
     mBoundingMetrics.width += leadingSpace + trailingSpace;
     aDesiredStretchSize.Width() = mBoundingMetrics.width;
     aDesiredStretchSize.mBoundingMetrics.width = mBoundingMetrics.width;
@@ -847,22 +861,29 @@ nsMathMLmoFrame::Stretch(DrawTarget* aDrawTarget,
     nscoord dx = StyleVisibility()->mDirection == StyleDirection::Rtl
                      ? trailingSpace
                      : leadingSpace;
-    if (dx) {
+    mBoundingMetrics.leftBearing += dx;
+    mBoundingMetrics.rightBearing += dx;
+    aDesiredStretchSize.mBoundingMetrics.leftBearing += dx;
+    aDesiredStretchSize.mBoundingMetrics.rightBearing += dx;
+
+    // Add border/padding.
+    InflateReflowAndBoundingMetrics(borderPadding, aDesiredStretchSize,
+                                    mBoundingMetrics);
+    dx += borderPadding.left;
+    nscoord dy = borderPadding.top;
+
+    if (dx || dy) {
       // adjust the offsets
-      mBoundingMetrics.leftBearing += dx;
-      mBoundingMetrics.rightBearing += dx;
-      aDesiredStretchSize.mBoundingMetrics.leftBearing += dx;
-      aDesiredStretchSize.mBoundingMetrics.rightBearing += dx;
 
       if (useMathMLChar) {
         nsRect rect;
         mMathMLChar.GetRect(rect);
         mMathMLChar.SetRect(
-            nsRect(rect.x + dx, rect.y, rect.width, rect.height));
+            nsRect(rect.x + dx, rect.y + dy, rect.width, rect.height));
       } else {
         nsIFrame* childFrame = firstChild;
         while (childFrame) {
-          childFrame->SetPosition(childFrame->GetPosition() + nsPoint(dx, 0));
+          childFrame->SetPosition(childFrame->GetPosition() + nsPoint(dx, dy));
           childFrame = childFrame->GetNextSibling();
         }
       }
@@ -921,10 +942,10 @@ void nsMathMLmoFrame::Reflow(nsPresContext* aPresContext,
   nsMathMLTokenFrame::Reflow(aPresContext, aDesiredSize, aReflowInput, aStatus);
 }
 
-nsresult nsMathMLmoFrame::Place(DrawTarget* aDrawTarget, bool aPlaceOrigin,
+nsresult nsMathMLmoFrame::Place(DrawTarget* aDrawTarget,
+                                const PlaceFlags& aFlags,
                                 ReflowOutput& aDesiredSize) {
-  nsresult rv =
-      nsMathMLTokenFrame::Place(aDrawTarget, aPlaceOrigin, aDesiredSize);
+  nsresult rv = nsMathMLTokenFrame::Place(aDrawTarget, aFlags, aDesiredSize);
 
   if (NS_FAILED(rv)) {
     return rv;
@@ -941,7 +962,8 @@ nsresult nsMathMLmoFrame::Place(DrawTarget* aDrawTarget, bool aPlaceOrigin,
      Stretch() method.
   */
 
-  if (!aPlaceOrigin && StyleFont()->mMathStyle == StyleMathStyle::Normal &&
+  if (aFlags.contains(PlaceFlag::MeasureOnly) &&
+      StyleFont()->mMathStyle == StyleMathStyle::Normal &&
       NS_MATHML_OPERATOR_IS_LARGEOP(mFlags) && UseMathMLChar()) {
     nsBoundingMetrics newMetrics;
     rv = mMathMLChar.Stretch(
@@ -1005,6 +1027,7 @@ void nsMathMLmoFrame::GetIntrinsicISizeMetrics(gfxContext* aRenderingContext,
     aDesiredSize.Width() = mMathMLChar.GetMaxWidth(
         this, aRenderingContext->GetDrawTarget(),
         nsLayoutUtils::FontSizeInflationFor(this), stretchHint);
+    aDesiredSize.Width() += IntrinsicISizeOffsets().BorderPadding();
   } else {
     nsMathMLTokenFrame::GetIntrinsicISizeMetrics(aRenderingContext,
                                                  aDesiredSize);
@@ -1031,8 +1054,14 @@ nsresult nsMathMLmoFrame::AttributeChanged(int32_t aNameSpaceID,
                                            int32_t aModType) {
   // check if this is an attribute that can affect the embellished hierarchy
   // in a significant way and re-layout the entire hierarchy.
-  if (nsGkAtoms::accent_ == aAttribute ||
-      nsGkAtoms::movablelimits_ == aAttribute) {
+  // This is not needed for the fence and separator
+  // attributes, since they have no visual effect.
+  if (aAttribute == nsGkAtoms::accent_ || aAttribute == nsGkAtoms::form ||
+      aAttribute == nsGkAtoms::largeop_ || aAttribute == nsGkAtoms::maxsize_ ||
+      aAttribute == nsGkAtoms::minsize_ ||
+      aAttribute == nsGkAtoms::movablelimits_ ||
+      aAttribute == nsGkAtoms::rspace_ || aAttribute == nsGkAtoms::stretchy_ ||
+      aAttribute == nsGkAtoms::symmetric_ || aAttribute == nsGkAtoms::lspace_) {
     // set the target as the parent of our outermost embellished container
     // (we ensure that we are the core, not just a sibling of the core)
     nsIFrame* target = this;

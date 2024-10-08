@@ -140,11 +140,9 @@ class FetchEvent final : public ExtendableEvent {
   RefPtr<Promise> mHandled;
   RefPtr<Promise> mPreloadResponse;
   nsCString mScriptSpec;
-  nsCString mPreventDefaultScriptSpec;
   nsString mClientId;
   nsString mResultingClientId;
-  uint32_t mPreventDefaultLineNumber;
-  uint32_t mPreventDefaultColumnNumber;
+  JSCallingLocation mPreventDefaultLocation;
   bool mWaitToRespond;
 
  protected:
@@ -215,6 +213,8 @@ class PushMessageData final : public nsISupports, public nsWrapperCache {
   void ArrayBuffer(JSContext* cx, JS::MutableHandle<JSObject*> aRetval,
                    ErrorResult& aRv);
   already_AddRefed<mozilla::dom::Blob> Blob(ErrorResult& aRv);
+  void Bytes(JSContext* cx, JS::MutableHandle<JSObject*> aRetval,
+             ErrorResult& aRv);
 
   PushMessageData(nsIGlobalObject* aOwner, nsTArray<uint8_t>&& aBytes);
 

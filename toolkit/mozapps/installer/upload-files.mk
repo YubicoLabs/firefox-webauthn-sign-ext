@@ -3,26 +3,18 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 ifndef MOZ_PKG_FORMAT
-    ifeq (cocoa,$(MOZ_WIDGET_TOOLKIT))
-        MOZ_PKG_FORMAT  = DMG
+    ifeq ($(MOZ_WIDGET_TOOLKIT),cocoa)
+        MOZ_PKG_FORMAT = DMG
+    else ifeq ($(OS_ARCH),WINNT)
+        MOZ_PKG_FORMAT = ZIP
+    else ifeq ($(OS_ARCH),SunOS)
+        MOZ_PKG_FORMAT = BZ2
+    else ifeq ($(MOZ_WIDGET_TOOLKIT),gtk)
+        MOZ_PKG_FORMAT = BZ2
+    else ifeq ($(MOZ_WIDGET_TOOLKIT),android)
+        MOZ_PKG_FORMAT = APK
     else
-        ifeq (WINNT,$(OS_ARCH))
-            MOZ_PKG_FORMAT  = ZIP
-        else
-            ifeq (SunOS,$(OS_ARCH))
-                MOZ_PKG_FORMAT  = BZ2
-            else
-                ifeq (gtk,$(MOZ_WIDGET_TOOLKIT))
-                    MOZ_PKG_FORMAT  = BZ2
-                else
-                    ifeq (android,$(MOZ_WIDGET_TOOLKIT))
-                        MOZ_PKG_FORMAT = APK
-                    else
-                        MOZ_PKG_FORMAT = TGZ
-                    endif
-                endif
-            endif
-        endif
+        MOZ_PKG_FORMAT = TGZ
     endif
 endif # MOZ_PKG_FORMAT
 
@@ -380,6 +372,7 @@ endif
 
 
 ifdef ENABLE_MOZSEARCH_PLUGIN
+  UPLOAD_FILES += $(call QUOTED_WILDCARD,$(topobjdir)/chrome-map.json)
   UPLOAD_FILES += $(call QUOTED_WILDCARD,$(DIST)/$(PKG_PATH)$(MOZSEARCH_ARCHIVE_BASENAME).zip)
   UPLOAD_FILES += $(call QUOTED_WILDCARD,$(DIST)/$(PKG_PATH)$(MOZSEARCH_SCIP_INDEX_BASENAME).zip)
   UPLOAD_FILES += $(call QUOTED_WILDCARD,$(DIST)/$(PKG_PATH)$(MOZSEARCH_INCLUDEMAP_BASENAME).map)
@@ -394,6 +387,10 @@ endif
 
 # Upload `.xpt` artifacts for use in artifact builds.
 UPLOAD_FILES += $(call QUOTED_WILDCARD,$(DIST)/$(PKG_PATH)$(XPT_ARTIFACTS_ARCHIVE_BASENAME).zip)
+# Upload update-related macOS framework artifacts for use in artifact builds.
+ifeq ($(OS_ARCH),Darwin)
+UPLOAD_FILES += $(call QUOTED_WILDCARD,$(DIST)/$(PKG_PATH)$(UPDATE_FRAMEWORK_ARTIFACTS_ARCHIVE_BASENAME).zip)
+endif # Darwin
 
 ifndef MOZ_PKG_SRCDIR
   MOZ_PKG_SRCDIR = $(topsrcdir)

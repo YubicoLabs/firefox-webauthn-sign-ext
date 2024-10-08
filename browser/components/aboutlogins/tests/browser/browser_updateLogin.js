@@ -124,7 +124,10 @@ add_task(async function test_login_item() {
   }
 
   let browser = gBrowser.selectedBrowser;
-  let reauthObserved = OSKeyStoreTestUtils.waitForOSKeyStoreLogin(true);
+  let reauthObserved = Promise.resolve();
+  if (OSKeyStore.canReauth()) {
+    reauthObserved = OSKeyStoreTestUtils.waitForOSKeyStoreLogin(true);
+  }
   await SpecialPowers.spawn(
     browser,
     [LoginHelper.loginToVanillaObject(TEST_LOGIN1)],
@@ -163,9 +166,11 @@ add_task(async function test_login_item() {
     ],
     test_discard_dialog
   );
-  reauthObserved = forceAuthTimeoutAndWaitForOSKeyStoreLogin({
-    loginResult: true,
-  });
+  if (OSKeyStore.canReauth()) {
+    reauthObserved = forceAuthTimeoutAndWaitForOSKeyStoreLogin({
+      loginResult: true,
+    });
+  }
   await SpecialPowers.spawn(browser, [], async () => {
     let loginItem = Cu.waiveXrays(content.document.querySelector("login-item"));
     let editButton = loginItem.shadowRoot
@@ -184,9 +189,11 @@ add_task(async function test_login_item() {
     ],
     test_discard_dialog
   );
-  reauthObserved = forceAuthTimeoutAndWaitForOSKeyStoreLogin({
-    loginResult: true,
-  });
+  if (OSKeyStore.canReauth()) {
+    reauthObserved = forceAuthTimeoutAndWaitForOSKeyStoreLogin({
+      loginResult: true,
+    });
+  }
   await SpecialPowers.spawn(browser, [], async () => {
     let loginItem = Cu.waiveXrays(content.document.querySelector("login-item"));
     let editButton = loginItem.shadowRoot
@@ -289,9 +296,11 @@ add_task(async function test_login_item() {
       );
     }
   );
-  reauthObserved = forceAuthTimeoutAndWaitForOSKeyStoreLogin({
-    loginResult: true,
-  });
+  if (OSKeyStore.canReauth()) {
+    reauthObserved = forceAuthTimeoutAndWaitForOSKeyStoreLogin({
+      loginResult: true,
+    });
+  }
   await SpecialPowers.spawn(browser, [], async () => {
     let loginItem = Cu.waiveXrays(content.document.querySelector("login-item"));
     let editButton = loginItem.shadowRoot
@@ -301,77 +310,70 @@ add_task(async function test_login_item() {
   });
   info("waiting for oskeystore auth #4");
   await reauthObserved;
-  await SpecialPowers.spawn(
-    browser,
-    [LoginHelper.loginToVanillaObject(TEST_LOGIN1)],
-    async login => {
-      let loginItem = Cu.waiveXrays(
-        content.document.querySelector("login-item")
-      );
-      await ContentTaskUtils.waitForCondition(
-        () => loginItem.dataset.editing,
-        "Entering edit mode"
-      );
-      await Promise.resolve();
+  await SpecialPowers.spawn(browser, [], async () => {
+    let loginItem = Cu.waiveXrays(content.document.querySelector("login-item"));
+    await ContentTaskUtils.waitForCondition(
+      () => loginItem.dataset.editing,
+      "Entering edit mode"
+    );
+    await Promise.resolve();
 
-      let revealCheckbox = loginItem.shadowRoot.querySelector(
-        ".reveal-password-checkbox"
-      );
-      revealCheckbox.click();
-      Assert.ok(
-        revealCheckbox.checked,
-        "reveal-checkbox should be checked after clicking"
-      );
+    let revealCheckbox = loginItem.shadowRoot.querySelector(
+      ".reveal-password-checkbox"
+    );
+    revealCheckbox.click();
+    Assert.ok(
+      revealCheckbox.checked,
+      "reveal-checkbox should be checked after clicking"
+    );
 
-      let usernameInput = loginItem.shadowRoot.querySelector(
-        "input[name='username']"
-      );
-      let passwordInput = loginItem._passwordInput;
+    let usernameInput = loginItem.shadowRoot.querySelector(
+      "input[name='username']"
+    );
+    let passwordInput = loginItem._passwordInput;
 
-      usernameInput.value += "-saveme";
-      passwordInput.value += "-saveme";
+    usernameInput.value += "-saveme";
+    passwordInput.value += "-saveme";
 
-      Assert.ok(
-        loginItem.dataset.editing,
-        "LoginItem should be in 'edit' mode"
-      );
+    Assert.ok(loginItem.dataset.editing, "LoginItem should be in 'edit' mode");
 
-      let saveChangesButton = loginItem.shadowRoot.querySelector(
-        ".save-changes-button"
-      );
-      saveChangesButton.click();
+    let saveChangesButton = loginItem.shadowRoot.querySelector(
+      ".save-changes-button"
+    );
+    saveChangesButton.click();
 
-      await ContentTaskUtils.waitForCondition(() => {
-        let loginList = Cu.waiveXrays(
-          content.document.querySelector("login-list")
-        );
-        let guid = loginList._loginGuidsSortedOrder[0];
-        let updatedLogin = loginList._logins[guid].login;
-        return (
-          updatedLogin &&
-          updatedLogin.username == usernameInput.value &&
-          updatedLogin.password == passwordInput.value
-        );
-      }, "Waiting for corresponding login in login list to update");
+    await ContentTaskUtils.waitForCondition(() => {
+      let loginList = Cu.waiveXrays(
+        content.document.querySelector("login-list")
+      );
+      let guid = loginList._loginGuidsSortedOrder[0];
+      let updatedLogin = loginList._logins[guid].login;
+      return (
+        updatedLogin &&
+        updatedLogin.username == usernameInput.value &&
+        updatedLogin.password == passwordInput.value
+      );
+    }, "Waiting for corresponding login in login list to update");
 
-      Assert.ok(
-        !revealCheckbox.checked,
-        "reveal-checkbox should be unchecked after saving changes"
-      );
-      Assert.ok(
-        !loginItem.dataset.editing,
-        "LoginItem should not be in 'edit' mode after saving"
-      );
-      Assert.equal(
-        passwordInput.style.width,
-        passwordInput.value.length + "ch",
-        "Password field width should be correctly updated"
-      );
-    }
-  );
-  reauthObserved = forceAuthTimeoutAndWaitForOSKeyStoreLogin({
-    loginResult: true,
+    Assert.ok(
+      !revealCheckbox.checked,
+      "reveal-checkbox should be unchecked after saving changes"
+    );
+    Assert.ok(
+      !loginItem.dataset.editing,
+      "LoginItem should not be in 'edit' mode after saving"
+    );
+    Assert.equal(
+      passwordInput.style.width,
+      passwordInput.value.length + "ch",
+      "Password field width should be correctly updated"
+    );
   });
+  if (OSKeyStore.canReauth()) {
+    reauthObserved = forceAuthTimeoutAndWaitForOSKeyStoreLogin({
+      loginResult: true,
+    });
+  }
   await SpecialPowers.spawn(browser, [], async () => {
     let loginItem = Cu.waiveXrays(content.document.querySelector("login-item"));
     let editButton = loginItem.shadowRoot
@@ -381,51 +383,40 @@ add_task(async function test_login_item() {
   });
   info("waiting for oskeystore auth #5");
   await reauthObserved;
-  await SpecialPowers.spawn(
-    browser,
-    [LoginHelper.loginToVanillaObject(TEST_LOGIN1)],
-    async login => {
-      let loginItem = Cu.waiveXrays(
-        content.document.querySelector("login-item")
-      );
-      await ContentTaskUtils.waitForCondition(
-        () => loginItem.dataset.editing,
-        "Entering edit mode"
-      );
-      await Promise.resolve();
+  await SpecialPowers.spawn(browser, [], async () => {
+    let loginItem = Cu.waiveXrays(content.document.querySelector("login-item"));
+    await ContentTaskUtils.waitForCondition(
+      () => loginItem.dataset.editing,
+      "Entering edit mode"
+    );
+    await Promise.resolve();
 
-      Assert.ok(
-        loginItem.dataset.editing,
-        "LoginItem should be in 'edit' mode"
-      );
-      let deleteButton = loginItem.shadowRoot
-        .querySelector("delete-button")
-        .shadowRoot.querySelector("button");
-      deleteButton.click();
-      let confirmDeleteDialog = Cu.waiveXrays(
-        content.document.querySelector("confirmation-dialog")
-      );
-      let confirmDeleteButton =
-        confirmDeleteDialog.shadowRoot.querySelector(".confirm-button");
-      confirmDeleteButton.click();
+    Assert.ok(loginItem.dataset.editing, "LoginItem should be in 'edit' mode");
+    let deleteButton = loginItem.shadowRoot
+      .querySelector("delete-button")
+      .shadowRoot.querySelector("button");
+    deleteButton.click();
+    let confirmDeleteDialog = Cu.waiveXrays(
+      content.document.querySelector("confirmation-dialog")
+    );
+    let confirmDeleteButton =
+      confirmDeleteDialog.shadowRoot.querySelector(".confirm-button");
+    confirmDeleteButton.click();
 
-      let loginList = Cu.waiveXrays(
-        content.document.querySelector("login-list")
+    let loginList = Cu.waiveXrays(content.document.querySelector("login-list"));
+    let loginListItem = Cu.waiveXrays(
+      loginList.shadowRoot.querySelector("login-list-item[data-guid]")
+    );
+    await ContentTaskUtils.waitForCondition(() => {
+      loginListItem = loginList.shadowRoot.querySelector(
+        "login-list-item[data-guid]"
       );
-      let loginListItem = Cu.waiveXrays(
-        loginList.shadowRoot.querySelector("login-list-item[data-guid]")
-      );
-      await ContentTaskUtils.waitForCondition(() => {
-        loginListItem = loginList.shadowRoot.querySelector(
-          "login-list-item[data-guid]"
-        );
-        return !loginListItem;
-      }, "Waiting for login to be removed from list");
+      return !loginListItem;
+    }, "Waiting for login to be removed from list");
 
-      Assert.ok(
-        !loginItem.dataset.editing,
-        "LoginItem should not be in 'edit' mode after deleting"
-      );
-    }
-  );
+    Assert.ok(
+      !loginItem.dataset.editing,
+      "LoginItem should not be in 'edit' mode after deleting"
+    );
+  });
 });

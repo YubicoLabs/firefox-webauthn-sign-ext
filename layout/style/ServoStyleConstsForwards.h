@@ -46,14 +46,15 @@ class imgRequestProxy;
 struct nsCSSValueSharedList;
 
 class gfxFontFeatureValueSet;
-struct gfxFontFeature;
 struct GeckoFontMetrics;
 namespace mozilla {
 namespace gfx {
 struct FontVariation;
+struct FontFeature;
 }  // namespace gfx
 }  // namespace mozilla
-typedef mozilla::gfx::FontVariation gfxFontVariation;
+using gfxFontVariation = mozilla::gfx::FontVariation;
+using gfxFontFeature = mozilla::gfx::FontFeature;
 
 enum nsCSSUnit : uint32_t;
 enum nsChangeHint : uint32_t;
@@ -83,12 +84,13 @@ struct PropertyStyleAnimationValuePair;
 using ComputedKeyframeValues = nsTArray<PropertyStyleAnimationValuePair>;
 
 class ComputedStyle;
-enum LogicalAxis : uint8_t;
+enum class LogicalAxis : uint8_t;
 class SeenPtrs;
 class SharedFontList;
 class StyleSheet;
 class WritingMode;
 class ServoElementSnapshotTable;
+class StyleParserState;
 
 template <typename T>
 struct StyleForgottenArcSlicePtr;
@@ -100,7 +102,7 @@ struct ComputedTiming;
 struct URLExtraData;
 
 enum HalfCorner : uint8_t;
-enum LogicalSide : uint8_t;
+enum class LogicalSide : uint8_t;
 enum class PseudoStyleType : uint8_t;
 enum class OriginFlags : uint8_t;
 enum class UseBoxSizing : uint8_t;

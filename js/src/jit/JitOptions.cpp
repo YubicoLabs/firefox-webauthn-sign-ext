@@ -376,6 +376,10 @@ DefaultJitOptions::DefaultJitOptions() {
 
   // ***** Irregexp shim flags *****
 
+  // Whether the stage 3 regexp modifiers proposal is enabled.
+  SET_DEFAULT(js_regexp_modifiers, false);
+  // Whether the stage 3 duplicate named capture groups proposal is enabled.
+  SET_DEFAULT(js_regexp_duplicate_named_groups, false);
   // V8 uses this for differential fuzzing to handle stack overflows.
   // We address the same problem in StackLimitCheck::HasOverflowed.
   SET_DEFAULT(correctness_fuzzer_suppressions, false);
@@ -443,7 +447,8 @@ void DefaultJitOptions::resetNormalIonWarmUpThreshold() {
 
 void DefaultJitOptions::maybeSetWriteProtectCode(bool val) {
 #ifdef JS_USE_APPLE_FAST_WX
-  // On Apple Silicon we always use pthread_jit_write_protect_np.
+  // On Apple Silicon we always use pthread_jit_write_protect_np, or
+  // be_memory_inline_jit_restrict_*.
   MOZ_ASSERT(!writeProtectCode);
 #else
   writeProtectCode = val;

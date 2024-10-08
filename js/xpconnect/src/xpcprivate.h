@@ -138,7 +138,6 @@
 #include "nsBaseHashtable.h"
 #include "nsHashKeys.h"
 #include "nsWrapperCache.h"
-#include "nsStringBuffer.h"
 #include "nsDeque.h"
 
 #include "nsIScriptSecurityManager.h"
@@ -380,6 +379,7 @@ class XPCJSContext final : public mozilla::CycleCollectedJSContext,
     IDX_CRYPTO,
     IDX_INDEXEDDB,
     IDX_STRUCTUREDCLONE,
+    IDX_LOCKS,
     IDX_TOTAL_COUNT  // just a count of the above
   };
 
@@ -560,7 +560,6 @@ class XPCJSRuntime final : public mozilla::CycleCollectedJSRuntime {
   JSObject* UnprivilegedJunkScope(const mozilla::fallible_t&);
 
   bool IsUnprivilegedJunkScope(JSObject*);
-  JSObject* LoaderGlobal();
 
   void DeleteSingletonScopes();
 
@@ -610,7 +609,6 @@ class XPCJSRuntime final : public mozilla::CycleCollectedJSRuntime {
   JS::GCSliceCallback mPrevGCSliceCallback;
   JS::DoCycleCollectionCallback mPrevDoCycleCollectionCallback;
   mozilla::WeakPtr<SandboxPrivate> mUnprivilegedJunkScope;
-  JS::PersistentRootedObject mLoaderGlobal;
   RefPtr<AsyncFreeSnowWhite> mAsyncSnowWhiteFreer;
 
   friend class XPCJSContext;
@@ -2193,6 +2191,7 @@ struct GlobalProperties {
   bool ChromeUtils : 1;
   bool CSS : 1;
   bool CSSRule : 1;
+  bool CustomStateSet : 1;
   bool Directory : 1;
   bool Document : 1;
   bool DOMException : 1;
@@ -2205,6 +2204,7 @@ struct GlobalProperties {
   bool FormData : 1;
   bool Headers : 1;
   bool IOUtils : 1;
+  bool InspectorCSSParser : 1;
   bool InspectorUtils : 1;
   bool MessageChannel : 1;
   bool MIDIInputMap : 1;
@@ -2234,6 +2234,7 @@ struct GlobalProperties {
   bool fetch : 1;
   bool storage : 1;
   bool structuredClone : 1;
+  bool locks : 1;
   bool indexedDB : 1;
   bool isSecureContext : 1;
   bool rtcIdentityProvider : 1;
@@ -2443,8 +2444,9 @@ nsresult EvalInSandbox(JSContext* cx, JS::HandleObject sandbox,
 nsresult GetSandboxMetadata(JSContext* cx, JS::HandleObject sandboxArg,
                             JS::MutableHandleValue rval);
 
-nsresult SetSandboxMetadata(JSContext* cx, JS::HandleObject sandboxArg,
-                            JS::HandleValue metadata);
+[[nodiscard]] nsresult SetSandboxMetadata(JSContext* cx,
+                                          JS::HandleObject sandboxArg,
+                                          JS::HandleValue metadata);
 
 bool CreateObjectIn(JSContext* cx, JS::HandleValue vobj,
                     CreateObjectInOptions& options,
@@ -2807,6 +2809,7 @@ void DestructValue(const nsXPTType& aType, void* aValue,
 bool SandboxCreateCrypto(JSContext* cx, JS::Handle<JSObject*> obj);
 bool SandboxCreateFetch(JSContext* cx, JS::Handle<JSObject*> obj);
 bool SandboxCreateStructuredClone(JSContext* cx, JS::Handle<JSObject*> obj);
+bool SandboxCreateLocks(JSContext* cx, JS::Handle<JSObject*> obj);
 
 }  // namespace xpc
 

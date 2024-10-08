@@ -37,7 +37,7 @@ TASK_DEFAULTS = {
 
 @pytest.fixture(scope="module")
 def config():
-    graph_config = load_graph_config(os.path.join(GECKO, "taskcluster", "ci"))
+    graph_config = load_graph_config(os.path.join(GECKO, "taskcluster"))
     params = FakeParameters(
         {
             "base_repository": "http://hg.example.com",
@@ -86,7 +86,7 @@ def transform(monkeypatch, config):
     "task",
     [
         {"worker-type": "b-linux"},
-        {"worker-type": "t-win10-64-hw"},
+        {"worker-type": "win11-64-2009-hw"},
     ],
     ids=lambda t: t["worker-type"],
 )

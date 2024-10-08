@@ -145,7 +145,12 @@ async function testTopLevelNavigations(bfcacheInParent) {
   // Go back to the first page, this should be a bfcache navigation, and,
   // we should get a new target
   info("Go back to the first page");
+  const onPageShow = BrowserTestUtils.waitForContentEvent(
+    gBrowser.selectedBrowser,
+    "pageshow"
+  );
   gBrowser.selectedBrowser.goBack();
+  await onPageShow;
 
   await waitFor(
     () => targets.length == 3,
@@ -236,7 +241,7 @@ async function testTopLevelNavigations(bfcacheInParent) {
   await commands.destroy();
 }
 
-async function testTopLevelNavigationsOnDocumentWithIframe(bfcacheInParent) {
+async function testTopLevelNavigationsOnDocumentWithIframe() {
   info(" # Test TOP LEVEL navigations on document with iframe");
   // Create a TargetCommand for a given test tab
   const tab =

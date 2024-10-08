@@ -25,6 +25,7 @@
 #include "mozilla/dom/MediaStreamBinding.h"
 #include "mozilla/dom/MediaStreamTrackBinding.h"
 #include "mozilla/dom/MediaStreamError.h"
+#include "mozilla/dom/MediaTrackCapabilitiesBinding.h"
 #include "mozilla/dom/NavigatorBinding.h"
 #include "mozilla/media/MediaChild.h"
 #include "mozilla/media/MediaParent.h"
@@ -147,7 +148,7 @@ class LocalMediaDevice final : public nsIMediaDevice {
   nsresult Allocate(const dom::MediaTrackConstraints& aConstraints,
                     const MediaEnginePrefs& aPrefs, uint64_t aWindowId,
                     const char** aOutBadConstraint);
-  void SetTrack(const RefPtr<MediaTrack>& aTrack,
+  void SetTrack(const RefPtr<mozilla::MediaTrack>& aTrack,
                 const nsMainThreadPtrHandle<nsIPrincipal>& aPrincipal);
   nsresult Start();
   nsresult Reconfigure(const dom::MediaTrackConstraints& aConstraints,
@@ -158,6 +159,7 @@ class LocalMediaDevice final : public nsIMediaDevice {
   nsresult Deallocate();
 
   void GetSettings(dom::MediaTrackSettings& aOutSettings);
+  void GetCapabilities(dom::MediaTrackCapabilities& aOutCapabilities);
   MediaEngineSource* Source();
   const TrackingId& GetTrackingId() const;
   // Returns null if not a physical audio device.
@@ -220,7 +222,7 @@ class MediaManager final : public nsIMediaManagerService,
    * manager thread.
    */
   template <typename MozPromiseType, typename FunctionType>
-  static RefPtr<MozPromiseType> Dispatch(const char* aName,
+  static RefPtr<MozPromiseType> Dispatch(StaticString aName,
                                          FunctionType&& aFunction);
 
 #ifdef DEBUG

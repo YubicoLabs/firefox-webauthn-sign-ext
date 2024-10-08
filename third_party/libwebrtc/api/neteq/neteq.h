@@ -12,24 +12,23 @@
 #define API_NETEQ_NETEQ_H_
 
 #include <stddef.h>  // Provide access to size_t.
+#include <stdint.h>
 
 #include <map>
 #include <string>
 #include <vector>
 
 #include "absl/types/optional.h"
+#include "api/array_view.h"
 #include "api/audio_codecs/audio_codec_pair_id.h"
-#include "api/audio_codecs/audio_decoder.h"
 #include "api/audio_codecs/audio_format.h"
 #include "api/rtp_headers.h"
-#include "api/scoped_refptr.h"
+#include "api/units/timestamp.h"
 
 namespace webrtc {
 
 // Forward declarations.
 class AudioFrame;
-class AudioDecoderFactory;
-class Clock;
 
 struct NetEqNetworkStatistics {
   uint16_t current_buffer_size_ms;    // Current jitter buffer size in ms.
@@ -93,6 +92,7 @@ struct NetEqLifetimeStatistics {
   int32_t total_interruption_duration_ms = 0;
   // Total number of comfort noise samples generated during DTX.
   uint64_t generated_noise_samples = 0;
+  uint64_t total_processing_delay_us = 0;
 };
 
 // Metrics that describe the operations performed in NetEq, and the internal
@@ -130,7 +130,6 @@ class NetEq {
     std::string ToString() const;
 
     int sample_rate_hz = 48000;  // Initial value. Will change with input data.
-    bool enable_post_decode_vad = false;
     size_t max_packets_in_buffer = 200;
     int max_delay_ms = 0;
     int min_delay_ms = 0;
@@ -184,10 +183,20 @@ class NetEq {
 
   virtual ~NetEq() {}
 
+  virtual int InsertPacket(const RTPHeader& rtp_header,
+                           rtc::ArrayView<const uint8_t> payload) {
+    // TODO: webrtc:343501093 - removed unused method.
+    return InsertPacket(rtp_header, payload,
+                        /*receive_time=*/Timestamp::MinusInfinity());
+  }
   // Inserts a new packet into NetEq.
   // Returns 0 on success, -1 on failure.
   virtual int InsertPacket(const RTPHeader& rtp_header,
-                           rtc::ArrayView<const uint8_t> payload) = 0;
+                           rtc::ArrayView<const uint8_t> payload,
+                           Timestamp receive_time) {
+    // TODO: webrtc:343501093 - Make this method pure virtual.
+    return InsertPacket(rtp_header, payload);
+  }
 
   // Lets NetEq know that a packet arrived with an empty payload. This typically
   // happens when empty packets are used for probing the network channel, and
@@ -197,22 +206,21 @@ class NetEq {
 
   // Instructs NetEq to deliver 10 ms of audio data. The data is written to
   // `audio_frame`. All data in `audio_frame` is wiped; `data_`, `speech_type_`,
-  // `num_channels_`, `sample_rate_hz_`, `samples_per_channel_`, and
-  // `vad_activity_` are updated upon success. If an error is returned, some
-  // fields may not have been updated, or may contain inconsistent values.
-  // If muted state is enabled (through Config::enable_muted_state), `muted`
-  // may be set to true after a prolonged expand period. When this happens, the
-  // `data_` in `audio_frame` is not written, but should be interpreted as being
-  // all zeros. For testing purposes, an override can be supplied in the
-  // `action_override` argument, which will cause NetEq to take this action
-  // next, instead of the action it would normally choose. An optional output
-  // argument for fetching the current sample rate can be provided, which
-  // will return the same value as last_output_sample_rate_hz() but will avoid
-  // additional synchronization.
+  // `num_channels_`, `sample_rate_hz_` and `samples_per_channel_` are updated
+  // upon success. If an error is returned, some fields may not have been
+  // updated, or may contain inconsistent values. If muted state is enabled
+  // (through Config::enable_muted_state), `muted` may be set to true after a
+  // prolonged expand period. When this happens, the `data_` in `audio_frame`
+  // is not written, but should be interpreted as being all zeros. For testing
+  // purposes, an override can be supplied in the `action_override` argument,
+  // which will cause NetEq to take this action next, instead of the action it
+  // would normally choose. An optional output argument for fetching the current
+  // sample rate can be provided, which will return the same value as
+  // last_output_sample_rate_hz() but will avoid additional synchronization.
   // Returns kOK on success, or kFail in case of an error.
   virtual int GetAudio(
       AudioFrame* audio_frame,
-      bool* muted,
+      bool* muted = nullptr,
       int* current_sample_rate_hz = nullptr,
       absl::optional<Operation> action_override = absl::nullopt) = 0;
 
@@ -277,13 +285,6 @@ class NetEq {
   // Returns statistics about the performed operations and internal state. These
   // statistics are never reset.
   virtual NetEqOperationsAndState GetOperationsAndState() const = 0;
-
-  // Enables post-decode VAD. When enabled, GetAudio() will return
-  // kOutputVADPassive when the signal contains no speech.
-  virtual void EnableVad() = 0;
-
-  // Disables post-decode VAD.
-  virtual void DisableVad() = 0;
 
   // Returns the RTP timestamp for the last sample delivered by GetAudio().
   // The return value will be empty if no valid timestamp is available.

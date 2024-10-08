@@ -142,11 +142,6 @@ class HTMLIFrameElement final : public nsGenericHTMLFrameElement {
   Document* GetSVGDocument(nsIPrincipal& aSubjectPrincipal) {
     return GetContentDocument(aSubjectPrincipal);
   }
-  bool Mozbrowser() const { return GetBoolAttr(nsGkAtoms::mozbrowser); }
-  void SetMozbrowser(bool aAllow, ErrorResult& aError) {
-    SetHTMLBoolAttr(nsGkAtoms::mozbrowser, aAllow, aError);
-  }
-  using nsGenericHTMLFrameElement::SetMozbrowser;
   // nsGenericHTMLFrameElement::GetFrameLoader is fine
   // nsGenericHTMLFrameElement::GetAppManifestURL is fine
 
@@ -165,6 +160,7 @@ class HTMLIFrameElement final : public nsGenericHTMLFrameElement {
 
   void SetLazyLoading();
   void StopLazyLoading();
+  void CancelLazyLoading(bool aClearLazyLoadState);
 
   const LazyLoadFrameResumptionState& GetLazyLoadFrameResumptionState() const {
     return mLazyLoadState;

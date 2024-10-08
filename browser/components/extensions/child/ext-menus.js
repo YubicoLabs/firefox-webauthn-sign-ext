@@ -248,7 +248,7 @@ this.menusInternal = class extends ExtensionAPI {
           }
           pendingMenuEvent = {
             webExtContextData,
-            observe(subject, topic, data) {
+            observe(subject) {
               pendingMenuEvent = null;
               Services.obs.removeObserver(this, "on-prepare-contextmenu");
               subject = subject.wrappedJSObject;
@@ -274,6 +274,8 @@ this.menusInternal = class extends ExtensionAPI {
         onClicked: new EventManager({
           context,
           name: "menus.onClicked",
+          // Parent event already resets idle if needed, no need to do it here.
+          resetIdleOnEvent: false,
           register: fire => {
             let listener = (info, tab) => {
               withHandlingUserInput(context.contentWindow, () =>

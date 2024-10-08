@@ -7,11 +7,6 @@
 
 "use strict";
 
-ChromeUtils.defineESModuleGetters(this, {
-  CONTEXTUAL_SERVICES_PING_TYPES:
-    "resource:///modules/PartnerLinkAttribution.sys.mjs",
-});
-
 const { TELEMETRY_SCALARS } = UrlbarProviderQuickSuggest;
 
 const REMOTE_SETTINGS_RESULT = {
@@ -194,17 +189,16 @@ add_tasks_with_rust(async function nonsponsored() {
             },
           ],
         },
-        // help
+        // manage
         {
-          command: "help",
+          command: "manage",
           scalars: {
             [TELEMETRY_SCALARS.IMPRESSION_NONSPONSORED]: position,
-            [TELEMETRY_SCALARS.HELP_NONSPONSORED]: position,
           },
           event: {
             category: QuickSuggest.TELEMETRY_EVENT_CATEGORY,
             method: "engagement",
-            object: "help",
+            object: "other",
             extra: {
               suggestion_type,
               match_type,

@@ -123,7 +123,7 @@ add_task(async function testLangpackUpdateSuccess() {
   );
 
   // Reload the update manager so that we can download the same update again
-  reloadUpdateManagerData(true);
+  await reloadUpdateManagerData(true);
 });
 
 add_task(async function testLangpackUpdateFails() {
@@ -162,7 +162,7 @@ add_task(async function testLangpackUpdateFails() {
   await notified;
 
   // Reload the update manager so that we can download the same update again
-  reloadUpdateManagerData(true);
+  await reloadUpdateManagerData(true);
 });
 
 add_task(async function testLangpackStaged() {
@@ -177,9 +177,12 @@ add_task(async function testLangpackStaged() {
   copyTestUpdaterToBinDir();
 
   let greDir = getGREDir();
-  let updateSettingsIni = greDir.clone();
-  updateSettingsIni.append(FILE_UPDATE_SETTINGS_INI);
-  writeFile(updateSettingsIni, UPDATE_SETTINGS_CONTENTS);
+
+  if (AppConstants.platform != "macosx") {
+    let updateSettingsIni = greDir.clone();
+    updateSettingsIni.append(FILE_UPDATE_SETTINGS_INI);
+    writeFile(updateSettingsIni, UPDATE_SETTINGS_CONTENTS);
+  }
 
   await downloadUpdate();
 
@@ -209,7 +212,7 @@ add_task(async function testLangpackStaged() {
   await notified;
 
   // Reload the update manager so that we can download the same update again
-  reloadUpdateManagerData(true);
+  await reloadUpdateManagerData(true);
 });
 
 add_task(async function testRedownload() {
@@ -243,9 +246,9 @@ add_task(async function testRedownload() {
 
   let downloadCount = 0;
   let listener = {
-    onStartRequest: aRequest => {},
-    onProgress: (aRequest, aContext, aProgress, aMaxProgress) => {},
-    onStatus: (aRequest, aStatus, aStatusText) => {},
+    onStartRequest: _aRequest => {},
+    onProgress: (_aRequest, _aContext, _aProgress, _aMaxProgress) => {},
+    onStatus: (_aRequest, _aStatus, _aStatusText) => {},
     onStopRequest: (request, status) => {
       Assert.equal(
         status,
@@ -264,7 +267,7 @@ add_task(async function testRedownload() {
   };
   gAUS.addDownloadListener(listener);
 
-  let bestUpdate = gAUS.selectUpdate(updates);
+  let bestUpdate = await gAUS.selectUpdate(updates);
   await gAUS.downloadUpdate(bestUpdate, false);
 
   await waitForEvent("update-downloaded");
@@ -283,7 +286,7 @@ add_task(async function testRedownload() {
   );
 
   // Reload the update manager so that we can download the same update again
-  reloadUpdateManagerData(true);
+  await reloadUpdateManagerData(true);
 });
 
 add_task(async function finish() {

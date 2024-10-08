@@ -16,10 +16,13 @@ tabbrowser-menuitem-close =
 #   $containerName (String): the name of the current container.
 tabbrowser-container-tab-title = { $title } — { $containerName }
 
+# This text serves as an on-screen tooltip as well as an accessible name for
+# the "X" button that is shown on the active tab or, when multiple tabs are
+# selected, to all their "X" buttons.
 # Variables:
 #   $tabCount (Number): The number of tabs that will be closed.
-tabbrowser-close-tabs-tooltip =
-    .label =
+tabbrowser-close-tabs-button =
+    .tooltiptext =
         { $tabCount ->
             [one] Close tab
            *[other] Close { $tabCount } tabs
@@ -119,6 +122,13 @@ tabbrowser-confirm-open-multiple-tabs-checkbox = Warn me when opening multiple t
 tabbrowser-confirm-caretbrowsing-title = Caret Browsing
 tabbrowser-confirm-caretbrowsing-message = Pressing F7 turns Caret Browsing on or off. This feature places a moveable cursor in web pages, allowing you to select text with the keyboard. Do you want to turn Caret Browsing on?
 tabbrowser-confirm-caretbrowsing-checkbox = Do not show me this dialog box again.
+
+## Confirmation dialog for closing all duplicate tabs
+
+tabbrowser-confirm-close-all-duplicate-tabs-title = Close duplicate tabs?
+tabbrowser-confirm-close-all-duplicate-tabs-text = We’ll close duplicate tabs in this window. The last active
+ tab will stay open.
+tabbrowser-confirm-close-all-duplicate-tabs-button-closetabs = Close tabs
 
 ##
 

@@ -47,6 +47,8 @@ class nsLookAndFeel final : public nsXPLookAndFeel {
 
   void GetThemeInfo(nsACString&) override;
 
+  nsresult GetKeyboardLayoutImpl(nsACString& aLayout) override;
+
   static const nscolor kBlack = NS_RGB(0, 0, 0);
   static const nscolor kWhite = NS_RGB(255, 255, 255);
   void OnColorSchemeSettingChanged();
@@ -137,6 +139,7 @@ class nsLookAndFeel final : public nsXPLookAndFeel {
 
     float mCaretRatio = 0.0f;
     int32_t mTitlebarRadius = 0;
+    int32_t mTitlebarButtonSpacing = 0;
     char16_t mInvisibleCharacter = 0;
     bool mMenuSupportsDrag = false;
 

@@ -1442,7 +1442,7 @@ public class WebExtension {
               return;
             }
 
-            session.getSettings().setIsPopup(true);
+            session.getSettings().setIsExtensionPopup(true);
             session.loadUri(popupUri);
           });
     }
@@ -1574,6 +1574,9 @@ public class WebExtension {
       /** The extension type is not supported by the platform. */
       public static final int ERROR_UNSUPPORTED_ADDON_TYPE = -12;
 
+      /** The extension can only be installed via Enterprise Policies. */
+      public static final int ERROR_ADMIN_INSTALL_ONLY = -13;
+
       /** The extension install was canceled. */
       public static final int ERROR_USER_CANCELED = -100;
 
@@ -1628,6 +1631,7 @@ public class WebExtension {
           ErrorCodes.ERROR_USER_CANCELED,
           ErrorCodes.ERROR_POSTPONED,
           ErrorCodes.ERROR_UNSUPPORTED_ADDON_TYPE,
+          ErrorCodes.ERROR_ADMIN_INSTALL_ONLY,
         })
     public @interface Codes {}
 
@@ -1688,7 +1692,7 @@ public class WebExtension {
    * in Firefox. </a>
    */
   public static class SignedStateFlags {
-    // Keep in sync with AddonManager.jsm
+    // Keep in sync with AddonManager.sys.mjs
     /**
      * This extension may be signed but by a certificate that doesn't chain to our our trusted
      * certificate.
@@ -1811,22 +1815,79 @@ public class WebExtension {
     public final @NonNull Image icon;
 
     /**
-     * API permissions requested or granted to this extension.
-     *
-     * <p>Permission identifiers match entries in the manifest, see <a
-     * href="https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/permissions#API_permissions">
-     * API permissions </a>.
+     * @deprecated Use {@link MetaData#requiredPermissions} instead.
      */
+    @Deprecated
+    @DeprecationSchedule(id = "web-extension-required-permissions", version = 133)
+    public final @NonNull String[] promptPermissions;
+
+    /**
+     * @deprecated Use {@link MetaData#requiredPermissions} instead.
+     */
+    @Deprecated
+    @DeprecationSchedule(id = "web-extension-required-permissions", version = 133)
     public final @NonNull String[] permissions;
 
     /**
-     * Host permissions requested or granted to this extension.
+     * Required permissions for this extension.
+     *
+     * <p>See <a
+     * href="https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/permissions#API_permissions">
+     * API permissions </a>.
+     */
+    public final @NonNull String[] requiredPermissions;
+
+    /**
+     * @deprecated Use {@link MetaData#requiredOrigins} instead.
+     */
+    @Deprecated
+    @DeprecationSchedule(id = "web-extension-required-origins", version = 133)
+    public final @NonNull String[] origins;
+
+    /**
+     * Required origin permissions for this extension.
      *
      * <p>See <a
      * href="https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/permissions#Host_permissions">
      * Host permissions </a>.
      */
-    public final @NonNull String[] origins;
+    public final @NonNull String[] requiredOrigins;
+
+    /**
+     * Optional permissions for this extension.
+     *
+     * <p>See <a
+     * href="https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/permissions#API_permissions">
+     * API permissions </a>.
+     */
+    public final @NonNull String[] optionalPermissions;
+
+    /**
+     * Granted optional permissions for this extension.
+     *
+     * <p>See <a
+     * href="https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/permissions#API_permissions">
+     * API permissions </a>.
+     */
+    public final @NonNull String[] grantedOptionalPermissions;
+
+    /**
+     * Optional origin permissions for this extension.
+     *
+     * <p>See <a
+     * href="https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/permissions#Host_permissions">
+     * Host permissions </a>.
+     */
+    public final @NonNull String[] optionalOrigins;
+
+    /**
+     * Granted optional origin permissions for this extension.
+     *
+     * <p>See <a
+     * href="https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/permissions#Host_permissions">
+     * Host permissions </a>.
+     */
+    public final @NonNull String[] grantedOptionalOrigins;
 
     /**
      * Branding name for this extension.
@@ -1999,7 +2060,14 @@ public class WebExtension {
     protected MetaData() {
       icon = null;
       permissions = null;
+      promptPermissions = null;
       origins = null;
+      requiredPermissions = null;
+      requiredOrigins = null;
+      optionalPermissions = null;
+      optionalOrigins = null;
+      grantedOptionalPermissions = null;
+      grantedOptionalOrigins = null;
       name = null;
       description = null;
       version = null;
@@ -2027,9 +2095,15 @@ public class WebExtension {
     }
 
     /* package */ MetaData(final GeckoBundle bundle) {
-      // We only expose permissions that the embedder should prompt for
-      permissions = bundle.getStringArray("promptPermissions");
-      origins = bundle.getStringArray("origins");
+      permissions = bundle.getStringArray("requiredPermissions");
+      promptPermissions = bundle.getStringArray("requiredPermissions");
+      requiredPermissions = bundle.getStringArray("requiredPermissions");
+      origins = bundle.getStringArray("requiredOrigins");
+      requiredOrigins = bundle.getStringArray("requiredOrigins");
+      optionalPermissions = bundle.getStringArray("optionalPermissions");
+      optionalOrigins = bundle.getStringArray("optionalOrigins");
+      grantedOptionalPermissions = bundle.getStringArray("grantedOptionalPermissions");
+      grantedOptionalOrigins = bundle.getStringArray("grantedOptionalOrigins");
       description = bundle.getString("description");
       version = bundle.getString("version");
       creatorName = bundle.getString("creatorName");

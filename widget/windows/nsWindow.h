@@ -175,9 +175,6 @@ class nsWindow final : public nsBaseWidget {
   void Resize(double aWidth, double aHeight, bool aRepaint) override;
   void Resize(double aX, double aY, double aWidth, double aHeight,
               bool aRepaint) override;
-  mozilla::Maybe<bool> IsResizingNativeWidget() override;
-  void PlaceBehind(nsTopLevelWidgetZPlacement aPlacement, nsIWidget* aWidget,
-                   bool aActivate) override;
   void SetSizeMode(nsSizeMode aMode) override;
   nsSizeMode SizeMode() override;
   void GetWorkspaceID(nsAString& workspaceID) override;
@@ -191,7 +188,6 @@ class nsWindow final : public nsBaseWidget {
   [[nodiscard]] nsresult GetRestoredBounds(LayoutDeviceIntRect& aRect) override;
   LayoutDeviceIntRect GetClientBounds() override;
   LayoutDeviceIntPoint GetClientOffset() override;
-  void SetBackgroundColor(const nscolor& aColor) override;
   void SetCursor(const Cursor&) override;
   bool PrepareForFullscreenTransition(nsISupports** aData) override;
   void PerformFullscreenTransition(FullscreenTransitionStage aStage,
@@ -262,8 +258,7 @@ class nsWindow final : public nsBaseWidget {
       const LayoutDeviceIntRegion& aRegion) override;
 
   uint32_t GetMaxTouchPoints() const override;
-  void SetWindowClass(const nsAString& xulWinType, const nsAString& xulWinClass,
-                      const nsAString& xulWinName) override;
+  void SetIsEarlyBlankWindow(bool) override;
 
   /**
    * Event helpers
@@ -519,10 +514,8 @@ class nsWindow final : public nsBaseWidget {
   bool CanTakeFocus();
   bool UpdateNonClientMargins(bool aReflowWindow = true);
   void UpdateDarkModeToolbar();
-  void UpdateGetWindowInfoCaptionStatus(bool aActiveCaption);
   void ResetLayout();
   void InvalidateNonClientRegion();
-  static const wchar_t* GetMainWindowClass();
   HWND GetOwnerWnd() const { return ::GetWindow(mWnd, GW_OWNER); }
   bool IsOwnerForegroundWindow() const {
     HWND owner = GetOwnerWnd();
@@ -593,11 +586,6 @@ class nsWindow final : public nsBaseWidget {
   DWORD WindowStyle();
   DWORD WindowExStyle();
 
-  static const wchar_t* ChooseWindowClass(WindowType);
-  // This method registers the given window class, and returns the class name.
-  static const wchar_t* RegisterWindowClass(const wchar_t* aClassName,
-                                            UINT aExtraStyle, LPWSTR aIconID);
-
   /**
    * Popup hooks
    */
@@ -607,7 +595,6 @@ class nsWindow final : public nsBaseWidget {
   static bool GetPopupsToRollup(
       nsIRollupListener* aRollupListener, uint32_t* aPopupsToRollup,
       mozilla::Maybe<POINT> aEventPoint = mozilla::Nothing());
-  static bool NeedsToHandleNCActivateDelayed(HWND aWnd);
   static bool DealWithPopups(HWND inWnd, UINT inMsg, WPARAM inWParam,
                              LPARAM inLParam, LRESULT* outResult);
 
@@ -620,6 +607,9 @@ class nsWindow final : public nsBaseWidget {
   }
   bool IsSimulatedClientArea(int32_t clientX, int32_t clientY);
   bool IsWindowButton(int32_t hitTestResult);
+
+  void UpdateOpaqueRegion(const LayoutDeviceIntRegion&) override;
+  void UpdateOpaqueRegionInternal();
 
   bool DispatchTouchEventFromWMPointer(UINT msg, LPARAM aLParam,
                                        const WinPointerInfo& aPointerInfo,
@@ -730,7 +720,6 @@ class nsWindow final : public nsBaseWidget {
   HWND mWnd = nullptr;
   HWND mTransitionWnd = nullptr;
   mozilla::Maybe<WNDPROC> mPrevWndProc;
-  HBRUSH mBrush;
   IMEContext mDefaultIMC;
   HDEVNOTIFY mDeviceNotifyHandle = nullptr;
   bool mIsTopWidgetWindow = false;
@@ -749,14 +738,19 @@ class nsWindow final : public nsBaseWidget {
   bool mIsEarlyBlankWindow = false;
   bool mIsShowingPreXULSkeletonUI = false;
   bool mResizable = false;
+  bool mHasBeenShown = false;
   // Whether we're an alert window. Alert windows don't have taskbar icons and
   // don't steal focus from other windows when opened. They're also expected to
   // be of type WindowType::Dialog.
   bool mIsAlert = false;
   bool mIsPerformingDwmFlushHack = false;
   bool mDraggingWindowWithMouse = false;
-  DWORD_PTR mOldStyle = 0;
-  DWORD_PTR mOldExStyle = 0;
+  // Partial cached window-styles, for when going fullscreen. (Only window-
+  // decoration-related flags are saved here.)
+  struct WindowStyles {
+    LONG_PTR style, exStyle;
+  };
+  mozilla::Maybe<WindowStyles> mOldStyles;
   nsNativeDragTarget* mNativeDragTarget = nullptr;
   HKL mLastKeyboardLayout = 0;
   mozilla::CheckInvariantWrapper<FrameState> mFrameState;
@@ -805,6 +799,8 @@ class nsWindow final : public nsBaseWidget {
 
   // Draggable titlebar region maintained by UpdateWindowDraggingRegion
   LayoutDeviceIntRegion mDraggableRegion;
+  // Opaque region maintained by UpdateOpaqueRegion
+  LayoutDeviceIntRegion mOpaqueRegion;
 
   // Graphics
   LayoutDeviceIntRect mLastPaintBounds;
@@ -813,7 +809,6 @@ class nsWindow final : public nsBaseWidget {
 
   // Transparency
   TransparencyMode mTransparencyMode = TransparencyMode::Opaque;
-  nsIntRegion mPossiblyTransparentRegion;
 
   // Win7 Gesture processing and management
   nsWinGesture mGesture;
@@ -870,7 +865,7 @@ class nsWindow final : public nsBaseWidget {
   class MOZ_STACK_CLASS ContextMenuPreventer final {
    public:
     explicit ContextMenuPreventer(nsWindow* aWindow)
-        : mWindow(aWindow), mNeedsToPreventContextMenu(false){};
+        : mWindow(aWindow), mNeedsToPreventContextMenu(false) {};
     ~ContextMenuPreventer() {
       mWindow->mNeedsToPreventContextMenu = mNeedsToPreventContextMenu;
     }
@@ -887,8 +882,8 @@ class nsWindow final : public nsBaseWidget {
   mozilla::UniquePtr<mozilla::widget::DirectManipulationOwner> mDmOwner;
 
   // Client rect for minimize, maximize and close buttons.
-  mozilla::EnumeratedArray<WindowButtonType, WindowButtonType::Count,
-                           LayoutDeviceIntRect>
+  mozilla::EnumeratedArray<WindowButtonType, LayoutDeviceIntRect,
+                           size_t(WindowButtonType::Count)>
       mWindowBtnRect;
 
   mozilla::DataMutex<Desktop> mDesktopId;

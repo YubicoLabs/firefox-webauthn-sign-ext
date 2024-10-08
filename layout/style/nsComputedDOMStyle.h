@@ -120,6 +120,8 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
     mExposeVisitedStyle = aExpose;
   }
 
+  float UsedFontSize() final;
+
   void GetCSSImageURLs(const nsACString& aPropertyName,
                        nsTArray<nsCString>& aImageURLs,
                        mozilla::ErrorResult& aRv) final;
@@ -131,7 +133,7 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
       Operation aOperation, mozilla::DeclarationBlock** aCreated) final;
   virtual nsresult SetCSSDeclaration(mozilla::DeclarationBlock*,
                                      mozilla::MutationClosureData*) override;
-  virtual mozilla::dom::Document* DocToUpdate() override;
+  virtual mozilla::dom::Document* DocToUpdate() final;
 
   nsDOMCSSDeclaration::ParsingEnvironment GetParsingEnvironment(
       nsIPrincipal* aSubjectPrincipal) const final;
@@ -146,6 +148,10 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
   NS_DECL_NSIMUTATIONOBSERVER_PARENTCHAINCHANGED
 
  private:
+  already_AddRefed<nsROCSSPrimitiveValue> AppUnitsToCSSValue(nscoord);
+  already_AddRefed<nsROCSSPrimitiveValue> PixelsToCSSValue(float);
+  void SetValueToPixels(nsROCSSPrimitiveValue*, float);
+
   void GetPropertyValue(const nsCSSPropertyID aPropID,
                         const nsACString& aMaybeCustomPropertyNme,
                         nsACString& aValue);
@@ -289,6 +295,10 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
   void SetValueToLengthPercentageOrAuto(nsROCSSPrimitiveValue* aValue,
                                         const LengthPercentageOrAuto&,
                                         bool aClampNegativeCalc);
+  void SetValueToInset(nsROCSSPrimitiveValue* aValue,
+                       const mozilla::StyleInset&);
+  void SetValueToMargin(nsROCSSPrimitiveValue* aValue,
+                        const mozilla::StyleMargin&);
 
   void SetValueToLengthPercentage(nsROCSSPrimitiveValue* aValue,
                                   const LengthPercentage&,
@@ -312,6 +322,10 @@ class nsComputedDOMStyle final : public nsDOMCSSDeclaration,
   // Find out if we need to flush layout of the document, depending on the
   // property that was requested.
   bool NeedsToFlushLayout(nsCSSPropertyID) const;
+  // Find out if we need to flush layout of the document due to container
+  // query being made before relevant query containers are reflowed at least
+  // once.
+  bool NeedsToFlushLayoutForContainerQuery() const;
   // Flushes the given document, which must be our document, and potentially the
   // mElement's document.
   void Flush(Document&, mozilla::FlushType);

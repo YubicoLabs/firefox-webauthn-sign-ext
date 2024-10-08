@@ -21,7 +21,7 @@ use crate::{
     packet::PacketBuilder,
     path::PathRef,
     recovery::RecoveryToken,
-    ConnectionError, Error, Res,
+    CloseReason, Error,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -42,31 +42,32 @@ pub enum State {
     Connected,
     Confirmed,
     Closing {
-        error: ConnectionError,
+        error: CloseReason,
         timeout: Instant,
     },
     Draining {
-        error: ConnectionError,
+        error: CloseReason,
         timeout: Instant,
     },
-    Closed(ConnectionError),
+    Closed(CloseReason),
 }
 
 impl State {
     #[must_use]
-    pub fn connected(&self) -> bool {
+    pub const fn connected(&self) -> bool {
         matches!(self, Self::Connected | Self::Confirmed)
     }
 
     #[must_use]
-    pub fn closed(&self) -> bool {
+    pub const fn closed(&self) -> bool {
         matches!(
             self,
             Self::Closing { .. } | Self::Draining { .. } | Self::Closed(_)
         )
     }
 
-    pub fn error(&self) -> Option<&ConnectionError> {
+    #[must_use]
+    pub const fn error(&self) -> Option<&CloseReason> {
         if let Self::Closing { error, .. } | Self::Draining { error, .. } | Self::Closed(error) =
             self
         {
@@ -74,6 +75,11 @@ impl State {
         } else {
             None
         }
+    }
+
+    #[must_use]
+    pub const fn closing(&self) -> bool {
+        matches!(self, Self::Closing { .. } | Self::Draining { .. })
     }
 }
 
@@ -89,7 +95,6 @@ impl Ord for State {
         if mem::discriminant(self) == mem::discriminant(other) {
             return Ordering::Equal;
         }
-        #[allow(clippy::match_same_arms)] // Lint bug: rust-lang/rust-clippy#860
         match (self, other) {
             (Self::Init, _) => Ordering::Less,
             (_, Self::Init) => Ordering::Greater,
@@ -115,7 +120,7 @@ impl Ord for State {
 #[derive(Debug, Clone)]
 pub struct ClosingFrame {
     path: PathRef,
-    error: ConnectionError,
+    error: CloseReason,
     frame_type: FrameType,
     reason_phrase: Vec<u8>,
 }
@@ -123,7 +128,7 @@ pub struct ClosingFrame {
 impl ClosingFrame {
     fn new(
         path: PathRef,
-        error: ConnectionError,
+        error: CloseReason,
         frame_type: FrameType,
         message: impl AsRef<str>,
     ) -> Self {
@@ -136,17 +141,17 @@ impl ClosingFrame {
         }
     }
 
-    pub fn path(&self) -> &PathRef {
+    pub const fn path(&self) -> &PathRef {
         &self.path
     }
 
     pub fn sanitize(&self) -> Option<Self> {
-        if let ConnectionError::Application(_) = self.error {
+        if let CloseReason::Application(_) = self.error {
             // The default CONNECTION_CLOSE frame that is sent when an application
             // error code needs to be sent in an Initial or Handshake packet.
             Some(Self {
                 path: Rc::clone(&self.path),
-                error: ConnectionError::Transport(Error::ApplicationError),
+                error: CloseReason::Transport(Error::ApplicationError),
                 frame_type: 0,
                 reason_phrase: Vec::new(),
             })
@@ -155,19 +160,22 @@ impl ClosingFrame {
         }
     }
 
+    /// Length of a closing frame with a truncated `reason_length`. Allow 8 bytes for the reason
+    /// phrase to ensure that if it needs to be truncated there is still at least a few bytes of
+    /// the value.
+    pub const MIN_LENGTH: usize = 1 + 8 + 8 + 2 + 8;
+
     pub fn write_frame(&self, builder: &mut PacketBuilder) {
-        // Allow 8 bytes for the reason phrase to ensure that if it needs to be
-        // truncated there is still at least a few bytes of the value.
-        if builder.remaining() < 1 + 8 + 8 + 2 + 8 {
+        if builder.remaining() < Self::MIN_LENGTH {
             return;
         }
         match &self.error {
-            ConnectionError::Transport(e) => {
+            CloseReason::Transport(e) => {
                 builder.encode_varint(FRAME_TYPE_CONNECTION_CLOSE_TRANSPORT);
                 builder.encode_varint(e.code());
                 builder.encode_varint(self.frame_type);
             }
-            ConnectionError::Application(code) => {
+            CloseReason::Application(code) => {
                 builder.encode_varint(FRAME_TYPE_CONNECTION_CLOSE_APPLICATION);
                 builder.encode_varint(*code);
             }
@@ -184,13 +192,13 @@ impl ClosingFrame {
     }
 }
 
-/// `StateSignaling` manages whether we need to send HANDSHAKE_DONE and CONNECTION_CLOSE.
+/// `StateSignaling` manages whether we need to send `HANDSHAKE_DONE` and `CONNECTION_CLOSE`.
 /// Valid state transitions are:
-/// * Idle -> HandshakeDone: at the server when the handshake completes
-/// * HandshakeDone -> Idle: when a HANDSHAKE_DONE frame is sent
+/// * Idle -> `HandshakeDone`: at the server when the handshake completes
+/// * `HandshakeDone` -> Idle: when a `HANDSHAKE_DONE` frame is sent
 /// * Idle/HandshakeDone -> Closing/Draining: when closing or draining
-/// * Closing/Draining -> CloseSent: after sending CONNECTION_CLOSE
-/// * CloseSent -> Closing: any time a new CONNECTION_CLOSE is needed
+/// * Closing/Draining -> `CloseSent`: after sending `CONNECTION_CLOSE`
+/// * `CloseSent` -> Closing: any time a new `CONNECTION_CLOSE` is needed
 /// * -> Reset: from any state in case of a stateless reset
 #[derive(Debug, Clone)]
 pub enum StateSignaling {
@@ -208,26 +216,25 @@ pub enum StateSignaling {
 impl StateSignaling {
     pub fn handshake_done(&mut self) {
         if !matches!(self, Self::Idle) {
-            debug_assert!(false, "StateSignaling must be in Idle state.");
             return;
         }
         *self = Self::HandshakeDone;
     }
 
-    pub fn write_done(&mut self, builder: &mut PacketBuilder) -> Res<Option<RecoveryToken>> {
+    pub fn write_done(&mut self, builder: &mut PacketBuilder) -> Option<RecoveryToken> {
         if matches!(self, Self::HandshakeDone) && builder.remaining() >= 1 {
             *self = Self::Idle;
             builder.encode_varint(FRAME_TYPE_HANDSHAKE_DONE);
-            Ok(Some(RecoveryToken::HandshakeDone))
+            Some(RecoveryToken::HandshakeDone)
         } else {
-            Ok(None)
+            None
         }
     }
 
     pub fn close(
         &mut self,
         path: PathRef,
-        error: ConnectionError,
+        error: CloseReason,
         frame_type: FrameType,
         message: impl AsRef<str>,
     ) {
@@ -239,7 +246,7 @@ impl StateSignaling {
     pub fn drain(
         &mut self,
         path: PathRef,
-        error: ConnectionError,
+        error: CloseReason,
         frame_type: FrameType,
         message: impl AsRef<str>,
     ) {

@@ -14,6 +14,7 @@
 #include "GLTypes.h"  // for GLenum
 #include "nsISupportsImpl.h"
 #include "mozilla/gfx/Point.h"
+#include "mozilla/Hal.h"
 #include "mozilla/MozPromise.h"
 #include "mozilla/DataMutex.h"
 #include "mozilla/Maybe.h"
@@ -44,6 +45,7 @@ typedef MozPromise<MemoryReport, bool, true> MemoryReportPromise;
 
 class RendererOGL;
 class RenderTextureHost;
+class RenderTextureHostUsageInfo;
 class RenderThread;
 
 /// A rayon thread pool that is shared by all WebRender instances within a
@@ -67,6 +69,22 @@ class WebRenderThreadPool {
 
  protected:
   wr::WrThreadPool* mThreadPool;
+};
+
+/// An optional dedicated thread for glyph rasterization shared by all WebRender
+/// instances within a process.
+class MaybeWebRenderGlyphRasterThread {
+ public:
+  explicit MaybeWebRenderGlyphRasterThread(bool aEnabled);
+
+  ~MaybeWebRenderGlyphRasterThread();
+
+  bool IsEnabled() const { return mThread != nullptr; }
+
+  const wr::WrGlyphRasterThread* Raw() { return mThread; }
+
+ protected:
+  wr::WrGlyphRasterThread* mThread;
 };
 
 class WebRenderProgramCache final {
@@ -187,7 +205,7 @@ class RenderThread final {
                        const Maybe<gfx::IntSize>& aReadbackSize,
                        const Maybe<wr::ImageFormat>& aReadbackFormat,
                        const Maybe<Range<uint8_t>>& aReadbackBuffer,
-                       bool* aNeedsYFlip = nullptr);
+                       RendererStats* aStats, bool* aNeedsYFlip = nullptr);
 
   void Pause(wr::WindowId aWindowId);
   bool Resume(wr::WindowId aWindowId);
@@ -214,6 +232,11 @@ class RenderThread final {
 
   void HandleRenderTextureOps();
 
+  /// Can be called from any thread.
+  RefPtr<RenderTextureHostUsageInfo> GetOrMergeUsageInfo(
+      const wr::ExternalImageId& aExternalImageId,
+      RefPtr<RenderTextureHostUsageInfo> aUsageInfo);
+
   /// Can only be called from the render thread.
   void UnregisterExternalImageDuringShutdown(
       const wr::ExternalImageId& aExternalImageId);
@@ -221,6 +244,10 @@ class RenderThread final {
   /// Can only be called from the render thread.
   RenderTextureHost* GetRenderTexture(
       const wr::ExternalImageId& aExternalImageId);
+
+  /// Can only be called from the render thread.
+  std::tuple<RenderTextureHost*, RefPtr<RenderTextureHostUsageInfo>>
+  GetRenderTextureAndUsageInfo(const wr::ExternalImageId& aExternalImageId);
 
   /// Can be called from any thread.
   bool IsDestroyed(wr::WindowId aWindowId);
@@ -249,6 +276,12 @@ class RenderThread final {
   /// Can be called from any thread.
   WebRenderThreadPool& ThreadPoolLP() { return mThreadPoolLP; }
 
+  /// Optional global glyph raster thread.
+  /// Can be called from any thread.
+  MaybeWebRenderGlyphRasterThread& GlyphRasterThread() {
+    return mGlyphRasterThread;
+  }
+
   /// Returns the cache used to serialize shader programs to disk, if enabled.
   ///
   /// Can only be called from the render thread.
@@ -274,7 +307,8 @@ class RenderThread final {
   RefPtr<layers::ShaderProgramOGLsHolder> GetProgramsForCompositorOGL();
 
   /// Can only be called from the render thread.
-  void HandleDeviceReset(const char* aWhere, GLenum aReason);
+  void HandleDeviceReset(gfx::DeviceResetDetectPlace aPlace,
+                         gfx::DeviceResetReason aReason);
   /// Can only be called from the render thread.
   bool IsHandlingDeviceReset();
   /// Can be called from any thread.
@@ -292,7 +326,8 @@ class RenderThread final {
   bool SyncObjectNeeded();
 
   size_t RendererCount() const;
-  size_t ActiveRendererCount() const;
+  size_t ActiveRendererCount() const { return sActiveRendererCount; };
+  void UpdateActiveRendererCount();
 
   void BeginRecordingForWindow(wr::WindowId aWindowId,
                                const TimeStamp& aRecordingStart,
@@ -302,7 +337,13 @@ class RenderThread final {
 
   static void MaybeEnableGLDebugMessage(gl::GLContext* aGLContext);
 
+  void SetBatteryInfo(const hal::BatteryInformation& aBatteryInfo);
+  bool GetPowerIsCharging();
+
  private:
+  static size_t sRendererCount;
+  static size_t sActiveRendererCount;
+
   enum class RenderTextureOp {
     PrepareForUse,
     NotifyForUse,
@@ -420,6 +461,7 @@ class RenderThread final {
 
   WebRenderThreadPool mThreadPool;
   WebRenderThreadPool mThreadPoolLP;
+  MaybeWebRenderGlyphRasterThread mGlyphRasterThread;
 
   UniquePtr<WebRenderProgramCache> mProgramCache;
   UniquePtr<WebRenderShaders> mShaders;
@@ -433,6 +475,8 @@ class RenderThread final {
   RefPtr<layers::SurfacePool> mSurfacePool;
 
   std::map<wr::WindowId, UniquePtr<RendererOGL>> mRenderers;
+
+  DataMutex<Maybe<hal::BatteryInformation>> mBatteryInfo;
 
   struct PendingFrameInfo {
     TimeStamp mStartTime;
@@ -478,6 +522,11 @@ class RenderThread final {
 
   RefPtr<nsIRunnable> mRenderTextureOpsRunnable
       MOZ_GUARDED_BY(mRenderTextureMapLock);
+
+#ifdef DEBUG
+  // used for tests only to ensure render textures don't increase
+  int32_t mRenderTexturesLastTime MOZ_GUARDED_BY(mRenderTextureMapLock) = -1;
+#endif
 
   // Set from MainThread, read from either MainThread or RenderThread
   bool mHasShutdown;

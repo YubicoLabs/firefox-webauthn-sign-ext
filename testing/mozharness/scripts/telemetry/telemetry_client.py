@@ -1,9 +1,7 @@
 #!/usr/bin/env python
-# ***** BEGIN LICENSE BLOCK *****
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this file,
 # You can obtain one at http://mozilla.org/MPL/2.0/.
-# ***** END LICENSE BLOCK *****
 
 
 import copy
@@ -138,7 +136,7 @@ class TelemetryTests(TestingMixin, VCSToolsScript, CodeCoverageMixin):
             "config",
             "telemetry_tests_requirements.txt",
         )
-        self.register_virtualenv_module(requirements=[requirements], two_pass=True)
+        self.register_virtualenv_module(requirements=[requirements])
 
     def query_abs_dirs(self):
         if self.abs_dirs:

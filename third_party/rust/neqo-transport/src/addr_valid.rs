@@ -7,7 +7,6 @@
 // This file implements functions necessary for address validation.
 
 use std::{
-    convert::TryFrom,
     net::{IpAddr, SocketAddr},
     time::{Duration, Instant},
 };
@@ -23,15 +22,15 @@ use crate::{
     cid::ConnectionId, packet::PacketBuilder, recovery::RecoveryToken, stats::FrameStats, Res,
 };
 
-/// A prefix we add to Retry tokens to distinguish them from NEW_TOKEN tokens.
+/// A prefix we add to Retry tokens to distinguish them from `NEW_TOKEN` tokens.
 const TOKEN_IDENTIFIER_RETRY: &[u8] = &[0x52, 0x65, 0x74, 0x72, 0x79];
-/// A prefix on NEW_TOKEN tokens, that is maximally Hamming distant from NEW_TOKEN.
+/// A prefix on `NEW_TOKEN` tokens, that is maximally Hamming distant from `NEW_TOKEN`.
 /// Together, these need to have a low probability of collision, even if there is
 /// corruption of individual bits in transit.
 const TOKEN_IDENTIFIER_NEW_TOKEN: &[u8] = &[0xad, 0x9a, 0x8b, 0x8d, 0x86];
 
-/// The maximum number of tokens we'll save from NEW_TOKEN frames.
-/// This should be the same as the value of MAX_TICKETS in neqo-crypto.
+/// The maximum number of tokens we'll save from `NEW_TOKEN` frames.
+/// This should be the same as the value of `MAX_TICKETS` in neqo-crypto.
 const MAX_NEW_TOKEN: usize = 4;
 /// The number of tokens we'll track for the purposes of looking for duplicates.
 /// This is based on how many might be received over a period where could be
@@ -44,9 +43,9 @@ const MAX_SAVED_TOKENS: usize = 8;
 pub enum ValidateAddress {
     /// Require address validation never.
     Never,
-    /// Require address validation unless a NEW_TOKEN token is provided.
+    /// Require address validation unless a `NEW_TOKEN` token is provided.
     NoToken,
-    /// Require address validation even if a NEW_TOKEN token is provided.
+    /// Require address validation even if a `NEW_TOKEN` token is provided.
     Always,
 }
 
@@ -143,7 +142,7 @@ impl AddressValidation {
         self.generate_token(Some(dcid), peer_address, now)
     }
 
-    /// This generates a token for use with NEW_TOKEN.
+    /// This generates a token for use with `NEW_TOKEN`.
     pub fn generate_new_token(&self, peer_address: SocketAddr, now: Instant) -> Res<Vec<u8>> {
         self.generate_token(None, peer_address, now)
     }
@@ -184,7 +183,7 @@ impl AddressValidation {
     /// Less than one difference per byte indicates that it is likely not a Retry.
     /// This generous interpretation allows for a lot of damage in transit.
     /// Note that if this check fails, then the token will be treated like it came
-    /// from NEW_TOKEN instead.  If there truly is corruption of packets that causes
+    /// from `NEW_TOKEN` instead.  If there truly is corruption of packets that causes
     /// validation failure, it will be a failure that we try to recover from.
     fn is_likely_retry(token: &[u8]) -> bool {
         let mut difference = 0;
@@ -210,10 +209,9 @@ impl AddressValidation {
             if self.validation == ValidateAddress::Never {
                 qinfo!("AddressValidation: no token; accepting");
                 return AddressValidationResult::Pass;
-            } else {
-                qinfo!("AddressValidation: no token; validating");
-                return AddressValidationResult::Validate;
             }
+            qinfo!("AddressValidation: no token; validating");
+            return AddressValidationResult::Validate;
         }
         if token.len() <= TOKEN_IDENTIFIER_RETRY.len() {
             // Treat bad tokens strictly.
@@ -224,6 +222,7 @@ impl AddressValidation {
         let enc = &token[TOKEN_IDENTIFIER_RETRY.len()..];
         // Note that this allows the token identifier part to be corrupted.
         // That's OK here as we don't depend on that being authenticated.
+        #[allow(clippy::option_if_let_else)]
         if let Some(cid) = self.decrypt_token(enc, peer_address, retry, now) {
             if retry {
                 // This is from Retry, so we should have an ODCID >= 8.
@@ -231,7 +230,7 @@ impl AddressValidation {
                     qinfo!("AddressValidation: valid Retry token for {}", cid);
                     AddressValidationResult::ValidRetry(cid)
                 } else {
-                    panic!("AddressValidation: Retry token with small CID {}", cid);
+                    panic!("AddressValidation: Retry token with small CID {cid}");
                 }
             } else if cid.is_empty() {
                 // An empty connection ID means NEW_TOKEN.
@@ -243,7 +242,7 @@ impl AddressValidation {
                     AddressValidationResult::Pass
                 }
             } else {
-                panic!("AddressValidation: NEW_TOKEN token with CID {}", cid);
+                panic!("AddressValidation: NEW_TOKEN token with CID {cid}");
             }
         } else {
             // From here on, we have a token that we couldn't decrypt.
@@ -268,7 +267,7 @@ impl AddressValidation {
 
 // Note: these lint override can be removed in later versions where the lints
 // either don't trip a false positive or don't apply.  rustc 1.46 is fine.
-#[allow(dead_code, clippy::large_enum_variant)]
+#[allow(clippy::large_enum_variant)]
 pub enum NewTokenState {
     Client {
         /// Tokens that haven't been taken yet.
@@ -306,15 +305,13 @@ impl NewTokenState {
             ref mut old,
         } = self
         {
-            if let Some(t) = pending.pop() {
+            pending.pop().map(|t| {
                 if old.len() >= MAX_SAVED_TOKENS {
                     old.remove(0);
                 }
                 old.push(t);
-                Some(&old[old.len() - 1])
-            } else {
-                None
-            }
+                old[old.len() - 1].as_slice()
+            })
         } else {
             unreachable!();
         }
@@ -351,14 +348,13 @@ impl NewTokenState {
         builder: &mut PacketBuilder,
         tokens: &mut Vec<RecoveryToken>,
         stats: &mut FrameStats,
-    ) -> Res<()> {
+    ) {
         if let Self::Server(ref mut sender) = self {
-            sender.write_frames(builder, tokens, stats)?;
+            sender.write_frames(builder, tokens, stats);
         }
-        Ok(())
     }
 
-    /// If this a server, buffer a NEW_TOKEN for sending.
+    /// If this a server, buffer a `NEW_TOKEN` for sending.
     /// If this is a client, panic.
     pub fn send_new_token(&mut self, token: Vec<u8>) {
         if let Self::Server(ref mut sender) = self {
@@ -368,7 +364,7 @@ impl NewTokenState {
         }
     }
 
-    /// If this a server, process a lost signal for a NEW_TOKEN frame.
+    /// If this a server, process a lost signal for a `NEW_TOKEN` frame.
     /// If this is a client, panic.
     pub fn lost(&mut self, seqno: usize) {
         if let Self::Server(ref mut sender) = self {
@@ -378,7 +374,7 @@ impl NewTokenState {
         }
     }
 
-    /// If this a server, process remove the acknowledged NEW_TOKEN frame.
+    /// If this a server, process remove the acknowledged `NEW_TOKEN` frame.
     /// If this is a client, panic.
     pub fn acked(&mut self, seqno: usize) {
         if let Self::Server(ref mut sender) = self {
@@ -403,7 +399,7 @@ impl NewTokenFrameStatus {
 
 #[derive(Default)]
 pub struct NewTokenSender {
-    /// The unacknowledged NEW_TOKEN frames we are yet to send.
+    /// The unacknowledged `NEW_TOKEN` frames we are yet to send.
     tokens: Vec<NewTokenFrameStatus>,
     /// A sequence number that is used to track individual tokens
     /// by reference (so that recovery tokens can be simple).
@@ -426,8 +422,8 @@ impl NewTokenSender {
         builder: &mut PacketBuilder,
         tokens: &mut Vec<RecoveryToken>,
         stats: &mut FrameStats,
-    ) -> Res<()> {
-        for t in self.tokens.iter_mut() {
+    ) {
+        for t in &mut self.tokens {
             if t.needs_sending && t.len() <= builder.remaining() {
                 t.needs_sending = false;
 
@@ -438,11 +434,10 @@ impl NewTokenSender {
                 stats.new_token += 1;
             }
         }
-        Ok(())
     }
 
     pub fn lost(&mut self, seqno: usize) {
-        for t in self.tokens.iter_mut() {
+        for t in &mut self.tokens {
             if t.seqno == seqno {
                 t.needs_sending = true;
                 break;

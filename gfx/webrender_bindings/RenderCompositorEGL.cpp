@@ -91,8 +91,8 @@ bool RenderCompositorEGL::BeginFrame() {
 #ifdef MOZ_WIDGET_GTK
   if (mWidget->AsGTK()) {
     if (!mWidget->AsGTK()->SetEGLNativeWindowSize(GetBufferSize())) {
-      gfxCriticalNote
-          << "We don't have GTK/EGLWindow with correct size, can't draw.";
+      // It's possible that GtkWidget is hidden on Wayland; e.g. maybe it's
+      // just been closed. So, we can't draw into it right now.
       return false;
     }
   }
@@ -154,6 +154,16 @@ RenderedFrameId RenderCompositorEGL::EndFrame(
     }
     gl()->SetDamage(bufferInvalid);
   }
+
+#ifdef MOZ_WIDGET_GTK
+  // Rendering on Wayland has to be atomic (buffer attach + commit) and
+  // wayland surface is also used by main thread so lock it before
+  // we paint at SwapBuffers().
+  UniquePtr<MozContainerSurfaceLock> lock;
+  if (auto* gtkWidget = mWidget->AsGTK()) {
+    lock = gtkWidget->LockSurface();
+  }
+#endif
   gl()->SwapBuffers();
   return frameId;
 }

@@ -12,13 +12,13 @@ use uniffi_bindgen::interface::{
     Literal, Method, Object, Radix, Record, Type,
 };
 
-fn arg_names(args: &[&Argument]) -> String {
+fn js_arg_names(args: &[&Argument]) -> String {
     args.iter()
         .map(|arg| {
             if let Some(default_value) = arg.default_value() {
-                format!("{} = {}", arg.nm(), default_value.render())
+                format!("{} = {}", arg.js_name(), default_value.render())
             } else {
-                arg.nm()
+                arg.js_name()
             }
         })
         .collect::<Vec<String>>()
@@ -92,7 +92,8 @@ pub impl Literal {
             Literal::Enum(name, typ) => render_enum_literal(typ, name),
             Literal::EmptyMap => "{}".to_string(),
             Literal::EmptySequence => "[]".to_string(),
-            Literal::Null => "null".to_string(),
+            Literal::Some { inner } => inner.render(),
+            Literal::None => "null".to_string(),
         }
     }
 }
@@ -113,7 +114,7 @@ pub impl Radix {
 
 #[ext(name=RecordJSExt)]
 pub impl Record {
-    fn nm(&self) -> String {
+    fn js_name(&self) -> String {
         self.name().to_upper_camel_case()
     }
 
@@ -123,9 +124,9 @@ pub impl Record {
             .iter()
             .map(|field| {
                 if let Some(default_value) = field.default_value() {
-                    format!("{} = {}", field.nm(), default_value.render())
+                    format!("{} = {}", field.js_name(), default_value.render())
                 } else {
-                    field.nm()
+                    field.js_name()
                 }
             })
             .collect::<Vec<String>>()
@@ -136,18 +137,18 @@ pub impl Record {
 
 #[ext(name=CallbackInterfaceJSExt)]
 pub impl CallbackInterface {
-    fn nm(&self) -> String {
+    fn js_name(&self) -> String {
         self.name().to_upper_camel_case()
     }
 
     fn handler(&self) -> String {
-        format!("callbackHandler{}", self.nm())
+        format!("callbackHandler{}", self.js_name())
     }
 }
 
 #[ext(name=FieldJSExt)]
 pub impl Field {
-    fn nm(&self) -> String {
+    fn js_name(&self) -> String {
         self.name().to_lower_camel_case()
     }
 
@@ -178,7 +179,7 @@ pub impl Field {
 
 #[ext(name=ArgumentJSExt)]
 pub impl Argument {
-    fn nm(&self) -> String {
+    fn js_name(&self) -> String {
         self.name().to_lower_camel_case()
     }
 
@@ -258,7 +259,6 @@ pub impl Type {
             | Type::CallbackInterface { name, .. } => format!("Type{name}"),
             Type::Timestamp => "Timestamp".into(),
             Type::Duration => "Duration".into(),
-            Type::ForeignExecutor => "ForeignExecutor".into(),
             Type::Optional { inner_type } => format!("Optional{}", inner_type.canonical_name()),
             Type::Sequence { inner_type } => format!("Sequence{}", inner_type.canonical_name()),
             Type::Map {
@@ -283,32 +283,32 @@ pub impl Type {
 
 #[ext(name=EnumJSExt)]
 pub impl Enum {
-    fn nm(&self) -> String {
+    fn js_name(&self) -> String {
         self.name().to_upper_camel_case()
     }
 }
 
 #[ext(name=FunctionJSExt)]
 pub impl Function {
-    fn arg_names(&self) -> String {
-        arg_names(self.arguments().as_slice())
+    fn js_arg_names(&self) -> String {
+        js_arg_names(self.arguments().as_slice())
     }
 
-    fn nm(&self) -> String {
+    fn js_name(&self) -> String {
         self.name().to_lower_camel_case()
     }
 }
 
 #[ext(name=ObjectJSExt)]
 pub impl Object {
-    fn nm(&self) -> String {
+    fn js_name(&self) -> String {
         self.name().to_upper_camel_case()
     }
 }
 
 #[ext(name=ConstructorJSExt)]
 pub impl Constructor {
-    fn nm(&self) -> String {
+    fn js_name(&self) -> String {
         if self.is_primary_constructor() {
             "init".to_string()
         } else {
@@ -316,18 +316,18 @@ pub impl Constructor {
         }
     }
 
-    fn arg_names(&self) -> String {
-        arg_names(&self.arguments().as_slice())
+    fn js_arg_names(&self) -> String {
+        js_arg_names(&self.arguments().as_slice())
     }
 }
 
 #[ext(name=MethodJSExt)]
 pub impl Method {
-    fn arg_names(&self) -> String {
-        arg_names(self.arguments().as_slice())
+    fn js_arg_names(&self) -> String {
+        js_arg_names(self.arguments().as_slice())
     }
 
-    fn nm(&self) -> String {
+    fn js_name(&self) -> String {
         self.name().to_lower_camel_case()
     }
 }

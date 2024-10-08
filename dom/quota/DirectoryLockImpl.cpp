@@ -12,17 +12,32 @@
 
 namespace mozilla::dom::quota {
 
+namespace {
+
+/**
+ * Automatically log information about a directory lock if acquiring of the
+ * directory lock takes this long. We've chosen a value that is long enough
+ * that it is unlikely for the problem to be falsely triggered by slow system
+ * I/O. We've also chosen a value long enough so that testers can notice the
+ * timeout; we want to know about the timeouts, not hide them. On the other
+ * hand this value is less than 45 seconds which is used by quota manager to
+ * crash a hung quota manager shutdown.
+ */
+const uint32_t kAcquireTimeoutMs = 30000;
+
+}  // namespace
+
 DirectoryLockImpl::DirectoryLockImpl(
     MovingNotNull<RefPtr<QuotaManager>> aQuotaManager,
-    const Nullable<PersistenceType>& aPersistenceType,
-    const nsACString& aSuffix, const nsACString& aGroup,
-    const OriginScope& aOriginScope, const nsACString& aStorageOrigin,
-    bool aIsPrivate, const Nullable<Client::Type>& aClientType,
-    const bool aExclusive, const bool aInternal,
+    const PersistenceScope& aPersistenceScope, const nsACString& aSuffix,
+    const nsACString& aGroup, const OriginScope& aOriginScope,
+    const nsACString& aStorageOrigin, bool aIsPrivate,
+    const Nullable<Client::Type>& aClientType, const bool aExclusive,
+    const bool aInternal,
     const ShouldUpdateLockIdTableFlag aShouldUpdateLockIdTableFlag,
     const DirectoryLockCategory aCategory)
     : mQuotaManager(std::move(aQuotaManager)),
-      mPersistenceType(aPersistenceType),
+      mPersistenceScope(aPersistenceScope),
       mSuffix(aSuffix),
       mGroup(aGroup),
       mOriginScope(aOriginScope),
@@ -38,9 +53,9 @@ DirectoryLockImpl::DirectoryLockImpl(
       mRegistered(false) {
   AssertIsOnOwningThread();
   MOZ_ASSERT_IF(aOriginScope.IsOrigin(), !aOriginScope.GetOrigin().IsEmpty());
-  MOZ_ASSERT_IF(!aInternal, !aPersistenceType.IsNull());
+  MOZ_ASSERT_IF(!aInternal, aPersistenceScope.IsValue());
   MOZ_ASSERT_IF(!aInternal,
-                aPersistenceType.Value() != PERSISTENCE_TYPE_INVALID);
+                aPersistenceScope.GetValue() != PERSISTENCE_TYPE_INVALID);
   MOZ_ASSERT_IF(!aInternal, !aGroup.IsEmpty());
   MOZ_ASSERT_IF(!aInternal, aOriginScope.IsOrigin());
   MOZ_ASSERT_IF(!aInternal, !aStorageOrigin.IsEmpty());
@@ -54,10 +69,7 @@ DirectoryLockImpl::DirectoryLockImpl(
 
 DirectoryLockImpl::~DirectoryLockImpl() {
   AssertIsOnOwningThread();
-
-  if (!mDropped) {
-    Drop();
-  }
+  MOZ_DIAGNOSTIC_ASSERT(!mRegistered);
 }
 
 #ifdef DEBUG
@@ -72,13 +84,13 @@ bool DirectoryLockImpl::Overlaps(const DirectoryLockImpl& aLock) const {
   AssertIsOnOwningThread();
 
   // If the persistence types don't overlap, the op can proceed.
-  if (!aLock.mPersistenceType.IsNull() && !mPersistenceType.IsNull() &&
-      aLock.mPersistenceType.Value() != mPersistenceType.Value()) {
+  bool match = aLock.mPersistenceScope.Matches(mPersistenceScope);
+  if (!match) {
     return false;
   }
 
   // If the origin scopes don't overlap, the op can proceed.
-  bool match = aLock.mOriginScope.Matches(mOriginScope);
+  match = aLock.mOriginScope.Matches(mOriginScope);
   if (!match) {
     return false;
   }
@@ -108,6 +120,11 @@ bool DirectoryLockImpl::MustWaitFor(const DirectoryLockImpl& aLock) const {
 
 void DirectoryLockImpl::NotifyOpenListener() {
   AssertIsOnOwningThread();
+
+  if (mAcquireTimer) {
+    mAcquireTimer->Cancel();
+    mAcquireTimer = nullptr;
+  }
 
   if (mInvalidated) {
     mAcquirePromiseHolder.Reject(NS_ERROR_FAILURE, __func__);
@@ -233,6 +250,23 @@ void DirectoryLockImpl::AcquireInternal() {
     return;
   }
 
+  mAcquireTimer = NS_NewTimer();
+
+  MOZ_ALWAYS_SUCCEEDS(mAcquireTimer->InitWithNamedFuncCallback(
+      [](nsITimer* aTimer, void* aClosure) {
+        if (!QM_LOG_TEST()) {
+          return;
+        }
+
+        auto* const lock = static_cast<DirectoryLockImpl*>(aClosure);
+
+        QM_LOG(("Directory lock [%p] is taking too long to be acquired", lock));
+
+        lock->Log();
+      },
+      this, kAcquireTimeoutMs, nsITimer::TYPE_ONE_SHOT,
+      "quota::DirectoryLockImpl::AcquireInternal"));
+
   if (!mExclusive || !mInternal) {
     return;
   }
@@ -298,15 +332,20 @@ void DirectoryLockImpl::AssertIsAcquiredExclusively() {
 }
 #endif
 
-void DirectoryLockImpl::Drop() {
+RefPtr<BoolPromise> DirectoryLockImpl::Drop() {
   AssertIsOnOwningThread();
   MOZ_ASSERT_IF(!mRegistered, mBlocking.IsEmpty());
 
   mDropped.Flip();
 
-  if (mRegistered) {
-    Unregister();
-  }
+  return InvokeAsync(GetCurrentSerialEventTarget(), __func__,
+                     [self = RefPtr(this)]() {
+                       if (self->mRegistered) {
+                         self->Unregister();
+                       }
+
+                       return BoolPromise::CreateAndResolve(true, __func__);
+                     });
 }
 
 void DirectoryLockImpl::OnInvalidate(std::function<void()>&& aCallback) {
@@ -330,7 +369,7 @@ RefPtr<ClientDirectoryLock> DirectoryLockImpl::SpecializeForClient(
   }
 
   RefPtr<DirectoryLockImpl> lock =
-      Create(mQuotaManager, Nullable<PersistenceType>(aPersistenceType),
+      Create(mQuotaManager, PersistenceScope::CreateFromValue(aPersistenceType),
              aOriginMetadata.mSuffix, aOriginMetadata.mGroup,
              OriginScope::FromOrigin(aOriginMetadata.mOrigin),
              aOriginMetadata.mStorageOrigin, aOriginMetadata.mIsPrivate,
@@ -375,13 +414,20 @@ void DirectoryLockImpl::Log() const {
 
   QM_LOG(("DirectoryLockImpl [%p]", this));
 
-  nsCString persistenceType;
-  if (mPersistenceType.IsNull()) {
-    persistenceType.AssignLiteral("null");
+  nsCString persistenceScope;
+  if (mPersistenceScope.IsNull()) {
+    persistenceScope.AssignLiteral("null");
+  } else if (mPersistenceScope.IsValue()) {
+    persistenceScope.Assign(
+        PersistenceTypeToString(mPersistenceScope.GetValue()));
   } else {
-    persistenceType.Assign(PersistenceTypeToString(mPersistenceType.Value()));
+    MOZ_ASSERT(mPersistenceScope.IsSet());
+    for (auto persistenceType : mPersistenceScope.GetSet()) {
+      persistenceScope.Append(PersistenceTypeToString(persistenceType) +
+                              " "_ns);
+    }
   }
-  QM_LOG(("  mPersistenceType: %s", persistenceType.get()));
+  QM_LOG(("  mPersistenceScope: %s", persistenceScope.get()));
 
   QM_LOG(("  mGroup: %s", mGroup.get()));
 

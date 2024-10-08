@@ -19,11 +19,11 @@ const REMOTE_SETTINGS_RESULTS = [
   }),
 ];
 
-const EXPECTED_REMOTE_SETTINGS_URLBAR_RESULT = makeAmpResult({
+const EXPECTED_REMOTE_SETTINGS_URLBAR_RESULT = QuickSuggestTestUtils.ampResult({
   keyword: SEARCH_STRING,
 });
 
-const EXPECTED_MERINO_URLBAR_RESULT = makeAmpResult({
+const EXPECTED_MERINO_URLBAR_RESULT = QuickSuggestTestUtils.ampResult({
   source: "merino",
   provider: "adm",
   requestId: "request_id",
@@ -367,7 +367,7 @@ add_task(async function multipleMerinoSuggestions() {
   await check_results({
     context,
     matches: [
-      makeAmpResult({
+      QuickSuggestTestUtils.ampResult({
         keyword: "multipleMerinoSuggestions 1 full_keyword",
         title: "multipleMerinoSuggestions 1 title",
         url: "multipleMerinoSuggestions 1 url",
@@ -549,14 +549,11 @@ add_task(async function bestMatch() {
           url: "url",
           icon: null,
           qsSuggestion: "full_keyword",
-          helpUrl: QuickSuggest.HELP_URL,
-          helpL10n: {
-            id: "urlbar-result-menu-learn-more-about-firefox-suggest",
-          },
           isBlockable: true,
           blockL10n: {
             id: "urlbar-result-menu-dismiss-firefox-suggest",
           },
+          isManageable: true,
           displayUrl: "url",
           source: "merino",
           provider: "some_top_pick_provider",

@@ -163,7 +163,7 @@ export class MigrationWizardParent extends JSWindowActorParent {
       }
 
       case "OpenAboutAddons": {
-        let browser = this.browsingContext.top.embedderElement;
+        let browser = this.browsingContext.topChromeWindow;
         this.#openAboutAddons(browser);
         break;
       }
@@ -171,6 +171,12 @@ export class MigrationWizardParent extends JSWindowActorParent {
       case "GetPermissions": {
         let migrator = await MigrationUtils.getMigrator(message.data.key);
         return migrator.getPermissions(this.browsingContext.topChromeWindow);
+      }
+
+      case "OpenURL": {
+        let browser = this.browsingContext.topChromeWindow;
+        this.#openURL(browser, message.data.url, message.data.where);
+        break;
       }
     }
 
@@ -185,14 +191,8 @@ export class MigrationWizardParent extends JSWindowActorParent {
    * @param {object} args
    *   The data to pass to telemetry when the event is recorded.
    */
-  #recordEvent(type, args = null) {
-    Services.telemetry.recordEvent(
-      "browser.migration",
-      type,
-      "wizard",
-      null,
-      args
-    );
+  #recordEvent(type, args) {
+    Glean.browserMigration[type + "Wizard"].record(args);
   }
 
   /**
@@ -219,7 +219,11 @@ export class MigrationWizardParent extends JSWindowActorParent {
 
     let { result, path } = await new Promise(resolve => {
       let fp = Cc["@mozilla.org/filepicker;1"].createInstance(Ci.nsIFilePicker);
-      fp.init(window, filePickerConfig.title, Ci.nsIFilePicker.modeOpen);
+      fp.init(
+        window.browsingContext,
+        filePickerConfig.title,
+        Ci.nsIFilePicker.modeOpen
+      );
 
       for (let filter of filePickerConfig.filters) {
         fp.appendFilter(filter.title, filter.extensionPattern);
@@ -299,7 +303,11 @@ export class MigrationWizardParent extends JSWindowActorParent {
 
     let { result, path } = await new Promise(resolve => {
       let fp = Cc["@mozilla.org/filepicker;1"].createInstance(Ci.nsIFilePicker);
-      fp.init(window, filePickerConfig.title, Ci.nsIFilePicker.modeOpen);
+      fp.init(
+        window.browsingContext,
+        filePickerConfig.title,
+        Ci.nsIFilePicker.modeOpen
+      );
 
       for (let filter of filePickerConfig.filters) {
         fp.appendFilter(filter.title, filter.extensionPattern);
@@ -830,5 +838,31 @@ export class MigrationWizardParent extends JSWindowActorParent {
   #openAboutAddons(browser) {
     let window = browser.ownerGlobal;
     window.openTrustedLinkIn("about:addons", "tab", { inBackground: true });
+  }
+
+  /**
+   * Opens a url in a new background tab in the same window
+   * as the passed browser.
+   *
+   * @param {Element} browser
+   *   The browser element requesting that the URL opens in.
+   * @param {string} url
+   *   The URL that will be opened.
+   * @param {string} where
+   *   Where the URL will be opened. Defaults to current tab.
+   */
+  #openURL(browser, url, where) {
+    let window = browser.ownerGlobal;
+    window.openLinkIn(
+      Services.urlFormatter.formatURL(url),
+      where || "current",
+      {
+        private: false,
+        triggeringPrincipal: Services.scriptSecurityManager.createNullPrincipal(
+          {}
+        ),
+        csp: null,
+      }
+    );
   }
 }

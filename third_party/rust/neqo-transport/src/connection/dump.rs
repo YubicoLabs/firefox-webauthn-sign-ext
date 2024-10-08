@@ -9,7 +9,7 @@
 
 use std::fmt::Write;
 
-use neqo_common::{qdebug, Decoder};
+use neqo_common::{qdebug, Decoder, IpTos};
 
 use crate::{
     connection::Connection,
@@ -18,7 +18,7 @@ use crate::{
     path::PathRef,
 };
 
-#[allow(clippy::module_name_repetitions)]
+#[allow(clippy::too_many_arguments)]
 pub fn dump_packet(
     conn: &Connection,
     path: &PathRef,
@@ -26,21 +26,33 @@ pub fn dump_packet(
     pt: PacketType,
     pn: PacketNumber,
     payload: &[u8],
+    tos: IpTos,
+    len: usize,
 ) {
-    if !log::log_enabled!(log::Level::Debug) {
+    if log::STATIC_MAX_LEVEL == log::LevelFilter::Off || !log::log_enabled!(log::Level::Debug) {
         return;
     }
 
-    let mut s = String::from("");
+    let mut s = String::new();
     let mut d = Decoder::from(payload);
     while d.remaining() > 0 {
         let Ok(f) = Frame::decode(&mut d) else {
             s.push_str(" [broken]...");
             break;
         };
-        if let Some(x) = f.dump() {
-            write!(&mut s, "\n  {} {}", dir, &x).unwrap();
+        let x = f.dump();
+        if !x.is_empty() {
+            _ = write!(&mut s, "\n  {} {}", dir, &x);
         }
     }
-    qdebug!([conn], "pn={} type={:?} {}{}", pn, pt, path.borrow(), s);
+    qdebug!(
+        [conn],
+        "pn={} type={:?} {} {:?} len {}{}",
+        pn,
+        pt,
+        path.borrow(),
+        tos,
+        len,
+        s
+    );
 }

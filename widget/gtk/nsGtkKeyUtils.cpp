@@ -32,7 +32,9 @@
 #include "nsWindow.h"
 
 #include "mozilla/ArrayUtils.h"
+#include "mozilla/Maybe.h"
 #include "mozilla/MouseEvents.h"
+#include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/TextEventDispatcher.h"
 #include "mozilla/TextEvents.h"
 
@@ -62,12 +64,6 @@ Time KeymapWrapper::sLastRepeatableKeyTime = 0;
 #endif
 KeymapWrapper::RepeatState KeymapWrapper::sRepeatState =
     KeymapWrapper::NOT_PRESSED;
-
-#ifdef MOZ_WAYLAND
-wl_seat* KeymapWrapper::sSeat = nullptr;
-int KeymapWrapper::sSeatID = -1;
-wl_keyboard* KeymapWrapper::sKeyboard = nullptr;
-#endif
 
 static const char* GetBoolName(bool aBool) { return aBool ? "TRUE" : "FALSE"; }
 
@@ -650,11 +646,7 @@ void KeymapWrapper::InitBySystemSettingsX11() {
 void KeymapWrapper::SetModifierMask(xkb_keymap* aKeymap,
                                     ModifierIndex aModifierIndex,
                                     const char* aModifierName) {
-  static auto sXkbKeymapModGetIndex =
-      (xkb_mod_index_t(*)(struct xkb_keymap*, const char*))dlsym(
-          RTLD_DEFAULT, "xkb_keymap_mod_get_index");
-
-  xkb_mod_index_t index = sXkbKeymapModGetIndex(aKeymap, aModifierName);
+  xkb_mod_index_t index = xkb_keymap_mod_get_index(aKeymap, aModifierName);
   if (index != XKB_MOD_INVALID) {
     mModifierMasks[aModifierIndex] = (1 << index);
   }
@@ -692,8 +684,7 @@ void KeymapWrapper::SetModifierMasks(xkb_keymap* aKeymap) {
 
 /* This keymap routine is derived from weston-2.0.0/clients/simple-im.c
  */
-static void keyboard_handle_keymap(void* data, struct wl_keyboard* wl_keyboard,
-                                   uint32_t format, int fd, uint32_t size) {
+void KeymapWrapper::HandleKeymap(uint32_t format, int fd, uint32_t size) {
   KeymapWrapper::ResetKeyboard();
 
   if (format != WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1) {
@@ -707,19 +698,10 @@ static void keyboard_handle_keymap(void* data, struct wl_keyboard* wl_keyboard,
     return;
   }
 
-  static auto sXkbContextNew =
-      (struct xkb_context * (*)(enum xkb_context_flags))
-          dlsym(RTLD_DEFAULT, "xkb_context_new");
-  static auto sXkbKeymapNewFromString =
-      (struct xkb_keymap * (*)(struct xkb_context*, const char*,
-                               enum xkb_keymap_format,
-                               enum xkb_keymap_compile_flags))
-          dlsym(RTLD_DEFAULT, "xkb_keymap_new_from_string");
-
-  struct xkb_context* xkb_context = sXkbContextNew(XKB_CONTEXT_NO_FLAGS);
-  struct xkb_keymap* keymap =
-      sXkbKeymapNewFromString(xkb_context, mapString, XKB_KEYMAP_FORMAT_TEXT_V1,
-                              XKB_KEYMAP_COMPILE_NO_FLAGS);
+  struct xkb_context* xkb_context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+  struct xkb_keymap* keymap = xkb_keymap_new_from_string(
+      xkb_context, mapString, XKB_KEYMAP_FORMAT_TEXT_V1,
+      XKB_KEYMAP_COMPILE_NO_FLAGS);
 
   munmap(mapString, size);
   close(fd);
@@ -731,58 +713,10 @@ static void keyboard_handle_keymap(void* data, struct wl_keyboard* wl_keyboard,
 
   KeymapWrapper::SetModifierMasks(keymap);
 
-  static auto sXkbKeymapUnRef =
-      (void (*)(struct xkb_keymap*))dlsym(RTLD_DEFAULT, "xkb_keymap_unref");
-  sXkbKeymapUnRef(keymap);
+  xkb_keymap_unref(keymap);
 
-  static auto sXkbContextUnref =
-      (void (*)(struct xkb_context*))dlsym(RTLD_DEFAULT, "xkb_context_unref");
-  sXkbContextUnref(xkb_context);
+  xkb_context_unref(xkb_context);
 }
-
-static void keyboard_handle_enter(void* data, struct wl_keyboard* keyboard,
-                                  uint32_t serial, struct wl_surface* surface,
-                                  struct wl_array* keys) {
-  KeymapWrapper::SetFocusIn(surface, serial);
-}
-
-static void keyboard_handle_leave(void* data, struct wl_keyboard* keyboard,
-                                  uint32_t serial, struct wl_surface* surface) {
-  KeymapWrapper::SetFocusOut(surface);
-}
-
-static void keyboard_handle_key(void* data, struct wl_keyboard* keyboard,
-                                uint32_t serial, uint32_t time, uint32_t key,
-                                uint32_t state) {}
-static void keyboard_handle_modifiers(void* data, struct wl_keyboard* keyboard,
-                                      uint32_t serial, uint32_t mods_depressed,
-                                      uint32_t mods_latched,
-                                      uint32_t mods_locked, uint32_t group) {}
-static void keyboard_handle_repeat_info(void* data,
-                                        struct wl_keyboard* keyboard,
-                                        int32_t rate, int32_t delay) {}
-
-static const struct wl_keyboard_listener keyboard_listener = {
-    keyboard_handle_keymap,    keyboard_handle_enter,
-    keyboard_handle_leave,     keyboard_handle_key,
-    keyboard_handle_modifiers, keyboard_handle_repeat_info};
-
-static void seat_handle_capabilities(void* data, struct wl_seat* seat,
-                                     unsigned int caps) {
-  wl_keyboard* keyboard = KeymapWrapper::GetKeyboard();
-  if ((caps & WL_SEAT_CAPABILITY_KEYBOARD) && !keyboard) {
-    keyboard = wl_seat_get_keyboard(seat);
-    wl_keyboard_add_listener(keyboard, &keyboard_listener, nullptr);
-    KeymapWrapper::SetKeyboard(keyboard);
-  } else if (!(caps & WL_SEAT_CAPABILITY_KEYBOARD) && keyboard) {
-    KeymapWrapper::ClearKeyboard();
-  }
-}
-
-static const struct wl_seat_listener seat_listener = {
-    seat_handle_capabilities,
-};
-
 #endif
 
 KeymapWrapper::~KeymapWrapper() {
@@ -1112,6 +1046,7 @@ void KeymapWrapper::InitInputEvent(WidgetInputEvent& aInputEvent,
 
   switch (aInputEvent.mClass) {
     case eMouseEventClass:
+    case ePointerEventClass:
     case eMouseScrollEventClass:
     case eWheelEventClass:
     case eDragEventClass:
@@ -1449,10 +1384,8 @@ bool KeymapWrapper::MaybeDispatchContextMenuEvent(nsWindow* aWindow,
     return false;
   }
 
-  WidgetMouseEvent contextMenuEvent(true, eContextMenu, aWindow,
-                                    WidgetMouseEvent::eReal,
-                                    WidgetMouseEvent::eContextMenuKey);
-
+  WidgetPointerEvent contextMenuEvent(true, eContextMenu, aWindow,
+                                      WidgetMouseEvent::eContextMenuKey);
   contextMenuEvent.mRefPoint = LayoutDeviceIntPoint(0, 0);
   contextMenuEvent.AssignEventTime(aWindow->GetWidgetEventTime(aEvent->time));
   contextMenuEvent.mClickCount = 1;
@@ -2125,6 +2058,212 @@ guint KeymapWrapper::GetGDKKeyvalWithoutModifier(
   return keyval;
 }
 
+struct KeyCodeData {
+  const char* str;
+  size_t strlength;
+  uint32_t keycode;
+};
+
+static struct KeyCodeData gKeyCodes[] = {
+#define NS_DEFINE_VK(aDOMKeyName, aDOMKeyCode) \
+  {#aDOMKeyName, sizeof(#aDOMKeyName) - 1, aDOMKeyCode},
+#include "mozilla/VirtualKeyCodeList.h"
+#undef NS_DEFINE_VK
+    {nullptr, 0, 0}};
+
+struct KeyPair {
+  uint32_t DOMKeyCode;
+  guint GDKKeyval;
+};
+
+//
+// Netscape keycodes are defined in widget/public/nsGUIEvent.h
+// GTK keycodes are defined in <gdk/gdkkeysyms.h>
+//
+static const KeyPair gKeyPairs[] = {
+    {NS_VK_CANCEL, GDK_Cancel},
+    {NS_VK_BACK, GDK_BackSpace},
+    {NS_VK_TAB, GDK_Tab},
+    {NS_VK_CLEAR, GDK_Clear},
+    {NS_VK_RETURN, GDK_Return},
+    {NS_VK_SHIFT, GDK_Shift_L},
+    {NS_VK_CONTROL, GDK_Control_L},
+    {NS_VK_ALT, GDK_Alt_L},
+    {NS_VK_META, GDK_Meta_L},
+
+    // Assume that Super or Hyper is always mapped to physical Win key.
+    {NS_VK_WIN, GDK_Super_L},
+
+    // GTK's AltGraph key is similar to Mac's Option (Alt) key.  However,
+    // unfortunately, browsers on Mac are using NS_VK_ALT for it even though
+    // it's really different from Alt key on Windows.
+    // On the other hand, GTK's AltGrapsh keys are really different from
+    // Alt key.  However, there is no AltGrapsh key on Windows.  On Windows,
+    // both Ctrl and Alt keys are pressed internally when AltGr key is pressed.
+    // For some languages' users, AltGraph key is important, so, web
+    // applications on such locale may want to know AltGraph key press.
+    // Therefore, we should map AltGr keycode for them only on GTK.
+    {NS_VK_ALTGR, GDK_ISO_Level3_Shift},
+
+    {NS_VK_PAUSE, GDK_Pause},
+    {NS_VK_CAPS_LOCK, GDK_Caps_Lock},
+    {NS_VK_ESCAPE, GDK_Escape},
+    // { NS_VK_ACCEPT,     GDK_XXX },
+    // { NS_VK_MODECHANGE, GDK_XXX },
+    {NS_VK_SPACE, GDK_space},
+    {NS_VK_PAGE_UP, GDK_Page_Up},
+    {NS_VK_PAGE_DOWN, GDK_Page_Down},
+    {NS_VK_END, GDK_End},
+    {NS_VK_HOME, GDK_Home},
+    {NS_VK_LEFT, GDK_Left},
+    {NS_VK_UP, GDK_Up},
+    {NS_VK_RIGHT, GDK_Right},
+    {NS_VK_DOWN, GDK_Down},
+    {NS_VK_SELECT, GDK_Select},
+    {NS_VK_PRINT, GDK_Print},
+    {NS_VK_EXECUTE, GDK_Execute},
+    {NS_VK_PRINTSCREEN, GDK_Print},
+    {NS_VK_INSERT, GDK_Insert},
+    {NS_VK_DELETE, GDK_Delete},
+    {NS_VK_HELP, GDK_Help},
+
+    {NS_VK_NUM_LOCK, GDK_Num_Lock},
+    {NS_VK_SCROLL_LOCK, GDK_Scroll_Lock},
+
+    // Function keys
+    {NS_VK_F1, GDK_F1},
+    {NS_VK_F2, GDK_F2},
+    {NS_VK_F3, GDK_F3},
+    {NS_VK_F4, GDK_F4},
+    {NS_VK_F5, GDK_F5},
+    {NS_VK_F6, GDK_F6},
+    {NS_VK_F7, GDK_F7},
+    {NS_VK_F8, GDK_F8},
+    {NS_VK_F9, GDK_F9},
+    {NS_VK_F10, GDK_F10},
+    {NS_VK_F11, GDK_F11},
+    {NS_VK_F12, GDK_F12},
+    {NS_VK_F13, GDK_F13},
+    {NS_VK_F14, GDK_F14},
+    {NS_VK_F15, GDK_F15},
+    {NS_VK_F16, GDK_F16},
+    {NS_VK_F17, GDK_F17},
+    {NS_VK_F18, GDK_F18},
+    {NS_VK_F19, GDK_F19},
+    {NS_VK_F20, GDK_F20},
+    {NS_VK_F21, GDK_F21},
+    {NS_VK_F22, GDK_F22},
+    {NS_VK_F23, GDK_F23},
+    {NS_VK_F24, GDK_F24},
+
+    // context menu key, keysym 0xff67, typically keycode 117 on 105-key
+    // (Microsoft) x86 keyboards, located between right 'Windows' key and right
+    // Ctrl key
+    {NS_VK_CONTEXT_MENU, GDK_Menu},
+    {NS_VK_SLEEP, GDK_Sleep},
+
+    {NS_VK_ATTN, GDK_3270_Attn},
+    {NS_VK_CRSEL, GDK_3270_CursorSelect},
+    {NS_VK_EXSEL, GDK_3270_ExSelect},
+    {NS_VK_EREOF, GDK_3270_EraseEOF},
+    {NS_VK_PLAY, GDK_3270_Play},
+    //{ NS_VK_ZOOM,       GDK_XXX },
+    {NS_VK_PA1, GDK_3270_PA1},
+
+    {NS_VK_MULTIPLY, GDK_KP_Multiply},
+    {NS_VK_ADD, GDK_KP_Add},
+    {NS_VK_SEPARATOR, GDK_KP_Separator},
+    {NS_VK_SUBTRACT, GDK_KP_Subtract},
+    {NS_VK_DECIMAL, GDK_KP_Decimal},
+    {NS_VK_DIVIDE, GDK_KP_Divide},
+    {NS_VK_NUMPAD0, GDK_KP_0},
+    {NS_VK_NUMPAD1, GDK_KP_1},
+    {NS_VK_NUMPAD2, GDK_KP_2},
+    {NS_VK_NUMPAD3, GDK_KP_3},
+    {NS_VK_NUMPAD4, GDK_KP_4},
+    {NS_VK_NUMPAD5, GDK_KP_5},
+    {NS_VK_NUMPAD6, GDK_KP_6},
+    {NS_VK_NUMPAD7, GDK_KP_7},
+    {NS_VK_NUMPAD8, GDK_KP_8},
+    {NS_VK_NUMPAD9, GDK_KP_9},
+    {NS_VK_SPACE, GDK_space},
+    {NS_VK_COLON, GDK_colon},
+    {NS_VK_SEMICOLON, GDK_semicolon},
+    {NS_VK_LESS_THAN, GDK_less},
+    {NS_VK_EQUALS, GDK_equal},
+    {NS_VK_GREATER_THAN, GDK_greater},
+    {NS_VK_QUESTION_MARK, GDK_question},
+    {NS_VK_AT, GDK_at},
+    {NS_VK_CIRCUMFLEX, GDK_asciicircum},
+    {NS_VK_EXCLAMATION, GDK_exclam},
+    {NS_VK_DOUBLE_QUOTE, GDK_quotedbl},
+    {NS_VK_HASH, GDK_numbersign},
+    {NS_VK_DOLLAR, GDK_dollar},
+    {NS_VK_PERCENT, GDK_percent},
+    {NS_VK_AMPERSAND, GDK_ampersand},
+    {NS_VK_UNDERSCORE, GDK_underscore},
+    {NS_VK_OPEN_PAREN, GDK_parenleft},
+    {NS_VK_CLOSE_PAREN, GDK_parenright},
+    {NS_VK_ASTERISK, GDK_asterisk},
+    {NS_VK_PLUS, GDK_plus},
+    {NS_VK_PIPE, GDK_bar},
+    {NS_VK_HYPHEN_MINUS, GDK_minus},
+    {NS_VK_OPEN_CURLY_BRACKET, GDK_braceleft},
+    {NS_VK_CLOSE_CURLY_BRACKET, GDK_braceright},
+    {NS_VK_TILDE, GDK_asciitilde},
+    {NS_VK_COMMA, GDK_comma},
+    {NS_VK_PERIOD, GDK_period},
+    {NS_VK_SLASH, GDK_slash},
+    {NS_VK_BACK_QUOTE, GDK_grave},
+    {NS_VK_OPEN_BRACKET, GDK_bracketleft},
+    {NS_VK_BACK_SLASH, GDK_backslash},
+    {NS_VK_CLOSE_BRACKET, GDK_bracketright},
+    {NS_VK_QUOTE, GDK_apostrophe},
+};
+
+/* static */
+guint KeymapWrapper::ConvertGeckoKeyCodeToGDKKeyval(const nsAString& aKeyCode) {
+  NS_ConvertUTF16toUTF8 keyName(aKeyCode);
+  ToUpperCase(keyName);  // We want case-insensitive comparison with data
+                         // stored as uppercase.
+
+  uint32_t keyCode = 0;
+
+  uint32_t keyNameLength = keyName.Length();
+  const char* keyNameStr = keyName.get();
+  for (const auto& code : gKeyCodes) {
+    if (keyNameLength == code.strlength &&
+        !nsCRT::strcmp(code.str, keyNameStr)) {
+      keyCode = code.keycode;
+      break;
+    }
+  }
+
+  // First, try to handle alphanumeric input, not listed in nsKeycodes:
+  // most likely, more letters will be getting typed in than things in
+  // the key list, so we will look through these first.
+
+  if (keyCode >= NS_VK_A && keyCode <= NS_VK_Z) {
+    // gdk and DOM both use the ASCII codes for these keys.
+    return keyCode;
+  }
+
+  // numbers
+  if (keyCode >= NS_VK_0 && keyCode <= NS_VK_9) {
+    // gdk and DOM both use the ASCII codes for these keys.
+    return keyCode - NS_VK_0 + GDK_0;
+  }
+
+  // misc other things
+  for (const auto& pair : gKeyPairs) {
+    if (pair.DOMKeyCode == keyCode) {
+      return pair.GDKKeyval;
+    }
+  }
+
+  return 0;
+}
+
 /* static */
 uint32_t KeymapWrapper::GetDOMKeyCodeFromKeyPairs(guint aGdkKeyval) {
   switch (aGdkKeyval) {
@@ -2505,35 +2644,6 @@ void KeymapWrapper::GetFocusInfo(wl_surface** aFocusSurface,
   KeymapWrapper* keymapWrapper = KeymapWrapper::GetInstance();
   *aFocusSurface = keymapWrapper->mFocusSurface;
   *aFocusSerial = keymapWrapper->mFocusSerial;
-}
-
-void KeymapWrapper::SetSeat(wl_seat* aSeat, int aId) {
-  sSeat = aSeat;
-  sSeatID = aId;
-  wl_seat_add_listener(aSeat, &seat_listener, nullptr);
-}
-
-void KeymapWrapper::ClearSeat(int aId) {
-  if (sSeatID == aId) {
-    ClearKeyboard();
-    sSeat = nullptr;
-    sSeatID = -1;
-  }
-}
-
-wl_seat* KeymapWrapper::GetSeat() { return sSeat; }
-
-void KeymapWrapper::SetKeyboard(wl_keyboard* aKeyboard) {
-  sKeyboard = aKeyboard;
-}
-
-wl_keyboard* KeymapWrapper::GetKeyboard() { return sKeyboard; }
-
-void KeymapWrapper::ClearKeyboard() {
-  if (sKeyboard) {
-    wl_keyboard_destroy(sKeyboard);
-    sKeyboard = nullptr;
-  }
 }
 #endif
 

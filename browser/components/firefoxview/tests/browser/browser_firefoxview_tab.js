@@ -55,12 +55,6 @@ function triggerClickOn(target, options) {
   return promise;
 }
 
-async function add_new_tab(URL) {
-  let tab = BrowserTestUtils.addTab(gBrowser, URL);
-  await BrowserTestUtils.browserLoaded(tab.linkedBrowser);
-  return tab;
-}
-
 add_task(async function aria_attributes() {
   let win = await BrowserTestUtils.openNewBrowserWindow();
   is(
@@ -84,7 +78,7 @@ add_task(async function aria_attributes() {
     "true",
     'Firefox View button should have `aria-pressed="true"` upon selecting it'
   );
-  win.BrowserOpenTab();
+  win.BrowserCommands.openTab();
   is(
     win.FirefoxViewHandler.button.getAttribute("aria-pressed"),
     "false",
@@ -124,8 +118,8 @@ add_task(async function homepage_new_tab() {
       win.gBrowser.tabContainer,
       "TabOpen"
     );
-    win.BrowserHome();
-    info("Waiting for BrowserHome() to open a new tab");
+    win.BrowserCommands.home();
+    info("Waiting for BrowserCommands.home() to open a new tab");
     await newTabOpened;
     assertFirefoxViewTab(win);
     ok(

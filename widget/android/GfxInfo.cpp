@@ -350,11 +350,11 @@ GfxInfo::GetDrmRenderDevice(nsACString& aDrmRenderDevice) {
 }
 
 void GfxInfo::AddCrashReportAnnotations() {
-  CrashReporter::AnnotateCrashReport(CrashReporter::Annotation::AdapterVendorID,
-                                     mGLStrings->Vendor());
-  CrashReporter::AnnotateCrashReport(CrashReporter::Annotation::AdapterDeviceID,
-                                     mGLStrings->Renderer());
-  CrashReporter::AnnotateCrashReport(
+  CrashReporter::RecordAnnotationNSCString(
+      CrashReporter::Annotation::AdapterVendorID, mGLStrings->Vendor());
+  CrashReporter::RecordAnnotationNSCString(
+      CrashReporter::Annotation::AdapterDeviceID, mGLStrings->Renderer());
+  CrashReporter::RecordAnnotationNSCString(
       CrashReporter::Annotation::AdapterDriverVersion, mGLStrings->Version());
 }
 
@@ -664,6 +664,14 @@ nsresult GfxInfo::GetFeatureStatusImpl(
     } else {
       *aStatus = nsIGfxInfo::FEATURE_STATUS_OK;
     }
+    return NS_OK;
+  }
+
+  if (aFeature == FEATURE_WEBGPU) {
+    // Ensure WebGPU is disabled by default on Android until it is better
+    // tested.
+    *aStatus = nsIGfxInfo::FEATURE_BLOCKED_DEVICE;
+    aFailureId = "FEATURE_FAILURE_WEBGPU_ANDROID";
     return NS_OK;
   }
 

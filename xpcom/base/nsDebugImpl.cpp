@@ -184,6 +184,7 @@ nsDebugImpl::GetIsDebuggerAttached(bool* aResult) {
     defined(__NetBSD__) || defined(__OpenBSD__)
   // Specify the info we're looking for
   int mib[] = {
+      // clang-format off
     CTL_KERN,
     KERN_PROC,
     KERN_PROC_PID,
@@ -192,6 +193,7 @@ nsDebugImpl::GetIsDebuggerAttached(bool* aResult) {
     sizeof(KINFO_PROC),
     1,
 #  endif
+      // clang-format on
   };
   u_int mibSize = sizeof(mib) / sizeof(int);
 
@@ -452,13 +454,12 @@ NS_DebugBreak(uint32_t aSeverity, const char* aStr, const char* aExpr,
       if (XRE_IsParentProcess()) {
         // Don't include the PID in the crash report annotation to
         // allow faceting on crash-stats.mozilla.org.
-        nsCString note("xpcom_runtime_abort(");
+        nsAutoCString note("xpcom_runtime_abort(");
         note += nonPIDBuf.buffer;
         note += ")";
         CrashReporter::AppendAppNotesToCrashReport(note);
-        CrashReporter::AnnotateCrashReport(
-            CrashReporter::Annotation::AbortMessage,
-            nsDependentCString(nonPIDBuf.buffer));
+        CrashReporter::RecordAnnotationNSCString(
+            CrashReporter::Annotation::AbortMessage, note);
       }
 
 #if defined(DEBUG) && defined(_WIN32)

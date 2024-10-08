@@ -831,7 +831,7 @@ class SVGFilterObserverList : public nsISupports {
   NS_DECL_CYCLE_COLLECTING_ISUPPORTS
   NS_DECL_CYCLE_COLLECTION_CLASS(SVGFilterObserverList)
 
-  virtual void OnRenderingChange() = 0;
+  virtual void OnRenderingChange(Element* aObservingContent) = 0;
 
  protected:
   virtual ~SVGFilterObserverList();
@@ -848,36 +848,13 @@ class SVGFilterObserverList : public nsISupports {
 void SVGFilterObserver::OnRenderingChange() {
   SVGIDRenderingObserver::OnRenderingChange();
 
-  if (mFilterObserverList) {
-    mFilterObserverList->OnRenderingChange();
-  }
-
   if (!mTargetIsValid) {
     return;
   }
 
-  nsIFrame* frame = mObservingContent->GetPrimaryFrame();
-  if (!frame) {
-    return;
+  if (mFilterObserverList) {
+    mFilterObserverList->OnRenderingChange(mObservingContent);
   }
-
-  // Repaint asynchronously in case the filter frame is being torn down
-  nsChangeHint changeHint = nsChangeHint(nsChangeHint_RepaintFrame);
-
-  // Since we don't call SVGRenderingObserverProperty::
-  // OnRenderingChange, we have to add this bit ourselves.
-  if (frame->HasAnyStateBits(NS_FRAME_SVG_LAYOUT)) {
-    // Changes should propagate out to things that might be observing
-    // the referencing frame or its ancestors.
-    changeHint |= nsChangeHint_InvalidateRenderingObservers;
-  }
-
-  // Don't need to request UpdateOverflow if we're being reflowed.
-  if (!frame->HasAnyStateBits(NS_FRAME_IN_REFLOW)) {
-    changeHint |= nsChangeHint_UpdateOverflow;
-  }
-  frame->PresContext()->RestyleManager()->PostRestyleEvent(
-      mObservingContent, RestyleHint{0}, changeHint);
 }
 
 NS_IMPL_CYCLE_COLLECTING_ADDREF(SVGFilterObserverList)
@@ -920,9 +897,9 @@ SVGFilterObserverList::SVGFilterObserverList(Span<const StyleFilter> aFilters,
       }
     }
 
-    RefPtr<SVGFilterObserver> observer =
-        new SVGFilterObserver(filterURL, aFilteredElement, this);
-    mObservers.AppendElement(observer);
+    auto observer =
+        MakeRefPtr<SVGFilterObserver>(filterURL, aFilteredElement, this);
+    mObservers.AppendElement(std::move(observer));
   }
 }
 
@@ -936,19 +913,32 @@ class SVGFilterObserverListForCSSProp final : public SVGFilterObserverList {
                               aFilteredFrame) {}
 
  protected:
-  void OnRenderingChange() override;
-  bool mInvalidating = false;
+  void OnRenderingChange(Element* aObservingContent) override;
 };
 
-void SVGFilterObserverListForCSSProp::OnRenderingChange() {
-  if (mInvalidating) {
+void SVGFilterObserverListForCSSProp::OnRenderingChange(
+    Element* aObservingContent) {
+  nsIFrame* frame = aObservingContent->GetPrimaryFrame();
+  if (!frame) {
     return;
   }
-  AutoRestore<bool> guard(mInvalidating);
-  mInvalidating = true;
-  for (auto& observer : mObservers) {
-    observer->OnRenderingChange();
+  // Repaint asynchronously in case the filter frame is being torn down
+  auto changeHint = nsChangeHint_RepaintFrame;
+
+  // Since we don't call SVGRenderingObserverProperty::
+  // OnRenderingChange, we have to add this bit ourselves.
+  if (frame->HasAnyStateBits(NS_FRAME_SVG_LAYOUT)) {
+    // Changes should propagate out to things that might be observing
+    // the referencing frame or its ancestors.
+    changeHint |= nsChangeHint_InvalidateRenderingObservers;
   }
+
+  // Don't need to request UpdateOverflow if we're being reflowed.
+  if (!frame->HasAnyStateBits(NS_FRAME_IN_REFLOW)) {
+    changeHint |= nsChangeHint_UpdateOverflow;
+  }
+  frame->PresContext()->RestyleManager()->PostRestyleEvent(
+      aObservingContent, RestyleHint{0}, changeHint);
 }
 
 class SVGFilterObserverListForCanvasContext final
@@ -959,14 +949,15 @@ class SVGFilterObserverListForCanvasContext final
                                         Span<const StyleFilter> aFilters)
       : SVGFilterObserverList(aFilters, aCanvasElement), mContext(aContext) {}
 
-  void OnRenderingChange() override;
+  void OnRenderingChange(Element* aObservingContent) override;
   void DetachFromContext() { mContext = nullptr; }
 
  private:
   CanvasRenderingContext2D* mContext;
 };
 
-void SVGFilterObserverListForCanvasContext::OnRenderingChange() {
+void SVGFilterObserverListForCanvasContext::OnRenderingChange(
+    Element* aObservingContent) {
   if (!mContext) {
     NS_WARNING(
         "GFX: This should never be called without a context, except during "
@@ -1026,9 +1017,9 @@ SVGMaskObserverList::SVGMaskObserverList(nsIFrame* aFrame) : mFrame(aFrame) {
     //
     // And, an URL may refer to an SVG mask resource if it consists of
     // a fragment.
-    SVGPaintingProperty* prop = new SVGPaintingProperty(
+    auto prop = MakeRefPtr<SVGPaintingProperty>(
         hasRef ? maskUri.get() : nullptr, aFrame, false);
-    mProperties.AppendElement(prop);
+    mProperties.AppendElement(std::move(prop));
   }
 }
 
@@ -1676,8 +1667,7 @@ Element* SVGObserverUtils::GetAndObserveBackgroundImage(nsIFrame* aFrame,
       aFrame->GetContent()
           ->OwnerDoc()
           ->ReferrerInfoForInternalCSSAndSVGResources();
-  RefPtr<URLAndReferrerInfo> url =
-      new URLAndReferrerInfo(targetURI, referrerInfo);
+  auto url = MakeRefPtr<URLAndReferrerInfo>(targetURI, referrerInfo);
 
   return static_cast<SVGMozElementObserver*>(
              hashtable
@@ -1770,6 +1760,22 @@ void SVGObserverUtils::UpdateEffects(nsIFrame* aFrame) {
   }
 }
 
+bool SVGObserverUtils::SelfOrAncestorHasRenderingObservers(
+    const nsIFrame* aFrame) {
+  nsIContent* content = aFrame->GetContent();
+  while (content) {
+    if (content->HasDirectRenderingObservers()) {
+      return true;
+    }
+    const auto* frame = content->GetPrimaryFrame();
+    if (frame && frame->IsSVGRenderingObserverContainer()) {
+      break;
+    }
+    content = content->GetFlattenedTreeParent();
+  }
+  return false;
+}
+
 void SVGObserverUtils::AddRenderingObserver(Element* aElement,
                                             SVGRenderingObserver* aObserver) {
   SVGRenderingObserverSet* observers = GetObserverSet(aElement);
@@ -1783,7 +1789,7 @@ void SVGObserverUtils::AddRenderingObserver(Element* aElement,
                           nsINode::DeleteProperty<SVGRenderingObserverSet>,
                           /* aTransfer = */ true);
   }
-  aElement->SetHasRenderingObservers(true);
+  aElement->SetHasDirectRenderingObservers(true);
   observers->Add(aObserver);
 }
 
@@ -1796,7 +1802,7 @@ void SVGObserverUtils::RemoveRenderingObserver(
     observers->Remove(aObserver);
     if (observers->IsEmpty()) {
       aElement->RemoveProperty(nsGkAtoms::renderingobserverset);
-      aElement->SetHasRenderingObservers(false);
+      aElement->SetHasDirectRenderingObservers(false);
     }
   }
 }
@@ -1806,7 +1812,7 @@ void SVGObserverUtils::RemoveAllRenderingObservers(Element* aElement) {
   if (observers) {
     observers->RemoveAll();
     aElement->RemoveProperty(nsGkAtoms::renderingobserverset);
-    aElement->SetHasRenderingObservers(false);
+    aElement->SetHasDirectRenderingObservers(false);
   }
 }
 
@@ -1827,7 +1833,7 @@ void SVGObserverUtils::InvalidateRenderingObservers(nsIFrame* aFrame) {
     return;
   }
 
-  if (aFrame->IsRenderingObserverContainer()) {
+  if (aFrame->IsSVGRenderingObserverContainer()) {
     return;
   }
 
@@ -1841,7 +1847,7 @@ void SVGObserverUtils::InvalidateRenderingObservers(nsIFrame* aFrame) {
         return;
       }
     }
-    if (f->IsRenderingObserverContainer()) {
+    if (f->IsSVGRenderingObserverContainer()) {
       return;
     }
   }
@@ -1854,7 +1860,7 @@ void SVGObserverUtils::InvalidateDirectRenderingObservers(
     frame->RemoveProperty(SVGUtils::ObjectBoundingBoxProperty());
   }
 
-  if (aElement->HasRenderingObservers()) {
+  if (aElement->HasDirectRenderingObservers()) {
     SVGRenderingObserverSet* observers = GetObserverSet(aElement);
     if (observers) {
       if (aFlags & INVALIDATE_REFLOW) {

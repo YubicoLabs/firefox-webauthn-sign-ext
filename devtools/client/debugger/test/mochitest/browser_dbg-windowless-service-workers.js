@@ -22,8 +22,7 @@ add_task(async function () {
   );
 
   invokeInTab("registerWorker");
-  await waitForSource(dbg, "service-worker.sjs");
-  const workerSource = findSource(dbg, "service-worker.sjs");
+  const workerSource = await waitForSource(dbg, "service-worker.sjs");
 
   await addBreakpoint(dbg, "service-worker.sjs", 13);
 
@@ -52,8 +51,7 @@ add_task(async function () {
   // The test page will immediately fetch from the service worker if registered.
   const onReloaded = reload(dbg);
 
-  await waitForSource(dbg, "service-worker.sjs");
-  const workerSource = findSource(dbg, "service-worker.sjs");
+  const workerSource = await waitForSource(dbg, "service-worker.sjs");
 
   await waitForPaused(dbg);
   assertPausedAtSourceAndLine(dbg, workerSource.id, 13);
@@ -140,8 +138,7 @@ add_task(async function () {
   invokeInTab("registerWorker");
   await checkAdditionalThreadCount(dbg, 1);
 
-  await waitForSource(dbg, "service-worker.sjs");
-  const workerSource = findSource(dbg, "service-worker.sjs");
+  const workerSource = await waitForSource(dbg, "service-worker.sjs");
 
   await waitForBreakpointCount(dbg, 1);
   await waitForPaused(dbg);
@@ -168,7 +165,7 @@ add_task(async function () {
   await removeTab(gBrowser.selectedTab);
 });
 
-async function checkWorkerStatus(dbg, status) {
+async function checkWorkerStatus(_dbg, _status) {
   /* TODO: Re-Add support for showing service worker status (Bug 1641099)
   await waitUntil(() => {
     const threads = dbg.selectors.getThreads();

@@ -16,6 +16,9 @@ var { FormLikeFactory } = ChromeUtils.importESModule(
 var { FormAutofillHandler } = ChromeUtils.importESModule(
   "resource://gre/modules/shared/FormAutofillHandler.sys.mjs"
 );
+var { FormAutofillHeuristics } = ChromeUtils.importESModule(
+  "resource://gre/modules/shared/FormAutofillHeuristics.sys.mjs"
+);
 var { AddonTestUtils, MockAsyncShutdown } = ChromeUtils.importESModule(
   "resource://testing-common/AddonTestUtils.sys.mjs"
 );
@@ -70,24 +73,6 @@ region-name-tw = Taiwan
   );
   L10nRegistry.getInstance().registerSources([mockSource]);
 }
-
-/**
- * Mock the return value of Services.focus.elementIsFocusable
- * since a field's focusability can't be tested in a unit test.
- */
-(function ignoreAFieldsFocusability() {
-  let stub = sinon.stub(Services, "focus").get(() => {
-    return {
-      elementIsFocusable() {
-        return true;
-      },
-    };
-  });
-
-  registerCleanupFunction(() => {
-    stub.restore();
-  });
-})();
 
 do_get_profile();
 
@@ -274,7 +259,7 @@ function verifySectionFieldDetails(sections, expectedSectionsInfo) {
   });
 }
 
-var FormAutofillHeuristics, LabelUtils;
+var LabelUtils;
 var AddressMetaDataLoader, FormAutofillUtils;
 
 function autofillFieldSelector(doc) {

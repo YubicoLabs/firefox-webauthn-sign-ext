@@ -7,13 +7,14 @@
 /**
  * This module contains utilities and base classes for logic which is
  * common between the parent and child process, and in particular
- * between ExtensionParent.jsm and ExtensionChild.jsm.
+ * between ExtensionParent.sys.mjs and ExtensionChild.sys.mjs.
  */
 
 import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 
 import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
 
+/** @type {Lazy} */
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
@@ -234,7 +235,7 @@ class NoCloneSpreadArgs {
 const LISTENERS = Symbol("listeners");
 const ONCE_MAP = Symbol("onceMap");
 
-class EventEmitter {
+export class EventEmitter {
   constructor() {
     this[LISTENERS] = new Map();
     this[ONCE_MAP] = new WeakMap();
@@ -353,7 +354,7 @@ class EventEmitter {
  * that inherits from this class, the derived class is instantiated
  * once for each extension that uses the API.
  */
-class ExtensionAPI extends EventEmitter {
+export class ExtensionAPI extends EventEmitter {
   constructor(extension) {
     super();
 
@@ -369,28 +370,28 @@ class ExtensionAPI extends EventEmitter {
 
   destroy() {}
 
-  /** @param {string} entryName */
-  onManifestEntry(entryName) {}
+  /** @param {string} _entryName */
+  onManifestEntry(_entryName) {}
 
-  /** @param {boolean} isAppShutdown */
-  onShutdown(isAppShutdown) {}
+  /** @param {boolean} _isAppShutdown */
+  onShutdown(_isAppShutdown) {}
 
-  /** @param {BaseContext} context */
-  getAPI(context) {
+  /** @param {BaseContext} _context */
+  getAPI(_context) {
     throw new Error("Not Implemented");
   }
 
-  /** @param {string} id */
-  static onDisable(id) {}
+  /** @param {string} _id */
+  static onDisable(_id) {}
 
-  /** @param {string} id */
-  static onUninstall(id) {}
+  /** @param {string} _id */
+  static onUninstall(_id) {}
 
   /**
-   * @param {string} id
-   * @param {Record<string, JSONValue>} manifest
+   * @param {string} _id
+   * @param {object} _manifest
    */
-  static onUpdate(id, manifest) {}
+  static onUpdate(_id, _manifest) {}
 }
 
 /**
@@ -468,7 +469,7 @@ class ExtensionAPIPersistent extends ExtensionAPI {
  *
  * @abstract
  */
-class BaseContext {
+export class BaseContext {
   /** @type {boolean} */
   isTopContext;
   /** @type {string} */
@@ -553,10 +554,7 @@ class BaseContext {
    * Opens a conduit linked to this context, populating related address fields.
    * Only available in child contexts with an associated contentWindow.
    *
-   * @param {object} subject
-   * @param {ConduitAddress} address
-   * @returns {import("ConduitsChild.sys.mjs").PointConduit}
-   * @type {ConduitOpen}
+   * @type {ConduitGen}
    */
   openConduit(subject, address) {
     let wgc = this.contentWindow.windowGlobalChild;
@@ -614,7 +612,7 @@ class BaseContext {
   // All child contexts must implement logActivity.  This is handled if the child
   // context subclasses ExtensionBaseContextChild.  ProxyContextParent overrides
   // this with a noop for parent contexts.
-  logActivity(type, name, data) {
+  logActivity(_type, _name, _data) {
     throw new Error(`Not implemented for ${this.envType}`);
   }
 
@@ -746,23 +744,42 @@ class BaseContext {
         // TODO(Bug 1810582): change the error associated to the innerWindowID to also
         // include a full stack from the original error.
         if (!this.isProxyContextParent && this.contentWindow) {
-          Services.console.logMessage(
-            new ScriptError(
-              message,
-              fileName,
-              null,
-              lineNumber,
-              columnNumber,
-              Ci.nsIScriptError.errorFlag,
-              "content javascript",
-              this.innerWindowID
-            )
-          );
+          this.logConsoleScriptError({
+            message,
+            fileName,
+            lineNumber,
+            columnNumber,
+          });
         }
         // Also report the original error object (because it also includes
         // the full error stack).
         Cu.reportError(e);
       }
+    }
+  }
+
+  logConsoleScriptError({
+    message,
+    fileName,
+    lineNumber,
+    columnNumber,
+    flags = Ci.nsIScriptError.errorFlag,
+    innerWindowID = this.innerWindowID,
+  }) {
+    if (innerWindowID) {
+      Services.console.logMessage(
+        new ScriptError(
+          message,
+          fileName,
+          lineNumber,
+          columnNumber,
+          flags,
+          "content javascript",
+          innerWindowID
+        )
+      );
+    } else {
+      Cu.reportError(new Error(message));
     }
   }
 
@@ -822,7 +839,7 @@ class BaseContext {
    * exception error.
    *
    * @param {Error|object} error
-   * @param {SavedFrame?} [caller]
+   * @param {nsIStackFrame?} [caller]
    * @returns {Error}
    */
   normalizeError(error, caller) {
@@ -864,7 +881,7 @@ class BaseContext {
    *
    * @param {object} error An object with a `message` property. May
    *     optionally be an `Error` object belonging to the target scope.
-   * @param {SavedFrame?} caller
+   * @param {nsIStackFrame?} caller
    *        The optional caller frame which triggered this callback, to be used
    *        in error reporting.
    * @param {Function} callback The callback to call.
@@ -885,7 +902,7 @@ class BaseContext {
   /**
    * Captures the most recent stack frame which belongs to the extension.
    *
-   * @returns {SavedFrame?}
+   * @returns {nsIStackFrame?}
    */
   getCaller() {
     return ChromeUtils.getCallerLocation(this.principal);
@@ -1033,19 +1050,19 @@ class BaseContext {
 
 /**
  * An object that runs the implementation of a schema API. Instantiations of
- * this interfaces are used by Schemas.jsm.
+ * this interfaces are used by Schemas.sys.mjs.
  *
  * @interface
  */
-class SchemaAPIInterface {
+export class SchemaAPIInterface {
   /**
    * Calls this as a function that returns its return value.
    *
    * @abstract
-   * @param {Array} args The parameters for the function.
+   * @param {Array} _args The parameters for the function.
    * @returns {*} The return value of the invoked function.
    */
-  callFunction(args) {
+  callFunction(_args) {
     throw new Error("Not implemented");
   }
 
@@ -1053,9 +1070,9 @@ class SchemaAPIInterface {
    * Calls this as a function and ignores its return value.
    *
    * @abstract
-   * @param {Array} args The parameters for the function.
+   * @param {Array} _args The parameters for the function.
    */
-  callFunctionNoReturn(args) {
+  callFunctionNoReturn(_args) {
     throw new Error("Not implemented");
   }
 
@@ -1063,15 +1080,15 @@ class SchemaAPIInterface {
    * Calls this as a function that completes asynchronously.
    *
    * @abstract
-   * @param {Array} args The parameters for the function.
-   * @param {callback} [callback] The callback to be called when the function
+   * @param {Array} _args The parameters for the function.
+   * @param {callback} [_callback] The callback to be called when the function
    *     completes.
-   * @param {boolean} [requireUserInput=false] If true, the function should
+   * @param {boolean} [_requireUserInput=false] If true, the function should
    *                  fail if the browser is not currently handling user input.
    * @returns {Promise|undefined} Must be void if `callback` is set, and a
    *     promise otherwise. The promise is resolved when the function completes.
    */
-  callAsyncFunction(args, callback, requireUserInput = false) {
+  callAsyncFunction(_args, _callback, _requireUserInput) {
     throw new Error("Not implemented");
   }
 
@@ -1089,9 +1106,9 @@ class SchemaAPIInterface {
    * Assigns the value to this as property.
    *
    * @abstract
-   * @param {string} value The new value of the property.
+   * @param {string} _value The new value of the property.
    */
-  setProperty(value) {
+  setProperty(_value) {
     throw new Error("Not implemented");
   }
 
@@ -1099,11 +1116,11 @@ class SchemaAPIInterface {
    * Registers a `listener` to this as an event.
    *
    * @abstract
-   * @param {Function} listener The callback to be called when the event fires.
-   * @param {Array} args Extra parameters for EventManager.addListener.
+   * @param {Function} _listener The callback to be called when the event fires.
+   * @param {Array} _args Extra parameters for EventManager.addListener.
    * @see EventManager.addListener
    */
-  addListener(listener, args) {
+  addListener(_listener, _args) {
     throw new Error("Not implemented");
   }
 
@@ -1111,11 +1128,11 @@ class SchemaAPIInterface {
    * Checks whether `listener` is listening to this as an event.
    *
    * @abstract
-   * @param {Function} listener The event listener.
+   * @param {Function} _listener The event listener.
    * @returns {boolean} Whether `listener` is registered with this as an event.
    * @see EventManager.hasListener
    */
-  hasListener(listener) {
+  hasListener(_listener) {
     throw new Error("Not implemented");
   }
 
@@ -1123,10 +1140,10 @@ class SchemaAPIInterface {
    * Unregisters `listener` from this as an event.
    *
    * @abstract
-   * @param {Function} listener The event listener.
+   * @param {Function} _listener The event listener.
    * @see EventManager.removeListener
    */
-  removeListener(listener) {
+  removeListener(_listener) {
     throw new Error("Not implemented");
   }
 
@@ -1483,7 +1500,7 @@ class SchemaAPIManager extends EventEmitter {
    *     "addon" - An addon process.
    *     "content" - A content process.
    *     "devtools" - A devtools process.
-   * @param {import("Schemas.sys.mjs").SchemaRoot} [schema]
+   * @param {import("Schemas.sys.mjs").SchemaInject} [schema]
    */
   constructor(processType, schema) {
     super();
@@ -1771,10 +1788,15 @@ class SchemaAPIManager extends EventEmitter {
     this._checkLoadModule(module, name);
 
     module.asyncLoaded = ChromeUtils.compileScript(module.url).then(script => {
-      this.initGlobal();
-      script.executeInGlobal(this.global);
+      // In some rare cases, loadModule() may have been called since we started
+      // the async compileScript call. In that case, return the result that we
+      // already got from loadModule.
+      if (!module.loaded) {
+        this.initGlobal();
+        script.executeInGlobal(this.global);
 
-      module.loaded = true;
+        module.loaded = true;
+      }
 
       return this.global[name];
     });
@@ -1843,9 +1865,6 @@ class SchemaAPIManager extends EventEmitter {
     if (!module) {
       throw new Error(`Module '${name}' does not exist`);
     }
-    if (module.asyncLoaded) {
-      throw new Error(`Module '${name}' currently being lazily loaded`);
-    }
     if (this.global && this.global[name]) {
       throw new Error(
         `Module '${name}' conflicts with existing global property`
@@ -1865,7 +1884,7 @@ class SchemaAPIManager extends EventEmitter {
       {
         wantXrays: false,
         wantGlobalProperties: ["ChromeUtils"],
-        sandboxName: `Namespace of ext-*.js scripts for ${this.processType} (from: resource://gre/modules/ExtensionCommon.jsm)`,
+        sandboxName: `Namespace of ext-*.js scripts for ${this.processType} (from: resource://gre/modules/ExtensionCommon.sys.mjs)`,
       }
     );
 
@@ -1879,10 +1898,14 @@ class SchemaAPIManager extends EventEmitter {
       ExtensionAPI,
       ExtensionAPIPersistent,
       ExtensionCommon,
+      FileReader,
+      Glean,
+      GleanPings,
       IOUtils,
       MatchGlob,
       MatchPattern,
       MatchPatternSet,
+      OffscreenCanvas,
       PathUtils,
       Services,
       StructuredCloneHolder,
@@ -2023,10 +2046,14 @@ export function LocaleData(data) {
   this.locales = data.locales || new Map();
   this.warnedMissingKeys = new Set();
 
-  // Map(locale-name -> Map(message-key -> localized-string))
-  //
-  // Contains a key for each loaded locale, each of which is a
-  // Map of message keys to their localized strings.
+  /**
+   * Map(locale-name -> Map(message-key -> localized-string))
+   *
+   * Contains a key for each loaded locale, each of which is a
+   * Map of message keys to their localized strings.
+   *
+   * @type {Map<string, Map<string, string>>}
+   */
   this.messages = data.messages || new Map();
 
   if (data.builtinMessages) {
@@ -2877,15 +2904,28 @@ class EventManager {
         listener.added = true;
 
         recordStartupData = false;
-        this.remove.set(callback, () => {
-          EventManager.clearPersistentListener(
-            extension,
-            module,
-            event,
-            uneval(args),
-            listener.primeId
-          );
-        });
+
+        // Do not clear the persistent listener for a non-persistent backgrond
+        // context on removeListener calls got after the background context
+        // was fully started. The persistent listener can instead be cleared
+        // by not re-registering it on the next background context startup.
+        //
+        // This check prevents that for listeners that were already persisted
+        // and primed (a separate one below prevents it for new listeners).
+        //
+        // TODO Bug 1899767: do not reprime if the listener has been
+        // unregistered.
+        if (extension.persistentBackground) {
+          this.remove.set(callback, () => {
+            EventManager.clearPersistentListener(
+              extension,
+              module,
+              event,
+              uneval(args),
+              listener.primeId
+            );
+          });
+        }
       }
     }
 
@@ -2901,15 +2941,28 @@ class EventManager {
     if (recordStartupData) {
       const [, , , /* _module */ /* _event */ /* _key */ primeId] =
         EventManager.savePersistentListener(extension, module, event, args);
-      this.remove.set(callback, () => {
-        EventManager.clearPersistentListener(
-          extension,
-          module,
-          event,
-          uneval(args),
-          primeId
-        );
-      });
+
+      // Do not clear the persistent listener for a non-persistent backgrond
+      // context on removeListener calls got after the background context
+      // was fully started. The persistent listener can instead be cleared
+      // by not re-registering it on the next background context startup.
+      //
+      // This check prevents that for new listeners that were not already persisted
+      // and primed.
+      //
+      // TODO Bug 1899767: do not reprime if the listener has been
+      // unregistered.
+      if (extension.persistentBackground) {
+        this.remove.set(callback, () => {
+          EventManager.clearPersistentListener(
+            extension,
+            module,
+            event,
+            uneval(args),
+            primeId
+          );
+        });
+      }
     }
   }
 
@@ -2968,7 +3021,7 @@ class EventManager {
 // Simple API for event listeners where events never fire.
 function ignoreEvent(context, name) {
   return {
-    addListener: function (callback) {
+    addListener: function () {
       let id = context.extension.id;
       let frame = Components.stack.caller;
       let msg = `In add-on ${id}, attempting to use listener "${name}", which is unimplemented.`;
@@ -2978,7 +3031,6 @@ function ignoreEvent(context, name) {
       scriptError.init(
         msg,
         frame.filename,
-        null,
         frame.lineNumber,
         frame.columnNumber,
         Ci.nsIScriptError.warningFlag,
@@ -2986,8 +3038,8 @@ function ignoreEvent(context, name) {
       );
       Services.console.logMessage(scriptError);
     },
-    removeListener: function (callback) {},
-    hasListener: function (callback) {},
+    removeListener: function () {},
+    hasListener: function () {},
   };
 }
 

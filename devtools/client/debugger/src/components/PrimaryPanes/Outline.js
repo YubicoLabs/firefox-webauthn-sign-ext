@@ -76,10 +76,9 @@ export class Outline extends Component {
     return {
       alphabetizeOutline: PropTypes.bool.isRequired,
       cursorPosition: PropTypes.object,
-      flashLineRange: PropTypes.func.isRequired,
       onAlphabetizeClick: PropTypes.func.isRequired,
       selectLocation: PropTypes.func.isRequired,
-      selectedLocation: PropTypes.object.isRequired,
+      selectedLocation: PropTypes.object,
       getFunctionSymbols: PropTypes.func.isRequired,
       getClassSymbols: PropTypes.func.isRequired,
       selectedSourceTextContent: PropTypes.object,
@@ -138,8 +137,8 @@ export class Outline extends Component {
     }
 
     // Find items that enclose the selected location
-    const enclosedItems = [...classes, ...functions].filter(
-      ({ name, location }) => containsPosition(location, cursorPosition)
+    const enclosedItems = [...classes, ...functions].filter(({ location }) =>
+      containsPosition(location, cursorPosition)
     );
 
     if (!enclosedItems.length) {
@@ -365,7 +364,7 @@ export class Outline extends Component {
       div(
         null,
         React.createElement(OutlineFilter, {
-          filter: filter,
+          filter,
           updateFilter: this.updateFilter,
         }),
         this.renderFunctions(functions),

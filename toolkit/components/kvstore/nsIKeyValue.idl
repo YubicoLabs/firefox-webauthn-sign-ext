@@ -5,6 +5,7 @@
 #include "nsISupports.idl"
 #include "nsIVariant.idl"
 
+interface nsIKeyValueImporter;
 interface nsIKeyValueDatabaseCallback;
 interface nsIKeyValueEnumeratorCallback;
 interface nsIKeyValuePairCallback;
@@ -22,7 +23,7 @@ interface nsIKeyValuePair;
  * for all use cases.  Extension of this API to support transactions is tracked
  * by bug 1499238.
  *
- * The kvstore.jsm module wraps this API in a more idiomatic, Promise-based
+ * The kvstore.sys.mjs module wraps this API in a more idiomatic, Promise-based
  * JS API that supports async/await.  In most cases, you're better off using
  * that API from JS rather than using this one directly.  Bug 1512319 tracks
  * native support for Promise in Rust-implemented XPCOM methods.
@@ -33,6 +34,12 @@ interface nsIKeyValuePair;
  */
 [scriptable, builtinclass, rust_sync, uuid(46c893dd-4c14-4de0-b33d-a1be18c6d062)]
 interface nsIKeyValueService : nsISupports {
+    cenum RecoveryStrategy: 8 {
+        ERROR,
+        DISCARD,
+        RENAME,
+    };
+
     /**
      * Get a handle to an existing database or a newly-created one
      * at the specified path and with the given name.
@@ -44,8 +51,74 @@ interface nsIKeyValueService : nsISupports {
      */
     void getOrCreate(
         in nsIKeyValueDatabaseCallback callback,
-        in AUTF8String path,
+        in AString path,
         in AUTF8String name);
+
+    void getOrCreateWithOptions(
+        in nsIKeyValueDatabaseCallback callback,
+        in AString path,
+        in AUTF8String name,
+        [optional] in nsIKeyValueService_RecoveryStrategy recoveryStrategy);
+
+    /**
+     * Create an importer for databases of the given type
+     * at the specified path.
+     */
+    nsIKeyValueImporter createImporter(
+        in AUTF8String type,
+        in AString path);
+};
+
+/** Copies key-value pairs from another database. */
+[scriptable, builtinclass, rust_sync, uuid(470d71c0-d601-4867-8c09-810af7ffa67e)]
+interface nsIKeyValueImporter : nsISupports {
+    /**
+     * The action to take when a key already exists and has a different value.
+     */
+    cenum ConflictPolicy : 8 {
+        /**
+         * Fail the import with an error, and roll back any key-value pairs
+         * that have been imported so far.
+         */
+        ERROR_ON_CONFLICT,
+
+        /** Keep the existing value for the key, and continue the import. */
+        IGNORE_ON_CONFLICT,
+
+        /**
+         * Overwrite the existing value for the key with the value from
+         * the other database, and continue the import.
+         */
+        REPLACE_ON_CONFLICT,
+    };
+
+    /** The action to take after a successful import. */
+    cenum CleanupPolicy : 8 {
+        /** Keep all key-value pairs in the other database. */
+        KEEP_AFTER_IMPORT,
+
+        /** Delete all key-value pairs from the other database. */
+        DELETE_AFTER_IMPORT,
+    };
+
+    readonly attribute AUTF8String type;
+    readonly attribute AString path;
+    attribute nsIKeyValueImporter_ConflictPolicy conflictPolicy;
+    attribute nsIKeyValueImporter_CleanupPolicy cleanupPolicy;
+
+    /**
+     * Atomically import all key-value pairs from the database
+     * with the given name.
+     */
+    void import(
+        in nsIKeyValueVoidCallback callback,
+        in AUTF8String name);
+
+    /**
+     * Atomically import all key-value pairs from all databases
+     * at this importer's path.
+     */
+    void importAll(in nsIKeyValueVoidCallback callback);
 };
 
 /**
@@ -57,6 +130,21 @@ interface nsIKeyValueService : nsISupports {
  */
 [scriptable, builtinclass, rust_sync, uuid(c449398e-174c-425b-8195-da6aa0ccd9a5)]
 interface nsIKeyValueDatabase : nsISupports {
+    /**
+     * Determine whether or not the database is empty.
+     */
+    void isEmpty(in nsIKeyValueVariantCallback callback);
+
+    /**
+     * Count the number of key/value pairs in the database.
+     */
+    void count(in nsIKeyValueVariantCallback callback);
+
+    /**
+     * Calculate the size, in bytes, of all keys and values in the database.
+     */
+    void size(in nsIKeyValueVariantCallback callback);
+
     /**
      * Write the specified key/value pair to the database.
      */
@@ -124,6 +212,20 @@ interface nsIKeyValueDatabase : nsISupports {
         in AUTF8String key);
 
     /**
+     * Remove all key/value pairs in a lexicographical range from the database,
+     * including the "from" key and excluding the "to" key.
+     *
+     * If either key is omitted, the range extends to the first or last key
+     * in the database. If both keys are omitted, `deleteRange()` behaves
+     * the same as `clear()`. If the "from" key is greater than the "to" key,
+     * `deleteRange()` does nothing.
+     */
+    void deleteRange(
+        in nsIKeyValueVoidCallback callback,
+        [optional] in AUTF8String fromKey,
+        [optional] in AUTF8String toKey);
+
+    /**
      * Clear all the key/value pairs from the database.
      */
     void clear(in nsIKeyValueVoidCallback callback);
@@ -134,12 +236,26 @@ interface nsIKeyValueDatabase : nsISupports {
      * less than the "to" key (exclusive) sorted lexicographically.
      *
      * If either key is omitted, the range extends to the first and/or last key
-     * in the database.
+     * in the database. If the "from" key is greater than the "to" key,
+     * no pairs are enumerated.
      */
     void enumerate(
         in nsIKeyValueEnumeratorCallback callback,
         [optional] in AUTF8String fromKey,
         [optional] in AUTF8String toKey);
+
+    /**
+     * Close the database.
+     *
+     * Subsequent attempts to read from or write to the database will fail.
+     * If the database is already closed, closing it again succeeds
+     * without effect.
+     *
+     * This operation always succeeds if the implementation supports
+     * closing a database (that is, it's not possible for a database to
+     * fail to close), and always fails if it doesn't.
+     */
+    void close(in nsIKeyValueVoidCallback callback);
 };
 
 /**
@@ -157,12 +273,12 @@ interface nsIKeyValuePair : nsISupports {
  * an nsIKeyValuePair rather than an nsISupports, so consumers don't need
  * to QI it to that interface; but this interface doesn't implement the JS
  * iteration protocol (because the Rust-XPCOM bindings don't yet support it),
- * which is another reason why you should use the kvstore.jsm module from JS
+ * which is another reason why you should use the kvstore.sys.mjs module from JS
  * instead of accessing this API directly.
  */
 [scriptable, builtinclass, rust_sync, uuid(b9ba7116-b7ff-4717-9a28-a08e6879b199)]
 interface nsIKeyValueEnumerator : nsISupports {
-    bool hasMoreElements();
+    boolean hasMoreElements();
     nsIKeyValuePair getNext();
 };
 

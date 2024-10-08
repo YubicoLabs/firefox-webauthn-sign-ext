@@ -9,17 +9,15 @@
 //! it also handles merging "partial" blob images (see `merge_blob_images`) and
 //! registering fonts found in the blob (see `prepare_request`).
 
-use bindings::{
-    gecko_profiler_end_marker, gecko_profiler_start_marker, wr_moz2d_render_cb, ArcVecU8, ByteSlice, MutByteSlice,
-};
+use bindings::{wr_moz2d_render_cb, ArcVecU8, ByteSlice, MutByteSlice};
 use gecko_profiler::gecko_profiler_label;
+use gecko_profiler::auto_profiler_marker_tracing;
 use rayon::prelude::*;
 use rayon::ThreadPool;
 use webrender::api::units::{BlobDirtyRect, BlobToDeviceTranslation, DeviceIntRect};
 use webrender::api::*;
 
 use euclid::point2;
-use std;
 use std::collections::btree_map::BTreeMap;
 use std::collections::hash_map;
 use std::collections::hash_map::HashMap;
@@ -30,19 +28,16 @@ use std::os::raw::c_void;
 use std::ptr;
 use std::sync::Arc;
 
-#[cfg(target_os = "windows")]
-use dwrote;
-
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 use core_foundation::string::CFString;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 use core_graphics::font::CGFont;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 use foreign_types::ForeignType;
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "windows")))]
 use std::ffi::CString;
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "windows")))]
 use std::os::unix::ffi::OsStrExt;
 
 /// Local print-debugging utility
@@ -182,12 +177,6 @@ struct BlobReader<'a> {
     begin: usize,
 }
 
-#[derive(PartialEq, Debug, Eq, Clone, Copy)]
-struct IntPoint {
-    x: i32,
-    y: i32,
-}
-
 /// The metadata for each display item in a blob image (doesn't match the serialized layout).
 ///
 /// See BlobReader above for detailed docs of the blob image format.
@@ -318,7 +307,7 @@ struct CachedReader<'a> {
 
 impl<'a> CachedReader<'a> {
     /// Creates a new CachedReader.
-    pub fn new(buf: &'a [u8]) -> CachedReader {
+    pub fn new(buf: &'a [u8]) -> Self {
         CachedReader {
             reader: BlobReader::new(buf),
             cache: BTreeMap::new(),
@@ -494,6 +483,7 @@ struct Job {
     dirty_rect: BlobDirtyRect,
     visible_rect: DeviceIntRect,
     tile_size: TileSize,
+    output: MutableTileBuffer,
 }
 
 /// Rasterizes gecko blob images.
@@ -508,32 +498,21 @@ struct Moz2dBlobRasterizer {
     enable_multithreading: bool,
 }
 
-struct GeckoProfilerMarker {
-    name: &'static str,
-}
-
-impl GeckoProfilerMarker {
-    pub fn new(name: &'static str) -> GeckoProfilerMarker {
-        gecko_profiler_start_marker(name);
-        GeckoProfilerMarker { name }
-    }
-}
-
-impl Drop for GeckoProfilerMarker {
-    fn drop(&mut self) {
-        gecko_profiler_end_marker(self.name);
-    }
-}
-
 impl AsyncBlobImageRasterizer for Moz2dBlobRasterizer {
     fn rasterize(
         &mut self,
         requests: &[BlobImageParams],
         low_priority: bool,
+        tile_pool: &mut BlobTilePool,
     ) -> Vec<(BlobImageRequest, BlobImageResult)> {
         // All we do here is spin up our workers to callback into gecko to replay the drawing commands.
         gecko_profiler_label!(Graphics, Rasterization);
-        let _marker = GeckoProfilerMarker::new("BlobRasterization");
+        auto_profiler_marker_tracing!(
+            "BlobRasterization",
+            gecko_profiler::gecko_profiler_category!(Graphics),
+            Default::default(),
+            "Webrender".into()
+        );
 
         let requests: Vec<Job> = requests
             .iter()
@@ -542,6 +521,8 @@ impl AsyncBlobImageRasterizer for Moz2dBlobRasterizer {
                 let blob = Arc::clone(&command.data);
                 assert!(!params.descriptor.rect.is_empty());
 
+                let buf_size = (params.descriptor.rect.area() * params.descriptor.format.bytes_per_pixel()) as usize;
+
                 Job {
                     request: params.request,
                     descriptor: params.descriptor,
@@ -549,6 +530,7 @@ impl AsyncBlobImageRasterizer for Moz2dBlobRasterizer {
                     visible_rect: command.visible_rect,
                     dirty_rect: params.dirty_rect,
                     tile_size: command.tile_size,
+                    output: tile_pool.get_buffer(buf_size),
                 }
             })
             .collect();
@@ -566,7 +548,7 @@ impl AsyncBlobImageRasterizer for Moz2dBlobRasterizer {
             requests.len() > 4
         };
 
-        if should_parallelize {
+        let result = if should_parallelize {
             // Parallel version synchronously installs a job on the thread pool which will
             // try to do the work in parallel.
             // This thread is blocked until the thread pool is done doing the work.
@@ -580,7 +562,9 @@ impl AsyncBlobImageRasterizer for Moz2dBlobRasterizer {
             }
         } else {
             requests.into_iter().map(rasterize_blob).collect()
-        }
+        };
+
+        result
     }
 }
 
@@ -597,18 +581,17 @@ fn autoreleasepool<T, F: FnOnce() -> T>(f: F) -> T {
     }
 }
 
-fn rasterize_blob(job: Job) -> (BlobImageRequest, BlobImageResult) {
+fn rasterize_blob(mut job: Job) -> (BlobImageRequest, BlobImageResult) {
     gecko_profiler_label!(Graphics, Rasterization);
     let descriptor = job.descriptor;
-    let buf_size = (descriptor.rect.area() * descriptor.format.bytes_per_pixel()) as usize;
-
-    let mut output = vec![0u8; buf_size];
 
     let dirty_rect = match job.dirty_rect {
         DirtyRect::Partial(rect) => Some(rect),
         DirtyRect::All => None,
     };
     assert!(!descriptor.rect.is_empty());
+
+    let request = job.request;
 
     let result = autoreleasepool(|| {
         unsafe {
@@ -618,9 +601,9 @@ fn rasterize_blob(job: Job) -> (BlobImageRequest, BlobImageResult) {
                 &descriptor.rect,
                 &job.visible_rect,
                 job.tile_size,
-                &job.request.tile,
+                &request.tile,
                 dirty_rect.as_ref(),
-                MutByteSlice::new(output.as_mut_slice()),
+                MutByteSlice::new(job.output.as_mut_slice()),
             ) {
                 // We want the dirty rect local to the tile rather than the whole image.
                 // TODO(nical): move that up and avoid recomupting the tile bounds in the callback
@@ -630,7 +613,7 @@ fn rasterize_blob(job: Job) -> (BlobImageRequest, BlobImageResult) {
 
                 Ok(RasterizedBlobImage {
                     rasterized_rect,
-                    data: Arc::new(output),
+                    data: job.output.into_arc(),
                 })
             } else {
                 panic!("Moz2D replay problem");
@@ -638,7 +621,7 @@ fn rasterize_blob(job: Job) -> (BlobImageRequest, BlobImageResult) {
         }
     });
 
-    (job.request, result)
+    (request, result)
 }
 
 impl BlobImageHandler for Moz2dBlobImageHandler {
@@ -787,7 +770,7 @@ impl Moz2dBlobImageHandler {
             unsafe { AddNativeFontHandle(key, face.as_ptr() as *mut c_void, 0) };
         }
 
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
         fn process_native_font_handle(key: FontKey, handle: &NativeFontHandle) {
             let font = match CGFont::from_name(&CFString::new(&handle.name)) {
                 Ok(font) => font,
@@ -804,7 +787,7 @@ impl Moz2dBlobImageHandler {
             unsafe { AddNativeFontHandle(key, font.as_ptr() as *mut c_void, 0) };
         }
 
-        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "windows")))]
         fn process_native_font_handle(key: FontKey, handle: &NativeFontHandle) {
             let cstr = CString::new(handle.path.as_os_str().as_bytes()).unwrap();
             unsafe { AddNativeFontHandle(key, cstr.as_ptr() as *mut c_void, handle.index) };

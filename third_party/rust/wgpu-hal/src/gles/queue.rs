@@ -2,7 +2,8 @@ use super::{conv::is_layered_target, Command as C, PrivateCapabilities};
 use arrayvec::ArrayVec;
 use glow::HasContext;
 use std::{
-    mem, slice,
+    mem::size_of,
+    slice,
     sync::{atomic::Ordering, Arc},
 };
 
@@ -40,10 +41,14 @@ fn get_z_offset(target: u32, base: &crate::TextureCopyBase) -> u32 {
 impl super::Queue {
     /// Performs a manual shader clear, used as a workaround for a clearing bug on mesa
     unsafe fn perform_shader_clear(&self, gl: &glow::Context, draw_buffer: u32, color: [f32; 4]) {
-        unsafe { gl.use_program(Some(self.shader_clear_program)) };
+        let shader_clear = self
+            .shader_clear_program
+            .as_ref()
+            .expect("shader_clear_program should always be set if the workaround is enabled");
+        unsafe { gl.use_program(Some(shader_clear.program)) };
         unsafe {
             gl.uniform_4_f32(
-                Some(&self.shader_clear_program_color_uniform_location),
+                Some(&shader_clear.color_uniform_location),
                 color[0],
                 color[1],
                 color[2],
@@ -209,12 +214,27 @@ impl super::Queue {
                 instance_count,
                 ref first_instance_location,
             } => {
-                match base_vertex {
-                    0 => {
-                        unsafe {
-                            gl.uniform_1_u32(first_instance_location.as_ref(), first_instance)
-                        };
+                let supports_full_instancing = self
+                    .shared
+                    .private_caps
+                    .contains(PrivateCapabilities::FULLY_FEATURED_INSTANCING);
 
+                if supports_full_instancing {
+                    unsafe {
+                        gl.draw_elements_instanced_base_vertex_base_instance(
+                            topology,
+                            index_count as i32,
+                            index_type,
+                            index_offset as i32,
+                            instance_count as i32,
+                            base_vertex,
+                            first_instance,
+                        )
+                    }
+                } else {
+                    unsafe { gl.uniform_1_u32(first_instance_location.as_ref(), first_instance) };
+
+                    if base_vertex == 0 {
                         unsafe {
                             // Don't use `gl.draw_elements`/`gl.draw_elements_base_vertex` for `instance_count == 1`.
                             // Angle has a bug where it doesn't consider the instance divisor when `DYNAMIC_DRAW` is used in `gl.draw_elements`/`gl.draw_elements_base_vertex`.
@@ -227,41 +247,17 @@ impl super::Queue {
                                 instance_count as i32,
                             )
                         }
-                    }
-                    _ => {
-                        let supports_full_instancing = self
-                            .shared
-                            .private_caps
-                            .contains(PrivateCapabilities::FULLY_FEATURED_INSTANCING);
-
-                        if supports_full_instancing {
-                            unsafe {
-                                gl.draw_elements_instanced_base_vertex_base_instance(
-                                    topology,
-                                    index_count as i32,
-                                    index_type,
-                                    index_offset as i32,
-                                    instance_count as i32,
-                                    base_vertex,
-                                    first_instance,
-                                )
-                            }
-                        } else {
-                            unsafe {
-                                gl.uniform_1_u32(first_instance_location.as_ref(), first_instance)
-                            };
-
-                            // If we've gotten here, wgpu-core has already validated that this function exists via the DownlevelFlags::BASE_VERTEX feature.
-                            unsafe {
-                                gl.draw_elements_instanced_base_vertex(
-                                    topology,
-                                    index_count as _,
-                                    index_type,
-                                    index_offset as i32,
-                                    instance_count as i32,
-                                    base_vertex,
-                                )
-                            }
+                    } else {
+                        // If we've gotten here, wgpu-core has already validated that this function exists via the DownlevelFlags::BASE_VERTEX feature.
+                        unsafe {
+                            gl.draw_elements_instanced_base_vertex(
+                                topology,
+                                index_count as _,
+                                index_type,
+                                index_offset as i32,
+                                instance_count as i32,
+                                base_vertex,
+                            )
                         }
                     }
                 }
@@ -318,7 +314,7 @@ impl super::Queue {
                     let can_use_zero_buffer = self
                         .shared
                         .private_caps
-                        .contains(super::PrivateCapabilities::INDEX_BUFFER_ROLE_CHANGE)
+                        .contains(PrivateCapabilities::INDEX_BUFFER_ROLE_CHANGE)
                         || dst_target != glow::ELEMENT_ARRAY_BUFFER;
 
                     if can_use_zero_buffer {
@@ -363,7 +359,7 @@ impl super::Queue {
                 let is_index_buffer_only_element_dst = !self
                     .shared
                     .private_caps
-                    .contains(super::PrivateCapabilities::INDEX_BUFFER_ROLE_CHANGE)
+                    .contains(PrivateCapabilities::INDEX_BUFFER_ROLE_CHANGE)
                     && dst_target == glow::ELEMENT_ARRAY_BUFFER
                     || src_target == glow::ELEMENT_ARRAY_BUFFER;
 
@@ -476,6 +472,21 @@ impl super::Queue {
                                 b,
                             );
                         },
+                        wgt::ExternalImageSource::HTMLImageElement(ref i) => unsafe {
+                            gl.tex_sub_image_3d_with_html_image_element(
+                                dst_target,
+                                copy.dst_base.mip_level as i32,
+                                copy.dst_base.origin.x as i32,
+                                copy.dst_base.origin.y as i32,
+                                z_offset as i32,
+                                copy.size.width as i32,
+                                copy.size.height as i32,
+                                copy.size.depth as i32,
+                                format_desc.external,
+                                format_desc.data_type,
+                                i,
+                            );
+                        },
                         wgt::ExternalImageSource::HTMLVideoElement(ref v) => unsafe {
                             gl.tex_sub_image_3d_with_html_video_element(
                                 dst_target,
@@ -489,6 +500,37 @@ impl super::Queue {
                                 format_desc.external,
                                 format_desc.data_type,
                                 v,
+                            );
+                        },
+                        #[cfg(web_sys_unstable_apis)]
+                        wgt::ExternalImageSource::VideoFrame(ref v) => unsafe {
+                            gl.tex_sub_image_3d_with_video_frame(
+                                dst_target,
+                                copy.dst_base.mip_level as i32,
+                                copy.dst_base.origin.x as i32,
+                                copy.dst_base.origin.y as i32,
+                                z_offset as i32,
+                                copy.size.width as i32,
+                                copy.size.height as i32,
+                                copy.size.depth as i32,
+                                format_desc.external,
+                                format_desc.data_type,
+                                v,
+                            )
+                        },
+                        wgt::ExternalImageSource::ImageData(ref i) => unsafe {
+                            gl.tex_sub_image_3d_with_image_data(
+                                dst_target,
+                                copy.dst_base.mip_level as i32,
+                                copy.dst_base.origin.x as i32,
+                                copy.dst_base.origin.y as i32,
+                                z_offset as i32,
+                                copy.size.width as i32,
+                                copy.size.height as i32,
+                                copy.size.depth as i32,
+                                format_desc.external,
+                                format_desc.data_type,
+                                i,
                             );
                         },
                         wgt::ExternalImageSource::HTMLCanvasElement(ref c) => unsafe {
@@ -525,6 +567,19 @@ impl super::Queue {
                                 b,
                             );
                         },
+                        wgt::ExternalImageSource::HTMLImageElement(ref i) => unsafe {
+                            gl.tex_sub_image_2d_with_html_image_and_width_and_height(
+                                dst_target,
+                                copy.dst_base.mip_level as i32,
+                                copy.dst_base.origin.x as i32,
+                                copy.dst_base.origin.y as i32,
+                                copy.size.width as i32,
+                                copy.size.height as i32,
+                                format_desc.external,
+                                format_desc.data_type,
+                                i,
+                            )
+                        },
                         wgt::ExternalImageSource::HTMLVideoElement(ref v) => unsafe {
                             gl.tex_sub_image_2d_with_html_video_and_width_and_height(
                                 dst_target,
@@ -537,6 +592,33 @@ impl super::Queue {
                                 format_desc.data_type,
                                 v,
                             )
+                        },
+                        #[cfg(web_sys_unstable_apis)]
+                        wgt::ExternalImageSource::VideoFrame(ref v) => unsafe {
+                            gl.tex_sub_image_2d_with_video_frame_and_width_and_height(
+                                dst_target,
+                                copy.dst_base.mip_level as i32,
+                                copy.dst_base.origin.x as i32,
+                                copy.dst_base.origin.y as i32,
+                                copy.size.width as i32,
+                                copy.size.height as i32,
+                                format_desc.external,
+                                format_desc.data_type,
+                                v,
+                            )
+                        },
+                        wgt::ExternalImageSource::ImageData(ref i) => unsafe {
+                            gl.tex_sub_image_2d_with_image_data_and_width_and_height(
+                                dst_target,
+                                copy.dst_base.mip_level as i32,
+                                copy.dst_base.origin.x as i32,
+                                copy.dst_base.origin.y as i32,
+                                copy.size.width as i32,
+                                copy.size.height as i32,
+                                format_desc.external,
+                                format_desc.data_type,
+                                i,
+                            );
                         },
                         wgt::ExternalImageSource::HTMLCanvasElement(ref c) => unsafe {
                             gl.tex_sub_image_2d_with_html_canvas_and_width_and_height(
@@ -960,8 +1042,8 @@ impl super::Queue {
                     }
                     let query_data = unsafe {
                         slice::from_raw_parts(
-                            temp_query_results.as_ptr() as *const u8,
-                            temp_query_results.len() * mem::size_of::<u64>(),
+                            temp_query_results.as_ptr().cast::<u8>(),
+                            temp_query_results.len() * size_of::<u64>(),
                         )
                     };
                     match dst.raw {
@@ -1080,13 +1162,7 @@ impl super::Queue {
                 {
                     unsafe { self.perform_shader_clear(gl, draw_buffer, *color) };
                 } else {
-                    // Prefer `clear` as `clear_buffer` functions have issues on Sandy Bridge
-                    // on Windows.
-                    unsafe {
-                        gl.draw_buffers(&[glow::COLOR_ATTACHMENT0 + draw_buffer]);
-                        gl.clear_color(color[0], color[1], color[2], color[3]);
-                        gl.clear(glow::COLOR_BUFFER_BIT);
-                    }
+                    unsafe { gl.clear_buffer_f32_slice(glow::COLOR, draw_buffer, color) };
                 }
             }
             C::ClearColorU(draw_buffer, ref color) => {
@@ -1531,14 +1607,13 @@ impl super::Queue {
                 //
                 // This function is absolutely sketchy and we really should be using bytemuck.
                 unsafe fn get_data<T, const COUNT: usize>(data: &[u8], offset: u32) -> &[T; COUNT] {
-                    let data_required = mem::size_of::<T>() * COUNT;
+                    let data_required = size_of::<T>() * COUNT;
 
                     let raw = &data[(offset as usize)..][..data_required];
 
                     debug_assert_eq!(data_required, raw.len());
 
-                    let slice: &[T] =
-                        unsafe { slice::from_raw_parts(raw.as_ptr() as *const _, COUNT) };
+                    let slice: &[T] = unsafe { slice::from_raw_parts(raw.as_ptr().cast(), COUNT) };
 
                     slice.try_into().unwrap()
                 }
@@ -1744,12 +1819,14 @@ impl super::Queue {
     }
 }
 
-impl crate::Queue<super::Api> for super::Queue {
+impl crate::Queue for super::Queue {
+    type A = super::Api;
+
     unsafe fn submit(
         &self,
         command_buffers: &[&super::CommandBuffer],
         _surface_textures: &[&super::Texture],
-        signal_fence: Option<(&mut super::Fence, crate::FenceValue)>,
+        (signal_fence, signal_value): (&mut super::Fence, crate::FenceValue),
     ) -> Result<(), crate::DeviceError> {
         let shared = Arc::clone(&self.shared);
         let gl = &shared.context.lock();
@@ -1783,12 +1860,10 @@ impl crate::Queue<super::Api> for super::Queue {
             }
         }
 
-        if let Some((fence, value)) = signal_fence {
-            fence.maintain(gl);
-            let sync = unsafe { gl.fence_sync(glow::SYNC_GPU_COMMANDS_COMPLETE, 0) }
-                .map_err(|_| crate::DeviceError::OutOfMemory)?;
-            fence.pending.push((value, sync));
-        }
+        signal_fence.maintain(gl);
+        let sync = unsafe { gl.fence_sync(glow::SYNC_GPU_COMMANDS_COMPLETE, 0) }
+            .map_err(|_| crate::DeviceError::OutOfMemory)?;
+        signal_fence.pending.push((signal_value, sync));
 
         Ok(())
     }

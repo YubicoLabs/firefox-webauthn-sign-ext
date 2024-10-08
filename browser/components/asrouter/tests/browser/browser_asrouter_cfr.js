@@ -115,14 +115,6 @@ function checkCFRAddonsElements(notification) {
   );
 }
 
-function checkCFRTrackingProtectionMilestone(notification) {
-  Assert.ok(notification.hidden === false, "Panel should be visible");
-  Assert.ok(
-    notification.getAttribute("data-notification-category") === "short_message",
-    "Panel have correct data attribute"
-  );
-}
-
 function clearNotifications() {
   for (let notification of PopupNotifications._currentNotifications) {
     notification.remove();
@@ -183,7 +175,8 @@ add_setup(async function () {
   // Store it in order to restore to the original value
   const { _fetchLatestAddonVersion } = CFRPageActions;
   // Prevent fetching the real addon url and making a network request
-  CFRPageActions._fetchLatestAddonVersion = x => "http://example.com";
+  CFRPageActions._fetchLatestAddonVersion = () => "http://example.com";
+  Services.fog.testResetFOG();
 
   registerCleanupFunction(() => {
     CFRPageActions._fetchLatestAddonVersion = _fetchLatestAddonVersion;
@@ -193,20 +186,10 @@ add_setup(async function () {
 });
 
 add_task(async function test_cfr_notification_show() {
-  registerCleanupFunction(() => {
-    Services.prefs.clearUserPref(
-      "browser.newtabpage.activity-stream.telemetry"
-    );
-    // Reset fog to clear pings here for private window test later.
-    Services.fog.testResetFOG();
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.newtabpage.activity-stream.telemetry", true]],
   });
 
-  Services.prefs.setBoolPref(
-    "browser.newtabpage.activity-stream.telemetry",
-    true
-  );
-
-  Services.fog.testResetFOG();
   let pingSubmitted = false;
   GleanPings.messagingSystem.testBeforeNextSubmit(() => {
     pingSubmitted = true;
@@ -266,6 +249,7 @@ add_task(async function test_cfr_notification_show() {
   );
 
   Assert.ok(pingSubmitted, "Recorded an event");
+  Services.fog.testResetFOG();
 });
 
 add_task(async function test_cfr_notification_show() {
@@ -332,6 +316,7 @@ add_task(async function test_cfr_notification_show() {
     0,
     "Should have removed the notification"
   );
+  Services.fog.testResetFOG();
 });
 
 add_task(async function test_cfr_notification_minimize() {
@@ -379,6 +364,7 @@ add_task(async function test_cfr_notification_minimize() {
     .getElementById("contextual-feature-recommendation-notification")
     .button.click();
   await hidePanel;
+  Services.fog.testResetFOG();
 });
 
 add_task(async function test_cfr_notification_minimize_2() {
@@ -441,6 +427,7 @@ add_task(async function test_cfr_notification_minimize_2() {
 
   clearNotifications();
   CFRPageActions.clearRecommendations();
+  Services.fog.testResetFOG();
 });
 
 add_task(async function test_cfr_addon_install() {
@@ -500,59 +487,8 @@ add_task(async function test_cfr_addon_install() {
   );
 
   clearNotifications();
+  Services.fog.testResetFOG();
 });
-
-add_task(
-  async function test_cfr_tracking_protection_milestone_notification_remove() {
-    await SpecialPowers.pushPrefEnv({
-      set: [
-        ["browser.contentblocking.cfr-milestone.milestone-achieved", 1000],
-        [
-          "browser.newtabpage.activity-stream.asrouter.providers.cfr",
-          `{"id":"cfr","enabled":true,"type":"local","localProvider":"CFRMessageProvider","updateCycleInMs":3600000}`,
-        ],
-      ],
-    });
-
-    // addRecommendation checks that scheme starts with http and host matches
-    let browser = gBrowser.selectedBrowser;
-    BrowserTestUtils.startLoadingURIString(browser, "http://example.com/");
-    await BrowserTestUtils.browserLoaded(browser, false, "http://example.com/");
-
-    const showPanel = BrowserTestUtils.waitForEvent(
-      PopupNotifications.panel,
-      "popupshown"
-    );
-
-    Services.obs.notifyObservers(
-      {
-        wrappedJSObject: {
-          event: "ContentBlockingMilestone",
-        },
-      },
-      "SiteProtection:ContentBlockingMilestone"
-    );
-
-    await showPanel;
-
-    const notification = document.getElementById(
-      "contextual-feature-recommendation-notification"
-    );
-
-    checkCFRTrackingProtectionMilestone(notification);
-
-    Assert.ok(notification.secondaryButton);
-    let hidePanel = BrowserTestUtils.waitForEvent(
-      PopupNotifications.panel,
-      "popuphidden"
-    );
-
-    notification.secondaryButton.click();
-    await hidePanel;
-    await SpecialPowers.popPrefEnv();
-    clearNotifications();
-  }
-);
 
 add_task(async function test_cfr_addon_and_features_show() {
   // addRecommendation checks that scheme starts with http and host matches
@@ -642,6 +578,7 @@ add_task(async function test_cfr_addon_and_features_show() {
     0,
     "Should have removed the notification"
   );
+  Services.fog.testResetFOG();
 });
 
 add_task(async function test_onLocationChange_cb() {
@@ -678,9 +615,8 @@ add_task(async function test_onLocationChange_cb() {
 
   Assert.equal(count, 2, "We moved to a new document");
 
-  registerCleanupFunction(() => {
-    ASRouterTriggerListeners.get("openURL").uninit();
-  });
+  ASRouterTriggerListeners.get("openURL").uninit();
+  Services.fog.testResetFOG();
 });
 
 add_task(async function test_matchPattern() {
@@ -730,9 +666,8 @@ add_task(async function test_matchPattern() {
     "www.example.com is a different host that also matches the pattern."
   );
 
-  registerCleanupFunction(() => {
-    ASRouterTriggerListeners.get("frequentVisits").uninit();
-  });
+  ASRouterTriggerListeners.get("frequentVisits").uninit();
+  Services.fog.testResetFOG();
 });
 
 add_task(async function test_providerNames() {
@@ -741,69 +676,14 @@ add_task(async function test_providerNames() {
   const cfrProviderPrefs = Services.prefs.getChildList(providersBranch);
   for (const prefName of cfrProviderPrefs) {
     const prefValue = JSON.parse(Services.prefs.getStringPref(prefName));
-    if (prefValue && prefValue.id) {
+    if (prefValue?.id) {
       Assert.equal(
         prefValue.id,
         prefName.slice(providersBranch.length),
-        "Provider id and pref name do not match"
+        "Provider id and pref name should match"
       );
     }
   }
-});
-
-add_task(async function test_cfr_notification_keyboard() {
-  // addRecommendation checks that scheme starts with http and host matches
-  const browser = gBrowser.selectedBrowser;
-  BrowserTestUtils.startLoadingURIString(browser, "http://example.com/");
-  await BrowserTestUtils.browserLoaded(browser, false, "http://example.com/");
-
-  const response = await trigger_cfr_panel(browser, "example.com");
-  Assert.ok(
-    response,
-    "Should return true if addRecommendation checks were successful"
-  );
-
-  // Open the panel with the keyboard.
-  // Toolbar buttons aren't always focusable; toolbar keyboard navigation
-  // makes them focusable on demand. Therefore, we must force focus.
-  const button = document.getElementById("contextual-feature-recommendation");
-  button.setAttribute("tabindex", "-1");
-  button.focus();
-  button.removeAttribute("tabindex");
-
-  let focused = BrowserTestUtils.waitForEvent(
-    PopupNotifications.panel,
-    "focus",
-    true
-  );
-  EventUtils.synthesizeKey(" ");
-  await focused;
-  Assert.ok(true, "Focus inside panel after button pressed");
-
-  let hidden = BrowserTestUtils.waitForEvent(
-    PopupNotifications.panel,
-    "popuphidden"
-  );
-  EventUtils.synthesizeKey("KEY_Escape");
-  await hidden;
-  Assert.ok(true, "Panel hidden after Escape pressed");
-
-  const showPanel = BrowserTestUtils.waitForEvent(
-    PopupNotifications.panel,
-    "popupshown"
-  );
-  // Need to dismiss the notification to clear the RecommendationMap
-  document.getElementById("contextual-feature-recommendation").click();
-  await showPanel;
-
-  const hidePanel = BrowserTestUtils.waitForEvent(
-    PopupNotifications.panel,
-    "popuphidden"
-  );
-  document
-    .getElementById("contextual-feature-recommendation-notification")
-    .button.click();
-  await hidePanel;
 });
 
 add_task(function test_updateCycleForProviders() {
@@ -811,19 +691,18 @@ add_task(function test_updateCycleForProviders() {
     .getChildList("browser.newtabpage.activity-stream.asrouter.providers.")
     .forEach(provider => {
       const prefValue = JSON.parse(Services.prefs.getStringPref(provider, ""));
-      if (prefValue && prefValue.type === "remote-settings") {
-        Assert.ok(prefValue.updateCycleInMs);
+      if (prefValue?.type === "remote-settings") {
+        is(
+          typeof prefValue.updateCycleInMs,
+          "number",
+          "updateCycleInMs is set"
+        );
       }
     });
 });
 
 add_task(async function test_heartbeat_tactic_2() {
   clearNotifications();
-  registerCleanupFunction(() => {
-    // Remove the tab opened by clicking the heartbeat message
-    gBrowser.removeCurrentTab();
-    clearNotifications();
-  });
 
   const msg = (await CFRMessageProvider.getMessages()).find(
     m => m.id === "HEARTBEAT_TACTIC_2"
@@ -858,18 +737,15 @@ add_task(async function test_heartbeat_tactic_2() {
   document.getElementById("contextual-feature-recommendation").click();
 
   await newTabPromise;
+  gBrowser.removeCurrentTab();
+  clearNotifications();
+  Services.fog.testResetFOG();
 });
 
 add_task(async function test_cfr_doorhanger_in_private_window() {
-  registerCleanupFunction(() => {
-    Services.prefs.clearUserPref(
-      "browser.newtabpage.activity-stream.telemetry"
-    );
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.newtabpage.activity-stream.telemetry", true]],
   });
-  Services.prefs.setBoolPref(
-    "browser.newtabpage.activity-stream.telemetry",
-    true
-  );
 
   let pingSubmitted = false;
   GleanPings.messagingSystem.testBeforeNextSubmit(() => {
@@ -929,4 +805,5 @@ add_task(async function test_cfr_doorhanger_in_private_window() {
 
   Assert.ok(pingSubmitted, "Submitted a CFR messaging system ping");
   await BrowserTestUtils.closeWindow(win);
+  Services.fog.testResetFOG();
 });

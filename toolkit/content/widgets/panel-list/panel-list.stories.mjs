@@ -2,13 +2,19 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-// eslint-disable-next-line import/no-unassigned-import
 import "./panel-list.js";
 import { html, ifDefined } from "../vendor/lit.all.mjs";
+
+let accesskeyOptions = ["n", "w", "e", "c", "b"];
 
 export default {
   title: "UI Widgets/Panel List",
   component: "panel-list",
+  argTypes: {
+    accesskeys: {
+      if: { arg: "showAccesskeys", truthy: true },
+    },
+  },
   parameters: {
     status: "in-development",
     actions: {
@@ -16,12 +22,15 @@ export default {
     },
     fluent: `
 panel-list-item-one = Item One
-panel-list-item-two = Item Two (accesskey w)
+panel-list-item-two = Item Two
 panel-list-item-three = Item Three
 panel-list-checked = Checked
 panel-list-badged = Badged, look at me
 panel-list-passwords = Passwords
 panel-list-settings = Settings
+submenu-item-one = Submenu Item One
+submenu-item-two = Submenu Item Two
+submenu-item-three = Submenu Item Three
     `,
   },
 };
@@ -36,7 +45,14 @@ function openMenu(event) {
   }
 }
 
-const Template = ({ isOpen, items, wideAnchor }) =>
+const Template = ({
+  isOpen,
+  items,
+  wideAnchor,
+  hasSubMenu,
+  showAccesskeys,
+  accesskeys,
+}) =>
   html`
     <style>
       panel-item[icon="passwords"]::part(button) {
@@ -93,21 +109,36 @@ const Template = ({ isOpen, items, wideAnchor }) =>
       ?open=${isOpen}
       ?min-width-from-anchor=${wideAnchor}
     >
-      ${items.map(i =>
-        i == "<hr>"
+      ${items.map((item, index) => {
+        // Always showing submenu on the first item for simplicity.
+        let showSubMenu = hasSubMenu && index == 0;
+        let subMenuId = showSubMenu ? "example-sub-menu" : undefined;
+        return item == "<hr>"
           ? html` <hr /> `
           : html`
               <panel-item
-                icon=${i.icon ?? ""}
-                ?checked=${i.checked}
-                ?badged=${i.badged}
-                accesskey=${ifDefined(i.accesskey)}
-                data-l10n-id=${i.l10nId ?? i}
-              ></panel-item>
-            `
-      )}
+                icon=${item.icon ?? ""}
+                ?checked=${item.checked}
+                type=${ifDefined(item.checked ? "checkbox" : undefined)}
+                ?badged=${item.badged}
+                data-l10n-id=${item.l10nId ?? item}
+                submenu=${ifDefined(subMenuId)}
+                accesskey=${ifDefined(showAccesskeys ? accesskeys[index] : "")}
+              >
+                ${showSubMenu ? subMenuTemplate() : ""}
+              </panel-item>
+            `;
+      })}
     </panel-list>
   `;
+
+const subMenuTemplate = () => html`
+  <panel-list slot="submenu" id="example-sub-menu">
+    <panel-item data-l10n-id="submenu-item-one"></panel-item>
+    <panel-item data-l10n-id="submenu-item-two"></panel-item>
+    <panel-item data-l10n-id="submenu-item-three"></panel-item>
+  </panel-list>
+`;
 
 export const Simple = Template.bind({});
 Simple.args = {
@@ -115,12 +146,13 @@ Simple.args = {
   wideAnchor: false,
   items: [
     "panel-list-item-one",
-    { l10nId: "panel-list-item-two", accesskey: "w" },
+    { l10nId: "panel-list-item-two" },
     "panel-list-item-three",
     "<hr>",
     { l10nId: "panel-list-checked", checked: true },
     { l10nId: "panel-list-badged", badged: true, icon: "settings" },
   ],
+  showAccesskeys: false,
 };
 
 export const Icons = Template.bind({});
@@ -144,4 +176,17 @@ export const Wide = Template.bind({});
 Wide.args = {
   ...Simple.args,
   wideAnchor: true,
+};
+
+export const SubMenu = Template.bind({});
+SubMenu.args = {
+  ...Simple.args,
+  hasSubMenu: true,
+};
+
+export const WithAccesskeys = Template.bind({});
+WithAccesskeys.args = {
+  ...Simple.args,
+  showAccesskeys: true,
+  accesskeys: accesskeyOptions,
 };

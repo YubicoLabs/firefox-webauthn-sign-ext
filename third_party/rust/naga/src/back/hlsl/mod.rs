@@ -131,6 +131,13 @@ pub enum ShaderModel {
     V5_0,
     V5_1,
     V6_0,
+    V6_1,
+    V6_2,
+    V6_3,
+    V6_4,
+    V6_5,
+    V6_6,
+    V6_7,
 }
 
 impl ShaderModel {
@@ -139,6 +146,13 @@ impl ShaderModel {
             Self::V5_0 => "5_0",
             Self::V5_1 => "5_1",
             Self::V6_0 => "6_0",
+            Self::V6_1 => "6_1",
+            Self::V6_2 => "6_2",
+            Self::V6_3 => "6_3",
+            Self::V6_4 => "6_4",
+            Self::V6_5 => "6_5",
+            Self::V6_6 => "6_6",
+            Self::V6_7 => "6_7",
         }
     }
 }
@@ -247,15 +261,19 @@ pub enum Error {
     Unimplemented(String), // TODO: Error used only during development
     #[error("{0}")]
     Custom(String),
+    #[error("overrides should not be present at this stage")]
+    Override,
 }
 
 #[derive(Default)]
 struct Wrapped {
+    zero_values: crate::FastHashSet<help::WrappedZeroValue>,
     array_lengths: crate::FastHashSet<help::WrappedArrayLength>,
     image_queries: crate::FastHashSet<help::WrappedImageQuery>,
     constructors: crate::FastHashSet<help::WrappedConstructor>,
     struct_matrix_access: crate::FastHashSet<help::WrappedStructMatrixAccess>,
     mat_cx2s: crate::FastHashSet<help::WrappedMatCx2>,
+    math: crate::FastHashSet<help::WrappedMath>,
 }
 
 impl Wrapped {
@@ -265,6 +283,36 @@ impl Wrapped {
         self.constructors.clear();
         self.struct_matrix_access.clear();
         self.mat_cx2s.clear();
+        self.math.clear();
+    }
+}
+
+/// A fragment entry point to be considered when generating HLSL for the output interface of vertex
+/// entry points.
+///
+/// This is provided as an optional parameter to [`Writer::write`].
+///
+/// If this is provided, vertex outputs will be removed if they are not inputs of this fragment
+/// entry point. This is necessary for generating correct HLSL when some of the vertex shader
+/// outputs are not consumed by the fragment shader.
+pub struct FragmentEntryPoint<'a> {
+    module: &'a crate::Module,
+    func: &'a crate::Function,
+}
+
+impl<'a> FragmentEntryPoint<'a> {
+    /// Returns `None` if the entry point with the provided name can't be found or isn't a fragment
+    /// entry point.
+    pub fn new(module: &'a crate::Module, ep_name: &'a str) -> Option<Self> {
+        module
+            .entry_points
+            .iter()
+            .find(|ep| ep.name == ep_name)
+            .filter(|ep| ep.stage == crate::ShaderStage::Fragment)
+            .map(|ep| Self {
+                module,
+                func: &ep.function,
+            })
     }
 }
 
@@ -279,6 +327,7 @@ pub struct Writer<'a, W> {
     /// Set of expressions that have associated temporary variables
     named_expressions: crate::NamedExpressions,
     wrapped: Wrapped,
+    continue_ctx: back::continue_forward::ContinueCtx,
 
     /// A reference to some part of a global variable, lowered to a series of
     /// byte offset calculations.

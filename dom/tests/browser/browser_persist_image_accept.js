@@ -9,7 +9,7 @@ const TEST_PATH = getRootDirectory(gTestPath).replace(
 );
 
 var MockFilePicker = SpecialPowers.MockFilePicker;
-MockFilePicker.init(window);
+MockFilePicker.init(window.browsingContext);
 
 registerCleanupFunction(async function () {
   info("Running the cleanup code");
@@ -51,7 +51,7 @@ function expectedImageAcceptHeader() {
   return (
     (Services.prefs.getBoolPref("image.avif.enabled") ? "image/avif," : "") +
     (Services.prefs.getBoolPref("image.jxl.enabled") ? "image/jxl," : "") +
-    "image/webp,*/*"
+    "image/webp,image/png,image/svg+xml,image/*;q=0.8,*/*;q=0.5"
   );
 }
 
@@ -100,7 +100,7 @@ add_task(async function test_image_download() {
     });
     let httpOnModifyPromise = TestUtils.topicObserved(
       "http-on-modify-request",
-      (s, t, d) => {
+      s => {
         let channel = s.QueryInterface(Ci.nsIChannel);
         let uri = channel.URI && channel.URI.spec;
         if (!uri.endsWith("dummy.png")) {

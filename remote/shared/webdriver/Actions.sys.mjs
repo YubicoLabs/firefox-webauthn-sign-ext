@@ -13,7 +13,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   clearTimeout: "resource://gre/modules/Timer.sys.mjs",
   dom: "chrome://remote/content/shared/DOM.sys.mjs",
   error: "chrome://remote/content/shared/webdriver/Errors.sys.mjs",
-  event: "chrome://remote/content/marionette/event.sys.mjs",
+  event: "chrome://remote/content/shared/webdriver/Event.sys.mjs",
   keyData: "chrome://remote/content/shared/webdriver/KeyData.sys.mjs",
   Log: "chrome://remote/content/shared/Log.sys.mjs",
   pprint: "chrome://remote/content/shared/Format.sys.mjs",
@@ -412,7 +412,10 @@ class PointerInputSource extends InputSource {
    *     True if |button| is in set of pressed buttons.
    */
   isPressed(button) {
-    lazy.assert.positiveInteger(button);
+    lazy.assert.positiveInteger(
+      button,
+      lazy.pprint`Expected "button" to be a positive integer, got ${button}`
+    );
     return this.pressed.has(button);
   }
 
@@ -426,7 +429,10 @@ class PointerInputSource extends InputSource {
    *     Set of pressed buttons.
    */
   press(button) {
-    lazy.assert.positiveInteger(button);
+    lazy.assert.positiveInteger(
+      button,
+      lazy.pprint`Expected "button" to be a positive integer, got ${button}`
+    );
     this.pressed.add(button);
   }
 
@@ -440,7 +446,10 @@ class PointerInputSource extends InputSource {
    *     True if |button| was present before removals, false otherwise.
    */
   release(button) {
-    lazy.assert.positiveInteger(button);
+    lazy.assert.positiveInteger(
+      button,
+      lazy.pprint`Expected "button" to be a positive integer, got ${button}`
+    );
     return this.pressed.delete(button);
   }
 
@@ -508,11 +517,8 @@ class Origin {
    * Viewport coordinates of the origin of this coordinate system.
    *
    * This is overridden in subclasses to provide a class-specific origin.
-   *
-   * @param {InputSource} inputSource - State of current input device.
-   * @param {WindowProxy} win - Current window global
    */
-  getOriginCoordinates(inputSource, win) {
+  getOriginCoordinates() {
     throw new Error(
       `originCoordinates not defined for ${this.constructor.name}`
     );
@@ -559,13 +565,13 @@ class Origin {
 }
 
 class ViewportOrigin extends Origin {
-  getOriginCoordinates(inputSource, win) {
+  getOriginCoordinates() {
     return { x: 0, y: 0 };
   }
 }
 
 class PointerOrigin extends Origin {
-  getOriginCoordinates(inputSource, win) {
+  getOriginCoordinates(inputSource) {
     return { x: inputSource.x, y: inputSource.y };
   }
 }
@@ -624,13 +630,9 @@ class Action {
    * This is overridden by subclasses to implement the type-specific
    * dispatch of the action.
    *
-   * @param {State} state - Actions state.
-   * @param {InputSource} inputSource - State of the current input device.
-   * @param {number} tickDuration - Length of the current tick, in ms.
-   * @param {WindowProxy} win - Current window global.
    * @returns {Promise} - Promise that is resolved once the action is complete.
    */
-  dispatch(state, inputSource, tickDuration, win) {
+  dispatch() {
     throw new Error(
       `Action subclass ${this.constructor.name} must override dispatch()`
     );
@@ -708,10 +710,9 @@ class PauseAction extends NullAction {
    * @param {State} state - Actions state.
    * @param {InputSource} inputSource - State of the current input device.
    * @param {number} tickDuration - Length of the current tick, in ms.
-   * @param {WindowProxy} win - Current window global.
    * @returns {Promise} - Promise that is resolved once the action is complete.
    */
-  dispatch(state, inputSource, tickDuration, win) {
+  dispatch(state, inputSource, tickDuration) {
     const ms = this.duration ?? tickDuration;
 
     lazy.logger.trace(
@@ -765,15 +766,23 @@ class KeyAction extends Action {
   static fromJSON(id, actionItem) {
     const { value } = actionItem;
 
-    // TODO countGraphemes
-    // TODO key.value could be a single code point like "\uE012"
-    // (see rawKey) or "grapheme cluster"
-    // https://bugzilla.mozilla.org/show_bug.cgi?id=1496323
-
     lazy.assert.string(
       value,
       'Expected "value" to be a string that represents single code point ' +
         lazy.pprint`or grapheme cluster, got ${value}`
+    );
+
+    let segmenter = new Intl.Segmenter();
+    lazy.assert.that(v => {
+      let graphemeIterator = segmenter.segment(v)[Symbol.iterator]();
+      // We should have exactly one grapheme cluster, so the first iterator
+      // value must be defined, but the second one must be undefined
+      return (
+        graphemeIterator.next().value !== undefined &&
+        graphemeIterator.next().value === undefined
+      );
+    }, `Expected "value" to be a string that represents single code point or grapheme cluster, got "${value}"`)(
+      value
     );
 
     return new this(id, { value });
@@ -1326,6 +1335,7 @@ class WheelScrollAction extends WheelAction {
       this.duration ?? tickDuration,
       deltaTarget =>
         this.performOneWheelScroll(
+          state,
           scrollCoordinates,
           deltaPosition,
           deltaTarget,
@@ -1337,12 +1347,19 @@ class WheelScrollAction extends WheelAction {
   /**
    * Perform one part of a wheel scroll corresponding to a specific emitted event.
    *
+   * @param {State} state - Actions state.
    * @param {Array<number>} scrollCoordinates - [x, y] viewport coordinates of the scroll.
    * @param {Array<number>} deltaPosition - [deltaX, deltaY] coordinates of the scroll before this event.
    * @param {Array<Array<number>>} deltaTargets - Array of [deltaX, deltaY] coordinates to scroll to.
    * @param {WindowProxy} win - Current window global.
    */
-  performOneWheelScroll(scrollCoordinates, deltaPosition, deltaTargets, win) {
+  performOneWheelScroll(
+    state,
+    scrollCoordinates,
+    deltaPosition,
+    deltaTargets,
+    win
+  ) {
     if (deltaTargets.length !== 1) {
       throw new Error("Can only scroll one wheel at a time");
     }
@@ -1358,6 +1375,7 @@ class WheelScrollAction extends WheelAction {
       deltaY,
       deltaZ: 0,
     });
+    eventData.update(state);
 
     lazy.event.synthesizeWheelAtPoint(
       scrollCoordinates[0],
@@ -1416,15 +1434,9 @@ class TouchActionGroup {
    * This is overridden by subclasses to implement the type-specific
    * dispatch of the action.
    *
-   * @param {State} state - Actions state.
-   * @param {null} inputSource
-   *     This is always null; the argument only exists for compatibility
-   *     with {@link Action.dispatch}.
-   * @param {number} tickDuration - Length of the current tick, in ms.
-   * @param {WindowProxy} win - Current window global.
    * @returns {Promise} - Promise that is resolved once the action is complete.
    */
-  dispatch(state, inputSource, tickDuration, win) {
+  dispatch() {
     throw new Error(
       "TouchActionGroup subclass missing dispatch implementation"
     );
@@ -1622,7 +1634,7 @@ class PointerMoveTouchActionGroup extends TouchActionGroup {
       }
     );
     const reachedTarget = perPointerData.every(
-      ([inputSource, action, target]) =>
+      ([inputSource, , target]) =>
         target[0] === inputSource.x && target[1] === inputSource.y
     );
 
@@ -1778,38 +1790,22 @@ class Pointer {
 
   /**
    * Implementation of depressing the pointer.
-   *
-   * @param {State} state - Actions state.
-   * @param {InputSource} inputSource - State of the current input device.
-   * @param {Action} action - The Action object invoking the pointer
-   * @param {WindowProxy} win - Current window global.
    */
-  pointerDown(state, inputSource, action, win) {
+  pointerDown() {
     throw new Error(`Unimplemented pointerDown for pointerType ${this.type}`);
   }
 
   /**
    * Implementation of releasing the pointer.
-   *
-   * @param {State} state - Actions state.
-   * @param {InputSource} inputSource - State of the current input device.
-   * @param {Action} action - The Action object invoking the pointer
-   * @param {WindowProxy} win - Current window global.
    */
-  pointerUp(state, inputSource, action, win) {
+  pointerUp() {
     throw new Error(`Unimplemented pointerUp for pointerType ${this.type}`);
   }
 
   /**
    * Implementation of moving the pointer.
-   *
-   * @param {State} state - Actions state.
-   * @param {InputSource} inputSource - State of the current input device.
-   * @param {number} targetX - Target X coordinate of the pointer move
-   * @param {number} targetY - Target Y coordinate of the pointer move
-   * @param {WindowProxy} win - Current window global.
    */
-  pointerMove(state, inputSource, targetX, targetY, win) {
+  pointerMove() {
     throw new Error(`Unimplemented pointerMove for pointerType ${this.type}`);
   }
 
@@ -2138,11 +2134,8 @@ class InputEventData {
 
   /**
    * Update the input data based on global and input state
-   *
-   * @param {State} state - Actions state.
-   * @param {InputSource} inputSource - State of the current input device.
    */
-  update(state, inputSource) {}
+  update() {}
 
   toString() {
     return `${this.constructor.name} ${JSON.stringify(this)}`;
@@ -2270,6 +2263,22 @@ class WheelEventData extends InputEventData {
     this.deltaY = deltaY;
     this.deltaZ = deltaZ;
     this.deltaMode = deltaMode;
+
+    this.altKey = false;
+    this.ctrlKey = false;
+    this.metaKey = false;
+    this.shiftKey = false;
+  }
+
+  update(state) {
+    // set modifier properties based on whether any corresponding keys are
+    // pressed on any key input source
+    for (const [, otherInputSource] of state.inputSourcesByType("key")) {
+      this.altKey = otherInputSource.alt || this.altKey;
+      this.ctrlKey = otherInputSource.ctrl || this.ctrlKey;
+      this.metaKey = otherInputSource.meta || this.metaKey;
+      this.shiftKey = otherInputSource.shift || this.shiftKey;
+    }
   }
 }
 

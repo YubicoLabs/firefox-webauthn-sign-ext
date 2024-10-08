@@ -157,6 +157,12 @@ class ParentImpl final : public BackgroundParentImpl {
   bool mActorDestroyed;
 
  public:
+  static already_AddRefed<nsISerialEventTarget> GetBackgroundThread() {
+    AssertIsInMainProcess();
+    THREADSAFETY_ASSERT(NS_IsMainThread() || IsOnBackgroundThread());
+    return do_AddRef(sBackgroundThread);
+  }
+
   static bool IsOnBackgroundThread() {
     return PR_GetCurrentThread() == sBackgroundPRThread;
   }
@@ -340,7 +346,8 @@ class ChildImpl final : public BackgroundChildImpl {
       Endpoint<PBackgroundStarterParent> parent;
       Endpoint<PBackgroundStarterChild> child;
       MOZ_ALWAYS_SUCCEEDS(PBackgroundStarter::CreateEndpoints(
-          aActor->OtherPid(), base::GetCurrentProcId(), &parent, &child));
+          aActor->OtherEndpointProcInfo(), EndpointProcInfo::Current(), &parent,
+          &child));
       MOZ_ALWAYS_TRUE(aActor->SendInitBackground(std::move(parent)));
 
       InitStarter(std::move(child));
@@ -349,14 +356,14 @@ class ChildImpl final : public BackgroundChildImpl {
     void InitStarter(Endpoint<PBackgroundStarterChild>&& aEndpoint) {
       AssertIsOnMainThread();
 
-      base::ProcessId otherPid = aEndpoint.OtherPid();
+      EndpointProcInfo otherProcInfo = aEndpoint.OtherEndpointProcInfo();
 
       nsCOMPtr<nsISerialEventTarget> taskQueue;
       MOZ_ALWAYS_SUCCEEDS(NS_CreateBackgroundTaskQueue(
           "PBackgroundStarter Queue", getter_AddRefs(taskQueue)));
 
       RefPtr<BackgroundStarterChild> starter =
-          new BackgroundStarterChild(otherPid, taskQueue);
+          new BackgroundStarterChild(otherProcInfo, taskQueue);
 
       taskQueue->Dispatch(NS_NewRunnableFunction(
           "PBackgroundStarterChild Init",
@@ -453,8 +460,9 @@ class ChildImpl final : public BackgroundChildImpl {
       Endpoint<PBackgroundParent> parent;
       Endpoint<PBackgroundChild> child;
       nsresult rv;
-      rv = PBackground::CreateEndpoints(
-          starter->mOtherPid, base::GetCurrentProcId(), &parent, &child);
+      rv = PBackground::CreateEndpoints(starter->mOtherProcInfo,
+                                        EndpointProcInfo::Current(), &parent,
+                                        &child);
       if (NS_FAILED(rv)) {
         NS_WARNING("Failed to create top level actor!");
         return nullptr;
@@ -561,7 +569,12 @@ class ChildImpl final : public BackgroundChildImpl {
 #endif
   }
 
-  NS_INLINE_DECL_REFCOUNTING(ChildImpl, override)
+  // This type is threadsafe refcounted as actors managed by it may be destroyed
+  // after the thread it is bound to dies, and hold a reference to this object.
+  //
+  // It is _not_ safe to use this type or any methods on it from off of the
+  // thread it was created for.
+  NS_INLINE_DECL_THREADSAFE_REFCOUNTING(ChildImpl, override)
 
  private:
   // Forwarded from BackgroundChild.
@@ -639,6 +652,11 @@ void AssertIsOnBackgroundThread() { ParentImpl::AssertIsOnBackgroundThread(); }
 // -----------------------------------------------------------------------------
 // BackgroundParent Public Methods
 // -----------------------------------------------------------------------------
+
+// static
+already_AddRefed<nsISerialEventTarget> BackgroundParent::GetBackgroundThread() {
+  return ParentImpl::GetBackgroundThread();
+}
 
 // static
 bool BackgroundParent::IsOtherProcessActor(
@@ -1149,7 +1167,8 @@ void ChildImpl::Startup() {
     Endpoint<PBackgroundStarterParent> parent;
     Endpoint<PBackgroundStarterChild> child;
     MOZ_ALWAYS_SUCCEEDS(PBackgroundStarter::CreateEndpoints(
-        base::GetCurrentProcId(), base::GetCurrentProcId(), &parent, &child));
+        EndpointProcInfo::Current(), EndpointProcInfo::Current(), &parent,
+        &child));
 
     MOZ_ALWAYS_TRUE(ParentImpl::AllocStarter(nullptr, std::move(parent),
                                              /* aCrossProcess */ false));

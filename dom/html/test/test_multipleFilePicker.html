@@ -20,12 +20,14 @@ foo.addEventListener('click', _ => {
     let input = document.createElement('input');
     input.type = 'file';
     foo.appendChild(input);
+
+    SpecialPowers.wrap(document).notifyUserGestureActivation();
     input.click();
   }
 });
 
 let MockFilePicker = SpecialPowers.MockFilePicker;
-MockFilePicker.init(window);
+MockFilePicker.init(SpecialPowers.wrap(window).browsingContext);
 
 let pickerCount = 0;
 

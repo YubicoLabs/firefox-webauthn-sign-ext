@@ -14,7 +14,7 @@ add_setup(async function () {
 });
 
 add_task(async function engagement_type_click() {
-  await doTest(async browser => {
+  await doTest(async () => {
     await openPopup("x");
     await doClick();
 
@@ -23,7 +23,7 @@ add_task(async function engagement_type_click() {
 });
 
 add_task(async function engagement_type_enter() {
-  await doTest(async browser => {
+  await doTest(async () => {
     await openPopup("x");
     await doEnter();
 
@@ -32,7 +32,7 @@ add_task(async function engagement_type_enter() {
 });
 
 add_task(async function engagement_type_go_button() {
-  await doTest(async browser => {
+  await doTest(async () => {
     await openPopup("x");
     EventUtils.synthesizeMouseAtCenter(gURLBar.goButton, {});
 
@@ -41,7 +41,7 @@ add_task(async function engagement_type_go_button() {
 });
 
 add_task(async function engagement_type_drop_go() {
-  await doTest(async browser => {
+  await doTest(async () => {
     await doDropAndGo("example.com");
 
     assertEngagementTelemetry([{ engagement_type: "drop_go" }]);
@@ -49,7 +49,7 @@ add_task(async function engagement_type_drop_go() {
 });
 
 add_task(async function engagement_type_paste_go() {
-  await doTest(async browser => {
+  await doTest(async () => {
     await doPasteAndGo("www.example.com");
 
     assertEngagementTelemetry([{ engagement_type: "paste_go" }]);
@@ -59,11 +59,11 @@ add_task(async function engagement_type_paste_go() {
 add_task(async function engagement_type_dismiss() {
   const cleanupQuickSuggest = await ensureQuickSuggestInit();
 
-  await doTest(async browser => {
-    await openPopup("sponsored");
+  await doTest(async () => {
+    await openPopup("amp");
 
     const originalResultCount = UrlbarTestUtils.getResultCount(window);
-    await selectRowByURL("https://example.com/sponsored");
+    await selectRowByURL("https://example.com/amp");
     UrlbarTestUtils.openResultMenuAndPressAccesskey(window, "D");
     await BrowserTestUtils.waitForCondition(
       () => originalResultCount != UrlbarTestUtils.getResultCount(window)
@@ -84,11 +84,11 @@ add_task(async function engagement_type_dismiss() {
     ]);
   });
 
-  await doTest(async browser => {
-    await openPopup("sponsored");
+  await doTest(async () => {
+    await openPopup("amp");
 
     const originalResultCount = UrlbarTestUtils.getResultCount(window);
-    await selectRowByURL("https://example.com/sponsored");
+    await selectRowByURL("https://example.com/amp");
     EventUtils.synthesizeKey("KEY_Delete", { shiftKey: true });
     await BrowserTestUtils.waitForCondition(
       () => originalResultCount != UrlbarTestUtils.getResultCount(window)
@@ -101,17 +101,59 @@ add_task(async function engagement_type_dismiss() {
 });
 
 add_task(async function engagement_type_help() {
-  const cleanupQuickSuggest = await ensureQuickSuggestInit();
+  const url = "https://example.com/";
+  const helpUrl = "https://example.com/help";
+  let provider = new UrlbarTestUtils.TestProvider({
+    priority: Infinity,
+    results: [
+      new UrlbarResult(
+        UrlbarUtils.RESULT_TYPE.URL,
+        UrlbarUtils.RESULT_SOURCE.OTHER_LOCAL,
+        {
+          url,
+          isBlockable: true,
+          blockL10n: { id: "urlbar-result-menu-dismiss-firefox-suggest" },
+          helpUrl,
+          helpL10n: {
+            id: "urlbar-result-menu-learn-more-about-firefox-suggest",
+          },
+        }
+      ),
+    ],
+  });
+  UrlbarProvidersManager.registerProvider(provider);
 
-  await doTest(async browser => {
-    await openPopup("sponsored");
-    await selectRowByURL("https://example.com/sponsored");
+  await doTest(async () => {
+    await openPopup("test");
+    await selectRowByURL(url);
+
     const onTabOpened = BrowserTestUtils.waitForNewTab(gBrowser);
     UrlbarTestUtils.openResultMenuAndPressAccesskey(window, "L");
     const tab = await onTabOpened;
     BrowserTestUtils.removeTab(tab);
 
     assertEngagementTelemetry([{ engagement_type: "help" }]);
+  });
+
+  UrlbarProvidersManager.unregisterProvider(provider);
+});
+
+add_task(async function engagement_type_manage() {
+  const cleanupQuickSuggest = await ensureQuickSuggestInit();
+
+  await doTest(async () => {
+    await openPopup("amp");
+    await selectRowByURL("https://example.com/amp");
+
+    const onManagePageLoaded = BrowserTestUtils.browserLoaded(
+      browser,
+      false,
+      "about:preferences#search"
+    );
+    UrlbarTestUtils.openResultMenuAndPressAccesskey(window, "M");
+    await onManagePageLoaded;
+
+    assertEngagementTelemetry([{ engagement_type: "manage" }]);
   });
 
   await cleanupQuickSuggest();

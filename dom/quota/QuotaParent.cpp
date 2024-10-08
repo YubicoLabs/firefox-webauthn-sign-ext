@@ -8,17 +8,18 @@
 
 #include <mozilla/Assertions.h>
 #include "mozilla/RefPtr.h"
+#include "mozilla/dom/quota/ErrorHandling.h"
 #include "mozilla/dom/quota/QuotaManager.h"
 #include "mozilla/dom/quota/PQuota.h"
 #include "mozilla/dom/quota/PQuotaRequestParent.h"
 #include "mozilla/dom/quota/PQuotaUsageRequestParent.h"
+#include "mozilla/dom/quota/QuotaUsageRequestParent.h"
 #include "mozilla/dom/quota/ResultExtensions.h"
 #include "mozilla/ipc/BackgroundParent.h"
 #include "nsDebug.h"
 #include "nsError.h"
 #include "OriginOperations.h"
 #include "QuotaRequestBase.h"
-#include "QuotaUsageRequestBase.h"
 
 // CUF == CRASH_UNLESS_FUZZING
 #define QM_CUF_AND_IPC_FAIL(actor)                           \
@@ -33,33 +34,69 @@ using namespace mozilla::ipc;
 
 namespace {
 
-class ResolveBoolResponseAndReturn {
+template <typename PromiseType, typename ResolverType, bool MoveOnly>
+class PromiseResolveOrRejectCallbackBase {
  public:
-  using ResolverType = BoolResponseResolver;
+  PromiseResolveOrRejectCallbackBase(RefPtr<Quota> aQuota,
+                                     ResolverType&& aResolver)
+      : mResolver(std::move(aResolver)), mQuota(std::move(aQuota)) {}
 
-  explicit ResolveBoolResponseAndReturn(const ResolverType& aResolver)
-      : mResolver(aResolver) {}
+ protected:
+  bool CanSend() const { return mQuota->CanSend(); }
 
-  mozilla::ipc::IPCResult operator()(const nsresult rv) {
-    mResolver(rv);
-    return IPC_OK();
-  }
+  ResolverType mResolver;
 
  private:
-  const ResolverType& mResolver;
+  RefPtr<Quota> mQuota;
 };
 
-class BoolPromiseResolveOrRejectCallback {
+template <typename PromiseType, typename ResolverType, bool MoveOnly>
+class PromiseResolveOrRejectCallback
+    : public PromiseResolveOrRejectCallbackBase<PromiseType, ResolverType,
+                                                MoveOnly> {};
+
+template <typename PromiseType, typename ResolverType>
+class PromiseResolveOrRejectCallback<PromiseType, ResolverType, true>
+    : public PromiseResolveOrRejectCallbackBase<PromiseType, ResolverType,
+                                                true> {
+  using Base =
+      PromiseResolveOrRejectCallbackBase<PromiseType, ResolverType, true>;
+
+  using Base::CanSend;
+  using Base::mResolver;
+
  public:
-  using PromiseType = BoolPromise;
-  using ResolverType = BoolResponseResolver;
+  PromiseResolveOrRejectCallback(RefPtr<Quota> aQuota, ResolverType&& aResolver)
+      : Base(std::move(aQuota), std::move(aResolver)) {}
 
-  BoolPromiseResolveOrRejectCallback(RefPtr<Quota> aQuota,
-                                     ResolverType&& aResolver)
-      : mQuota(std::move(aQuota)), mResolver(std::move(aResolver)) {}
+  void operator()(typename PromiseType::ResolveOrRejectValue&& aValue) {
+    if (!CanSend()) {
+      return;
+    }
+    if (aValue.IsResolve()) {
+      mResolver(std::move(aValue.ResolveValue()));
+    } else {
+      mResolver(aValue.RejectValue());
+    }
+  }
+};
 
-  void operator()(const PromiseType::ResolveOrRejectValue& aValue) {
-    if (!mQuota->CanSend()) {
+template <typename PromiseType, typename ResolverType>
+class PromiseResolveOrRejectCallback<PromiseType, ResolverType, false>
+    : public PromiseResolveOrRejectCallbackBase<PromiseType, ResolverType,
+                                                false> {
+  using Base =
+      PromiseResolveOrRejectCallbackBase<PromiseType, ResolverType, false>;
+
+  using Base::CanSend;
+  using Base::mResolver;
+
+ public:
+  PromiseResolveOrRejectCallback(RefPtr<Quota> aQuota, ResolverType&& aResolver)
+      : Base(std::move(aQuota), std::move(aResolver)) {}
+
+  void operator()(const typename PromiseType::ResolveOrRejectValue& aValue) {
+    if (!CanSend()) {
       return;
     }
 
@@ -69,11 +106,20 @@ class BoolPromiseResolveOrRejectCallback {
       mResolver(aValue.RejectValue());
     }
   }
-
- private:
-  RefPtr<Quota> mQuota;
-  ResolverType mResolver;
 };
+
+using BoolPromiseResolveOrRejectCallback =
+    PromiseResolveOrRejectCallback<BoolPromise, BoolResponseResolver, false>;
+using UInt64PromiseResolveOrRejectCallback =
+    PromiseResolveOrRejectCallback<UInt64Promise, UInt64ResponseResolver,
+                                   false>;
+using OriginUsageMetadataArrayPromiseResolveOrRejectCallback =
+    PromiseResolveOrRejectCallback<OriginUsageMetadataArrayPromise,
+                                   OriginUsageMetadataArrayResponseResolver,
+                                   true>;
+using UsageInfoPromiseResolveOrRejectCallback =
+    PromiseResolveOrRejectCallback<UsageInfoPromise, UsageInfoResponseResolver,
+                                   false>;
 
 }  // namespace
 
@@ -109,33 +155,6 @@ bool Quota::TrustParams() const {
   return trustParams;
 }
 
-bool Quota::VerifyRequestParams(const UsageRequestParams& aParams) const {
-  AssertIsOnBackgroundThread();
-  MOZ_ASSERT(aParams.type() != UsageRequestParams::T__None);
-
-  switch (aParams.type()) {
-    case UsageRequestParams::TAllUsageParams:
-      break;
-
-    case UsageRequestParams::TOriginUsageParams: {
-      const OriginUsageParams& params = aParams.get_OriginUsageParams();
-
-      if (NS_WARN_IF(
-              !QuotaManager::IsPrincipalInfoValid(params.principalInfo()))) {
-        MOZ_CRASH_UNLESS_FUZZING();
-        return false;
-      }
-
-      break;
-    }
-
-    default:
-      MOZ_CRASH("Should never get here!");
-  }
-
-  return true;
-}
-
 bool Quota::VerifyRequestParams(const RequestParams& aParams) const {
   AssertIsOnBackgroundThread();
   MOZ_ASSERT(aParams.type() != RequestParams::T__None);
@@ -143,37 +162,6 @@ bool Quota::VerifyRequestParams(const RequestParams& aParams) const {
   switch (aParams.type()) {
     case RequestParams::TStorageNameParams:
       break;
-
-    case RequestParams::TInitializePersistentOriginParams: {
-      const InitializePersistentOriginParams& params =
-          aParams.get_InitializePersistentOriginParams();
-
-      if (NS_WARN_IF(
-              !QuotaManager::IsPrincipalInfoValid(params.principalInfo()))) {
-        MOZ_CRASH_UNLESS_FUZZING();
-        return false;
-      }
-
-      break;
-    }
-
-    case RequestParams::TInitializeTemporaryOriginParams: {
-      const InitializeTemporaryOriginParams& params =
-          aParams.get_InitializeTemporaryOriginParams();
-
-      if (NS_WARN_IF(!IsBestEffortPersistenceType(params.persistenceType()))) {
-        MOZ_CRASH_UNLESS_FUZZING();
-        return false;
-      }
-
-      if (NS_WARN_IF(
-              !QuotaManager::IsPrincipalInfoValid(params.principalInfo()))) {
-        MOZ_CRASH_UNLESS_FUZZING();
-        return false;
-      }
-
-      break;
-    }
 
     case RequestParams::TGetFullOriginMetadataParams: {
       const GetFullOriginMetadataParams& params =
@@ -273,67 +261,6 @@ void Quota::ActorDestroy(ActorDestroyReason aWhy) {
 #endif
 }
 
-PQuotaUsageRequestParent* Quota::AllocPQuotaUsageRequestParent(
-    const UsageRequestParams& aParams) {
-  AssertIsOnBackgroundThread();
-  MOZ_ASSERT(aParams.type() != UsageRequestParams::T__None);
-
-  if (NS_WARN_IF(QuotaManager::IsShuttingDown())) {
-    return nullptr;
-  }
-
-  if (!TrustParams() && NS_WARN_IF(!VerifyRequestParams(aParams))) {
-    MOZ_CRASH_UNLESS_FUZZING();
-    return nullptr;
-  }
-
-  QM_TRY_UNWRAP(const NotNull<RefPtr<QuotaManager>> quotaManager,
-                QuotaManager::GetOrCreate(), nullptr);
-
-  auto actor = [&]() -> RefPtr<QuotaUsageRequestBase> {
-    switch (aParams.type()) {
-      case UsageRequestParams::TAllUsageParams:
-        return CreateGetUsageOp(quotaManager, aParams);
-
-      case UsageRequestParams::TOriginUsageParams:
-        return CreateGetOriginUsageOp(quotaManager, aParams);
-
-      default:
-        MOZ_CRASH("Should never get here!");
-    }
-  }();
-
-  MOZ_ASSERT(actor);
-
-  quotaManager->RegisterNormalOriginOp(*actor);
-
-  // Transfer ownership to IPDL.
-  return actor.forget().take();
-}
-
-mozilla::ipc::IPCResult Quota::RecvPQuotaUsageRequestConstructor(
-    PQuotaUsageRequestParent* aActor, const UsageRequestParams& aParams) {
-  AssertIsOnBackgroundThread();
-  MOZ_ASSERT(aActor);
-  MOZ_ASSERT(aParams.type() != UsageRequestParams::T__None);
-  MOZ_ASSERT(!QuotaManager::IsShuttingDown());
-
-  auto* op = static_cast<QuotaUsageRequestBase*>(aActor);
-
-  op->RunImmediately();
-  return IPC_OK();
-}
-
-bool Quota::DeallocPQuotaUsageRequestParent(PQuotaUsageRequestParent* aActor) {
-  AssertIsOnBackgroundThread();
-  MOZ_ASSERT(aActor);
-
-  // Transfer ownership back from IPDL.
-  RefPtr<QuotaUsageRequestBase> actor =
-      dont_AddRef(static_cast<QuotaUsageRequestBase*>(aActor));
-  return true;
-}
-
 PQuotaRequestParent* Quota::AllocPQuotaRequestParent(
     const RequestParams& aParams) {
   AssertIsOnBackgroundThread();
@@ -355,12 +282,6 @@ PQuotaRequestParent* Quota::AllocPQuotaRequestParent(
     switch (aParams.type()) {
       case RequestParams::TStorageNameParams:
         return CreateStorageNameOp(quotaManager);
-
-      case RequestParams::TInitializePersistentOriginParams:
-        return CreateInitializePersistentOriginOp(quotaManager, aParams);
-
-      case RequestParams::TInitializeTemporaryOriginParams:
-        return CreateInitializeTemporaryOriginOp(quotaManager, aParams);
 
       case RequestParams::TGetFullOriginMetadataParams:
         return CreateGetFullOriginMetadataOp(
@@ -471,6 +392,58 @@ mozilla::ipc::IPCResult Quota::RecvInitializeStorage(
   return IPC_OK();
 }
 
+mozilla::ipc::IPCResult Quota::RecvInitializePersistentOrigin(
+    const PrincipalInfo& aPrincipalInfo,
+    InitializePersistentOriginResolver&& aResolve) {
+  AssertIsOnBackgroundThread();
+
+  QM_TRY(MOZ_TO_RESULT(!QuotaManager::IsShuttingDown()),
+         ResolveBoolResponseAndReturn(aResolve));
+
+  if (!TrustParams()) {
+    QM_TRY(MOZ_TO_RESULT(QuotaManager::IsPrincipalInfoValid(aPrincipalInfo)),
+           QM_CUF_AND_IPC_FAIL(this));
+  }
+
+  QM_TRY_UNWRAP(const NotNull<RefPtr<QuotaManager>> quotaManager,
+                QuotaManager::GetOrCreate(),
+                ResolveBoolResponseAndReturn(aResolve));
+
+  quotaManager->InitializePersistentOrigin(aPrincipalInfo)
+      ->Then(GetCurrentSerialEventTarget(), __func__,
+             BoolPromiseResolveOrRejectCallback(this, std::move(aResolve)));
+
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult Quota::RecvInitializeTemporaryOrigin(
+    const PersistenceType& aPersistenceType,
+    const PrincipalInfo& aPrincipalInfo,
+    InitializeTemporaryOriginResolver&& aResolve) {
+  AssertIsOnBackgroundThread();
+
+  QM_TRY(MOZ_TO_RESULT(!QuotaManager::IsShuttingDown()),
+         ResolveBoolResponseAndReturn(aResolve));
+
+  if (!TrustParams()) {
+    QM_TRY(MOZ_TO_RESULT(IsValidPersistenceType(aPersistenceType)),
+           QM_CUF_AND_IPC_FAIL(this));
+
+    QM_TRY(MOZ_TO_RESULT(QuotaManager::IsPrincipalInfoValid(aPrincipalInfo)),
+           QM_CUF_AND_IPC_FAIL(this));
+  }
+
+  QM_TRY_UNWRAP(const NotNull<RefPtr<QuotaManager>> quotaManager,
+                QuotaManager::GetOrCreate(),
+                ResolveBoolResponseAndReturn(aResolve));
+
+  quotaManager->InitializeTemporaryOrigin(aPersistenceType, aPrincipalInfo)
+      ->Then(GetCurrentSerialEventTarget(), __func__,
+             BoolPromiseResolveOrRejectCallback(this, std::move(aResolve)));
+
+  return IPC_OK();
+}
+
 mozilla::ipc::IPCResult Quota::RecvInitializePersistentClient(
     const PrincipalInfo& aPrincipalInfo, const Type& aClientType,
     InitializeTemporaryClientResolver&& aResolve) {
@@ -544,6 +517,109 @@ mozilla::ipc::IPCResult Quota::RecvInitializeTemporaryStorage(
   quotaManager->InitializeTemporaryStorage()->Then(
       GetCurrentSerialEventTarget(), __func__,
       BoolPromiseResolveOrRejectCallback(this, std::move(aResolver)));
+
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult Quota::RecvGetUsage(
+    const bool& aGetAll,
+    ManagedEndpoint<PQuotaUsageRequestParent>&& aParentEndpoint,
+    GetUsageResolver&& aResolve) {
+  AssertIsOnBackgroundThread();
+
+  QM_TRY(MOZ_TO_RESULT(!QuotaManager::IsShuttingDown()),
+         ResolveOriginUsageMetadataArrayResponseAndReturn(aResolve));
+
+  QM_TRY_UNWRAP(const NotNull<RefPtr<QuotaManager>> quotaManager,
+                QuotaManager::GetOrCreate(),
+                ResolveOriginUsageMetadataArrayResponseAndReturn(aResolve));
+
+  auto parentActor = MakeRefPtr<QuotaUsageRequestParent>();
+
+  auto cancelPromise = parentActor->OnCancel();
+
+  QM_TRY(MOZ_TO_RESULT(BindPQuotaUsageRequestEndpoint(
+             std::move(aParentEndpoint), parentActor)),
+         ResolveOriginUsageMetadataArrayResponseAndReturn(aResolve));
+
+  quotaManager->GetUsage(aGetAll, std::move(cancelPromise))
+      ->Then(
+          GetCurrentSerialEventTarget(), __func__,
+          [parentActor](
+              OriginUsageMetadataArrayPromise::ResolveOrRejectValue&& aValue) {
+            parentActor->Destroy();
+
+            return OriginUsageMetadataArrayPromise::CreateAndResolveOrReject(
+                std::move(aValue), __func__);
+          })
+      ->Then(GetCurrentSerialEventTarget(), __func__,
+             OriginUsageMetadataArrayPromiseResolveOrRejectCallback(
+                 this, std::move(aResolve)));
+
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult Quota::RecvGetOriginUsage(
+    const PrincipalInfo& aPrincipalInfo,
+    ManagedEndpoint<PQuotaUsageRequestParent>&& aParentEndpoint,
+    GetOriginUsageResolver&& aResolve) {
+  AssertIsOnBackgroundThread();
+
+  QM_TRY(MOZ_TO_RESULT(!QuotaManager::IsShuttingDown()),
+         ResolveUsageInfoResponseAndReturn(aResolve));
+
+  if (!TrustParams()) {
+    QM_TRY(MOZ_TO_RESULT(QuotaManager::IsPrincipalInfoValid(aPrincipalInfo)),
+           QM_CUF_AND_IPC_FAIL(this));
+  }
+
+  QM_TRY_UNWRAP(const NotNull<RefPtr<QuotaManager>> quotaManager,
+                QuotaManager::GetOrCreate(),
+                ResolveUsageInfoResponseAndReturn(aResolve));
+
+  auto parentActor = MakeRefPtr<QuotaUsageRequestParent>();
+
+  auto cancelPromise = parentActor->OnCancel();
+
+  QM_TRY(MOZ_TO_RESULT(BindPQuotaUsageRequestEndpoint(
+             std::move(aParentEndpoint), parentActor)),
+         ResolveUsageInfoResponseAndReturn(aResolve));
+
+  quotaManager->GetOriginUsage(aPrincipalInfo, std::move(cancelPromise))
+      ->Then(
+          GetCurrentSerialEventTarget(), __func__,
+          [parentActor](const UsageInfoPromise::ResolveOrRejectValue& aValue) {
+            parentActor->Destroy();
+
+            return UsageInfoPromise::CreateAndResolveOrReject(aValue, __func__);
+          })
+      ->Then(
+          GetCurrentSerialEventTarget(), __func__,
+          UsageInfoPromiseResolveOrRejectCallback(this, std::move(aResolve)));
+
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult Quota::RecvGetCachedOriginUsage(
+    const PrincipalInfo& aPrincipalInfo,
+    GetCachedOriginUsageResolver&& aResolver) {
+  AssertIsOnBackgroundThread();
+
+  QM_TRY(MOZ_TO_RESULT(!QuotaManager::IsShuttingDown()),
+         ResolveUInt64ResponseAndReturn(aResolver));
+
+  if (!TrustParams()) {
+    QM_TRY(MOZ_TO_RESULT(QuotaManager::IsPrincipalInfoValid(aPrincipalInfo)),
+           QM_CUF_AND_IPC_FAIL(this));
+  }
+
+  QM_TRY_UNWRAP(const NotNull<RefPtr<QuotaManager>> quotaManager,
+                QuotaManager::GetOrCreate(),
+                ResolveUInt64ResponseAndReturn(aResolver));
+
+  quotaManager->GetCachedOriginUsage(aPrincipalInfo)
+      ->Then(GetCurrentSerialEventTarget(), __func__,
+             UInt64PromiseResolveOrRejectCallback(this, std::move(aResolver)));
 
   return IPC_OK();
 }

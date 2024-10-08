@@ -1,9 +1,9 @@
 [DEFAULT]
-skip-if = ["tsan"] # Bug 1804081 - TSan times out on pretty much all of these tests
 support-files = [
   "../shared-head.js",
   "head.js",
 ]
+skip-if = ["tsan"] # Bug 1804081 - TSan times out on pretty much all of these tests
 
 ["browser_test_feature_ipcmessages.js"]
 support-files = ["simple.html"]
@@ -11,18 +11,28 @@ support-files = ["simple.html"]
 ["browser_test_feature_jsallocations.js"]
 support-files = ["do_work_500ms.html"]
 
+["browser_test_feature_multiprocess_capture_with_signal.js"]
+support-files = ["do_work_500ms.html"]
+skip-if = [
+  # Enabling the JS feature leaks an 8-byte object. This causes failures when
+  # the leak checker is enabled, and run with test-verify (i.e. with both
+  # "debug" and "verify"). Having JS support for this feature is more important
+  # than these tests, so we're disabling them for now. See Bug 1904897.
+  "verify && debug",
+  "ccov",            # The signals for the profiler conflict with the ccov signals
+  "os == 'win'",     # Not yet supported on windows - Bug 1867328
+]
+
 ["browser_test_feature_nostacksampling.js"]
 support-files = ["do_work_500ms.html"]
 
 ["browser_test_marker_network_cancel.js"]
-https_first_disabled = true
 support-files = ["simple.html"]
 
 ["browser_test_marker_network_private_browsing.js"]
 support-files = ["simple.html"]
 
 ["browser_test_marker_network_redirect.js"]
-https_first_disabled = true
 support-files = [
   "redirect.sjs",
   "simple.html",
@@ -67,7 +77,6 @@ support-files = [
 ]
 
 ["browser_test_marker_network_simple.js"]
-https_first_disabled = true
 support-files = ["simple.html"]
 
 ["browser_test_marker_network_sts.js"]
@@ -81,24 +90,20 @@ support-files = ["simple.html"]
 support-files = ["single_frame.html"]
 
 ["browser_test_profile_capture_by_pid.js"]
-https_first_disabled = true
 support-files = ["single_frame.html"]
 
 ["browser_test_profile_fission.js"]
 support-files = ["single_frame.html"]
 
 ["browser_test_profile_multi_frame_page_info.js"]
-https_first_disabled = true
 support-files = [
   "multi_frame.html",
   "single_frame.html",
 ]
 
 ["browser_test_profile_single_frame_page_info.js"]
-https_first_disabled = true
 support-files = ["single_frame.html"]
 
 ["browser_test_profile_slow_capture.js"]
-https_first_disabled = true
 support-files = ["single_frame.html"]
-skip-if = ["!debug"]
+run-if = ["debug"]

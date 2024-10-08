@@ -8,10 +8,10 @@
 
 #include <jxl/decode.h>
 #include <jxl/types.h>
-#include <stdint.h>
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <utility>
 #include <vector>
@@ -49,6 +49,7 @@ class FrameDecoder {
       : dec_state_(dec_state),
         pool_(pool),
         frame_header_(&metadata),
+        modular_frame_decoder_(dec_state_->memory_manager()),
         use_slow_rendering_pipeline_(use_slow_rendering_pipeline) {}
 
   void SetRenderSpotcolors(bool rsc) { render_spotcolors_ = rsc; }
@@ -262,9 +263,10 @@ class FrameDecoder {
       group_dec_caches_.resize(storage_size);
     }
     use_task_id_ = num_threads > num_tasks;
-    bool use_group_ids = (modular_frame_decoder_.UsesFullImage() &&
-                          (frame_header_.encoding == FrameEncoding::kVarDCT ||
-                           (frame_header_.flags & FrameHeader::kNoise)));
+    bool use_noise = (frame_header_.flags & FrameHeader::kNoise) != 0;
+    bool use_group_ids =
+        (modular_frame_decoder_.UsesFullImage() &&
+         (frame_header_.encoding == FrameEncoding::kVarDCT || use_noise));
     if (dec_state_->render_pipeline) {
       JXL_RETURN_IF_ERROR(dec_state_->render_pipeline->PrepareForThreads(
           storage_size, use_group_ids));
@@ -290,6 +292,11 @@ class FrameDecoder {
       stride = (jxl::DivCeil(stride, format.align) * format.align);
     }
     return stride;
+  }
+
+  bool HasDcGroupToDecode() const {
+    return std::any_of(decoded_dc_groups_.cbegin(), decoded_dc_groups_.cend(),
+                       [](uint8_t ready) { return ready == 0; });
   }
 
   PassesDecoderState* dec_state_;

@@ -1,9 +1,9 @@
 != download-1.html download-1-notref.html
 == download-2.html download-2-ref.html
 != download-2.html about:blank
-random-if(winWidget||gtkWidget) == download-2-big.html download-2-big-otf.html # bug 470713
+random-if(gtkWidget||winWidget) == download-2-big.html download-2-big-otf.html # bug 470713
 != download-2-big-otf.html about:blank
-asserts-if(Android&&!asyncPan,1-8) != download-3-notref.html download-3.html # bug 1019192
+!= download-3-notref.html download-3.html # bug 1019192
 asserts-if(Android,0-8) == download-3-ref.html download-3.html # same bugs as above
 asserts-if(Android,0-8) == fallback-to-system-1.html fallback-to-system-1-ref.html # just delayed assertions from above tests
 == name-override-simple-1.html name-override-simple-1-ref.html
@@ -13,7 +13,7 @@ fails == name-override-1.html name-override-1-ref.html
 != multiple-descriptor-1.html multiple-descriptor-1-notref.html
 == src-list-1.html src-list-1-ref.html
 == src-list-2.html src-list-2-ref.html
-random-if(winWidget||gtkWidget) == src-list-2-big-otf.html src-list-2-big-ref.html # bug 470713
+random-if(gtkWidget||winWidget) == src-list-2-big-otf.html src-list-2-big-ref.html # bug 470713
 == src-list-format-1.html src-list-format-1-ref.html
 == src-list-format-2.html src-list-format-2-ref.html
 == src-list-format-4.html src-list-format-1-ref.html
@@ -154,9 +154,9 @@ HTTP(..) == font-redirect.html order-1-ref.html
 == dynamic-duplicate-rule-1c.html dynamic-duplicate-rule-1-ref.html
 
 # Test for COLR and CPAL support
-fuzzy-if(OSX,198-198,172-172) == color-1a.html color-1-ref.html
+fuzzy-if(cocoaWidget,198-198,172-172) == color-1a.html color-1-ref.html
 != color-1a.html color-1-notref.html
-fuzzy-if(OSX,198-198,172-172) == color-1b.html color-1-ref.html
+fuzzy-if(cocoaWidget,198-198,172-172) == color-1b.html color-1-ref.html
 == color-2a.html color-2-ref.html
 != color-2a.html color-2-notref.html
 
@@ -239,11 +239,14 @@ defaults pref(layout.css.font-variations.enabled,false)
 == variation-format-hint-1c.html variation-format-hint-1A-ref.html
 == variation-format-hint-1d.html variation-format-hint-1A-ref.html
 defaults pref(layout.css.font-variations.enabled,true)
-# Currently Windows 7 and macOS all fail on 
-# treeherder because our OS versions are too old to support variation fonts
 == variation-format-hint-1a.html variation-format-hint-1B-ttf-ref.html
 == variation-format-hint-1b.html variation-format-hint-1B-otf-ref.html
 == variation-format-hint-1c.html variation-format-hint-1B-woff-ref.html
 == variation-format-hint-1d.html variation-format-hint-1B-woff2-ref.html
+
+# Check that -webkit-font-smoothing affects rendering (macOS only)...
+skip-if(!cocoaWidget) != font-smoothing-antialiased.html font-smoothing-antialiased-notref.html
+# ...but has no effect on other platforms
+skip-if(cocoaWidget) == font-smoothing-antialiased.html font-smoothing-antialiased-notref.html
 
 defaults

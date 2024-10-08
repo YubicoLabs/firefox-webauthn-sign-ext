@@ -41,7 +41,7 @@ import Threads from "./Threads";
 import Accordion from "../shared/Accordion";
 import CommandBar from "./CommandBar";
 import XHRBreakpoints from "./XHRBreakpoints";
-import EventListeners from "./EventListeners";
+import EventListeners from "../shared/EventListeners";
 import DOMMutationBreakpoints from "./DOMMutationBreakpoints";
 import WhyPaused from "./WhyPaused";
 
@@ -52,7 +52,7 @@ const classnames = require("resource://devtools/client/shared/classnames.js");
 function debugBtn(onClick, type, className, tooltip) {
   return button(
     {
-      onClick: onClick,
+      onClick,
       className: `${type} ${className}`,
       key: type,
       title: tooltip,
@@ -88,7 +88,7 @@ class SecondaryPanes extends Component {
       mapScopesEnabled: PropTypes.bool.isRequired,
       pauseReason: PropTypes.string.isRequired,
       shouldBreakpointsPaneOpenOnPause: PropTypes.bool.isRequired,
-      thread: PropTypes.string.isRequired,
+      thread: PropTypes.string,
       renderWhyPauseDelay: PropTypes.number.isRequired,
       selectedFrame: PropTypes.object,
       skipPausing: PropTypes.bool.isRequired,
@@ -136,7 +136,7 @@ class SecondaryPanes extends Component {
         },
         "plus",
         "active",
-        L10N.getStr("expressions.placeholder")
+        L10N.getStr("expressions.placeholder2")
       )
     );
     return buttons;
@@ -184,6 +184,7 @@ class SecondaryPanes extends Component {
     return {
       header: L10N.getStr("scopes.header"),
       className: "scopes-pane",
+      id: "scopes-pane",
       component: React.createElement(Scopes, null),
       opened: prefs.scopesVisible,
       buttons: this.getScopesButtons(),
@@ -214,7 +215,7 @@ class SecondaryPanes extends Component {
           input({
             type: "checkbox",
             checked: mapScopesEnabled ? "checked" : "",
-            onChange: e => this.props.toggleMapScopes(),
+            onChange: () => this.props.toggleMapScopes(),
           }),
           L10N.getStr("scopes.showOriginalScopes")
         ),
@@ -249,7 +250,7 @@ class SecondaryPanes extends Component {
           input({
             type: "checkbox",
             checked: logEventBreakpoints ? "checked" : "",
-            onChange: e => this.props.toggleEventLogging(),
+            onChange: () => this.props.toggleEventLogging(),
           }),
           L10N.getStr("eventlisteners.log")
         )
@@ -357,7 +358,9 @@ class SecondaryPanes extends Component {
       id: "event-listeners-pane",
       className: "event-listeners-pane",
       buttons: this.getEventButtons(),
-      component: React.createElement(EventListeners, null),
+      component: React.createElement(EventListeners, {
+        panelKey: "breakpoint",
+      }),
       opened: prefs.eventListenersVisible || pauseReason === "eventBreakpoint",
       onToggle: opened => {
         prefs.eventListenersVisible = opened;

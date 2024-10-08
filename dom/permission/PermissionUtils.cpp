@@ -5,6 +5,7 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "PermissionUtils.h"
+#include "mozilla/dom/Document.h"
 #include "nsIPermissionManager.h"
 
 namespace mozilla::dom {
@@ -20,11 +21,13 @@ static const nsLiteralCString kPermissionTypes[] = {
     // and "midi-sysex" (and yes, this is confusing).
     "midi"_ns,
     "storage-access"_ns,
-    "screen-wake-lock"_ns
+    "screen-wake-lock"_ns,
+    "camera"_ns,
+    "microphone"_ns
     // clang-format on
 };
 
-const size_t kPermissionNameCount = PermissionNameValues::Count;
+const size_t kPermissionNameCount = ContiguousEnumSize<PermissionName>::value;
 
 static_assert(MOZ_ARRAY_LENGTH(kPermissionTypes) == kPermissionNameCount,
               "kPermissionTypes and PermissionName count should match");
@@ -56,7 +59,8 @@ Maybe<PermissionName> TypeToPermissionName(const nsACString& aType) {
   return Nothing();
 }
 
-PermissionState ActionToPermissionState(uint32_t aAction) {
+PermissionState ActionToPermissionState(uint32_t aAction, PermissionName aName,
+                                        const Document& aDocument) {
   switch (aAction) {
     case nsIPermissionManager::ALLOW_ACTION:
       return PermissionState::Granted;
@@ -64,8 +68,21 @@ PermissionState ActionToPermissionState(uint32_t aAction) {
     case nsIPermissionManager::DENY_ACTION:
       return PermissionState::Denied;
 
-    default:
     case nsIPermissionManager::PROMPT_ACTION:
+      if ((aName == PermissionName::Camera ||
+           aName == PermissionName::Microphone) &&
+          !aDocument.ShouldResistFingerprinting(RFPTarget::MediaDevices)) {
+        // A persisted PROMPT_ACTION means the user chose "Always Ask"
+        // which shows as "granted" to prevent websites from priming the
+        // user to escalate permission any further.
+        // Revisit if https://github.com/w3c/permissions/issues/414 reopens.
+        //
+        // This feature is not offered in resist-fingerprinting mode.
+        return PermissionState::Granted;
+      }
+      return PermissionState::Prompt;
+
+    default:
       return PermissionState::Prompt;
   }
 }

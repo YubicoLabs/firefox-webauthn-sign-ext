@@ -36,23 +36,30 @@ describe('Workers', function () {
   it('should emit created and destroyed events', async () => {
     const {page} = await getTestState();
 
-    const workerCreatedPromise = waitEvent<WebWorker>(page, 'workercreated');
-    using workerObj = await page.evaluateHandle(() => {
-      return new Worker('data:text/javascript,1');
-    });
-    const worker = await workerCreatedPromise;
+    const [worker, workerObj] = await Promise.all([
+      waitEvent<WebWorker>(page, 'workercreated'),
+      page.evaluateHandle(() => {
+        return new Worker('data:text/javascript,1');
+      }),
+    ]);
     using workerThisObj = await worker.evaluateHandle(() => {
       return this;
     });
-    const workerDestroyedPromise = waitEvent(page, 'workerdestroyed');
-    await page.evaluate((workerObj: Worker) => {
-      return workerObj.terminate();
-    }, workerObj);
-    expect(await workerDestroyedPromise).toBe(worker);
+    const [workerDestroyed] = await Promise.all([
+      waitEvent(page, 'workerdestroyed'),
+      page.evaluate(worker => {
+        return worker.terminate();
+      }, workerObj),
+    ]);
+
+    expect(workerDestroyed).toBe(worker);
     const error = await workerThisObj.getProperty('self').catch(error => {
       return error;
     });
-    expect(error.message).toContain('Most likely the worker has been closed.');
+    expect(error.message).atLeastOneToContain([
+      'Realm already destroyed.',
+      'Execution context is not available in detached frame',
+    ]);
   });
   it('should report console logs', async () => {
     const {page} = await getTestState();
@@ -70,7 +77,7 @@ describe('Workers', function () {
       columnNumber: 8,
     });
   });
-  it('should have JSHandles for console logs', async () => {
+  it('should work with console logs', async () => {
     const {page} = await getTestState();
 
     const logPromise = waitEvent<ConsoleMessage>(page, 'console');
@@ -80,9 +87,6 @@ describe('Workers', function () {
     const log = await logPromise;
     expect(log.text()).toBe('1 2 3 JSHandle@object');
     expect(log.args()).toHaveLength(4);
-    expect(await (await log.args()[3]!.getProperty('origin')).jsonValue()).toBe(
-      'null'
-    );
   });
   it('should have an execution context', async () => {
     const {page} = await getTestState();
@@ -105,5 +109,18 @@ describe('Workers', function () {
     });
     const errorLog = await errorPromise;
     expect(errorLog.message).toContain('this is my error');
+  });
+
+  it('can be closed', async () => {
+    const {page, server} = await getTestState();
+
+    await Promise.all([
+      waitEvent(page, 'workercreated'),
+      page.goto(server.PREFIX + '/worker/worker.html'),
+    ]);
+    const worker = page.workers()[0]!;
+    expect(worker?.url()).toContain('worker.js');
+
+    await Promise.all([waitEvent(page, 'workerdestroyed'), worker?.close()]);
   });
 });

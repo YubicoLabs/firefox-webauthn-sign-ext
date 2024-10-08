@@ -170,6 +170,14 @@ class _MerinoTestUtils {
   }
 
   /**
+   * @returns {object}
+   *   Mock geolocation data.
+   */
+  get GEOLOCATION() {
+    return { ...GEOLOCATION_DATA.custom_details.geolocation };
+  }
+
+  /**
    * @returns {string}
    *   The weather keyword in `WEATHER_RS_DATA`. Can be used as a search string
    *   to match the weather suggestion.
@@ -347,20 +355,16 @@ class _MerinoTestUtils {
 
     lazy.QuickSuggest.weather._test_fetchIntervalMs = WEATHER_FETCH_INTERVAL_MS;
 
-    // Enabling weather will trigger a fetch. Wait for it to finish so the
-    // suggestion is ready when this function returns.
-    this.info("MockMerinoServer initializing weather, waiting for fetch");
-    let fetchPromise = lazy.QuickSuggest.weather.waitForFetches();
+    // Enabling weather will trigger a fetch. Queue another fetch and await it
+    // so no fetches are ongoing when this function returns.
+    this.info("MockMerinoServer initializing weather, setting prefs");
     lazy.UrlbarPrefs.set("weather.featureGate", true);
     lazy.UrlbarPrefs.set("suggest.weather", true);
-    await fetchPromise;
-    this.info("MockMerinoServer initializing weather, got fetch");
-
-    this.Assert.equal(
-      lazy.QuickSuggest.weather._test_pendingFetchCount,
-      0,
-      "No pending fetches after awaiting initial fetch"
+    this.info(
+      "MockMerinoServer initializing weather, done setting prefs, starting fetch"
     );
+    await lazy.QuickSuggest.weather._test_fetch();
+    this.info("MockMerinoServer initializing weather, done awaiting fetch");
 
     this.registerCleanupFunction?.(async () => {
       lazy.UrlbarPrefs.clear("weather.featureGate");
@@ -547,10 +551,10 @@ class MockMerinoServer {
             provider: "adm",
             full_keyword: "amp",
             title: "Amp Suggestion",
-            url: "http://example.com/amp",
+            url: "https://example.com/amp",
             icon: null,
-            impression_url: "http://example.com/amp-impression",
-            click_url: "http://example.com/amp-click",
+            impression_url: "https://example.com/amp-impression",
+            click_url: "https://example.com/amp-click",
             block_id: 1,
             advertiser: "Amp",
             iab_category: "22 - Shopping",

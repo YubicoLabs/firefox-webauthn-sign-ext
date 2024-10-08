@@ -25,17 +25,17 @@ async function run_test() {
     USE_EXECV ? 0 : 1,
     false
   );
-  standardInit();
+  await testPostUpdateProcessing();
   checkPostUpdateRunningFile(false);
   checkFilesAfterUpdateFailure(getApplyDirFile);
   checkUpdateLogContains(STATE_FAILED_VERSION_DOWNGRADE_ERROR);
   await waitForUpdateXMLFiles();
-  checkUpdateManager(
+  await checkUpdateManager(
     STATE_NONE,
     false,
     STATE_FAILED,
     VERSION_DOWNGRADE_ERROR,
     1
   );
-  waitForFilesInUse();
+  await waitForFilesInUse();
 }

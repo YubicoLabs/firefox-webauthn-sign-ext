@@ -5,11 +5,6 @@
 
 "use strict";
 
-ChromeUtils.defineESModuleGetters(this, {
-  CONTEXTUAL_SERVICES_PING_TYPES:
-    "resource:///modules/PartnerLinkAttribution.sys.mjs",
-});
-
 const { TELEMETRY_SCALARS } = UrlbarProviderQuickSuggest;
 const { TIMESTAMP_TEMPLATE } = QuickSuggest;
 
@@ -40,6 +35,9 @@ const REMOTE_SETTINGS_RESULTS = [
     icon: "1234",
   },
 ];
+
+// Trying to avoid timeouts.
+requestLongerTimeout(3);
 
 add_setup(async function () {
   await PlacesUtils.history.clear();
@@ -93,10 +91,12 @@ async function doBasicBlockTest({ block }) {
 
 async function doOneBasicBlockTest({ result, block }) {
   let index = 2;
-  let suggested_index = -1;
   let suggested_index_relative_to_group = true;
   let match_type = "firefox-suggest";
   let isSponsored = result.iab_category != "5 - Education";
+  // The suggested index is -1 even for sponsored since search suggestions are
+  // disabled.
+  let suggested_index = -1;
   let expectedBlockId =
     UrlbarPrefs.get("quicksuggest.rustEnabled") && !isSponsored
       ? null

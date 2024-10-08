@@ -8,10 +8,17 @@ import Overrides from "resource://gre/modules/Overrides.ios.js";
 /* eslint mozilla/use-isInstance: 0 */
 HTMLSelectElement.isInstance = element => element instanceof HTMLSelectElement;
 HTMLInputElement.isInstance = element => element instanceof HTMLInputElement;
+HTMLIFrameElement.isInstance = element => element instanceof HTMLIFrameElement;
 HTMLFormElement.isInstance = element => element instanceof HTMLFormElement;
 ShadowRoot.isInstance = element => element instanceof ShadowRoot;
 
 HTMLElement.prototype.ownerGlobal = window;
+
+// We cannot mock this in WebKit because we lack access to low-level APIs.
+// For completeness, we simply return true when the input type is "password".
+HTMLInputElement.prototype.hasBeenTypePassword = function () {
+  return this.type === "password";
+};
 
 HTMLInputElement.prototype.setUserInput = function (value) {
   this.value = value;
@@ -58,6 +65,15 @@ const withNotImplementedError = obj =>
     },
   });
 
+// This function will create a proxy for each undefined property
+// This is useful when the accessed property name is unkonwn beforehand
+const undefinedProxy = () =>
+  new Proxy(() => {}, {
+    get() {
+      return undefinedProxy();
+    },
+  });
+
 // Webpack needs to be able to statically analyze require statements in order to build the dependency graph
 // In order to require modules dynamically at runtime, we use require.context() to create a dynamic require
 // that is still able to be parsed by Webpack at compile time. The "./" and ".mjs" tells webpack that files
@@ -91,7 +107,7 @@ export const XPCOMUtils = withNotImplementedError({
     prop,
     pref,
     defaultValue = null,
-    onUpdate = null,
+    onUpdate,
     transform = val => val
   ) => {
     if (!Object.keys(IOSAppConstants.prefs).includes(pref)) {
@@ -102,12 +118,18 @@ export const XPCOMUtils = withNotImplementedError({
   defineLazyModuleGetters(obj, modules) {
     internalModuleResolvers.resolveModules(obj, modules);
   },
+  defineLazyServiceGetter() {
+    // Don't do anything
+    // We need this for OS Auth fixes for formautofill.
+    // TODO(issam, Bug 1894967): Move os auth to separate module and remove this.
+  },
 });
 
 // eslint-disable-next-line no-shadow
 export const ChromeUtils = withNotImplementedError({
   defineLazyGetter: (obj, prop, getFn) => {
-    obj[prop] = getFn?.call(obj);
+    const callback = prop === "log" ? genericLogger : getFn;
+    obj[prop] = callback?.call(obj);
   },
   defineESModuleGetters(obj, modules) {
     internalModuleResolvers.resolveModules(obj, modules);
@@ -128,23 +150,10 @@ export const OSKeyStore = withNotImplementedError({
   ensureLoggedIn: () => true,
 });
 
-// Checks an element's focusability and accessibility via keyboard navigation
-const checkFocusability = element => {
-  return (
-    !element.disabled &&
-    !element.hidden &&
-    element.style.display != "none" &&
-    element.tabIndex != "-1"
-  );
-};
-
 // Define mock for Services
 // NOTE: Services is a global so we need to attach it to the window
 // eslint-disable-next-line no-shadow
 export const Services = withNotImplementedError({
-  focus: withNotImplementedError({
-    elementIsFocusable: checkFocusability,
-  }),
   locale: withNotImplementedError({ isAppLocaleRTL: false }),
   prefs: withNotImplementedError({ prefIsLocked: () => false }),
   strings: withNotImplementedError({
@@ -154,7 +163,64 @@ export const Services = withNotImplementedError({
         formatStringFromName: () => "",
       }),
   }),
-  uuid: withNotImplementedError({ generateUUID: () => "" }),
+  telemetry: withNotImplementedError({
+    scalarAdd: (scalarName, scalarValue) => {
+      // For now, we only care about the address form telemetry
+      // TODO(FXCM-935): move address telemetry to Glean so we can remove this
+      // Data format of the sent message is:
+      // {
+      //   type: "scalar",
+      //   name: "formautofill.addresses.detected_sections_count",
+      //   value: Number,
+      // }
+      if (scalarName !== "formautofill.addresses.detected_sections_count") {
+        return;
+      }
+
+      // eslint-disable-next-line no-undef
+      webkit.messageHandlers.addressFormTelemetryMessageHandler.postMessage(
+        JSON.stringify({
+          type: "scalar",
+          object: scalarName,
+          value: scalarValue,
+        })
+      );
+    },
+    recordEvent: (category, method, object, value, extra) => {
+      // For now, we only care about the address form telemetry
+      // TODO(FXCM-935): move address telemetry to Glean so we can remove this
+      // Data format of the sent message is:
+      // {
+      //   type: "event",
+      //   category: "address",
+      //   method: "detected" | "filled" | "filled_modified",
+      //   object: "address_form" | "address_form_ext",
+      //   value: String,
+      //   extra: Any,
+      // }
+      if (category !== "address") {
+        return;
+      }
+
+      // eslint-disable-next-line no-undef
+      webkit.messageHandlers.addressFormTelemetryMessageHandler.postMessage(
+        JSON.stringify({
+          type: "event",
+          category,
+          method,
+          object,
+          value,
+          extra,
+        })
+      );
+    },
+  }),
+  // TODO(FXCM-936): we should use crypto.randomUUID() instead of Services.uuid.generateUUID() in our codebase
+  // Underneath crypto.randomUUID() uses the same implementation as generateUUID()
+  // https://searchfox.org/mozilla-central/rev/d405168c4d3c0fb900a7354ae17bb34e939af996/dom/base/Crypto.cpp#96
+  // The only limitation is that it's not available in insecure contexts, which should be fine for both iOS and Desktop
+  // since we only autofill in secure contexts
+  uuid: withNotImplementedError({ generateUUID: () => crypto.randomUUID() }),
 });
 window.Services = Services;
 
@@ -163,15 +229,20 @@ window.Localization = function () {
   return { formatValueSync: () => "" };
 };
 
-export const windowUtils = withNotImplementedError({
-  removeManuallyManagedState: () => {},
-  addManuallyManagedState: () => {},
-});
-window.windowUtils = windowUtils;
+// For now, we ignore all calls to glean.
+// TODO(FXCM-935): move address telemetry to Glean so we can create a universal mock for glean that
+// dispatches telemetry messages to the iOS.
+window.Glean = {
+  formautofillCreditcards: undefinedProxy(),
+  formautofill: undefinedProxy(),
+};
 
-export const AutofillTelemetry = withNotImplementedError({
-  recordFormInteractionEvent: () => {},
-  recordDetectedSectionCount: () => {},
-});
+const genericLogger = () =>
+  withNotImplementedError({
+    info: () => {},
+    error: () => {},
+    warn: () => {},
+    debug: () => {},
+  });
 
 export { IOSAppConstants as AppConstants } from "resource://gre/modules/shared/Constants.ios.mjs";

@@ -27,6 +27,7 @@ import java.util.Locale;
 import org.mozilla.gecko.EventDispatcher;
 import org.mozilla.gecko.GeckoSystemStateListener;
 import org.mozilla.gecko.util.GeckoBundle;
+import org.mozilla.gecko.util.LocaleUtils;
 
 @AnyThread
 public final class GeckoRuntimeSettings extends RuntimeSettings {
@@ -354,6 +355,17 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
     }
 
     /**
+     * Sets whether Session History in Parent (SHIP) should be disabled or not.
+     *
+     * @param value A flag determining whether SHIP should be disabled or not.
+     * @return The builder instance.
+     */
+    public @NonNull Builder disableShip(final boolean value) {
+      getSettings().mDisableShip.set(value);
+      return this;
+    }
+
+    /**
      * When set, the specified {@link android.app.Service} will be started by an {@link
      * android.content.Intent} with action {@link GeckoRuntime#ACTION_CRASHED} when a crash is
      * encountered. Crash details can be found in the Intent extras, such as {@link
@@ -452,19 +464,6 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
      */
     public @NonNull Builder glMsaaLevel(final int level) {
       getSettings().mGlMsaaLevel.set(level);
-      return this;
-    }
-
-    /**
-     * Add a {@link RuntimeTelemetry.Delegate} instance to this GeckoRuntime. This delegate can be
-     * used by the app to receive streaming telemetry data from GeckoView.
-     *
-     * @param delegate the delegate that will handle telemetry
-     * @return The builder instance.
-     */
-    public @NonNull Builder telemetryDelegate(final @NonNull RuntimeTelemetry.Delegate delegate) {
-      getSettings().mTelemetryProxy = new RuntimeTelemetry.Proxy(delegate);
-      getSettings().mTelemetryEnabled.set(true);
       return this;
     }
 
@@ -608,8 +607,6 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
   /* package */ final Pref<Boolean> mDoubleTapZooming =
       new Pref<>("apz.allow_double_tap_zooming", true);
   /* package */ final Pref<Integer> mGlMsaaLevel = new Pref<>("webgl.msaa-samples", 4);
-  /* package */ final Pref<Boolean> mTelemetryEnabled =
-      new Pref<>("toolkit.telemetry.geckoview.streaming", false);
   /* package */ final Pref<String> mGeckoViewLogLevel =
       new Pref<>("geckoview.logging", BuildConfig.DEBUG_BUILD ? "Debug" : "Warn");
   /* package */ final Pref<Boolean> mConsoleServiceToLogcat =
@@ -619,6 +616,8 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
   /* package */ final Pref<Boolean> mAboutConfig = new Pref<>("general.aboutConfig.enable", false);
   /* package */ final Pref<Boolean> mForceUserScalable =
       new Pref<>("browser.ui.zoom.force-user-scalable", false);
+  /* package */ final PrefWithoutDefault<Integer> mWebContentIsolationStrategy =
+      new PrefWithoutDefault<>("fission.webContentIsolationStrategy");
   /* package */ final Pref<Boolean> mAutofillLogins =
       new Pref<Boolean>("signon.autofillForms", true);
   /* package */ final Pref<Boolean> mAutomaticallyOfferPopup =
@@ -648,6 +647,18 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
       new Pref<Boolean>("privacy.globalprivacycontrol.pbmode.enabled", true);
   /* package */ final Pref<Boolean> mGlobalPrivacyControlFunctionalityEnabled =
       new Pref<Boolean>("privacy.globalprivacycontrol.functionality.enabled", true);
+  /* package */ final Pref<Boolean> mFingerprintingProtection =
+      new Pref<Boolean>("privacy.fingerprintingProtection", false);
+  /* package */ final Pref<Boolean> mFingerprintingProtectionPrivateMode =
+      new Pref<Boolean>("privacy.fingerprintingProtection.pbmode", true);
+  /* package */ final PrefWithoutDefault<String> mFingerprintingProtectionOverrides =
+      new PrefWithoutDefault<>("privacy.fingerprintingProtection.overrides");
+  /* package */ final Pref<Boolean> mFdlibmMathEnabled =
+      new Pref<Boolean>("javascript.options.use_fdlibm_for_sin_cos_tan", false);
+  /* package */ final Pref<Integer> mUserCharacteristicPingCurrentVersion =
+      new Pref<>("toolkit.telemetry.user_characteristics_ping.current_version", 0);
+  /* package */ PrefWithoutDefault<Boolean> mDisableShip =
+      new PrefWithoutDefault<Boolean>("fission.disableSessionHistoryInParent");
 
   /* package */ int mPreferredColorScheme = COLOR_SCHEME_SYSTEM;
 
@@ -660,7 +671,6 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
   /* package */ int mScreenHeightOverride;
   /* package */ Class<? extends Service> mCrashHandler;
   /* package */ String[] mRequestedLocales;
-  /* package */ RuntimeTelemetry.Proxy mTelemetryProxy;
   /* package */ ExperimentDelegate mExperimentDelegate;
 
   /**
@@ -671,10 +681,6 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
   /* package */ void attachTo(final @NonNull GeckoRuntime runtime) {
     mRuntime = runtime;
     commit();
-
-    if (mTelemetryProxy != null) {
-      mTelemetryProxy.attach();
-    }
   }
 
   @Override // RuntimeSettings
@@ -716,7 +722,6 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
     mCrashHandler = settings.mCrashHandler;
     mRequestedLocales = settings.mRequestedLocales;
     mConfigFilePath = settings.mConfigFilePath;
-    mTelemetryProxy = settings.mTelemetryProxy;
     mExperimentDelegate = settings.mExperimentDelegate;
   }
 
@@ -791,6 +796,89 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
     mGlobalPrivacyControlEnabledPrivateMode.commit(true);
     mGlobalPrivacyControlFunctionalityEnabled.commit(true);
     return this;
+  }
+
+  /**
+   * Set the Fingerprint protection in all tabs.
+   *
+   * @param enabled Whether we set the pref to true or false
+   * @return This GeckoRuntimeSettings instance
+   */
+  public @NonNull GeckoRuntimeSettings setFingerprintingProtection(final boolean enabled) {
+    mFingerprintingProtection.commit(enabled);
+    return this;
+  }
+
+  /**
+   * Set the Fingerprint protection in private tabs.
+   *
+   * @param enabled Whether we set the pref to true or false
+   * @return This GeckoRuntimeSettings instance
+   */
+  public @NonNull GeckoRuntimeSettings setFingerprintingProtectionPrivateBrowsing(
+      final boolean enabled) {
+    mFingerprintingProtectionPrivateMode.commit(enabled);
+    return this;
+  }
+
+  /**
+   * Set the Fingerprint protection overrides
+   *
+   * @param overrides The overrides value to add or remove fingerprinting protection targets. Please
+   *     check RFPTargets.inc for all supported targets.
+   * @return This GeckoRuntimeSettings instance
+   */
+  public @NonNull GeckoRuntimeSettings setFingerprintingProtectionOverrides(
+      @NonNull final String overrides) {
+    mFingerprintingProtectionOverrides.commit(overrides);
+    return this;
+  }
+
+  /**
+   * Set the pref to control whether to use fdlibm for Math.sin, Math.cos, and Math.tan.
+   *
+   * @param enabled Whether we set the pref to true or false
+   * @return This GeckoRuntimeSettings instance
+   */
+  public @NonNull GeckoRuntimeSettings setFdlibmMathEnabled(final boolean enabled) {
+    mFdlibmMathEnabled.commit(enabled);
+    return this;
+  }
+
+  /**
+   * Get whether Fingerprint protection is enabled in all tabs.
+   *
+   * @return Whether Fingerprint protection is enabled in all tabs.
+   */
+  public boolean getFingerprintingProtection() {
+    return mFingerprintingProtection.get();
+  }
+
+  /**
+   * Get whether Fingerprint protection is enabled private browsing mode.
+   *
+   * @return Whether Fingerprint protection is enabled private browsing mode.
+   */
+  public boolean getFingerprintingProtectionPrivateBrowsing() {
+    return mFingerprintingProtectionPrivateMode.get();
+  }
+
+  /**
+   * Get Fingerprint protection overrides.
+   *
+   * @return The string of the fingerprinting protection overrides.
+   */
+  public @NonNull String getFingerprintingProtectionOverrides() {
+    return mFingerprintingProtectionOverrides.get();
+  }
+
+  /**
+   * Get whether to use fdlibm for Math.sin, Math.cos, and Math.tan.
+   *
+   * @return Whether the fdlibm is used
+   */
+  public boolean getFdlibmMathEnabled() {
+    return mFdlibmMathEnabled.get();
   }
 
   /**
@@ -1054,7 +1142,7 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
       }
     }
     // OS prefs come second:
-    for (final String locale : getDefaultLocales()) {
+    for (final String locale : getSystemLocalesForAcceptLanguage()) {
       final String localeLowerCase = locale.toLowerCase(Locale.ROOT);
       if (!locales.containsKey(localeLowerCase)) {
         locales.put(localeLowerCase, locale);
@@ -1064,33 +1152,20 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
     return TextUtils.join(",", locales.values());
   }
 
-  private static String[] getDefaultLocales() {
+  private static String[] getSystemLocalesForAcceptLanguage() {
     if (VERSION.SDK_INT >= 24) {
       final LocaleList localeList = LocaleList.getDefault();
       final String[] locales = new String[localeList.size()];
       for (int i = 0; i < localeList.size(); i++) {
-        locales[i] = localeList.get(i).toLanguageTag();
+        // accept-language should be language or language-region format.
+        locales[i] = LocaleUtils.getLanguageTagForAcceptLanguage(localeList.get(i));
       }
       return locales;
     }
     final String[] locales = new String[1];
     final Locale locale = Locale.getDefault();
-    locales[0] = locale.toLanguageTag();
+    locales[0] = LocaleUtils.getLanguageTagForAcceptLanguage(locale);
     return locales;
-  }
-
-  private static String getLanguageTag(final Locale locale) {
-    final StringBuilder out = new StringBuilder(locale.getLanguage());
-    final String country = locale.getCountry();
-    final String variant = locale.getVariant();
-    if (!TextUtils.isEmpty(country)) {
-      out.append('-').append(country);
-    }
-    if (!TextUtils.isEmpty(variant)) {
-      out.append('-').append(variant);
-    }
-    // e.g. "en", "en-US", or "en-US-POSIX".
-    return out.toString();
   }
 
   /**
@@ -1378,11 +1453,6 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
     return this;
   }
 
-  @SuppressWarnings("checkstyle:javadocmethod")
-  public @Nullable RuntimeTelemetry.Delegate getTelemetryDelegate() {
-    return mTelemetryProxy.getDelegate();
-  }
-
   /**
    * Get the {@link ExperimentDelegate} instance set on this runtime, if any,
    *
@@ -1412,6 +1482,59 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
    */
   public @NonNull GeckoRuntimeSettings setAboutConfigEnabled(final boolean flag) {
     mAboutConfig.commit(flag);
+    return this;
+  }
+
+  /** See the `WebContentIsolationStrategy` enum in `ProcessIsolation.cpp`. */
+  @Retention(RetentionPolicy.SOURCE)
+  @IntDef({STRATEGY_ISOLATE_NOTHING, STRATEGY_ISOLATE_EVERYTHING, STRATEGY_ISOLATE_HIGH_VALUE})
+  public @interface WebContentIsolationStrategy {};
+
+  /**
+   * All web content is loaded into a shared `web` content process. This is similar to the
+   * non-Fission behaviour, however remote subframes may still be used for sites with special
+   * isolation behaviour, such as extension or mozillaweb content processes.
+   */
+  public static final int STRATEGY_ISOLATE_NOTHING = 0;
+
+  /**
+   * Web content is always isolated into its own `webIsolated` content process based on site-origin,
+   * and will only load in a shared `web` content process if site-origin could not be determined.
+   */
+  public static final int STRATEGY_ISOLATE_EVERYTHING = 1;
+
+  /**
+   * Only isolates web content loaded by sites which are considered "high value". A site is
+   * considered "high value" if it has been granted a `highValue*` permission by the permission
+   * manager, which is done in response to certain actions.
+   */
+  public static final int STRATEGY_ISOLATE_HIGH_VALUE = 2;
+
+  /**
+   * Get the strategy used to control how sites are isolated into separate processes when Fission is
+   * enabled. This pref has no effect if Fission is disabled.
+   *
+   * <p>Setting should conform to {@link WebContentIsolationStrategy}, but is not automatically
+   * mapped.
+   *
+   * @return The web content isolation strategy.
+   */
+  public @Nullable Integer getWebContentIsolationStrategy() {
+    return mWebContentIsolationStrategy.get();
+  }
+
+  /**
+   * Set the strategy used to control how sites are isolated into separate processes when Fission is
+   * enabled. This pref has no effect if Fission is disabled.
+   *
+   * <p>Setting must conform to {@link WebContentIsolationStrategy} options.
+   *
+   * @param strategy The specified strategy defined by {@link WebContentIsolationStrategy}.
+   * @return This GeckoRuntimeSettings instance.
+   */
+  public @NonNull GeckoRuntimeSettings setWebContentIsolationStrategy(
+      final @NonNull @WebContentIsolationStrategy Integer strategy) {
+    mWebContentIsolationStrategy.commit(strategy);
     return this;
   }
 
@@ -1654,6 +1777,41 @@ public final class GeckoRuntimeSettings extends RuntimeSettings {
   public @NonNull GeckoRuntimeSettings setTrustedRecursiveResolverUri(final @NonNull String uri) {
     mTrustedRecursiveResolverUri.commit(uri);
     return this;
+  }
+
+  /**
+   * Get the current user characteristic ping version.
+   *
+   * @return The current version.
+   */
+  public @NonNull int getUserCharacteristicPingCurrentVersion() {
+    return mUserCharacteristicPingCurrentVersion.get();
+  }
+
+  /**
+   * Set the current user characteristic ping version.
+   *
+   * @param version The version number.
+   * @return This GeckoRuntimeSettings instance.
+   */
+  public @NonNull GeckoRuntimeSettings setUserCharacteristicPingCurrentVersion(final int version) {
+    mUserCharacteristicPingCurrentVersion.commit(version);
+    return this;
+  }
+
+  /**
+   * Retrieve the status of the disable session history in parent (SHIP) preference. May be null if
+   * the value hasn't been specifically initialized.
+   *
+   * <p>Note, there is no conventional setter because this may only be set before Gecko is
+   * initialized.
+   *
+   * <p>Set before initialization using {@link Builder#disableShip(boolean)}.
+   *
+   * @return True if SHIP is disabled, false if SHIP is enabled.
+   */
+  public @Nullable Boolean getDisableShip() {
+    return mDisableShip.get();
   }
 
   // For internal use only

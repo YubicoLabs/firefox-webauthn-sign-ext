@@ -175,9 +175,21 @@ impl EventMetric {
             .into()
             .unwrap_or_else(|| &self.meta().inner.send_in_pings[0]);
 
-        glean
+        let events = glean
             .event_storage()
-            .test_get_value(&self.meta, queried_ping_name)
+            .test_get_value(&self.meta, queried_ping_name);
+
+        events.map(|mut evts| {
+            for ev in &mut evts {
+                let Some(extra) = &mut ev.extra else { continue };
+                extra.remove("glean_timestamp");
+                if extra.is_empty() {
+                    ev.extra = None;
+                }
+            }
+
+            evts
+        })
     }
 
     /// **Test-only API (exported for FFI purposes).**
@@ -185,6 +197,11 @@ impl EventMetric {
     /// Get the vector of currently stored events for this event metric.
     ///
     /// This doesn't clear the stored value.
+    ///
+    /// # Arguments
+    ///
+    /// * `ping_name` - the optional name of the ping to retrieve the metric
+    ///                 for. Defaults to the first value in `send_in_pings`.
     pub fn test_get_value(&self, ping_name: Option<String>) -> Option<Vec<RecordedEvent>> {
         crate::block_on_dispatcher();
         crate::core::with_glean(|glean| self.get_value(glean, ping_name.as_deref()))
@@ -197,8 +214,6 @@ impl EventMetric {
     /// # Arguments
     ///
     /// * `error` - The type of error
-    /// * `ping_name` - represents the optional name of the ping to retrieve the
-    ///   metric for. inner to the first value in `send_in_pings`.
     ///
     /// # Returns
     ///

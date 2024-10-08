@@ -1,3 +1,8 @@
+/**
+ * @license
+ * Copyright 2024 Google Inc.
+ * SPDX-License-Identifier: Apache-2.0
+ */
 import {describe, it} from 'node:test';
 
 import expect from 'expect';
@@ -104,7 +109,8 @@ void describe('@puppeteer/ng-schematics: ng-add', () => {
       expect(tsConfig).toMatchObject({
         extends: '../tsconfig.json',
         compilerOptions: {
-          module: 'CommonJS',
+          module: 'NodeNext',
+          moduleResolution: 'NodeNext',
         },
       });
     });
@@ -217,7 +223,8 @@ void describe('@puppeteer/ng-schematics: ng-add', () => {
       expect(tsConfig).toMatchObject({
         extends: '../../../tsconfig.json',
         compilerOptions: {
-          module: 'CommonJS',
+          module: 'NodeNext',
+          moduleResolution: 'NodeNext',
         },
       });
     });

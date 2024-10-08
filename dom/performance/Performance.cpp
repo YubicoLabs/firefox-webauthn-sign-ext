@@ -8,6 +8,11 @@
 
 #include <sstream>
 
+#if defined(XP_LINUX)
+#  include <fcntl.h>
+#  include <sys/mman.h>
+#endif
+
 #include "ETWTools.h"
 #include "GeckoProfiler.h"
 #include "nsRFPService.h"
@@ -28,6 +33,7 @@
 #include "mozilla/dom/PerformanceObserverBinding.h"
 #include "mozilla/dom/PerformanceNavigationTiming.h"
 #include "mozilla/IntegerPrintfMacros.h"
+#include "mozilla/Perfetto.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/TimeStamp.h"
 #include "mozilla/dom/WorkerPrivate.h"
@@ -338,10 +344,10 @@ already_AddRefed<PerformanceMark> Performance::Mark(
 
   InsertUserEntry(performanceMark);
 
-  if (profiler_is_collecting_markers()) {
+  if (profiler_thread_is_being_profiled_for_markers()) {
     Maybe<uint64_t> innerWindowId;
-    if (GetOwner()) {
-      innerWindowId = Some(GetOwner()->WindowID());
+    if (nsGlobalWindowInner* owner = GetOwnerWindow()) {
+      innerWindowId = Some(owner->WindowID());
     }
     TimeStamp startTimeStamp =
         CreationTimeStamp() +
@@ -593,18 +599,66 @@ std::pair<TimeStamp, TimeStamp> Performance::GetTimeStampsForMarker(
   return std::make_pair(startTimeStamp, endTimeStamp);
 }
 
+static FILE* MaybeOpenMarkerFile() {
+  if (!getenv("MOZ_USE_PERFORMANCE_MARKER_FILE")) {
+    return nullptr;
+  }
+
+#ifdef XP_LINUX
+  // We treat marker files similar to Jitdump files (see PerfSpewer.cpp) and
+  // mmap them if needed.
+  int fd = open(GetMarkerFilename().c_str(), O_CREAT | O_TRUNC | O_RDWR, 0666);
+  FILE* markerFile = fdopen(fd, "w+");
+
+  if (!markerFile) {
+    return nullptr;
+  }
+
+  // On Linux and Android, we need to mmap the file so that the path makes it
+  // into the perf.data file or into samply.
+  // On non-Android, make the mapping executable, otherwise the MMAP event may
+  // not be recorded by perf (see perf_event_open mmap_data).
+  // But on Android, don't make the mapping executable, because doing so can
+  // make the mmap call fail on some Android devices. It's also not required on
+  // Android because simpleperf sets mmap_data = 1 for unrelated reasons (it
+  // wants to know about vdex files for Java JIT profiling, see
+  // SetRecordNotExecutableMaps).
+  int protection = PROT_READ;
+#  ifndef ANDROID
+  protection |= PROT_EXEC;
+#  endif
+
+  // Mmap just the first page - that's enough to ensure the path makes it into
+  // the recording.
+  long page_size = sysconf(_SC_PAGESIZE);
+  void* mmap_address = mmap(nullptr, page_size, protection, MAP_PRIVATE, fd, 0);
+  if (mmap_address == MAP_FAILED) {
+    fclose(markerFile);
+    return nullptr;
+  }
+  return markerFile;
+#else
+  // On macOS, we just need to `open` or `fopen` the marker file, and samply
+  // will know its path because it hooks those functions - no mmap needed.
+  // On Windows, there's no need to use MOZ_USE_PERFORMANCE_MARKER_FILE because
+  // we have ETW trace events for UserTiming measures. Still, we want this code
+  // to compile successfully on Windows, so we use fopen rather than
+  // open+fdopen.
+  return fopen(GetMarkerFilename().c_str(), "w+");
+#endif
+}
+
 // This emits markers to an external marker-[pid].txt file for use by an
 // external profiler like samply or etw-gecko
 void Performance::MaybeEmitExternalProfilerMarker(
     const nsAString& aName, Maybe<const PerformanceMeasureOptions&> aOptions,
     Maybe<const nsAString&> aStartMark, const Optional<nsAString>& aEndMark) {
-  static FILE* markerFile = getenv("MOZ_USE_PERFORMANCE_MARKER_FILE")
-                                ? fopen(GetMarkerFilename().c_str(), "w+")
-                                : nullptr;
+  static FILE* markerFile = MaybeOpenMarkerFile();
   if (!markerFile) {
     return;
   }
 
+#if defined(XP_LINUX) || defined(XP_WIN) || defined(XP_MACOSX)
   ErrorResult rv;
   auto [startTimeStamp, endTimeStamp] =
       GetTimeStampsForMarker(aStartMark, aEndMark, aOptions, rv);
@@ -612,6 +666,7 @@ void Performance::MaybeEmitExternalProfilerMarker(
   if (NS_WARN_IF(rv.Failed())) {
     return;
   }
+#endif
 
 #ifdef XP_LINUX
   uint64_t rawStart = startTimeStamp.RawClockMonotonicNanosecondsSinceBoot();
@@ -710,13 +765,32 @@ already_AddRefed<PerformanceMeasure> Performance::Measure(
     detail.setNull();
   }
 
+#ifdef MOZ_PERFETTO
+  // Perfetto requires that events are properly nested within each category.
+  // Since this is not a guarantee here, we need to define a dynamic category
+  // for each measurement so it's not prematurely ended by another measurement
+  // that overlaps.  We also use the usertiming category to guard these markers
+  // so it's easy to toggle.
+  if (TRACE_EVENT_CATEGORY_ENABLED("usertiming")) {
+    NS_ConvertUTF16toUTF8 str(aName);
+    perfetto::DynamicCategory category{str.get()};
+    TimeStamp startTimeStamp =
+        CreationTimeStamp() + TimeDuration::FromMilliseconds(startTime);
+    TimeStamp endTimeStamp =
+        CreationTimeStamp() + TimeDuration::FromMilliseconds(endTime);
+    PERFETTO_TRACE_EVENT_BEGIN(category, perfetto::DynamicString{str.get()},
+                               startTimeStamp);
+    PERFETTO_TRACE_EVENT_END(category, endTimeStamp);
+  }
+#endif
+
   RefPtr<PerformanceMeasure> performanceMeasure = new PerformanceMeasure(
       GetParentObject(), aName, startTime, endTime, detail);
   InsertUserEntry(performanceMeasure);
 
   MaybeEmitExternalProfilerMarker(aName, options, startMark, aEndMark);
 
-  if (profiler_is_collecting_markers()) {
+  if (profiler_thread_is_being_profiled_for_markers()) {
     auto [startTimeStamp, endTimeStamp] =
         GetTimeStampsForMarker(startMark, aEndMark, options, aRv);
 
@@ -726,8 +800,8 @@ already_AddRefed<PerformanceMeasure> Performance::Measure(
     }
 
     Maybe<uint64_t> innerWindowId;
-    if (GetOwner()) {
-      innerWindowId = Some(GetOwner()->WindowID());
+    if (nsGlobalWindowInner* owner = GetOwnerWindow()) {
+      innerWindowId = Some(owner->WindowID());
     }
     profiler_add_marker("UserTiming", geckoprofiler::category::DOM,
                         {MarkerTiming::Interval(startTimeStamp, endTimeStamp),
@@ -768,10 +842,8 @@ void Performance::TimingNotification(PerformanceEntry* aEntry,
 
   RefPtr<PerformanceEntryEvent> perfEntryEvent =
       PerformanceEntryEvent::Constructor(this, u"performanceentry"_ns, init);
-
-  nsCOMPtr<EventTarget> et = do_QueryInterface(GetOwner());
-  if (et) {
-    et->DispatchEvent(*perfEntryEvent);
+  if (RefPtr<nsGlobalWindowInner> owner = GetOwnerWindow()) {
+    owner->DispatchEvent(*perfEntryEvent);
   }
 }
 

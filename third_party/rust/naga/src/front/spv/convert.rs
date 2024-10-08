@@ -104,7 +104,7 @@ pub(super) fn map_image_format(word: spirv::Word) -> Result<crate::StorageFormat
         Some(spirv::ImageFormat::Rgba8i) => Ok(crate::StorageFormat::Rgba8Sint),
         Some(spirv::ImageFormat::Rgb10a2ui) => Ok(crate::StorageFormat::Rgb10a2Uint),
         Some(spirv::ImageFormat::Rgb10A2) => Ok(crate::StorageFormat::Rgb10a2Unorm),
-        Some(spirv::ImageFormat::R11fG11fB10f) => Ok(crate::StorageFormat::Rg11b10Float),
+        Some(spirv::ImageFormat::R11fG11fB10f) => Ok(crate::StorageFormat::Rg11b10Ufloat),
         Some(spirv::ImageFormat::Rg32ui) => Ok(crate::StorageFormat::Rg32Uint),
         Some(spirv::ImageFormat::Rg32i) => Ok(crate::StorageFormat::Rg32Sint),
         Some(spirv::ImageFormat::Rg32f) => Ok(crate::StorageFormat::Rg32Float),
@@ -153,6 +153,11 @@ pub(super) fn map_builtin(word: spirv::Word, invariant: bool) -> Result<crate::B
         Some(Bi::WorkgroupId) => crate::BuiltIn::WorkGroupId,
         Some(Bi::WorkgroupSize) => crate::BuiltIn::WorkGroupSize,
         Some(Bi::NumWorkgroups) => crate::BuiltIn::NumWorkGroups,
+        // subgroup
+        Some(Bi::NumSubgroups) => crate::BuiltIn::NumSubgroups,
+        Some(Bi::SubgroupId) => crate::BuiltIn::SubgroupId,
+        Some(Bi::SubgroupSize) => crate::BuiltIn::SubgroupSize,
+        Some(Bi::SubgroupLocalInvocationId) => crate::BuiltIn::SubgroupInvocationId,
         _ => return Err(Error::UnsupportedBuiltIn(word)),
     })
 }

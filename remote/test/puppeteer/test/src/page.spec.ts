@@ -15,6 +15,7 @@ import type {HTTPRequest} from 'puppeteer-core/internal/api/HTTPRequest.js';
 import type {Metrics, Page} from 'puppeteer-core/internal/api/Page.js';
 import type {CdpPage} from 'puppeteer-core/internal/cdp/Page.js';
 import type {ConsoleMessage} from 'puppeteer-core/internal/common/ConsoleMessage.js';
+import {Deferred} from 'puppeteer-core/internal/util/Deferred.js';
 import sinon from 'sinon';
 
 import {getTestState, setupTestBrowserHooks} from './mocha-utils.js';
@@ -42,9 +43,9 @@ describe('Page', function () {
       expect(error.message).toContain('Protocol error');
     });
     it('should not be visible in browser.pages', async () => {
-      const {browser} = await getTestState();
+      const {browser, context} = await getTestState();
 
-      const newPage = await browser.newPage();
+      const newPage = await context.newPage();
       expect(await browser.pages()).toContain(newPage);
       await newPage.close();
       expect(await browser.pages()).not.toContain(newPage);
@@ -102,7 +103,11 @@ describe('Page', function () {
       ]);
       for (let i = 0; i < 2; i++) {
         const message = results[i].message;
-        expect(message).atLeastOneToContain(['Target closed', 'Page closed!']);
+        expect(message).atLeastOneToContain([
+          'Target closed',
+          'Page closed!',
+          'Frame detached',
+        ]);
         expect(message).not.toContain('Timeout');
       }
     });
@@ -280,7 +285,7 @@ describe('Page', function () {
       const [popup] = await Promise.all([
         waitEvent<Page>(page, 'popup'),
         page.$eval('a', a => {
-          return (a as HTMLAnchorElement).click();
+          return a.click();
         }),
       ]);
       expect(
@@ -403,11 +408,6 @@ describe('Page', function () {
       expect(message.text()).toEqual('hello 5 JSHandle@object');
       expect(message.type()).toEqual('log');
       expect(message.args()).toHaveLength(3);
-      expect(message.location()).toEqual({
-        url: expect.any(String),
-        lineNumber: expect.any(Number),
-        columnNumber: expect.any(Number),
-      });
 
       expect(await message.args()[0]!.jsonValue()).toEqual('hello');
       expect(await message.args()[1]!.jsonValue()).toEqual(5);
@@ -445,7 +445,7 @@ describe('Page', function () {
         messages.map(msg => {
           return msg.type();
         })
-      ).toEqual(['trace', 'dir', 'warning', 'error', 'log']);
+      ).toEqual(['trace', 'dir', 'warn', 'error', 'log']);
       expect(
         messages.map(msg => {
           return msg.text();
@@ -492,13 +492,31 @@ describe('Page', function () {
         'JSHandle@window',
       ]);
     });
+    it('should return remote objects', async () => {
+      const {page} = await getTestState();
+
+      const logPromise = waitEvent<ConsoleMessage>(page, 'console');
+      await page.evaluate(() => {
+        (globalThis as any).test = 1;
+        console.log(1, 2, 3, globalThis);
+      });
+      const log = await logPromise;
+
+      expect(log.text()).atLeastOneToContain([
+        '1 2 3 JSHandle@object',
+        '1 2 3 JSHandle@window',
+      ]);
+      expect(log.args()).toHaveLength(4);
+      using property = await log.args()[3]!.getProperty('test');
+      expect(await property.jsonValue()).toBe(1);
+    });
     it('should trigger correct Log', async () => {
       const {page, server, isChrome} = await getTestState();
 
       await page.goto('about:blank');
       const [message] = await Promise.all([
         waitEvent(page, 'console'),
-        page.evaluate(async (url: string) => {
+        page.evaluate(async url => {
           return await fetch(url).catch(() => {});
         }, server.EMPTY_PAGE),
       ]);
@@ -527,33 +545,33 @@ describe('Page', function () {
       });
     });
     it('should have location and stack trace for console API calls', async () => {
-      const {page, server, isChrome} = await getTestState();
+      const {page, server} = await getTestState();
 
       await page.goto(server.EMPTY_PAGE);
       const [message] = await Promise.all([
         waitEvent(page, 'console'),
-        page.goto(server.PREFIX + '/consolelog.html'),
+        page.goto(server.PREFIX + '/consoletrace.html'),
       ]);
       expect(message.text()).toBe('yellow');
-      expect(message.type()).toBe('log');
+      expect(message.type()).toBe('trace');
       expect(message.location()).toEqual({
-        url: server.PREFIX + '/consolelog.html',
+        url: server.PREFIX + '/consoletrace.html',
         lineNumber: 8,
-        columnNumber: isChrome ? 16 : 8, // console.|log vs |console.log
+        columnNumber: 16,
       });
       expect(message.stackTrace()).toEqual([
         {
-          url: server.PREFIX + '/consolelog.html',
+          url: server.PREFIX + '/consoletrace.html',
           lineNumber: 8,
-          columnNumber: isChrome ? 16 : 8, // console.|log vs |console.log
+          columnNumber: 16,
         },
         {
-          url: server.PREFIX + '/consolelog.html',
+          url: server.PREFIX + '/consoletrace.html',
           lineNumber: 11,
           columnNumber: 8,
         },
         {
-          url: server.PREFIX + '/consolelog.html',
+          url: server.PREFIX + '/consoletrace.html',
           lineNumber: 13,
           columnNumber: 6,
         },
@@ -583,14 +601,10 @@ describe('Page', function () {
         // 3. After that, remove the iframe.
         frame.remove();
       });
-      const popupTarget = page
-        .browserContext()
-        .targets()
-        .find(target => {
-          return target !== page.target();
-        })!;
-      // 4. Connect to the popup and make sure it doesn't throw.
-      await popupTarget.page();
+      // 4. The target will always be the last one.
+      const popupTarget = page.browserContext().targets().at(-1)!;
+      // 5. Connect to the popup and make sure it doesn't throw and is not the same page.
+      expect(await popupTarget.page()).not.toBe(page);
     });
   });
 
@@ -744,6 +758,20 @@ describe('Page', function () {
       ]);
       expect(request.url()).toBe(server.PREFIX + '/digits/2.png');
     });
+
+    it('should be cancellable', async () => {
+      const {page, server} = await getTestState();
+
+      const abortController = new AbortController();
+
+      await page.goto(server.EMPTY_PAGE);
+      const task = page.waitForRequest(server.PREFIX + '/abortme', {
+        signal: abortController.signal,
+      });
+
+      abortController.abort();
+      await expect(task).rejects.toThrow(/aborted/);
+    });
   });
 
   describe('Page.waitForResponse', function () {
@@ -837,6 +865,17 @@ describe('Page', function () {
         }),
       ]);
       expect(response.url()).toBe(server.PREFIX + '/digits/2.png');
+    });
+    it('should be cancellable', async () => {
+      const {page, server} = await getTestState();
+
+      const abortController = new AbortController();
+      const task = page.waitForResponse(server.PREFIX + '/abortme', {
+        signal: abortController.signal,
+      });
+
+      abortController.abort();
+      await expect(task).rejects.toThrow(/aborted/);
     });
   });
 
@@ -961,6 +1000,74 @@ describe('Page', function () {
       // request finished + idle time - request finished.
       expect(t1 - t2).toBeGreaterThanOrEqual(100);
     });
+
+    it('should be cancelable', async () => {
+      const {page, server} = await getTestState();
+      await page.goto(server.EMPTY_PAGE);
+
+      const abortController = new AbortController();
+
+      const task = page.waitForNetworkIdle({
+        signal: abortController.signal,
+      });
+      const promise = page.evaluate(async () => {
+        await Promise.all([fetch('/digits/1.png')]);
+        await fetch('/digits/2.png');
+      });
+
+      abortController.abort();
+      await expect(task).rejects.toThrow(/aborted/);
+      await promise;
+    });
+  });
+
+  describe('Page.waitForFrame', () => {
+    it('should work', async () => {
+      const {server, page} = await getTestState();
+
+      await page.goto(server.EMPTY_PAGE);
+
+      const [waitedFrame] = await Promise.all([
+        page.waitForFrame(frame => {
+          return frame.url().endsWith('/title.html');
+        }),
+        attachFrame(page, 'frame2', server.PREFIX + '/title.html'),
+      ]);
+
+      expect(waitedFrame.parentFrame()).toBe(page.mainFrame());
+    });
+
+    it('should work with a URL predicate', async () => {
+      const {server, page} = await getTestState();
+
+      await page.goto(server.EMPTY_PAGE);
+
+      const [waitedFrame] = await Promise.all([
+        page.waitForFrame(server.PREFIX + '/title.html'),
+        attachFrame(page, 'frame2', server.PREFIX + '/title.html'),
+      ]);
+
+      expect(waitedFrame.parentFrame()).toBe(page.mainFrame());
+    });
+
+    it('should be cancellable', async () => {
+      const {server, page} = await getTestState();
+
+      const abortController = new AbortController();
+      await page.goto(server.EMPTY_PAGE);
+
+      const task = page.waitForFrame(
+        frame => {
+          return frame.url().endsWith('/title.html');
+        },
+        {
+          signal: abortController.signal,
+        }
+      );
+
+      abortController.abort();
+      await expect(task).rejects.toThrow(/aborted/);
+    });
   });
 
   describe('Page.exposeFunction', function () {
@@ -1015,15 +1122,15 @@ describe('Page', function () {
     it('should be callable from-inside evaluateOnNewDocument', async () => {
       const {page} = await getTestState();
 
-      let called = false;
+      const called = new Deferred<void>();
       await page.exposeFunction('woof', function () {
-        called = true;
+        called.resolve();
       });
       await page.evaluateOnNewDocument(() => {
         return (globalThis as any).woof();
       });
       await page.reload();
-      expect(called).toBe(true);
+      await called.valueOrThrow();
     });
     it('should survive navigation', async () => {
       const {page, server} = await getTestState();
@@ -1179,6 +1286,22 @@ describe('Page', function () {
       });
       expect(result).toBe(36);
     });
+
+    it('should be called once', async () => {
+      const {page, server} = await getTestState();
+
+      await page.goto(server.PREFIX + '/frames/nested-frames.html');
+      let calls = 0;
+      await page.exposeFunction('call', function () {
+        calls++;
+      });
+
+      const frame = page.frames()[1]!;
+      await frame.evaluate(async function () {
+        return (globalThis as any).call();
+      });
+      expect(calls).toBe(1);
+    });
   });
 
   describe('Page.removeExposedFunction', function () {
@@ -1194,13 +1317,15 @@ describe('Page', function () {
       expect(result).toBe(36);
       await page.removeExposedFunction('compute');
 
-      let error: Error | null = null;
-      await page
+      const error = await page
         .evaluate(async function () {
           return (globalThis as any).compute(9, 4);
         })
-        .catch(_error => {
-          return (error = _error);
+        .then(() => {
+          return null;
+        })
+        .catch(error => {
+          return error;
         });
       expect(error).toBeTruthy();
     });
@@ -1217,7 +1342,7 @@ describe('Page', function () {
         page.goto(server.PREFIX + '/error.html'),
       ]);
       expect(error.message).toContain('Fancy');
-      expect(error.stack?.split('\n')[1]).toContain('error.html:13');
+      expect(error.stack?.split('\n').at(-1)).toContain('error.html:3:1');
     });
   });
 
@@ -1305,6 +1430,31 @@ describe('Page', function () {
       expect(uaData['platform']).toBe('MockOS');
       expect(uaData['platformVersion']).toBe('3.1');
       expect(request.headers['user-agent']).toBe('MockBrowser');
+    });
+    it('should restore original', async () => {
+      const {page, server} = await getTestState();
+
+      const userAgent = await page.evaluate(() => {
+        return navigator.userAgent;
+      });
+
+      await page.setUserAgent('foobar');
+      const [requestWithOverride] = await Promise.all([
+        server.waitForRequest('/empty.html'),
+        page.goto(server.EMPTY_PAGE),
+      ]);
+      expect(requestWithOverride.headers['user-agent']).toBe('foobar');
+
+      await page.setUserAgent('');
+      const [request] = await Promise.all([
+        server.waitForRequest('/empty.html'),
+        page.goto(server.EMPTY_PAGE),
+      ]);
+      expect(request.headers['user-agent']).toBe(userAgent);
+      const userAgentRestored = await page.evaluate(() => {
+        return navigator.userAgent;
+      });
+      expect(userAgentRestored).toBe(userAgent);
     });
   });
 
@@ -1809,7 +1959,7 @@ describe('Page', function () {
         path: path.join(__dirname, '../assets/injectedstyle.css'),
       });
       using styleHandle = (await page.$('style'))!;
-      const styleContent = await page.evaluate((style: HTMLStyleElement) => {
+      const styleContent = await page.evaluate(style => {
         return style.innerHTML;
       }, styleHandle);
       expect(styleContent).toContain(path.join('assets', 'injectedstyle.css'));
@@ -1940,33 +2090,20 @@ describe('Page', function () {
       }
     });
 
-    it('can print to PDF with accessible', async () => {
-      const {page, server} = await getTestState();
-
-      const outputFile = __dirname + '/../assets/output.pdf';
-      const outputFileAccessible =
-        __dirname + '/../assets/output-accessible.pdf';
-      await page.goto(server.PREFIX + '/pdf.html');
-      await page.pdf({path: outputFile});
-      await page.pdf({path: outputFileAccessible, tagged: true});
-      try {
-        expect(
-          fs.readFileSync(outputFileAccessible).byteLength
-        ).toBeGreaterThan(fs.readFileSync(outputFile).byteLength);
-      } finally {
-        fs.unlinkSync(outputFileAccessible);
-        fs.unlinkSync(outputFile);
-      }
-    });
-
     it('can print to PDF and stream the result', async () => {
       const {page} = await getTestState();
 
       const stream = await page.createPDFStream();
       let size = 0;
-      for await (const chunk of stream) {
-        size += chunk.length;
+      const reader = stream.getReader();
+      while (true) {
+        const {done, value} = await reader.read();
+        if (done) {
+          break;
+        }
+        size += value.length;
       }
+
       expect(size).toBeGreaterThan(0);
     });
 
@@ -2136,11 +2273,9 @@ describe('Page', function () {
       await page.select('select');
       expect(
         await page.$eval('select', select => {
-          return Array.from((select as HTMLSelectElement).options).every(
-            option => {
-              return !option.selected;
-            }
-          );
+          return Array.from(select.options).every(option => {
+            return !option.selected;
+          });
         })
       ).toEqual(true);
     });
@@ -2152,11 +2287,9 @@ describe('Page', function () {
       await page.select('select');
       expect(
         await page.$eval('select', select => {
-          return Array.from((select as HTMLSelectElement).options).filter(
-            option => {
-              return option.selected;
-            }
-          )[0]!.value;
+          return Array.from(select.options).filter(option => {
+            return option.selected;
+          })[0]!.value;
         })
       ).toEqual('');
     });
@@ -2252,9 +2385,9 @@ describe('Page', function () {
 
   describe('Page.bringToFront', function () {
     it('should work', async () => {
-      const {browser} = await getTestState();
-      const page1 = await browser.newPage();
-      const page2 = await browser.newPage();
+      const {context} = await getTestState();
+      const page1 = await context.newPage();
+      const page2 = await context.newPage();
 
       await page1.bringToFront();
       expect(

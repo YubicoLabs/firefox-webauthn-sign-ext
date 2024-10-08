@@ -1,18 +1,32 @@
-@media (height < 700px) {
-  .personalize-button {
+.personalizeButtonWrapper {
+  margin: 0;
+  padding: 0;
+
+  @media (height < 700px) {
     position: absolute;
-    top: 16px;
-    inset-inline-end: 16px;
+    inset-block-start: var(--space-xlarge);
+    inset-inline-end: var(--space-xlarge);
+  }
+
+  @media (height >= 700px) {
+    position: fixed;
+    inset-block-start: var(--space-xlarge);
+    inset-inline-end: var(--space-xlarge);
+    z-index: 1000;
   }
 }
 
-@media (height >= 700px) {
-  .personalize-button {
+.layout-variant-b {
+  .personalizeButtonWrapper {
     position: fixed;
-    top: 16px;
-    inset-inline-end: 16px;
-    z-index: 1000;
+    inset-block-start: auto;
+    inset-block-end: var(--space-xlarge);
   }
+}
+
+.layout-variant-b + .discoverystream-admin-toggle {
+  inset-block-start: auto;
+  inset-block-end: 50px;
 }
 
 .personalize-button {
@@ -20,6 +34,14 @@
   border-radius: 4px;
   background-color: transparent;
   padding: 15px;
+  position: relative;
+  background-size: var(--icon-size-default);
+  background-position: center;
+
+  // Contrast fix for users who have wallpapers set
+  &:not(:hover, :active) {
+    @include wallpaper-contrast-fix;
+  }
 
   &:hover {
     background-color: var(--newtab-element-hover-color);
@@ -47,7 +69,8 @@
   inset-block: 0;
   inset-inline-end: 0;
   z-index: 1001;
-  padding: 16px;
+  padding-block: 0 var(--space-large);
+  padding-inline: var(--space-large);
   overflow: auto;
   transform: translateX(435px);
   visibility: hidden;
@@ -85,9 +108,17 @@
     box-shadow: $shadow-large;
   }
 
+  .close-button-wrapper {
+    position: sticky;
+    top: 0;
+    padding-block-start: var(--space-large);
+    background-color: var(--newtab-background-color-secondary);
+    z-index: 1;
+  }
+
   .close-button {
     margin-inline-start: auto;
-    margin-bottom: 28px;
+    margin-inline-end: var(--space-large);
     white-space: nowrap;
     display: block;
     background-color: var(--newtab-element-secondary-color);
@@ -117,7 +148,11 @@
   grid-template-columns: 1fr;
   grid-template-rows: repeat(4, auto);
   grid-row-gap: 32px;
-  padding: 0 16px;
+  padding: var(--space-large);
+
+  .wallpapers-section h2 {
+    font-size: inherit;
+  }
 
   .section {
     moz-toggle {
@@ -143,6 +178,10 @@
       border-radius: 4px;
       appearance: none;
       background-color: var(--newtab-element-secondary-color);
+
+      &:hover {
+        background-color: var(--newtab-element-secondary-hover-color);
+      }
     }
 
     .sponsored-checkbox:checked {
@@ -150,6 +189,14 @@
       fill: var(--newtab-primary-element-text-color);
       background: url('chrome://global/skin/icons/check.svg') center no-repeat;
       background-color: var(--newtab-primary-action-background);
+
+      &:hover {
+        background-color: var(--newtab-primary-element-hover-color);
+      }
+
+      &:active {
+        background-color: var(--newtab-primary-element-active-color);
+      }
 
       @media (forced-colors: active) {
         fill: $black;
@@ -178,6 +225,10 @@
       background-origin: content-box;
       background-color: var(--newtab-background-color-secondary);
 
+      &:hover {
+        background-color: var(--newtab-element-secondary-hover-color);
+      }
+
       &:dir(rtl) {
         background-position-x: left;
       }
@@ -198,6 +249,25 @@
       .check-wrapper {
         margin-top: 10px;
       }
+    }
+  }
+
+  .sponsored-content-info {
+    display: flex;
+    gap: var(--space-small);
+    font-size: var(--font-size-small);
+    border-radius: var(--border-radius-medium);
+    background-color: var(--newtab-element-secondary-color);
+    padding: var(--space-small) var(--space-large);
+
+    .icon-help {
+      flex-shrink: 0;
+      color: var(--color-accent-primary);
+      height: 20px;
+    }
+
+    a {
+      color: var(--newtab-primary-action-background);
     }
   }
 

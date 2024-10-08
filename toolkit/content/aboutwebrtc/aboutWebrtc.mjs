@@ -53,7 +53,7 @@ class Renderer {
 // adding elements more readable, e.g. elemRenderer.elem_h4(...) instead of
 // elemRenderer.elem("h4", ...).
 const elemRenderer = new Proxy(new Renderer(), {
-  get(target, prop, receiver) {
+  get(target, prop) {
     // Function prefixes to proxy.
     const proxied = {
       elem_: (...args) => target.elem(...args),
@@ -230,7 +230,7 @@ class SavePage extends Control {
     ]);
     let FilePicker = makeFilePickerService();
     const lazyFileUtils = lazy.FileUtils;
-    FilePicker.init(window, dialogTitle, FilePicker.modeSave);
+    FilePicker.init(window.browsingContext, dialogTitle, FilePicker.modeSave);
     FilePicker.defaultString = LOGFILE_NAME_DEFAULT;
     const rv = await new Promise(r => FilePicker.open(r));
     if (rv != FilePicker.returnOK && rv != FilePicker.returnReplace) {
@@ -502,7 +502,7 @@ async function renderPeerConnectionSection() {
       return body;
     },
     // Creates the filling for the disclosure
-    updateFn: async section => {
+    updateFn: async () => {
       let statsReports = await getStats(needsFullUpdate);
       needsFullUpdate = REQUEST_UPDATE_ONLY_REFRESH;
 
@@ -586,13 +586,13 @@ function renderSubsectionHeading(l10n_id, copyFunc) {
   const heading = document.createElement("div");
   heading.className = "subsection-heading";
   const h4 = document.createElement("h4");
-  const text = document.createElement("span");
-  document.l10n.setAttributes(text, l10n_id);
-  h4.appendChild(text);
   if (copyFunc != undefined) {
     const copyButton = new CopyButton(copyFunc);
     h4.appendChild(copyButton.element);
   }
+  const text = document.createElement("span");
+  document.l10n.setAttributes(text, l10n_id);
+  h4.appendChild(text);
   heading.appendChild(h4);
   return heading;
 }
@@ -1828,7 +1828,7 @@ class PrimarySection {
     disclosureHideL10nId,
     autoRefreshPref,
     renderFn = async () => {}, // Creates the filling for the disclosure
-    updateFn = async section => {}, // Updates the contents.
+    updateFn = async () => {}, // Updates the contents.
     headerElementsFn = async () => [], // Accessory elements for the heading
   }) {
     const newSect = new PrimarySection();
@@ -1937,7 +1937,7 @@ async function renderMediaCtx(rndr) {
   hasH264Hardware.dataset.value = ctx.hasH264Hardware;
   const renderFn = async () =>
     rndr.elems_div({}, [hasH264Hardware, rndr.elem_hr(), confList.view()]);
-  const updateFn = async section => {
+  const updateFn = async () => {
     const newCtx = WGI.getMediaContext();
     if (hasH264Hardware.dataset.value != newCtx.hasH264Hardware) {
       hasH264Hardware.dataset.value = newCtx.hasH264Hardware;

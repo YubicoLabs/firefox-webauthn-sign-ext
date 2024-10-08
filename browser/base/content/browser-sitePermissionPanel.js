@@ -14,9 +14,6 @@ var gPermissionPanel = {
     if (!this._popupInitialized) {
       let wrapper = document.getElementById("template-permission-popup");
       wrapper.replaceWith(wrapper.content);
-
-      window.ensureCustomElements("moz-support-link");
-
       this._popupInitialized = true;
     }
   },
@@ -167,17 +164,23 @@ var gPermissionPanel = {
       gBrowser.selectedBrowser
     );
     for (let permission of permissions) {
-      if (permission.state != SitePermissions.UNKNOWN) {
-        hasPermissions = true;
+      // Don't show persisted PROMPT permissions (unless a pref says to).
+      // These would appear as "Always Ask ✖" which have utility, but might confuse
+      if (
+        permission.state == SitePermissions.UNKNOWN ||
+        (permission.state == SitePermissions.PROMPT && !this._gumShowAlwaysAsk)
+      ) {
+        continue;
+      }
+      hasPermissions = true;
 
-        if (
-          permission.state == SitePermissions.BLOCK ||
-          permission.state == SitePermissions.AUTOPLAY_BLOCKED_ALL
-        ) {
-          let icon = permissionAnchors[permission.id];
-          if (icon) {
-            icon.setAttribute("showing", "true");
-          }
+      if (
+        permission.state == SitePermissions.BLOCK ||
+        permission.state == SitePermissions.AUTOPLAY_BLOCKED_ALL
+      ) {
+        let icon = permissionAnchors[permission.id];
+        if (icon) {
+          icon.setAttribute("showing", "true");
         }
       }
     }
@@ -353,7 +356,7 @@ var gPermissionPanel = {
     }
   },
 
-  handleEvent(event) {
+  handleEvent() {
     let elem = document.activeElement;
     let position = elem.compareDocumentPosition(this._permissionPopup);
 
@@ -371,7 +374,7 @@ var gPermissionPanel = {
     }
   },
 
-  observe(subject, topic, data) {
+  observe(subject, topic) {
     switch (topic) {
       case "fullscreen-painted": {
         if (subject != window || !this._exitedEventReceived) {
@@ -471,8 +474,8 @@ var gPermissionPanel = {
 
     if (this._sharingState?.webRTC) {
       let webrtcState = this._sharingState.webRTC;
-      // If WebRTC device or screen permissions are in use, we need to find
-      // the associated permission item to set the sharingState field.
+      // If WebRTC device or screen are in use, we need to find
+      // the associated ALLOW permission item to set the sharingState field.
       for (let id of ["camera", "microphone", "screen"]) {
         if (webrtcState[id]) {
           let found = false;
@@ -480,14 +483,14 @@ var gPermissionPanel = {
             let [permId] = permission.id.split(
               SitePermissions.PERM_KEY_DELIMITER
             );
-            if (permId != id) {
+            if (permId != id || permission.state != SitePermissions.ALLOW) {
               continue;
             }
             found = true;
             permission.sharingState = webrtcState[id];
           }
           if (!found) {
-            // If the permission item we were looking for doesn't exist,
+            // If the ALLOW permission item we were looking for doesn't exist,
             // the user has temporarily allowed sharing and we need to add
             // an item in the permissions array to reflect this.
             permissions.push({
@@ -527,6 +530,12 @@ var gPermissionPanel = {
           anchor.appendChild(permContainer);
         }
       } else if (["camera", "screen", "microphone", "speaker"].includes(id)) {
+        if (
+          permission.state == SitePermissions.PROMPT &&
+          !this._gumShowAlwaysAsk
+        ) {
+          continue;
+        }
         item = this._createWebRTCPermissionItem(permission, id, key);
         if (!item) {
           continue;
@@ -982,8 +991,12 @@ var gPermissionPanel = {
         return null;
       }
     } else if (item) {
-      // If we have a single-key (not device specific) webRTC permission it
-      // overrides any existing (device specific) permission items.
+      if (permission.state == SitePermissions.PROMPT) {
+        return null;
+      }
+      // If we have a single-key (not device specific) webRTC permission
+      // other than PROMPT, it overrides any existing (device specific)
+      // permission items.
       item.remove();
     }
 
@@ -1120,3 +1133,10 @@ function hasMicCamGracePeriodsSolely(browser) {
   }
   return { micGrace: micGrace && !micGrant, camGrace: camGrace && !camGrant };
 }
+
+XPCOMUtils.defineLazyPreferenceGetter(
+  gPermissionPanel,
+  "_gumShowAlwaysAsk",
+  "permissions.media.show_always_ask.enabled",
+  false
+);

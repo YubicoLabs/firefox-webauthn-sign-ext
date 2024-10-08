@@ -8,6 +8,7 @@
 #define builtin_temporal_PlainDateTime_h
 
 #include "mozilla/Assertions.h"
+#include "mozilla/Attributes.h"
 
 #include <stdint.h>
 
@@ -104,6 +105,9 @@ inline PlainDateTime ToPlainDateTime(const PlainDateTimeObject* dateTime) {
   return {ToPlainDate(dateTime), ToPlainTime(dateTime)};
 }
 
+struct DifferenceSettings;
+class Increment;
+enum class TemporalRoundingMode;
 enum class TemporalUnit;
 
 #ifdef DEBUG
@@ -170,13 +174,12 @@ bool InterpretTemporalDateTimeFields(JSContext* cx,
                                      PlainDateTime* result);
 
 /**
- * DifferenceISODateTime ( y1, mon1, d1, h1, min1, s1, ms1, mus1, ns1, y2, mon2,
- * d2, h2, min2, s2, ms2, mus2, ns2, calendarRec, largestUnit, options )
+ * RoundISODateTime ( year, month, day, hour, minute, second, millisecond,
+ * microsecond, nanosecond, increment, unit, roundingMode )
  */
-bool DifferenceISODateTime(JSContext* cx, const PlainDateTime& one,
-                           const PlainDateTime& two,
-                           JS::Handle<CalendarRecord> calendar,
-                           TemporalUnit largestUnit, Duration* result);
+PlainDateTime RoundISODateTime(const PlainDateTime& dateTime,
+                               Increment increment, TemporalUnit unit,
+                               TemporalRoundingMode roundingMode);
 
 /**
  * DifferenceISODateTime ( y1, mon1, d1, h1, min1, s1, ms1, mus1, ns1, y2, mon2,
@@ -186,9 +189,31 @@ bool DifferenceISODateTime(JSContext* cx, const PlainDateTime& one,
                            const PlainDateTime& two,
                            JS::Handle<CalendarRecord> calendar,
                            TemporalUnit largestUnit,
-                           JS::Handle<PlainObject*> options, Duration* result);
+                           NormalizedDuration* result);
 
-class PlainDateTimeWithCalendar {
+/**
+ * DifferencePlainDateTimeWithRounding ( y1, mon1, d1, h1, min1, s1, ms1, mus1,
+ * ns1, y2, mon2, d2, h2, min2, s2, ms2, mus2, ns2, calendarRec, largestUnit,
+ * roundingIncrement, smallestUnit, roundingMode, resolvedOptions )
+ */
+bool DifferencePlainDateTimeWithRounding(JSContext* cx,
+                                         const PlainDateTime& one,
+                                         const PlainDateTime& two,
+                                         JS::Handle<CalendarRecord> calendar,
+                                         const DifferenceSettings& settings,
+                                         Duration* result);
+/**
+ * DifferencePlainDateTimeWithRounding ( y1, mon1, d1, h1, min1, s1, ms1, mus1,
+ * ns1, y2, mon2, d2, h2, min2, s2, ms2, mus2, ns2, calendarRec, largestUnit,
+ * roundingIncrement, smallestUnit, roundingMode, resolvedOptions )
+ */
+bool DifferencePlainDateTimeWithRounding(JSContext* cx,
+                                         const PlainDateTime& one,
+                                         const PlainDateTime& two,
+                                         JS::Handle<CalendarRecord> calendar,
+                                         TemporalUnit unit, double* result);
+
+class MOZ_STACK_CLASS PlainDateTimeWithCalendar final {
   PlainDateTime dateTime_;
   CalendarValue calendar_;
 

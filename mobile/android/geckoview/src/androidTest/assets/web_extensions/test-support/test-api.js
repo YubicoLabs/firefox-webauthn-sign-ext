@@ -182,6 +182,12 @@ this.test = class extends ExtensionAPI {
           );
         },
 
+        async zoomToFocusedInput(tabId) {
+          await getActorForTab(tabId, "TestSupport").sendQuery(
+            "ZoomToFocusedInput"
+          );
+        },
+
         async promiseAllPaintsDone(tabId) {
           await getActorForTab(tabId, "TestSupport").sendQuery(
             "PromiseAllPaintsDone"
@@ -214,6 +220,10 @@ this.test = class extends ExtensionAPI {
             Ci.nsISiteSecurityService
           );
           return sss.clearAll();
+        },
+
+        async isSessionHistoryInParentRunning() {
+          return Services.appinfo.sessionHistoryInParent;
         },
 
         async triggerCookieBannerDetected(tabId) {

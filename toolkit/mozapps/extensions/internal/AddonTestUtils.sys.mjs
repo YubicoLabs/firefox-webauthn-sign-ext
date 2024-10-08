@@ -3,7 +3,7 @@
  */
 
 /* eslint "mozilla/no-aArgs": 1 */
-/* eslint "no-unused-vars": [2, {"args": "none", "varsIgnorePattern": "^(Cc|Ci|Cr|Cu|EXPORTED_SYMBOLS)$"}] */
+/* eslint "no-unused-vars": [2, {"argsIgnorePattern": "^_", "varsIgnorePattern": "^(Cc|Ci|Cr|Cu|EXPORTED_SYMBOLS)$"}] */
 /* eslint "semi": [2, "always"] */
 /* eslint "valid-jsdoc": [2, {requireReturn: false}] */
 
@@ -298,7 +298,7 @@ export var AddonTestUtils = {
     // And scan for changes at startup
     Services.prefs.setIntPref("extensions.startupScanScopes", 15);
 
-    // By default, don't cache add-ons in AddonRepository.jsm
+    // By default, don't cache add-ons in AddonRepository.sys.mjs
     Services.prefs.setBoolPref("extensions.getAddons.cache.enabled", false);
 
     // Point update checks to the local machine for fast failures
@@ -422,6 +422,35 @@ export var AddonTestUtils = {
         Cu.reportError(e);
       }
     });
+  },
+
+  getXPIExports() {
+    return ChromeUtils.importESModule(
+      "resource://gre/modules/addons/XPIExports.sys.mjs"
+    ).XPIExports;
+  },
+
+  getWeakSignatureInstallPrefName() {
+    return this.getXPIExports().XPIInstall.getWeakSignatureInstallPrefName();
+  },
+
+  setWeakSignatureInstallAllowed(allowed) {
+    const prefName = this.getWeakSignatureInstallPrefName();
+    let cleanupCalled = false;
+    const cleanup = () => {
+      if (cleanupCalled) {
+        return;
+      }
+      this.testScope.info(
+        `=== clear ${prefName} pref value set by this test file ===`
+      );
+      Services.prefs.clearUserPref(prefName);
+      cleanupCalled = true;
+    };
+    this.testScope.registerCleanupFunction(cleanup);
+    this.testScope.info(`=== set ${prefName} pref value to ${allowed} ===`);
+    Services.prefs.setBoolPref(prefName, allowed);
+    return cleanup;
   },
 
   /**
@@ -567,7 +596,7 @@ export var AddonTestUtils = {
   },
 
   overrideCertDB() {
-    let verifyCert = async (file, result, cert, callback) => {
+    let verifyCert = async (file, result, signatureInfos, callback) => {
       if (
         result == Cr.NS_ERROR_SIGNED_JAR_NOT_SIGNED &&
         !this.useRealCertChecks &&
@@ -606,7 +635,16 @@ export var AddonTestUtils = {
             };
           }
 
-          return [callback, Cr.NS_OK, fakeCert];
+          return [
+            callback,
+            Cr.NS_OK,
+            [
+              {
+                signerCert: fakeCert,
+                signatureAlgorithm: Ci.nsIAppSignatureInfo.COSE_WITH_SHA256,
+              },
+            ],
+          ];
         } catch (e) {
           // If there is any error then just pass along the original results
         } finally {
@@ -621,7 +659,7 @@ export var AddonTestUtils = {
         }
       }
 
-      return [callback, result, cert];
+      return [callback, result, signatureInfos];
     };
 
     let FakeCertDB = {
@@ -644,10 +682,14 @@ export var AddonTestUtils = {
         this._genuine.openSignedAppFileAsync(
           root,
           file,
-          (result, zipReader, cert) => {
-            verifyCert(file.clone(), result, cert, callback).then(
-              ([callback, result, cert]) => {
-                callback.openSignedAppFileFinished(result, zipReader, cert);
+          (result, zipReader, signatureInfos) => {
+            verifyCert(file.clone(), result, signatureInfos, callback).then(
+              ([callback, result, signatureInfos]) => {
+                callback.openSignedAppFileFinished(
+                  result,
+                  zipReader,
+                  signatureInfos
+                );
               }
             );
           }
@@ -1730,7 +1772,7 @@ export var AddonTestUtils = {
    * @param {object} extension
    *        The return value of ExtensionTestUtils.loadExtension.
    *        For browser tests, see mochitest/tests/SimpleTest/ExtensionTestUtils.js
-   *        For xpcshell tests, see toolkit/components/extensions/ExtensionXPCShellUtils.jsm
+   *        For xpcshell tests, see toolkit/components/extensions/ExtensionXPCShellUtils.sys.mjs
    * @param {object} [options]
    *        Optional options.
    * @param {boolean} [options.expectPending = false]

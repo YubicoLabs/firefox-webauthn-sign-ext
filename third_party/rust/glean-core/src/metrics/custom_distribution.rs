@@ -2,19 +2,18 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+use std::mem;
 use std::sync::Arc;
 
 use crate::common_metric_data::CommonMetricDataInternal;
 use crate::error_recording::{record_error, test_get_num_recorded_errors, ErrorType};
-use crate::histogram::{Bucketing, Histogram, HistogramType};
+use crate::histogram::{Bucketing, Histogram, HistogramType, LinearOrExponential};
 use crate::metrics::{DistributionData, Metric, MetricType};
 use crate::storage::StorageManager;
 use crate::CommonMetricData;
 use crate::Glean;
 
 /// A custom distribution metric.
-///
-/// Memory distributions are used to accumulate and store memory sizes.
 #[derive(Clone, Debug)]
 pub struct CustomDistributionMetric {
     meta: Arc<CommonMetricDataInternal>,
@@ -42,6 +41,30 @@ pub(crate) fn snapshot<B: Bucketing>(hist: &Histogram<B>) -> DistributionData {
 impl MetricType for CustomDistributionMetric {
     fn meta(&self) -> &CommonMetricDataInternal {
         &self.meta
+    }
+
+    fn with_name(&self, name: String) -> Self {
+        let mut meta = (*self.meta).clone();
+        meta.inner.name = name;
+        Self {
+            meta: Arc::new(meta),
+            range_min: self.range_min,
+            range_max: self.range_max,
+            bucket_count: self.bucket_count,
+            histogram_type: self.histogram_type,
+        }
+    }
+
+    fn with_dynamic_label(&self, label: String) -> Self {
+        let mut meta = (*self.meta).clone();
+        meta.inner.dynamic_label = Some(label);
+        Self {
+            meta: Arc::new(meta),
+            range_min: self.range_min,
+            range_max: self.range_max,
+            bucket_count: self.bucket_count,
+            histogram_type: self.histogram_type,
+        }
     }
 }
 
@@ -84,14 +107,33 @@ impl CustomDistributionMetric {
     /// for each of them.
     pub fn accumulate_samples(&self, samples: Vec<i64>) {
         let metric = self.clone();
-        crate::launch_with_glean(move |glean| metric.accumulate_samples_sync(glean, samples))
+        crate::launch_with_glean(move |glean| metric.accumulate_samples_sync(glean, &samples))
+    }
+
+    /// Accumulates precisely one signed sample and appends it to the metric.
+    ///
+    /// Signed is required so that the platform-specific code can provide us with a
+    /// 64 bit signed integer if no `u64` comparable type is available. This
+    /// will take care of filtering and reporting errors.
+    ///
+    /// # Arguments
+    ///
+    /// - `sample` - The singular sample to be recorded by the metric.
+    ///
+    /// ## Notes
+    ///
+    /// Discards any negative value of `sample` and reports an
+    /// [`ErrorType::InvalidValue`](crate::ErrorType::InvalidValue).
+    pub fn accumulate_single_sample(&self, sample: i64) {
+        let metric = self.clone();
+        crate::launch_with_glean(move |glean| metric.accumulate_samples_sync(glean, &[sample]))
     }
 
     /// Accumulates the provided sample in the metric synchronously.
     ///
     /// See [`accumulate_samples`](Self::accumulate_samples) for details.
     #[doc(hidden)]
-    pub fn accumulate_samples_sync(&self, glean: &Glean, samples: Vec<i64>) {
+    pub fn accumulate_samples_sync(&self, glean: &Glean, samples: &[i64]) {
         if !self.should_record(glean) {
             return;
         }
@@ -132,7 +174,7 @@ impl CustomDistributionMetric {
                             self.bucket_count as usize,
                         )
                     };
-                    accumulate(&samples, hist, Metric::CustomDistributionLinear)
+                    accumulate(samples, hist, Metric::CustomDistributionLinear)
                 }
                 HistogramType::Exponential => {
                     let hist = if let Some(Metric::CustomDistributionExponential(hist)) = old_value
@@ -145,7 +187,7 @@ impl CustomDistributionMetric {
                             self.bucket_count as usize,
                         )
                     };
-                    accumulate(&samples, hist, Metric::CustomDistributionExponential)
+                    accumulate(samples, hist, Metric::CustomDistributionExponential)
                 }
             };
 
@@ -194,6 +236,15 @@ impl CustomDistributionMetric {
     /// Gets the currently stored value as an integer.
     ///
     /// This doesn't clear the stored value.
+    ///
+    /// # Arguments
+    ///
+    /// * `ping_name` - the optional name of the ping to retrieve the metric
+    ///                 for. Defaults to the first value in `send_in_pings`.
+    ///
+    /// # Returns
+    ///
+    /// The stored value or `None` if nothing stored.
     pub fn test_get_value(&self, ping_name: Option<String>) -> Option<DistributionData> {
         crate::block_on_dispatcher();
         crate::core::with_glean(|glean| self.get_value(glean, ping_name.as_deref()))
@@ -206,8 +257,6 @@ impl CustomDistributionMetric {
     /// # Arguments
     ///
     /// * `error` - The type of error
-    /// * `ping_name` - represents the optional name of the ping to retrieve the
-    ///   metric for. inner to the first value in `send_in_pings`.
     ///
     /// # Returns
     ///
@@ -218,5 +267,115 @@ impl CustomDistributionMetric {
         crate::core::with_glean(|glean| {
             test_get_num_recorded_errors(glean, self.meta(), error).unwrap_or(0)
         })
+    }
+
+    /// **Experimental:** Start a new histogram buffer associated with this custom distribution metric.
+    ///
+    /// A histogram buffer accumulates in-memory.
+    /// Data is recorded into the metric on drop.
+    pub fn start_buffer(&self) -> LocalCustomDistribution<'_> {
+        LocalCustomDistribution::new(self)
+    }
+
+    fn commit_histogram(&self, histogram: Histogram<LinearOrExponential>) {
+        let metric = self.clone();
+        crate::launch_with_glean(move |glean| {
+            glean
+                .storage()
+                .record_with(glean, &metric.meta, move |old_value| {
+                    match metric.histogram_type {
+                        HistogramType::Linear => {
+                            let mut hist =
+                                if let Some(Metric::CustomDistributionLinear(hist)) = old_value {
+                                    hist
+                                } else {
+                                    Histogram::linear(
+                                        metric.range_min,
+                                        metric.range_max,
+                                        metric.bucket_count as usize,
+                                    )
+                                };
+
+                            hist._merge(&histogram);
+                            Metric::CustomDistributionLinear(hist)
+                        }
+                        HistogramType::Exponential => {
+                            let mut hist = if let Some(Metric::CustomDistributionExponential(
+                                hist,
+                            )) = old_value
+                            {
+                                hist
+                            } else {
+                                Histogram::exponential(
+                                    metric.range_min,
+                                    metric.range_max,
+                                    metric.bucket_count as usize,
+                                )
+                            };
+
+                            hist._merge(&histogram);
+                            Metric::CustomDistributionExponential(hist)
+                        }
+                    }
+                });
+        });
+    }
+}
+
+/// **Experimental:** A histogram buffer associated with a specific instance of a [`CustomDistributionMetric`].
+///
+/// Accumulation happens in-memory.
+/// Data is merged into the metric on [`Drop::drop`].
+pub struct LocalCustomDistribution<'a> {
+    histogram: Histogram<LinearOrExponential>,
+    metric: &'a CustomDistributionMetric,
+}
+
+impl<'a> LocalCustomDistribution<'a> {
+    /// Create a new histogram buffer referencing the custom distribution it will record into.
+    fn new(metric: &'a CustomDistributionMetric) -> Self {
+        let histogram = match metric.histogram_type {
+            HistogramType::Linear => Histogram::<LinearOrExponential>::_linear(
+                metric.range_min,
+                metric.range_max,
+                metric.bucket_count as usize,
+            ),
+            HistogramType::Exponential => Histogram::<LinearOrExponential>::_exponential(
+                metric.range_min,
+                metric.range_max,
+                metric.bucket_count as usize,
+            ),
+        };
+        Self { histogram, metric }
+    }
+
+    /// Accumulates one sample into the histogram.
+    ///
+    /// The provided sample must be in the "unit" declared by the instance of the metric type
+    /// (e.g. if the instance this method was called on is using [`crate::TimeUnit::Second`], then
+    /// `sample` is assumed to be in seconds).
+    ///
+    /// Accumulation happens in-memory only.
+    pub fn accumulate(&mut self, sample: u64) {
+        self.histogram.accumulate(sample)
+    }
+
+    /// Abandon this histogram buffer and don't commit accumulated data.
+    pub fn abandon(mut self) {
+        self.histogram.clear();
+    }
+}
+
+impl Drop for LocalCustomDistribution<'_> {
+    fn drop(&mut self) {
+        if self.histogram.is_empty() {
+            return;
+        }
+
+        // We want to move that value.
+        // A `0/0` histogram doesn't allocate.
+        let empty = Histogram::_linear(0, 0, 0);
+        let buffer = mem::replace(&mut self.histogram, empty);
+        self.metric.commit_histogram(buffer);
     }
 }

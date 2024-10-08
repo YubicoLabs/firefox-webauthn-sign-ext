@@ -97,14 +97,15 @@ void WebTransportParent::Create(
   nsCOMPtr<nsIRunnable> r = NS_NewRunnableFunction(
       "WebTransport AsyncConnect",
       [self = RefPtr{this}, uri = std::move(uri),
+       dedicated = true /* aDedicated, see BUG 1915735.*/,
        nsServerCertHashes = std::move(nsServerCertHashes),
        principal = RefPtr{aPrincipal},
        flags = nsILoadInfo::SEC_ALLOW_CROSS_ORIGIN_SEC_CONTEXT_IS_NULL,
        clientInfo = aClientInfo] {
         LOG(("WebTransport %p AsyncConnect", self.get()));
         if (NS_FAILED(self->mWebTransport->AsyncConnectWithClient(
-                uri, std::move(nsServerCertHashes), principal, flags, self,
-                clientInfo))) {
+                uri, dedicated, std::move(nsServerCertHashes), principal, flags,
+                self, clientInfo))) {
           LOG(("AsyncConnect failure; we should get OnSessionClosed"));
         }
       });
@@ -624,25 +625,6 @@ void WebTransportParent::NotifyRemoteClosed(bool aCleanly, uint32_t aErrorCode,
       }));
 }
 
-// This method is currently not used by WebTransportSessionProxy to inform of
-// any session related events. All notification is recieved via
-// WebTransportSessionProxy::OnSessionReady and
-// WebTransportSessionProxy::OnSessionClosed methods
-NS_IMETHODIMP
-WebTransportParent::OnSessionReadyInternal(
-    mozilla::net::Http3WebTransportSession* aSession) {
-  Unused << aSession;
-  return NS_OK;
-}
-
-NS_IMETHODIMP
-WebTransportParent::OnIncomingStreamAvailableInternal(
-    mozilla::net::Http3WebTransportStream* aStream) {
-  // XXX implement once DOM WebAPI supports creation of streams
-  Unused << aStream;
-  return NS_OK;
-}
-
 NS_IMETHODIMP
 WebTransportParent::OnIncomingUnidirectionalStreamAvailable(
     nsIWebTransportReceiveStream* aStream) {
@@ -791,13 +773,6 @@ NS_IMETHODIMP WebTransportParent::OnDatagramReceived(
   TimeStamp ts = TimeStamp::Now();
   Unused << SendIncomingDatagram(aData, ts);
 
-  return NS_OK;
-}
-
-NS_IMETHODIMP WebTransportParent::OnDatagramReceivedInternal(
-    nsTArray<uint8_t>&& aData) {
-  // this method is used only for internal notificaiton within necko
-  // we dont expect to receive any notification with on this interface
   return NS_OK;
 }
 

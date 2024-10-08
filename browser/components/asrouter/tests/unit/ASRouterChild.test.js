@@ -1,22 +1,12 @@
 /*eslint max-nested-callbacks: ["error", 10]*/
 import { ASRouterChild } from "actors/ASRouterChild.sys.mjs";
-import { MESSAGE_TYPE_HASH as msg } from "modules/ActorConstants.sys.mjs";
-import { GlobalOverrider } from "test/unit/utils";
+import { MESSAGE_TYPE_HASH as msg } from "modules/ActorConstants.mjs";
 
 describe("ASRouterChild", () => {
   let asRouterChild = null;
-  let globals = null;
-  let overrider = null;
   let sandbox = null;
   beforeEach(() => {
     sandbox = sinon.createSandbox();
-    globals = {
-      Cu: {
-        cloneInto: sandbox.stub().returns(Promise.resolve()),
-      },
-    };
-    overrider = new GlobalOverrider();
-    overrider.set(globals);
     asRouterChild = new ASRouterChild();
     asRouterChild.telemetry = {
       sendTelemetry: sandbox.stub(),
@@ -26,7 +16,6 @@ describe("ASRouterChild", () => {
   });
   afterEach(() => {
     sandbox.restore();
-    overrider.restore();
     asRouterChild = null;
   });
   describe("asRouterMessage", () => {
@@ -35,7 +24,6 @@ describe("ASRouterChild", () => {
         msg.DISABLE_PROVIDER,
         msg.ENABLE_PROVIDER,
         msg.EXPIRE_QUERY_CACHE,
-        msg.FORCE_WHATSNEW_PANEL,
         msg.IMPRESSION,
         msg.RESET_PROVIDER_PREF,
         msg.SET_PROVIDER_USER_PREF,

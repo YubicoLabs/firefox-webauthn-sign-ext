@@ -9,7 +9,7 @@
 "use strict";
 
 add_task(async function () {
-  Services.prefs.setBoolPref("devtools.toolbox.splitconsoleEnabled", true);
+  Services.prefs.setBoolPref("devtools.toolbox.splitconsole.open", true);
   const dbg = await initDebugger(
     "doc-script-switching.html",
     "script-switching-01.js"
@@ -23,7 +23,7 @@ add_task(async function () {
   info(
     `Add a first log breakpoint with no argument, which will log "display name", i.e. firstCall`
   );
-  await altClickElement(dbg, "gutter", 7);
+  await altClickElement(dbg, "gutterElement", 7);
   await waitForBreakpoint(dbg, "script-switching-01.js", 7);
 
   info("Add another log breakpoint with static arguments");

@@ -7,6 +7,7 @@
 add_task(async function () {
   await pushPref("dom.element.invokers.enabled", true);
   await pushPref("dom.element.popover.enabled", true);
+  await pushPref("dom.events.textevent.enabled", true);
 
   const dbg = await initDebugger(
     "doc-event-breakpoints.html",
@@ -151,6 +152,15 @@ add_task(async function () {
   assertPausedAtSourceAndLine(dbg, eventBreakpointsSource.id, 63);
   await resume(dbg);
 
+  info("Test textInput");
+  await toggleEventBreakpoint(dbg, "Keyboard", "event.keyboard.textInput");
+  invokeOnElement("#focus-text", "focus");
+  EventUtils.sendChar("N");
+  await waitForPaused(dbg);
+  assertPausedAtSourceAndLine(dbg, eventBreakpointsSource.id, 98);
+  await resume(dbg);
+  await toggleEventBreakpoint(dbg, "Keyboard", "event.keyboard.textInput");
+
   info(`Check that breakpoint can be set on "scrollend"`);
   await toggleEventBreakpoint(dbg, "Control", "event.control.scrollend");
 
@@ -224,6 +234,47 @@ add_task(async function () {
   await resume(dbg);
   await onReload;
   await toggleEventBreakpoint(dbg, "Load", "event.load.unload");
+});
+
+// Cover CmdOrCtrl+click on event breakpoints
+add_task(async function () {
+  const dbg = await initDebugger(
+    "doc-event-breakpoints.html",
+    "event-breakpoints.js"
+  );
+
+  // Toggle two distinct categories
+  await toggleEventBreakpoint(dbg, "Load", "event.load.unload");
+  await toggleEventBreakpoint(dbg, "Mouse", "event.mouse.click");
+
+  info("CmdOrCtrl + click on the Timer category");
+  const loadGroupCheckbox = findElementWithSelector(dbg, `input[value="Load"]`);
+  const mouseGroupCheckbox = findElementWithSelector(
+    dbg,
+    `input[value="Mouse"]`
+  );
+  const timerGroupCheckbox = findElementWithSelector(
+    dbg,
+    `input[value="Timer"]`
+  );
+  is(loadGroupCheckbox.indeterminate, true);
+  is(mouseGroupCheckbox.indeterminate, true);
+  is(timerGroupCheckbox.checked, false);
+  timerGroupCheckbox.scrollIntoView();
+  EventUtils.synthesizeMouseAtCenter(
+    timerGroupCheckbox,
+    { [Services.appinfo.OS === "Darwin" ? "metaKey" : "ctrlKey"]: true },
+    dbg.win
+  );
+  info("Wait for the checkboxes to update");
+  await waitFor(
+    () =>
+      timerGroupCheckbox.checked === true &&
+      loadGroupCheckbox.indeterminate === false
+  );
+  is(loadGroupCheckbox.indeterminate, false);
+  is(mouseGroupCheckbox.indeterminate, false);
+  is(timerGroupCheckbox.checked, true);
 });
 
 function getEventListenersPanel(dbg) {

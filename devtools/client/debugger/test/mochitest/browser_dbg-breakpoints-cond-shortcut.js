@@ -34,14 +34,11 @@ add_task(async function () {
     "toggle conditional panel with shortcut: cursor on line 32, no breakpoints"
   );
   // codemirror editor offset: cursorPosition will be line + 1, column + 1
-  getCM(dbg).setCursor({ line: 31, ch: 1 });
+  setEditorCursorAt(dbg, 31, 1);
   pressKey(dbg, "toggleCondPanel");
 
   await waitForConditionalPanelFocus(dbg);
-  ok(
-    !!getConditionalPanel(dbg, 32),
-    "conditional panel panel is open on line 32"
-  );
+  ok(!!getConditionalPanel(dbg, 32), "conditional panel is open on line 32");
   is(
     dbg.selectors.getConditionalPanelLocation().line,
     32,
@@ -52,11 +49,11 @@ add_task(async function () {
 
   info("add active column breakpoint on line 32 and set cursorPosition");
   await enableFirstBreakpoint(dbg);
-  getCM(dbg).setCursor({ line: 31, ch: 1 });
+  setEditorCursorAt(dbg, 31, 1);
   info(
     "toggle conditional panel with shortcut and add condition to first breakpoint"
   );
-  setConditionalBreakpoint(dbg, "1");
+  setConditionalBreakpointWithKeyboardShortcut(dbg, "1");
   await waitForCondition(dbg, 1);
   const firstBreakpoint = findColumnBreakpoint(dbg, "long.js", 32, 2);
   is(
@@ -66,13 +63,13 @@ add_task(async function () {
   );
 
   info("set cursor at second breakpoint position and activate breakpoint");
-  getCM(dbg).setCursor({ line: 31, ch: 25 });
+  setEditorCursorAt(dbg, 31, 25);
 
   await enableSecondBreakpoint(dbg);
   info(
     "toggle conditional panel with shortcut and add condition to second breakpoint"
   );
-  setConditionalBreakpoint(dbg, "2");
+  setConditionalBreakpointWithKeyboardShortcut(dbg, "2");
   await waitForCondition(dbg, 2);
   const secondBreakpoint = findColumnBreakpoint(dbg, "long.js", 32, 26);
   is(
@@ -84,9 +81,9 @@ add_task(async function () {
   info(
     "set cursor position near first breakpoint, toggle conditional panel and edit breakpoint"
   );
-  getCM(dbg).setCursor({ line: 31, ch: 7 });
+  setEditorCursorAt(dbg, 31, 7);
   info("toggle conditional panel and edit condition using shortcut");
-  setConditionalBreakpoint(dbg, "2");
+  setConditionalBreakpointWithKeyboardShortcut(dbg, "2");
   ok(
     !!waitForCondition(dbg, "12"),
     "breakpoint closest to cursor position has been edited"
@@ -98,13 +95,28 @@ add_task(async function () {
   info(
     "set cursor position near second breakpoint, toggle conditional panel and edit breakpoint"
   );
-  getCM(dbg).setCursor({ line: 31, ch: 21 });
+  setEditorCursorAt(dbg, 31, 21);
   info("toggle conditional panel and edit condition using shortcut");
-  setConditionalBreakpoint(dbg, "3");
+  setConditionalBreakpointWithKeyboardShortcut(dbg, "3");
   ok(
     !!waitForCondition(dbg, "13"),
     "breakpoint closest to cursor position has been edited"
   );
+
+  info("close conditional panel");
+  pressKey(dbg, "Escape");
+
+  info("toggle log panel with shortcut: cursor on line 33");
+
+  setEditorCursorAt(dbg, 33, 1);
+  setLogBreakpointWithKeyboardShortcut(dbg, "3");
+  ok(
+    !!waitForLog(dbg, "3"),
+    "breakpoint closest to cursor position has been edited"
+  );
+
+  info("close conditional panel");
+  pressKey(dbg, "Escape");
 });
 
 // from test/mochitest/browser_dbg-breakpoints-cond-source-maps.js
@@ -119,7 +131,7 @@ async function waitForConditionalPanelFocus(dbg) {
 
 // from browser_dbg-breakpoints-columns.js
 async function enableFirstBreakpoint(dbg) {
-  getCM(dbg).setCursor({ line: 32, ch: 0 });
+  setEditorCursorAt(dbg, 32, 0);
   await addBreakpoint(dbg, "long.js", 32);
   const bpMarkers = await waitForAllElements(dbg, "columnBreakpoints");
 
@@ -141,7 +153,12 @@ async function enableSecondBreakpoint(dbg) {
 
 // modified method from browser_dbg-breakpoints-columns.js
 // use shortcut to open conditional panel.
-function setConditionalBreakpoint(dbg, condition) {
+function setConditionalBreakpointWithKeyboardShortcut(dbg, condition) {
   pressKey(dbg, "toggleCondPanel");
   typeInPanel(dbg, condition);
+}
+
+function setLogBreakpointWithKeyboardShortcut(dbg, condition) {
+  pressKey(dbg, "toggleLogPanel");
+  typeInPanel(dbg, condition, true);
 }

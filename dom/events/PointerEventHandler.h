@@ -50,13 +50,16 @@ class PointerInfo final {
   uint16_t mPointerType;
   bool mActiveState;
   bool mPrimaryState;
+  bool mFromTouchEvent;
   bool mPreventMouseEventByContent;
   WeakPtr<dom::Document> mActiveDocument;
   explicit PointerInfo(bool aActiveState, uint16_t aPointerType,
-                       bool aPrimaryState, dom::Document* aActiveDocument)
+                       bool aPrimaryState, bool aFromTouchEvent,
+                       dom::Document* aActiveDocument)
       : mPointerType(aPointerType),
         mActiveState(aActiveState),
         mPrimaryState(aPrimaryState),
+        mFromTouchEvent(aFromTouchEvent),
         mPreventMouseEventByContent(false),
         mActiveDocument(aActiveDocument) {}
 };
@@ -168,11 +171,49 @@ class PointerEventHandler final {
   static void PostHandlePointerEventsPreventDefault(
       WidgetPointerEvent* aPointerEvent, WidgetGUIEvent* aMouseOrTouchEvent);
 
-  MOZ_CAN_RUN_SCRIPT
-  static void DispatchPointerFromMouseOrTouch(
-      PresShell* aShell, nsIFrame* aFrame, nsIContent* aContent,
-      WidgetGUIEvent* aEvent, bool aDontRetargetEvents, nsEventStatus* aStatus,
-      nsIContent** aTargetContent);
+  /**
+   * Dispatch a pointer event for aMouseOrTouchEvent to aEventTargetContent.
+   *
+   * @param aShell              The PresShell which is handling the event.
+   * @param aEventTargetFrame   The frame for aEventTargetContent.
+   * @param aEventTargetContent The event target node.
+   * @param aMouseOrTouchEvent  A mouse or touch event.
+   * @param aDontRetargetEvents If true, this won't dispatch event with
+   *                            different PresShell from aShell.  Otherwise,
+   *                            pointer events may be fired on different
+   *                            document if and only if aMouseOrTOuchEvent is a
+   *                            touch event except eTouchStart.
+   * @param aState              [out] The result of the pointer event.
+   * @param aMouseOrTouchEventTarget
+   *                            [out] The event target for the following mouse
+   *                            or touch event. If aEventTargetContent has not
+   *                            been removed from the tree, this is always set
+   *                            to it. If aEventTargetContent is removed from
+   *                            the tree and aMouseOrTouchEvent is a mouse
+   *                            event, this is set to inclusive ancestor of
+   *                            aEventTargetContent which is still connected.
+   *                            If aEventTargetContent is removed from the tree
+   *                            and aMouseOrTouchEvent is a touch event, this is
+   *                            set to aEventTargetContent because touch event
+   *                            should be dispatched even on disconnected node.
+   *                            FIXME: If the event is a touch event but the
+   *                            message is not eTouchStart, this won't be set.
+   */
+  MOZ_CAN_RUN_SCRIPT static void DispatchPointerFromMouseOrTouch(
+      PresShell* aShell, nsIFrame* aEventTargetFrame,
+      nsIContent* aEventTargetContent, WidgetGUIEvent* aMouseOrTouchEvent,
+      bool aDontRetargetEvents, nsEventStatus* aStatus,
+      nsIContent** aMouseOrTouchEventTarget = nullptr);
+
+  /**
+   * Synthesize eMouseMove or ePointerMove to dispatch mouse/pointer boundary
+   * events if they are required.  This dispatches the event on the widget.
+   * Therefore, this dispatches the event on correct document in the same
+   * process.  However, if there is a popup under the pointer or a document in a
+   * different process, this does not work as you expected.
+   */
+  MOZ_CAN_RUN_SCRIPT static void SynthesizeMoveToDispatchBoundaryEvents(
+      const WidgetMouseEvent* aEvent);
 
   static void InitPointerEventFromMouse(WidgetPointerEvent* aPointerEvent,
                                         WidgetMouseEvent* aMouseEvent,
@@ -180,8 +221,11 @@ class PointerEventHandler final {
 
   static void InitPointerEventFromTouch(WidgetPointerEvent& aPointerEvent,
                                         const WidgetTouchEvent& aTouchEvent,
-                                        const mozilla::dom::Touch& aTouch,
-                                        bool aIsPrimary);
+                                        const mozilla::dom::Touch& aTouch);
+
+  static void InitCoalescedEventFromPointerEvent(
+      WidgetPointerEvent& aCoalescedEvent,
+      const WidgetPointerEvent& aSourceEvent);
 
   static bool ShouldGeneratePointerEventFromMouse(WidgetGUIEvent* aEvent) {
     return aEvent->mMessage == eMouseDown || aEvent->mMessage == eMouseUp ||
@@ -221,6 +265,10 @@ class PointerEventHandler final {
   // GetPointerPrimaryState returns state of attribute isPrimary for pointer
   // event with pointerId
   static bool GetPointerPrimaryState(uint32_t aPointerId);
+
+  // HasActiveTouchPointer returns true if there is active pointer event that is
+  // generated from touch event.
+  static bool HasActiveTouchPointer();
 
   MOZ_CAN_RUN_SCRIPT
   static void DispatchGotOrLostPointerCaptureEvent(

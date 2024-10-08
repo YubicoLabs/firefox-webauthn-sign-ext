@@ -5,7 +5,7 @@
 import {
   actionCreators as ac,
   actionTypes as at,
-} from "resource://activity-stream/common/Actions.sys.mjs";
+} from "resource://activity-stream/common/Actions.mjs";
 import { Prefs } from "resource://activity-stream/lib/ActivityStreamPrefs.sys.mjs";
 
 // We use importESModule here instead of static import so that
@@ -79,7 +79,7 @@ export class PrefsFeed {
   /**
    * Handler for when experiment data updates.
    */
-  onExperimentUpdated(event, reason) {
+  onExperimentUpdated() {
     const value = lazy.NimbusFeatures.newtab.getAllVariables() || {};
     this.store.dispatch(
       ac.BroadcastToContent({
@@ -238,7 +238,7 @@ export class PrefsFeed {
     }
   }
 
-  observe(subject, topic, data) {
+  observe(subject, topic) {
     switch (topic) {
       case lazy.Region.REGION_TOPIC:
         this.store.dispatch(

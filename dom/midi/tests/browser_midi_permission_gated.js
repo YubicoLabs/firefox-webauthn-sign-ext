@@ -643,7 +643,7 @@ add_task(async function testRequestMIDIAccessLocalhost() {
     .click();
 
   info("Wait for the midi-sysex access request promise to resolve");
-  const accessGranted = await SpecialPowers.spawn(
+  let accessGranted = await SpecialPowers.spawn(
     gBrowser.selectedBrowser,
     [],
     async () => {
@@ -658,20 +658,29 @@ add_task(async function testRequestMIDIAccessLocalhost() {
   );
   ok(accessGranted, "requestMIDIAccess resolved");
 
-  info("Check that we prompt user again even if they accepted before");
-  popupShown = BrowserTestUtils.waitForEvent(
-    PopupNotifications.panel,
-    "popupshown"
+  // We're remembering permission grants temporarily on the tab since Bug 1754005.
+  info(
+    "Check that a new request is automatically granted because we granted before in the same tab."
   );
+
   await SpecialPowers.spawn(gBrowser.selectedBrowser, [], async () => {
     content.navigator.requestMIDIAccess({ sysex: true });
   });
-  await popupShown;
-  is(
-    PopupNotifications.panel.querySelector("popupnotification").id,
-    "midi-notification",
-    "midi notification was displayed again"
+
+  accessGranted = await SpecialPowers.spawn(
+    gBrowser.selectedBrowser,
+    [],
+    async () => {
+      try {
+        await content.midiAccessRequestPromise;
+        return true;
+      } catch (e) {}
+
+      delete content.midiAccessRequestPromise;
+      return false;
+    }
   );
+  ok(accessGranted, "requestMIDIAccess resolved");
 
   assertSitePermissionInstallTelemetryEvents([]);
 });
@@ -779,7 +788,7 @@ async function waitForNotification(notificationId) {
   let observerPromise;
   if (notificationId !== "addon-webext-permissions") {
     observerPromise = new Promise(resolve => {
-      Services.obs.addObserver(function observer(aSubject, aTopic, aData) {
+      Services.obs.addObserver(function observer(aSubject, aTopic) {
         // Ignore the progress notification unless that is the notification we want
         if (
           notificationId != PROGRESS_NOTIFICATION &&

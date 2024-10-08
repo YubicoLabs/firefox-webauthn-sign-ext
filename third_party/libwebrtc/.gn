@@ -12,7 +12,7 @@ import("//build/dotfile_settings.gni")
 buildconfig = "//build/config/BUILDCONFIG.gn"
 
 # The python interpreter to use by default. On Windows, this will look
-# for python3.exe and python3.bat.
+# for vpython3.exe and vpython3.bat.
 script_executable = "python3"
 
 # The secondary source root is a parallel directory tree where
@@ -27,8 +27,9 @@ secondary_source = "//build/secondary/"
 no_check_targets = [
   "//third_party/icu/*",
 
-  # TODO(crbug.com/1151236) Remove once fixed.
-  "//base/allocator/partition_allocator:partition_alloc",
+  # TODO: crbug/326607005 - GTEST_HAS_ABSL is broken
+  "//third_party/googletest:gmock",
+  "//third_party/googletest:gtest",
 ]
 
 # These are the list of GN files that run exec_script. This whitelist exists
@@ -36,6 +37,10 @@ no_check_targets = [
 # discouraged except for gypi_to_gn calls.
 exec_script_whitelist = build_dotfile_settings.exec_script_whitelist +
                         [ "//build_overrides/build.gni" ]
+
+# Normally, we'd use 'if (!build_with_mozilla)', but that flag isn't
+# available yet.
+#export_compile_commands = [ "*" ]
 
 default_args = {
   # Webrtc does not support component builds because we are not using the

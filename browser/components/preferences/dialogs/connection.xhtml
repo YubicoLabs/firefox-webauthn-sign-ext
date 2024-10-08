@@ -78,6 +78,14 @@
           id="systemPref"
           hidden="true"
         />
+        <checkbox
+          value="true"
+          data-l10n-id="connection-proxy-option-wpad"
+          id="systemWpad"
+          hidden="true"
+          preference="network.proxy.system_wpad"
+          class="indent"
+        />
         <radio value="1" data-l10n-id="connection-proxy-option-manual" />
         <box id="proxy-grid" class="indent" flex="1">
           <html:div class="proxy-grid-row">
@@ -243,8 +251,13 @@
       preference="signon.autologin.proxy"
     />
     <checkbox
-      id="networkProxySOCKSRemoteDNS"
+      id="networkProxySOCKS4RemoteDNS"
       preference="network.proxy.socks_remote_dns"
+      data-l10n-id="connection-proxy-socks4-remote-dns"
+    />
+    <checkbox
+      id="networkProxySOCKSRemoteDNS"
+      preference="network.proxy.socks5_remote_dns"
       data-l10n-id="connection-proxy-socks-remote-dns"
     />
   </dialog>

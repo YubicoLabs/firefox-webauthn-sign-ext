@@ -62,6 +62,8 @@ if CONFIG["LIBFUZZER"]:
     LOCAL_INCLUDES += [
         "/tools/fuzzing/libfuzzer",
     ]
+elif CONFIG["FUZZING_INTERFACES"]:
+    USE_LIBS += ["fuzzer-interface"]
 
 if CONFIG["MOZ_GECKODRIVER"]:
     DEFINES["MOZ_GECKODRIVER"] = True
@@ -135,6 +137,9 @@ if CONFIG["MOZ_SANDBOX"] and CONFIG["OS_ARCH"] == "WINNT":
         "usp10.dll",
     ]
 
+if CONFIG["TARGET_OS"] in ("WINNT", "OSX"):
+    DIRS += ["nmhproxy"]
+
 # Control the default heap size.
 # This is the heap returned by GetProcessHeap().
 # As we use the CRT heap, the default size is too large and wastes VM.
@@ -155,7 +160,7 @@ if CONFIG["MOZ_LINUX_32_SSE2_STARTUP_ERROR"]:
     DEFINES["MOZ_LINUX_32_SSE2_STARTUP_ERROR"] = True
     COMPILE_FLAGS["OS_CXXFLAGS"] = [
         f
-        for f in COMPILE_FLAGS.get("OS_CXXFLAGS", [])
+        for f in COMPILE_FLAGS["OS_CXXFLAGS"]
         if not f.startswith("-march=") and f not in ("-msse", "-msse2", "-mfpmath=sse")
     ] + [
         "-mno-sse",

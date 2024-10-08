@@ -57,7 +57,6 @@
 #include "mozilla/dom/LargestContentfulPaint.h"
 #include "mozilla/dom/UserActivation.h"
 #include "mozilla/dom/WakeLockBinding.h"
-#include "mozilla/glean/GleanMetrics.h"
 #include "nsAtom.h"
 #include "nsCOMArray.h"
 #include "nsCOMPtr.h"
@@ -245,8 +244,8 @@ class EventListener;
 struct FailedCertSecurityInfo;
 class FeaturePolicy;
 class FontFaceSet;
+class FragmentDirective;
 class FrameRequestCallback;
-class ImageTracker;
 class HighlightRegistry;
 class HTMLAllCollection;
 class HTMLBodyElement;
@@ -254,7 +253,10 @@ class HTMLInputElement;
 class HTMLMetaElement;
 class HTMLDialogElement;
 class HTMLSharedElement;
+class HTMLVideoElement;
 class HTMLImageElement;
+class ImageTracker;
+enum class InteractiveWidget : uint8_t;
 struct LifecycleCallbackArgs;
 class Link;
 class Location;
@@ -279,6 +281,8 @@ class Touch;
 class TouchList;
 class TreeWalker;
 enum class ViewportFitType : uint8_t;
+class ViewTransition;
+class ViewTransitionUpdateCallback;
 class WakeLockSentinel;
 class WindowContext;
 class WindowGlobalChild;
@@ -320,6 +324,9 @@ enum BFCacheStatus {
 };
 
 }  // namespace dom
+namespace glean::perf {
+struct PageLoadExtra;
+}
 }  // namespace mozilla
 
 namespace mozilla::net {
@@ -1091,6 +1098,8 @@ class Document : public nsINode,
    */
   void DisableCookieAccess() { mDisableCookieAccess = true; }
 
+  bool CookieAccessDisabled() const { return mDisableCookieAccess; }
+
   void SetLinkHandlingEnabled(bool aValue) { mLinksEnabled = aValue; }
   bool LinkHandlingEnabled() { return mLinksEnabled; }
 
@@ -1500,7 +1509,8 @@ class Document : public nsINode,
 
   void DoNotifyPossibleTitleChange();
 
-  void InitFeaturePolicy();
+  void InitFeaturePolicy(const Variant<Nothing, FeaturePolicyInfo, Element*>&
+                             aContainerFeaturePolicy);
   nsresult InitFeaturePolicy(nsIChannel* aChannel);
 
   void EnsureNotEnteringAndExitFullscreen();
@@ -1510,6 +1520,7 @@ class Document : public nsINode,
 
   nsresult InitCSP(nsIChannel* aChannel);
   nsresult InitCOEP(nsIChannel* aChannel);
+  nsresult InitDocPolicy(nsIChannel* aChannel);
 
   nsresult InitReferrerInfo(nsIChannel* aChannel);
 
@@ -1865,6 +1876,12 @@ class Document : public nsINode,
    */
   MOZ_CAN_RUN_SCRIPT void HandleEscKey();
 
+  /**
+   * Process any active CloseWatchers in the document, such
+   * as fullscreen elements, popovers, dialogs.
+   */
+  MOZ_CAN_RUN_SCRIPT void ProcessCloseRequest();
+
   void AddModalDialog(HTMLDialogElement&);
   void RemoveModalDialog(HTMLDialogElement&);
 
@@ -2026,7 +2043,7 @@ class Document : public nsINode,
   void RuleAdded(StyleSheet&, css::Rule&);
   void RuleRemoved(StyleSheet&, css::Rule&);
   void SheetCloned(StyleSheet&) {}
-  void ImportRuleLoaded(CSSImportRule&, StyleSheet&);
+  void ImportRuleLoaded(StyleSheet&);
 
   /**
    * Flush notifications for this document and its parent documents
@@ -2439,7 +2456,11 @@ class Document : public nsINode,
 
   LinkedList<MediaQueryList>& MediaQueryLists() { return mDOMMediaQueryLists; }
 
-  nsTHashtable<LCPEntryHashEntry>& ContentIdentifiersForLCP() {
+  using ContentIdentifiersForLCPType =
+      nsTHashMap<NoMemMoveKey<nsPtrHashKey<const Element>>,
+                 AutoTArray<WeakPtr<PreloaderBase>, 1>>;
+
+  ContentIdentifiersForLCPType& ContentIdentifiersForLCP() {
     return mContentIdentifiersForLCP;
   }
 
@@ -2722,17 +2743,17 @@ class Document : public nsINode,
     return !EventHandlingSuppressed() && mScriptGlobalObject;
   }
 
-  bool WouldScheduleFrameRequestCallbacks() const {
-    // If this function changes to depend on some other variable, make sure to
-    // call UpdateFrameRequestCallbackSchedulingState() calls to the places
-    // where that variable can change.
+  void MaybeScheduleFrameRequestCallbacks();
+  bool ShouldFireFrameRequestCallbacks() const {
+    // If this condition changes make sure to call
+    // MaybeScheduleFrameRequestCallbacks at the right places.
     return mPresShell && IsEventHandlingEnabled();
   }
 
   void DecreaseEventSuppression() {
     MOZ_ASSERT(mEventsSuppressed);
     --mEventsSuppressed;
-    UpdateFrameRequestCallbackSchedulingState();
+    MaybeScheduleFrameRequestCallbacks();
   }
 
   /**
@@ -2930,10 +2951,11 @@ class Document : public nsINode,
    */
   void MaybePreLoadImage(nsIURI* uri, const nsAString& aCrossOriginAttr,
                          ReferrerPolicyEnum aReferrerPolicy, bool aIsImgSet,
-                         bool aLinkPreload);
+                         bool aLinkPreload, const nsAString& aFetchPriority);
   void PreLoadImage(nsIURI* uri, const nsAString& aCrossOriginAttr,
                     ReferrerPolicyEnum aReferrerPolicy, bool aIsImgSet,
-                    bool aLinkPreload, uint64_t aEarlyHintPreloaderId);
+                    bool aLinkPreload, uint64_t aEarlyHintPreloaderId,
+                    const nsAString& aFetchPriority);
 
   /**
    * Called by images to forget an image preload when they start doing
@@ -2989,21 +3011,11 @@ class Document : public nsINode,
     SetStateObject(aDocument->mStateObjectContainer);
   }
 
-  /**
-   * Returns true if there is a lightweight theme specified. This is used to
-   * determine the state of the :-moz-lwtheme pseudo-class.
-   */
-  bool ComputeDocumentLWTheme() const;
-  void ResetDocumentLWTheme() {
-    UpdateDocumentStates(DocumentState::LWTHEME, true);
-  }
-
   // Whether we're a media document or not.
   enum class MediaDocumentKind {
     NotMedia,
     Video,
     Image,
-    Plugin,
   };
 
   virtual enum MediaDocumentKind MediaDocumentKind() const {
@@ -3043,21 +3055,36 @@ class Document : public nsINode,
   SVGSVGElement* GetSVGRootElement() const;
 
   nsresult ScheduleFrameRequestCallback(FrameRequestCallback& aCallback,
-                                        int32_t* aHandle);
-  void CancelFrameRequestCallback(int32_t aHandle);
+                                        uint32_t* aHandle);
+  void CancelFrameRequestCallback(uint32_t aHandle);
+
+  void ScheduleVideoFrameCallbacks(HTMLVideoElement* aElement);
+  void CancelVideoFrameCallbacks(HTMLVideoElement* aElement);
 
   /**
    * Returns true if the handle refers to a callback that was canceled that
    * we did not find in our list of callbacks (e.g. because it is one of those
    * in the set of callbacks currently queued to be run).
    */
-  bool IsCanceledFrameRequestCallback(int32_t aHandle) const;
+  bool IsCanceledFrameRequestCallback(uint32_t aHandle) const;
+
+  /**
+   * Put this document's video frame request callbacks into the provided
+   * list, and forget about them.
+   */
+  void TakeVideoFrameRequestCallbacks(
+      nsTArray<RefPtr<HTMLVideoElement>>& aVideoCallbacks);
 
   /**
    * Put this document's frame request callbacks into the provided
    * list, and forget about them.
    */
   void TakeFrameRequestCallbacks(nsTArray<FrameRequest>& aCallbacks);
+
+  /** Whether we have any scheduled frame request */
+  bool HasFrameRequestCallbacks() const {
+    return !mFrameRequestManager.IsEmpty();
+  }
 
   /**
    * @return true if this document's frame request callbacks should be
@@ -3117,6 +3144,9 @@ class Document : public nsINode,
 
   // WebIDL method for chrome code.
   void GetConnectedShadowRoots(nsTArray<RefPtr<ShadowRoot>>&) const;
+
+  void SynchronouslyUpdateRemoteBrowserDimensions(
+      bool aIncludeInactive = false);
 
   // Notifies any responsive content added by AddResponsiveContent upon media
   // features values changing.
@@ -3278,7 +3308,7 @@ class Document : public nsINode,
   void SetDomain(const nsAString& aDomain, mozilla::ErrorResult& rv);
   void GetCookie(nsAString& aCookie, mozilla::ErrorResult& rv);
   void SetCookie(const nsAString& aCookie, mozilla::ErrorResult& rv);
-  void GetReferrer(nsAString& aReferrer) const;
+  void GetReferrer(nsACString& aReferrer) const;
   void GetLastModified(nsAString& aLastModified) const;
   void GetReadyState(nsAString& aReadyState) const;
 
@@ -3374,7 +3404,6 @@ class Document : public nsINode,
                                                bool aFocusPreviousElement,
                                                bool aFireEvents);
 
-  MOZ_CAN_RUN_SCRIPT_BOUNDARY void HideAllPopoversWithoutRunningScript();
   // Hides the given popover element, see
   // https://html.spec.whatwg.org/multipage/popover.html#hide-popover-algorithm
   MOZ_CAN_RUN_SCRIPT void HidePopover(Element& popover,
@@ -3423,8 +3452,6 @@ class Document : public nsINode,
   mozilla::dom::HTMLAllCollection* All();
 
   static bool DocumentSupportsL10n(JSContext* aCx, JSObject* aObject);
-  static bool AreWebAnimationsTimelinesEnabled(JSContext* aCx,
-                                               JSObject* aObject);
   // Checks that the caller is either chrome or some addon.
   static bool IsCallerChromeOrAddon(JSContext* aCx, JSObject* aObject);
 
@@ -3457,8 +3484,8 @@ class Document : public nsINode,
    * @param aY Vertical point at which to determine the caret position, in
    *           page coordinates.
    */
-  already_AddRefed<nsDOMCaretPosition> CaretPositionFromPoint(float aX,
-                                                              float aY);
+  already_AddRefed<nsDOMCaretPosition> CaretPositionFromPoint(
+      float aX, float aY, const CaretPositionFromPointOptions& aOptions);
 
   Element* GetScrollingElement();
   // A way to check whether a given element is what would get returned from
@@ -3632,6 +3659,17 @@ class Document : public nsINode,
   // Whether we're cloning the contents of an SVG use element.
   bool CloningForSVGUse() const { return mCloningForSVGUse; }
 
+  // If this is true, we're ignoring scrolling to a fragment.
+  bool ForceLoadAtTop() const { return mForceLoadAtTop; }
+
+  // https://html.spec.whatwg.org/#concept-document-fire-mutation-events-flag
+  bool FireMutationEvents() const { return mFireMutationEvents; }
+  void SetFireMutationEvents(bool aFire) { mFireMutationEvents = aFire; }
+
+  // Even if mutation events are disabled by default,
+  // dom.mutation_events.forceEnable can be used to enable them per site.
+  bool MutationEventsEnabled();
+
   // This should be called when this document receives events which are likely
   // to be user interaction with the document, rather than the byproduct of
   // interaction with the browser (i.e. a keypress to scroll the view port,
@@ -3647,6 +3685,12 @@ class Document : public nsINode,
   // Return true if NotifyUserGestureActivation() has been called on any
   // document in the document tree.
   bool HasBeenUserGestureActivated();
+
+  // Returns true if this document was loaded with an user interaction,
+  // allowing a text directive to be scrolled to if the document was loaded with
+  // a text fragment. This call consumes this flag, ie. a subsequent call will
+  // return false.
+  bool ConsumeTextDirectiveUserActivation();
 
   // Reture timestamp of last user gesture in milliseconds relative to
   // navigation start timestamp.
@@ -3701,33 +3745,37 @@ class Document : public nsINode,
            GetDocGroup() == GetInProcessParentDocument()->GetDocGroup();
   }
 
-  void AddIntersectionObserver(DOMIntersectionObserver* aObserver) {
-    MOZ_ASSERT(!mIntersectionObservers.Contains(aObserver),
+  void AddIntersectionObserver(DOMIntersectionObserver& aObserver) {
+    MOZ_ASSERT(!mIntersectionObservers.Contains(&aObserver),
                "Intersection observer already in the list");
-    mIntersectionObservers.Insert(aObserver);
+    mIntersectionObservers.AppendElement(&aObserver);
   }
-
-  void RemoveIntersectionObserver(DOMIntersectionObserver* aObserver) {
-    mIntersectionObservers.Remove(aObserver);
+  void RemoveIntersectionObserver(DOMIntersectionObserver& aObserver) {
+    // TODO(emilio): This can fail during unlink because Document unlink clears
+    // the IntersectionObserver array, but it seems it wouldn't need to?
+    // MOZ_ASSERT(mIntersectionObservers.Contains(&aObserver));
+    mIntersectionObservers.RemoveElement(&aObserver);
   }
-
   bool HasIntersectionObservers() const {
     return !mIntersectionObservers.IsEmpty();
   }
 
-  void UpdateIntersectionObservations(TimeStamp aNowTime);
-  void ScheduleIntersectionObserverNotification();
+  // Update intersection observers in this document and all
+  // same-process subdocuments.
+  void UpdateIntersections(TimeStamp aNowTime);
+  // Update the EffectsInfo of remote browsers.
+  void UpdateRemoteFrameEffects(bool aIncludeInactive = false);
   MOZ_CAN_RUN_SCRIPT void NotifyIntersectionObservers();
 
   DOMIntersectionObserver* GetLazyLoadObserver() { return mLazyLoadObserver; }
   DOMIntersectionObserver& EnsureLazyLoadObserver();
 
-  ResizeObserver* GetLastRememberedSizeObserver() {
-    return mLastRememberedSizeObserver;
+  bool HasElementsWithLastRememberedSize() const {
+    return !mElementsObservedForLastRememberedSize.IsEmpty();
   }
-  ResizeObserver& EnsureLastRememberedSizeObserver();
   void ObserveForLastRememberedSize(Element&);
   void UnobserveForLastRememberedSize(Element&);
+  void UpdateLastRememberedSizes();
 
   // Dispatch a runnable related to the document.
   nsresult Dispatch(already_AddRefed<nsIRunnable>&& aRunnable) const;
@@ -3741,10 +3789,17 @@ class Document : public nsINode,
   bool IsScriptTracking(JSContext* aCx) const;
 
   // ResizeObserver usage.
-  void AddResizeObserver(ResizeObserver&);
-  void RemoveResizeObserver(ResizeObserver&);
-  void ScheduleResizeObserversNotification() const;
+  void AddResizeObserver(ResizeObserver& aObserver) {
+    MOZ_ASSERT(!mResizeObservers.Contains(&aObserver));
+    mResizeObservers.AppendElement(&aObserver);
+  }
+  void RemoveResizeObserver(ResizeObserver& aObserver) {
+    MOZ_ASSERT(mResizeObservers.Contains(&aObserver));
+    mResizeObservers.RemoveElement(&aObserver);
+  }
   bool HasResizeObservers() const { return !mResizeObservers.IsEmpty(); }
+
+  void ScheduleResizeObserversNotification() const;
   /**
    * Calls GatherActiveObservations(aDepth) for all ResizeObservers.
    * All observations in each ResizeObserver with element's depth more than
@@ -3774,6 +3829,14 @@ class Document : public nsINode,
    */
   MOZ_CAN_RUN_SCRIPT void
   DetermineProximityToViewportAndNotifyResizeObservers();
+
+  already_AddRefed<ViewTransition> StartViewTransition(
+      const Optional<OwningNonNull<ViewTransitionUpdateCallback>>&);
+  ViewTransition* GetActiveViewTransition() const {
+    return mActiveViewTransition;
+  }
+  void ClearActiveViewTransition();
+  void PerformPendingViewTransitionOperations();
 
   // Getter for PermissionDelegateHandler. Performs lazy initialization.
   PermissionDelegateHandler* GetPermissionDelegateHandler();
@@ -3875,6 +3938,17 @@ class Document : public nsINode,
   void SetAllowDeclarativeShadowRoots(bool aAllowDeclarativeShadowRoots);
   bool AllowsDeclarativeShadowRoots() const;
 
+  void SuspendDOMNotifications() {
+    MOZ_ASSERT(IsHTMLDocument(),
+               "Currently suspending DOM notifications is supported only on "
+               "HTML documents.");
+    mSuspendDOMNotifications = true;
+  }
+
+  void ResumeDOMNotifications() { mSuspendDOMNotifications = false; }
+
+  bool DOMNotificationsSuspended() const { return mSuspendDOMNotifications; }
+
  protected:
   RefPtr<DocumentL10n> mDocumentL10n;
 
@@ -3910,6 +3984,10 @@ class Document : public nsINode,
 
  public:
   const OriginTrials& Trials() const { return mTrials; }
+
+  dom::InteractiveWidget InteractiveWidget() const {
+    return mInteractiveWidgetMode;
+  }
 
  private:
   void DoCacheAllKnownLangPrefs();
@@ -4086,6 +4164,13 @@ class Document : public nsINode,
    */
   class HighlightRegistry& HighlightRegistry();
 
+  /**
+   * @brief Returns the `FragmentDirective` object which contains information
+   * and functionality to extract or create text directives.
+   * Guaranteed to be non-null.
+   */
+  class FragmentDirective* FragmentDirective();
+
   bool ShouldResistFingerprinting(RFPTarget aTarget) const;
   bool IsInPrivateBrowsing() const;
 
@@ -4145,7 +4230,8 @@ class Document : public nsINode,
   // Apply the fullscreen state to the document, and trigger related
   // events. It returns false if the fullscreen element ready check
   // fails and nothing gets changed.
-  bool ApplyFullscreen(UniquePtr<FullscreenRequest>);
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY bool ApplyFullscreen(
+      UniquePtr<FullscreenRequest>);
 
   void RemoveDocStyleSheetsFromStyleSets();
   void ResetStylesheetsToURI(nsIURI* aURI);
@@ -4271,10 +4357,10 @@ class Document : public nsINode,
     MOZ_CAN_RUN_SCRIPT nsresult
     GetCommandStateParams(nsCommandParams& aParams) const;
 
-   private:
     // The returned editor's life is guaranteed while this instance is alive.
     EditorBase* GetTargetEditor() const;
 
+   private:
     RefPtr<EditorBase> mActiveEditor;
     RefPtr<HTMLEditor> mHTMLEditor;
     RefPtr<EditorCommand> mEditorCommand;
@@ -4396,14 +4482,6 @@ class Document : public nsINode,
   virtual Element* GetNameSpaceElement() override { return GetRootElement(); }
 
   nsCString GetContentTypeInternal() const { return mContentType; }
-
-  // Update our frame request callback scheduling state, if needed.  This will
-  // schedule or unschedule them, if necessary, and update
-  // mFrameRequestCallbacksScheduled.  aOldShell should only be passed when
-  // mPresShell is becoming null; in that case it will be used to get hold of
-  // the relevant refresh driver.
-  void UpdateFrameRequestCallbackSchedulingState(
-      PresShell* aOldPresShell = nullptr);
 
   // Helper for GetScrollingElement/IsScrollingElement.
   bool IsPotentiallyScrollable(HTMLBodyElement* aBody);
@@ -4691,11 +4769,6 @@ class Document : public nsINode,
   // (e.g. we're not being parsed at all).
   bool mDidFireDOMContentLoaded : 1;
 
-  // True if we have frame request callbacks scheduled with the refresh driver.
-  // This should generally be updated only via
-  // UpdateFrameRequestCallbackSchedulingState.
-  bool mFrameRequestCallbacksScheduled : 1;
-
   bool mIsTopLevelContentDocument : 1;
 
   bool mIsContentDocument : 1;
@@ -4865,6 +4938,14 @@ class Document : public nsINode,
   bool mCloningForSVGUse : 1;
 
   bool mAllowDeclarativeShadowRoots : 1;
+
+  bool mSuspendDOMNotifications : 1;
+
+  bool mForceLoadAtTop : 1;
+
+  bool mFireMutationEvents : 1;
+
+  Maybe<bool> mMutationEventsEnabled;
 
   // The fingerprinting protections overrides for this document. The value will
   // override the default enabled fingerprinting protections for this document.
@@ -5063,10 +5144,10 @@ class Document : public nsINode,
   // Our live MediaQueryLists
   LinkedList<MediaQueryList> mDOMMediaQueryLists;
 
-  // A hashset to keep track of which {element, imgRequestProxy}
+  // A hashmap to keep track of which {element, imgRequestProxy}
   // combination has been processed to avoid considering the same
   // element twice for LargestContentfulPaint.
-  nsTHashtable<LCPEntryHashEntry> mContentIdentifiersForLCP;
+  ContentIdentifiersForLCPType mContentIdentifiersForLCP;
 
   // Array of observers
   nsTObserverArray<nsIDocumentObserver*> mObservers;
@@ -5125,7 +5206,14 @@ class Document : public nsINode,
   // https://drafts.csswg.org/css-round-display/#viewport-fit-descriptor
   ViewportFitType mViewportFit;
 
-  PLDHashTable* mSubDocuments;
+  // https://drafts.csswg.org/css-viewport/#interactive-widget-section
+  dom::InteractiveWidget mInteractiveWidgetMode;
+
+  // XXXdholbert This should really be modernized to a nsTHashMap or similar,
+  // though note that the modernization will need to take care to also convert
+  // the special hash_table_ops logic (e.g. how SubDocClearEntry clears the
+  // parent document as part of cleaning up an entry in this table).
+  UniquePtr<PLDHashTable> mSubDocuments;
 
   class HeaderData;
   UniquePtr<HeaderData> mHeaderData;
@@ -5154,17 +5242,16 @@ class Document : public nsINode,
   // is a weak reference to avoid leaks due to circular references.
   nsWeakPtr mScopeObject;
 
-  // Array of intersection observers
-  nsTHashSet<DOMIntersectionObserver*> mIntersectionObservers;
-
-  // Array of resize observers
+  // Array of intersection observers with active observations.
+  nsTArray<DOMIntersectionObserver*> mIntersectionObservers;
+  // Array of resize observers with active observations.
   nsTArray<ResizeObserver*> mResizeObservers;
 
   RefPtr<DOMIntersectionObserver> mLazyLoadObserver;
 
-  // ResizeObserver for storing and removing the last remembered size.
+  // Elements observed for a last remembered size.
   // @see {@link https://drafts.csswg.org/css-sizing-4/#last-remembered}
-  RefPtr<ResizeObserver> mLastRememberedSizeObserver;
+  nsTHashSet<RefPtr<Element>> mElementsObservedForLastRememberedSize;
 
   // Stack of top layer elements.
   nsTArray<nsWeakPtr> mTopLayer;
@@ -5289,13 +5376,13 @@ class Document : public nsINode,
 
   RefPtr<HTMLAllCollection> mAll;
 
+  // https://drafts.csswg.org/css-view-transitions-1/#document-active-view-transition
+  RefPtr<ViewTransition> mActiveViewTransition;
+
   nsTHashSet<RefPtr<WorkerDocumentListener>> mWorkerListeners;
 
   // Pres shell resolution saved before entering fullscreen mode.
   float mSavedResolution;
-
-  // Pres shell resolution saved before creating a MobileViewportManager.
-  float mSavedResolutionBeforeMVM;
 
   nsCOMPtr<nsICookieJarSettings> mCookieJarSettings;
 
@@ -5361,6 +5448,7 @@ class Document : public nsINode,
   nsTArray<CanvasUsage> mCanvasUsage;
   uint64_t mLastCanvasUsage = 0;
 
+  RefPtr<class FragmentDirective> mFragmentDirective;
   UniquePtr<RadioGroupContainer> mRadioGroupContainer;
 
  public:
@@ -5371,11 +5459,6 @@ class Document : public nsINode,
 
   nsRefPtrHashtable<nsRefPtrHashKey<Element>, nsXULPrototypeElement>
       mL10nProtoElements;
-
-  float GetSavedResolutionBeforeMVM() { return mSavedResolutionBeforeMVM; }
-  void SetSavedResolutionBeforeMVM(float aResolution) {
-    mSavedResolutionBeforeMVM = aResolution;
-  }
 
   void LoadEventFired();
 

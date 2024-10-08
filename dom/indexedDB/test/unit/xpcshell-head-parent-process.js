@@ -28,7 +28,7 @@ function isnot(a, b, msg) {
   Assert.notEqual(a, b, msg);
 }
 
-function todo(condition, name, diag) {
+function todo(condition) {
   todo_check_true(condition);
 }
 
@@ -56,7 +56,11 @@ if (!this.runTest) {
     if (testSteps.constructor.name === "AsyncFunction") {
       // Do run our existing cleanup function that would normally be called by
       // the generator's call to finishTest().
-      registerCleanupFunction(resetTesting);
+      registerCleanupFunction(function () {
+        if (SpecialPowers.isMainProcess()) {
+          resetTesting();
+        }
+      });
 
       add_task(testSteps);
 
@@ -122,7 +126,7 @@ function expectedErrorHandler(name) {
   };
 }
 
-function expectUncaughtException(expecting) {
+function expectUncaughtException() {
   // This is dummy for xpcshell test.
 }
 
@@ -196,19 +200,19 @@ function compareKeys(k1, k2) {
   return false;
 }
 
-function addPermission(permission, url) {
+function addPermission() {
   throw new Error("addPermission");
 }
 
-function removePermission(permission, url) {
+function removePermission() {
   throw new Error("removePermission");
 }
 
-function allowIndexedDB(url) {
+function allowIndexedDB() {
   throw new Error("allowIndexedDB");
 }
 
-function disallowIndexedDB(url) {
+function disallowIndexedDB() {
   throw new Error("disallowIndexedDB");
 }
 
@@ -221,11 +225,13 @@ function resetExperimental() {
 }
 
 function enableTesting() {
+  SpecialPowers.setBoolPref("dom.quotaManager.testing", true);
   SpecialPowers.setBoolPref("dom.indexedDB.testing", true);
 }
 
 function resetTesting() {
   SpecialPowers.clearUserPref("dom.indexedDB.testing");
+  SpecialPowers.clearUserPref("dom.quotaManager.testing");
 }
 
 function gc() {
@@ -240,7 +246,7 @@ function scheduleGC() {
 function setTimeout(fun, timeout) {
   let timer = Cc["@mozilla.org/timer;1"].createInstance(Ci.nsITimer);
   var event = {
-    notify(timer) {
+    notify() {
       fun();
     },
   };
@@ -261,30 +267,12 @@ function resetOrClearAllDatabases(callback, clear) {
     throw new Error("clearAllDatabases not implemented for child processes!");
   }
 
-  const quotaPref = "dom.quotaManager.testing";
-
-  let oldPrefValue;
-  if (Services.prefs.prefHasUserValue(quotaPref)) {
-    oldPrefValue = SpecialPowers.getBoolPref(quotaPref);
-  }
-
-  SpecialPowers.setBoolPref(quotaPref, true);
-
   let request;
 
-  try {
-    if (clear) {
-      request = Services.qms.clear();
-    } else {
-      request = Services.qms.reset();
-    }
-  } catch (e) {
-    if (oldPrefValue !== undefined) {
-      SpecialPowers.setBoolPref(quotaPref, oldPrefValue);
-    } else {
-      SpecialPowers.clearUserPref(quotaPref);
-    }
-    throw e;
+  if (clear) {
+    request = Services.qms.clear();
+  } else {
+    request = Services.qms.reset();
   }
 
   request.callback = callback;
@@ -617,6 +605,10 @@ function getRelativeFile(relativePath) {
   return file;
 }
 
+const isInChaosMode = () => {
+  return !!parseInt(Services.env.get("MOZ_CHAOSMODE"), 16);
+};
+
 var SpecialPowers = {
   isMainProcess() {
     return (
@@ -644,7 +636,7 @@ var SpecialPowers = {
   clearUserPref(prefName) {
     Services.prefs.clearUserPref(prefName);
   },
-  // Copied (and slightly adjusted) from testing/specialpowers/content/SpecialPowersAPI.jsm
+  // Copied (and slightly adjusted) from testing/specialpowers/api.js
   exactGC(callback) {
     let count = 0;
 

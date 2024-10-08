@@ -7,9 +7,11 @@
 #include "CanvasTranslator.h"
 
 #include "gfxGradientCache.h"
+#include "mozilla/DataMutex.h"
 #include "mozilla/gfx/2D.h"
 #include "mozilla/gfx/CanvasManagerParent.h"
 #include "mozilla/gfx/CanvasRenderThread.h"
+#include "mozilla/gfx/DataSourceSurfaceWrapper.h"
 #include "mozilla/gfx/DrawTargetWebgl.h"
 #include "mozilla/gfx/gfxVars.h"
 #include "mozilla/gfx/GPUParent.h"
@@ -21,16 +23,17 @@
 #include "mozilla/layers/ImageDataSerializer.h"
 #include "mozilla/layers/SharedSurfacesParent.h"
 #include "mozilla/layers/TextureClient.h"
+#include "mozilla/layers/VideoBridgeParent.h"
 #include "mozilla/StaticPrefs_gfx.h"
 #include "mozilla/SyncRunnable.h"
 #include "mozilla/TaskQueue.h"
-#include "mozilla/Telemetry.h"
 #include "GLContext.h"
 #include "RecordedCanvasEventImpl.h"
 
 #if defined(XP_WIN)
 #  include "mozilla/gfx/DeviceManagerDx.h"
 #  include "mozilla/layers/TextureD3D11.h"
+#  include "mozilla/layers/VideoProcessorD3D11.h"
 #endif
 
 namespace mozilla {
@@ -69,14 +72,16 @@ CanvasTranslator::CanvasTranslator(
     const dom::ContentParentId& aContentId, uint32_t aManagerId)
     : mTranslationTaskQueue(gfx::CanvasRenderThread::CreateWorkerTaskQueue()),
       mSharedSurfacesHolder(aSharedSurfacesHolder),
+#if defined(XP_WIN)
+      mVideoProcessorD3D11("CanvasTranslator::mVideoProcessorD3D11"),
+#endif
       mMaxSpinCount(StaticPrefs::gfx_canvas_remote_max_spin_count()),
       mContentId(aContentId),
-      mManagerId(aManagerId) {
+      mManagerId(aManagerId),
+      mCanvasTranslatorEventsLock(
+          "CanvasTranslator::mCanvasTranslatorEventsLock") {
   mNextEventTimeout = TimeDuration::FromMilliseconds(
       StaticPrefs::gfx_canvas_remote_event_timeout_ms());
-
-  // Track when remote canvas has been activated.
-  Telemetry::ScalarAdd(Telemetry::ScalarID::GFX_CANVAS_REMOTE_ACTIVATED, 1);
 }
 
 CanvasTranslator::~CanvasTranslator() = default;
@@ -97,11 +102,11 @@ bool CanvasTranslator::IsInTaskQueue() const {
   return gfx::CanvasRenderThread::IsInCanvasRenderThread();
 }
 
-static bool CreateAndMapShmem(RefPtr<ipc::SharedMemoryBasic>& aShmem,
+static bool CreateAndMapShmem(RefPtr<ipc::SharedMemory>& aShmem,
                               Handle&& aHandle,
                               ipc::SharedMemory::OpenRights aOpenRights,
                               size_t aSize) {
-  auto shmem = MakeRefPtr<ipc::SharedMemoryBasic>();
+  auto shmem = MakeRefPtr<ipc::SharedMemory>();
   if (!shmem->SetHandle(std::move(aHandle), aOpenRights) ||
       !shmem->Map(aSize)) {
     return false;
@@ -112,6 +117,8 @@ static bool CreateAndMapShmem(RefPtr<ipc::SharedMemoryBasic>& aShmem,
   return true;
 }
 
+StaticRefPtr<gfx::SharedContextWebgl> CanvasTranslator::sSharedContext;
+
 bool CanvasTranslator::EnsureSharedContextWebgl() {
   if (!mSharedContext || mSharedContext->IsContextLost()) {
     if (mSharedContext) {
@@ -121,7 +128,14 @@ bool CanvasTranslator::EnsureSharedContextWebgl() {
         mRemoteTextureOwner->ClearRecycledTextures();
       }
     }
-    mSharedContext = gfx::SharedContextWebgl::Create();
+    // Check if the global shared context is still valid. If not, instantiate
+    // a new one before we try to use it.
+    if (!sSharedContext || sSharedContext->IsContextLost()) {
+      sSharedContext = gfx::SharedContextWebgl::Create();
+    }
+    mSharedContext = sSharedContext;
+    // If we can't get a new context, then the only thing left to do is block
+    // new canvases.
     if (!mSharedContext || mSharedContext->IsContextLost()) {
       mSharedContext = nullptr;
       BlockCanvas();
@@ -131,27 +145,36 @@ bool CanvasTranslator::EnsureSharedContextWebgl() {
   return true;
 }
 
+void CanvasTranslator::Shutdown() {
+  if (sSharedContext) {
+    gfx::CanvasRenderThread::Dispatch(NS_NewRunnableFunction(
+        "CanvasTranslator::Shutdown", []() { sSharedContext = nullptr; }));
+  }
+}
+
 mozilla::ipc::IPCResult CanvasTranslator::RecvInitTranslator(
-    TextureType aTextureType, gfx::BackendType aBackendType,
-    Handle&& aReadHandle, nsTArray<Handle>&& aBufferHandles,
-    uint64_t aBufferSize, CrossProcessSemaphoreHandle&& aReaderSem,
+    TextureType aTextureType, TextureType aWebglTextureType,
+    gfx::BackendType aBackendType, Handle&& aReadHandle,
+    nsTArray<Handle>&& aBufferHandles, uint64_t aBufferSize,
+    CrossProcessSemaphoreHandle&& aReaderSem,
     CrossProcessSemaphoreHandle&& aWriterSem) {
   if (mHeaderShmem) {
     return IPC_FAIL(this, "RecvInitTranslator called twice.");
   }
 
   mTextureType = aTextureType;
+  mWebglTextureType = aWebglTextureType;
   mBackendType = aBackendType;
   mOtherPid = OtherPid();
 
-  mHeaderShmem = MakeAndAddRef<ipc::SharedMemoryBasic>();
+  mHeaderShmem = MakeAndAddRef<ipc::SharedMemory>();
   if (!CreateAndMapShmem(mHeaderShmem, std::move(aReadHandle),
                          ipc::SharedMemory::RightsReadWrite, sizeof(Header))) {
     Deactivate();
     return IPC_FAIL(this, "Failed to map canvas header shared memory.");
   }
 
-  mHeader = static_cast<Header*>(mHeaderShmem->memory());
+  mHeader = static_cast<Header*>(mHeaderShmem->Memory());
 
   mWriterSemaphore.reset(CrossProcessSemaphore::Create(std::move(aWriterSem)));
   mWriterSemaphore->CloseHandle();
@@ -190,9 +213,16 @@ mozilla::ipc::IPCResult CanvasTranslator::RecvInitTranslator(
     mCanvasShmems.emplace(std::move(newShmem));
   }
 
-  DispatchToTaskQueue(NewRunnableMethod("CanvasTranslator::TranslateRecording",
-                                        this,
-                                        &CanvasTranslator::TranslateRecording));
+  if (UsePendingCanvasTranslatorEvents()) {
+    MutexAutoLock lock(mCanvasTranslatorEventsLock);
+    mPendingCanvasTranslatorEvents.push_back(
+        CanvasTranslatorEvent::TranslateRecording());
+    PostCanvasTranslatorEvents(lock);
+  } else {
+    DispatchToTaskQueue(
+        NewRunnableMethod("CanvasTranslator::TranslateRecording", this,
+                          &CanvasTranslator::TranslateRecording));
+  }
   return IPC_OK();
 }
 
@@ -202,42 +232,57 @@ ipc::IPCResult CanvasTranslator::RecvRestartTranslation() {
     return IPC_OK();
   }
 
-  DispatchToTaskQueue(NewRunnableMethod("CanvasTranslator::TranslateRecording",
-                                        this,
-                                        &CanvasTranslator::TranslateRecording));
+  if (UsePendingCanvasTranslatorEvents()) {
+    MutexAutoLock lock(mCanvasTranslatorEventsLock);
+    mPendingCanvasTranslatorEvents.push_back(
+        CanvasTranslatorEvent::TranslateRecording());
+    PostCanvasTranslatorEvents(lock);
+  } else {
+    DispatchToTaskQueue(
+        NewRunnableMethod("CanvasTranslator::TranslateRecording", this,
+                          &CanvasTranslator::TranslateRecording));
+  }
 
   return IPC_OK();
 }
 
 ipc::IPCResult CanvasTranslator::RecvAddBuffer(
-    ipc::SharedMemoryBasic::Handle&& aBufferHandle, uint64_t aBufferSize) {
+    ipc::SharedMemory::Handle&& aBufferHandle, uint64_t aBufferSize) {
   if (mDeactivated) {
     // The other side might have sent a resume message before we deactivated.
     return IPC_OK();
   }
 
-  DispatchToTaskQueue(
-      NewRunnableMethod<ipc::SharedMemoryBasic::Handle&&, size_t>(
-          "CanvasTranslator::AddBuffer", this, &CanvasTranslator::AddBuffer,
-          std::move(aBufferHandle), aBufferSize));
+  if (UsePendingCanvasTranslatorEvents()) {
+    MutexAutoLock lock(mCanvasTranslatorEventsLock);
+    mPendingCanvasTranslatorEvents.push_back(CanvasTranslatorEvent::AddBuffer(
+        std::move(aBufferHandle), aBufferSize));
+    PostCanvasTranslatorEvents(lock);
+  } else {
+    DispatchToTaskQueue(NewRunnableMethod<ipc::SharedMemory::Handle&&, size_t>(
+        "CanvasTranslator::AddBuffer", this, &CanvasTranslator::AddBuffer,
+        std::move(aBufferHandle), aBufferSize));
+  }
 
   return IPC_OK();
 }
 
-void CanvasTranslator::AddBuffer(ipc::SharedMemoryBasic::Handle&& aBufferHandle,
+bool CanvasTranslator::AddBuffer(ipc::SharedMemory::Handle&& aBufferHandle,
                                  size_t aBufferSize) {
   MOZ_ASSERT(IsInTaskQueue());
   if (mHeader->readerState == State::Failed) {
     // We failed before we got to the pause event.
-    return;
+    return false;
   }
 
   if (mHeader->readerState != State::Paused) {
     gfxCriticalNote << "CanvasTranslator::AddBuffer bad state "
                     << uint32_t(State(mHeader->readerState));
+#ifndef FUZZING_SNAPSHOT
     MOZ_DIAGNOSTIC_ASSERT(false, "mHeader->readerState == State::Paused");
+#endif
     Deactivate();
-    return;
+    return false;
   }
 
   MOZ_ASSERT(mDefaultBufferSize != 0);
@@ -247,60 +292,69 @@ void CanvasTranslator::AddBuffer(ipc::SharedMemoryBasic::Handle&& aBufferHandle,
   CheckAndSignalWriter();
 
   // Default sized buffers will have been queued for recycling.
-  if (mCurrentShmem.Size() == mDefaultBufferSize) {
+  if (mCurrentShmem.IsValid() && mCurrentShmem.Size() == mDefaultBufferSize) {
     mCanvasShmems.emplace(std::move(mCurrentShmem));
   }
 
   CanvasShmem newShmem;
   if (!CreateAndMapShmem(newShmem.shmem, std::move(aBufferHandle),
                          ipc::SharedMemory::RightsReadOnly, aBufferSize)) {
-    return;
+    return false;
   }
 
   mCurrentShmem = std::move(newShmem);
   mCurrentMemReader = mCurrentShmem.CreateMemReader();
 
-  TranslateRecording();
+  return TranslateRecording();
 }
 
 ipc::IPCResult CanvasTranslator::RecvSetDataSurfaceBuffer(
-    ipc::SharedMemoryBasic::Handle&& aBufferHandle, uint64_t aBufferSize) {
+    ipc::SharedMemory::Handle&& aBufferHandle, uint64_t aBufferSize) {
   if (mDeactivated) {
     // The other side might have sent a resume message before we deactivated.
     return IPC_OK();
   }
 
-  DispatchToTaskQueue(
-      NewRunnableMethod<ipc::SharedMemoryBasic::Handle&&, size_t>(
-          "CanvasTranslator::SetDataSurfaceBuffer", this,
-          &CanvasTranslator::SetDataSurfaceBuffer, std::move(aBufferHandle),
-          aBufferSize));
+  if (UsePendingCanvasTranslatorEvents()) {
+    MutexAutoLock lock(mCanvasTranslatorEventsLock);
+    mPendingCanvasTranslatorEvents.push_back(
+        CanvasTranslatorEvent::SetDataSurfaceBuffer(std::move(aBufferHandle),
+                                                    aBufferSize));
+    PostCanvasTranslatorEvents(lock);
+  } else {
+    DispatchToTaskQueue(NewRunnableMethod<ipc::SharedMemory::Handle&&, size_t>(
+        "CanvasTranslator::SetDataSurfaceBuffer", this,
+        &CanvasTranslator::SetDataSurfaceBuffer, std::move(aBufferHandle),
+        aBufferSize));
+  }
 
   return IPC_OK();
 }
 
-void CanvasTranslator::SetDataSurfaceBuffer(
-    ipc::SharedMemoryBasic::Handle&& aBufferHandle, size_t aBufferSize) {
+bool CanvasTranslator::SetDataSurfaceBuffer(
+    ipc::SharedMemory::Handle&& aBufferHandle, size_t aBufferSize) {
   MOZ_ASSERT(IsInTaskQueue());
   if (mHeader->readerState == State::Failed) {
     // We failed before we got to the pause event.
-    return;
+    return false;
   }
 
   if (mHeader->readerState != State::Paused) {
     gfxCriticalNote << "CanvasTranslator::SetDataSurfaceBuffer bad state "
                     << uint32_t(State(mHeader->readerState));
+#ifndef FUZZING_SNAPSHOT
     MOZ_DIAGNOSTIC_ASSERT(false, "mHeader->readerState == State::Paused");
+#endif
     Deactivate();
-    return;
+    return false;
   }
 
   if (!CreateAndMapShmem(mDataSurfaceShmem, std::move(aBufferHandle),
                          ipc::SharedMemory::RightsReadWrite, aBufferSize)) {
-    return;
+    return false;
   }
 
-  TranslateRecording();
+  return TranslateRecording();
 }
 
 void CanvasTranslator::GetDataSurface(uint64_t aSurfaceRef) {
@@ -335,7 +389,7 @@ void CanvasTranslator::GetDataSurface(uint64_t aSurfaceRef) {
     return;
   }
 
-  uint8_t* dst = static_cast<uint8_t*>(mDataSurfaceShmem->memory());
+  uint8_t* dst = static_cast<uint8_t*>(mDataSurfaceShmem->Memory());
   const uint8_t* src = map->GetData();
   const uint8_t* endSrc = src + (srcSize.height * srcStride);
   while (src < endSrc) {
@@ -366,6 +420,19 @@ void CanvasTranslator::ActorDestroy(ActorDestroyReason why) {
   // Since we might need to access the actor status off the owning IPDL thread,
   // we need to cache it here.
   mIPDLClosed = true;
+
+  {
+    MutexAutoLock lock(mCanvasTranslatorEventsLock);
+    mPendingCanvasTranslatorEvents.clear();
+  }
+
+#if defined(XP_WIN)
+  {
+    auto lock = mVideoProcessorD3D11.Lock();
+    auto& videoProcessor = lock.ref();
+    videoProcessor = nullptr;
+  }
+#endif
 
   DispatchToTaskQueue(NewRunnableMethod("CanvasTranslator::ClearTextureInfo",
                                         this,
@@ -539,6 +606,7 @@ bool CanvasTranslator::ReadNextEvent(EventType& aEventType) {
   // events from the content process. We don't want to wait for too long in case
   // other content processes are waiting for events to process.
   mHeader->readerState = State::Waiting;
+
   if (mReaderSemaphore->Wait(Some(mNextEventTimeout))) {
     MOZ_RELEASE_ASSERT(HasPendingEvent());
     MOZ_RELEASE_ASSERT(mHeader->readerState == State::Processing);
@@ -558,7 +626,7 @@ bool CanvasTranslator::ReadNextEvent(EventType& aEventType) {
   return false;
 }
 
-void CanvasTranslator::TranslateRecording() {
+bool CanvasTranslator::TranslateRecording() {
   MOZ_ASSERT(IsInTaskQueue());
 
   if (mSharedContext && EnsureSharedContextWebgl()) {
@@ -570,6 +638,7 @@ void CanvasTranslator::TranslateRecording() {
     }
   });
 
+  auto start = TimeStamp::Now();
   mHeader->readerState = State::Processing;
   EventType eventType = EventType::INVALID;
   while (ReadNextEvent(eventType)) {
@@ -595,7 +664,7 @@ void CanvasTranslator::TranslateRecording() {
 
     // Check the stream is good here or we will log the issue twice.
     if (!mCurrentMemReader.good()) {
-      return;
+      return false;
     }
 
     if (!success && !HandleExtensionEvent(eventType)) {
@@ -610,6 +679,123 @@ void CanvasTranslator::TranslateRecording() {
     }
 
     mHeader->processedCount++;
+
+    const auto maxDurationMs = 100;
+    const auto now = TimeStamp::Now();
+    const auto waitDurationMs =
+        static_cast<uint32_t>((now - start).ToMilliseconds());
+
+    if (UsePendingCanvasTranslatorEvents() && waitDurationMs > maxDurationMs &&
+        mHeader->readerState != State::Paused) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+bool CanvasTranslator::UsePendingCanvasTranslatorEvents() {
+  // XXX remove !mTranslationTaskQueue check.
+  return StaticPrefs::
+             gfx_canvas_remote_use_canvas_translator_event_AtStartup() &&
+         !mTranslationTaskQueue;
+}
+
+void CanvasTranslator::PostCanvasTranslatorEvents(
+    const MutexAutoLock& aProofOfLock) {
+  if (mIPDLClosed) {
+    return;
+  }
+
+  // Runnable has already been triggered.
+  if (mCanvasTranslatorEventsRunnable) {
+    return;
+  }
+
+  RefPtr<nsIRunnable> runnable =
+      NewRunnableMethod("CanvasTranslator::HandleCanvasTranslatorEvents", this,
+                        &CanvasTranslator::HandleCanvasTranslatorEvents);
+  mCanvasTranslatorEventsRunnable = runnable;
+
+  // Runnable has not been triggered yet.
+  DispatchToTaskQueue(runnable.forget());
+}
+
+void CanvasTranslator::HandleCanvasTranslatorEvents() {
+  MOZ_ASSERT(IsInTaskQueue());
+
+  UniquePtr<CanvasTranslatorEvent> event;
+  {
+    MutexAutoLock lock(mCanvasTranslatorEventsLock);
+    MOZ_ASSERT_IF(mIPDLClosed, mPendingCanvasTranslatorEvents.empty());
+    if (mPendingCanvasTranslatorEvents.empty()) {
+      mCanvasTranslatorEventsRunnable = nullptr;
+      return;
+    }
+    auto& front = mPendingCanvasTranslatorEvents.front();
+    event = std::move(front);
+    mPendingCanvasTranslatorEvents.pop_front();
+  }
+
+  MOZ_RELEASE_ASSERT(event.get());
+
+  bool dispatchTranslate = false;
+  while (!dispatchTranslate && event) {
+    switch (event->mTag) {
+      case CanvasTranslatorEvent::Tag::TranslateRecording:
+        dispatchTranslate = TranslateRecording();
+        break;
+      case CanvasTranslatorEvent::Tag::AddBuffer:
+        dispatchTranslate =
+            AddBuffer(event->TakeBufferHandle(), event->BufferSize());
+        break;
+      case CanvasTranslatorEvent::Tag::SetDataSurfaceBuffer:
+        dispatchTranslate = SetDataSurfaceBuffer(event->TakeBufferHandle(),
+                                                 event->BufferSize());
+        break;
+      case CanvasTranslatorEvent::Tag::ClearCachedResources:
+        ClearCachedResources();
+        break;
+    }
+
+    event.reset(nullptr);
+
+    {
+      MutexAutoLock lock(mCanvasTranslatorEventsLock);
+      MOZ_ASSERT_IF(mIPDLClosed, mPendingCanvasTranslatorEvents.empty());
+      if (mIPDLClosed) {
+        return;
+      }
+      if (!mIPDLClosed && !dispatchTranslate &&
+          !mPendingCanvasTranslatorEvents.empty()) {
+        auto& front = mPendingCanvasTranslatorEvents.front();
+        event = std::move(front);
+        mPendingCanvasTranslatorEvents.pop_front();
+      }
+    }
+  }
+
+  MOZ_ASSERT(!event);
+
+  {
+    MutexAutoLock lock(mCanvasTranslatorEventsLock);
+    mCanvasTranslatorEventsRunnable = nullptr;
+
+    MOZ_ASSERT_IF(mIPDLClosed, mPendingCanvasTranslatorEvents.empty());
+    if (mIPDLClosed) {
+      return;
+    }
+
+    if (dispatchTranslate) {
+      // Handle TranslateRecording at first in next
+      // HandleCanvasTranslatorEvents().
+      mPendingCanvasTranslatorEvents.push_front(
+          CanvasTranslatorEvent::TranslateRecording());
+    }
+
+    if (!mPendingCanvasTranslatorEvents.empty()) {
+      PostCanvasTranslatorEvents(lock);
+    }
   }
 }
 
@@ -638,7 +824,11 @@ bool CanvasTranslator::HandleExtensionEvent(int32_t aType) {
   }
 }
 
-void CanvasTranslator::BeginTransaction() { mIsInTransaction = true; }
+void CanvasTranslator::BeginTransaction() {
+  PROFILER_MARKER_TEXT("CanvasTranslator", GRAPHICS, {},
+                       "CanvasTranslator::BeginTransaction"_ns);
+  mIsInTransaction = true;
+}
 
 void CanvasTranslator::Flush() {
 #if defined(XP_WIN)
@@ -719,8 +909,12 @@ bool CanvasTranslator::CheckForFreshCanvasDevice(int aLineNumber) {
     return CreateReferenceTexture();
   }
 
+  gfx::DeviceResetReason reason = gfx::DeviceResetReason::OTHER;
+
   if (mDevice) {
-    if (mDevice->GetDeviceRemovedReason() == S_OK) {
+    const auto d3d11Reason = mDevice->GetDeviceRemovedReason();
+    reason = DXGIErrorToDeviceResetReason(d3d11Reason);
+    if (reason == gfx::DeviceResetReason::OK) {
       return false;
     }
 
@@ -730,13 +924,9 @@ bool CanvasTranslator::CheckForFreshCanvasDevice(int aLineNumber) {
   }
 
   RefPtr<Runnable> runnable =
-      NS_NewRunnableFunction("CanvasTranslator NotifyDeviceReset", []() {
-        if (XRE_IsGPUProcess()) {
-          gfx::GPUParent::GetSingleton()->NotifyDeviceReset();
-        } else {
-          gfx::GPUProcessManager::Get()->OnInProcessDeviceReset(
-              /* aTrackThreshold */ false);
-        }
+      NS_NewRunnableFunction("CanvasTranslator NotifyDeviceReset", [reason]() {
+        gfx::GPUProcessManager::GPUProcessManager::NotifyDeviceReset(
+            reason, gfx::DeviceResetDetectPlace::CANVAS_TRANSLATOR);
       });
 
   // It is safe to wait here because only the Compositor thread waits on us and
@@ -747,8 +937,6 @@ bool CanvasTranslator::CheckForFreshCanvasDevice(int aLineNumber) {
   mDevice = gfx::DeviceManagerDx::Get()->GetCanvasDevice();
   if (!mDevice) {
     // We don't have a canvas device, we need to deactivate.
-    Telemetry::ScalarAdd(
-        Telemetry::ScalarID::GFX_CANVAS_REMOTE_DEACTIVATED_NO_DEVICE, 1);
     Deactivate();
     return false;
   }
@@ -842,6 +1030,10 @@ void CanvasTranslator::PrepareShmem(int64_t aTextureId) {
 }
 
 void CanvasTranslator::ClearCachedResources() {
+  mUsedDataSurfaceForSurfaceDescriptor = nullptr;
+  mUsedWrapperForSurfaceDescriptor = nullptr;
+  mUsedSurfaceDescriptorForSurfaceDescriptor = Nothing();
+
   if (mSharedContext) {
     // If there are any DrawTargetWebgls, then try to cache their framebuffers
     // in software surfaces, just in case the GL context is lost. So long as
@@ -862,9 +1054,16 @@ ipc::IPCResult CanvasTranslator::RecvClearCachedResources() {
     return IPC_OK();
   }
 
-  DispatchToTaskQueue(
-      NewRunnableMethod("CanvasTranslator::ClearCachedResources", this,
-                        &CanvasTranslator::ClearCachedResources));
+  if (UsePendingCanvasTranslatorEvents()) {
+    MutexAutoLock lock(mCanvasTranslatorEventsLock);
+    mPendingCanvasTranslatorEvents.emplace_back(
+        CanvasTranslatorEvent::ClearCachedResources());
+    PostCanvasTranslatorEvents(lock);
+  } else {
+    DispatchToTaskQueue(
+        NewRunnableMethod("CanvasTranslator::ClearCachedResources", this,
+                          &CanvasTranslator::ClearCachedResources));
+  }
   return IPC_OK();
 }
 
@@ -909,12 +1108,16 @@ already_AddRefed<gfx::DrawTarget> CanvasTranslator::CreateDrawTarget(
     RemoteTextureOwnerId aTextureOwnerId, const gfx::IntSize& aSize,
     gfx::SurfaceFormat aFormat) {
   if (aTextureId < 0) {
+#ifndef FUZZING_SNAPSHOT
     MOZ_DIAGNOSTIC_ASSERT(false, "No texture ID set");
+#endif
     return nullptr;
   }
 
   if (!aTextureOwnerId.IsValid()) {
+#ifndef FUZZING_SNAPSHOT
     MOZ_DIAGNOSTIC_ASSERT(false, "No texture owner set");
+#endif
     return nullptr;
   }
 
@@ -953,7 +1156,9 @@ already_AddRefed<gfx::DrawTarget> CanvasTranslator::CreateDrawTarget(
 already_AddRefed<gfx::DrawTarget> CanvasTranslator::CreateDrawTarget(
     gfx::ReferencePtr aRefPtr, const gfx::IntSize& aSize,
     gfx::SurfaceFormat aFormat) {
+#ifndef FUZZING_SNAPSHOT
   MOZ_DIAGNOSTIC_ASSERT(false, "Unexpected CreateDrawTarget call!");
+#endif
   return nullptr;
 }
 
@@ -1032,6 +1237,8 @@ bool CanvasTranslator::UnlockTexture(int64_t aTextureId) {
 }
 
 bool CanvasTranslator::PresentTexture(int64_t aTextureId, RemoteTextureId aId) {
+  AUTO_PROFILER_MARKER_TEXT("CanvasTranslator", GRAPHICS, {},
+                            "CanvasTranslator::PresentTexture"_ns);
   auto result = mTextureInfo.find(aTextureId);
   if (result == mTextureInfo.end()) {
     return false;
@@ -1040,7 +1247,8 @@ bool CanvasTranslator::PresentTexture(int64_t aTextureId, RemoteTextureId aId) {
   RemoteTextureOwnerId ownerId = info.mRemoteTextureOwnerId;
   if (gfx::DrawTargetWebgl* webgl = info.GetDrawTargetWebgl()) {
     EnsureRemoteTextureOwner(ownerId);
-    if (webgl->CopyToSwapChain(aId, ownerId, mRemoteTextureOwner)) {
+    if (webgl->CopyToSwapChain(mWebglTextureType, aId, ownerId,
+                               mRemoteTextureOwner)) {
       return true;
     }
     if (mSharedContext && mSharedContext->IsContextLost()) {
@@ -1127,6 +1335,10 @@ bool CanvasTranslator::PushRemoteTexture(int64_t aTextureId, TextureData* aData,
 }
 
 void CanvasTranslator::ClearTextureInfo() {
+  mUsedDataSurfaceForSurfaceDescriptor = nullptr;
+  mUsedWrapperForSurfaceDescriptor = nullptr;
+  mUsedSurfaceDescriptorForSurfaceDescriptor = Nothing();
+
   for (auto const& entry : mTextureInfo) {
     if (entry.second.mTextureData) {
       entry.second.mTextureData->Unlock();
@@ -1135,6 +1347,13 @@ void CanvasTranslator::ClearTextureInfo() {
   mTextureInfo.clear();
   mDrawTargets.Clear();
   mSharedContext = nullptr;
+  // If the global shared context's ref is the last ref left, then clear out
+  // any internal caches and textures from the context, but still keep it
+  // alive. This saves on startup costs while not contributing significantly
+  // to memory usage.
+  if (sSharedContext && sSharedContext->hasOneRef()) {
+    sSharedContext->ClearCaches();
+  }
   mBaseDT = nullptr;
   if (mReferenceTextureData) {
     mReferenceTextureData->Unlock();
@@ -1152,6 +1371,161 @@ void CanvasTranslator::ClearTextureInfo() {
 already_AddRefed<gfx::SourceSurface> CanvasTranslator::LookupExternalSurface(
     uint64_t aKey) {
   return mSharedSurfacesHolder->Get(wr::ToExternalImageId(aKey));
+}
+
+// Check if the surface descriptor describes a GPUVideo texture for which we
+// only have an opaque source/handle from SurfaceDescriptorRemoteDecoder to
+// derive the actual texture from.
+static bool SDIsSupportedRemoteDecoder(const SurfaceDescriptor& sd) {
+  if (sd.type() != SurfaceDescriptor::TSurfaceDescriptorGPUVideo) {
+    return false;
+  }
+
+  const auto& sdv = sd.get_SurfaceDescriptorGPUVideo();
+  const auto& sdvType = sdv.type();
+  if (sdvType != SurfaceDescriptorGPUVideo::TSurfaceDescriptorRemoteDecoder) {
+    return false;
+  }
+
+  const auto& sdrd = sdv.get_SurfaceDescriptorRemoteDecoder();
+  const auto& subdesc = sdrd.subdesc();
+  const auto& subdescType = subdesc.type();
+
+  if (subdescType == RemoteDecoderVideoSubDescriptor::Tnull_t ||
+      subdescType ==
+          RemoteDecoderVideoSubDescriptor::TSurfaceDescriptorMacIOSurface ||
+      subdescType == RemoteDecoderVideoSubDescriptor::TSurfaceDescriptorD3D10) {
+    return true;
+  }
+
+  return false;
+}
+
+already_AddRefed<gfx::DataSourceSurface>
+CanvasTranslator::MaybeRecycleDataSurfaceForSurfaceDescriptor(
+    TextureHost* aTextureHost,
+    const SurfaceDescriptorRemoteDecoder& aSurfaceDescriptor) {
+  if (!StaticPrefs::gfx_canvas_remote_recycle_used_data_surface()) {
+    return nullptr;
+  }
+
+  auto& usedSurf = mUsedDataSurfaceForSurfaceDescriptor;
+  auto& usedWrapper = mUsedWrapperForSurfaceDescriptor;
+  auto& usedDescriptor = mUsedSurfaceDescriptorForSurfaceDescriptor;
+
+  if (usedDescriptor.isSome() && usedDescriptor.ref() == aSurfaceDescriptor) {
+    MOZ_ASSERT(usedSurf);
+    MOZ_ASSERT(usedWrapper);
+    MOZ_ASSERT(aTextureHost->GetSize() == usedSurf->GetSize());
+
+    // Since the data is the same as before, the DataSourceSurfaceWrapper can be
+    // reused.
+    return do_AddRef(usedWrapper);
+  }
+
+  usedWrapper = nullptr;
+  usedDescriptor = Some(aSurfaceDescriptor);
+
+  bool isYuvVideo = false;
+  if (aTextureHost->AsMacIOSurfaceTextureHost()) {
+    if (aTextureHost->GetFormat() == SurfaceFormat::NV12 ||
+        aTextureHost->GetFormat() == SurfaceFormat::YUY2) {
+      isYuvVideo = true;
+    }
+  } else if (aTextureHost->GetFormat() == gfx::SurfaceFormat::YUV420) {
+    isYuvVideo = true;
+  }
+
+  if (isYuvVideo && usedSurf && usedSurf->refCount() == 1 &&
+      usedSurf->GetFormat() == gfx::SurfaceFormat::B8G8R8X8 &&
+      aTextureHost->GetSize() == usedSurf->GetSize()) {
+    // Reuse previously used DataSourceSurface if it is not used and same
+    // size/format.
+    usedSurf = aTextureHost->GetAsSurface(usedSurf);
+    // Wrap DataSourceSurface with DataSourceSurfaceWrapper to force upload in
+    // DrawTargetWebgl::DrawSurface().
+    usedWrapper =
+        new gfx::DataSourceSurfaceWrapper(mUsedDataSurfaceForSurfaceDescriptor);
+    return do_AddRef(usedWrapper);
+  }
+
+  usedSurf = aTextureHost->GetAsSurface(nullptr);
+  // Wrap DataSourceSurface with DataSourceSurfaceWrapper to force upload in
+  // DrawTargetWebgl::DrawSurface().
+  usedWrapper =
+      new gfx::DataSourceSurfaceWrapper(mUsedDataSurfaceForSurfaceDescriptor);
+  return do_AddRef(usedWrapper);
+}
+
+already_AddRefed<gfx::SourceSurface>
+CanvasTranslator::LookupSourceSurfaceFromSurfaceDescriptor(
+    const SurfaceDescriptor& aDesc) {
+  if (!SDIsSupportedRemoteDecoder(aDesc)) {
+    return nullptr;
+  }
+
+  const auto& sdrd = aDesc.get_SurfaceDescriptorGPUVideo()
+                         .get_SurfaceDescriptorRemoteDecoder();
+  const auto& subdesc = sdrd.subdesc();
+  const auto& subdescType = subdesc.type();
+
+  RefPtr<VideoBridgeParent> parent =
+      VideoBridgeParent::GetSingleton(sdrd.source());
+  if (!parent) {
+    MOZ_ASSERT_UNREACHABLE("unexpected to be called");
+    gfxCriticalNote << "TexUnpackSurface failed to get VideoBridgeParent";
+    return nullptr;
+  }
+  RefPtr<TextureHost> texture =
+      parent->LookupTexture(mContentId, sdrd.handle());
+  if (!texture) {
+    MOZ_ASSERT_UNREACHABLE("unexpected to be called");
+    gfxCriticalNote << "TexUnpackSurface failed to get TextureHost";
+    return nullptr;
+  }
+
+#if defined(XP_WIN)
+  if (subdescType == RemoteDecoderVideoSubDescriptor::TSurfaceDescriptorD3D10) {
+    auto* textureHostD3D11 = texture->AsDXGITextureHostD3D11();
+    if (!textureHostD3D11) {
+      MOZ_ASSERT_UNREACHABLE("unexpected to be called");
+      return nullptr;
+    }
+    auto& usedSurf = mUsedDataSurfaceForSurfaceDescriptor;
+    auto& usedDescriptor = mUsedSurfaceDescriptorForSurfaceDescriptor;
+
+    // TODO reuse DataSourceSurface if no update.
+
+    usedSurf =
+        textureHostD3D11->GetAsSurfaceWithDevice(mDevice, mVideoProcessorD3D11);
+    if (!usedSurf) {
+      MOZ_ASSERT_UNREACHABLE("unexpected to be called");
+      usedDescriptor = Nothing();
+      return nullptr;
+    }
+    usedDescriptor = Some(sdrd);
+
+    return do_AddRef(usedSurf);
+  }
+#endif
+
+  if (subdescType ==
+      RemoteDecoderVideoSubDescriptor::TSurfaceDescriptorMacIOSurface) {
+    MOZ_ASSERT(texture->AsMacIOSurfaceTextureHost());
+
+    RefPtr<gfx::DataSourceSurface> surf =
+        MaybeRecycleDataSurfaceForSurfaceDescriptor(texture, sdrd);
+    return surf.forget();
+  }
+
+  if (subdescType == RemoteDecoderVideoSubDescriptor::Tnull_t) {
+    RefPtr<gfx::DataSourceSurface> surf =
+        MaybeRecycleDataSurfaceForSurfaceDescriptor(texture, sdrd);
+    return surf.forget();
+  }
+
+  MOZ_ASSERT_UNREACHABLE("unexpected to be called");
+  return nullptr;
 }
 
 void CanvasTranslator::CheckpointReached() { CheckAndSignalWriter(); }

@@ -44,7 +44,7 @@ import time
 import mozpack.path as mozpath
 from mach.decorators import Command, CommandArgument
 from mozbuild.base import BinaryNotFoundException, MachCommandBase
-from mozbuild.util import mkdir
+from mozbuild.dirutils import mkdir
 from six import StringIO
 
 AUTOMATION = "MOZ_AUTOMATION" in os.environ
@@ -61,7 +61,7 @@ if py3_minor > 7:
     SCIPY_VERSION = "1.9.3"
     NUMPY_VERSION = "1.23.5"
     PILLOW_VERSION = "9.2.0"
-    OPENCV_VERSION = "4.7.0.72"
+    OPENCV_VERSION = "4.6.0.66"
 
 MIN_NODE_VERSION = "16.0.0"
 
@@ -152,7 +152,7 @@ def browsertime_path():
 
 def visualmetrics_path():
     """The path to the `visualmetrics.py` script."""
-    return mozpath.join(package_path(), "browsertime", "visualmetrics-portable.py")
+    return mozpath.join(package_path(), "visualmetrics", "visualmetrics-portable.py")
 
 
 def host_platform():

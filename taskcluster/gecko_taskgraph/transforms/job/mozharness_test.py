@@ -15,6 +15,8 @@ from gecko_taskgraph.transforms.job import configure_taskdesc_for_run, run_job_u
 from gecko_taskgraph.transforms.job.common import get_expiration, support_vcs_checkout
 from gecko_taskgraph.transforms.test import normpath, test_description_schema
 from gecko_taskgraph.util.attributes import is_try
+from gecko_taskgraph.util.chunking import get_test_tags
+from gecko_taskgraph.util.perftest import is_external_browser
 
 VARIANTS = [
     "shippable",
@@ -63,9 +65,13 @@ def test_packages_url(taskdesc):
     )
     # for android shippable we need to add 'en-US' to the artifact url
     test = taskdesc["run"]["test"]
-    if "android" in test["test-platform"] and (
-        get_variant(test["test-platform"])
-        in ("shippable", "shippable-qr", "shippable-lite", "shippable-lite-qr")
+    if (
+        "android" in test["test-platform"]
+        and (
+            get_variant(test["test-platform"])
+            in ("shippable", "shippable-qr", "shippable-lite", "shippable-lite-qr")
+        )
+        and not is_external_browser(test.get("try-name", ""))
     ):
         head, tail = os.path.split(artifact_url)
         artifact_url = os.path.join(head, "en-US", tail)
@@ -225,6 +231,11 @@ def mozharness_test_on_docker(config, job, taskdesc):
             {test["suite"]: test["test-manifests"]}, sort_keys=True
         )
 
+    test_tags = get_test_tags(config, env)
+    if test_tags:
+        env["MOZHARNESS_TEST_TAG"] = json.dumps(test_tags)
+        command.extend(["--tag={}".format(x) for x in test_tags])
+
     # TODO: remove the need for run['chunked']
     elif mozharness.get("chunked") or test["chunks"] > 1:
         command.append("--total-chunk={}".format(test["chunks"]))
@@ -358,7 +369,6 @@ def mozharness_test_on_generic_worker(config, job, taskdesc):
                     "artifact-reference": "<build/public/build/mozharness.zip>"
                 },
                 "MOZILLA_BUILD_URL": {"task-reference": installer},
-                "MOZ_NO_REMOTE": "1",
                 "NEED_XVFB": "false",
                 "XPCOM_DEBUG_BREAK": "warn",
                 "NO_FAIL_ON_TEST_ERRORS": "1",
@@ -434,6 +444,11 @@ def mozharness_test_on_generic_worker(config, job, taskdesc):
         env["MOZHARNESS_TEST_PATHS"] = json.dumps(
             {test["suite"]: test["test-manifests"]}, sort_keys=True
         )
+
+    test_tags = get_test_tags(config, env)
+    if test_tags:
+        env["MOZHARNESS_TEST_TAG"] = json.dumps(test_tags)
+        mh_command.extend(["--tag={}".format(x) for x in test_tags])
 
     # TODO: remove the need for run['chunked']
     elif mozharness.get("chunked") or test["chunks"] > 1:

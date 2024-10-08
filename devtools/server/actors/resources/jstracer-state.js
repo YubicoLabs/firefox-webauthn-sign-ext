@@ -4,20 +4,18 @@
 
 "use strict";
 
-const {
-  TYPES: { JSTRACER_STATE },
-} = require("resource://devtools/server/actors/resources/index.js");
+const { JSTracer } = ChromeUtils.importESModule(
+  "resource://devtools/server/tracer/tracer.sys.mjs",
+  { global: "contextual" }
+);
 
-// Bug 1827382, as this module can be used from the worker thread,
-// the following JSM may be loaded by the worker loader until
-// we have proper support for ESM from workers.
-const {
-  addTracingListener,
-  removeTracingListener,
-} = require("resource://devtools/server/tracer/tracer.jsm");
-
-const { LOG_METHODS } = require("resource://devtools/server/actors/tracer.js");
 const Targets = require("resource://devtools/server/actors/targets/index.js");
+loader.lazyRequireGetter(
+  this,
+  "TRACER_LOG_METHODS",
+  "resource://devtools/shared/specs/tracer.js",
+  true
+);
 
 class TracingStateWatcher {
   /**
@@ -42,7 +40,7 @@ class TracingStateWatcher {
     this.tracingListener = {
       onTracingToggled: this.onTracingToggled.bind(this),
     };
-    addTracingListener(this.tracingListener);
+    JSTracer.addTracingListener(this.tracingListener);
   }
 
   /**
@@ -52,7 +50,7 @@ class TracingStateWatcher {
     if (!this.tracingListener) {
       return;
     }
-    removeTracingListener(this.tracingListener);
+    JSTracer.removeTracingListener(this.tracingListener);
   }
 
   /**
@@ -79,11 +77,10 @@ class TracingStateWatcher {
 
     this.onAvailable([
       {
-        resourceType: JSTRACER_STATE,
         enabled,
         logMethod,
         profile:
-          logMethod == LOG_METHODS.PROFILER && !enabled
+          logMethod == TRACER_LOG_METHODS.PROFILER && !enabled
             ? tracerActor.getProfile()
             : undefined,
         timeStamp: ChromeUtils.dateNow(),

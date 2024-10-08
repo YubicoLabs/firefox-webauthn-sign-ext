@@ -36,6 +36,8 @@ ChromeUtils.defineESModuleGetters(lazy, {
   TelemetryFeed: "resource://activity-stream/lib/TelemetryFeed.sys.mjs",
   TopSitesFeed: "resource://activity-stream/lib/TopSitesFeed.sys.mjs",
   TopStoriesFeed: "resource://activity-stream/lib/TopStoriesFeed.sys.mjs",
+  WallpaperFeed: "resource://activity-stream/lib/WallpaperFeed.sys.mjs",
+  WeatherFeed: "resource://activity-stream/lib/WeatherFeed.sys.mjs",
 });
 
 // NB: Eagerly load modules that will be loaded/constructed/initialized in the
@@ -43,10 +45,29 @@ ChromeUtils.defineESModuleGetters(lazy, {
 import {
   actionCreators as ac,
   actionTypes as at,
-} from "resource://activity-stream/common/Actions.sys.mjs";
+} from "resource://activity-stream/common/Actions.mjs";
 
+const REGION_TOPICS_CONFIG =
+  "browser.newtabpage.activity-stream.discoverystream.topicSelection.region-topics-config";
+const LOCALE_TOPICS_CONFIG =
+  "browser.newtabpage.activity-stream.discoverystream.topicSelection.locale-topics-config";
+
+const REGION_TOPIC_LABEL_CONFIG =
+  "browser.newtabpage.activity-stream.discoverystream.topicLabels.region-topic-label-config";
+const LOCALE_TOPIC_LABEL_CONFIG =
+  "browser.newtabpage.activity-stream.discoverystream.topicLabels.locale-topic-label-config";
 const REGION_BASIC_CONFIG =
   "browser.newtabpage.activity-stream.discoverystream.region-basic-config";
+
+const REGION_THUMBS_CONFIG =
+  "browser.newtabpage.activity-stream.discoverystream.thumbsUpDown.region-thumbs-config";
+const LOCALE_THUMBS_CONFIG =
+  "browser.newtabpage.activity-stream.discoverystream.thumbsUpDown.locale-thumbs-config";
+
+const REGION_CONTEXTUAL_CONTENT_CONFIG =
+  "browser.newtabpage.activity-stream.discoverystream.contextualContent.region-content-config";
+const LOCALE_CONTEXTUAL_CONTENT_CONFIG =
+  "browser.newtabpage.activity-stream.discoverystream.contextualContent.locale-content-config";
 
 // Determine if spocs should be shown for a geo/locale
 function showSpocs({ geo }) {
@@ -54,6 +75,91 @@ function showSpocs({ geo }) {
     lazy.NimbusFeatures.pocketNewtab.getVariable("regionSpocsConfig") || "";
   const spocsGeo = spocsGeoString.split(",").map(s => s.trim());
   return spocsGeo.includes(geo);
+}
+
+function showWeather({ geo, locale }) {
+  const weatherGeoString =
+    lazy.NimbusFeatures.pocketNewtab.getVariable("regionWeatherConfig") || "";
+  const weatherLocaleString =
+    lazy.NimbusFeatures.pocketNewtab.getVariable("localeWeatherConfig") || "";
+  const weatherGeo = weatherGeoString
+    .split(",")
+    .map(s => s.trim())
+    .filter(item => item);
+  const weatherLocale = weatherLocaleString
+    .split(",")
+    .map(s => s.trim())
+    .filter(item => item);
+  return weatherGeo.includes(geo) && weatherLocale.includes(locale);
+}
+
+function showTopicsSelection({ geo, locale }) {
+  const topicsGeoString =
+    Services.prefs.getStringPref(REGION_TOPICS_CONFIG) || "";
+  const topicsLocaleString =
+    Services.prefs.getStringPref(LOCALE_TOPICS_CONFIG) || "";
+  const topicsGeo = topicsGeoString
+    .split(",")
+    .map(s => s.trim())
+    .filter(item => item);
+  const topicsLocale = topicsLocaleString
+    .split(",")
+    .map(s => s.trim())
+    .filter(item => item);
+  return topicsGeo.includes(geo) && topicsLocale.includes(locale);
+}
+
+function showTopicLabels({ geo, locale }) {
+  const geoString =
+    Services.prefs.getStringPref(REGION_TOPIC_LABEL_CONFIG) || "";
+  const localeString =
+    Services.prefs.getStringPref(LOCALE_TOPIC_LABEL_CONFIG) || "";
+  const topicLabelGeo = geoString
+    .split(",")
+    .map(s => s.trim())
+    .filter(item => item);
+  const topicLabelLocale = localeString
+    .split(",")
+    .map(s => s.trim())
+    .filter(item => item);
+  return topicLabelGeo.includes(geo) && topicLabelLocale.includes(locale);
+}
+
+function showThumbsUpDown({ geo, locale }) {
+  const thumbsUpDownGeoString =
+    Services.prefs.getStringPref(REGION_THUMBS_CONFIG) || "";
+  const thumbsUpDownLocaleString =
+    Services.prefs.getStringPref(LOCALE_THUMBS_CONFIG) || "";
+  const thumbsUpDownGeo = thumbsUpDownGeoString
+    .split(",")
+    .map(s => s.trim())
+    .filter(item => item);
+  const thumbsUpDownLocale = thumbsUpDownLocaleString
+    .split(",")
+    .map(s => s.trim())
+    .filter(item => item);
+  return thumbsUpDownGeo.includes(geo) && thumbsUpDownLocale.includes(locale);
+}
+
+function showContextualContent({ geo, locale }) {
+  const contextualContentGeoString =
+    Services.prefs.getStringPref(REGION_CONTEXTUAL_CONTENT_CONFIG) || "";
+  const contextualContentLocaleString =
+    Services.prefs.getStringPref(LOCALE_CONTEXTUAL_CONTENT_CONFIG) || "";
+
+  const contextualContentGeo = contextualContentGeoString
+    .split(",")
+    .map(s => s.trim())
+    .filter(item => item);
+  const contextualContentLocale = contextualContentLocaleString
+    .split(",")
+    .map(s => s.trim())
+    .filter(item => item);
+
+  return (
+    contextualContentGeo.includes(geo) &&
+    contextualContentLocale.includes(locale)
+  );
 }
 
 // Configure default Activity Stream prefs with a plain `value` or a `getValue`
@@ -128,6 +234,72 @@ export const PREFS_CONFIG = new Map([
     {
       title: "Show sponsored top sites",
       value: true,
+    },
+  ],
+  [
+    "unifiedAds.enabled",
+    {
+      title: "Use Mozilla Ad Routing Service (MARS) unified ads API",
+      value: false,
+    },
+  ],
+  [
+    "unifiedAds.endpoint",
+    {
+      title: "Mozilla Ad Routing Service (MARS) unified ads API endpoint URL",
+      value: "https://ads.mozilla.org/",
+    },
+  ],
+  [
+    "unifiedAds.blockedAds",
+    {
+      title:
+        "CSV list of blocked (dismissed) MARS ads. This payload is sent back every time new ads are fetched.",
+      value: "",
+    },
+  ],
+  [
+    "system.showWeather",
+    {
+      title: "system.showWeather",
+      // pref is dynamic
+      getValue: showWeather,
+    },
+  ],
+  [
+    "showWeather",
+    {
+      title: "showWeather",
+      value: true,
+    },
+  ],
+  [
+    "weather.query",
+    {
+      title: "weather.query",
+      value: "",
+    },
+  ],
+  [
+    "weather.locationSearchEnabled",
+    {
+      title: "Enable the option to search for a specific city",
+      value: false,
+    },
+  ],
+  [
+    "weather.temperatureUnits",
+    {
+      title: "Switch the temperature between Celsius and Fahrenheit",
+      getValue: args => (args.locale === "en-US" ? "f" : "c"),
+    },
+  ],
+  [
+    "weather.display",
+    {
+      title:
+        "Toggle the weather widget to include a text summary of the current conditions",
+      value: "simple",
     },
   ],
   [
@@ -233,6 +405,133 @@ export const PREFS_CONFIG = new Map([
     },
   ],
   [
+    "newtabWallpapers.enabled",
+    {
+      title: "Boolean flag to turn wallpaper functionality on and off",
+      value: false,
+    },
+  ],
+  [
+    "newtabWallpapers.v2.enabled",
+    {
+      title: "Boolean flag to turn wallpaper v2 functionality on and off",
+      value: false,
+    },
+  ],
+  [
+    "newtabLayouts.variant-a",
+    {
+      title: "Boolean flag to turn layout variant A on and off",
+      value: false,
+    },
+  ],
+  [
+    "newtabLayouts.variant-b",
+    {
+      title: "Boolean flag to turn layout variant B on and off",
+      value: false,
+    },
+  ],
+  [
+    "discoverystream.spoc-positions",
+    {
+      title: "CSV string of spoc position indexes on newtab Pocket grid",
+      value: "1,5,7,11,18,20",
+    },
+  ],
+  [
+    "discoverystream.placements.spocs",
+    {
+      title:
+        "CSV string of spoc placement ids on newtab Pocket grid. A placement id tells our ad server where the ads are intended to be displayed.",
+    },
+  ],
+  [
+    "discoverystream.placements.spocs.counts",
+    {
+      title:
+        "CSV string of spoc placement counts on newtab Pocket grid. The count tells the ad server how many ads to return for this position and placement.",
+    },
+  ],
+  [
+    "discoverystream.placements.tiles",
+    {
+      title:
+        "CSV string of tiles placement ids on newtab tiles section. A placement id tells our ad server where the ads are intended to be displayed.",
+    },
+  ],
+  [
+    "discoverystream.placements.tiles.counts",
+    {
+      title:
+        "CSV string of tiles placement counts on newtab tiles section. The count tells the ad server how many ads to return for this position and placement.",
+    },
+  ],
+  [
+    "newtabWallpapers.highlightEnabled",
+    {
+      title: "Boolean flag to show the highlight about the Wallpaper feature",
+      value: false,
+    },
+  ],
+  [
+    "newtabWallpapers.highlightDismissed",
+    {
+      title:
+        "Boolean flag to remember if the user has seen the feature highlight",
+      value: false,
+    },
+  ],
+  [
+    "newtabWallpapers.highlightSeenCounter",
+    {
+      title: "Count the number of times a user has seen the feature highlight",
+      value: 0,
+    },
+  ],
+  [
+    "newtabWallpapers.highlightHeaderText",
+    {
+      title: "Changes the wallpaper feature highlight header text",
+      value: "",
+    },
+  ],
+  [
+    "newtabWallpapers.highlightContentText",
+    {
+      title: "Changes the wallpaper feature highlight content text",
+      value: "",
+    },
+  ],
+  [
+    "newtabWallpapers.highlightCtaText",
+    {
+      title: "Changes the wallpaper feature highlight cta text",
+      value: "",
+    },
+  ],
+  [
+    "newtabWallpapers.wallpaper-light",
+    {
+      title: "Currently set light wallpaper",
+      value: "",
+    },
+  ],
+  [
+    "newtabWallpapers.wallpaper-dark",
+    {
+      title: "Currently set dark wallpaper",
+      value: "",
+    },
+  ],
+  [
+    "newtabWallpapers.wallpaper",
+    {
+      title: "Currently set wallpaper",
+      value: "",
+    },
+  ],
+  [
     "improvesearch.noDefaultSearchTile",
     {
       title: "Remove tiles that are the same as the default search",
@@ -280,21 +579,6 @@ export const PREFS_CONFIG = new Map([
     },
   ],
   [
-    "asrouter.providers.onboarding",
-    {
-      title: "Configuration for onboarding provider",
-      value: JSON.stringify({
-        id: "onboarding",
-        type: "local",
-        localProvider: "OnboardingMessageProvider",
-        enabled: true,
-        // Block specific messages from this local provider
-        exclude: [],
-      }),
-    },
-  ],
-  // See browser/app/profile/firefox.js for other ASR preferences. They must be defined there to enable roll-outs.
-  [
     "discoverystream.flight.blocks",
     {
       title: "Track flight blocks",
@@ -306,7 +590,7 @@ export const PREFS_CONFIG = new Map([
     "discoverystream.config",
     {
       title: "Configuration for the new pocket new tab",
-      getValue: ({ geo, locale }) => {
+      getValue: () => {
         return JSON.stringify({
           api_key_pref: "extensions.pocket.oAuthConsumerKey",
           collapsible: true,
@@ -321,7 +605,7 @@ export const PREFS_CONFIG = new Map([
       title:
         "Endpoint prefixes (comma-separated) that are allowed to be requested",
       value:
-        "https://getpocket.cdn.mozilla.net/,https://firefox-api-proxy.cdn.mozilla.net/,https://spocs.getpocket.com/",
+        "https://getpocket.cdn.mozilla.net/,https://firefox-api-proxy.cdn.mozilla.net/,https://spocs.getpocket.com/,https://merino.services.mozilla.com/,https://ads.mozilla.org/",
     },
   ],
   [
@@ -337,6 +621,22 @@ export const PREFS_CONFIG = new Map([
       title: "Allows the user to dismiss the new Pocket onboarding experience",
       skipBroadcast: true,
       alsoToPreloaded: true,
+      value: false,
+    },
+  ],
+  [
+    "discoverystream.thumbsUpDown.enabled",
+    {
+      title: "Allow users to give thumbs up/down on recommended stories",
+      // pref is dynamic
+      getValue: showThumbsUpDown,
+    },
+  ],
+  [
+    "discoverystream.thumbsUpDown.searchTopsitesCompact",
+    {
+      title:
+        "A compact layout of the search/topsites/stories sections to account for new height from thumbs up/down icons ",
       value: false,
     },
   ],
@@ -387,10 +687,148 @@ export const PREFS_CONFIG = new Map([
     },
   ],
   [
+    "discoverystream.topicSelection.enabled",
+    {
+      title: "Enables topic selection for discovery stream",
+      // pref is dynamic
+      getValue: showTopicsSelection,
+    },
+  ],
+  [
+    "discoverystream.topicSelection.topics",
+    {
+      title: "Topics available",
+      value:
+        "business, arts, food, health, finance, government, sports, tech, travel, education-science, society",
+    },
+  ],
+  [
+    "discoverystream.topicSelection.selectedTopics",
+    {
+      title: "Selected topics",
+      value: "",
+    },
+  ],
+  [
+    "discoverystream.topicSelection.suggestedTopics",
+    {
+      title: "Suggested topics to choose during onboarding for topic selection",
+      value: "business, arts, government",
+    },
+  ],
+  [
+    "discoverystream.topicSelection.hasBeenUpdatedPreviously",
+    {
+      title: "Returns true only if the user has previously selected topics",
+      value: false,
+    },
+  ],
+  [
+    "discoverystream.topicSelection.onboarding.displayCount",
+    {
+      title: "amount of times that topic selection onboarding has been shown",
+      value: 0,
+    },
+  ],
+  [
+    "discoverystream.topicSelection.onboarding.maybeDisplay",
+    {
+      title:
+        "Whether the onboarding should be shown, based on previous interactions",
+      value: true,
+    },
+  ],
+  [
+    "discoverystream.topicSelection.onboarding.lastDisplayed",
+    {
+      title:
+        "time in ms that onboarding was last shown (stored as string due to contraits of prefs)",
+      value: "",
+    },
+  ],
+  [
+    "discoverystream.topicSelection.onboarding.displayTimeout",
+    {
+      title: "time in ms that the onboarding show be shown next",
+      value: 0,
+    },
+  ],
+  [
+    "discoverystream.topicSelection.onboarding.enabled",
+    {
+      title: "enabled onboarding experience for topic selection onboarding",
+      value: false,
+    },
+  ],
+  [
+    "discoverystream.topicLabels.enabled",
+    {
+      title: "Enables topic labels for discovery stream",
+      // pref is dynamic
+      getValue: showTopicLabels,
+    },
+  ],
+  [
     "showRecentSaves",
     {
       title: "Control whether a user wants recent saves visible on Newtab",
       value: true,
+    },
+  ],
+  [
+    "discoverystream.spocs.cacheTimeout",
+    {
+      title: "Set sponsored content cache timeout in minutes.",
+    },
+  ],
+  [
+    "discoverystream.spocs.startupCache.enabled",
+    {
+      title: "Controls if spocs should be included in startup cache.",
+      value: true,
+    },
+  ],
+  [
+    "discoverystream.contextualContent.enabled",
+    {
+      title: "Controls if contextual content (List feed) is displayed",
+      getValue: showContextualContent,
+    },
+  ],
+  [
+    "discoverystream.contextualContent.feeds",
+    {
+      title: "CSV list of possible topics for the contextual content feed",
+      value: "need_to_know",
+    },
+  ],
+  [
+    "discoverystream.contextualContent.selectedFeed",
+    {
+      title:
+        "currently selected feed (one of discoverystream.contextualContent.feeds) to display in listfeed",
+      value: "need_to_know",
+    },
+  ],
+  [
+    "discoverystream.contextualContent.listFeedTitle",
+    {
+      title: "Title for currently selected feed",
+      value: "",
+    },
+  ],
+  [
+    "support.url",
+    {
+      title: "Link to HNT's support page",
+      getValue: () => {
+        // Services.urlFormatter completes the in-product SUMO page URL:
+        // https://support.mozilla.org/1/firefox/%VERSION%/%OS%/%LOCALE%/new-tab
+        const baseUrl = Services.urlFormatter.formatURLPref(
+          "app.support.baseURL"
+        );
+        return `${baseUrl}new-tab`;
+      },
     },
   ],
 ]);
@@ -522,6 +960,18 @@ const FEEDS_DATA = [
     name: "discoverystreamfeed",
     factory: () => new lazy.DiscoveryStreamFeed(),
     title: "Handles new pocket ui for the new tab page",
+    value: true,
+  },
+  {
+    name: "wallpaperfeed",
+    factory: () => new lazy.WallpaperFeed(),
+    title: "Handles fetching and managing wallpaper data from RemoteSettings",
+    value: true,
+  },
+  {
+    name: "weatherfeed",
+    factory: () => new lazy.WeatherFeed(),
+    title: "Handles fetching and caching weather data",
     value: true,
   },
 ];
@@ -689,7 +1139,7 @@ export class ActivityStream {
     }
   }
 
-  observe(subject, topic, data) {
+  observe(subject, topic) {
     switch (topic) {
       case "intl:app-locales-changed":
       case lazy.Region.REGION_TOPIC:

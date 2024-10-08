@@ -29,7 +29,8 @@ export var TelemetryUtils = {
    *
    * Here is an example of listening for that event:
    *
-   *  const { TelemetryUtils } = ChromeUtils.import("resource://gre/modules/TelemetryUtils.jsm");
+   *  const { TelemetryUtils } =
+   *    ChromeUtils.importESModule("resource://gre/modules/TelemetryUtils.sys.mjs");
    *
    *  class YourClass {
    *    constructor() {
@@ -96,18 +97,17 @@ export var TelemetryUtils = {
   },
 
   /**
+   * A fixed valid profile group ID used when Telemetry upload is disabled.
+   */
+  get knownProfileGroupID() {
+    return "decafdec-afde-cafd-ecaf-decafdecafde";
+  },
+
+  /**
    * True if this is a content process.
    */
   get isContentProcess() {
     return IS_CONTENT_PROCESS;
-  },
-
-  /**
-   * Returns the state of the Telemetry enabled preference, making sure
-   * it correctly evaluates to a boolean type.
-   */
-  get isTelemetryEnabled() {
-    return TelemetryControllerBase.isTelemetryEnabled;
   },
 
   /**

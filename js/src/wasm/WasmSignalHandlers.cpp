@@ -18,7 +18,6 @@
 
 #include "wasm/WasmSignalHandlers.h"
 
-#include "mozilla/DebugOnly.h"
 #include "mozilla/ThreadLocal.h"
 
 #include "threading/Thread.h"
@@ -40,8 +39,6 @@
 
 using namespace js;
 using namespace js::wasm;
-
-using mozilla::DebugOnly;
 
 #if !defined(JS_CODEGEN_NONE)
 
@@ -518,16 +515,14 @@ struct AutoHandlingTrap {
   MOZ_ASSERT(sAlreadyHandlingTrap.get());
 
   uint8_t* pc = ContextToPC(context);
-  const CodeSegment* codeSegment = LookupCodeSegment(pc);
-  if (!codeSegment || !codeSegment->isModule()) {
+  const CodeBlock* codeBlock = LookupCodeBlock(pc);
+  if (!codeBlock) {
     return false;
   }
 
-  const ModuleSegment& segment = *codeSegment->asModule();
-
   Trap trap;
   BytecodeOffset bytecode;
-  if (!segment.code().lookupTrap(pc, &trap, &bytecode)) {
+  if (!codeBlock->lookupTrap(pc, &trap, &bytecode)) {
     return false;
   }
 
@@ -539,7 +534,7 @@ struct AutoHandlingTrap {
 
   auto* frame = reinterpret_cast<Frame*>(ContextToFP(context));
   Instance* instance = GetNearestEffectiveInstance(frame);
-  MOZ_RELEASE_ASSERT(&instance->code() == &segment.code() ||
+  MOZ_RELEASE_ASSERT(&instance->code() == codeBlock->code ||
                      trap == Trap::IndirectCallBadSig);
 
   JSContext* cx =
@@ -551,7 +546,7 @@ struct AutoHandlingTrap {
   // will call finishWasmTrap().
   jit::JitActivation* activation = cx->activation()->asJit();
   activation->startWasmTrap(trap, bytecode.offset(), ToRegisterState(context));
-  SetContextPC(context, segment.trapCode());
+  SetContextPC(context, codeBlock->code->trapCode());
   return true;
 }
 
@@ -983,16 +978,14 @@ bool wasm::MemoryAccessTraps(const RegisterState& regs, uint8_t* addr,
 #ifdef JS_CODEGEN_NONE
   return false;
 #else
-  const wasm::CodeSegment* codeSegment = wasm::LookupCodeSegment(regs.pc);
-  if (!codeSegment || !codeSegment->isModule()) {
+  const wasm::CodeBlock* codeBlock = wasm::LookupCodeBlock(regs.pc);
+  if (!codeBlock) {
     return false;
   }
 
-  const wasm::ModuleSegment& segment = *codeSegment->asModule();
-
   Trap trap;
   BytecodeOffset bytecode;
-  if (!segment.code().lookupTrap(regs.pc, &trap, &bytecode)) {
+  if (!codeBlock->code->lookupTrap(regs.pc, &trap, &bytecode)) {
     return false;
   }
   switch (trap) {
@@ -1012,7 +1005,7 @@ bool wasm::MemoryAccessTraps(const RegisterState& regs, uint8_t* addr,
 
   const Instance& instance =
       *GetNearestEffectiveInstance(Frame::fromUntaggedWasmExitFP(regs.fp));
-  MOZ_ASSERT(&instance.code() == &segment.code());
+  MOZ_ASSERT(&instance.code() == codeBlock->code);
 
   switch (trap) {
     case Trap::OutOfBounds:
@@ -1041,7 +1034,7 @@ bool wasm::MemoryAccessTraps(const RegisterState& regs, uint8_t* addr,
   JSContext* cx = TlsContext.get();  // Cold simulator helper function
   jit::JitActivation* activation = cx->activation()->asJit();
   activation->startWasmTrap(trap, bytecode.offset(), regs);
-  *newPC = segment.trapCode();
+  *newPC = codeBlock->code->trapCode();
   return true;
 #endif
 }
@@ -1051,23 +1044,21 @@ bool wasm::HandleIllegalInstruction(const RegisterState& regs,
 #ifdef JS_CODEGEN_NONE
   return false;
 #else
-  const wasm::CodeSegment* codeSegment = wasm::LookupCodeSegment(regs.pc);
-  if (!codeSegment || !codeSegment->isModule()) {
+  const wasm::CodeBlock* codeBlock = wasm::LookupCodeBlock(regs.pc);
+  if (!codeBlock) {
     return false;
   }
 
-  const wasm::ModuleSegment& segment = *codeSegment->asModule();
-
   Trap trap;
   BytecodeOffset bytecode;
-  if (!segment.code().lookupTrap(regs.pc, &trap, &bytecode)) {
+  if (!codeBlock->code->lookupTrap(regs.pc, &trap, &bytecode)) {
     return false;
   }
 
   JSContext* cx = TlsContext.get();  // Cold simulator helper function
   jit::JitActivation* activation = cx->activation()->asJit();
   activation->startWasmTrap(trap, bytecode.offset(), regs);
-  *newPC = segment.trapCode();
+  *newPC = codeBlock->code->trapCode();
   return true;
 #endif
 }

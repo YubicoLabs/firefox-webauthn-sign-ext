@@ -7,6 +7,7 @@
 // Wrap in a block to prevent leaking to window scope.
 {
   ChromeUtils.defineESModuleGetters(this, {
+    BrowserUtils: "resource://gre/modules/BrowserUtils.sys.mjs",
     SearchOneOffs: "resource:///modules/SearchOneOffs.sys.mjs",
   });
 
@@ -18,7 +19,7 @@
     constructor() {
       super();
 
-      this.addEventListener("popupshowing", event => {
+      this.addEventListener("popupshowing", () => {
         // First handle deciding if we are showing the reduced version of the
         // popup containing only the preferences button. We do this if the
         // glass icon has been clicked if the text field is empty.
@@ -47,7 +48,7 @@
         );
       });
 
-      this.addEventListener("popuphiding", event => {
+      this.addEventListener("popuphiding", () => {
         this._oneOffButtons.removeEventListener(
           "SelectedOneOffButtonChanged",
           this
@@ -68,7 +69,11 @@
         if (!engine) {
           return;
         }
-        this.oneOffButtons.handleSearchCommand(event, engine);
+        if (this.searchbar.value) {
+          this.oneOffButtons.handleSearchCommand(event, engine);
+        } else if (event.shiftKey) {
+          this.openSearchForm(event, engine);
+        }
       });
 
       this._bundle = null;
@@ -194,7 +199,7 @@
       let search = this.input.controller.getValueAt(this.selectedIndex);
 
       // open the search results according to the clicking subtlety
-      let where = whereToOpenLink(aEvent, false, true);
+      let where = BrowserUtils.whereToOpenLink(aEvent, false, true);
       let params = {};
 
       // But open ctrl/cmd clicks on autocomplete items in a new background tab.
@@ -232,7 +237,7 @@
         }
       }
 
-      let uri = engine.getIconURL();
+      let uri = await engine.getIconURL();
       if (uri) {
         this.setAttribute("src", uri);
       } else {
@@ -255,6 +260,14 @@
     /* eslint-disable-next-line valid-jsdoc */
     handleOneOffSearch(event, engine, where, params) {
       this.searchbar.handleSearchCommandWhere(event, engine, where, params);
+    }
+
+    openSearchForm(event, engine, forceNewTab = false) {
+      let { where, params } = this.oneOffButtons._whereToOpen(
+        event,
+        forceNewTab
+      );
+      this.searchbar.openSearchFormWhere(event, engine, where, params);
     }
 
     /**

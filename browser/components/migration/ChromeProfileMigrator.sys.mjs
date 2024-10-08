@@ -140,7 +140,7 @@ export class ChromeProfileMigrator extends MigratorBase {
     // to Chrome's local state directory.
     while (!(await this.hasPermissions())) {
       let fp = Cc["@mozilla.org/filepicker;1"].createInstance(Ci.nsIFilePicker);
-      fp.init(win, "", Ci.nsIFilePicker.modeGetFolder);
+      fp.init(win?.browsingContext, "", Ci.nsIFilePicker.modeGetFolder);
       fp.filterIndex = 1;
       // Now wait for the filepicker to open and close. If the user picks
       // the local state folder, the OS should grant us read access to everything
@@ -420,18 +420,20 @@ export class ChromeProfileMigrator extends MigratorBase {
           return;
         }
 
-        let crypto;
+        let loginCrypto;
         try {
           if (AppConstants.platform == "win") {
             let { ChromeWindowsLoginCrypto } = ChromeUtils.importESModule(
               "resource:///modules/ChromeWindowsLoginCrypto.sys.mjs"
             );
-            crypto = new ChromeWindowsLoginCrypto(_chromeUserDataPathSuffix);
+            loginCrypto = new ChromeWindowsLoginCrypto(
+              _chromeUserDataPathSuffix
+            );
           } else if (AppConstants.platform == "macosx") {
             let { ChromeMacOSLoginCrypto } = ChromeUtils.importESModule(
               "resource:///modules/ChromeMacOSLoginCrypto.sys.mjs"
             );
-            crypto = new ChromeMacOSLoginCrypto(
+            loginCrypto = new ChromeMacOSLoginCrypto(
               _keychainServiceName,
               _keychainAccountName,
               _keychainMockPassphrase
@@ -462,7 +464,7 @@ export class ChromeProfileMigrator extends MigratorBase {
             }
             let loginInfo = {
               username: row.getResultByName("username_value"),
-              password: await crypto.decryptData(
+              password: await loginCrypto.decryptData(
                 row.getResultByName("password_value"),
                 null
               ),
@@ -578,18 +580,20 @@ export class ChromeProfileMigrator extends MigratorBase {
       type: MigrationUtils.resourceTypes.PAYMENT_METHODS,
 
       async migrate(aCallback) {
-        let crypto;
+        let loginCrypto;
         try {
           if (AppConstants.platform == "win") {
             let { ChromeWindowsLoginCrypto } = ChromeUtils.importESModule(
               "resource:///modules/ChromeWindowsLoginCrypto.sys.mjs"
             );
-            crypto = new ChromeWindowsLoginCrypto(_chromeUserDataPathSuffix);
+            loginCrypto = new ChromeWindowsLoginCrypto(
+              _chromeUserDataPathSuffix
+            );
           } else if (AppConstants.platform == "macosx") {
             let { ChromeMacOSLoginCrypto } = ChromeUtils.importESModule(
               "resource:///modules/ChromeMacOSLoginCrypto.sys.mjs"
             );
-            crypto = new ChromeMacOSLoginCrypto(
+            loginCrypto = new ChromeMacOSLoginCrypto(
               _keychainServiceName,
               _keychainAccountName,
               _keychainMockPassphrase
@@ -609,7 +613,7 @@ export class ChromeProfileMigrator extends MigratorBase {
         for (let row of rows) {
           cards.push({
             "cc-name": row.getResultByName("name_on_card"),
-            "cc-number": await crypto.decryptData(
+            "cc-number": await loginCrypto.decryptData(
               row.getResultByName("card_number_encrypted"),
               null
             ),
@@ -785,7 +789,8 @@ async function GetBookmarksResource(aProfileFolder, aBrowserKey) {
         }
 
         // Import Bookmark Favicons
-        MigrationUtils.insertManyFavicons(favicons);
+        MigrationUtils.insertManyFavicons(favicons).catch(console.error);
+
         if (gotErrors) {
           throw new Error("The migration included errors.");
         }

@@ -23,10 +23,10 @@ class nsWindowsSystemProxySettings final : public nsISystemProxySettings {
   NS_DECL_THREADSAFE_ISUPPORTS
   NS_DECL_NSISYSTEMPROXYSETTINGS
 
-  nsWindowsSystemProxySettings(){};
+  nsWindowsSystemProxySettings() {};
 
  private:
-  ~nsWindowsSystemProxySettings(){};
+  ~nsWindowsSystemProxySettings() {};
 
   bool MatchOverride(const nsACString& aHost);
   bool PatternMatch(const nsACString& aHost, const nsACString& aOverride);
@@ -239,6 +239,19 @@ nsresult nsWindowsSystemProxySettings::GetProxyForURI(const nsACString& aSpec,
     SetProxyResultDirect(aResult);  // Direct connection.
 
   return NS_OK;
+}
+
+NS_IMETHODIMP nsWindowsSystemProxySettings::GetSystemWPADSetting(
+    bool* aSystemWPADSetting) {
+  nsresult rv;
+  uint32_t flags = 0;
+  nsAutoString buf;
+
+  rv = ReadInternetOption(INTERNET_PER_CONN_AUTOCONFIG_URL, flags, buf);
+  *aSystemWPADSetting =
+      (flags & (PROXY_TYPE_AUTO_PROXY_URL | PROXY_TYPE_AUTO_DETECT)) ==
+      PROXY_TYPE_AUTO_DETECT;
+  return rv;
 }
 
 NS_IMPL_COMPONENT_FACTORY(nsWindowsSystemProxySettings) {

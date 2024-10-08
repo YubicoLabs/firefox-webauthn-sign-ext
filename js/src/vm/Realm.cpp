@@ -12,6 +12,7 @@
 #include <stddef.h>
 
 #include "jsfriendapi.h"
+#include "jsmath.h"
 
 #include "builtin/WrappedFunctionObject.h"
 #include "debugger/DebugAPI.h"
@@ -165,27 +166,47 @@ ObjectRealm::getOrCreateNonSyntacticLexicalEnvironment(JSContext* cx,
 }
 
 NonSyntacticLexicalEnvironmentObject*
-ObjectRealm::getOrCreateNonSyntacticLexicalEnvironment(JSContext* cx,
-                                                       HandleObject enclosing) {
-  // If a wrapped WithEnvironmentObject was passed in, unwrap it, as we may
-  // be creating different WithEnvironmentObject wrappers each time.
-  RootedObject key(cx, enclosing);
-  if (enclosing->is<WithEnvironmentObject>()) {
-    MOZ_ASSERT(!enclosing->as<WithEnvironmentObject>().isSyntactic());
-    key = &enclosing->as<WithEnvironmentObject>().object();
-  }
+ObjectRealm::getOrCreateNonSyntacticLexicalEnvironment(
+    JSContext* cx, Handle<NonSyntacticVariablesObject*> enclosing) {
+  HandleObject key = enclosing;
 
   // NOTE: The default global |this| value is set to key for compatibility
   // with existing users of the lexical environment cache.
   //  - When used by shared-global JSM loader, |this| must be the
   //    NonSyntacticVariablesObject passed as enclosing.
-  //  - When used by SubscriptLoader, |this| must be the target object of
-  //    the WithEnvironmentObject wrapper.
-  //  - When used by XBL/DOM Events, we execute directly as a function and
-  //    do not access the |this| value.
   // See js::GetFunctionThis / js::GetNonSyntacticGlobalThis
   return getOrCreateNonSyntacticLexicalEnvironment(cx, enclosing, key,
                                                    /*thisv = */ key);
+}
+
+NonSyntacticLexicalEnvironmentObject*
+ObjectRealm::getOrCreateNonSyntacticLexicalEnvironment(
+    JSContext* cx, Handle<WithEnvironmentObject*> enclosing) {
+  MOZ_ASSERT(!enclosing->isSyntactic());
+
+  // If a wrapped WithEnvironmentObject was passed in, unwrap it, as we may
+  // be creating different WithEnvironmentObject wrappers each time.
+  RootedObject key(cx, &enclosing->as<WithEnvironmentObject>().object());
+
+  // NOTE: The default global |this| value is set to key for compatibility
+  // with existing users of the lexical environment cache.
+  //  - When used by SubscriptLoader, |this| must be the target object of
+  //    the WithEnvironmentObject wrapper.
+  //  - When used by DOM Events, we execute directly as a function and do not
+  //    access the |this| value.
+  // See js::GetFunctionThis / js::GetNonSyntacticGlobalThis
+  return getOrCreateNonSyntacticLexicalEnvironment(cx, enclosing, key,
+                                                   /*thisv = */ key);
+}
+
+NonSyntacticLexicalEnvironmentObject*
+ObjectRealm::getOrCreateNonSyntacticLexicalEnvironment(
+    JSContext* cx, Handle<WithEnvironmentObject*> enclosing,
+    Handle<NonSyntacticVariablesObject*> key) {
+  MOZ_ASSERT(!enclosing->isSyntactic());
+
+  RootedObject thisv(cx, &enclosing->object());
+  return getOrCreateNonSyntacticLexicalEnvironment(cx, enclosing, key, thisv);
 }
 
 NonSyntacticLexicalEnvironmentObject*
@@ -237,10 +258,16 @@ void Realm::traceRoots(JSTracer* trc,
     // The global is never nursery allocated, so we don't need to
     // trace it when doing a minor collection.
     //
-    // If a realm is on-stack, we mark its global so that
-    // JSContext::global() remains valid.
+    // If a realm is on-stack, we mark its global so that JSContext::global()
+    // remains valid.
     if (shouldTraceGlobal() && global_) {
       TraceRoot(trc, global_.unbarrieredAddress(), "on-stack realm global");
+    }
+
+    // If the realm is still being initialized we set a flag so that it doesn't
+    // get deleted, since there may be GC things that contain pointers to it.
+    if (shouldTraceGlobal() && initializingGlobal_) {
+      allocatedDuringIncrementalGC_ = true;
     }
   }
 
@@ -680,6 +707,12 @@ JS_PUBLIC_API JSObject* JS::GetRealmFunctionPrototype(JSContext* cx) {
   return &cx->global()->getFunctionPrototype();
 }
 
+JS_PUBLIC_API JS::Handle<JSObject*> JS::GetRealmFunctionPrototypeHandle(
+    JSContext* cx) {
+  CHECK_THREAD(cx);
+  return cx->global()->getFunctionPrototypeHandle();
+}
+
 JS_PUBLIC_API JSObject* JS::GetRealmArrayPrototype(JSContext* cx) {
   CHECK_THREAD(cx);
   return GlobalObject::getOrCreateArrayPrototype(cx, cx->global());
@@ -757,4 +790,12 @@ JS_PUBLIC_API Realm* JS::GetFunctionRealm(JSContext* cx, HandleObject objArg) {
     // Step 5.
     return cx->realm();
   }
+}
+
+JS_PUBLIC_API void JS::ResetRealmMathRandomSeed(JSContext* cx) {
+  MOZ_ASSERT(cx->realm());
+  auto rng = cx->realm()->getOrCreateRandomNumberGenerator();
+  mozilla::Array<uint64_t, 2> seed;
+  GenerateXorShift128PlusSeed(seed);
+  rng.setState(seed[0], seed[1]);
 }

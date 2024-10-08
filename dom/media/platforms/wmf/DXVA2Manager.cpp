@@ -21,6 +21,8 @@
 #include "gfxCrashReporterUtils.h"
 #include "gfxWindowsPlatform.h"
 #include "mfapi.h"
+#include "mozilla/AppShutdown.h"
+#include "mozilla/ClearOnShutdown.h"
 #include "mozilla/StaticMutex.h"
 #include "mozilla/StaticPrefs_media.h"
 #include "mozilla/Telemetry.h"
@@ -121,6 +123,9 @@ using layers::Image;
 using layers::ImageContainer;
 using namespace layers;
 using namespace gfx;
+
+StaticRefPtr<ID3D11Device> sDevice;
+StaticMutex sDeviceMutex;
 
 void GetDXVA2ExtendedFormatFromMFMediaType(IMFMediaType* pType,
                                            DXVA2_ExtendedFormat* pFormat) {
@@ -362,10 +367,10 @@ class D3D11DXVA2Manager : public DXVA2Manager {
   HRESULT CreateOutputSample(RefPtr<IMFSample>& aSample,
                              ID3D11Texture2D* aTexture);
 
+  // This is used for check whether hw decoding is possible before using MFT for
+  // decoding.
   bool CanCreateDecoder(const D3D11_VIDEO_DECODER_DESC& aDesc) const;
 
-  already_AddRefed<ID3D11VideoDecoder> CreateDecoder(
-      const D3D11_VIDEO_DECODER_DESC& aDesc) const;
   void RefreshIMFSampleWrappers();
   void ReleaseAllIMFSamples();
 
@@ -618,10 +623,11 @@ D3D11DXVA2Manager::InitInternal(layers::KnowsCompositor* aKnowsCompositor,
   mDevice = aDevice;
 
   if (!mDevice) {
-    bool useHardwareWebRender =
-        aKnowsCompositor && aKnowsCompositor->UsingHardwareWebRender();
-    mDevice =
-        gfx::DeviceManagerDx::Get()->CreateDecoderDevice(useHardwareWebRender);
+    DeviceManagerDx::DeviceFlagSet flags;
+    if (aKnowsCompositor && aKnowsCompositor->UsingHardwareWebRender()) {
+      flags += DeviceManagerDx::DeviceFlag::isHardwareWebRenderInUse;
+    }
+    mDevice = gfx::DeviceManagerDx::Get()->CreateDecoderDevice(flags);
     if (!mDevice) {
       aFailureReason.AssignLiteral("Failed to create D3D11 device for decoder");
       return E_FAIL;
@@ -870,8 +876,12 @@ D3D11DXVA2Manager::CopyToImage(IMFSample* aVideoSample,
       auto* data = client->GetInternalData()->AsD3D11TextureData();
       MOZ_ASSERT(data);
       if (data) {
+        // If GPU is not NVIDIA GPU, ID3D11Query is used only for video overlay.
+        // See Bug 1910990 Intel GPU does not use ID3D11Query for waiting video
+        // frame copy.
+        const bool onlyForOverlay = mVendorID != 0x10DE;
         // Wait query happens only just before blitting for video overlay.
-        data->RegisterQuery(query);
+        data->RegisterQuery(query, onlyForOverlay);
       } else {
         gfxCriticalNoteOnce << "D3D11TextureData does not exist";
       }
@@ -1026,8 +1036,11 @@ D3D11DXVA2Manager::CopyToBGRATexture(ID3D11Texture2D* aInTexture,
     inTexture = newTexture;
   }
 
-  desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-  desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+  desc = CD3D11_TEXTURE2D_DESC(
+      DXGI_FORMAT_B8G8R8A8_UNORM, desc.Width, desc.Height, 1, 1,
+      D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE);
+  desc.MiscFlags =
+      D3D11_RESOURCE_MISC_SHARED_NTHANDLE | D3D11_RESOURCE_MISC_SHARED;
 
   hr = mDevice->CreateTexture2D(&desc, nullptr, getter_AddRefs(texture));
   NS_ENSURE_TRUE(SUCCEEDED(hr) && texture, E_FAIL);
@@ -1155,20 +1168,20 @@ D3D11DXVA2Manager::ConfigureForSize(IMFMediaType* aInputType,
 
 bool D3D11DXVA2Manager::CanCreateDecoder(
     const D3D11_VIDEO_DECODER_DESC& aDesc) const {
-  RefPtr<ID3D11VideoDecoder> decoder = CreateDecoder(aDesc);
-  return decoder.get() != nullptr;
-}
-
-already_AddRefed<ID3D11VideoDecoder> D3D11DXVA2Manager::CreateDecoder(
-    const D3D11_VIDEO_DECODER_DESC& aDesc) const {
   RefPtr<ID3D11VideoDevice> videoDevice;
   HRESULT hr = mDevice->QueryInterface(
       static_cast<ID3D11VideoDevice**>(getter_AddRefs(videoDevice)));
-  NS_ENSURE_TRUE(SUCCEEDED(hr), nullptr);
+  if (FAILED(hr)) {
+    LOG("Failed to query ID3D11VideoDevice!");
+    return false;
+  }
 
   UINT configCount = 0;
   hr = videoDevice->GetVideoDecoderConfigCount(&aDesc, &configCount);
-  NS_ENSURE_TRUE(SUCCEEDED(hr), nullptr);
+  if (FAILED(hr)) {
+    LOG("Failed to get decoder config count!");
+    return false;
+  }
 
   for (UINT i = 0; i < configCount; i++) {
     D3D11_VIDEO_DECODER_CONFIG config;
@@ -1177,10 +1190,10 @@ already_AddRefed<ID3D11VideoDecoder> D3D11DXVA2Manager::CreateDecoder(
       RefPtr<ID3D11VideoDecoder> decoder;
       hr = videoDevice->CreateVideoDecoder(&aDesc, &config,
                                            decoder.StartAssignment());
-      return decoder.forget();
+      return decoder != nullptr;
     }
   }
-  return nullptr;
+  return false;
 }
 
 /* static */

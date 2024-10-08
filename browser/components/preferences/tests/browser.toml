@@ -10,9 +10,17 @@ support-files = [
   "addons/set_homepage.xpi",
   "addons/set_newtab.xpi",
 ]
+skip-if = [
+  "os == 'linux' && os_version == '18.04' && asan", # manifest runs too long
+  "os == 'linux' && os_version == '18.04' && tsan", # manifest runs too long
+  "win11_2009 && asan", # manifest runs too long
+]
+tags = "os_integration"
+
+["browser_about_settings.js"]
 
 ["browser_advanced_update.js"]
-skip-if = ["!updater"]
+run-if = ["updater"]
 
 ["browser_application_xml_handle_internally.js"]
 
@@ -21,10 +29,7 @@ skip-if = ["!updater"]
 ["browser_basic_rebuild_fonts_test.js"]
 
 ["browser_browser_languages_subdialog.js"]
-skip-if = [
-  "tsan",
-  "!debug && os == 'win'", # Bug 1518370
-]
+skip-if = ["tsan"]
 
 ["browser_bug410900.js"]
 
@@ -37,9 +42,6 @@ skip-if = [
 ["browser_bug1020245_openPreferences_to_paneContent.js"]
 
 ["browser_bug1184989_prevent_scrolling_when_preferences_flipped.js"]
-skip-if = [
-  "os == 'mac'", # Bug 1664576
-]
 support-files = ["browser_bug1184989_prevent_scrolling_when_preferences_flipped.xhtml"]
 
 ["browser_bug1547020_lockedDownloadDir.js"]
@@ -65,12 +67,14 @@ skip-if = [
   "verify && debug && os == 'mac'",
 ]
 
+["browser_connection_system_wpad.js"]
+run-if = ["os == 'win'"]
+
 ["browser_connection_valid_hostname.js"]
 
 ["browser_containers_name_input.js"]
 
 ["browser_contentblocking.js"]
-skip-if = ["socketprocess_networking"]
 
 ["browser_contentblocking_categories.js"]
 
@@ -81,6 +85,8 @@ skip-if = ["socketprocess_networking"]
 ["browser_cookies_exceptions.js"]
 
 ["browser_defaultbrowser_alwayscheck.js"]
+
+["browser_dns_over_https_exceptions_subdialog.js"]
 
 ["browser_engines.js"]
 fail-if = ["a11y_checks"] # Bug 1854636 clicked treechildren#engineChildren may not be focusable
@@ -94,10 +100,6 @@ fail-if = ["a11y_checks"] # Bug 1854636 clicked treechildren#engineChildren may 
 ["browser_experimental_features_filter.js"]
 
 ["browser_experimental_features_hidden_when_not_public.js"]
-skip-if = [
-  "os == 'mac' && debug", # Bug 1723854
-  "os == 'linux' && os_version == '18.04' && debug", # Bug 1723854
-]
 
 ["browser_experimental_features_resetall.js"]
 
@@ -128,7 +130,7 @@ https_first_disabled = true
 ["browser_ignore_invalid_capability.js"]
 
 ["browser_keyboardfocus.js"]
-skip-if = ["os != 'mac'"]
+run-if = ["os == 'mac'"]
 
 ["browser_languages_subdialog.js"]
 
@@ -189,6 +191,8 @@ skip-if = ["true"]
 
 ["browser_privacy_syncDataClearing.js"]
 
+["browser_privacy_syncDataClearing_v2.js"]
+
 ["browser_privacypane_2.js"]
 
 ["browser_privacypane_3.js"]
@@ -200,10 +204,6 @@ skip-if = ["true"]
 ["browser_searchChangedEngine.js"]
 
 ["browser_searchDefaultEngine.js"]
-support-files = [
-  "engine1/manifest.json",
-  "engine2/manifest.json",
-]
 
 ["browser_searchFindMoreLink.js"]
 
@@ -272,7 +272,6 @@ support-files = [
   "subdialog.xhtml",
   "subdialog2.xhtml",
 ]
-fail-if = ["a11y_checks"] # Bug 1854636 clicked label.dialogTitle, vbox#dialogTemplate.dialogOverlay may not be focusable
 
 ["browser_sync_chooseWhatToSync.js"]
 
@@ -285,4 +284,7 @@ fail-if = ["a11y_checks"] # Bug 1854636 clicked label.dialogTitle, vbox#dialogTe
 ["browser_warning_permanent_private_browsing.js"]
 
 ["browser_windows_launch_on_login.js"]
-run-if = ["os == 'win'"]
+run-if = ["os == 'win' && !msix"]
+
+["browser_windows_launch_on_login_msix.js"]
+run-if = ["os == 'win' && msix"]

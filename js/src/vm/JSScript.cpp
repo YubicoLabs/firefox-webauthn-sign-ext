@@ -15,7 +15,6 @@
 #include "mozilla/DebugOnly.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/MemoryReporting.h"
-#include "mozilla/PodOperations.h"
 #include "mozilla/ScopeExit.h"
 #include "mozilla/Span.h"  // mozilla::{Span,Span}
 #include "mozilla/Sprintf.h"
@@ -58,7 +57,7 @@
 #include "js/Utility.h"  // JS::UniqueChars
 #include "js/Value.h"    // JS::Value
 #include "util/Poison.h"
-#include "util/StringBuffer.h"
+#include "util/StringBuilder.h"
 #include "util/Text.h"
 #include "vm/BigIntType.h"  // JS::BigInt
 #include "vm/BytecodeIterator.h"
@@ -94,12 +93,9 @@ using namespace js;
 
 using mozilla::CheckedInt;
 using mozilla::Maybe;
-using mozilla::PodCopy;
 using mozilla::PointerRangeSize;
-using mozilla::Utf8AsUnsignedChars;
 using mozilla::Utf8Unit;
 
-using JS::CompileOptions;
 using JS::ReadOnlyCompileOptions;
 using JS::SourceText;
 
@@ -716,7 +712,8 @@ static const JSClassOps ScriptSourceObjectClassOps = {
 const JSClass ScriptSourceObject::class_ = {
     "ScriptSource",
     JSCLASS_HAS_RESERVED_SLOTS(RESERVED_SLOTS) | JSCLASS_FOREGROUND_FINALIZE,
-    &ScriptSourceObjectClassOps};
+    &ScriptSourceObjectClassOps,
+};
 
 ScriptSourceObject* ScriptSourceObject::create(JSContext* cx,
                                                ScriptSource* source) {
@@ -933,7 +930,8 @@ JSLinearString* JSScript::sourceData(JSContext* cx, HandleScript script) {
                                            script->sourceEnd());
 }
 
-bool BaseScript::appendSourceDataForToString(JSContext* cx, StringBuffer& buf) {
+bool BaseScript::appendSourceDataForToString(JSContext* cx,
+                                             StringBuilder& buf) {
   MOZ_ASSERT(scriptSource()->hasSourceText());
   return scriptSource()->appendSubstring(cx, buf, toStringStart(),
                                          toStringEnd());
@@ -1335,7 +1333,7 @@ JSLinearString* ScriptSource::substringDontDeflate(JSContext* cx, size_t start,
   return NewStringCopyNDontDeflate<CanGC>(cx, units.asChars(), len);
 }
 
-bool ScriptSource::appendSubstring(JSContext* cx, StringBuffer& buf,
+bool ScriptSource::appendSubstring(JSContext* cx, StringBuilder& buf,
                                    size_t start, size_t stop) {
   MOZ_ASSERT(start <= stop);
 
@@ -1786,13 +1784,20 @@ void ScriptSource::addSizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf,
 }
 
 bool ScriptSource::startIncrementalEncoding(
-    JSContext* cx,
-    UniquePtr<frontend::ExtensibleCompilationStencil>&& initial) {
+    JSContext* cx, UniquePtr<frontend::ExtensibleCompilationStencil>&& initial,
+    bool& alreadyStarted) {
   // We don't support asm.js in XDR.
   // Encoding failures are reported by the xdrFinalizeEncoder function.
   if (initial->asmJS) {
+    alreadyStarted = false;
     return true;
   }
+
+  if (xdrEncoder_.hasEncoder()) {
+    alreadyStarted = true;
+    return true;
+  }
+  alreadyStarted = false;
 
   // Remove the reference to the source, to avoid the circular reference.
   initial->source = nullptr;
@@ -1850,6 +1855,26 @@ bool ScriptSource::xdrFinalizeEncoder(JSContext* cx,
     }
     return false;
   }
+  return true;
+}
+
+bool ScriptSource::xdrFinalizeEncoder(JSContext* cx, JS::Stencil** stencilOut) {
+  if (!hasEncoder()) {
+    JS_ReportErrorASCII(cx, "XDR encoding failure");
+    return false;
+  }
+
+  auto cleanup = mozilla::MakeScopeExit([&] { xdrEncoder_.reset(); });
+
+  UniquePtr<frontend::ExtensibleCompilationStencil> extensibleStencil =
+      xdrEncoder_.merger_->takeResult();
+  extensibleStencil->source = this;
+  RefPtr<frontend::CompilationStencil> stencil =
+      cx->new_<frontend::CompilationStencil>(std::move(extensibleStencil));
+  if (!stencil) {
+    return false;
+  }
+  stencil.forget(stencilOut);
   return true;
 }
 
@@ -2718,8 +2743,10 @@ out:
   return script->offsetToPC(offset);
 }
 
-JS_PUBLIC_API unsigned js::GetScriptLineExtent(JSScript* script) {
+JS_PUBLIC_API unsigned js::GetScriptLineExtent(
+    JSScript* script, JS::LimitedColumnNumberOneOrigin* columnp) {
   unsigned lineno = script->lineno();
+  JS::LimitedColumnNumberOneOrigin column = script->column();
   unsigned maxLineNo = lineno;
   for (SrcNoteIterator iter(script->notes(), script->notesEnd()); !iter.atEnd();
        ++iter) {
@@ -2727,16 +2754,27 @@ JS_PUBLIC_API unsigned js::GetScriptLineExtent(JSScript* script) {
     SrcNoteType type = sn->type();
     if (type == SrcNoteType::SetLine) {
       lineno = SrcNote::SetLine::getLine(sn, script->lineno());
+      column = JS::LimitedColumnNumberOneOrigin();
     } else if (type == SrcNoteType::SetLineColumn) {
       lineno = SrcNote::SetLineColumn::getLine(sn, script->lineno());
-    } else if (type == SrcNoteType::NewLine ||
-               type == SrcNoteType::NewLineColumn) {
+      column = SrcNote::SetLineColumn::getColumn(sn);
+    } else if (type == SrcNoteType::NewLine) {
       lineno++;
+      column = JS::LimitedColumnNumberOneOrigin();
+    } else if (type == SrcNoteType::NewLineColumn) {
+      lineno++;
+      column = SrcNote::NewLineColumn::getColumn(sn);
+    } else if (type == SrcNoteType::ColSpan) {
+      column += SrcNote::ColSpan::getSpan(sn);
     }
 
     if (maxLineNo < lineno) {
       maxLineNo = lineno;
     }
+  }
+
+  if (columnp) {
+    *columnp = column;
   }
 
   return 1 + maxLineNo - script->lineno();
@@ -3245,8 +3283,10 @@ void JSScript::resetWarmUpCounterToDelayIonCompilation() {
 #if defined(DEBUG) || defined(JS_JITSPEW)
 
 void BaseScript::dumpStringContent(js::GenericPrinter& out) const {
-  out.printf("%s:%u:%u @ 0x%p", filename() ? filename() : "<null>", lineno(),
-             column().oneOriginValue(), this);
+  StringEscape esc('"');
+  EscapePrinter ep(out, esc);
+  ep.printf("%s:%u:%u @ 0x%p", filename() ? filename() : "<null>", lineno(),
+            column().oneOriginValue(), this);
 }
 
 void JSScript::dump(JSContext* cx) {
@@ -3636,15 +3676,11 @@ bool JSScript::dumpGCThings(JSContext* cx, JS::Handle<JSScript*> script,
         }
 
         JS::Rooted<JS::Value> objValue(cx, ObjectValue(*obj));
-        JS::Rooted<JSString*> str(cx, ValueToSource(cx, objValue));
-        if (!str) {
+        JS::UniqueChars source = ToDisassemblySource(cx, objValue);
+        if (!source) {
           return false;
         }
-        JS::UniqueChars utf8chars = JS_EncodeStringToUTF8(cx, str);
-        if (!utf8chars) {
-          return false;
-        }
-        sp->put(utf8chars.get());
+        sp->put(source.get());
         sp->put("\n");
       }
     } else if (gcThing.is<JSString>()) {

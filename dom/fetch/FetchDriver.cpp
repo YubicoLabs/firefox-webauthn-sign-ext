@@ -9,9 +9,11 @@
 #include "mozilla/TaskQueue.h"
 #include "mozilla/dom/FetchDriver.h"
 
+#include "mozilla/dom/FetchPriority.h"
 #include "mozilla/dom/ReferrerInfo.h"
 #include "nsIAsyncVerifyRedirectCallback.h"
 #include "mozilla/dom/Document.h"
+#include "nsIBaseChannel.h"
 #include "nsICookieJarSettings.h"
 #include "nsIFile.h"
 #include "nsIInputStream.h"
@@ -27,7 +29,6 @@
 #include "nsIPipe.h"
 #include "nsIRedirectHistoryEntry.h"
 
-#include "nsBaseChannel.h"
 #include "nsContentPolicyUtils.h"
 #include "nsDataChannel.h"
 #include "nsDataHandler.h"
@@ -46,6 +47,7 @@
 #include "mozilla/dom/UserActivation.h"
 #include "mozilla/dom/WorkerCommon.h"
 #include "mozilla/PreloaderBase.h"
+#include "mozilla/net/ContentRange.h"
 #include "mozilla/net/InterceptionInfo.h"
 #include "mozilla/net/NeckoChannelParams.h"
 #include "mozilla/ipc/PBackgroundSharedTypes.h"
@@ -439,7 +441,7 @@ void FetchDriver::UpdateReferrerInfoFromNewChannel(nsIChannel* aChannel) {
     return;
   }
 
-  nsAutoString computedReferrerSpec;
+  nsAutoCString computedReferrerSpec;
   mRequest->SetReferrerPolicy(referrerInfo->ReferrerPolicy());
   Unused << referrerInfo->GetComputedReferrerSpec(computedReferrerSpec);
   mRequest->SetReferrer(computedReferrerSpec);
@@ -639,8 +641,14 @@ nsresult FetchDriver::HttpFetch(
                        nullptr, /* aCallbacks */
                        loadFlags, ios);
   } else {
+    nsCOMPtr<nsIPrincipal> principal = mPrincipal;
+    if (principal->IsSystemPrincipal() &&
+        mRequest->GetTriggeringPrincipalOverride()) {
+      principal = mRequest->GetTriggeringPrincipalOverride();
+    }
+
     rv =
-        NS_NewChannel(getter_AddRefs(chan), uri, mPrincipal, secFlags,
+        NS_NewChannel(getter_AddRefs(chan), uri, principal, secFlags,
                       mRequest->ContentPolicyType(), mCookieJarSettings,
                       mPerformanceStorage, mLoadGroup, nullptr, /* aCallbacks */
                       loadFlags, ios);
@@ -663,10 +671,17 @@ nsresult FetchDriver::HttpFetch(
     nsCOMPtr<nsILoadInfo> loadInfo = chan->LoadInfo();
     rv = loadInfo->SetWorkerAssociatedBrowsingContextID(
         mAssociatedBrowsingContextID);
+    NS_ENSURE_SUCCESS(rv, rv);
+  }
+
+  if (mIsThirdPartyWorker.isSome()) {
+    nsCOMPtr<nsILoadInfo> loadInfo = chan->LoadInfo();
+    rv = loadInfo->SetIsInThirdPartyContext(mIsThirdPartyWorker.ref());
+    NS_ENSURE_SUCCESS(rv, rv);
   }
 
   // If the fetch is created by FetchEvent.request or NavigationPreload request,
-  // corresponding InterceptedHttpChannel information need to propagte to the
+  // corresponding InterceptedHttpChannel information need to propagate to the
   // channel of the fetch.
   if (mRequest->GetInterceptionTriggeringPrincipalInfo()) {
     auto principalOrErr = mozilla::ipc::PrincipalInfoToPrincipal(
@@ -748,7 +763,7 @@ nsresult FetchDriver::HttpFetch(
     // then set request’s referrer policy to the user-set default policy.
     if (mRequest->ReferrerPolicy_() == ReferrerPolicy::_empty) {
       nsCOMPtr<nsILoadInfo> loadInfo = httpChan->LoadInfo();
-      bool isPrivate = loadInfo->GetOriginAttributes().mPrivateBrowsingId > 0;
+      bool isPrivate = loadInfo->GetOriginAttributes().IsPrivateBrowsing();
       referrerPolicy =
           ReferrerInfo::GetDefaultReferrerPolicy(httpChan, uri, isPrivate);
       mRequest->SetReferrerPolicy(referrerPolicy);
@@ -840,11 +855,61 @@ nsresult FetchDriver::HttpFetch(
                        nsIClassOfService::Tail);
   }
 
-  if (mIsTrackingFetch &&
-      StaticPrefs::privacy_trackingprotection_lower_network_priority()) {
-    nsCOMPtr<nsISupportsPriority> p = do_QueryInterface(chan);
-    if (p) {
+  const auto fetchPriority = ToFetchPriority(mRequest->GetPriorityMode());
+  if (cos) {
+    cos->SetFetchPriorityDOM(fetchPriority);
+  }
+
+  if (nsCOMPtr<nsISupportsPriority> p = do_QueryInterface(chan)) {
+    if (mIsTrackingFetch &&
+        StaticPrefs::privacy_trackingprotection_lower_network_priority()) {
       p->SetPriority(nsISupportsPriority::PRIORITY_LOWEST);
+    } else if (StaticPrefs::network_fetchpriority_enabled()) {
+      // According to step 15 of https://fetch.spec.whatwg.org/#concept-fetch
+      // request’s priority, initiator, destination, and render-blocking are
+      // used in an implementation-defined manner to set the internal priority.
+      // See corresponding preferences in StaticPrefList.yaml for more context.
+      const int32_t supportsPriorityDelta = [this, &fetchPriority]() {
+        auto destination = mRequest->GetInterceptionTriggeringPrincipalInfo()
+                               ? mRequest->InterceptionDestination()
+                               : mRequest->Destination();
+        switch (destination) {
+          case RequestDestination::Font:
+            return FETCH_PRIORITY_ADJUSTMENT_FOR(link_preload_font,
+                                                 fetchPriority);
+          case RequestDestination::Style:
+            return FETCH_PRIORITY_ADJUSTMENT_FOR(link_preload_style,
+                                                 fetchPriority);
+          case RequestDestination::Script:
+          case RequestDestination::Audioworklet:
+          case RequestDestination::Paintworklet:
+          case RequestDestination::Sharedworker:
+          case RequestDestination::Worker:
+          case RequestDestination::Xslt:
+            return FETCH_PRIORITY_ADJUSTMENT_FOR(link_preload_script,
+                                                 fetchPriority);
+          case RequestDestination::Image:
+            return FETCH_PRIORITY_ADJUSTMENT_FOR(images, fetchPriority);
+          case RequestDestination::Audio:
+          case RequestDestination::Track:
+          case RequestDestination::Video:
+            return FETCH_PRIORITY_ADJUSTMENT_FOR(media, fetchPriority);
+          case RequestDestination::Document:
+          case RequestDestination::Embed:
+          case RequestDestination::Frame:
+          case RequestDestination::Iframe:
+          case RequestDestination::Manifest:
+          case RequestDestination::Object:
+          case RequestDestination::Report:
+          case RequestDestination::_empty:
+            return FETCH_PRIORITY_ADJUSTMENT_FOR(global_fetch_api,
+                                                 fetchPriority);
+        };
+        MOZ_ASSERT_UNREACHABLE("Unknown destination");
+        return 0;
+      }();
+      p->SetPriority(mRequest->InternalPriority());
+      p->AdjustPriority(supportsPriorityDelta);
     }
   }
 
@@ -1028,7 +1093,7 @@ FetchDriver::OnStartRequest(nsIRequest* aRequest) {
 
   bool foundOpaqueRedirect = false;
 
-  nsAutoCString contentType;
+  nsAutoCString contentType(VoidCString());
 
   int64_t contentLength = InternalResponse::UNKNOWN_BODY_SIZE;
   rv = channel->GetContentLength(&contentLength);
@@ -1089,13 +1154,10 @@ FetchDriver::OnStartRequest(nsIRequest* aRequest) {
     // Should set a Content-Range header for blob scheme
     // (https://fetch.spec.whatwg.org/#scheme-fetch)
     nsAutoCString contentRange(VoidCString());
-    nsCOMPtr<nsIURI> uri;
-    channel->GetURI(getter_AddRefs(uri));
-    if (IsBlobURI(uri)) {
-      nsBaseChannel* bchan = static_cast<nsBaseChannel*>(channel.get());
-      MOZ_ASSERT(bchan);
-      Maybe<nsBaseChannel::ContentRange> range = bchan->GetContentRange();
-      if (range.isSome()) {
+    nsCOMPtr<nsIBaseChannel> baseChan = do_QueryInterface(mChannel);
+    if (baseChan) {
+      RefPtr<mozilla::net::ContentRange> range = baseChan->ContentRange();
+      if (range) {
         range->AsHeader(contentRange);
       }
     }
@@ -1111,11 +1173,13 @@ FetchDriver::OnStartRequest(nsIRequest* aRequest) {
       MOZ_ASSERT(!result.Failed());
     }
 
-    if (uri && uri->SchemeIs("data")) {
-      nsDataChannel* dchan = static_cast<nsDataChannel*>(channel.get());
-      MOZ_ASSERT(dchan);
-      contentType.Assign(dchan->MimeType());
-    } else {
+    if (baseChan) {
+      RefPtr<CMimeType> fullMimeType(baseChan->FullMimeType());
+      if (fullMimeType) {
+        fullMimeType->Serialize(contentType);
+      }
+    }
+    if (contentType.IsVoid()) {
       channel->GetContentType(contentType);
       if (!contentType.IsEmpty()) {
         nsAutoCString contentCharset;
@@ -1635,8 +1699,7 @@ FetchDriver::AsyncOnChannelRedirect(nsIChannel* aOldChannel,
     // we need to strip Authentication headers for cross-origin requests
     // Ref: https://fetch.spec.whatwg.org/#http-redirect-fetch
     bool skipAuthHeader =
-        (StaticPrefs::network_fetch_redirect_stripAuthHeader() &&
-         NS_ShouldRemoveAuthHeaderOnRedirect(aOldChannel, aNewChannel, aFlags));
+        NS_ShouldRemoveAuthHeaderOnRedirect(aOldChannel, aNewChannel, aFlags);
 
     SetRequestHeaders(newHttpChannel, rewriteToGET, skipAuthHeader);
   }

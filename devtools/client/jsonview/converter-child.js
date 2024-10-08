@@ -65,14 +65,20 @@ Converter.prototype = {
    * 5. convert does nothing, it's just the synchronous version
    *    of asyncConvertData
    */
-  convert(fromStream, fromType, toType, ctx) {
+  convert(fromStream) {
     return fromStream;
   },
 
-  asyncConvertData(fromType, toType, listener, ctx) {
+  asyncConvertData(fromType, toType, listener) {
     this.listener = listener;
   },
-  getConvertedType(fromType, channel) {
+  getConvertedType(_fromType, channel) {
+    if (channel instanceof Ci.nsIMultiPartChannel) {
+      throw new Components.Exception(
+        "JSONViewer doesn't support multipart responses.",
+        Cr.NS_ERROR_FAILURE
+      );
+    }
     return "text/html";
   },
 
@@ -395,7 +401,7 @@ function keepThemeUpdated(win) {
   addThemeObserver(listener);
   win.addEventListener(
     "unload",
-    function (event) {
+    function () {
       removeThemeObserver(listener);
       win = null;
     },

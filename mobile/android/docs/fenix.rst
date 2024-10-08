@@ -1,51 +1,71 @@
+.. _fenix-contributor-guide:
+
 Building Firefox for Android
 ============================
 
-First, you'll want to `set up your machine to build Firefox </setup>`_.
-Follow the instructions there, choosing "GeckoView/Firefox for Android" as
-the bootstrap option.
+As a first step, you need to set up your development environment using the instruction :ref:`here <firefox_for_android>`.
 
-Once you're set up and have a GeckoView build from the above, please
-continue with the following steps.
+Before building, set the paths to your Java installation and Android SDK
 
-1. Clone the repository and initial setup
------------------------------------------
+**macOS**
 
 .. code-block:: shell
 
-    git clone https://github.com/mozilla-mobile/firefox-android
-    cd firefox-android/fenix
-    echo dependencySubstitutions.geckoviewTopsrcdir=/path/to/mozilla-central > local.properties
-
-replace `/path/to/mozilla-central` with the location of your mozilla-central/mozilla-unified source tree.
-
-2. Build
---------
-
-.. code-block:: shell
-
-    export JAVA_HOME=$HOME/.mozbuild/jdk/jdk-17.0.6+10
+    export JAVA_HOME=$HOME/.mozbuild/jdk/jdk-<latest-version>/Contents/Home
     export ANDROID_HOME=$HOME/.mozbuild/android-sdk-<os_name>
+
+**non-macOS**
+
+.. code-block:: shell
+
+    export JAVA_HOME=$HOME/.mozbuild/jdk/jdk-<latest-version>
+    export ANDROID_HOME=$HOME/.mozbuild/android-sdk-<os_name>
+
+
+Build Fenix using command line
+------------------------------
+
+From the ``mobile/android/fenix`` working directory, build Fenix:
+
+.. code-block:: shell
+
     ./gradlew clean app:assembleDebug
 
-`<os_name>` is either `linux`, `macosx` or `windows` depending on the OS you're building from.
+You can then find the generated debug apks under
+``mobile/android/fenix/app/build/outputs/apk/fenix/debug``
 
+Run Fenix or other Android projects using command line
+---------------------------------------------------------
+.. _run_fenix_from_commandline:
 
-For more details, check out the `more complete documentation <https://github.com/mozilla-mobile/firefox-android/tree/main/fenix>`_.
-
-3. Run
-------
-
-From the gecko working directory:
+From the root mozilla-central directory, you can run an emulator with the following command:
 
 .. code-block:: shell
 
     ./mach android-emulator
 
-
-From the firefox-android working directory:
+From the `mobile/android/fenix` working directory, build, install and launch Fenix:
 
 .. code-block:: shell
 
-   ./gradlew :app:installFenixDebug
-   "$ANDROID_HOME/platform-tools/adb" shell am start -n org.mozilla.fenix.debug/org.mozilla.fenix.debug.App
+    ./gradlew :app:installFenixDebug
+    "$ANDROID_HOME/platform-tools/adb" shell am start -n org.mozilla.fenix.debug/org.mozilla.fenix.debug.App
+
+Run Fenix tests
+-------------------
+
+You can run tests via all the normal routes:
+
+- For individual test files, click the little green play button at the top
+- For a module/component:
+
+   - Right click in project explorer → run all tests
+   - Select from gradle tasks window
+   - On command line: ``./gradlew :$module:$variant`` e.g.  ``./gradlew :feature-downloads:testDebugUnitTest``
+
+If you see the error "Test events were not received", check your top level folder - this happens if you try and run tests in Android Components from ``mozilla-unified/mobile/android/fenix/``.
+To build tests for Android Components you need to be using the ``build.gradle`` in ``mozilla-unified/mobile/android/android-components/``.
+
+If after running tests on your Android device, you can no longer long press, this is because the connected Android tests mess around with your phone’s accessibility settings.
+They set the long press delay to 3 seconds, which is an uncomfortably long time.
+To fix this, go to Settings → Accessibility → Touch and hold delay, and reset this to default or short (depends on manufacturer).

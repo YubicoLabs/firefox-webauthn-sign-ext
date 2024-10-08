@@ -8,15 +8,19 @@ class PictureInPictureVideoWrapper {
   constructor(video) {
     this.player = video.wrappedJSObject.__HuluDashPlayer__;
   }
+
   play() {
     this.player.play();
   }
+
   pause() {
     this.player.pause();
   }
+
   isMuted(video) {
     return video.volume === 0;
   }
+
   setMuted(video, shouldMute) {
     let muteButton = document.querySelector(".VolumeControl > div");
 
@@ -24,15 +28,17 @@ class PictureInPictureVideoWrapper {
       muteButton.click();
     }
   }
+
   setCurrentTime(video, position) {
     this.player.currentTime = position;
   }
+
   setCaptionContainerObserver(video, updateCaptionsFunction) {
     let container = document.querySelector(".ClosedCaption");
 
     if (container) {
       updateCaptionsFunction("");
-      const callback = function (mutationsList, observer) {
+      const callback = function () {
         // This will get the subtitles for both live and regular playback videos
         // and combine them to display. liveVideoText should be an empty string
         // when the video is regular playback and vice versa. If both
@@ -54,16 +60,21 @@ class PictureInPictureVideoWrapper {
       // immediately invoke the callback function to add subtitles to the PiP window
       callback([1], null);
 
-      let captionsObserver = new MutationObserver(callback);
+      this.captionsObserver = new MutationObserver(callback);
 
-      captionsObserver.observe(container, {
+      this.captionsObserver.observe(container, {
         attributes: false,
         childList: true,
         subtree: true,
       });
     }
   }
-  getDuration(video) {
+
+  removeCaptionContainerObserver() {
+    this.captionsObserver?.disconnect();
+  }
+
+  getDuration() {
     return this.player.duration;
   }
 }

@@ -7,11 +7,11 @@
 use std::mem;
 
 use neqo_common::{qdebug, Datagram};
-use test_fixture::{self, now};
+use test_fixture::now;
 
 use super::{
     super::{
-        super::{ConnectionError, ERROR_AEAD_LIMIT_REACHED},
+        super::{CloseReason, ERROR_AEAD_LIMIT_REACHED},
         Connection, ConnectionParameters, Error, Output, State, StreamType,
     },
     connect, connect_force_idle, default_client, default_server, maybe_authenticate,
@@ -20,7 +20,6 @@ use super::{
 use crate::{
     crypto::{OVERWRITE_INVOCATIONS, UPDATE_WRITE_KEYS_AT},
     packet::PacketNumber,
-    path::PATH_MTU_V6,
 };
 
 fn check_discarded(
@@ -60,7 +59,7 @@ fn discarded_initial_keys() {
     let mut client = default_client();
     let init_pkt_c = client.process(None, now()).dgram();
     assert!(init_pkt_c.is_some());
-    assert_eq!(init_pkt_c.as_ref().unwrap().len(), PATH_MTU_V6);
+    assert_eq!(init_pkt_c.as_ref().unwrap().len(), client.plpmtu());
 
     qdebug!("---- server: CH -> SH, EE, CERT, CV, FIN");
     let mut server = default_server();
@@ -269,7 +268,7 @@ fn exhaust_write_keys() {
     assert!(dgram.is_none());
     assert!(matches!(
         client.state(),
-        State::Closed(ConnectionError::Transport(Error::KeysExhausted))
+        State::Closed(CloseReason::Transport(Error::KeysExhausted))
     ));
 }
 
@@ -285,14 +284,14 @@ fn exhaust_read_keys() {
     let dgram = server.process(Some(&dgram), now()).dgram();
     assert!(matches!(
         server.state(),
-        State::Closed(ConnectionError::Transport(Error::KeysExhausted))
+        State::Closed(CloseReason::Transport(Error::KeysExhausted))
     ));
 
     client.process_input(&dgram.unwrap(), now());
     assert!(matches!(
         client.state(),
         State::Draining {
-            error: ConnectionError::Transport(Error::PeerError(ERROR_AEAD_LIMIT_REACHED)),
+            error: CloseReason::Transport(Error::PeerError(ERROR_AEAD_LIMIT_REACHED)),
             ..
         }
     ));
@@ -341,6 +340,6 @@ fn automatic_update_write_keys_blocked() {
     assert!(dgram.is_none());
     assert!(matches!(
         client.state(),
-        State::Closed(ConnectionError::Transport(Error::KeysExhausted))
+        State::Closed(CloseReason::Transport(Error::KeysExhausted))
     ));
 }

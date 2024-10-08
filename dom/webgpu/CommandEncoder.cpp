@@ -3,6 +3,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+#include "mozilla/dom/UnionTypes.h"
 #include "mozilla/dom/WebGPUBinding.h"
 #include "CommandEncoder.h"
 
@@ -84,8 +85,23 @@ void CommandEncoder::Cleanup() {
     return;
   }
   mValid = false;
-  if (mBridge->IsOpen()) {
+
+  if (!mBridge) {
+    return;
+  }
+
+  if (mBridge->CanSend()) {
     mBridge->SendCommandEncoderDrop(mId);
+  }
+
+  wgpu_client_free_command_encoder_id(mBridge->GetClient(), mId);
+}
+
+void CommandEncoder::TrackPresentationContext(CanvasContext* aTargetContext) {
+  if (aTargetContext) {
+    if (!aTargetContext->IsOffscreenCanvas()) {
+      mPresentationContexts.AppendElement(aTargetContext);
+    }
   }
 }
 
@@ -94,7 +110,7 @@ void CommandEncoder::CopyBufferToBuffer(const Buffer& aSource,
                                         const Buffer& aDestination,
                                         BufferAddress aDestinationOffset,
                                         BufferAddress aSize) {
-  if (!mBridge->IsOpen()) {
+  if (!mBridge->CanSend()) {
     return;
   }
 
@@ -109,7 +125,7 @@ void CommandEncoder::CopyBufferToTexture(
     const dom::GPUImageCopyBuffer& aSource,
     const dom::GPUImageCopyTexture& aDestination,
     const dom::GPUExtent3D& aCopySize) {
-  if (!mBridge->IsOpen()) {
+  if (!mBridge->CanSend()) {
     return;
   }
 
@@ -121,16 +137,13 @@ void CommandEncoder::CopyBufferToTexture(
       ConvertExtent(aCopySize), ToFFI(&bb));
   mBridge->SendCommandEncoderAction(mId, mParent->mId, std::move(bb));
 
-  const auto& targetContext = aDestination.mTexture->mTargetContext;
-  if (targetContext) {
-    mTargetContexts.AppendElement(targetContext);
-  }
+  TrackPresentationContext(aDestination.mTexture->mTargetContext);
 }
 void CommandEncoder::CopyTextureToBuffer(
     const dom::GPUImageCopyTexture& aSource,
     const dom::GPUImageCopyBuffer& aDestination,
     const dom::GPUExtent3D& aCopySize) {
-  if (!mBridge->IsOpen()) {
+  if (!mBridge->CanSend()) {
     return;
   }
 
@@ -146,7 +159,7 @@ void CommandEncoder::CopyTextureToTexture(
     const dom::GPUImageCopyTexture& aSource,
     const dom::GPUImageCopyTexture& aDestination,
     const dom::GPUExtent3D& aCopySize) {
-  if (!mBridge->IsOpen()) {
+  if (!mBridge->CanSend()) {
     return;
   }
 
@@ -156,10 +169,7 @@ void CommandEncoder::CopyTextureToTexture(
       ConvertExtent(aCopySize), ToFFI(&bb));
   mBridge->SendCommandEncoderAction(mId, mParent->mId, std::move(bb));
 
-  const auto& targetContext = aDestination.mTexture->mTargetContext;
-  if (targetContext) {
-    mTargetContexts.AppendElement(targetContext);
-  }
+  TrackPresentationContext(aDestination.mTexture->mTargetContext);
 }
 
 void CommandEncoder::ClearBuffer(const Buffer& aBuffer, const uint64_t aOffset,
@@ -178,7 +188,7 @@ void CommandEncoder::ClearBuffer(const Buffer& aBuffer, const uint64_t aOffset,
 }
 
 void CommandEncoder::PushDebugGroup(const nsAString& aString) {
-  if (!mBridge->IsOpen()) {
+  if (!mBridge->CanSend()) {
     return;
   }
 
@@ -188,7 +198,7 @@ void CommandEncoder::PushDebugGroup(const nsAString& aString) {
   mBridge->SendCommandEncoderAction(mId, mParent->mId, std::move(bb));
 }
 void CommandEncoder::PopDebugGroup() {
-  if (!mBridge->IsOpen()) {
+  if (!mBridge->CanSend()) {
     return;
   }
 
@@ -197,7 +207,7 @@ void CommandEncoder::PopDebugGroup() {
   mBridge->SendCommandEncoderAction(mId, mParent->mId, std::move(bb));
 }
 void CommandEncoder::InsertDebugMarker(const nsAString& aString) {
-  if (!mBridge->IsOpen()) {
+  if (!mBridge->CanSend()) {
     return;
   }
 
@@ -216,13 +226,9 @@ already_AddRefed<ComputePassEncoder> CommandEncoder::BeginComputePass(
 already_AddRefed<RenderPassEncoder> CommandEncoder::BeginRenderPass(
     const dom::GPURenderPassDescriptor& aDesc) {
   for (const auto& at : aDesc.mColorAttachments) {
-    auto* targetContext = at.mView->GetTargetContext();
-    if (targetContext) {
-      mTargetContexts.AppendElement(targetContext);
-    }
+    TrackPresentationContext(at.mView->GetTargetContext());
     if (at.mResolveTarget.WasPassed()) {
-      targetContext = at.mResolveTarget.Value().GetTargetContext();
-      mTargetContexts.AppendElement(targetContext);
+      TrackPresentationContext(at.mResolveTarget.Value().GetTargetContext());
     }
   }
 
@@ -230,24 +236,28 @@ already_AddRefed<RenderPassEncoder> CommandEncoder::BeginRenderPass(
   return pass.forget();
 }
 
-void CommandEncoder::EndComputePass(ffi::WGPUComputePass& aPass) {
-  if (!mBridge->IsOpen()) {
+void CommandEncoder::EndComputePass(ffi::WGPURecordedComputePass& aPass) {
+  // Because this can be called during child Cleanup, we need to check
+  // that the bridge is still alive.
+  if (!mBridge || !mBridge->CanSend()) {
     return;
   }
 
   ipc::ByteBuf byteBuf;
   ffi::wgpu_compute_pass_finish(&aPass, ToFFI(&byteBuf));
-  mBridge->SendCommandEncoderAction(mId, mParent->mId, std::move(byteBuf));
+  mBridge->SendComputePass(mId, mParent->mId, std::move(byteBuf));
 }
 
-void CommandEncoder::EndRenderPass(ffi::WGPURenderPass& aPass) {
-  if (!mBridge->IsOpen()) {
+void CommandEncoder::EndRenderPass(ffi::WGPURecordedRenderPass& aPass) {
+  // Because this can be called during child Cleanup, we need to check
+  // that the bridge is still alive.
+  if (!mBridge || !mBridge->CanSend()) {
     return;
   }
 
   ipc::ByteBuf byteBuf;
   ffi::wgpu_render_pass_finish(&aPass, ToFFI(&byteBuf));
-  mBridge->SendCommandEncoderAction(mId, mParent->mId, std::move(byteBuf));
+  mBridge->SendRenderPass(mId, mParent->mId, std::move(byteBuf));
 }
 
 already_AddRefed<CommandBuffer> CommandEncoder::Finish(
@@ -263,7 +273,7 @@ already_AddRefed<CommandBuffer> CommandEncoder::Finish(
 
   RefPtr<CommandEncoder> me(this);
   RefPtr<CommandBuffer> comb = new CommandBuffer(
-      mParent, mId, std::move(mTargetContexts), std::move(me));
+      mParent, mId, std::move(mPresentationContexts), std::move(me));
   return comb.forget();
 }
 

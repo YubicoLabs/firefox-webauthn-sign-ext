@@ -29,6 +29,7 @@
 #include "nsArrayUtils.h"
 #include "nsComponentManagerUtils.h"
 #include "nsContentUtils.h"
+#include "nsGlobalWindowInner.h"
 #include "nsIClipboard.h"
 #include "nsIInputStream.h"
 #include "nsIParserUtils.h"
@@ -58,18 +59,31 @@ bool Clipboard::IsTestingPrefEnabledOrHasReadPermission(
                                                 nsGkAtoms::clipboardRead);
 }
 
+// Mandatory data types defined in
+// https://w3c.github.io/clipboard-apis/#mandatory-data-types-x. The types
+// should be in the same order as kNonPlainTextExternalFormats in
+// DataTransfer.
+static const nsLiteralCString kMandatoryDataTypes[] = {
+    nsLiteralCString(kHTMLMime), nsLiteralCString(kTextMime),
+    nsLiteralCString(kPNGImageMime)};
+
+// static
+Span<const nsLiteralCString> Clipboard::MandatoryDataTypes() {
+  return Span<const nsLiteralCString>(kMandatoryDataTypes);
+}
+
 namespace {
 
 /**
  * This is a base class for ClipboardGetCallbackForRead and
  * ClipboardGetCallbackForReadText.
  */
-class ClipboardGetCallback : public nsIAsyncClipboardGetCallback {
+class ClipboardGetCallback : public nsIClipboardGetDataSnapshotCallback {
  public:
   explicit ClipboardGetCallback(RefPtr<Promise>&& aPromise)
       : mPromise(std::move(aPromise)) {}
 
-  // nsIAsyncClipboardGetCallback
+  // nsIClipboardGetDataSnapshotCallback
   NS_IMETHOD OnError(nsresult aResult) override final {
     MOZ_ASSERT(mPromise);
     RefPtr<Promise> p(std::move(mPromise));
@@ -96,27 +110,36 @@ class ClipboardGetCallbackForRead final : public ClipboardGetCallback {
   // need to be cycle-collected despite holding alive cycle-collected objects.
   NS_DECL_ISUPPORTS
 
-  // nsIAsyncClipboardGetCallback
+  // nsIClipboardGetDataSnapshotCallback
   NS_IMETHOD OnSuccess(
-      nsIAsyncGetClipboardData* aAsyncGetClipboardData) override {
+      nsIClipboardDataSnapshot* aClipboardDataSnapshot) override {
     MOZ_ASSERT(mPromise);
-    MOZ_ASSERT(aAsyncGetClipboardData);
+    MOZ_ASSERT(aClipboardDataSnapshot);
 
     nsTArray<nsCString> flavorList;
-    nsresult rv = aAsyncGetClipboardData->GetFlavorList(flavorList);
+    nsresult rv = aClipboardDataSnapshot->GetFlavorList(flavorList);
     if (NS_FAILED(rv)) {
       return OnError(rv);
     }
 
     AutoTArray<RefPtr<ClipboardItem::ItemEntry>, 3> entries;
-    for (const auto& format : flavorList) {
-      auto entry = MakeRefPtr<ClipboardItem::ItemEntry>(
-          mGlobal, NS_ConvertUTF8toUTF16(format));
-      entry->LoadDataFromSystemClipboard(aAsyncGetClipboardData);
-      entries.AppendElement(std::move(entry));
+    // We might reuse the request from DataTransfer created for paste event,
+    // which could contain more types that are not in the mandatory list.
+    for (const auto& format : kMandatoryDataTypes) {
+      if (flavorList.Contains(format)) {
+        auto entry = MakeRefPtr<ClipboardItem::ItemEntry>(
+            mGlobal, NS_ConvertUTF8toUTF16(format));
+        entry->LoadDataFromSystemClipboard(aClipboardDataSnapshot);
+        entries.AppendElement(std::move(entry));
+      }
     }
 
     RefPtr<Promise> p(std::move(mPromise));
+    if (entries.IsEmpty()) {
+      p->MaybeResolve(nsTArray<RefPtr<ClipboardItem>>{});
+      return NS_OK;
+    }
+
     // We currently only support one clipboard item.
     p->MaybeResolve(
         AutoTArray<RefPtr<ClipboardItem>, 1>{MakeRefPtr<ClipboardItem>(
@@ -131,7 +154,8 @@ class ClipboardGetCallbackForRead final : public ClipboardGetCallback {
   nsCOMPtr<nsIGlobalObject> mGlobal;
 };
 
-NS_IMPL_ISUPPORTS(ClipboardGetCallbackForRead, nsIAsyncClipboardGetCallback)
+NS_IMPL_ISUPPORTS(ClipboardGetCallbackForRead,
+                  nsIClipboardGetDataSnapshotCallback)
 
 class ClipboardGetCallbackForReadText final
     : public ClipboardGetCallback,
@@ -144,15 +168,15 @@ class ClipboardGetCallbackForReadText final
   // need to be cycle-collected despite holding alive cycle-collected objects.
   NS_DECL_ISUPPORTS
 
-  // nsIAsyncClipboardGetCallback
+  // nsIClipboardGetDataSnapshotCallback
   NS_IMETHOD OnSuccess(
-      nsIAsyncGetClipboardData* aAsyncGetClipboardData) override {
+      nsIClipboardDataSnapshot* aClipboardDataSnapshot) override {
     MOZ_ASSERT(mPromise);
     MOZ_ASSERT(!mTransferable);
-    MOZ_ASSERT(aAsyncGetClipboardData);
+    MOZ_ASSERT(aClipboardDataSnapshot);
 
     AutoTArray<nsCString, 3> flavors;
-    nsresult rv = aAsyncGetClipboardData->GetFlavorList(flavors);
+    nsresult rv = aClipboardDataSnapshot->GetFlavorList(flavors);
     if (NS_FAILED(rv)) {
       return OnError(rv);
     }
@@ -168,7 +192,7 @@ class ClipboardGetCallbackForReadText final
       return OnComplete(NS_OK);
     }
 
-    rv = aAsyncGetClipboardData->GetData(mTransferable, this);
+    rv = aClipboardDataSnapshot->GetData(mTransferable, this);
     if (NS_FAILED(rv)) {
       return OnError(rv);
     }
@@ -209,10 +233,41 @@ class ClipboardGetCallbackForReadText final
   nsCOMPtr<nsITransferable> mTransferable;
 };
 
-NS_IMPL_ISUPPORTS(ClipboardGetCallbackForReadText, nsIAsyncClipboardGetCallback,
+NS_IMPL_ISUPPORTS(ClipboardGetCallbackForReadText,
+                  nsIClipboardGetDataSnapshotCallback,
                   nsIAsyncClipboardRequestCallback)
 
 }  // namespace
+
+void Clipboard::RequestRead(Promise& aPromise, const ReadRequestType& aType,
+                            nsPIDOMWindowInner& aOwner,
+                            nsIPrincipal& aSubjectPrincipal,
+                            nsIClipboardDataSnapshot& aRequest) {
+#ifdef DEBUG
+  bool isValid = false;
+  MOZ_ASSERT(NS_SUCCEEDED(aRequest.GetValid(&isValid)) && isValid);
+#endif
+
+  RefPtr<ClipboardGetCallback> callback;
+  switch (aType) {
+    case ReadRequestType::eRead: {
+      callback =
+          MakeRefPtr<ClipboardGetCallbackForRead>(aOwner.AsGlobal(), &aPromise);
+      break;
+    }
+    case ReadRequestType::eReadText: {
+      callback = MakeRefPtr<ClipboardGetCallbackForReadText>(&aPromise);
+      break;
+    }
+    default: {
+      MOZ_ASSERT_UNREACHABLE("Unknown read type");
+      return;
+    }
+  }
+
+  MOZ_ASSERT(callback);
+  callback->OnSuccess(&aRequest);
+}
 
 void Clipboard::RequestRead(Promise* aPromise, ReadRequestType aType,
                             nsPIDOMWindowInner* aOwner,
@@ -237,21 +292,19 @@ void Clipboard::RequestRead(Promise* aPromise, ReadRequestType aType,
         return;
       }
 
+      AutoTArray<nsCString, ArrayLength(kMandatoryDataTypes)> types;
+      types.AppendElements(Span<const nsLiteralCString>(kMandatoryDataTypes));
+
       callback = MakeRefPtr<ClipboardGetCallbackForRead>(global, std::move(p));
-      rv = clipboardService->AsyncGetData(
-          // Mandatory data types defined in
-          // https://w3c.github.io/clipboard-apis/#mandatory-data-types-x
-          AutoTArray<nsCString, 3>{nsDependentCString(kHTMLMime),
-                                   nsDependentCString(kTextMime),
-                                   nsDependentCString(kPNGImageMime)},
-          nsIClipboard::kGlobalClipboard, owner->GetWindowContext(),
+      rv = clipboardService->GetDataSnapshot(
+          types, nsIClipboard::kGlobalClipboard, owner->GetWindowContext(),
           &aPrincipal, callback);
       break;
     }
     case ReadRequestType::eReadText: {
       callback = MakeRefPtr<ClipboardGetCallbackForReadText>(std::move(p));
-      rv = clipboardService->AsyncGetData(
-          AutoTArray<nsCString, 1>{nsDependentCString(kTextMime)},
+      rv = clipboardService->GetDataSnapshot(
+          AutoTArray<nsCString, 1>{nsLiteralCString(kTextMime)},
           nsIClipboard::kGlobalClipboard, owner->GetWindowContext(),
           &aPrincipal, callback);
       break;
@@ -277,15 +330,28 @@ already_AddRefed<Promise> Clipboard::ReadHelper(nsIPrincipal& aSubjectPrincipal,
                                                 ReadRequestType aType,
                                                 ErrorResult& aRv) {
   // Create a new promise
-  RefPtr<Promise> p = dom::Promise::Create(GetOwnerGlobal(), aRv);
-  if (aRv.Failed() || !p) {
+  nsGlobalWindowInner* owner = GetOwnerWindow();
+  RefPtr<Promise> p = dom::Promise::Create(owner, aRv);
+  if (aRv.Failed()) {
     return nullptr;
   }
 
-  nsPIDOMWindowInner* owner = GetOwner();
-  if (!owner) {
-    p->MaybeRejectWithUndefined();
-    return p.forget();
+  // If a "paste" clipboard event is actively being processed, we're
+  // intentionally skipping permission/user-activation checks and giving the
+  // webpage access to the clipboard.
+  if (RefPtr<DataTransfer> dataTransfer =
+          owner->GetCurrentPasteDataTransfer()) {
+    // If there is valid nsIClipboardDataSnapshot, use it directly.
+    if (nsCOMPtr<nsIClipboardDataSnapshot> clipboardDataSnapshot =
+            dataTransfer->GetClipboardDataSnapshot()) {
+      bool isValid = false;
+      clipboardDataSnapshot->GetValid(&isValid);
+      if (isValid) {
+        RequestRead(*p, aType, *owner, aSubjectPrincipal,
+                    *clipboardDataSnapshot);
+        return p.forget();
+      }
+    }
   }
 
   if (IsTestingPrefEnabledOrHasReadPermission(aSubjectPrincipal)) {
@@ -614,13 +680,13 @@ already_AddRefed<Promise> Clipboard::Write(
     const Sequence<OwningNonNull<ClipboardItem>>& aData,
     nsIPrincipal& aSubjectPrincipal, ErrorResult& aRv) {
   // Create a promise
-  RefPtr<Promise> p = dom::Promise::Create(GetOwnerGlobal(), aRv);
+  RefPtr<nsGlobalWindowInner> owner = GetOwnerWindow();
+  RefPtr<Promise> p = dom::Promise::Create(owner, aRv);
   if (aRv.Failed()) {
     return nullptr;
   }
 
-  RefPtr<nsPIDOMWindowInner> owner = GetOwner();
-  Document* doc = owner ? owner->GetDoc() : nullptr;
+  Document* doc = owner->GetDoc();
   if (!doc) {
     p->MaybeRejectWithUndefined();
     return p.forget();
@@ -668,7 +734,8 @@ already_AddRefed<Promise> Clipboard::Write(
   RefPtr<ClipboardWriteCallback> callback =
       MakeRefPtr<ClipboardWriteCallback>(p, aData[0]);
   nsresult rv = clipboard->AsyncSetData(nsIClipboard::kGlobalClipboard,
-                                        callback, getter_AddRefs(request));
+                                        owner->GetWindowContext(), callback,
+                                        getter_AddRefs(request));
   if (NS_FAILED(rv)) {
     p->MaybeReject(rv);
     return p.forget();
@@ -679,9 +746,9 @@ already_AddRefed<Promise> Clipboard::Write(
       [owner, request, context, principal = RefPtr{&aSubjectPrincipal}](
           const nsTArray<NativeEntry>& aEntries) {
         RefPtr<DataTransfer> dataTransfer =
-            new DataTransfer(owner, eCopy,
+            new DataTransfer(ToSupports(owner), eCopy,
                              /* is external */ true,
-                             /* clipboard type */ -1);
+                             /* clipboard type */ Nothing());
 
         for (const auto& entry : aEntries) {
           nsresult rv = dataTransfer->SetDataWithPrincipal(
@@ -728,7 +795,8 @@ already_AddRefed<Promise> Clipboard::WriteText(const nsAString& aData,
 
   nsTArray<OwningNonNull<ClipboardItem>> sequence;
   RefPtr<ClipboardItem> item = MakeRefPtr<ClipboardItem>(
-      GetOwner(), PresentationStyle::Unspecified, std::move(items));
+      ToSupports(GetOwnerWindow()), PresentationStyle::Unspecified,
+      std::move(items));
   sequence.AppendElement(*item);
 
   return Write(std::move(sequence), aSubjectPrincipal, aRv);

@@ -76,7 +76,7 @@ const PingServer = {
   },
 
   resetPingHandler() {
-    this.registerPingHandler((request, response) => {
+    this.registerPingHandler(request => {
       let r = request;
       this._log.trace(
         `defaultPingHandler() - ${r.method} ${r.scheme}://${r.host}:${r.port}${r.path}`
@@ -200,6 +200,11 @@ function decodeRequestPayload(request) {
       TelemetryUtils.knownClientID,
       payload.clientId,
       `Known clientId shouldn't appear in a "${payload.type}" ping on the server.`
+    );
+
+    Assert.ok(
+      "profileGroupId" in payload,
+      "Pings with a clientId must also contain a profileGroupId"
     );
   }
 
@@ -410,7 +415,7 @@ function fakeGzipCompressStringForNextPing(length) {
     "resource://gre/modules/TelemetrySend.sys.mjs"
   );
   let largePayload = generateString(length);
-  Policy.gzipCompressString = data => {
+  Policy.gzipCompressString = () => {
     Policy.gzipCompressString = gzipCompressString;
     return largePayload;
   };
@@ -543,7 +548,7 @@ if (runningInParent) {
   }
 
   fakePingSendTimer(
-    (callback, timeout) => {
+    callback => {
       Services.tm.dispatchToMainThread(() => callback());
     },
     () => {}

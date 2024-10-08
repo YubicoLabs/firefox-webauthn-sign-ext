@@ -7,81 +7,44 @@ skip-if = ["os == 'android'"]
 prefs = ["browser.search.removeEngineInfobar.enabled=true"]
 
 support-files = [
-  "data/engine.xml",
-  "data/engine/manifest.json",
-  "data/engine2.xml",
-  "data/engine2/manifest.json",
-  "data/engine-app/manifest.json",
-  "data/engine-diff-name/manifest.json",
-  "data/engine-diff-name/_locales/en/messages.json",
-  "data/engine-diff-name/_locales/gd/messages.json",
-  "data/engine-fr.xml",
-  "data/engine-fr/manifest.json",
-  "data/engine-reordered/manifest.json",
-  "data/engineMaker.sjs",
-  "data/engine-pref/manifest.json",
-  "data/engine-rel-searchform-purpose/manifest.json",
-  "data/engine-system-purpose/manifest.json",
-  "data/engineImages.xml",
-  "data/engine-chromeicon/manifest.json",
-  "data/engine-purposes/manifest.json",
-  "data/engine-resourceicon/manifest.json",
-  "data/engine-resourceicon/_locales/en/messages.json",
-  "data/engine-resourceicon/_locales/gd/messages.json",
-  "data/engine-same-name/manifest.json",
-  "data/engine-same-name/_locales/en/messages.json",
-  "data/engine-same-name/_locales/gd/messages.json",
-  "data/engines-no-order-hint.json",
-  "data/engines.json",
-  "data/iconsRedirect.sjs",
-  "data/search.json",
-  "data/search-legacy.json",
-  "data/search-legacy-correct-default-engine-hashes.json",
-  "data/search-legacy-no-ids.json",
-  "data/search-legacy-old-loadPaths.json",
-  "data/search-legacy-wrong-default-engine-hashes.json",
-  "data/search-legacy-wrong-third-party-engine-hashes.json",
-  "data/search-obsolete-app.json",
-  "data/search-obsolete-distribution.json",
-  "data/search-obsolete-langpack.json",
-  "data/searchSuggestions.sjs",
-  "data/geolookup-extensions/multilocale/favicon.ico",
-  "data/geolookup-extensions/multilocale/manifest.json",
-  "data/geolookup-extensions/multilocale/_locales/af/messages.json",
-  "data/geolookup-extensions/multilocale/_locales/an/messages.json",
-  "data1/engine1/manifest.json",
-  "data1/engine2/manifest.json",
-  "data1/exp2/manifest.json",
-  "data1/exp3/manifest.json",
-  "data1/engines.json",
-  "data1/search-config-v2.json",
-  "simple-engines/engines.json",
-  "simple-engines/search-config-v2.json",
-  "simple-engines/basic/manifest.json",
-  "simple-engines/simple/manifest.json",
-  "test-extensions/engines.json",
-  "test-extensions/plainengine/favicon.ico",
-  "test-extensions/plainengine/manifest.json",
-  "test-extensions/special-engine/favicon.ico",
-  "test-extensions/special-engine/manifest.json",
-  "test-extensions/multilocale/favicon-af.ico",
-  "test-extensions/multilocale/favicon-an.ico",
-  "test-extensions/multilocale/manifest.json",
-  "test-extensions/multilocale/_locales/af/messages.json",
-  "test-extensions/multilocale/_locales/an/messages.json",
+  "icons/bigIcon.ico",
+  "icons/remoteIcon.ico",
+  "icons/svgIcon.svg",
+  "opensearch/fr-domain-iso8859-1.xml",
+  "opensearch/generic1.xml",
+  "opensearch/generic2.xml",
+  "settings/v1-metadata-migration.json",
+  "sjs/engineMaker.sjs",
+  "sjs/iconsRedirect.sjs",
+  "sjs/searchSuggestions.sjs",
 ]
 
 ["test_SearchStaticData.js"]
 
 ["test_appDefaultEngine.js"]
 
+["test_appProvided_engine.js"]
+prefs = ["browser.search.newSearchConfig.enabled=true"]
+support-files = [
+  "../../schema/search-config-v2-schema.json",
+]
+
+["test_appProvided_icons.js"]
+prefs = ["browser.search.newSearchConfig.enabled=true"]
+
+["test_appProvided_icons_updates.js"]
+prefs = ["browser.search.newSearchConfig.enabled=true"]
+tags = "remote-settings"
+
 ["test_async.js"]
 
 ["test_config_engine_params.js"]
+
+["test_config_loading_uses_env.js"]
+
+["test_configExpansion.js"]
 support-files = [
-  "method-extensions/get/manifest.json",
-  "method-extensions/post/manifest.json",
-  "method-extensions/engines.json",
+  "../../schema/search-config-v2-schema.json",
 ]
 
 ["test_defaultEngine.js"]
@@ -98,28 +61,18 @@ support-files = [
 
 ["test_engine_multiple_alias.js"]
 
-["test_engine_old_selector.js"]
-
-["test_engine_old_selector_application.js"]
-
-["test_engine_old_selector_application_distribution.js"]
-
-["test_engine_old_selector_application_name.js"]
-
-["test_engine_old_selector_order.js"]
-
-["test_engine_old_selector_override.js"]
-
-["test_engine_old_selector_remote_settings.js"]
-tags = "remotesettings searchmain"
-
-["test_engine_old_selector_remote_override.js"]
+["test_engine_selector_defaults.js"]
 
 ["test_engine_selector_engine_orders.js"]
 
-["test_engine_selector_defaults.js"]
-
 ["test_engine_selector_environment.js"]
+
+["test_engine_selector_remote_override.js"]
+
+["test_engine_selector_remote_settings.js"]
+tags = "remotesettings searchmain"
+
+["test_engine_selector_subvariants.js"]
 
 ["test_engine_selector_variants.js"]
 
@@ -140,28 +93,17 @@ tags = "remotesettings searchmain"
 ["test_identifiers.js"]
 
 ["test_ignorelist.js"]
+support-files = ["settings/ignorelist.json"]
 
 ["test_ignorelist_update.js"]
-
-["test_initialization.js"]
 
 ["test_initialization_status_telemetry.js"]
 
 ["test_initialization_with_region.js"]
 
-["test_list_json_locale.js"]
-
-["test_list_json_no_private_default.js"]
-
-["test_list_json_searchdefault.js"]
-
-["test_list_json_searchorder.js"]
-
 ["test_maybereloadengine_order.js"]
 
 ["test_migrateWebExtensionEngine.js"]
-
-["test_missing_engine.js"]
 
 ["test_nodb_pluschanges.js"]
 
@@ -171,7 +113,6 @@ tags = "remotesettings searchmain"
 support-files = [
   "opensearch/mozilla-ns.xml",
   "opensearch/post.xml",
-  "opensearch/searchform-invalid.xml",
   "opensearch/simple.xml",
   "opensearch/suggestion.xml",
   "opensearch/suggestion-alternate.xml",
@@ -179,9 +120,7 @@ support-files = [
 
 ["test_opensearch_icon.js"]
 support-files = [
-  "data/bigIcon.ico",
-  "data/remoteIcon.ico",
-  "data/svgIcon.svg",
+  "opensearch/images.xml",
 ]
 
 ["test_opensearch_icons_invalid.js"]
@@ -217,11 +156,15 @@ support-files = [
 
 ["test_override_allowlist_switch.js"]
 
+["test_override_allowlist_update.js"]
+
 ["test_parseSubmissionURL.js"]
 
 ["test_policyEngine.js"]
 
 ["test_reload_engines.js"]
+
+["test_reload_engines_duplicate.js"]
 
 ["test_reload_engines_experiment.js"]
 
@@ -250,6 +193,12 @@ support-files = [
 ["test_sendSubmissionURL.js"]
 
 ["test_settings.js"]
+support-files = [
+  "settings/settings-loading.json",
+  "settings/v6-correct-default-engine-hashes.json",
+  "settings/v6-wrong-default-engine-hashes.json",
+  "settings/v6-wrong-third-party-engine-hashes.json",
+]
 
 ["test_settings_broken.js"]
 
@@ -257,22 +206,30 @@ support-files = [
 
 ["test_settings_good.js"]
 
-["test_settings_ignorelist.js"]
-support-files = ["data/search_ignorelist.json"]
+["test_settings_migrate_id_format.js"]
 
 ["test_settings_migration_hideOneOffs.js"]
 
 ["test_settings_migration_ids.js"]
+support-files = ["settings/v6-ids-upgrade.json"]
 
 ["test_settings_migration_loadPath.js"]
+support-files = ["settings/v7-loadPath-migration.json"]
+
+["test_settings_migration_renames.js"]
+support-files = ["settings/v6-migration-renames.json"]
+prefs = ["browser.search.newSearchConfig.enabled=true"]
 
 ["test_settings_none.js"]
 
 ["test_settings_obsolete.js"]
+support-files = [
+  "settings/v1-obsolete-app.json",
+  "settings/v1-obsolete-distribution.json",
+  "settings/v1-obsolete-langpack.json",
+]
 
 ["test_settings_persist.js"]
-
-["test_settings_persist_diff_locale_same_name.js"]
 
 ["test_sort_orders-no-hints.js"]
 
@@ -286,16 +243,14 @@ support-files = ["data/search_ignorelist.json"]
 
 ["test_validate_manifests.js"]
 
-["test_webextensions_builtin_upgrade.js"]
-
 ["test_webextensions_install.js"]
 
 ["test_webextensions_language_switch.js"]
 
 ["test_webextensions_migrate_to.js"]
-support-files = ["data/search-migration.json"]
+support-files = ["settings/v1-migrate-to-webextension.json"]
 
-["test_webextensions_normandy_upgrade.js"]
+["test_webextensions_startup.js"]
 
 ["test_webextensions_startup_duplicate.js"]
 

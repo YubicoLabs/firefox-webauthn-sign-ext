@@ -50,15 +50,23 @@ async function addTab(url) {
  * keeping track of which callbacks have been called.
  */
 class NetworkEventOwner {
+  hasCacheDetails = false;
   hasEventTimings = false;
+  hasRawHeaders = false;
   hasResponseCache = false;
   hasResponseContent = false;
   hasResponseStart = false;
   hasSecurityInfo = false;
   hasServerTimings = false;
 
+  addCacheDetails() {
+    this.hasCacheDetails = true;
+  }
   addEventTimings() {
     this.hasEventTimings = true;
+  }
+  addRawHeaders() {
+    this.hasRawHeaders = true;
   }
   addResponseCache() {
     this.hasResponseCache = true;
@@ -84,7 +92,7 @@ class NetworkEventOwner {
  * Create a simple network event owner, with mock implementations of all
  * the expected APIs for a NetworkEventOwner.
  */
-function createNetworkEventOwner(event) {
+function createNetworkEventOwner() {
   return new NetworkEventOwner();
 }
 

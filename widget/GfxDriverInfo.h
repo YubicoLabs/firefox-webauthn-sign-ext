@@ -181,6 +181,7 @@ enum class DeviceFamily : uint8_t {
   IntelKabyLake,
   IntelHD520,
   IntelMobileHDGraphics,
+  IntelGen12,
   NvidiaBlockD3D9Layers,
   RadeonX1000,
   RadeonCaicos,
@@ -231,6 +232,7 @@ enum DriverVendor : uint8_t {
   MesaSWUnknown,
   // AMD
   MesaR600,
+  MesaRadeonsi,
   // Nouveau: Open-source nvidia
   MesaNouveau,
   // A generic ID to be provided when we can't determine the DRI driver on Mesa.

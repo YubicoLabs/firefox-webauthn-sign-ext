@@ -92,6 +92,7 @@ namespace mozilla::dom {
 // Number of milliseconds between timeupdate events as defined by spec
 #define TIMEUPDATE_MS 250
 
+class HTMLVideoElement;
 class MediaError;
 class MediaSource;
 class PlayPromise;
@@ -152,6 +153,8 @@ class HTMLMediaElement : public nsGenericHTMLElement,
       already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo);
   void Init();
 
+  virtual HTMLVideoElement* AsHTMLVideoElement() { return nullptr; };
+
   // `eMandatory`: `timeupdate` occurs according to the spec requirement.
   // Eg.
   // https://html.spec.whatwg.org/multipage/media.html#seeking:event-media-timeupdate
@@ -196,24 +199,24 @@ class HTMLMediaElement : public nsGenericHTMLElement,
 
   void NodeInfoChanged(Document* aOldDoc) override;
 
-  virtual bool ParseAttribute(int32_t aNamespaceID, nsAtom* aAttribute,
-                              const nsAString& aValue,
-                              nsIPrincipal* aMaybeScriptedPrincipal,
-                              nsAttrValue& aResult) override;
+  bool ParseAttribute(int32_t aNamespaceID, nsAtom* aAttribute,
+                      const nsAString& aValue,
+                      nsIPrincipal* aMaybeScriptedPrincipal,
+                      nsAttrValue& aResult) override;
 
-  virtual nsresult BindToTree(BindContext&, nsINode& aParent) override;
-  virtual void UnbindFromTree(UnbindContext&) override;
-  virtual void DoneCreatingElement() override;
+  nsresult BindToTree(BindContext&, nsINode& aParent) override;
+  void UnbindFromTree(UnbindContext&) override;
+  void DoneCreatingElement() override;
 
-  virtual bool IsHTMLFocusable(bool aWithMouse, bool* aIsFocusable,
-                               int32_t* aTabIndex) override;
-  virtual int32_t TabIndexDefault() override;
+  bool IsHTMLFocusable(IsFocusableFlags, bool* aIsFocusable,
+                       int32_t* aTabIndex) override;
+  int32_t TabIndexDefault() override;
 
   // Called by the video decoder object, on the main thread,
   // when it has read the metadata containing video dimensions,
   // etc.
-  virtual void MetadataLoaded(const MediaInfo* aInfo,
-                              UniquePtr<const MetadataTags> aTags) final;
+  void MetadataLoaded(const MediaInfo* aInfo,
+                      UniquePtr<const MetadataTags> aTags) final;
 
   // Called by the decoder object, on the main thread,
   // when it has read the first frame of the video or audio.
@@ -666,7 +669,6 @@ class HTMLMediaElement : public nsGenericHTMLElement,
   double TotalVideoHDRPlayTime() const;
   double VisiblePlayTime() const;
   double InvisiblePlayTime() const;
-  double VideoDecodeSuspendedTime() const;
   double TotalAudioPlayTime() const;
   double AudiblePlayTime() const;
   double InaudiblePlayTime() const;
@@ -1117,7 +1119,7 @@ class HTMLMediaElement : public nsGenericHTMLElement,
    * When loading a new source on an existing media element, make sure to reset
    * everything that is accessible using the media element API.
    */
-  void ResetState();
+  virtual void ResetState();
 
   /**
    * The resource-fetch algorithm step of the load algorithm.
@@ -1235,7 +1237,8 @@ class HTMLMediaElement : public nsGenericHTMLElement,
   /**
    * Dispatches an error event to a child source element.
    */
-  void DispatchAsyncSourceError(nsIContent* aSourceElement);
+  void DispatchAsyncSourceError(nsIContent* aSourceElement,
+                                const nsACString& aErrorDetails);
 
   /**
    * Resets the media element for an error condition as per aErrorCode.
@@ -1415,6 +1418,10 @@ class HTMLMediaElement : public nsGenericHTMLElement,
   // changes its status of being used in the Picture-in-Picture mode.
   void UpdateMediaControlAfterPictureInPictureModeChanged();
 
+  // Return true if the element has pending callbacks that should prevent the
+  // suspension of video playback.
+  virtual bool HasPendingCallbacks() const { return false; }
+
   // The current decoder. Load() has been called on this decoder.
   // At most one of mDecoder and mSrcStream can be non-null.
   RefPtr<MediaDecoder> mDecoder;
@@ -1455,7 +1462,7 @@ class HTMLMediaElement : public nsGenericHTMLElement,
 
   // Holds a reference to the stream connecting this stream to the window
   // capture sink.
-  UniquePtr<MediaStreamWindowCapturer> mStreamWindowCapturer;
+  RefPtr<MediaStreamWindowCapturer> mStreamWindowCapturer;
 
   // Holds references to the DOM wrappers for the MediaStreams that we're
   // writing to.
@@ -1770,7 +1777,7 @@ class HTMLMediaElement : public nsGenericHTMLElement,
 
   RefPtr<VideoTrackList> mVideoTrackList;
 
-  UniquePtr<MediaStreamTrackListener> mMediaStreamTrackListener;
+  RefPtr<MediaStreamTrackListener> mMediaStreamTrackListener;
 
   // The principal guarding mVideoFrameContainer access when playing a
   // MediaStream.
@@ -1806,7 +1813,7 @@ class HTMLMediaElement : public nsGenericHTMLElement,
 
   already_AddRefed<PlayPromise> CreatePlayPromise(ErrorResult& aRv) const;
 
-  virtual void MaybeBeginCloningVisually(){};
+  virtual void MaybeBeginCloningVisually() {};
 
   uint32_t GetPreloadDefault() const;
   uint32_t GetPreloadDefaultAuto() const;
@@ -1937,5 +1944,9 @@ class HTMLMediaElement : public nsGenericHTMLElement,
 bool HasDebuggerOrTabsPrivilege(JSContext* aCx, JSObject* aObj);
 
 }  // namespace mozilla::dom
+
+inline nsISupports* ToSupports(mozilla::dom::HTMLMediaElement* aElement) {
+  return static_cast<mozilla::dom::EventTarget*>(aElement);
+}
 
 #endif  // mozilla_dom_HTMLMediaElement_h

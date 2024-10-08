@@ -65,7 +65,7 @@ impl Frontend {
 
         let idx = self.entry_args.len();
         self.entry_args.push(EntryArg {
-            name: None,
+            name: Some(name.into()),
             binding: Binding::BuiltIn(data.builtin),
             handle,
             storage: data.storage,
@@ -472,11 +472,10 @@ impl Frontend {
 
                 let constant = Constant {
                     name: name.clone(),
-                    r#override: crate::Override::None,
                     ty,
                     init,
                 };
-                let handle = ctx.module.constants.fetch_or_append(constant, meta);
+                let handle = ctx.module.constants.append(constant, meta);
 
                 let lookup = GlobalLookup {
                     kind: GlobalLookupKind::Constant(handle, ty),

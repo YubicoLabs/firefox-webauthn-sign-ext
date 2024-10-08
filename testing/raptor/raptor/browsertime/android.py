@@ -65,14 +65,21 @@ class BrowsertimeAndroid(PerftestAndroid, Browsertime):
             self._initialize_device()
 
             external_storage = self.device.shell_output("echo $EXTERNAL_STORAGE")
-            self._remote_test_root = os.path.join(
-                external_storage,
-                "Android",
-                "data",
-                self.config["binary"],
-                "files",
-                "test_root",
-            )
+            if int(self.device.shell_output("getprop ro.build.version.release")) == 14:
+                # Bug 1910111:
+                # The default external storage path doesn't seem to have the necessary
+                # permissions on the A55/Android 14 when pushing the condprof files.
+                # Instead we can make use of /sdcard/Download.
+                self._remote_test_root = os.path.join(external_storage, "Download")
+            else:
+                self._remote_test_root = os.path.join(
+                    external_storage,
+                    "Android",
+                    "data",
+                    self.config["binary"],
+                    "files",
+                    "test_root",
+                )
 
         return self._remote_test_root
 
@@ -98,6 +105,8 @@ class BrowsertimeAndroid(PerftestAndroid, Browsertime):
                     "chrome",
                 ]
             )
+            if self.config["app"] == "cstm-car-m":
+                args_list.extend(["--chrome.android.package", "org.chromium.chrome"])
         else:
             activity = self.config["activity"]
             if self.config["app"] == "fenix":
@@ -107,7 +116,7 @@ class BrowsertimeAndroid(PerftestAndroid, Browsertime):
                 )
                 activity = "mozilla.telemetry.glean.debug.GleanDebugActivity"
 
-            if self.device.shell_output("getprop ro.product.model") in ["Pixel 6"]:
+            if int(self.device.shell_output("getprop ro.build.version.release")) > 11:
                 args_list.extend(
                     [
                         '--firefox.geckodriverArgs="--android-storage"',
@@ -125,6 +134,10 @@ class BrowsertimeAndroid(PerftestAndroid, Browsertime):
                     activity,
                 ]
             )
+
+        if self.config["app"] == "geckoview":
+            # This is needed as geckoview is crashing on shutdown and is throwing marionette errors similar to 1768889
+            args_list.extend(["--ignoreShutdownFailures", "true"])
 
         if self.config["app"] == "fenix":
             # See bug 1768889

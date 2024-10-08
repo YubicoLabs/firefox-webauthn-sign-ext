@@ -71,7 +71,7 @@ function customFormatterHeader(objectActor) {
     return null;
   }
 
-  const targetActor = objectActor.thread._parent;
+  const { targetActor } = objectActor.thread;
 
   const {
     customFormatterConfigDbgObj: configDbgObj,
@@ -253,7 +253,7 @@ async function customFormatterBody(objectActor, formatter) {
 
   const customFormatterIndex = global.devtoolsFormatters.indexOf(formatter);
 
-  const targetActor = objectActor.thread._parent;
+  const { targetActor } = objectActor.thread;
   try {
     const { customFormatterConfigDbgObj, customFormatterObjectTagDepth } =
       objectActor.hooks;
@@ -355,12 +355,11 @@ exports.customFormatterBody = customFormatterBody;
 function logCustomFormatterError(window, errorMsg, script) {
   const scriptErrorClass = Cc["@mozilla.org/scripterror;1"];
   const scriptError = scriptErrorClass.createInstance(Ci.nsIScriptError);
-  const { url, source, startLine, startColumn } = script ?? {};
+  const { url, startLine, startColumn } = script ?? {};
 
   scriptError.initWithWindowID(
     `Custom formatter failed: ${errorMsg}`,
     url,
-    source,
     startLine,
     startColumn,
     Ci.nsIScriptError.errorFlag,

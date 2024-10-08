@@ -98,6 +98,15 @@ export class TestServer {
     // Disable this as sometimes the socket will timeout
     // We rely on the fact that we will close the server at the end
     this.#server.keepAliveTimeout = 0;
+    this.#server.on('clientError', err => {
+      if (
+        'code' in err &&
+        err.code === 'ERR_SSL_SSLV3_ALERT_CERTIFICATE_UNKNOWN'
+      ) {
+        return;
+      }
+      console.error('test-server client error', err);
+    });
     this.#wsServer = new WebSocketServer({server: this.#server});
     this.#wsServer.on('connection', this.#onWebSocketConnection);
   }
@@ -188,7 +197,7 @@ export class TestServer {
     this.#requestSubscribers.clear();
     for (const request of this.#requests.values()) {
       if (!request.writableEnded) {
-        request.end();
+        request.destroy();
       }
     }
     this.#requests.clear();

@@ -1,4 +1,4 @@
-/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
+/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -260,11 +260,11 @@ gint moz_gtk_splitter_get_metrics(gint orientation, gint* size) {
 }
 
 static void CalculateToolbarButtonMetrics(WidgetNodeType aAppearance,
-                                          ToolbarButtonGTKMetrics* aMetrics) {
+                                          ToolbarButtonGTKMetrics* aMetrics,
+                                          gint* aMaxInlineMargin) {
   gint iconWidth, iconHeight;
   if (!gtk_icon_size_lookup(GTK_ICON_SIZE_MENU, &iconWidth, &iconHeight)) {
     NS_WARNING("Failed to get Gtk+ icon size for titlebar button!");
-
     // Use some reasonable fallback size
     iconWidth = 16;
     iconHeight = 16;
@@ -292,37 +292,12 @@ static void CalculateToolbarButtonMetrics(WidgetNodeType aAppearance,
   // Place icon at button center.
   aMetrics->iconXPosition = (width - iconWidth) / 2;
   aMetrics->iconYPosition = (height - iconHeight) / 2;
+  aMetrics->minSizeWithBorder = {width, height};
 
-  aMetrics->minSizeWithBorderMargin.width = width;
-  aMetrics->minSizeWithBorderMargin.height = height;
-}
-
-// We support LTR layout only here for now.
-static void CalculateToolbarButtonSpacing(WidgetNodeType aAppearance,
-                                          ToolbarButtonGTKMetrics* aMetrics) {
-  GtkStyleContext* style = GetStyleContext(aAppearance);
+  GtkBorder margin = {0};
   gtk_style_context_get_margin(style, gtk_style_context_get_state(style),
-                               &aMetrics->buttonMargin);
-
-  // Get titlebar spacing, a default one is 6 pixels (gtk/gtkheaderbar.c)
-  gint buttonSpacing = 6;
-  g_object_get(GetWidget(MOZ_GTK_HEADER_BAR), "spacing", &buttonSpacing,
-               nullptr);
-
-  // We apply spacing as a margin equally to both adjacent buttons.
-  buttonSpacing /= 2;
-
-  if (!aMetrics->firstButton) {
-    aMetrics->buttonMargin.left += buttonSpacing;
-  }
-  if (!aMetrics->lastButton) {
-    aMetrics->buttonMargin.right += buttonSpacing;
-  }
-
-  aMetrics->minSizeWithBorderMargin.width +=
-      aMetrics->buttonMargin.right + aMetrics->buttonMargin.left;
-  aMetrics->minSizeWithBorderMargin.height +=
-      aMetrics->buttonMargin.top + aMetrics->buttonMargin.bottom;
+                               &margin);
+  *aMaxInlineMargin = std::max(*aMaxInlineMargin, margin.left + margin.right);
 }
 
 size_t GetGtkHeaderBarButtonLayout(Span<ButtonLayout> aButtonLayout,
@@ -384,32 +359,25 @@ static void EnsureToolbarMetrics() {
   if (sToolbarMetrics.initialized) {
     return;
   }
-  // Make sure we have clean cache after theme reset, etc.
-  memset(&sToolbarMetrics, 0, sizeof(sToolbarMetrics));
+  sToolbarMetrics = {};
 
   // Calculate titlebar button visibility and positions.
-  ButtonLayout aButtonLayout[TOOLBAR_BUTTONS];
+  ButtonLayout buttonLayout[TOOLBAR_BUTTONS];
   size_t activeButtonNums =
-      GetGtkHeaderBarButtonLayout(Span(aButtonLayout), nullptr);
+      GetGtkHeaderBarButtonLayout(Span(buttonLayout), nullptr);
 
-  for (size_t i = 0; i < activeButtonNums; i++) {
-    int buttonIndex =
-        (aButtonLayout[i].mType - MOZ_GTK_HEADER_BAR_BUTTON_CLOSE);
-    ToolbarButtonGTKMetrics* metrics = sToolbarMetrics.button + buttonIndex;
-    metrics->visible = true;
-    // Mark first button
-    if (!i) {
-      metrics->firstButton = true;
-    }
-    // Mark last button.
-    if (i == (activeButtonNums - 1)) {
-      metrics->lastButton = true;
-    }
-
-    CalculateToolbarButtonMetrics(aButtonLayout[i].mType, metrics);
-    CalculateToolbarButtonSpacing(aButtonLayout[i].mType, metrics);
+  for (const auto& layout : Span(buttonLayout, activeButtonNums)) {
+    int buttonIndex = layout.mType - MOZ_GTK_HEADER_BAR_BUTTON_CLOSE;
+    ToolbarButtonGTKMetrics* metrics = &sToolbarMetrics.button[buttonIndex];
+    CalculateToolbarButtonMetrics(layout.mType, metrics,
+                                  &sToolbarMetrics.inlineSpacing);
   }
 
+  // Account for the spacing property in the header bar.
+  // Default to 6 pixels (gtk/gtkheaderbar.c)
+  gint spacing = 6;
+  g_object_get(GetWidget(MOZ_GTK_HEADER_BAR), "spacing", &spacing, nullptr);
+  sToolbarMetrics.inlineSpacing += spacing;
   sToolbarMetrics.initialized = true;
 }
 
@@ -421,6 +389,11 @@ const ToolbarButtonGTKMetrics* GetToolbarButtonMetrics(
   NS_ASSERTION(buttonIndex >= 0 && buttonIndex <= TOOLBAR_BUTTONS,
                "GetToolbarButtonMetrics(): Wrong titlebar button!");
   return sToolbarMetrics.button + buttonIndex;
+}
+
+gint moz_gtk_get_titlebar_button_spacing() {
+  EnsureToolbarMetrics();
+  return sToolbarMetrics.inlineSpacing;
 }
 
 static gint moz_gtk_window_decoration_paint(cairo_t* cr,
@@ -506,26 +479,27 @@ static gint moz_gtk_button_paint(cairo_t* cr, const GdkRectangle* rect,
   return MOZ_GTK_SUCCESS;
 }
 
-static gint moz_gtk_header_bar_button_paint(cairo_t* cr,
-                                            const GdkRectangle* aRect,
+static gint moz_gtk_header_bar_button_paint(cairo_t* cr, GdkRectangle* aRect,
                                             GtkWidgetState* state,
                                             GtkReliefStyle relief,
                                             WidgetNodeType aIconWidgetType,
                                             GtkTextDirection direction) {
-  GdkRectangle rect = *aRect;
-  // We need to inset our calculated margin because it also
-  // contains titlebar button spacing.
-  const ToolbarButtonGTKMetrics* metrics = GetToolbarButtonMetrics(
-      aIconWidgetType == MOZ_GTK_HEADER_BAR_BUTTON_MAXIMIZE_RESTORE
-          ? MOZ_GTK_HEADER_BAR_BUTTON_MAXIMIZE
-          : aIconWidgetType);
-  Inset(&rect, metrics->buttonMargin);
-
   GtkWidget* buttonWidget = GetWidget(aIconWidgetType);
   if (!buttonWidget) {
     return MOZ_GTK_UNKNOWN_WIDGET;
   }
-  moz_gtk_button_paint(cr, &rect, state, relief, buttonWidget, direction);
+
+  const ToolbarButtonGTKMetrics* metrics = GetToolbarButtonMetrics(
+      aIconWidgetType == MOZ_GTK_HEADER_BAR_BUTTON_MAXIMIZE_RESTORE
+          ? MOZ_GTK_HEADER_BAR_BUTTON_MAXIMIZE
+          : aIconWidgetType);
+  // Vertically center and clamp the rect to the desired size.
+  if (aRect->height > metrics->minSizeWithBorder.height) {
+    gint diff = aRect->height - metrics->minSizeWithBorder.height;
+    aRect->y += diff / 2;
+    aRect->height = metrics->minSizeWithBorder.height;
+  }
+  moz_gtk_button_paint(cr, aRect, state, relief, buttonWidget, direction);
 
   GtkWidget* iconWidget =
       gtk_bin_get_child(GTK_BIN(GetWidget(aIconWidgetType)));
@@ -544,8 +518,9 @@ static gint moz_gtk_header_bar_button_paint(cairo_t* cr,
     gtk_style_context_set_state(style, state_flags);
 
     /* This is available since Gtk+ 3.10 as well as GtkHeaderBar */
-    gtk_render_icon_surface(style, cr, surface, rect.x + metrics->iconXPosition,
-                            rect.y + metrics->iconYPosition);
+    gtk_render_icon_surface(style, cr, surface,
+                            aRect->x + metrics->iconXPosition,
+                            aRect->y + metrics->iconYPosition);
     gtk_style_context_restore(style);
   }
 
@@ -978,54 +953,7 @@ static gint moz_gtk_treeview_paint(cairo_t* cr, GdkRectangle* rect,
   return MOZ_GTK_SUCCESS;
 }
 
-static gint moz_gtk_tree_header_cell_paint(cairo_t* cr,
-                                           const GdkRectangle* aRect,
-                                           GtkWidgetState* state,
-                                           gboolean isSorted,
-                                           GtkTextDirection direction) {
-  moz_gtk_button_paint(cr, aRect, state, GTK_RELIEF_NORMAL,
-                       GetWidget(MOZ_GTK_TREE_HEADER_CELL), direction);
-  return MOZ_GTK_SUCCESS;
-}
-
-/* See gtk_expander_paint() for reference.
- */
-static gint moz_gtk_treeview_expander_paint(cairo_t* cr, GdkRectangle* rect,
-                                            GtkWidgetState* state,
-                                            GtkExpanderStyle expander_state,
-                                            GtkTextDirection direction) {
-  /* Because the frame we get is of the entire treeview, we can't get the
-   * precise event state of one expander, thus rendering hover and active
-   * feedback useless. */
-  GtkStateFlags state_flags =
-      state->disabled ? GTK_STATE_FLAG_INSENSITIVE : GTK_STATE_FLAG_NORMAL;
-
-  if (state->inHover)
-    state_flags =
-        static_cast<GtkStateFlags>(state_flags | GTK_STATE_FLAG_PRELIGHT);
-  if (state->selected)
-    state_flags =
-        static_cast<GtkStateFlags>(state_flags | GTK_STATE_FLAG_SELECTED);
-
-  /* GTK_STATE_FLAG_ACTIVE controls expanded/colapsed state rendering
-   * in gtk_render_expander()
-   */
-  if (expander_state == GTK_EXPANDER_EXPANDED)
-    state_flags =
-        static_cast<GtkStateFlags>(state_flags | checkbox_check_state);
-  else
-    state_flags =
-        static_cast<GtkStateFlags>(state_flags & ~(checkbox_check_state));
-
-  GtkStyleContext* style = GetStyleContext(
-      MOZ_GTK_TREEVIEW_EXPANDER, state->image_scale, direction, state_flags);
-  gtk_render_expander(style, cr, rect->x, rect->y, rect->width, rect->height);
-
-  return MOZ_GTK_SUCCESS;
-}
-
-/* See gtk_separator_draw() for reference.
- */
+/* See gtk_separator_draw() for reference. */
 static gint moz_gtk_combo_box_paint(cairo_t* cr, const GdkRectangle* aRect,
                                     GtkWidgetState* state,
                                     GtkTextDirection direction) {
@@ -1613,18 +1541,6 @@ gint moz_gtk_get_widget_border(WidgetNodeType widget, gint* left, gint* top,
       moz_gtk_add_style_border(style, left, top, right, bottom);
       return MOZ_GTK_SUCCESS;
     }
-    case MOZ_GTK_TREE_HEADER_CELL: {
-      /* A Tree Header in GTK is just a different styled button
-       * It must be placed in a TreeView for getting the correct style
-       * assigned.
-       * That is why the following code is the same as for MOZ_GTK_BUTTON.
-       * */
-      *left = *top = *right = *bottom = gtk_container_get_border_width(
-          GTK_CONTAINER(GetWidget(MOZ_GTK_TREE_HEADER_CELL)));
-      style = GetStyleContext(MOZ_GTK_TREE_HEADER_CELL);
-      moz_gtk_add_border_padding(style, left, top, right, bottom);
-      return MOZ_GTK_SUCCESS;
-    }
     case MOZ_GTK_DROPDOWN: {
       /* We need to account for the arrow on the dropdown, so text
        * doesn't come too close to the arrow, or in some cases spill
@@ -1700,22 +1616,6 @@ gint moz_gtk_get_widget_border(WidgetNodeType widget, gint* left, gint* top,
 
       return MOZ_GTK_SUCCESS;
     }
-    case MOZ_GTK_HEADER_BAR_BUTTON_BOX: {
-      style = GetStyleContext(MOZ_GTK_HEADER_BAR);
-      moz_gtk_add_border_padding(style, left, top, right, bottom);
-      *top = *bottom = 0;
-      bool leftButtonsPlacement = false;
-      GetGtkHeaderBarButtonLayout({}, &leftButtonsPlacement);
-      if (direction == GTK_TEXT_DIR_RTL) {
-        leftButtonsPlacement = !leftButtonsPlacement;
-      }
-      if (leftButtonsPlacement) {
-        *right = 0;
-      } else {
-        *left = 0;
-      }
-      return MOZ_GTK_SUCCESS;
-    }
     /* These widgets have no borders, since they are not containers. */
     case MOZ_GTK_SPLITTER_HORIZONTAL:
     case MOZ_GTK_SPLITTER_VERTICAL:
@@ -1726,7 +1626,6 @@ gint moz_gtk_get_widget_border(WidgetNodeType widget, gint* left, gint* top,
     case MOZ_GTK_PROGRESS_CHUNK:
     case MOZ_GTK_PROGRESS_CHUNK_INDETERMINATE:
     case MOZ_GTK_PROGRESS_CHUNK_VERTICAL_INDETERMINATE:
-    case MOZ_GTK_TREEVIEW_EXPANDER:
     case MOZ_GTK_HEADER_BAR:
     case MOZ_GTK_HEADER_BAR_MAXIMIZED:
     case MOZ_GTK_HEADER_BAR_BUTTON_CLOSE:
@@ -1832,18 +1731,6 @@ void moz_gtk_get_arrow_size(WidgetNodeType widgetType, gint* width,
     *width = 0;
     *height = 0;
   }
-}
-
-gint moz_gtk_get_expander_size(gint* size) {
-  GtkStyleContext* style = GetStyleContext(MOZ_GTK_EXPANDER);
-  gtk_style_context_get_style(style, "expander-size", size, NULL);
-  return MOZ_GTK_SUCCESS;
-}
-
-gint moz_gtk_get_treeview_expander_size(gint* size) {
-  GtkStyleContext* style = GetStyleContext(MOZ_GTK_TREEVIEW);
-  gtk_style_context_get_style(style, "expander-size", size, NULL);
-  return MOZ_GTK_SUCCESS;
 }
 
 void moz_gtk_get_entry_min_height(gint* min_content_height,
@@ -2114,11 +2001,6 @@ gint moz_gtk_widget_paint(WidgetNodeType widget, cairo_t* cr,
     }
     case MOZ_GTK_TREEVIEW:
       return moz_gtk_treeview_paint(cr, rect, state, direction);
-    case MOZ_GTK_TREE_HEADER_CELL:
-      return moz_gtk_tree_header_cell_paint(cr, rect, state, flags, direction);
-    case MOZ_GTK_TREEVIEW_EXPANDER:
-      return moz_gtk_treeview_expander_paint(
-          cr, rect, state, (GtkExpanderStyle)flags, direction);
     case MOZ_GTK_ENTRY:
     case MOZ_GTK_DROPDOWN_ENTRY: {
       GtkStyleContext* style =

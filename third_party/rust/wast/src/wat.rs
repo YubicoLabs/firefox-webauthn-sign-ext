@@ -27,9 +27,14 @@ impl Wat<'_> {
     /// Encodes this `Wat` to binary form. This calls either [`Module::encode`]
     /// or [`Component::encode`].
     pub fn encode(&mut self) -> std::result::Result<Vec<u8>, crate::Error> {
+        crate::core::EncodeOptions::default().encode_wat(self)
+    }
+
+    /// Returns the defining span of this file.
+    pub fn span(&self) -> Span {
         match self {
-            Wat::Module(m) => m.encode(),
-            Wat::Component(c) => c.encode(),
+            Wat::Module(m) => m.span,
+            Wat::Component(c) => c.span,
         }
     }
 }
@@ -43,6 +48,7 @@ impl<'a> Parse<'a> for Wat<'a> {
         let _r = parser.register_annotation("custom");
         let _r = parser.register_annotation("producers");
         let _r = parser.register_annotation("name");
+        let _r = parser.register_annotation("metadata.code.branch_hint");
         let wat = if parser.peek2::<kw::module>()? {
             Wat::Module(parser.parens(|parser| parser.parse())?)
         } else if parser.peek2::<kw::component>()? {

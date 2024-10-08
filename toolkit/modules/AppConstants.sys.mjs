@@ -5,10 +5,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-const lazy = {};
-ChromeUtils.defineModuleGetter(lazy, "AddonManager", "resource://gre/modules/AddonManager.jsm");
-
-// Immutable for export.
+/**
+ * AppConstants is a set of immutable constants that are defined at build time.
+ * These should not depend on any other JavaScript module.
+ */
 export var AppConstants = Object.freeze({
   // See this wiki page for more details about channel specific build
   // defines: https://wiki.mozilla.org/Platform/Channel-specific_build_defines
@@ -78,13 +78,6 @@ export var AppConstants = Object.freeze({
   false,
 #endif
 
-  MOZ_SERVICES_HEALTHREPORT:
-#ifdef MOZ_SERVICES_HEALTHREPORT
-  true,
-#else
-  false,
-#endif
-
   MOZ_DATA_REPORTING:
 #ifdef MOZ_DATA_REPORTING
   true,
@@ -106,22 +99,8 @@ export var AppConstants = Object.freeze({
   false,
 #endif
 
-  MOZ_TELEMETRY_ON_BY_DEFAULT:
-#ifdef MOZ_TELEMETRY_ON_BY_DEFAULT
-  true,
-#else
-  false,
-#endif
-
   MOZ_UPDATER:
 #ifdef MOZ_UPDATER
-  true,
-#else
-  false,
-#endif
-
-  MOZ_SWITCHBOARD:
-#ifdef MOZ_SWITCHBOARD
   true,
 #else
   false,
@@ -292,16 +271,19 @@ export var AppConstants = Object.freeze({
   false,
 #endif
 
-  get MOZ_UNSIGNED_SCOPES() {
-    let result = 0;
+  MOZ_UNSIGNED_APP_SCOPE:
 #ifdef MOZ_UNSIGNED_APP_SCOPE
-    result |= lazy.AddonManager.SCOPE_APPLICATION;
+  true,
+#else
+  false,
 #endif
+
+  MOZ_UNSIGNED_SYSTEM_SCOPE:
 #ifdef MOZ_UNSIGNED_SYSTEM_SCOPE
-    result |= lazy.AddonManager.SCOPE_SYSTEM;
+  true,
+#else
+  false,
 #endif
-    return result;
-  },
 
   MOZ_ALLOW_ADDON_SIDELOAD:
 #ifdef MOZ_ALLOW_ADDON_SIDELOAD
@@ -324,8 +306,8 @@ export var AppConstants = Object.freeze({
   false,
 #endif
 
-  MOZ_ANDROID_HISTORY:
-#ifdef MOZ_ANDROID_HISTORY
+  MOZ_GECKOVIEW_HISTORY:
+#ifdef MOZ_GECKOVIEW_HISTORY
   true,
 #else
   false,
@@ -355,7 +337,6 @@ export var AppConstants = Object.freeze({
   MOZ_MACBUNDLE_NAME: "@MOZ_MACBUNDLE_NAME@",
   MOZ_UPDATE_CHANNEL: "@MOZ_UPDATE_CHANNEL@",
   MOZ_WIDGET_TOOLKIT: "@MOZ_WIDGET_TOOLKIT@",
-  ANDROID_PACKAGE_NAME: "@ANDROID_PACKAGE_NAME@",
 
   DEBUG_JS_MODULES: "@DEBUG_JS_MODULES@",
 
@@ -400,13 +381,6 @@ export var AppConstants = Object.freeze({
 
   TELEMETRY_PING_FORMAT_VERSION: @TELEMETRY_PING_FORMAT_VERSION@,
 
-  MOZ_NEW_NOTIFICATION_STORE:
-#ifdef MOZ_NEW_NOTIFICATION_STORE
-    true,
-#else
-    false,
-#endif
-
   ENABLE_WEBDRIVER:
 #ifdef ENABLE_WEBDRIVER
     true,
@@ -449,6 +423,7 @@ export var AppConstants = Object.freeze({
     false,
 #endif
 
+#if defined(MOZ_THUNDERBIRD) || defined(MOZ_SUITE)
   MOZ_CAN_FOLLOW_SYSTEM_TIME:
 #ifdef XP_WIN
     true,
@@ -463,12 +438,27 @@ export var AppConstants = Object.freeze({
 #else
     false,
 #endif
+#endif
 
   MOZ_SYSTEM_POLICIES:
 #ifdef MOZ_SYSTEM_POLICIES
     true,
 #else
     false,
+#endif
+
+  MOZ_SELECTABLE_PROFILES:
+#ifdef MOZ_SELECTABLE_PROFILES
+    true,
+#else
+    false,
+#endif
+
+  SQLITE_LIBRARY_FILENAME:
+#ifdef MOZ_FOLD_LIBS
+  "@DLL_PREFIX@nss3@DLL_SUFFIX@",
+#else
+  "@DLL_PREFIX@mozsqlite3@DLL_SUFFIX@",
 #endif
 
   // Returns true for CN region build when distibution id set as 'MozillaOnline'

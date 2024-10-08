@@ -46,7 +46,7 @@ void ContentPlaybackController::NotifyContentMediaControlKeyReceiver(
   if (RefPtr<ContentMediaControlKeyReceiver> receiver =
           ContentMediaControlKeyReceiver::Get(mBC)) {
     LOG("Handle '%s' in default behavior for BC %" PRIu64,
-        ToMediaControlKeyStr(aKey), mBC->Id());
+        GetEnumString(aKey).get(), mBC->Id());
     receiver->HandleMediaKey(aKey);
   }
 }
@@ -61,7 +61,7 @@ void ContentPlaybackController::NotifyMediaSession(
     const MediaSessionActionDetails& aDetails) {
   if (RefPtr<MediaSession> session = GetMediaSession()) {
     LOG("Handle '%s' in media session behavior for BC %" PRIu64,
-        ToMediaSessionActionStr(aDetails.mAction), mBC->Id());
+        GetEnumString(aDetails.mAction).get(), mBC->Id());
     MOZ_ASSERT(session->IsActive(), "Notify inactive media session!");
     session->NotifyHandler(aDetails);
   }
@@ -120,12 +120,22 @@ void ContentPlaybackController::Pause() {
   }
 }
 
-void ContentPlaybackController::SeekBackward() {
-  NotifyMediaSessionWhenActionIsSupported(MediaSessionAction::Seekbackward);
+void ContentPlaybackController::SeekBackward(double aSeekOffset) {
+  MediaSessionActionDetails details;
+  details.mAction = MediaSessionAction::Seekbackward;
+  details.mSeekOffset.Construct(aSeekOffset);
+  if (IsMediaSessionActionSupported(details.mAction)) {
+    NotifyMediaSession(details);
+  }
 }
 
-void ContentPlaybackController::SeekForward() {
-  NotifyMediaSessionWhenActionIsSupported(MediaSessionAction::Seekforward);
+void ContentPlaybackController::SeekForward(double aSeekOffset) {
+  MediaSessionActionDetails details;
+  details.mAction = MediaSessionAction::Seekforward;
+  details.mSeekOffset.Construct(aSeekOffset);
+  if (IsMediaSessionActionSupported(details.mAction)) {
+    NotifyMediaSession(details);
+  }
 }
 
 void ContentPlaybackController::PreviousTrack() {
@@ -168,8 +178,12 @@ void ContentMediaControlKeyHandler::HandleMediaControlAction(
   if (!aContext->GetDocShell()) {
     return;
   }
+  if (aAction.mKey.isNothing()) {
+    MOZ_ASSERT_UNREACHABLE("Invalid media control key.");
+    return;
+  }
   ContentPlaybackController controller(aContext);
-  switch (aAction.mKey) {
+  switch (aAction.mKey.value()) {
     case MediaControlKey::Focus:
       controller.Focus();
       return;
@@ -178,6 +192,9 @@ void ContentMediaControlKeyHandler::HandleMediaControlAction(
       return;
     case MediaControlKey::Pause:
       controller.Pause();
+      return;
+    case MediaControlKey::Playpause:
+      MOZ_ASSERT_UNREACHABLE("Invalid media control key.");
       return;
     case MediaControlKey::Stop:
       controller.Stop();
@@ -188,18 +205,26 @@ void ContentMediaControlKeyHandler::HandleMediaControlAction(
     case MediaControlKey::Nexttrack:
       controller.NextTrack();
       return;
-    case MediaControlKey::Seekbackward:
-      controller.SeekBackward();
+    case MediaControlKey::Seekbackward: {
+      const SeekDetails& details = *aAction.mDetails;
+      MOZ_ASSERT(details.mRelativeSeekOffset);
+      controller.SeekBackward(details.mRelativeSeekOffset.value());
       return;
-    case MediaControlKey::Seekforward:
-      controller.SeekForward();
+    }
+    case MediaControlKey::Seekforward: {
+      const SeekDetails& details = *aAction.mDetails;
+      MOZ_ASSERT(details.mRelativeSeekOffset);
+      controller.SeekForward(details.mRelativeSeekOffset.value());
       return;
+    }
     case MediaControlKey::Skipad:
       controller.SkipAd();
       return;
     case MediaControlKey::Seekto: {
       const SeekDetails& details = *aAction.mDetails;
-      controller.SeekTo(details.mSeekTime, details.mFastSeek);
+      MOZ_ASSERT(details.mAbsolute);
+      controller.SeekTo(details.mAbsolute->mSeekTime,
+                        details.mAbsolute->mFastSeek);
       return;
     }
     default:

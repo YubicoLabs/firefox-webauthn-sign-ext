@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "absl/types/optional.h"
+#include "api/audio/audio_device.h"
 #include "api/data_channel_interface.h"
 #include "api/media_types.h"
 #include "api/scoped_refptr.h"
@@ -28,7 +29,6 @@
 #include "api/stats/rtcstats_objects.h"
 #include "call/call.h"
 #include "media/base/media_channel.h"
-#include "modules/audio_device/include/audio_device.h"
 #include "pc/data_channel_utils.h"
 #include "pc/peer_connection_internal.h"
 #include "pc/rtp_receiver.h"
@@ -56,7 +56,7 @@ class RtpReceiverInternal;
 // Stats are gathered on the signaling, worker and network threads
 // asynchronously. The callback is invoked on the signaling thread. Resulting
 // reports are cached for `cache_lifetime_` ms.
-class RTCStatsCollector : public rtc::RefCountInterface {
+class RTCStatsCollector : public RefCountInterface {
  public:
   static rtc::scoped_refptr<RTCStatsCollector> Create(
       PeerConnectionInternal* pc,
@@ -317,15 +317,10 @@ class RTCStatsCollector : public rtc::RefCountInterface {
     uint32_t data_channels_closed;
     // Identifies channels that have been opened, whose internal id is stored in
     // the set until they have been fully closed.
-    webrtc::flat_set<int> opened_data_channels;
+    flat_set<int> opened_data_channels;
   };
   InternalRecord internal_record_;
 };
-
-const char* CandidateTypeToRTCIceCandidateTypeForTesting(
-    const std::string& type);
-const char* DataStateToRTCDataChannelStateForTesting(
-    DataChannelInterface::DataState state);
 
 }  // namespace webrtc
 

@@ -8,6 +8,7 @@
 #include "CompositorThread.h"
 #include "mozilla/DataMutex.h"
 #include "mozilla/ipc/Endpoint.h"
+#include "mozilla/layers/PTextureParent.h"
 #include "mozilla/layers/TextureHost.h"
 #include "mozilla/layers/VideoBridgeUtils.h"
 #include "mozilla/webrender/RenderThread.h"
@@ -17,9 +18,8 @@ namespace mozilla::layers {
 using namespace mozilla::ipc;
 using namespace mozilla::gfx;
 
-using VideoBridgeTable =
-    EnumeratedArray<VideoBridgeSource, VideoBridgeSource::_Count,
-                    VideoBridgeParent*>;
+using VideoBridgeTable = EnumeratedArray<VideoBridgeSource, VideoBridgeParent*,
+                                         size_t(VideoBridgeSource::_Count)>;
 
 static StaticDataMutex<VideoBridgeTable> sVideoBridgeFromProcess(
     "VideoBridges");

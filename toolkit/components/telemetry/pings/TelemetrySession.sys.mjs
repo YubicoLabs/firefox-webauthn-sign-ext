@@ -413,8 +413,6 @@ var Impl = {
       }
     }
 
-    ret.startupInterrupted = Number(Services.startup.interrupted);
-
     if (Utils.isContentProcess) {
       return ret;
     }
@@ -764,11 +762,6 @@ var Impl = {
         reason,
         clearSubsession
       );
-    } catch (ex) {
-      Services.telemetry
-        .getHistogramById("TELEMETRY_ASSEMBLE_PAYLOAD_EXCEPTION")
-        .add(1);
-      throw ex;
     } finally {
       if (!Utils.isContentProcess && clearSubsession) {
         this.startNewSubsession();
@@ -1122,7 +1115,7 @@ var Impl = {
   /**
    * This observer drives telemetry.
    */
-  observe(aSubject, aTopic, aData) {
+  observe(aSubject, aTopic) {
     this._log.trace("observe - " + aTopic + " notified.");
 
     switch (aTopic) {

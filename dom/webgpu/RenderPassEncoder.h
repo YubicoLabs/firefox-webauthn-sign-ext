@@ -24,7 +24,7 @@ class AutoSequence;
 }  // namespace dom
 namespace webgpu {
 namespace ffi {
-struct WGPURenderPass;
+struct WGPURecordedRenderPass;
 }  // namespace ffi
 
 class BindGroup;
@@ -35,7 +35,7 @@ class RenderPipeline;
 class TextureView;
 
 struct ffiWGPURenderPassDeleter {
-  void operator()(ffi::WGPURenderPass*);
+  void operator()(ffi::WGPURecordedRenderPass*);
 };
 
 class RenderPassEncoder final : public ObjectBase,
@@ -49,9 +49,9 @@ class RenderPassEncoder final : public ObjectBase,
 
  protected:
   virtual ~RenderPassEncoder();
-  void Cleanup() {}
+  void Cleanup();
 
-  std::unique_ptr<ffi::WGPURenderPass, ffiWGPURenderPassDeleter> mPass;
+  std::unique_ptr<ffi::WGPURecordedRenderPass, ffiWGPURenderPassDeleter> mPass;
   // keep all the used objects alive while the pass is recorded
   nsTArray<RefPtr<const BindGroup>> mUsedBindGroups;
   nsTArray<RefPtr<const Buffer>> mUsedBuffers;

@@ -8,11 +8,11 @@ import errno
 import logging
 import os
 import sys
-from multiprocessing import cpu_count
 
 from mach.decorators import Command
 from mozbuild.base import BinaryNotFoundException, MozbuildObject
 from mozbuild.base import MachCommandConditions as conditions
+from mozbuild.util import cpu_count, macos_performance_cores
 from mozlog import structured
 from xpcshellcommandline import parser_desktop, parser_remote
 
@@ -164,13 +164,11 @@ class AndroidXPCShellRunner(MozbuildObject):
         if not kwargs["symbolsPath"]:
             kwargs["symbolsPath"] = os.path.join(self.distdir, "crashreporter-symbols")
 
-        if self.substs.get("MOZ_BUILD_APP") == "b2g":
-            kwargs["localAPK"] = None
-        elif not kwargs["localAPK"]:
+        if not kwargs["localAPK"]:
             for root, _, paths in os.walk(os.path.join(kwargs["objdir"], "gradle")):
                 for file_name in paths:
                     if file_name.endswith(".apk") and file_name.startswith(
-                        "test_runner-withGeckoBinaries"
+                        "test_runner"
                     ):
                         kwargs["localAPK"] = os.path.join(root, file_name)
                         print("using APK: %s" % kwargs["localAPK"])
@@ -179,6 +177,11 @@ class AndroidXPCShellRunner(MozbuildObject):
                     break
             else:
                 raise Exception("APK not found in objdir. You must specify an APK.")
+
+        if not kwargs["xrePath"]:
+            MOZ_HOST_BIN = os.environ.get("MOZ_HOST_BIN")
+            if MOZ_HOST_BIN:
+                kwargs["xrePath"] = MOZ_HOST_BIN
 
         xpcshell = remotexpcshelltests.XPCShellRemote(kwargs, log)
 
@@ -195,10 +198,7 @@ class AndroidXPCShellRunner(MozbuildObject):
 
 def get_parser():
     build_obj = MozbuildObject.from_environment(cwd=here)
-    if (
-        conditions.is_android(build_obj)
-        or build_obj.substs.get("MOZ_BUILD_APP") == "b2g"
-    ):
+    if conditions.is_android(build_obj):
         return parser_remote()
     else:
         return parser_desktop()
@@ -242,13 +242,22 @@ def run_xpcshell_test(command_context, test_objects=None, **params):
         )
 
     if not params["threadCount"]:
-        # pylint --py3k W1619
-        params["threadCount"] = int((cpu_count() * 3) / 2)
+        if sys.platform == "darwin":
+            # On Apple Silicon, we have found that increasing the number of
+            # threads (processes) above the CPU count reduces the performance
+            # (bug 1917833), and makes the machine less performant. It is even
+            # better if we can use the exact number of performance cores, so we
+            # attempt to do that here.
+            perf_cores = macos_performance_cores()
+            if perf_cores > 0:
+                params["threadCount"] = perf_cores
+            else:
+                params["threadCount"] = int((cpu_count() * 3) / 2)
+        else:
+            # pylint --py3k W1619
+            params["threadCount"] = int((cpu_count() * 3) / 2)
 
-    if (
-        conditions.is_android(command_context)
-        or command_context.substs.get("MOZ_BUILD_APP") == "b2g"
-    ):
+    if conditions.is_android(command_context):
         from mozrunner.devices.android_device import (
             InstallIntent,
             get_adb_path,

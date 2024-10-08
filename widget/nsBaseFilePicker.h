@@ -28,15 +28,13 @@ class nsBaseFilePicker : public nsIFilePicker {
   nsBaseFilePicker();
   virtual ~nsBaseFilePicker();
 
-  NS_IMETHOD Init(mozIDOMWindowProxy* aParent, const nsAString& aTitle,
-                  nsIFilePicker::Mode aMode,
-                  mozilla::dom::BrowsingContext* aBrowsingContext) override;
+  NS_IMETHOD Init(mozilla::dom::BrowsingContext* aBrowsingContext,
+                  const nsAString& aTitle, nsIFilePicker::Mode aMode) override;
   NS_IMETHOD IsModeSupported(nsIFilePicker::Mode aMode, JSContext* aCx,
                              mozilla::dom::Promise** aPromise) override;
 #ifndef XP_WIN
   NS_IMETHOD Open(nsIFilePickerShownCallback* aCallback) override;
 #endif
-  NS_IMETHOD Close() override;
   NS_IMETHOD AppendFilters(int32_t filterMask) override;
   NS_IMETHOD AppendRawFilter(const nsAString& aFilter) override;
   NS_IMETHOD GetCapture(nsIFilePicker::CaptureTarget* aCapture) override;
@@ -70,9 +68,6 @@ class nsBaseFilePicker : public nsIFilePicker {
   nsCOMPtr<nsIFile> mDisplayDirectory;
   nsString mDisplaySpecialDirectory;
 
-  nsCOMPtr<nsPIDOMWindowOuter> mParent;
-  // The BrowsingContext from which the file picker is being opened.
-  // Used for content analysis.
   RefPtr<mozilla::dom::BrowsingContext> mBrowsingContext;
   nsIFilePicker::Mode mMode;
   nsString mOkButtonLabel;

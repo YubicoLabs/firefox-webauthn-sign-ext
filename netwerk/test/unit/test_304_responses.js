@@ -48,7 +48,7 @@ function run_test() {
   run_next_test();
 }
 
-function consume304(request, buffer) {
+function consume304(request) {
   request.QueryInterface(Ci.nsIHttpChannel);
   Assert.equal(request.responseStatus, 304);
   Assert.equal(request.getResponseHeader("Returned-From-Handler"), "1");
@@ -78,7 +78,6 @@ add_test(function test_304_stored_in_cache() {
         "HTTP/1.1 304 Not Modified\r\n" + "\r\n"
       );
       cacheEntry.metaDataReady();
-      cacheEntry.close();
 
       var chan = make_channel(baseURI + existingCached304);
 

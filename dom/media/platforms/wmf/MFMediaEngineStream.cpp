@@ -11,6 +11,7 @@
 #include "TimeUnits.h"
 #include "mozilla/ProfilerLabels.h"
 #include "mozilla/ProfilerMarkerTypes.h"
+#include "mozilla/ScopeExit.h"
 #include "WMF.h"
 #include "WMFUtils.h"
 
@@ -106,8 +107,16 @@ MFMediaEngineStreamWrapper::NeedsConversion() const {
                  : MediaDataDecoder::ConversionRequired::kNeedNone;
 }
 
+bool MFMediaEngineStreamWrapper::ShouldDecoderAlwaysBeRecycled() const {
+  return true;
+}
+
 MFMediaEngineStream::MFMediaEngineStream()
-    : mIsShutdown(false), mIsSelected(false), mReceivedEOS(false) {
+    : mIsShutdown(false),
+      mIsSelected(false),
+      mRawDataQueueForFeedingEngine(true /* aEnablePreciseDuration */),
+      mRawDataQueueForGeneratingOutput(true /* aEnablePreciseDuration */),
+      mReceivedEOS(false) {
   MOZ_COUNT_CTOR(MFMediaEngineStream);
 }
 
@@ -117,11 +126,20 @@ MFMediaEngineStream::~MFMediaEngineStream() {
 }
 
 HRESULT MFMediaEngineStream::RuntimeClassInitialize(
-    uint64_t aStreamId, const TrackInfo& aInfo, MFMediaSource* aParentSource) {
+    uint64_t aStreamId, const TrackInfo& aInfo, bool aIsEncrytpedCustomInit,
+    MFMediaSource* aParentSource) {
   mParentSource = aParentSource;
   mTaskQueue = aParentSource->GetTaskQueue();
   MOZ_ASSERT(mTaskQueue);
   mStreamId = aStreamId;
+  mIsEncrytpedCustomInit = aIsEncrytpedCustomInit;
+
+  auto errorExit = MakeScopeExit([&] {
+    SLOG("Failed to initialize media stream (id=%" PRIu64 ")", aStreamId);
+    mIsShutdown = true;
+    Unused << mMediaEventQueue->Shutdown();
+  });
+
   RETURN_IF_FAILED(wmf::MFCreateEventQueue(&mMediaEventQueue));
 
   ComPtr<IMFMediaType> mediaType;
@@ -130,6 +148,7 @@ HRESULT MFMediaEngineStream::RuntimeClassInitialize(
   RETURN_IF_FAILED(GenerateStreamDescriptor(mediaType));
   SLOG("Initialized %s (id=%" PRIu64 ", descriptorId=%lu)",
        GetDescriptionName().get(), aStreamId, mStreamDescriptorId);
+  errorExit.release();
   return S_OK;
 }
 
@@ -282,17 +301,8 @@ void MFMediaEngineStream::ReplySampleRequestIfPossible() {
     while (!mSampleRequestTokens.empty()) {
       mSampleRequestTokens.pop();
     }
-
-    SLOG("Notify end events");
-    MOZ_ASSERT(mRawDataQueueForFeedingEngine.GetSize() == 0);
     MOZ_ASSERT(mSampleRequestTokens.empty());
-    RETURN_VOID_IF_FAILED(mMediaEventQueue->QueueEventParamUnk(
-        MEEndOfStream, GUID_NULL, S_OK, nullptr));
-    mEndedEvent.Notify(TrackType());
-    PROFILER_MARKER_TEXT(
-        "MFMediaEngineStream:NotifyEnd", MEDIA_PLAYBACK, {},
-        nsPrintfCString("stream=%s, id=%" PRIu64, GetDescriptionName().get(),
-                        mStreamId));
+    NotifyEndEvent();
     return;
   }
 
@@ -316,6 +326,18 @@ void MFMediaEngineStream::ReplySampleRequestIfPossible() {
   mSampleRequestTokens.pop();
   RETURN_VOID_IF_FAILED(mMediaEventQueue->QueueEventParamUnk(
       MEMediaSample, GUID_NULL, S_OK, inputSample.Get()));
+}
+
+void MFMediaEngineStream::NotifyEndEvent() {
+  AssertOnTaskQueue();
+  SLOG("Notify end event");
+  MOZ_ASSERT(mRawDataQueueForFeedingEngine.GetSize() == 0);
+  RETURN_VOID_IF_FAILED(mMediaEventQueue->QueueEventParamUnk(
+      MEEndOfStream, GUID_NULL, S_OK, nullptr));
+  mEndedEvent.Notify(TrackType());
+  PROFILER_MARKER_TEXT("MFMediaEngineStream:NotifyEnd", MEDIA_PLAYBACK, {},
+                       nsPrintfCString("stream=%s, id=%" PRIu64,
+                                       GetDescriptionName().get(), mStreamId));
 }
 
 bool MFMediaEngineStream::ShouldServeSamples() const {
@@ -384,7 +406,8 @@ HRESULT MFMediaEngineStream::AddEncryptAttributes(
   if (aCryptoConfig.mCryptoScheme == CryptoScheme::Cenc) {
     protectionScheme = MFSampleEncryptionProtectionScheme::
         MF_SAMPLE_ENCRYPTION_PROTECTION_SCHEME_AES_CTR;
-  } else if (aCryptoConfig.mCryptoScheme == CryptoScheme::Cbcs) {
+  } else if (aCryptoConfig.mCryptoScheme == CryptoScheme::Cbcs ||
+             aCryptoConfig.mCryptoScheme == CryptoScheme::Cbcs_1_9) {
     protectionScheme = MFSampleEncryptionProtectionScheme::
         MF_SAMPLE_ENCRYPTION_PROTECTION_SCHEME_AES_CBC;
   } else {
@@ -486,7 +509,7 @@ void MFMediaEngineStream::NotifyNewData(MediaRawData* aSample) {
         "], queue size=%zu, queue duration=%" PRId64,
         aSample->mTime.ToMicroseconds(), aSample->GetEndTime().ToMicroseconds(),
         mRawDataQueueForFeedingEngine.GetSize(),
-        mRawDataQueueForFeedingEngine.Duration());
+        mRawDataQueueForFeedingEngine.PreciseDuration());
   if (mReceivedEOS) {
     SLOG("Receive a new data, cancel old EOS flag");
     mReceivedEOS = false;
@@ -501,7 +524,7 @@ void MFMediaEngineStream::SendRequestSampleEvent(bool aIsEnough) {
   AssertOnTaskQueue();
   SLOGV("data is %s, queue duration=%" PRId64,
         aIsEnough ? "enough" : "not enough",
-        mRawDataQueueForFeedingEngine.Duration());
+        mRawDataQueueForFeedingEngine.PreciseDuration());
   mParentSource->mRequestSampleEvent.Notify(
       SampleRequest{TrackType(), aIsEnough});
 }

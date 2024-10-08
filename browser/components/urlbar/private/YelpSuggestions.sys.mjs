@@ -15,11 +15,11 @@ ChromeUtils.defineESModuleGetters(lazy, {
 });
 
 const RESULT_MENU_COMMAND = {
-  HELP: "help",
   INACCURATE_LOCATION: "inaccurate_location",
+  MANAGE: "manage",
   NOT_INTERESTED: "not_interested",
   NOT_RELEVANT: "not_relevant",
-  SHOW_LESS_FREQUENTLY: "show_less_frequentry",
+  SHOW_LESS_FREQUENTLY: "show_less_frequently",
 };
 
 /**
@@ -42,7 +42,20 @@ export class YelpSuggestions extends BaseFeature {
     return ["Yelp"];
   }
 
-  getSuggestionTelemetryType(suggestion) {
+  get showLessFrequentlyCount() {
+    const count = lazy.UrlbarPrefs.get("yelp.showLessFrequentlyCount") || 0;
+    return Math.max(count, 0);
+  }
+
+  get canShowLessFrequently() {
+    const cap =
+      lazy.UrlbarPrefs.get("yelpShowLessFrequentlyCap") ||
+      lazy.QuickSuggest.backend.config?.showLessFrequentlyCap ||
+      0;
+    return !cap || this.showLessFrequentlyCount < cap;
+  }
+
+  getSuggestionTelemetryType() {
     return "yelp";
   }
 
@@ -57,9 +70,8 @@ export class YelpSuggestions extends BaseFeature {
     // subject wasn't typed in full, then apply the min length threshold and
     // return null if the entire search string is too short.
     if (
-      (this.#showLessFrequentlyCount || !suggestion.subjectExactMatch) &&
-      searchString.length <
-        this.#showLessFrequentlyCount + this.#minKeywordLength
+      (this.showLessFrequentlyCount || !suggestion.subjectExactMatch) &&
+      searchString.length < this.#minKeywordLength
     ) {
       return null;
     }
@@ -68,18 +80,35 @@ export class YelpSuggestions extends BaseFeature {
 
     let url = new URL(suggestion.url);
     let title = suggestion.title;
-    if (!url.searchParams.has("find_loc")) {
+    if (!url.searchParams.has(suggestion.locationParam)) {
       let city = await this.#fetchCity();
 
       // If we can't get city from Merino, rely on Yelp own.
       if (city) {
-        url.searchParams.set("find_loc", city);
-        title = `${title} in ${city}`;
+        url.searchParams.set(suggestion.locationParam, city);
+
+        if (!suggestion.hasLocationSign) {
+          title += " in";
+        }
+
+        title += ` ${city}`;
       }
     }
 
     url.searchParams.set("utm_medium", "partner");
     url.searchParams.set("utm_source", "mozilla");
+
+    let resultProperties = {
+      isRichSuggestion: true,
+      showFeedbackMenu: true,
+    };
+    if (!suggestion.is_top_pick) {
+      let suggestedIndex = lazy.UrlbarPrefs.get("yelpSuggestNonPriorityIndex");
+      if (suggestedIndex !== null) {
+        resultProperties.isSuggestedIndexRelativeToGroup = true;
+        resultProperties.suggestedIndex = suggestedIndex;
+      }
+    }
 
     return Object.assign(
       new lazy.UrlbarResult(
@@ -89,19 +118,14 @@ export class YelpSuggestions extends BaseFeature {
           url: url.toString(),
           originalUrl: suggestion.url,
           title: [title, lazy.UrlbarUtils.HIGHLIGHT.TYPED],
-          shouldShowUrl: true,
           bottomTextL10n: { id: "firefox-suggest-yelp-bottom-text" },
         })
       ),
-      {
-        isRichSuggestion: true,
-        richSuggestionIconSize: suggestion.is_top_pick ? 38 : 24,
-        showFeedbackMenu: true,
-      }
+      resultProperties
     );
   }
 
-  getResultCommands(result) {
+  getResultCommands() {
     let commands = [
       {
         name: RESULT_MENU_COMMAND.INACCURATE_LOCATION,
@@ -111,7 +135,7 @@ export class YelpSuggestions extends BaseFeature {
       },
     ];
 
-    if (this.#canShowLessFrequently) {
+    if (this.canShowLessFrequently) {
       commands.push({
         name: RESULT_MENU_COMMAND.SHOW_LESS_FREQUENTLY,
         l10n: {
@@ -142,9 +166,9 @@ export class YelpSuggestions extends BaseFeature {
       },
       { name: "separator" },
       {
-        name: RESULT_MENU_COMMAND.HELP,
+        name: RESULT_MENU_COMMAND.MANAGE,
         l10n: {
-          id: "urlbar-result-menu-learn-more-about-firefox-suggest",
+          id: "urlbar-result-menu-manage-firefox-suggest",
         },
       }
     );
@@ -152,10 +176,10 @@ export class YelpSuggestions extends BaseFeature {
     return commands;
   }
 
-  handleCommand(view, result, selType) {
+  handleCommand(view, result, selType, searchString) {
     switch (selType) {
-      case RESULT_MENU_COMMAND.HELP:
-        // "help" is handled by UrlbarInput, no need to do anything here.
+      case RESULT_MENU_COMMAND.MANAGE:
+        // "manage" is handled by UrlbarInput, no need to do anything here.
         break;
       case RESULT_MENU_COMMAND.INACCURATE_LOCATION:
         // Currently the only way we record this feedback is in the Glean
@@ -182,36 +206,38 @@ export class YelpSuggestions extends BaseFeature {
         break;
       case RESULT_MENU_COMMAND.SHOW_LESS_FREQUENTLY:
         view.acknowledgeFeedback(result);
-        this.#incrementShowLessFrequentlyCount();
-        if (!this.#canShowLessFrequently) {
+        this.incrementShowLessFrequentlyCount();
+        if (!this.canShowLessFrequently) {
           view.invalidateResultMenuCommands();
         }
+        lazy.UrlbarPrefs.set("yelp.minKeywordLength", searchString.length + 1);
         break;
     }
   }
 
-  #incrementShowLessFrequentlyCount() {
-    if (this.#canShowLessFrequently) {
+  incrementShowLessFrequentlyCount() {
+    if (this.canShowLessFrequently) {
       lazy.UrlbarPrefs.set(
         "yelp.showLessFrequentlyCount",
-        this.#showLessFrequentlyCount + 1
+        this.showLessFrequentlyCount + 1
       );
     }
   }
 
   get #minKeywordLength() {
-    const len = lazy.UrlbarPrefs.get("yelpMinKeywordLength") || 0;
-    return Math.max(len, 0);
-  }
-
-  get #showLessFrequentlyCount() {
-    const count = lazy.UrlbarPrefs.get("yelp.showLessFrequentlyCount") || 0;
-    return Math.max(count, 0);
-  }
-
-  get #canShowLessFrequently() {
-    const cap = lazy.UrlbarPrefs.get("yelpShowLessFrequentlyCap") || 0;
-    return !cap || this.#showLessFrequentlyCount < cap;
+    // Use the pref value if it has a user value (which means the user clicked
+    // "Show less frequently") or if there's no Nimbus value. Otherwise use the
+    // Nimbus value. This lets us override the pref's default value using Nimbus
+    // if necessary.
+    let hasUserValue = Services.prefs.prefHasUserValue(
+      "browser.urlbar.yelp.minKeywordLength"
+    );
+    let nimbusValue = lazy.UrlbarPrefs.get("yelpMinKeywordLength");
+    let minLength =
+      hasUserValue || nimbusValue === null
+        ? lazy.UrlbarPrefs.get("yelp.minKeywordLength")
+        : nimbusValue;
+    return Math.max(minLength, 0);
   }
 
   async #fetchCity() {

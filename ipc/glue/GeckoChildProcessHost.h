@@ -33,6 +33,10 @@
 #include "nsXULAppAPI.h"  // for GeckoProcessType
 #include "nsString.h"
 
+#if defined(XP_IOS)
+#  include "mozilla/ipc/ExtensionKitUtils.h"
+#endif
+
 #if defined(XP_WIN) && defined(MOZ_SANDBOX)
 #  include "sandboxBroker.h"
 #endif
@@ -128,8 +132,9 @@ class GeckoChildProcessHost : public SupportsWeakPtr,
 
   UntypedEndpoint TakeInitialEndpoint() {
     return UntypedEndpoint{PrivateIPDLInterface{}, std::move(mInitialPort),
-                           mInitialChannelId, base::GetCurrentProcId(),
-                           GetChildProcessId()};
+                           mInitialChannelId, EndpointProcInfo::Current(),
+                           EndpointProcInfo{.mPid = GetChildProcessId(),
+                                            .mChildID = GetChildID()}};
   }
 
   // Returns a "borrowed" handle to the child process - the handle returned
@@ -149,9 +154,14 @@ class GeckoChildProcessHost : public SupportsWeakPtr,
   // GetProcId on a zero or (on Windows) invalid handle.
   ProcessId GetChildProcessId();
 
+  // Return the child's GeckoChildID. This is a unique identifier given out to
+  // each process started with `GeckoChildProcessHost` which will only ever
+  // identify this process.
+  GeckoChildID GetChildID() const { return mChildID; }
+
   GeckoProcessType GetProcessType() { return mProcessType; }
 
-#ifdef XP_MACOSX
+#ifdef XP_DARWIN
   task_t GetChildTask();
 #endif
 
@@ -209,6 +219,7 @@ class GeckoChildProcessHost : public SupportsWeakPtr,
  protected:
   virtual ~GeckoChildProcessHost();
   GeckoProcessType mProcessType;
+  GeckoChildID mChildID;
   bool mIsFileContent;
   Monitor mMonitor;
   FilePath mProcessPath;
@@ -249,7 +260,6 @@ class GeckoChildProcessHost : public SupportsWeakPtr,
 #ifdef XP_WIN
   void InitWindowsGroupID();
   nsString mGroupId;
-  CrashReporter::WindowsErrorReportingData mWerData;
 #  ifdef MOZ_SANDBOX
   RefPtr<AbstractSandboxBroker> mSandboxBroker;
   std::vector<std::wstring> mAllowedFilesRead;
@@ -266,6 +276,12 @@ class GeckoChildProcessHost : public SupportsWeakPtr,
   ProcessHandle mChildProcessHandle MOZ_GUARDED_BY(mHandleLock);
 #if defined(XP_DARWIN)
   task_t mChildTask MOZ_GUARDED_BY(mHandleLock);
+#endif
+#if defined(MOZ_WIDGET_UIKIT)
+  Maybe<ExtensionKitProcess> mExtensionKitProcess MOZ_GUARDED_BY(mHandleLock);
+  DarwinObjectPtr<xpc_connection_t> mXPCConnection MOZ_GUARDED_BY(mHandleLock);
+  UniqueBEProcessCapabilityGrant mForegroundCapabilityGrant
+      MOZ_GUARDED_BY(mHandleLock);
 #endif
   RefPtr<ProcessHandlePromise> mHandlePromise;
 
@@ -296,8 +312,6 @@ class GeckoChildProcessHost : public SupportsWeakPtr,
   // Removes the instance from sGeckoChildProcessHosts
   void RemoveFromProcessList();
 
-  // Linux-Only. Set this up before we're called from a different thread.
-  nsCString mTmpDirName;
   // Mac and Windows. Set this up before we're called from a different thread.
   nsCOMPtr<nsIFile> mProfileDir;
 

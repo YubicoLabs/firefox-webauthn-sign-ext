@@ -50,6 +50,12 @@ namespace mozilla {
 namespace ipc {
 
 /* static */
+EndpointProcInfo EndpointProcInfo::Current() {
+  return EndpointProcInfo{.mPid = GetCurrentProcId(),
+                          .mChildID = XRE_GetChildID()};
+}
+
+/* static */
 IPCResult IPCResult::FailImpl(NotNull<IProtocol*> actor, const char* where,
                               const char* why) {
   // Calls top-level protocol to handle the error.
@@ -73,23 +79,28 @@ IPCResult IPCResult::FailImpl(NotNull<IProtocol*> actor, const char* where,
 #endif
 }
 
+/* static */
+IPCResult IPCResult::FailForTesting(NotNull<IProtocol*> actor,
+                                    const char* where, const char* why) {
+  return IPCResult(false);
+}
+
 void AnnotateSystemError() {
-  int64_t error = 0;
+  uint32_t error = 0;
 #if defined(XP_WIN)
   error = ::GetLastError();
 #else
   error = errno;
 #endif
   if (error) {
-    CrashReporter::AnnotateCrashReport(
-        CrashReporter::Annotation::IPCSystemError,
-        nsPrintfCString("%" PRId64, error));
+    CrashReporter::RecordAnnotationU32(
+        CrashReporter::Annotation::IPCSystemError, error);
   }
 }
 
 #if defined(XP_MACOSX)
 void AnnotateCrashReportWithErrno(CrashReporter::Annotation tag, int error) {
-  CrashReporter::AnnotateCrashReport(tag, error);
+  CrashReporter::RecordAnnotationU32(tag, static_cast<uint32_t>(error));
 }
 #endif  // defined(XP_MACOSX)
 
@@ -191,8 +202,8 @@ void FatalError(const char* aMsg, bool aIsParent) {
     // this process if we're off the main thread.
     formattedMessage.AppendLiteral("\". Intentionally crashing.");
     NS_ERROR(formattedMessage.get());
-    CrashReporter::AnnotateCrashReport(
-        CrashReporter::Annotation::IPCFatalErrorMsg, nsDependentCString(aMsg));
+    CrashReporter::RecordAnnotationCString(
+        CrashReporter::Annotation::IPCFatalErrorMsg, aMsg);
     AnnotateSystemError();
 #ifndef FUZZING
     MOZ_CRASH("IPC FatalError in the parent process!");
@@ -245,12 +256,6 @@ ActorLifecycleProxy::ActorLifecycleProxy(IProtocol* aActor) : mActor(aActor) {
   MOZ_ASSERT(mActor);
   MOZ_ASSERT(mActor->CanSend(),
              "Cannot create LifecycleProxy for non-connected actor!");
-
-  // Take a reference to our manager's lifecycle proxy to try to hold it &
-  // ensure it doesn't die before us.
-  if (mActor->mManager) {
-    mManager = mActor->mManager->mLifecycleProxy;
-  }
 
   // Record that we've taken our first reference to our actor.
   mActor->ActorAlloc();
@@ -316,6 +321,7 @@ IProtocol::~IProtocol() {
   // Gecko, simply emit a warning and clear the weak backreference from our
   // LifecycleProxy back to us.
   if (mLifecycleProxy) {
+    MOZ_ASSERT(mLinkStatus != LinkStatus::Inactive);
     NS_WARNING(
         nsPrintfCString("Actor destructor for '%s%s' called before IPC "
                         "lifecycle complete!\n"
@@ -324,34 +330,13 @@ IProtocol::~IProtocol() {
             .get());
 
     mLifecycleProxy->mActor = nullptr;
-
-    // If we are somehow being destroyed while active, make sure that the
-    // existing IPC reference has been freed. If the status of the actor is
-    // `Destroyed`, the reference has already been freed, and we shouldn't free
-    // it a second time.
-    MOZ_ASSERT(mLinkStatus != LinkStatus::Inactive);
-    if (mLinkStatus != LinkStatus::Destroyed) {
-      NS_IF_RELEASE(mLifecycleProxy);
-    }
     mLifecycleProxy = nullptr;
   }
 }
 
 // The following methods either directly forward to the toplevel protocol, or
 // almost directly do.
-int32_t IProtocol::Register(IProtocol* aRouted) {
-  return mToplevel->Register(aRouted);
-}
-int32_t IProtocol::RegisterID(IProtocol* aRouted, int32_t aId) {
-  return mToplevel->RegisterID(aRouted, aId);
-}
 IProtocol* IProtocol::Lookup(int32_t aId) { return mToplevel->Lookup(aId); }
-void IProtocol::Unregister(int32_t aId) {
-  if (aId == mId) {
-    mId = kFreedActorId;
-  }
-  return mToplevel->Unregister(aId);
-}
 
 Shmem::SharedMemory* IProtocol::CreateSharedMemory(size_t aSize, bool aUnsafe,
                                                    int32_t* aId) {
@@ -376,11 +361,6 @@ const MessageChannel* IProtocol::GetIPCChannel() const {
 
 nsISerialEventTarget* IProtocol::GetActorEventTarget() {
   return GetIPCChannel()->GetWorkerEventTarget();
-}
-
-void IProtocol::SetId(int32_t aId) {
-  MOZ_ASSERT(mId == aId || mLinkStatus == LinkStatus::Inactive);
-  mId = aId;
 }
 
 Maybe<IProtocol*> IProtocol::ReadActor(IPC::MessageReader* aReader,
@@ -482,26 +462,69 @@ bool IProtocol::DeallocShmem(Shmem& aMem) {
   return ok;
 }
 
-void IProtocol::SetManager(IProtocol* aManager) {
+void IProtocol::SetManager(IRefCountedProtocol* aManager) {
   MOZ_RELEASE_ASSERT(!mManager || mManager == aManager);
   mManager = aManager;
   mToplevel = aManager->mToplevel;
 }
 
-void IProtocol::SetManagerAndRegister(IProtocol* aManager) {
+bool IProtocol::SetManagerAndRegister(IRefCountedProtocol* aManager,
+                                      int32_t aId) {
+  MOZ_RELEASE_ASSERT(mLinkStatus == LinkStatus::Inactive,
+                     "Actor must be inactive to SetManagerAndRegister");
+
+  // Set to `false` if the actor is to be torn down after registration.
+  bool success = true;
+
   // Set the manager prior to registering so registering properly inherits
   // the manager's event target.
   SetManager(aManager);
 
-  aManager->Register(this);
+  mId = aId == kNullActorId ? mToplevel->NextId() : aId;
+  while (mToplevel->mActorMap.Contains(mId)) {
+    // The ID already existing is an error case, but we want to proceed with
+    // registration so that we can tear down the actor cleanly - generate a new
+    // ID for that case.
+    NS_WARNING("Actor already exists with the selected ID!");
+    mId = mToplevel->NextId();
+    success = false;
+  }
+
+  RefPtr<ActorLifecycleProxy> proxy = ActorConnected();
+  mToplevel->mActorMap.InsertOrUpdate(mId, proxy);
+  MOZ_ASSERT(proxy->Get() == this);
+
+  UntypedManagedContainer* container =
+      aManager->GetManagedActors(GetProtocolId());
+  if (container) {
+    container->Insert(this);
+  } else {
+    NS_WARNING("Manager does not manage actors with this ProtocolId");
+    success = false;
+  }
+
+  // If our manager is already dying, mark ourselves as doomed as well.
+  if (aManager && aManager->mLinkStatus != LinkStatus::Connected) {
+    mLinkStatus = LinkStatus::Doomed;
+    if (aManager->mLinkStatus != LinkStatus::Doomed) {
+      // Our manager is already fully dead, make sure we call
+      // `ActorDisconnected`.
+      success = false;
+    }
+  }
+
+  // If setting the manager failed, call `ActorDisconnected` and return false.
+  if (!success) {
+    ActorDisconnected(FailedConstructor);
+    MOZ_ASSERT(mLinkStatus == LinkStatus::Destroyed);
+    return false;
+  }
+  return true;
 }
 
-void IProtocol::SetManagerAndRegister(IProtocol* aManager, int32_t aId) {
-  // Set the manager prior to registering so registering properly inherits
-  // the manager's event target.
-  SetManager(aManager);
-
-  aManager->RegisterID(this, aId);
+void IProtocol::UnlinkManager() {
+  mToplevel = nullptr;
+  mManager = nullptr;
 }
 
 bool IProtocol::ChannelSend(UniquePtr<IPC::Message> aMsg) {
@@ -535,9 +558,17 @@ void IProtocol::WarnMessageDiscarded(IPC::Message* aMsg) {
 }
 #endif
 
-void IProtocol::ActorConnected() {
+uint32_t IProtocol::AllManagedActorsCount() const {
+  uint32_t total = 0;
+  for (ProtocolId id : ManagedProtocolIds()) {
+    total += GetManagedActors(id)->Count();
+  }
+  return total;
+}
+
+already_AddRefed<ActorLifecycleProxy> IProtocol::ActorConnected() {
   if (mLinkStatus != LinkStatus::Inactive) {
-    return;
+    return nullptr;
   }
 
 #ifdef FUZZING_SNAPSHOT
@@ -547,73 +578,107 @@ void IProtocol::ActorConnected() {
   mLinkStatus = LinkStatus::Connected;
 
   MOZ_ASSERT(!mLifecycleProxy, "double-connecting live actor");
-  mLifecycleProxy = new ActorLifecycleProxy(this);
-  NS_ADDREF(mLifecycleProxy);  // Reference freed in DestroySubtree();
+  RefPtr<ActorLifecycleProxy> proxy = new ActorLifecycleProxy(this);
+  mLifecycleProxy = proxy;
+  return proxy.forget();
 }
 
-void IProtocol::DoomSubtree() {
-  MOZ_ASSERT(CanSend(), "dooming non-connected actor");
-  MOZ_ASSERT(mLifecycleProxy, "dooming zombie actor");
-
-  nsTArray<RefPtr<ActorLifecycleProxy>> managed;
-  AllManagedActors(managed);
-  for (ActorLifecycleProxy* proxy : managed) {
-    // Guard against actor being disconnected or destroyed during previous Doom
-    IProtocol* actor = proxy->Get();
-    if (actor && actor->CanSend()) {
-      actor->DoomSubtree();
-    }
+void IProtocol::ActorDisconnected(ActorDestroyReason aWhy) {
+  MOZ_ASSERT(mLifecycleProxy, "destroying zombie actor");
+  // If the actor has already been marked as `Destroyed`, there's nothing to do.
+  if (mLinkStatus != LinkStatus::Connected &&
+      mLinkStatus != LinkStatus::Doomed) {
+    return;
   }
 
-  // ActorDoom is called immediately before changing state, this allows messages
-  // to be sent during ActorDoom immediately before the channel is closed and
-  // sending messages is disabled.
-  ActorDoom();
-  mLinkStatus = LinkStatus::Doomed;
-}
+  // Mark the entire subtree as doomed so that no further messages can be
+  // sent/recieved, and newly created managed actors are immediately marked as
+  // doomed on creation.
+  DoomSubtree();
 
-void IProtocol::DestroySubtree(ActorDestroyReason aWhy) {
-  MOZ_ASSERT(CanRecv(), "destroying non-connected actor");
-  MOZ_ASSERT(mLifecycleProxy, "destroying zombie actor");
+  // Perform the steps to fully destroy an actor after it has been unregistered
+  // from its manager.
+  auto doActorDestroy = [toplevel = mToplevel, ipcChannel = GetIPCChannel()](
+                            IProtocol* actor, ActorDestroyReason why) {
+    MOZ_ASSERT(actor->mLinkStatus == LinkStatus::Doomed,
+               "Actor must be doomed when calling doActorDestroy");
+    MOZ_ASSERT(actor->AllManagedActorsCount() == 0,
+               "All managed actors must have been destroyed first");
+
+    // Mark the actor as Destroyed, ensuring we can't re-enter `ActorDestroy`,
+    // even if an callback spins a nested event loop.
+    actor->mLinkStatus = LinkStatus::Destroyed;
 
 #ifdef FUZZING_SNAPSHOT
-  fuzzing::IPCFuzzController::instance().OnActorDestroyed(this);
+    fuzzing::IPCFuzzController::instance().OnActorDestroyed(actor);
 #endif
 
-  int32_t id = Id();
+    int32_t id = actor->mId;
+    if (IProtocol* manager = actor->Manager()) {
+      actor->mId = kFreedActorId;
+      auto entry = toplevel->mActorMap.Lookup(id);
+      MOZ_DIAGNOSTIC_ASSERT(entry && *entry == actor->GetLifecycleProxy(),
+                            "ID must be present and reference this actor");
+      entry.Remove();
+      if (auto* container = manager->GetManagedActors(actor->GetProtocolId())) {
+        container->EnsureRemoved(actor);
+      }
+    }
 
-  // If we're a managed actor, unregister from our manager
-  if (Manager()) {
-    Unregister(id);
-  }
+    ipcChannel->RejectPendingResponsesForActor(id);
+    actor->ActorDestroy(why);
+  };
 
-  // Destroy subtree
+  // Hold all ActorLifecycleProxy instances for managed actors until we return.
+  nsTArray<RefPtr<ActorLifecycleProxy>> proxyHolder;
+  proxyHolder.AppendElement(GetLifecycleProxy());
+
+  // Invoke `ActorDestroy` for all managed actors in the subtree. These are
+  // handled one at a time, so that new actors which are potentially registered
+  // during `ActorDestroy` callbacks are not missed.
   ActorDestroyReason subtreeWhy = aWhy;
   if (aWhy == Deletion || aWhy == FailedConstructor) {
     subtreeWhy = AncestorDeletion;
   }
-
-  nsTArray<RefPtr<ActorLifecycleProxy>> managed;
-  AllManagedActors(managed);
-  for (ActorLifecycleProxy* proxy : managed) {
-    // Guard against actor being disconnected or destroyed during previous
-    // Destroy
-    IProtocol* actor = proxy->Get();
-    if (actor && actor->CanRecv()) {
-      actor->DestroySubtree(subtreeWhy);
+  while (IProtocol* actor = PeekManagedActor()) {
+    // If the selected actor manages other actors, destroy those first.
+    while (IProtocol* inner = actor->PeekManagedActor()) {
+      actor = inner;
     }
+
+    proxyHolder.AppendElement(actor->GetLifecycleProxy());
+    doActorDestroy(actor, subtreeWhy);
   }
 
-  // Ensure that we don't send any messages while we're calling `ActorDestroy`
-  // by setting our state to `Doomed`.
-  mLinkStatus = LinkStatus::Doomed;
+  // Destroy ourselves if we were not not otherwise destroyed while destroying
+  // managed actors.
+  if (mLinkStatus == LinkStatus::Doomed) {
+    doActorDestroy(this, aWhy);
+  }
+}
 
-  // The actor is being destroyed, reject any pending responses, invoke
-  // `ActorDestroy` to destroy it, and then clear our status to
-  // `LinkStatus::Destroyed`.
-  GetIPCChannel()->RejectPendingResponsesForActor(id);
-  ActorDestroy(aWhy);
-  mLinkStatus = LinkStatus::Destroyed;
+void IProtocol::DoomSubtree() {
+  MOZ_ASSERT(
+      mLinkStatus == LinkStatus::Connected || mLinkStatus == LinkStatus::Doomed,
+      "Invalid link status for SetDoomed");
+  for (ProtocolId id : ManagedProtocolIds()) {
+    for (IProtocol* actor : *GetManagedActors(id)) {
+      actor->DoomSubtree();
+    }
+  }
+  mLinkStatus = LinkStatus::Doomed;
+}
+
+IProtocol* IProtocol::PeekManagedActor() const {
+  for (ProtocolId id : ManagedProtocolIds()) {
+    const UntypedManagedContainer& container = *GetManagedActors(id);
+    if (!container.IsEmpty()) {
+      // Return the last element first, to reduce the copying required when
+      // removing it.
+      return *(container.end() - 1);
+    }
+  }
+  return nullptr;
 }
 
 IToplevelProtocol::IToplevelProtocol(const char* aName, ProtocolId aProtoId,
@@ -625,14 +690,16 @@ IToplevelProtocol::IToplevelProtocol(const char* aName, ProtocolId aProtoId,
   mToplevel = this;
 }
 
-void IToplevelProtocol::SetOtherProcessId(base::ProcessId aOtherPid) {
-  mOtherPid = aOtherPid;
+void IToplevelProtocol::SetOtherEndpointProcInfo(
+    EndpointProcInfo aOtherProcInfo) {
+  mOtherPid = aOtherProcInfo.mPid;
+  mOtherChildID = aOtherProcInfo.mChildID;
 }
 
 bool IToplevelProtocol::Open(ScopedPort aPort, const nsID& aMessageChannelId,
-                             base::ProcessId aOtherPid,
+                             EndpointProcInfo aOtherProcInfo,
                              nsISerialEventTarget* aEventTarget) {
-  SetOtherProcessId(aOtherPid);
+  SetOtherEndpointProcInfo(aOtherProcInfo);
   return GetIPCChannel()->Open(std::move(aPort), mSide, aMessageChannelId,
                                aEventTarget);
 }
@@ -640,15 +707,15 @@ bool IToplevelProtocol::Open(ScopedPort aPort, const nsID& aMessageChannelId,
 bool IToplevelProtocol::Open(IToplevelProtocol* aTarget,
                              nsISerialEventTarget* aEventTarget,
                              mozilla::ipc::Side aSide) {
-  SetOtherProcessId(base::GetCurrentProcId());
-  aTarget->SetOtherProcessId(base::GetCurrentProcId());
+  SetOtherEndpointProcInfo(EndpointProcInfo::Current());
+  aTarget->SetOtherEndpointProcInfo(EndpointProcInfo::Current());
   return GetIPCChannel()->Open(aTarget->GetIPCChannel(), aEventTarget, aSide);
 }
 
 bool IToplevelProtocol::OpenOnSameThread(IToplevelProtocol* aTarget,
                                          Side aSide) {
-  SetOtherProcessId(base::GetCurrentProcId());
-  aTarget->SetOtherProcessId(base::GetCurrentProcId());
+  SetOtherEndpointProcInfo(EndpointProcInfo::Current());
+  aTarget->SetOtherEndpointProcInfo(EndpointProcInfo::Current());
   return GetIPCChannel()->OpenOnSameThread(aTarget->GetIPCChannel(), aSide);
 }
 
@@ -684,28 +751,11 @@ int32_t IToplevelProtocol::NextId() {
   return (++mLastLocalId << 2) | tag;
 }
 
-int32_t IToplevelProtocol::Register(IProtocol* aRouted) {
-  if (aRouted->Id() != kNullActorId && aRouted->Id() != kFreedActorId) {
-    // If there's already an ID, just return that.
-    return aRouted->Id();
+IProtocol* IToplevelProtocol::Lookup(int32_t aId) {
+  if (auto entry = mActorMap.Lookup(aId)) {
+    return entry.Data()->Get();
   }
-  return RegisterID(aRouted, NextId());
-}
-
-int32_t IToplevelProtocol::RegisterID(IProtocol* aRouted, int32_t aId) {
-  aRouted->SetId(aId);
-  aRouted->ActorConnected();
-  MOZ_ASSERT(!mActorMap.Contains(aId), "Don't insert with an existing ID");
-  mActorMap.InsertOrUpdate(aId, aRouted);
-  return aId;
-}
-
-IProtocol* IToplevelProtocol::Lookup(int32_t aId) { return mActorMap.Get(aId); }
-
-void IToplevelProtocol::Unregister(int32_t aId) {
-  MOZ_ASSERT(mActorMap.Contains(aId),
-             "Attempting to remove an ID not in the actor map");
-  mActorMap.Remove(aId);
+  return nullptr;
 }
 
 Shmem::SharedMemory* IToplevelProtocol::CreateSharedMemory(size_t aSize,

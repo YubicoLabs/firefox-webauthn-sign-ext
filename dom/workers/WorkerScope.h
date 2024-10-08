@@ -22,6 +22,7 @@
 #include "mozilla/dom/ImageBitmapSource.h"
 #include "mozilla/dom/PerformanceWorker.h"
 #include "mozilla/dom/SafeRefPtr.h"
+#include "mozilla/dom/TrustedTypePolicyFactory.h"
 #include "mozilla/dom/WorkerPrivate.h"
 #include "nsCOMPtr.h"
 #include "nsCycleCollectionParticipant.h"
@@ -54,6 +55,7 @@ class ClientInfo;
 class ClientSource;
 class Clients;
 class Console;
+class CookieStore;
 class Crypto;
 class DOMString;
 class DebuggerNotificationManager;
@@ -67,7 +69,7 @@ template <typename T>
 class Optional;
 class Performance;
 class Promise;
-class RequestOrUSVString;
+class RequestOrUTF8String;
 template <typename T>
 class Sequence;
 class ServiceWorkerDescriptor;
@@ -325,7 +327,7 @@ class WorkerGlobalScope : public WorkerGlobalScopeBase {
                        JS::MutableHandle<JS::Value> aRetval,
                        ErrorResult& aError);
 
-  already_AddRefed<Promise> Fetch(const RequestOrUSVString& aInput,
+  already_AddRefed<Promise> Fetch(const RequestOrUTF8String& aInput,
                                   const RequestInit& aInit,
                                   CallerType aCallerType, ErrorResult& aRv);
 
@@ -352,6 +354,8 @@ class WorkerGlobalScope : public WorkerGlobalScopeBase {
   MOZ_CAN_RUN_SCRIPT_BOUNDARY
   virtual void OnVsync(const VsyncEvent& aVsync) {}
 
+  TrustedTypePolicyFactory* TrustedTypes();
+
  protected:
   ~WorkerGlobalScope();
 
@@ -376,6 +380,7 @@ class WorkerGlobalScope : public WorkerGlobalScopeBase {
   RefPtr<cache::CacheStorage> mCacheStorage;
   RefPtr<DebuggerNotificationManager> mDebuggerNotificationManager;
   RefPtr<WebTaskSchedulerWorker> mWebTaskScheduler;
+  RefPtr<TrustedTypePolicyFactory> mTrustedTypePolicyFactory;
   uint32_t mWindowInteractionsAllowed = 0;
   bool mIsEligibleForMessaging{true};
 };
@@ -405,11 +410,11 @@ class DedicatedWorkerGlobalScope final
   void Close();
 
   MOZ_CAN_RUN_SCRIPT
-  int32_t RequestAnimationFrame(FrameRequestCallback& aCallback,
-                                ErrorResult& aError);
+  uint32_t RequestAnimationFrame(FrameRequestCallback& aCallback,
+                                 ErrorResult& aError);
 
   MOZ_CAN_RUN_SCRIPT
-  void CancelAnimationFrame(int32_t aHandle, ErrorResult& aError);
+  void CancelAnimationFrame(uint32_t aHandle, ErrorResult& aError);
 
   void OnDocumentVisible(bool aVisible) override;
 
@@ -478,6 +483,8 @@ class ServiceWorkerGlobalScope final : public WorkerGlobalScope {
 
   void EventListenerAdded(nsAtom* aType) override;
 
+  already_AddRefed<mozilla::dom::CookieStore> CookieStore();
+
   IMPL_EVENT_HANDLER(message)
   IMPL_EVENT_HANDLER(messageerror)
 
@@ -486,6 +493,8 @@ class ServiceWorkerGlobalScope final : public WorkerGlobalScope {
 
   IMPL_EVENT_HANDLER(push)
   IMPL_EVENT_HANDLER(pushsubscriptionchange)
+
+  IMPL_EVENT_HANDLER(cookiechange)
 
  private:
   ~ServiceWorkerGlobalScope();
@@ -496,6 +505,7 @@ class ServiceWorkerGlobalScope final : public WorkerGlobalScope {
   const nsString mScope;
   RefPtr<ServiceWorkerRegistration> mRegistration;
   SafeRefPtr<extensions::ExtensionBrowser> mExtensionBrowser;
+  RefPtr<mozilla::dom::CookieStore> mCookieStore;
 };
 
 class WorkerDebuggerGlobalScope final : public WorkerGlobalScopeBase {

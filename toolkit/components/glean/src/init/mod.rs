@@ -6,6 +6,7 @@ use std::env;
 use std::ffi::CString;
 use std::ops::DerefMut;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use firefox_on_glean::{metrics, pings};
 use nserror::{nsresult, NS_ERROR_FAILURE};
@@ -38,6 +39,7 @@ use viaduct_uploader::ViaductUploader;
 pub extern "C" fn fog_init(
     data_path_override: &nsACString,
     app_id_override: &nsACString,
+    disable_internal_pings: bool,
 ) -> nsresult {
     let upload_enabled = static_prefs::pref!("datareporting.healthreport.uploadEnabled");
     let recording_enabled = static_prefs::pref!("telemetry.fog.test.localhost_port") < 0;
@@ -48,6 +50,9 @@ pub extern "C" fn fog_init(
         app_id_override,
         upload_enabled || recording_enabled,
         uploader,
+        // Flipping it around, because no value = defaults to false,
+        // so we take in `disable` but pass on `enable`.
+        !disable_internal_pings,
     )
     .into()
 }
@@ -64,6 +69,7 @@ pub extern "C" fn fog_init(
 pub extern "C" fn fog_init(
     data_path_override: &nsACString,
     app_id_override: &nsACString,
+    disable_internal_pings: bool,
 ) -> nsresult {
     // On Android always enable Glean upload.
     let upload_enabled = true;
@@ -75,6 +81,7 @@ pub extern "C" fn fog_init(
         app_id_override,
         upload_enabled,
         uploader,
+        !disable_internal_pings,
     )
     .into()
 }
@@ -84,6 +91,7 @@ fn fog_init_internal(
     app_id_override: &nsACString,
     upload_enabled: bool,
     uploader: Option<Box<dyn glean::net::PingUploader>>,
+    enable_internal_pings: bool,
 ) -> Result<(), nsresult> {
     metrics::fog::initialization.start();
 
@@ -95,6 +103,7 @@ fn fog_init_internal(
 
     conf.upload_enabled = upload_enabled;
     conf.uploader = uploader;
+    conf.enable_internal_pings = enable_internal_pings;
 
     // If we're operating in automation without any specific source tags to set,
     // set the tag "automation" so any pings that escape don't clutter the tables.
@@ -155,15 +164,11 @@ fn build_configuration(
 
     extern "C" {
         fn FOG_MaxPingLimit() -> u32;
-        fn FOG_EventTimestampsEnabled() -> bool;
     }
 
     // SAFETY NOTE: Safe because it returns a primitive by value.
     let pings_per_interval = unsafe { FOG_MaxPingLimit() };
     metrics::fog::max_pings_per_minute.set(pings_per_interval.into());
-
-    // SAFETY NOTE: Safe because it returns a primitive by value.
-    let enable_event_timestamps = unsafe { FOG_EventTimestampsEnabled() };
 
     let rate_limit = Some(glean::PingRateLimit {
         seconds_per_interval: 60,
@@ -182,8 +187,12 @@ fn build_configuration(
         trim_data_to_registered_pings: true,
         log_level: None,
         rate_limit,
-        enable_event_timestamps,
+        enable_event_timestamps: true,
         experimentation_id: None,
+        enable_internal_pings: true,
+        ping_schedule: pings::ping_schedule(),
+        ping_lifetime_threshold: 0,
+        ping_lifetime_max_time: Duration::ZERO,
     };
 
     Ok((configuration, client_info))

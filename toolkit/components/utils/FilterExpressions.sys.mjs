@@ -5,13 +5,9 @@
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
+  mozjexl: "resource://gre/modules/components-utils/mozjexl.sys.mjs",
   Sampling: "resource://gre/modules/components-utils/Sampling.sys.mjs",
 });
-ChromeUtils.defineModuleGetter(
-  lazy,
-  "mozjexl",
-  "resource://gre/modules/components-utils/mozjexl.js"
-);
 
 function getPrefValue(prefKey, defaultValue) {
   switch (Services.prefs.getPrefType(prefKey)) {
@@ -43,6 +39,7 @@ ChromeUtils.defineLazyGetter(lazy, "jexl", () => {
     preferenceExists: prefKey =>
       Services.prefs.getPrefType(prefKey) != Ci.nsIPrefBranch.PREF_INVALID,
     keys,
+    values,
     length,
     mapToProperty,
     regExpMatch,
@@ -75,6 +72,21 @@ function keys(obj) {
   }
 
   return Object.keys(obj);
+}
+
+/**
+ * Return an array of the given object's values (specifically, its own
+ * enumerable string-keyed property values), or undefined if the argument isn't
+ * an object.
+ * @param {Object} obj
+ * @return {Array|undefined}
+ */
+function values(obj) {
+  if (typeof obj !== "object" || obj === null) {
+    return undefined;
+  }
+
+  return Object.values(obj);
 }
 
 /**

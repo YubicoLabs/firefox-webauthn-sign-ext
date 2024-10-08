@@ -43,10 +43,15 @@
 //! don't need this (for example you're parsing your own s-expression format)
 //! then this feature can be disabled.
 //!
+//! This crate also has an off-by-default `dwarf` feature which enables using
+//! [`core::EncodeOptions::dwarf`] to embed DWARF debugging information in generated
+//! binaries.
+//!
 //! [`Parse`]: parser::Parse
 //! [`LexError`]: lexer::LexError
 
 #![deny(missing_docs, rustdoc::broken_intra_doc_links)]
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
 /// A macro to create a custom keyword parser.
 ///
@@ -96,7 +101,7 @@ macro_rules! custom_keyword {
         #[allow(non_camel_case_types)]
         #[allow(missing_docs)]
         #[derive(Debug, Copy, Clone)]
-        pub struct $name(pub $crate::token::Span);
+        pub struct $name(#[allow(dead_code)] pub $crate::token::Span);
 
         impl<'a> $crate::parser::Parse<'a> for $name {
             fn parse(parser: $crate::parser::Parser<'a>) -> $crate::parser::Result<Self> {
@@ -317,8 +322,8 @@ macro_rules! annotation {
         impl<'a> $crate::parser::Parse<'a> for $name {
             fn parse(parser: $crate::parser::Parser<'a>) -> $crate::parser::Result<Self> {
                 parser.step(|c| {
-                    if let Some((a, rest)) = c.reserved()? {
-                        if a == concat!("@", $annotation) {
+                    if let Some((a, rest)) = c.annotation()? {
+                        if a == $annotation {
                             return Ok(($name(c.cur_span()), rest));
                         }
                     }
@@ -329,8 +334,8 @@ macro_rules! annotation {
 
         impl $crate::parser::Peek for $name {
             fn peek(cursor: $crate::parser::Cursor<'_>) -> $crate::parser::Result<bool> {
-                Ok(if let Some((a, _rest)) = cursor.reserved()? {
-                    a == concat!("@", $annotation)
+                Ok(if let Some((a, _rest)) = cursor.annotation()? {
+                    a == $annotation
                 } else {
                     false
                 })
@@ -347,12 +352,16 @@ pub mod lexer;
 pub mod parser;
 pub mod token;
 
+#[cfg(feature = "wasm-module")]
 mod encode;
 mod error;
+#[cfg(feature = "wasm-module")]
 mod gensym;
+#[cfg(feature = "wasm-module")]
 mod names;
 pub use self::error::*;
 
+#[cfg(feature = "wasm-module")]
 macro_rules! id {
     ($($t:tt)*) => ($($t)*)
 }
@@ -447,14 +456,17 @@ pub mod kw {
     custom_keyword!(nan_canonical = "nan:canonical");
     custom_keyword!(nofunc);
     custom_keyword!(noextern);
+    custom_keyword!(noexn);
     custom_keyword!(none);
     custom_keyword!(null);
     custom_keyword!(nullfuncref);
     custom_keyword!(nullexternref);
+    custom_keyword!(nullexnref);
     custom_keyword!(nullref);
     custom_keyword!(offset);
     custom_keyword!(outer);
     custom_keyword!(own);
+    custom_keyword!(pagesize);
     custom_keyword!(param);
     custom_keyword!(parent);
     custom_keyword!(passive);
@@ -469,12 +481,14 @@ pub mod kw {
     custom_keyword!(ref_null = "ref.null");
     custom_keyword!(register);
     custom_keyword!(rec);
+    custom_keyword!(acq_rel);
     custom_keyword!(rep);
     custom_keyword!(resource);
     custom_keyword!(resource_new = "resource.new");
     custom_keyword!(resource_drop = "resource.drop");
     custom_keyword!(resource_rep = "resource.rep");
     custom_keyword!(result);
+    custom_keyword!(seq_cst);
     custom_keyword!(shared);
     custom_keyword!(start);
     custom_keyword!(sub);
@@ -538,4 +552,5 @@ pub mod annotation {
     annotation!(name);
     annotation!(producers);
     annotation!(dylink_0 = "dylink.0");
+    annotation!(metadata_code_branch_hint = "metadata.code.branch_hint");
 }

@@ -13,16 +13,22 @@ trap 'show_error_msg $LINENO' ERR
 source dom/media/webrtc/third_party_build/use_config_env.sh
 export HGPLAIN=1
 
+# After this point:
+# * eE: All commands should succeed.
+# * u: All variables should be defined before use.
+# * o pipefail: All stages of all pipes should succeed.
+set -eEuo pipefail
+
 echo "MOZ_LIBWEBRTC_SRC: $MOZ_LIBWEBRTC_SRC"
 echo "MOZ_LIBWEBRTC_BRANCH: $MOZ_LIBWEBRTC_BRANCH"
 echo "MOZ_FASTFORWARD_BUG: $MOZ_FASTFORWARD_BUG"
 
-TIP_SHA=`hg id -r tip | awk '{ print $1; }'`
-echo "TIP_SHA: $TIP_SHA"
+CURRENT_SHA=`hg id -r . | awk '{ print $1; }'`
+echo "CURRENT_SHA: $CURRENT_SHA"
 
 # we grab the entire firstline description for convenient logging
-LAST_PATCHSTACK_UPDATE_COMMIT=`hg log --template "{node|short} {desc|firstline}\n" \
-    --include "third_party/libwebrtc/moz-patch-stack/*.patch" | head -1`
+LAST_PATCHSTACK_UPDATE_COMMIT=`hg log -r ::. --template "{node|short} {desc|firstline}\n" \
+    --include "third_party/libwebrtc/moz-patch-stack/*.patch" | tail -1`
 echo "LAST_PATCHSTACK_UPDATE_COMMIT: $LAST_PATCHSTACK_UPDATE_COMMIT"
 
 LAST_PATCHSTACK_UPDATE_COMMIT_SHA=`echo $LAST_PATCHSTACK_UPDATE_COMMIT \
@@ -30,26 +36,17 @@ LAST_PATCHSTACK_UPDATE_COMMIT_SHA=`echo $LAST_PATCHSTACK_UPDATE_COMMIT \
 echo "LAST_PATCHSTACK_UPDATE_COMMIT_SHA: $LAST_PATCHSTACK_UPDATE_COMMIT_SHA"
 
 # grab the oldest, non "Vendor from libwebrtc" line
-OLDEST_CANDIDATE_COMMIT=`hg log --template "{node|short} {desc|firstline}\n" \
-    -r $LAST_PATCHSTACK_UPDATE_COMMIT_SHA::tip \
-    | grep -v "Vendor libwebrtc from" | head -1`
-echo "OLDEST_CANDIDATE_COMMIT: $OLDEST_CANDIDATE_COMMIT"
+CANDIDATE_COMMITS=`hg log --template "{node|short} {desc|firstline}\n" \
+    -r "children($LAST_PATCHSTACK_UPDATE_COMMIT_SHA)::. - desc('re:(Vendor libwebrtc)')" \
+    --include "third_party/libwebrtc/" | awk 'BEGIN { ORS=" " }; { print $1; }'`
+echo "CANDIDATE_COMMITS:"
+echo "$CANDIDATE_COMMITS"
 
-OLDEST_CANDIDATE_SHA=`echo $OLDEST_CANDIDATE_COMMIT \
-    | awk '{ print $1; }'`
-echo "OLDEST_CANDIDATE_SHA: $OLDEST_CANDIDATE_SHA"
-
-EXTRACT_COMMIT_RANGE="{start-commit-sha}::tip"
-if [ "x$TIP_SHA" != "x$OLDEST_CANDIDATE_SHA" ]; then
-  EXTRACT_COMMIT_RANGE="$OLDEST_CANDIDATE_SHA::tip"
+EXTRACT_COMMIT_RANGE="{start-commit-sha}::."
+if [ "x$CANDIDATE_COMMITS" != "x" ]; then
+  EXTRACT_COMMIT_RANGE="$CANDIDATE_COMMITS"
   echo "EXTRACT_COMMIT_RANGE: $EXTRACT_COMMIT_RANGE"
 fi
-
-# After this point:
-# * eE: All commands should succeed.
-# * u: All variables should be defined before use.
-# * o pipefail: All stages of all pipes should succeed.
-set -eEuo pipefail
 
 ./mach python $SCRIPT_DIR/vendor-libwebrtc.py \
         --from-local $MOZ_LIBWEBRTC_SRC \

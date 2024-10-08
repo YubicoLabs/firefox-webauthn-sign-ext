@@ -55,8 +55,6 @@ function channelOpenPromise(chan, flags) {
         false
       );
     }
-    let internal = chan.QueryInterface(Ci.nsIHttpChannelInternal);
-    internal.setWaitForHTTPSSVCRecord();
     certOverrideService.setDisableAllSecurityChecksAndLetAttackersInterceptMyData(
       true
     );
@@ -157,7 +155,7 @@ add_task(async function testTooManyCrashes() {
   Assert.ok(socketProcessId != 0);
 
   let socketProcessCrashed = false;
-  Services.obs.addObserver(function observe(subject, topic, data) {
+  Services.obs.addObserver(function observe(subject, topic) {
     Services.obs.removeObserver(observe, topic);
     socketProcessCrashed = true;
   }, "network:socket-process-crashed");

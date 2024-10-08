@@ -3,8 +3,14 @@
 
 "use strict";
 
-const { ON_PROFILE_CHANGE_NOTIFICATION, WEBCHANNEL_ID, log } =
-  ChromeUtils.importESModule("resource://gre/modules/FxAccountsCommon.sys.mjs");
+const {
+  CLIENT_IS_THUNDERBIRD,
+  ON_PROFILE_CHANGE_NOTIFICATION,
+  WEBCHANNEL_ID,
+  log,
+} = ChromeUtils.importESModule(
+  "resource://gre/modules/FxAccountsCommon.sys.mjs"
+);
 const { CryptoUtils } = ChromeUtils.importESModule(
   "resource://services-crypto/utils.sys.mjs"
 );
@@ -202,7 +208,7 @@ add_test(function test_error_message_remove_profile_path() {
   const toTest = Object.keys(errors).length;
   for (const key in errors) {
     let error = errors[key];
-    channel._channel.send = (message, context) => {
+    channel._channel.send = message => {
       equal(
         message.data.error.message,
         error.expected,
@@ -403,7 +409,7 @@ add_test(function test_fxa_status_message() {
   });
 
   channel._channel = {
-    send(response, sendingContext) {
+    send(response) {
       Assert.equal(response.command, "fxaccounts:fxa_status");
       Assert.equal(response.messageId, 123);
 
@@ -469,6 +475,9 @@ add_test(function test_helpers_should_allow_relink_different_email() {
 add_task(async function test_helpers_login_without_customize_sync() {
   let helpers = new FxAccountsWebChannelHelpers({
     fxAccounts: {
+      getSignedInUser() {
+        return Promise.resolve(null);
+      },
       _internal: {
         setSignedInUser(accountData) {
           return new Promise(resolve => {
@@ -512,8 +521,11 @@ add_task(async function test_helpers_login_without_customize_sync() {
 add_task(async function test_helpers_login_set_previous_account_name_hash() {
   let helpers = new FxAccountsWebChannelHelpers({
     fxAccounts: {
+      getSignedInUser() {
+        return Promise.resolve(null);
+      },
       _internal: {
-        setSignedInUser(accountData) {
+        setSignedInUser() {
           return new Promise(resolve => {
             // previously signed in user preference is updated.
             Assert.equal(
@@ -549,12 +561,53 @@ add_task(async function test_helpers_login_set_previous_account_name_hash() {
   });
 });
 
+add_task(async function test_helpers_login_another_user_signed_in() {
+  let helpers = new FxAccountsWebChannelHelpers({
+    fxAccounts: {
+      getSignedInUser() {
+        return Promise.resolve({ uid: "foo" });
+      },
+      _internal: {
+        setSignedInUser(accountData) {
+          return new Promise(resolve => {
+            // ensure fxAccounts is informed of the new user being signed in.
+            Assert.equal(accountData.email, "testuser@testuser.com");
+            resolve();
+          });
+        },
+      },
+      telemetry: {
+        recordConnection: sinon.spy(),
+      },
+    },
+    weaveXPCOM: {
+      whenLoaded() {},
+      Weave: {
+        Service: {
+          configure() {},
+        },
+      },
+    },
+  });
+  helpers._disconnect = sinon.spy();
+
+  await helpers.login({
+    email: "testuser@testuser.com",
+    verifiedCanLinkAccount: true,
+    customizeSync: false,
+  });
+  Assert.ok(
+    helpers._fxAccounts.telemetry.recordConnection.calledWith([], "webchannel")
+  );
+  Assert.ok(helpers._disconnect.called);
+});
+
 add_task(
   async function test_helpers_login_dont_set_previous_account_name_hash_for_unverified_emails() {
     let helpers = new FxAccountsWebChannelHelpers({
       fxAccounts: {
         _internal: {
-          setSignedInUser(accountData) {
+          setSignedInUser() {
             return new Promise(resolve => {
               // previously signed in user preference should not be updated.
               Assert.equal(
@@ -564,6 +617,9 @@ add_task(
               resolve();
             });
           },
+        },
+        getSignedInUser() {
+          return Promise.resolve(null);
         },
         telemetry: {
           recordConnection() {},
@@ -606,6 +662,9 @@ add_task(async function test_helpers_login_with_customize_sync() {
           });
         },
       },
+      getSignedInUser() {
+        return Promise.resolve(null);
+      },
       telemetry: {
         recordConnection: sinon.spy(),
       },
@@ -631,6 +690,7 @@ add_task(async function test_helpers_login_with_customize_sync() {
 });
 
 add_task(
+  { skip_if: () => CLIENT_IS_THUNDERBIRD },
   async function test_helpers_login_with_customize_sync_and_declined_engines() {
     let configured = false;
     let helpers = new FxAccountsWebChannelHelpers({
@@ -647,6 +707,9 @@ add_task(
               resolve();
             });
           },
+        },
+        getSignedInUser() {
+          return Promise.resolve(null);
         },
         telemetry: {
           recordConnection: sinon.spy(),
@@ -744,6 +807,9 @@ add_task(async function test_helpers_login_with_offered_sync_engines() {
             resolve(accountData);
           },
         },
+        getSignedInUser() {
+          return Promise.resolve(null);
+        },
         telemetry: {
           recordConnection() {},
         },
@@ -800,6 +866,9 @@ add_task(async function test_helpers_login_nothing_offered() {
           async setSignedInUser(accountData) {
             resolve(accountData);
           },
+        },
+        getSignedInUser() {
+          return Promise.resolve(null);
         },
         telemetry: {
           recordConnection() {},

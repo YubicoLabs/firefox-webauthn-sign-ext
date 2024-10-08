@@ -164,9 +164,8 @@ function handleRustResult(result, liftCallback, liftErrCallback) {
             throw liftErrCallback(result.data);
 
         case "internal-error":
-            let message = result.internalErrorMessage;
-            if (message) {
-                throw new UniFFIInternalError(message);
+            if (result.data) {
+                throw new UniFFIInternalError(FfiConverterString.lift(result.data));
             } else {
                 throw new UniFFIInternalError("Unknown error");
             }
@@ -282,7 +281,7 @@ export class FfiConverterTypeDeviceType extends FfiConverterArrayBuffer {
             case 6:
                 return DeviceType.UNKNOWN
             default:
-                return new Error("Unknown DeviceType variant");
+                throw new UniFFITypeError("Unknown DeviceType variant");
         }
     }
 
@@ -311,7 +310,7 @@ export class FfiConverterTypeDeviceType extends FfiConverterArrayBuffer {
             dataStream.writeInt32(6);
             return;
         }
-        return new Error("Unknown DeviceType variant");
+        throw new UniFFITypeError("Unknown DeviceType variant");
     }
 
     static computeSize(value) {

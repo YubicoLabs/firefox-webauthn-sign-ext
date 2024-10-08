@@ -46,10 +46,22 @@ class URLQueryStringStripper final : public nsIObserver,
 
   bool CheckAllowList(nsIURI* aURI);
 
-  void PopulateStripList(const nsAString& aList);
+  void PopulateStripList(const nsACString& aList);
   void PopulateAllowList(const nsACString& aList);
 
-  nsTHashSet<nsString> mList;
+  // Recursive helper function that helps strip URIs of tracking parameters
+  // and enables the stripping of tracking paramerters that are in a URI which
+  // is nested in a query parameter
+  nsresult StripForCopyOrShareInternal(nsIURI* aURI, nsIURI** strippedURI,
+                                       int& aStripCount, bool aStripNestedURIs);
+
+  // Recursive helper function to check if there are any query
+  // parameters that can be stripped. The function terminates as
+  // soon as one is found
+  nsresult CanStripForCopyOrShareInternal(nsIURI* aURI, bool* aCanStrip,
+                                          bool aStripNestedURIs);
+
+  nsTHashSet<nsCString> mList;
   nsTHashSet<nsCString> mAllowList;
   nsCOMPtr<nsIURLQueryStrippingListService> mListService;
   nsTHashMap<nsCString, dom::StripRule> mStripOnShareMap;

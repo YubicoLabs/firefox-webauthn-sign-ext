@@ -9,6 +9,9 @@
 const { EngineProcess } = ChromeUtils.importESModule(
   "chrome://global/content/ml/EngineProcess.sys.mjs"
 );
+const { TranslationsPanelShared } = ChromeUtils.importESModule(
+  "chrome://browser/content/translations/TranslationsPanelShared.sys.mjs"
+);
 
 // Avoid about:blank's non-standard behavior.
 const BLANK_PAGE =
@@ -30,8 +33,12 @@ const SPANISH_PAGE_URL_DOT_ORG =
   URL_ORG_PREFIX + DIR_PATH + "translations-tester-es.html";
 const NO_LANGUAGE_URL =
   URL_COM_PREFIX + DIR_PATH + "translations-tester-no-tag.html";
-const EMPTY_PDF_URL =
-  URL_COM_PREFIX + DIR_PATH + "translations-tester-empty-pdf-file.pdf";
+const PDF_TEST_PAGE_URL =
+  URL_COM_PREFIX + DIR_PATH + "translations-tester-pdf-file.pdf";
+const SELECT_TEST_PAGE_URL =
+  URL_COM_PREFIX + DIR_PATH + "translations-tester-select.html";
+const TEXT_CLEANING_URL =
+  URL_COM_PREFIX + DIR_PATH + "translations-text-cleaning.html";
 
 const PIVOT_LANGUAGE = "en";
 const LANGUAGE_PAIRS = [
@@ -61,11 +68,6 @@ const NEVER_TRANSLATE_LANGS_PREF =
  * The data must support structural cloning and will be passed into the
  * content process.
  *
- * @param {(args: { dataForContent: T, selectors: Record<string, string> }) => Promise<void>} options.runInPage
- * This function must not capture any values, as it will be cloned in the content process.
- * Any required data should be passed in using the "dataForContent" parameter. The
- * "selectors" property contains any useful selectors for the content.
- *
  * @param {boolean} [options.disabled]
  * Disable the panel through a pref.
  *
@@ -74,19 +76,37 @@ const NEVER_TRANSLATE_LANGS_PREF =
  *
  * @param {Array<[string, string]>} options.prefs
  * Prefs to push on for the test.
+ *
+ * @param {boolean} [options.autoDownloadFromRemoteSettings=true]
+ * Initiate the mock model downloads when this function is invoked instead of
+ * waiting for the resolveDownloads or rejectDownloads to be externally invoked
+ *
+ * @returns {object} object
+ *
+ * @returns {(args: { dataForContent: T, selectors: Record<string, string> }) => Promise<void>} object.runInPage
+ * This function must not capture any values, as it will be cloned in the content process.
+ * Any required data should be passed in using the "dataForContent" parameter. The
+ * "selectors" property contains any useful selectors for the content.
+ *
+ * @returns {() => Promise<void>} object.cleanup
+ *
+ * @returns {(count: number) => Promise<void>} object.resolveDownloads
+ *
+ * @returns {(count: number) => Promise<void>} object.rejectDownloads
  */
 async function openAboutTranslations({
   dataForContent,
   disabled,
-  runInPage,
   languagePairs = LANGUAGE_PAIRS,
   prefs,
+  autoDownloadFromRemoteSettings = false,
 }) {
   await SpecialPowers.pushPrefEnv({
     set: [
       // Enabled by default.
       ["browser.translations.enable", !disabled],
       ["browser.translations.logLevel", "All"],
+      ["browser.translations.mostRecentTargetLanguages", ""],
       ...(prefs ?? []),
     ],
   });
@@ -98,10 +118,12 @@ async function openAboutTranslations({
     pageHeader: '[data-l10n-id="about-translations-header"]',
     fromLanguageSelect: "select#language-from",
     toLanguageSelect: "select#language-to",
+    languageSwapButton: "button#language-swap",
     translationTextarea: "textarea#translation-from",
     translationResult: "#translation-to",
     translationResultBlank: "#translation-to-blank",
     translationInfo: "#translation-info",
+    translationResultsPlaceholder: "#translation-results-placeholder",
     noSupportMessage: "[data-l10n-id='about-translations-no-support']",
   };
 
@@ -114,9 +136,7 @@ async function openAboutTranslations({
 
   const { removeMocks, remoteClients } = await createAndMockRemoteSettings({
     languagePairs,
-    // TODO(Bug 1814168) - Do not test download behavior as this is not robustly
-    // handled for about:translations yet.
-    autoDownloadFromRemoteSettings: true,
+    autoDownloadFromRemoteSettings,
   });
 
   // Now load the about:translations page, since the actor could be mocked.
@@ -126,29 +146,52 @@ async function openAboutTranslations({
   );
   await BrowserTestUtils.browserLoaded(tab.linkedBrowser);
 
-  await remoteClients.translationsWasm.resolvePendingDownloads(1);
-  await remoteClients.translationModels.resolvePendingDownloads(
-    languagePairs.length * FILES_PER_LANGUAGE_PAIR
-  );
+  /**
+   * @param {number} count - Count of the language pairs expected.
+   */
+  const resolveDownloads = async count => {
+    await remoteClients.translationsWasm.resolvePendingDownloads(1);
+    await remoteClients.translationModels.resolvePendingDownloads(
+      FILES_PER_LANGUAGE_PAIR * count
+    );
+  };
 
-  await ContentTask.spawn(
-    tab.linkedBrowser,
-    { dataForContent, selectors },
-    runInPage
-  );
+  /**
+   * @param {number} count - Count of the language pairs expected.
+   */
+  const rejectDownloads = async count => {
+    await remoteClients.translationsWasm.rejectPendingDownloads(1);
+    await remoteClients.translationModels.rejectPendingDownloads(
+      FILES_PER_LANGUAGE_PAIR * count
+    );
+  };
 
-  await loadBlankPage();
-  BrowserTestUtils.removeTab(tab);
+  return {
+    runInPage(callback) {
+      return ContentTask.spawn(
+        tab.linkedBrowser,
+        { dataForContent, selectors }, // Data to inject.
+        callback
+      );
+    },
+    async cleanup() {
+      await loadBlankPage();
+      BrowserTestUtils.removeTab(tab);
 
-  await removeMocks();
-  await EngineProcess.destroyTranslationsEngine();
+      await removeMocks();
+      await EngineProcess.destroyTranslationsEngine();
 
-  await SpecialPowers.popPrefEnv();
+      await SpecialPowers.popPrefEnv();
+    },
+    resolveDownloads,
+    rejectDownloads,
+  };
 }
 
 /**
  * Naively prettify's html based on the opening and closing tags. This is not robust
  * for general usage, but should be adequate for these tests.
+ *
  * @param {string} html
  * @returns {string}
  */
@@ -347,72 +390,90 @@ function getTranslationsParent() {
 }
 
 /**
- * Closes the context menu if it is open.
+ * Closes all open panels and menu popups related to Translations.
+ *
+ * @param {ChromeWindow} [win]
  */
-function closeContextMenuIfOpen() {
-  return waitForCondition(async () => {
-    const contextMenu = document.getElementById("contentAreaContextMenu");
-    if (!contextMenu) {
+async function closeAllOpenPanelsAndMenus(win) {
+  await closeFullPagePanelSettingsMenuIfOpen(win);
+  await closeFullPageTranslationsPanelIfOpen(win);
+  await closeSelectPanelSettingsMenuIfOpen(win);
+  await closeSelectTranslationsPanelIfOpen(win);
+  await closeContextMenuIfOpen(win);
+}
+
+/**
+ * Closes the popup element with the given Id if it is open.
+ *
+ * @param {string} popupElementId
+ * @param {ChromeWindow} [win]
+ */
+async function closePopupIfOpen(popupElementId, win = window) {
+  await waitForCondition(async () => {
+    const popupElement = win.document.getElementById(popupElementId);
+    if (!popupElement) {
       return true;
     }
-    if (contextMenu.state === "closed") {
+    if (popupElement.state === "closed") {
       return true;
     }
     let popuphiddenPromise = BrowserTestUtils.waitForEvent(
-      contextMenu,
+      popupElement,
       "popuphidden"
     );
-    PanelMultiView.hidePopup(contextMenu);
+    popupElement.hidePopup();
+    PanelMultiView.hidePopup(popupElement);
     await popuphiddenPromise;
     return false;
   });
 }
 
 /**
- * Closes the translations panel settings menu if it is open.
+ * Closes the context menu if it is open.
+ *
+ * @param {ChromeWindow} [win]
  */
-function closeSettingsMenuIfOpen() {
-  return waitForCondition(async () => {
-    const settings = document.getElementById(
-      "translations-panel-settings-menupopup"
-    );
-    if (!settings) {
-      return true;
-    }
-    if (settings.state === "closed") {
-      return true;
-    }
-    let popuphiddenPromise = BrowserTestUtils.waitForEvent(
-      settings,
-      "popuphidden"
-    );
-    PanelMultiView.hidePopup(settings);
-    await popuphiddenPromise;
-    return false;
-  });
+async function closeContextMenuIfOpen(win) {
+  await closePopupIfOpen("contentAreaContextMenu", win);
+}
+
+/**
+ * Closes the full-page translations panel settings menu if it is open.
+ *
+ * @param {ChromeWindow} [win]
+ */
+async function closeFullPagePanelSettingsMenuIfOpen(win) {
+  await closePopupIfOpen(
+    "full-page-translations-panel-settings-menupopup",
+    win
+  );
+}
+
+/**
+ * Closes the select translations panel settings menu if it is open.
+ *
+ * @param {ChromeWindow} [win]
+ */
+async function closeSelectPanelSettingsMenuIfOpen(win) {
+  await closePopupIfOpen("select-translations-panel-settings-menupopup", win);
 }
 
 /**
  * Closes the translations panel if it is open.
+ *
+ * @param {ChromeWindow} [win]
  */
-async function closeTranslationsPanelIfOpen() {
-  await closeSettingsMenuIfOpen();
-  return waitForCondition(async () => {
-    const panel = document.getElementById("translations-panel");
-    if (!panel) {
-      return true;
-    }
-    if (panel.state === "closed") {
-      return true;
-    }
-    let popuphiddenPromise = BrowserTestUtils.waitForEvent(
-      panel,
-      "popuphidden"
-    );
-    PanelMultiView.hidePopup(panel);
-    await popuphiddenPromise;
-    return false;
-  });
+async function closeFullPageTranslationsPanelIfOpen(win) {
+  await closePopupIfOpen("full-page-translations-panel", win);
+}
+
+/**
+ * Closes the translations panel if it is open.
+ *
+ * @param {ChromeWindow} [win]
+ */
+async function closeSelectTranslationsPanelIfOpen(win) {
+  await closePopupIfOpen("select-translations-panel", win);
 }
 
 /**
@@ -449,10 +510,9 @@ async function setupActorTest({
     actor,
     remoteClients,
     async cleanup() {
+      await closeAllOpenPanelsAndMenus();
       await loadBlankPage();
       await EngineProcess.destroyTranslationsEngine();
-      await closeTranslationsPanelIfOpen();
-      await closeContextMenuIfOpen();
       BrowserTestUtils.removeTab(tab);
       await removeMocks();
       TestTranslationsTelemetry.reset();
@@ -478,6 +538,7 @@ async function createAndMockRemoteSettings({
   // The TranslationsParent will pull the language pair values from the JSON dump
   // of Remote Settings. Clear these before mocking the translations engine.
   TranslationsParent.clearCache();
+  TranslationsPanelShared.clearLanguageListsCache();
 
   TranslationsParent.mockTranslationsEngine(
     remoteClients.translationModels.client,
@@ -492,9 +553,82 @@ async function createAndMockRemoteSettings({
 
       TranslationsParent.unmockTranslationsEngine();
       TranslationsParent.clearCache();
+      TranslationsPanelShared.clearLanguageListsCache();
     },
     remoteClients,
   };
+}
+
+/**
+ * This class mocks the window's A11yUtils to count/capture arguments.
+ *
+ * This helps us ensure that the right calls are being made without
+ * needing to handle whether the accessibility service is enabled in CI,
+ * and also without needing to worry about if the call itself is broken
+ * in the accessibility engine, since this is sometimes OS dependent.
+ */
+class MockedA11yUtils {
+  /**
+   * Holds the parameters passed to any calls to announce.
+   *
+   * @type {Array<{ raw: string, id: string}>}
+   */
+  static announceCalls = [];
+
+  /**
+   * Mocks the A11yUtils object for the given window, replacing the real A11yUtils with the mock
+   * and returning a function that will restore the original A11yUtils when called.
+   *
+   * @param {object} window - The window for which to mock A11yUtils.
+   * @returns {Function} - A function to restore A11yUtils to the window.
+   */
+  static mockForWindow(window) {
+    const realA11yUtils = window.A11yUtils;
+    window.A11yUtils = MockedA11yUtils;
+
+    return () => {
+      // Restore everything back to normal for this window.
+      MockedA11yUtils.announceCalls = [];
+      window.A11yUtils = realA11yUtils;
+    };
+  }
+
+  /**
+   * A mocked call to A11yUtils.announce that captures the parameters.
+   *
+   * @param {{ raw: string, id: string }}
+   */
+  static announce({ id, raw }) {
+    MockedA11yUtils.announceCalls.push({ id, raw });
+  }
+
+  /**
+   * Asserts that the most recent A11yUtils announce call matches the expectations.
+   *
+   * @param {object} expectations
+   * @param {string} expectations.expectedCallNumber - The expected position in the announceCalls array.
+   * @param {object} expectations.expectedArgs - The expected arguments passed to the most recent announce call.
+   */
+  static assertMostRecentAnnounceCall({ expectedCallNumber, expectedArgs }) {
+    is(
+      MockedA11yUtils.announceCalls.length,
+      expectedCallNumber,
+      "The most recent A11yUtils announce should match the expected call number."
+    );
+    const { id, raw } = MockedA11yUtils.announceCalls.at(-1);
+    const { id: expectedId, raw: expectedRaw } = expectedArgs;
+
+    is(
+      id,
+      expectedId,
+      "A11yUtils announce arg id should match the expected arg id."
+    );
+    is(
+      raw,
+      expectedRaw,
+      "A11yUtils announce arg raw should match the expected arg raw."
+    );
+  }
 }
 
 async function loadTestPage({
@@ -504,38 +638,63 @@ async function loadTestPage({
   prefs,
   autoOffer,
   permissionsUrls,
+  win = window,
 }) {
   info(`Loading test page starting at url: ${page}`);
-  // Ensure no engine is being carried over from a previous test.
-  await EngineProcess.destroyTranslationsEngine();
-  Services.fog.testResetFOG();
-  await SpecialPowers.pushPrefEnv({
-    set: [
-      // Enabled by default.
-      ["browser.translations.enable", true],
-      ["browser.translations.logLevel", "All"],
-      ["browser.translations.panelShown", true],
-      ["browser.translations.automaticallyPopup", true],
-      ["browser.translations.alwaysTranslateLanguages", ""],
-      ["browser.translations.neverTranslateLanguages", ""],
-      ...(prefs ?? []),
-    ],
-  });
-  await SpecialPowers.pushPermissions(
-    [
-      ENGLISH_PAGE_URL,
-      FRENCH_PAGE_URL,
-      NO_LANGUAGE_URL,
-      SPANISH_PAGE_URL,
-      SPANISH_PAGE_URL_2,
-      SPANISH_PAGE_URL_DOT_ORG,
-      ...(permissionsUrls || []),
-    ].map(url => ({
-      type: TRANSLATIONS_PERMISSION,
-      allow: true,
-      context: url,
-    }))
-  );
+
+  // If there are multiple windows, only do the first time setup on the main window.
+  const isFirstTimeSetup = win === window;
+
+  let remoteClients = null;
+  let removeMocks = () => {};
+
+  const restoreA11yUtils = MockedA11yUtils.mockForWindow(win);
+
+  if (isFirstTimeSetup) {
+    // Ensure no engine is being carried over from a previous test.
+    await EngineProcess.destroyTranslationsEngine();
+
+    Services.fog.testResetFOG();
+    await SpecialPowers.pushPrefEnv({
+      set: [
+        // Enabled by default.
+        ["browser.translations.enable", true],
+        ["browser.translations.logLevel", "All"],
+        ["browser.translations.panelShown", true],
+        ["browser.translations.automaticallyPopup", true],
+        ["browser.translations.alwaysTranslateLanguages", ""],
+        ["browser.translations.neverTranslateLanguages", ""],
+        ["browser.translations.mostRecentTargetLanguages", ""],
+        // Bug 1893100 - This is needed to ensure that switching focus
+        // with tab works in tests independent of macOS settings that
+        // would otherwise disable keyboard navigation at the OS level.
+        ["accessibility.tabfocus_applies_to_xul", false],
+        ...(prefs ?? []),
+      ],
+    });
+    await SpecialPowers.pushPermissions(
+      [
+        ENGLISH_PAGE_URL,
+        FRENCH_PAGE_URL,
+        NO_LANGUAGE_URL,
+        SPANISH_PAGE_URL,
+        SPANISH_PAGE_URL_2,
+        SPANISH_PAGE_URL_DOT_ORG,
+        ...(permissionsUrls || []),
+      ].map(url => ({
+        type: TRANSLATIONS_PERMISSION,
+        allow: true,
+        context: url,
+      }))
+    );
+
+    const result = await createAndMockRemoteSettings({
+      languagePairs,
+      autoDownloadFromRemoteSettings,
+    });
+    remoteClients = result.remoteClients;
+    removeMocks = result.removeMocks;
+  }
 
   if (autoOffer) {
     TranslationsParent.testAutomaticPopup = true;
@@ -543,15 +702,10 @@ async function loadTestPage({
 
   // Start the tab at a blank page.
   const tab = await BrowserTestUtils.openNewForegroundTab(
-    gBrowser,
+    win.gBrowser,
     BLANK_PAGE,
     true // waitForLoad
   );
-
-  const { remoteClients, removeMocks } = await createAndMockRemoteSettings({
-    languagePairs,
-    autoDownloadFromRemoteSettings,
-  });
 
   BrowserTestUtils.startLoadingURIString(tab.linkedBrowser, page);
   await BrowserTestUtils.browserLoaded(tab.linkedBrowser);
@@ -559,7 +713,7 @@ async function loadTestPage({
   if (autoOffer && TranslationsParent.shouldAlwaysOfferTranslations()) {
     info("Waiting for the popup to be automatically shown.");
     await waitForCondition(() => {
-      const panel = document.getElementById("translations-panel");
+      const panel = document.getElementById("full-page-translations-panel");
       return panel && panel.state === "open";
     });
   }
@@ -569,6 +723,11 @@ async function loadTestPage({
     remoteClients,
 
     /**
+     * Resolves the downloads for the pending count of requested language pairs.
+     * This should be used when resolving downloads immediately after requesting them.
+     *
+     * @see {resolveBulkDownloads} for requesting multiple translations prior to resolving.
+     *
      * @param {number} count - Count of the language pairs expected.
      */
     async resolveDownloads(count) {
@@ -579,6 +738,11 @@ async function loadTestPage({
     },
 
     /**
+     * Rejects the downloads for the pending count of requested language pairs.
+     * This should be used when rejecting downloads immediately after requesting them.
+     *
+     * @see {resolveBulkDownloads} for requesting multiple translations prior to rejecting.
+     *
      * @param {number} count - Count of the language pairs expected.
      */
     async rejectDownloads(count) {
@@ -589,14 +753,60 @@ async function loadTestPage({
     },
 
     /**
+     * Resolves downloads for multiple pending translation requests.
+     *
+     * @see {resolveDownloads} for resolving downloads for just a single request.
+     *
+     * @param {object} expectations
+     * @param {number} expectations.expectedWasmDownloads
+     *  - The expected count of pending WASM binary download requests.
+     * @param {number} expectations.expectedLanguagePairDownloads
+     *  - The expected count of language-pair model-download requests.
+     */
+    async resolveBulkDownloads({
+      expectedWasmDownloads,
+      expectedLanguagePairDownloads,
+    }) {
+      await remoteClients.translationsWasm.resolvePendingDownloads(
+        expectedWasmDownloads
+      );
+      await remoteClients.translationModels.resolvePendingDownloads(
+        FILES_PER_LANGUAGE_PAIR * expectedLanguagePairDownloads
+      );
+    },
+
+    /**
+     * Rejects downloads for multiple pending translation requests.
+     *
+     * @see {rejectDownloads} for rejecting downloads for just a single request.
+     *
+     * @param {object} expectations
+     * @param {number} expectations.expectedWasmDownloads
+     *  - The expected count of pending WASM binary download requests.
+     * @param {number} expectations.expectedLanguagePairDownloads
+     *  - The expected count of language-pair model-download requests.
+     */
+    async rejectBulkDownloads({
+      expectedWasmDownloads,
+      expectedLanguagePairDownloads,
+    }) {
+      await remoteClients.translationsWasm.rejectPendingDownloads(
+        expectedWasmDownloads
+      );
+      await remoteClients.translationModels.rejectPendingDownloads(
+        FILES_PER_LANGUAGE_PAIR * expectedLanguagePairDownloads
+      );
+    },
+
+    /**
      * @returns {Promise<void>}
      */
     async cleanup() {
+      await closeAllOpenPanelsAndMenus();
       await loadBlankPage();
       await EngineProcess.destroyTranslationsEngine();
-      await closeTranslationsPanelIfOpen();
-      await closeContextMenuIfOpen();
       await removeMocks();
+      restoreA11yUtils();
       Services.fog.testResetFOG();
       TranslationsParent.testAutomaticPopup = false;
       TranslationsParent.resetHostsOffered();
@@ -665,7 +875,8 @@ async function captureTranslationsError(callback) {
 
 /**
  * Load a test page and run
- * @param {Object} options - The options for `loadTestPage` plus a `runInPage` function.
+ *
+ * @param {object} options - The options for `loadTestPage` plus a `runInPage` function.
  */
 async function autoTranslatePage(options) {
   const { prefs, languagePairs, ...otherOptions } = options;
@@ -805,6 +1016,7 @@ function createRecordsForLanguagePair(fromLang, toLang) {
     filename: `model.${lang}.intgemm.alphas.bin`,
     location: `main-workspace/translations-models/${crypto.randomUUID()}.bin`,
     mimetype: "application/octet-stream",
+    isDownloaded: false,
   };
 
   if (models.length !== FILES_PER_LANGUAGE_PAIR) {
@@ -821,10 +1033,25 @@ function createRecordsForLanguagePair(fromLang, toLang) {
       version: TranslationsParent.LANGUAGE_MODEL_MAJOR_VERSION + ".0",
       last_modified: Date.now(),
       schema: Date.now(),
-      attachment,
+      attachment: JSON.parse(JSON.stringify(attachment)), // Making a deep copy.
     });
   }
   return records;
+}
+
+/**
+ * Creates a new WASM record for the Bergamot Translator to store in Remote Settings.
+ *
+ * @returns {WasmRecord}
+ */
+function createWasmRecord() {
+  return {
+    id: crypto.randomUUID(),
+    name: "bergamot-translator",
+    version: TranslationsParent.BERGAMOT_MAJOR_VERSION + ".0",
+    last_modified: Date.now(),
+    schema: Date.now(),
+  };
 }
 
 /**
@@ -837,7 +1064,7 @@ let _remoteSettingsMockId = 0;
  * Creates a local RemoteSettingsClient for use within tests.
  *
  * @param {boolean} autoDownloadFromRemoteSettings
- * @param {Object[]} langPairs
+ * @param {object[]} langPairs
  * @returns {RemoteSettingsClient}
  */
 async function createTranslationModelsRemoteClient(
@@ -876,14 +1103,7 @@ async function createTranslationModelsRemoteClient(
 async function createTranslationsWasmRemoteClient(
   autoDownloadFromRemoteSettings
 ) {
-  const records = ["bergamot-translator"].map(name => ({
-    id: crypto.randomUUID(),
-    name,
-    version: TranslationsParent.BERGAMOT_MAJOR_VERSION + ".0",
-    last_modified: Date.now(),
-    schema: Date.now(),
-  }));
-
+  const records = [createWasmRecord()];
   const { RemoteSettings } = ChromeUtils.importESModule(
     "resource://services-settings/remote-settings.sys.mjs"
   );
@@ -900,6 +1120,117 @@ async function createTranslationsWasmRemoteClient(
     mockedCollectionName,
     autoDownloadFromRemoteSettings
   );
+}
+
+/**
+ * Modifies the client's Remote Settings database to create, update, and delete records, then emits
+ * a "sync" event with the relevant changes for the Remote Settings client.
+ *
+ * Asserts that the list of records to create is disjoint from the list of records to delete.
+ * If your test case needs to create a record and then delete it, do it in separate transactions.
+ *
+ * @param {RemoteSettingsClient} remoteSettingsClient - The Remote Settings client whose database will be modified.
+ * @param {object} options
+ * @param {TranslationModelRecord[]} [options.recordsToCreate]
+ *  - A list of records to newly create or update. These records are automatically partitioned into
+ *    either the created array or the updated array based on whether they exist in the database yet.
+ * @param {TranslationModelRecord[]} [options.recordsToDelete]
+ *  - A list of records to delete from the database. Asserts that all of these records exist in the
+ *    database before deleting them.
+ * @param {number} [options.expectedCreatedRecordsCount]
+ *  - The expected count of records within the recordsToCreate parameter that are new to the database.
+ * @param {number} [options.expectedUpdatedRecordsCount]
+ *  - The expected count of records within the recordsToCreate parameter that are already in the database.
+ * @param {number} [options.expectedDeletedRecordsCount]
+ *  - The expected count of records within the recordsToDelete parameter that are already in the database.
+ */
+async function modifyRemoteSettingsRecords(
+  remoteSettingsClient,
+  {
+    recordsToCreate = [],
+    recordsToDelete = [],
+    expectedCreatedRecordsCount = 0,
+    expectedUpdatedRecordsCount = 0,
+    expectedDeletedRecordsCount = 0,
+  }
+) {
+  for (const recordToCreate of recordsToCreate) {
+    for (const recordToDelete of recordsToDelete) {
+      isnot(
+        recordToCreate.id,
+        recordToDelete.id,
+        `Attempt to both create and delete the same record from Remote Settings database: '${recordToCreate.name}'`
+      );
+    }
+  }
+
+  let created = [];
+  let updated = [];
+  let deleted = [];
+
+  const existingRecords = await remoteSettingsClient.get();
+
+  for (const newRecord of recordsToCreate) {
+    const existingRecord = existingRecords.find(
+      existingRecord => existingRecord.id === newRecord.id
+    );
+    if (existingRecord) {
+      updated.push({
+        old: existingRecord,
+        new: newRecord,
+      });
+    } else {
+      created.push(newRecord);
+    }
+  }
+
+  if (recordsToCreate.length) {
+    info("Storing new and updated records in mocked Remote Settings database");
+    await remoteSettingsClient.db.importChanges(
+      /* metadata */ {},
+      Date.now(),
+      recordsToCreate
+    );
+  }
+
+  if (recordsToDelete.length) {
+    info("Storing new and updated records in mocked Remote Settings database");
+    for (const recordToDelete of recordsToDelete) {
+      ok(
+        existingRecords.find(
+          existingRecord => existingRecord.id === recordToDelete.id
+        ),
+        `The record to delete '${recordToDelete.name}' should be found in the database.`
+      );
+      await remoteSettingsClient.db.delete(recordToDelete.id);
+      deleted.push(recordToDelete);
+    }
+  }
+
+  is(
+    created.length,
+    expectedCreatedRecordsCount,
+    "Expected the correct number of created records"
+  );
+  is(
+    updated.length,
+    expectedUpdatedRecordsCount,
+    "Expected the correct number of updated records"
+  );
+  is(
+    deleted.length,
+    expectedDeletedRecordsCount,
+    "Expected the correct number of deleted records"
+  );
+
+  info('Emitting a remote client "sync" event.');
+  await remoteSettingsClient.emit("sync", {
+    data: {
+      created,
+      updated,
+      deleted,
+    },
+  });
 }
 
 async function selectAboutPreferencesElements() {
@@ -928,21 +1259,21 @@ async function selectAboutPreferencesElements() {
   );
   const frenchLabel = frenchRow.querySelector("label");
   const frenchDownload = frenchRow.querySelector(
-    `[data-l10n-id="translations-manage-language-install-button"]`
+    `[data-l10n-id="translations-manage-language-download-button"]`
   );
   const frenchDelete = frenchRow.querySelector(
     `[data-l10n-id="translations-manage-language-remove-button"]`
   );
   const spanishLabel = spanishRow.querySelector("label");
   const spanishDownload = spanishRow.querySelector(
-    `[data-l10n-id="translations-manage-language-install-button"]`
+    `[data-l10n-id="translations-manage-language-download-button"]`
   );
   const spanishDelete = spanishRow.querySelector(
     `[data-l10n-id="translations-manage-language-remove-button"]`
   );
   const ukrainianLabel = ukrainianRow.querySelector("label");
   const ukrainianDownload = ukrainianRow.querySelector(
-    `[data-l10n-id="translations-manage-language-install-button"]`
+    `[data-l10n-id="translations-manage-language-download-button"]`
   );
   const ukrainianDelete = ukrainianRow.querySelector(
     `[data-l10n-id="translations-manage-language-remove-button"]`
@@ -991,7 +1322,7 @@ function hitEnterKey(button, message) {
  *
  * @see assertVisibility
  *
- * @param {Object} options
+ * @param {object} options
  * @param {string} options.message
  * @param {Record<string, Element[]>} options.visible
  * @param {Record<string, Element[]>} options.hidden
@@ -1022,7 +1353,7 @@ async function ensureVisibility({ message = null, visible = {}, hidden = {} }) {
 /**
  * Asserts that the provided elements are either visible or hidden.
  *
- * @param {Object} options
+ * @param {object} options
  * @param {string} options.message
  * @param {Record<string, Element[]>} options.visible
  * @param {Record<string, Element[]>} options.hidden
@@ -1064,6 +1395,14 @@ async function setupAboutPreferences(
     true // waitForLoad
   );
 
+  let initTranslationsEvent;
+  if (Services.prefs.getBoolPref("browser.translations.newSettingsUI.enable")) {
+    initTranslationsEvent = BrowserTestUtils.waitForEvent(
+      document,
+      "translationsSettingsInit"
+    );
+  }
+
   const { remoteClients, removeMocks } = await createAndMockRemoteSettings({
     languagePairs,
   });
@@ -1076,11 +1415,14 @@ async function setupAboutPreferences(
 
   const elements = await selectAboutPreferencesElements();
 
+  if (Services.prefs.getBoolPref("browser.translations.newSettingsUI.enable")) {
+    await initTranslationsEvent;
+  }
+
   async function cleanup() {
+    await closeAllOpenPanelsAndMenus();
     await loadBlankPage();
     await EngineProcess.destroyTranslationsEngine();
-    await closeTranslationsPanelIfOpen();
-    await closeContextMenuIfOpen();
     BrowserTestUtils.removeTab(tab);
     await removeMocks();
     await SpecialPowers.popPrefEnv();
@@ -1105,32 +1447,46 @@ function waitForAppLocaleChanged() {
 }
 
 async function mockLocales({ systemLocales, appLocales, webLanguages }) {
-  const appLocaleChanged1 = waitForAppLocaleChanged();
+  if (systemLocales) {
+    TranslationsParent.mockedSystemLocales = systemLocales;
+  }
 
-  TranslationsParent.mockedSystemLocales = systemLocales;
   const { availableLocales, requestedLocales } = Services.locale;
 
-  info("Mocking locales, so expect potential .ftl resource errors.");
-  Services.locale.availableLocales = appLocales;
-  Services.locale.requestedLocales = appLocales;
+  if (appLocales) {
+    const appLocaleChanged = waitForAppLocaleChanged();
 
-  await appLocaleChanged1;
+    info("Mocking locales, so expect potential .ftl resource errors.");
+    Services.locale.availableLocales = appLocales;
+    Services.locale.requestedLocales = appLocales;
 
-  await SpecialPowers.pushPrefEnv({
-    set: [["intl.accept_languages", webLanguages.join(",")]],
-  });
+    await appLocaleChanged;
+  }
+
+  if (webLanguages) {
+    await SpecialPowers.pushPrefEnv({
+      set: [["intl.accept_languages", webLanguages.join(",")]],
+    });
+  }
 
   return async () => {
-    const appLocaleChanged2 = waitForAppLocaleChanged();
-
     // Reset back to the originals.
-    TranslationsParent.mockedSystemLocales = null;
-    Services.locale.availableLocales = availableLocales;
-    Services.locale.requestedLocales = requestedLocales;
+    if (systemLocales) {
+      TranslationsParent.mockedSystemLocales = null;
+    }
 
-    await appLocaleChanged2;
+    if (appLocales) {
+      const appLocaleChanged = waitForAppLocaleChanged();
 
-    await SpecialPowers.popPrefEnv();
+      Services.locale.availableLocales = availableLocales;
+      Services.locale.requestedLocales = requestedLocales;
+
+      await appLocaleChanged;
+    }
+
+    if (webLanguages) {
+      await SpecialPowers.popPrefEnv();
+    }
   };
 }
 
@@ -1148,8 +1504,8 @@ class TestTranslationsTelemetry {
    * Asserts qualities about a counter telemetry metric.
    *
    * @param {string} name - The name of the metric.
-   * @param {Object} counter - The Glean counter object.
-   * @param {Object} expectedCount - The expected value of the counter.
+   * @param {object} counter - The Glean counter object.
+   * @param {object} expectedCount - The expected value of the counter.
    */
   static async assertCounter(name, counter, expectedCount) {
     // Ensures that glean metrics are collected from all child processes
@@ -1164,28 +1520,42 @@ class TestTranslationsTelemetry {
   }
 
   /**
+   * Asserts that a counter with the given label matches the expected count for that label.
+   *
+   * @param {object} counter - The Glean counter object.
+   * @param {Array<Array<string | number>>} expectations - An array of string/number pairs for the label and expected count.
+   */
+  static async assertLabeledCounter(counter, expectations) {
+    for (const [label, expectedCount] of expectations) {
+      await Services.fog.testFlushAllChildren();
+      const count = counter[label].testGetValue() ?? 0;
+      is(
+        count,
+        expectedCount,
+        `Telemetry counter with label ${label} should have expected count.`
+      );
+    }
+  }
+
+  /**
    * Asserts qualities about an event telemetry metric.
    *
-   * @param {string} name - The name of the metric.
-   * @param {Object} event - The Glean event object.
-   * @param {Object} expectations - The test expectations.
+   * @param {object} event - The Glean event object.
+   * @param {object} expectations - The test expectations.
    * @param {number} expectations.expectedEventCount - The expected count of events.
    * @param {boolean} expectations.expectNewFlowId
-   * - Expects the flowId to be different than the previous flowId if true,
-   *   and expects it to be the same if false.
-   * @param {Array<function>} [expectations.allValuePredicates=[]]
-   * - An array of function predicates to assert for all event values.
-   * @param {Array<function>} [expectations.finalValuePredicates=[]]
-   * - An array of function predicates to assert for only the final event value.
+   * @param {Record<string, string | boolean | number>} [expectations.assertForAllEvents]
+   * - A record of key-value pairs to assert against all events in this category.
+   * @param {Record<string, string | boolean | number>} [expectations.assertForMostRecentEvent]
+   * - A record of key-value pairs to assert against the most recently recorded event in this category.
    */
   static async assertEvent(
     event,
     {
       expectedEventCount,
       expectNewFlowId = null,
-      expectFirstInteraction = null,
-      allValuePredicates = [],
-      finalValuePredicates = [],
+      assertForAllEvents = {},
+      assertForMostRecentEvent = {},
     }
   ) {
     // Ensures that glean metrics are collected from all child processes
@@ -1195,14 +1565,6 @@ class TestTranslationsTelemetry {
     const eventCount = events.length;
     const name =
       eventCount > 0 ? `${events[0].category}.${events[0].name}` : null;
-
-    if (eventCount > 0 && expectFirstInteraction !== null) {
-      is(
-        events[eventCount - 1].extra.first_interaction,
-        expectFirstInteraction ? "true" : "false",
-        "The newest event should be match the given first-interaction expectation"
-      );
-    }
 
     if (eventCount > 0 && expectNewFlowId !== null) {
       const flowId = events[eventCount - 1].extra.flow_id;
@@ -1238,34 +1600,38 @@ class TestTranslationsTelemetry {
       `There should be ${expectedEventCount} telemetry events of type ${name}`
     );
 
-    if (allValuePredicates.length !== 0) {
+    if (Object.keys(assertForAllEvents).length !== 0) {
       is(
         eventCount > 0,
         true,
-        `Telemetry event ${name} should contain values if allPredicates are specified`
+        `Telemetry event ${name} should contain values if assertForMostRecentEvent are specified`
       );
-      for (const value of events) {
-        for (const predicate of allValuePredicates) {
+      for (const [key, expectedEntry] of Object.entries(
+        assertForMostRecentEvent
+      )) {
+        for (const event of events) {
           is(
-            predicate(value),
-            true,
-            `Telemetry event ${name} allPredicate { ${predicate.toString()} } should pass for each value`
+            event.extra[key],
+            String(expectedEntry),
+            `Telemetry event ${name} value for ${key} should match the expected entry`
           );
         }
       }
     }
 
-    if (finalValuePredicates.length !== 0) {
+    if (Object.keys(assertForMostRecentEvent).length !== 0) {
       is(
         eventCount > 0,
         true,
-        `Telemetry event ${name} should contain values if finalPredicates are specified`
+        `Telemetry event ${name} should contain values if assertForMostRecentEvent are specified`
       );
-      for (const predicate of finalValuePredicates) {
+      for (const [key, expectedEntry] of Object.entries(
+        assertForMostRecentEvent
+      )) {
         is(
-          predicate(events[eventCount - 1]),
-          true,
-          `Telemetry event ${name} finalPredicate { ${predicate.toString()} } should pass for final value`
+          events[eventCount - 1].extra[key],
+          String(expectedEntry),
+          `Telemetry event ${name} value for ${key} should match the expected entry`
         );
       }
     }
@@ -1275,8 +1641,8 @@ class TestTranslationsTelemetry {
    * Asserts qualities about a rate telemetry metric.
    *
    * @param {string} name - The name of the metric.
-   * @param {Object} rate - The Glean rate object.
-   * @param {Object} expectations - The test expectations.
+   * @param {object} rate - The Glean rate object.
+   * @param {object} expectations - The test expectations.
    * @param {number} expectations.expectedNumerator - The expected value of the numerator.
    * @param {number} expectations.expectedDenominator - The expected value of the denominator.
    */
@@ -1306,7 +1672,7 @@ class TestTranslationsTelemetry {
  * Provide longer defaults for the waitForCondition.
  *
  * @param {Function} callback
- * @param {string} messages
+ * @param {string} message
  */
 function waitForCondition(callback, message) {
   const interval = 100;
@@ -1357,9 +1723,10 @@ function getNeverTranslateSitesFromPerms() {
 
 /**
  * Opens a dialog window for about:preferences
+ *
  * @param {string} dialogUrl - The URL of the dialog window
  * @param {Function} callback - The function to open the dialog via UI
- * @returns {Object} The dialog window object
+ * @returns {object} The dialog window object
  */
 async function waitForOpenDialogWindow(dialogUrl, callback) {
   const dialogLoaded = promiseLoadSubDialog(dialogUrl);
@@ -1371,7 +1738,7 @@ async function waitForOpenDialogWindow(dialogUrl, callback) {
 /**
  * Closes an open dialog window and waits for it to close.
  *
- * @param {Object} dialogWindow
+ * @param {object} dialogWindow
  */
 async function waitForCloseDialogWindow(dialogWindow) {
   const closePromise = BrowserTestUtils.waitForEvent(
@@ -1384,7 +1751,7 @@ async function waitForCloseDialogWindow(dialogWindow) {
 
 // Extracted from https://searchfox.org/mozilla-central/rev/40ef22080910c2e2c27d9e2120642376b1d8b8b2/browser/components/preferences/in-content/tests/head.js#41
 function promiseLoadSubDialog(aURL) {
-  return new Promise((resolve, reject) => {
+  return new Promise(resolve => {
     content.gSubDialog._dialogStack.addEventListener(
       "dialogopen",
       function dialogopen(aEvent) {
@@ -1450,4 +1817,11 @@ function promiseLoadSubDialog(aURL) {
 async function loadBlankPage() {
   BrowserTestUtils.startLoadingURIString(gBrowser.selectedBrowser, BLANK_PAGE);
   await BrowserTestUtils.browserLoaded(gBrowser.selectedBrowser);
+}
+
+/**
+ * Destroys the Translations Engine process.
+ */
+async function destroyTranslationsEngine() {
+  await EngineProcess.destroyTranslationsEngine();
 }

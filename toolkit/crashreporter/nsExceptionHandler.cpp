@@ -7,6 +7,7 @@
 #include "nsExceptionHandler.h"
 #include "nsExceptionHandlerUtils.h"
 
+#include "json/json.h"
 #include "nsAppDirectoryServiceDefs.h"
 #include "nsComponentManagerUtils.h"
 #include "nsDirectoryServiceDefs.h"
@@ -38,6 +39,10 @@
 
 #include "mozilla/toolkit/crashreporter/mozannotation_client_ffi_generated.h"
 #include "mozilla/toolkit/crashreporter/mozannotation_server_ffi_generated.h"
+
+#ifdef MOZ_BACKGROUNDTASKS
+#  include "mozilla/BackgroundTasks.h"
+#endif
 
 #if defined(XP_WIN)
 #  ifdef WIN32_LEAN_AND_MEAN
@@ -90,10 +95,11 @@
 #  error "Not yet implemented for this platform"
 #endif  // defined(XP_WIN)
 
-#ifdef MOZ_CRASHREPORTER_INJECTOR
-#  include "InjectCrashReporter.h"
-using mozilla::InjectCrashRunnable;
+#ifdef XP_WIN
+#  include <filesystem>
 #endif
+#include <fstream>
+#include <optional>
 
 #include <stdlib.h>
 #include <time.h>
@@ -195,12 +201,13 @@ static const XP_CHAR dumpFileExtension[] = XP_TEXT(".dmp");
 
 static const XP_CHAR extraFileExtension[] = XP_TEXT(".extra");
 static const XP_CHAR memoryReportExtension[] = XP_TEXT(".memory.json.gz");
-static xpstring* defaultMemoryReportPath = nullptr;
+static std::optional<xpstring> defaultMemoryReportPath = {};
 
 static const char kCrashMainID[] = "crash.main.3\n";
 
 static google_breakpad::ExceptionHandler* gExceptionHandler = nullptr;
 static mozilla::Atomic<bool> gEncounteredChildException(false);
+static nsCString gServerURL;
 
 static xpstring pendingDirectory;
 static xpstring crashReporterPath;
@@ -232,9 +239,7 @@ static const char* androidStartServiceCommand = nullptr;
 #endif
 
 // this holds additional data sent via the API
-static Mutex* crashReporterAPILock;
 static Mutex* notesFieldLock;
-static AnnotationTable crashReporterAPIData_Table;
 static nsCString* notesField = nullptr;
 static bool isGarbageCollecting;
 static uint32_t eventloopNestingLevel = 0;
@@ -287,47 +292,15 @@ static FileHandle gMagicChildCrashReportFd =
 static Mutex* dumpMapLock;
 struct ChildProcessData : public nsUint32HashKey {
   explicit ChildProcessData(KeyTypePointer aKey)
-      : nsUint32HashKey(aKey),
-        sequence(0),
-        annotations(nullptr),
-        minidumpOnly(false)
-#ifdef MOZ_CRASHREPORTER_INJECTOR
-        ,
-        callback(nullptr)
-#endif
-  {
-  }
+      : nsUint32HashKey(aKey), annotations(nullptr) {}
 
   nsCOMPtr<nsIFile> minidump;
-  // Each crashing process is assigned an increasing sequence number to
-  // indicate which process crashed first.
-  uint32_t sequence;
   UniquePtr<AnnotationTable> annotations;
-  bool minidumpOnly;  // If true then no annotations are present
-#ifdef MOZ_CRASHREPORTER_INJECTOR
-  InjectorCrashCallback* callback;
-#endif
 };
 
 typedef nsTHashtable<ChildProcessData> ChildMinidumpMap;
 static ChildMinidumpMap* pidToMinidump;
-static uint32_t crashSequence;
 static bool OOPInitialized();
-
-#ifdef MOZ_CRASHREPORTER_INJECTOR
-static nsIThread* sInjectorThread;
-
-class ReportInjectedCrash : public Runnable {
- public:
-  explicit ReportInjectedCrash(uint32_t pid)
-      : Runnable("ReportInjectedCrash"), mPID(pid) {}
-
-  NS_IMETHOD Run() override;
-
- private:
-  uint32_t mPID;
-};
-#endif  // MOZ_CRASHREPORTER_INJECTOR
 
 void RecordMainThreadId() {
   gMainThreadId =
@@ -408,18 +381,44 @@ static void SetJitExceptionHandler() {
     js::SetJitExceptionHandler(JitExceptionHandler);
 }
 #  endif
+#endif  // defined(XP_WIN)
 
-/**
- * Reserve some VM space. In the event that we crash because VM space is
- * being leaked without leaking memory, freeing this space before taking
- * the minidump will allow us to collect a minidump.
- *
- * This size is bigger than xul.dll plus some extra for MinidumpWriteDump
- * allocations.
- */
-static const SIZE_T kReserveSize = 0x5000000;  // 80 MB
-static void* gBreakpadReservedVM;
+static struct ReservedResources {
+#if defined(XP_WIN) && !defined(HAVE_64BIT_BUILD)
+  // This should be bigger than xul.dll plus a bit of extra space for
+  // MinidumpWriteDump allocations.
+  static const SIZE_T kReserveSize = 0x5000000;  // 80 MB
+  void* mVirtualMemory;
 #endif
+
+  ReservedResources()
+#if defined(XP_WIN) && !defined(HAVE_64BIT_BUILD)
+      : mVirtualMemory(nullptr)
+#endif
+  {
+  }
+} gReservedResources;
+
+static void ReserveResources() {
+#if defined(XP_WIN) && !defined(HAVE_64BIT_BUILD)
+  // Reserve some VM space. In the event that we crash because VM space is
+  // being leaked without leaking memory, freeing this space before taking
+  // the minidump will allow us to collect a minidump. No need to check if
+  // this allocation succeeded as we don't require it to.
+  MOZ_ASSERT(gReservedResources.mVirtualMemory == nullptr);
+  gReservedResources.mVirtualMemory = VirtualAlloc(
+      nullptr, ReservedResources::kReserveSize, MEM_RESERVE, PAGE_NOACCESS);
+#endif
+}
+
+static void ReleaseResources() {
+#if defined(XP_WIN) && !defined(HAVE_64BIT_BUILD)
+  if (gReservedResources.mVirtualMemory) {
+    VirtualFree(gReservedResources.mVirtualMemory, 0, MEM_RELEASE);
+    gReservedResources.mVirtualMemory = nullptr;
+  }
+#endif  // defined(XP_WIN)
+}
 
 #ifdef XP_LINUX
 static inline void my_u64tostring(uint64_t aValue, char* aBuffer,
@@ -434,26 +433,26 @@ static void CreateFileFromPath(const xpstring& path, nsIFile** file) {
   NS_NewLocalFile(nsDependentString(path.c_str()), false, file);
 }
 
-static xpstring* CreatePathFromFile(nsIFile* file) {
+static std::optional<xpstring> CreatePathFromFile(nsIFile* file) {
   nsAutoString path;
   nsresult rv = file->GetPath(path);
   if (NS_FAILED(rv)) {
-    return nullptr;
+    return {};
   }
-  return new xpstring(static_cast<wchar_t*>(path.get()), path.Length());
+  return xpstring(static_cast<wchar_t*>(path.get()), path.Length());
 }
 #else
 static void CreateFileFromPath(const xpstring& path, nsIFile** file) {
   NS_NewNativeLocalFile(nsDependentCString(path.c_str()), false, file);
 }
 
-MAYBE_UNUSED static xpstring* CreatePathFromFile(nsIFile* file) {
+MAYBE_UNUSED static std::optional<xpstring> CreatePathFromFile(nsIFile* file) {
   nsAutoCString path;
   nsresult rv = file->GetNativePath(path);
   if (NS_FAILED(rv)) {
-    return nullptr;
+    return {};
   }
-  return new xpstring(path.get(), path.Length());
+  return xpstring(path.get(), path.Length());
 }
 #endif
 
@@ -656,11 +655,17 @@ class JSONAnnotationWriter : public AnnotationWriter {
     size_t len = aLen ? aLen : my_strlen(aValue);
     const char* annotationStr = AnnotationToString(aAnnotation);
 
-    WritePrefix();
-    mWriter.WriteBuffer(annotationStr, my_strlen(annotationStr));
-    WriteSeparator();
-    WriteEscapedString(aValue, len);
-    WriteSuffix();
+    if (len && CrashReporter::ShouldIncludeAnnotation(aAnnotation, aValue)) {
+      WritePrefix();
+      mWriter.WriteBuffer(annotationStr, my_strlen(annotationStr));
+      WriteSeparator();
+      WriteEscapedString(aValue, len);
+      WriteSuffix();
+    }
+  };
+
+  void Write(Annotation aAnnotation, bool aValue) override {
+    Write(aAnnotation, aValue ? "1" : "0", 1);
   };
 
   void Write(Annotation aAnnotation, uint64_t aValue) override {
@@ -789,8 +794,10 @@ static void WritePHCAddrInfo(AnnotationWriter& writer,
         break;
     }
     writer.Write(Annotation::PHCKind, kindString);
-    writer.Write(Annotation::PHCBaseAddress, uintptr_t(aAddrInfo->mBaseAddr));
-    writer.Write(Annotation::PHCUsableSize, aAddrInfo->mUsableSize);
+    writer.Write(Annotation::PHCBaseAddress,
+                 reinterpret_cast<uint64_t>(aAddrInfo->mBaseAddr));
+    writer.Write(Annotation::PHCUsableSize,
+                 static_cast<uint64_t>(aAddrInfo->mUsableSize));
 
     WritePHCStackTrace(writer, Annotation::PHCAllocStack,
                        aAddrInfo->mAllocStack);
@@ -879,7 +886,8 @@ static void AnnotateMemoryStatus(AnnotationWriter& aWriter) {
   MEMORYSTATUSEX statex;
   statex.dwLength = sizeof(statex);
   if (GlobalMemoryStatusEx(&statex)) {
-    aWriter.Write(Annotation::SystemMemoryUsePercentage, statex.dwMemoryLoad);
+    aWriter.Write(Annotation::SystemMemoryUsePercentage,
+                  static_cast<uint64_t>(statex.dwMemoryLoad));
     aWriter.Write(Annotation::TotalVirtualMemory, statex.ullTotalVirtual);
     aWriter.Write(Annotation::AvailableVirtualMemory, statex.ullAvailVirtual);
     aWriter.Write(Annotation::TotalPhysicalMemory, statex.ullTotalPhys);
@@ -888,9 +896,11 @@ static void AnnotateMemoryStatus(AnnotationWriter& aWriter) {
 
   PERFORMANCE_INFORMATION info;
   if (K32GetPerformanceInfo(&info, sizeof(info))) {
-    aWriter.Write(Annotation::TotalPageFile, info.CommitLimit * info.PageSize);
+    aWriter.Write(Annotation::TotalPageFile,
+                  static_cast<uint64_t>(info.CommitLimit * info.PageSize));
     aWriter.Write(Annotation::AvailablePageFile,
-                  (info.CommitLimit - info.CommitTotal) * info.PageSize);
+                  static_cast<uint64_t>((info.CommitLimit - info.CommitTotal) *
+                                        info.PageSize));
   }
 }
 #elif XP_MACOSX
@@ -916,9 +926,9 @@ static void WriteAvailableMemoryStatus(AnnotationWriter& aWriter) {
   if (host_statistics64(host, HOST_VM_INFO64, (host_info64_t)&stats, &count) ==
       KERN_SUCCESS) {
     aWriter.Write(Annotation::AvailablePhysicalMemory,
-                  stats.free_count * vm_page_size);
+                  static_cast<uint64_t>(stats.free_count * vm_page_size));
     aWriter.Write(Annotation::PurgeablePhysicalMemory,
-                  stats.purgeable_count * vm_page_size);
+                  static_cast<uint64_t>(stats.purgeable_count * vm_page_size));
   }
 }
 
@@ -1199,7 +1209,8 @@ static void AnnotateMemoryStatus(AnnotationWriter& aWriter) {
                   pointOfInterest.dest->value = value;
                 }
                 if (pointOfInterest.annotation != Annotation::Count) {
-                  aWriter.Write(pointOfInterest.annotation, value);
+                  aWriter.Write(pointOfInterest.annotation,
+                                static_cast<uint64_t>(value));
                 }
               }
               break;
@@ -1224,7 +1235,8 @@ static void AnnotateMemoryStatus(AnnotationWriter& aWriter) {
   }
   if (memTotal.found && swapTotal.found) {
     // If available, attempt to determine the available virtual memory.
-    aWriter.Write(Annotation::TotalPageFile, memTotal.value + swapTotal.value);
+    aWriter.Write(Annotation::TotalPageFile,
+                  static_cast<uint64_t>(memTotal.value + swapTotal.value));
   }
 }
 
@@ -1356,40 +1368,6 @@ static bool LaunchCrashHandlerService(const XP_CHAR* aProgramPath,
 
 #endif
 
-static void WriteMainThreadRunnableName(AnnotationWriter& aWriter) {
-#ifdef MOZ_COLLECTING_RUNNABLE_TELEMETRY
-  // Only try to collect this information if the main thread is crashing.
-  if (!SignalSafeIsMainThread()) {
-    return;
-  }
-
-  // NOTE: Use `my_memchr` over `strlen` to ensure we don't run off the end of
-  // the buffer if it contains no null bytes. This is used instead of `strnlen`,
-  // as breakpad's linux support library doesn't export a `my_strnlen` function.
-  const char* buf = nsThread::sMainThreadRunnableName.begin();
-  size_t len = nsThread::kRunnableNameBufSize;
-  if (const void* end = my_memchr(buf, '\0', len)) {
-    len = static_cast<const char*>(end) - buf;
-  }
-
-  if (len > 0) {
-    aWriter.Write(Annotation::MainThreadRunnableName, buf, len);
-  }
-#endif
-}
-
-static void WriteOOMAllocationSize(AnnotationWriter& aWriter) {
-  if (gOOMAllocationSize) {
-    aWriter.Write(Annotation::OOMAllocationSize, gOOMAllocationSize);
-  }
-}
-
-static void WriteMozCrashReason(AnnotationWriter& aWriter) {
-  if (gMozCrashReason != nullptr) {
-    aWriter.Write(Annotation::MozCrashReason, gMozCrashReason);
-  }
-}
-
 static void WriteAnnotations(AnnotationWriter& aWriter,
                              const AnnotationTable& aAnnotations) {
   for (auto key : MakeEnumeratedRange(Annotation::Count)) {
@@ -1408,13 +1386,65 @@ static void WriteAnnotationsForMainProcessCrash(PlatformWriter& pw,
                                                 const phc::AddrInfo* addrInfo,
                                                 time_t crashTime) {
   JSONAnnotationWriter writer(pw);
-  WriteAnnotations(writer, crashReporterAPIData_Table);
+
+  for (auto key : MakeEnumeratedRange(Annotation::Count)) {
+    AnnotationContents contents = {};
+    size_t address =
+        mozannotation_get_contents(static_cast<uint32_t>(key), &contents);
+    if (address != 0) {
+      switch (TypeOfAnnotation(key)) {
+        case AnnotationType::String:
+          switch (contents.tag) {
+            case AnnotationContents::Tag::NSCStringPointer: {
+              const nsCString* string =
+                  reinterpret_cast<const nsCString*>(address);
+              writer.Write(key, string->Data(), string->Length());
+            } break;
+            case AnnotationContents::Tag::CStringPointer:
+              address = *(reinterpret_cast<size_t*>(address));
+              if (address == 0) {
+                break;
+              }
+              // FALLTHROUGH
+            case AnnotationContents::Tag::CString: {
+              writer.Write(key, reinterpret_cast<const char*>(address));
+            } break;
+            case AnnotationContents::Tag::ByteBuffer:
+              writer.Write(key, reinterpret_cast<const char*>(address),
+                           static_cast<size_t>(contents.byte_buffer._0));
+              break;
+            case AnnotationContents::Tag::OwnedByteBuffer:
+              writer.Write(key, reinterpret_cast<const char*>(address),
+                           static_cast<size_t>(contents.owned_byte_buffer._0));
+              break;
+            case AnnotationContents::Tag::Empty:
+              break;
+          }
+          break;
+        case AnnotationType::Boolean:
+          writer.Write(key, *reinterpret_cast<const bool*>(address));
+          break;
+        case AnnotationType::U32:
+          writer.Write(key, static_cast<uint64_t>(
+                                *reinterpret_cast<uint32_t*>(address)));
+          break;
+        case AnnotationType::U64:
+          writer.Write(key, *reinterpret_cast<uint64_t*>(address));
+          break;
+        case AnnotationType::USize:
+          writer.Write(
+              key, static_cast<uint64_t>(*reinterpret_cast<size_t*>(address)));
+          break;
+      }
+    }
+  }
+
   WriteSynthesizedAnnotations(writer);
   writer.Write(Annotation::CrashTime, uint64_t(crashTime));
 
   if (inactiveStateStart) {
     writer.Write(Annotation::LastInteractionDuration,
-                 crashTime - inactiveStateStart);
+                 static_cast<uint64_t>(crashTime - inactiveStateStart));
   }
 
   double uptimeTS = (TimeStamp::NowLoRes() - TimeStamp::ProcessCreation())
@@ -1427,33 +1457,13 @@ static void WriteAnnotationsForMainProcessCrash(PlatformWriter& pw,
   if (lastCrashTime != 0) {
     uint64_t timeSinceLastCrash = crashTime - lastCrashTime;
 
-    if (timeSinceLastCrash != 0) {
-      writer.Write(Annotation::SecondsSinceLastCrash, timeSinceLastCrash);
-    }
-  }
-
-  if (isGarbageCollecting) {
-    writer.Write(Annotation::IsGarbageCollecting, "1");
-  }
-
-  if (eventloopNestingLevel > 0) {
-    writer.Write(Annotation::EventLoopNestingLevel, eventloopNestingLevel);
+    writer.Write(Annotation::SecondsSinceLastCrash, timeSinceLastCrash);
   }
 
 #if defined(XP_WIN) && defined(HAS_DLL_BLOCKLIST)
   // HACK: The DLL blocklist code will manually write its annotations as JSON
-  DllBlocklist_WriteNotes(writer);
+  DllBlocklist_WriteNotes();
 #endif  // defined(XP_WIN) && defined(HAS_DLL_BLOCKLIST)
-
-  WriteMozCrashReason(writer);
-
-  WriteMainThreadRunnableName(writer);
-
-  WriteOOMAllocationSize(writer);
-
-  if (gTexturesSize) {
-    writer.Write(Annotation::TextureUsage, gTexturesSize);
-  }
 
 #ifdef MOZ_PHC
   WritePHCAddrInfo(writer, addrInfo);
@@ -1468,6 +1478,12 @@ static void WriteCrashEventFile(time_t crashTime, const char* crashTimeString,
                                 const XP_CHAR* minidump_id
 #endif
 ) {
+  if (BackgroundTasks::IsBackgroundTaskMode()) {
+    // Do not generate a crash event file if the main process was running a
+    // background task, as the crash won't be visible to the user.
+    return;
+  }
+
   // Minidump IDs are UUIDs (36) + NULL.
   static char id_ascii[37] = {};
 #ifdef XP_LINUX
@@ -1588,7 +1604,7 @@ bool MinidumpCallback(
     WriteAnnotationsForMainProcessCrash(apiData, addrInfo, crashTime);
   }
 
-  if (doReport && isSafeToDump) {
+  if (doReport && isSafeToDump && !BackgroundTasks::IsBackgroundTaskMode()) {
     // We launch the crash reporter client/dialog only if we've been explicitly
     // asked to report crashes and if we weren't already trying to unset the
     // exception handler (which is indicated by isSafeToDump being false).
@@ -1707,19 +1723,6 @@ static bool BuildTempPath(PathStringT& aResult) {
 
 #ifdef XP_WIN
 
-static void ReserveBreakpadVM() {
-  if (!gBreakpadReservedVM) {
-    gBreakpadReservedVM =
-        VirtualAlloc(nullptr, kReserveSize, MEM_RESERVE, PAGE_NOACCESS);
-  }
-}
-
-static void FreeBreakpadVM() {
-  if (gBreakpadReservedVM) {
-    VirtualFree(gBreakpadReservedVM, 0, MEM_RELEASE);
-  }
-}
-
 static bool IsCrashingException(EXCEPTION_POINTERS* exinfo) {
   if (!exinfo) {
     return true;
@@ -1746,15 +1749,16 @@ static bool IsCrashingException(EXCEPTION_POINTERS* exinfo) {
 
 // Do various actions to prepare the child process for minidump generation.
 // This includes disabling the I/O interposer and DLL blocklist which both
-// would get in the way. We also free the address space we had reserved in
-// 32-bit builds to free room for the minidump generation to do its work.
+// would get in the way. We also free the resources we have reserved, such as
+// address space on 32-bit Windows builds and file descriptors on Linux so that
+// they're available to the minidump generation code.
 static void PrepareForMinidump() {
   mozilla::IOInterposer::Disable();
+  ReleaseResources();
 #if defined(XP_WIN)
 #  if defined(DEBUG) && defined(HAS_DLL_BLOCKLIST)
   DllBlocklist_Shutdown();
 #  endif
-  FreeBreakpadVM();
 #endif  // XP_WIN
 }
 
@@ -1889,19 +1893,50 @@ static nsresult LocateExecutable(nsIFile* aXREDirectory, const nsAString& aName,
 
 #endif  // !defined(MOZ_WIDGET_ANDROID)
 
-static void InitializeAnnotationFacilities() {
-  crashReporterAPILock = new Mutex("crashReporterAPILock");
+static void InitializeAppNotes() {
   notesFieldLock = new Mutex("notesFieldLock");
   notesField = new nsCString();
 }
 
-static void TeardownAnnotationFacilities() {
-  std::fill(crashReporterAPIData_Table.begin(),
-            crashReporterAPIData_Table.end(), ""_ns);
+// Register crash annotations that are present in both main and child processes
+static void RegisterAnnotations() {
+  mozannotation_register_cstring_ptr(
+      static_cast<uint32_t>(Annotation::MozCrashReason), &gMozCrashReason);
+#ifdef MOZ_COLLECTING_RUNNABLE_TELEMETRY
+  mozannotation_register_cstring(
+      static_cast<uint32_t>(Annotation::MainThreadRunnableName),
+      &nsThread::sMainThreadRunnableName[0]);
+#endif
+  mozannotation_register_bytebuffer(
+      static_cast<uint32_t>(Annotation::EventLoopNestingLevel),
+      &eventloopNestingLevel, sizeof(uint32_t));
+  mozannotation_register_nscstring(static_cast<uint32_t>(Annotation::Notes),
+                                   notesField);
+  mozannotation_register_bytebuffer(
+      static_cast<uint32_t>(Annotation::OOMAllocationSize), &gOOMAllocationSize,
+      sizeof(size_t));
+  mozannotation_register_bytebuffer(
+      static_cast<uint32_t>(Annotation::IsGarbageCollecting),
+      &isGarbageCollecting, sizeof(bool));
+  mozannotation_register_nscstring(static_cast<uint32_t>(Annotation::ServerURL),
+                                   &gServerURL);
+  mozannotation_register_bytebuffer(
+      static_cast<uint32_t>(Annotation::TextureUsage), &gTexturesSize,
+      sizeof(size_t));
+#if defined(XP_WIN) && defined(HAS_DLL_BLOCKLIST)
+  mozannotation_register_bytebuffer(
+      static_cast<uint32_t>(Annotation::BlocklistInitFailed),
+      DllBlocklist_GetBlocklistInitFailedPointer(), sizeof(bool));
+  mozannotation_register_bytebuffer(
+      static_cast<uint32_t>(Annotation::User32BeforeBlocklist),
+      DllBlocklist_GetUser32BeforeBlocklistPointer(), sizeof(bool));
+  mozannotation_register_cstring(
+      static_cast<uint32_t>(Annotation::BlockedDllList),
+      DllBlocklist_GetBlocklistWriterData());
+#endif  // defined(XP_WIN) && defined(HAS_DLL_BLOCKLIST)
+}
 
-  delete crashReporterAPILock;
-  crashReporterAPILock = nullptr;
-
+static void TeardownAppNotes() {
   delete notesFieldLock;
   notesFieldLock = nullptr;
 
@@ -1929,7 +1964,8 @@ nsresult SetExceptionHandler(nsIFile* aXREDirectory, bool force /*=false*/) {
   doReport = ShouldReport();
 
   RegisterRuntimeExceptionModule();
-  InitializeAnnotationFacilities();
+  InitializeAppNotes();
+  RegisterAnnotations();
 
 #if !defined(MOZ_WIDGET_ANDROID)
   // Locate the crash reporter executable
@@ -1968,9 +2004,9 @@ nsresult SetExceptionHandler(nsIFile* aXREDirectory, bool force /*=false*/) {
     return NS_ERROR_FAILURE;
   }
 
-#ifdef XP_WIN
-  ReserveBreakpadVM();
+  ReserveResources();
 
+#ifdef XP_WIN
   // Pre-load psapi.dll to prevent it from being loaded during exception
   // handling.
   ::LoadLibraryW(L"psapi.dll");
@@ -2055,10 +2091,8 @@ nsresult SetExceptionHandler(nsIFile* aXREDirectory, bool force /*=false*/) {
 #endif
 
   // store application start time
-  char timeString[32];
-  time_t startupTime = time(nullptr);
-  XP_TTOA(startupTime, timeString);
-  AnnotateCrashReport(Annotation::StartupTime, nsDependentCString(timeString));
+  RecordAnnotationU64(Annotation::StartupTime,
+                      static_cast<uint64_t>(time(nullptr)));
 
 #if defined(XP_MACOSX)
   // On OS X, many testers like to see the OS crash reporting dialog
@@ -2212,7 +2246,7 @@ static nsresult SetupCrashReporterDirectory(nsIFile* aAppDataDirectory,
   NS_ENSURE_SUCCESS(rv, rv);
 
   EnsureDirectoryExists(directory);
-  xpstring* directoryPath = CreatePathFromFile(directory);
+  std::optional<xpstring> directoryPath = CreatePathFromFile(directory);
 
   if (!directoryPath) {
     return NS_ERROR_FAILURE;
@@ -2223,8 +2257,6 @@ static nsresult SetupCrashReporterDirectory(nsIFile* aAppDataDirectory,
 #else
   setenv(aEnvVarName, directoryPath->c_str(), /* overwrite */ 1);
 #endif
-
-  delete directoryPath;
 
   if (aDirectory) {
     directory.forget(aDirectory);
@@ -2259,8 +2291,9 @@ nsresult SetupExtraData(nsIFile* aAppDataDirectory,
 
   nsAutoCString data;
   if (NS_SUCCEEDED(GetOrInit(dataDirectory, "InstallTime"_ns + aBuildID, data,
-                             InitInstallTime)))
-    AnnotateCrashReport(Annotation::InstallTime, data);
+                             InitInstallTime))) {
+    RecordAnnotationNSCString(Annotation::InstallTime, data);
+  }
 
   // this is a little different, since we can't init it with anything,
   // since it's stored at crash time, and we can't annotate the
@@ -2314,7 +2347,8 @@ nsresult UnsetExceptionHandler() {
 
   delete gExceptionHandler;
 
-  TeardownAnnotationFacilities();
+  gServerURL = "";
+  TeardownAppNotes();
 
   if (!gExceptionHandler) return NS_ERROR_NOT_INITIALIZED;
 
@@ -2330,73 +2364,201 @@ nsresult UnsetExceptionHandler() {
   return NS_OK;
 }
 
-nsresult AnnotateCrashReport(Annotation key, bool data) {
-  return AnnotateCrashReport(key, data ? "1"_ns : "0"_ns);
+const bool* RegisterAnnotationBool(Annotation aKey, const bool* aData) {
+  MOZ_ASSERT(TypeOfAnnotation(aKey) == AnnotationType::Boolean,
+             "Wrong annotation type");
+
+  if (!GetEnabled()) {
+    return nullptr;
+  }
+
+  return reinterpret_cast<const bool*>(mozannotation_register_bytebuffer(
+      static_cast<uint32_t>(aKey), aData, sizeof(bool)));
 }
 
-nsresult AnnotateCrashReport(Annotation key, int data) {
-  nsAutoCString dataString;
-  dataString.AppendInt(data);
+const uint32_t* RegisterAnnotationU32(Annotation aKey, const uint32_t* aData) {
+  MOZ_ASSERT(TypeOfAnnotation(aKey) == AnnotationType::U32,
+             "Wrong annotation type");
 
-  return AnnotateCrashReport(key, dataString);
+  if (!GetEnabled()) {
+    return nullptr;
+  }
+
+  return reinterpret_cast<const uint32_t*>(mozannotation_register_bytebuffer(
+      static_cast<uint32_t>(aKey), aData, sizeof(uint32_t)));
 }
 
-nsresult AnnotateCrashReport(Annotation key, unsigned int data) {
-  nsAutoCString dataString;
-  dataString.AppendInt(data);
+const uint64_t* RegisterAnnotationU64(Annotation aKey, const uint64_t* aData) {
+  MOZ_ASSERT(TypeOfAnnotation(aKey) == AnnotationType::U64,
+             "Wrong annotation type");
 
-  return AnnotateCrashReport(key, dataString);
+  if (!GetEnabled()) {
+    return nullptr;
+  }
+
+  return reinterpret_cast<const uint64_t*>(mozannotation_register_bytebuffer(
+      static_cast<uint32_t>(aKey), aData, sizeof(uint64_t)));
 }
 
-nsresult AnnotateCrashReport(Annotation key, const nsACString& data) {
-  if (!GetEnabled()) return NS_ERROR_NOT_INITIALIZED;
+const size_t* RegisterAnnotationUSize(Annotation aKey, const size_t* aData) {
+  MOZ_ASSERT(TypeOfAnnotation(aKey) == AnnotationType::USize,
+             "Wrong annotation type");
 
-  MutexAutoLock lock(*crashReporterAPILock);
-  crashReporterAPIData_Table[key] = data;
+  if (!GetEnabled()) {
+    return nullptr;
+  }
 
+  return reinterpret_cast<const size_t*>(mozannotation_register_bytebuffer(
+      static_cast<uint32_t>(aKey), aData, sizeof(size_t)));
+}
+
+const char* RegisterAnnotationCString(Annotation aKey, const char* aData) {
+  MOZ_ASSERT(TypeOfAnnotation(aKey) == AnnotationType::String,
+             "Wrong annotation type");
+
+  if (!GetEnabled()) {
+    return nullptr;
+  }
+
+  return mozannotation_register_cstring(static_cast<uint32_t>(aKey), aData);
+}
+
+const nsCString* RegisterAnnotationNSCString(Annotation aKey,
+                                             const nsCString* aData) {
+  MOZ_ASSERT(TypeOfAnnotation(aKey) == AnnotationType::String,
+             "Wrong annotation type");
+
+  if (!GetEnabled()) {
+    return nullptr;
+  }
+
+  return mozannotation_register_nscstring(static_cast<uint32_t>(aKey), aData);
+}
+
+nsresult RecordAnnotationBool(Annotation aKey, bool aData) {
+  MOZ_ASSERT(TypeOfAnnotation(aKey) == AnnotationType::Boolean,
+             "Wrong annotation type");
+
+  if (!GetEnabled()) {
+    return NS_ERROR_NOT_INITIALIZED;
+  }
+
+  mozannotation_record_bytebuffer(static_cast<uint32_t>(aKey), &aData,
+                                  sizeof(bool));
   return NS_OK;
 }
 
-nsresult AppendToCrashReportAnnotation(Annotation key, const nsACString& data) {
-  if (!GetEnabled()) return NS_ERROR_NOT_INITIALIZED;
+nsresult RecordAnnotationU32(Annotation aKey, uint32_t aData) {
+  MOZ_ASSERT(TypeOfAnnotation(aKey) == AnnotationType::U32,
+             "Wrong annotation type");
 
-  MutexAutoLock lock(*crashReporterAPILock);
-  nsAutoCString newString(crashReporterAPIData_Table[key]);
-  newString.Append(" - "_ns);
-  newString.Append(data);
-  crashReporterAPIData_Table[key] = newString;
+  if (!GetEnabled()) {
+    return NS_ERROR_NOT_INITIALIZED;
+  }
 
+  mozannotation_record_bytebuffer(static_cast<uint32_t>(aKey), &aData,
+                                  sizeof(uint32_t));
   return NS_OK;
 }
 
-nsresult RemoveCrashReportAnnotation(Annotation key) {
-  return AnnotateCrashReport(key, ""_ns);
+nsresult RecordAnnotationU64(Annotation aKey, uint64_t aData) {
+  MOZ_ASSERT(TypeOfAnnotation(aKey) == AnnotationType::U64,
+             "Wrong annotation type");
+
+  if (!GetEnabled()) {
+    return NS_ERROR_NOT_INITIALIZED;
+  }
+
+  mozannotation_record_bytebuffer(static_cast<uint64_t>(aKey), &aData,
+                                  sizeof(uint64_t));
+  return NS_OK;
 }
 
-AutoAnnotateCrashReport::AutoAnnotateCrashReport(Annotation key, bool data)
-    : AutoAnnotateCrashReport(key, data ? "1"_ns : "0"_ns) {}
+nsresult RecordAnnotationUSize(Annotation aKey, size_t aData) {
+  MOZ_ASSERT(TypeOfAnnotation(aKey) == AnnotationType::USize,
+             "Wrong annotation type");
 
-AutoAnnotateCrashReport::AutoAnnotateCrashReport(Annotation key, int data)
-    : AutoAnnotateCrashReport(key, nsPrintfCString("%d", data)) {}
+  if (!GetEnabled()) {
+    return NS_ERROR_NOT_INITIALIZED;
+  }
 
-AutoAnnotateCrashReport::AutoAnnotateCrashReport(Annotation key, unsigned data)
-    : AutoAnnotateCrashReport(key, nsPrintfCString("%u", data)) {}
+  mozannotation_record_bytebuffer(static_cast<size_t>(aKey), &aData,
+                                  sizeof(size_t));
+  return NS_OK;
+}
 
-AutoAnnotateCrashReport::AutoAnnotateCrashReport(Annotation key,
-                                                 const nsACString& data)
-    : mKey(key) {
+nsresult RecordAnnotationCString(Annotation aKey, const char* aData) {
+  MOZ_ASSERT(TypeOfAnnotation(aKey) == AnnotationType::String,
+             "Wrong annotation type");
+
+  if (!GetEnabled()) {
+    return NS_ERROR_NOT_INITIALIZED;
+  }
+  mozannotation_record_cstring(static_cast<uint32_t>(aKey), aData);
+  return NS_OK;
+}
+
+nsresult RecordAnnotationNSCString(Annotation aKey, const nsACString& aData) {
+  MOZ_ASSERT(TypeOfAnnotation(aKey) == AnnotationType::String,
+             "Wrong annotation type");
+
+  if (!GetEnabled()) {
+    return NS_ERROR_NOT_INITIALIZED;
+  }
+
+  mozannotation_record_nscstring_from_raw_parts(
+      static_cast<uint32_t>(aKey),
+      reinterpret_cast<const uint8_t*>(aData.Data()), aData.Length());
+  return NS_OK;
+}
+
+nsresult RecordAnnotationNSString(Annotation aKey, const nsAString& aData) {
+  MOZ_ASSERT(TypeOfAnnotation(aKey) == AnnotationType::String,
+             "Wrong annotation type");
+
+  if (!GetEnabled()) {
+    return NS_ERROR_NOT_INITIALIZED;
+  }
+
+  nsAutoCString data = NS_ConvertUTF16toUTF8(aData);
+  RecordAnnotationNSCString(aKey, data);
+  return NS_OK;
+}
+
+nsresult UnrecordAnnotation(Annotation aKey) {
+  if (!GetEnabled()) {
+    return NS_ERROR_NOT_INITIALIZED;
+  }
+
+  mozannotation_unregister(static_cast<uint32_t>(aKey));
+  return NS_OK;
+}
+
+// TODO: The first three methods here should be migrated to use native
+// types instead of turning the values into strings. They're not currently
+// used in mozilla-central so it doesn't really matter in the short term.
+AutoRecordAnnotation::AutoRecordAnnotation(Annotation key, bool data)
+    : AutoRecordAnnotation(key, data ? "1"_ns : "0"_ns) {}
+
+AutoRecordAnnotation::AutoRecordAnnotation(Annotation key, int data)
+    : AutoRecordAnnotation(key, nsPrintfCString("%d", data)) {}
+
+AutoRecordAnnotation::AutoRecordAnnotation(Annotation key, unsigned data)
+    : AutoRecordAnnotation(key, nsPrintfCString("%u", data)) {}
+
+AutoRecordAnnotation::AutoRecordAnnotation(Annotation key,
+                                           const nsACString& data)
+    : mKey(key), mCurrent(data) {
   if (GetEnabled()) {
-    MutexAutoLock lock(*crashReporterAPILock);
-    auto& entry = crashReporterAPIData_Table[mKey];
-    mPrevious = std::move(entry);
-    entry = data;
+    mPrevious =
+        mozannotation_register_nscstring(static_cast<uint32_t>(key), &mCurrent);
   }
 }
 
-AutoAnnotateCrashReport::~AutoAnnotateCrashReport() {
+AutoRecordAnnotation::~AutoRecordAnnotation() {
   if (GetEnabled()) {
-    MutexAutoLock lock(*crashReporterAPILock);
-    crashReporterAPIData_Table[mKey] = std::move(mPrevious);
+    Unused << mozannotation_register_nscstring(static_cast<uint32_t>(mKey),
+                                               mPrevious);
   }
 }
 
@@ -2407,11 +2569,6 @@ void MergeCrashAnnotations(AnnotationTable& aDst, const AnnotationTable& aSrc) {
       aDst[key] = value;
     }
   }
-}
-
-static void MergeContentCrashAnnotations(AnnotationTable& aDst) {
-  MutexAutoLock lock(*crashReporterAPILock);
-  MergeCrashAnnotations(aDst, crashReporterAPIData_Table);
 }
 
 // Adds crash time, uptime and memory report annotations
@@ -2461,23 +2618,8 @@ nsresult AppendAppNotesToCrashReport(const nsACString& data) {
   if (!GetEnabled()) return NS_ERROR_NOT_INITIALIZED;
 
   MutexAutoLock lock(*notesFieldLock);
-
   notesField->Append(data);
-  return AnnotateCrashReport(Annotation::Notes, *notesField);
-}
-
-// Returns true if found, false if not found.
-static bool GetAnnotation(CrashReporter::Annotation key, nsACString& data) {
-  if (!gExceptionHandler) return false;
-
-  MutexAutoLock lock(*crashReporterAPILock);
-  const nsCString& entry = crashReporterAPIData_Table[key];
-  if (entry.IsEmpty()) {
-    return false;
-  }
-
-  data = entry;
-  return true;
+  return NS_OK;
 }
 
 nsresult RegisterAppMemory(void* ptr, size_t length) {
@@ -2513,15 +2655,19 @@ void SetIncludeContextHeap(bool aValue) {
 }
 
 bool GetServerURL(nsACString& aServerURL) {
-  if (!gExceptionHandler) return false;
+  if (!gExceptionHandler) {
+    return false;
+  }
 
-  return GetAnnotation(CrashReporter::Annotation::ServerURL, aServerURL);
+  aServerURL = gServerURL;
+  return true;
 }
 
 nsresult SetServerURL(const nsACString& aServerURL) {
-  // store server URL with the API data
-  // the client knows to handle this specially
-  return AnnotateCrashReport(Annotation::ServerURL, aServerURL);
+  // Store the server URL as an annotation, the crash reporter client knows how
+  // to handle this specially.
+  gServerURL = aServerURL;
+  return NS_OK;
 }
 
 nsresult SetRestartArgs(int argc, char** argv) {
@@ -2530,17 +2676,11 @@ nsresult SetRestartArgs(int argc, char** argv) {
   int i;
   nsAutoCString envVar;
   char* env;
-  char* argv0 = getenv("MOZ_APP_LAUNCHER");
-  for (i = 0; i < argc; i++) {
+  for (i = 1; i < argc; i++) {
     envVar = "MOZ_CRASHREPORTER_RESTART_ARG_";
     envVar.AppendInt(i);
     envVar += "=";
-    if (argv0 && i == 0) {
-      // Is there a request to suppress default binary launcher?
-      envVar += argv0;
-    } else {
-      envVar += argv[i];
-    }
+    envVar += argv[i];
 
     // PR_SetEnv() wants the string to be available for the lifetime
     // of the app, so dup it here. This conversion is not lossy.
@@ -2612,177 +2752,65 @@ nsresult AppendObjCExceptionInfoToAppNotes(void* inException) {
  */
 static nsresult PrefSubmitReports(bool* aSubmitReports, bool writePref) {
   nsresult rv;
-#if defined(XP_WIN)
+#if defined(XP_WIN) || defined(XP_MACOSX) || defined(XP_UNIX)
   /*
-   * NOTE! This needs to stay in sync with the preference checking code
-   *       in toolkit/crashreporter/client/crashreporter_win.cpp
+   * NOTE! This needs to stay in sync with the code in
+   * toolkit/crashreporter/client/app/src/{logic,settings}.rs
    */
-  nsCOMPtr<nsIXULAppInfo> appinfo =
-      do_GetService("@mozilla.org/xre/app-info;1", &rv);
+  nsCOMPtr<nsIFile> reporterSettings;
+  rv = NS_GetSpecialDirectory(XRE_USER_APP_DATA_DIR,
+                              getter_AddRefs(reporterSettings));
   NS_ENSURE_SUCCESS(rv, rv);
+  reporterSettings->AppendNative("Crash Reports"_ns);
+  reporterSettings->AppendNative("crashreporter_settings.json"_ns);
 
-  nsAutoCString appVendor, appName;
-  rv = appinfo->GetVendor(appVendor);
-  NS_ENSURE_SUCCESS(rv, rv);
-  rv = appinfo->GetName(appName);
-  NS_ENSURE_SUCCESS(rv, rv);
+  // On e.g. Linux, std::filesystem requires sometimes linking libstdc++fs,
+  // and we don't do that yet, so limit the use of std::filesystem::path where
+  // it's really needed, which is Windows, because implicit conversions from
+  // wstring in fstream constructors are not supported as of
+  // https://cplusplus.github.io/LWG/issue3430.
+#  ifdef XP_WIN
+  std::optional<std::filesystem::path> file_path =
+      CreatePathFromFile(reporterSettings);
+#  else
+  std::optional<xpstring> file_path = CreatePathFromFile(reporterSettings);
+#  endif
 
-  nsCOMPtr<nsIWindowsRegKey> regKey(
-      do_CreateInstance("@mozilla.org/windows-registry-key;1", &rv));
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  nsAutoCString regPath;
-
-  regPath.AppendLiteral("Software\\");
-
-  // We need to ensure the registry keys are created so we can properly
-  // write values to it
-
-  // Create appVendor key
-  if (!appVendor.IsEmpty()) {
-    regPath.Append(appVendor);
-    regKey->Create(nsIWindowsRegKey::ROOT_KEY_CURRENT_USER,
-                   NS_ConvertUTF8toUTF16(regPath),
-                   nsIWindowsRegKey::ACCESS_SET_VALUE);
-    regPath.Append('\\');
+  if (!file_path) {
+    return NS_ERROR_FAILURE;
   }
 
-  // Create appName key
-  regPath.Append(appName);
-  regKey->Create(nsIWindowsRegKey::ROOT_KEY_CURRENT_USER,
-                 NS_ConvertUTF8toUTF16(regPath),
-                 nsIWindowsRegKey::ACCESS_SET_VALUE);
-  regPath.Append('\\');
-
-  // Create Crash Reporter key
-  regPath.AppendLiteral("Crash Reporter");
-  regKey->Create(nsIWindowsRegKey::ROOT_KEY_CURRENT_USER,
-                 NS_ConvertUTF8toUTF16(regPath),
-                 nsIWindowsRegKey::ACCESS_SET_VALUE);
-
-  // If we're saving the pref value, just write it to ROOT_KEY_CURRENT_USER
-  // and we're done.
-  if (writePref) {
-    rv = regKey->Open(nsIWindowsRegKey::ROOT_KEY_CURRENT_USER,
-                      NS_ConvertUTF8toUTF16(regPath),
-                      nsIWindowsRegKey::ACCESS_SET_VALUE);
-    NS_ENSURE_SUCCESS(rv, rv);
-
-    uint32_t value = *aSubmitReports ? 1 : 0;
-    rv = regKey->WriteIntValue(u"SubmitCrashReport"_ns, value);
-    regKey->Close();
-    return rv;
-  }
-
-  // We're reading the pref value, so we need to first look under
-  // ROOT_KEY_LOCAL_MACHINE to see if it's set there, and then fall back to
-  // ROOT_KEY_CURRENT_USER. If it's not set in either place, the pref defaults
-  // to "true".
-  uint32_t value;
-  rv = regKey->Open(nsIWindowsRegKey::ROOT_KEY_LOCAL_MACHINE,
-                    NS_ConvertUTF8toUTF16(regPath),
-                    nsIWindowsRegKey::ACCESS_QUERY_VALUE);
-  if (NS_SUCCEEDED(rv)) {
-    rv = regKey->ReadIntValue(u"SubmitCrashReport"_ns, &value);
-    regKey->Close();
-    if (NS_SUCCEEDED(rv)) {
-      *aSubmitReports = !!value;
-      return NS_OK;
-    }
-  }
-
-  rv = regKey->Open(nsIWindowsRegKey::ROOT_KEY_CURRENT_USER,
-                    NS_ConvertUTF8toUTF16(regPath),
-                    nsIWindowsRegKey::ACCESS_QUERY_VALUE);
-  if (NS_FAILED(rv)) {
-    *aSubmitReports = true;
-    return NS_OK;
-  }
-
-  rv = regKey->ReadIntValue(u"SubmitCrashReport"_ns, &value);
-  // default to true on failure
-  if (NS_FAILED(rv)) {
-    value = 1;
-    rv = NS_OK;
-  }
-  regKey->Close();
-
-  *aSubmitReports = !!value;
-  return NS_OK;
-#elif defined(XP_MACOSX)
-  rv = NS_OK;
-  if (writePref) {
-    CFPropertyListRef cfValue =
-        (CFPropertyListRef)(*aSubmitReports ? kCFBooleanTrue : kCFBooleanFalse);
-    ::CFPreferencesSetAppValue(CFSTR("submitReport"), cfValue,
-                               reporterClientAppID);
-    if (!::CFPreferencesAppSynchronize(reporterClientAppID))
-      rv = NS_ERROR_FAILURE;
-  } else {
-    *aSubmitReports = true;
-    Boolean keyExistsAndHasValidFormat = false;
-    Boolean prefValue = ::CFPreferencesGetAppBooleanValue(
-        CFSTR("submitReport"), reporterClientAppID,
-        &keyExistsAndHasValidFormat);
-    if (keyExistsAndHasValidFormat) *aSubmitReports = !!prefValue;
-  }
-  return rv;
-#elif defined(XP_UNIX)
-  /*
-   * NOTE! This needs to stay in sync with the preference checking code
-   *       in toolkit/crashreporter/client/crashreporter_linux.cpp
-   */
-  nsCOMPtr<nsIFile> reporterINI;
-  rv = NS_GetSpecialDirectory("UAppData", getter_AddRefs(reporterINI));
-  NS_ENSURE_SUCCESS(rv, rv);
-  reporterINI->AppendNative("Crash Reports"_ns);
-  reporterINI->AppendNative("crashreporter.ini"_ns);
+  Json::Value root;
 
   bool exists;
-  rv = reporterINI->Exists(&exists);
+  rv = reporterSettings->Exists(&exists);
   NS_ENSURE_SUCCESS(rv, rv);
   if (!exists) {
     if (!writePref) {
-      // If reading the pref, default to true if .ini doesn't exist.
+      // If reading the pref, default to true if the settings file doesn't
+      // exist.
       *aSubmitReports = true;
       return NS_OK;
     }
-    // Create the file so the INI processor can write to it.
-    rv = reporterINI->Create(nsIFile::NORMAL_FILE_TYPE, 0600);
+    // Create the file so the JSON processor can write to it.
+    rv = reporterSettings->Create(nsIFile::NORMAL_FILE_TYPE, 0600);
     NS_ENSURE_SUCCESS(rv, rv);
+  } else {
+    // Read the root value
+    std::ifstream file(*file_path);
+    file >> root;
   }
 
-  nsCOMPtr<nsIINIParserFactory> iniFactory =
-      do_GetService("@mozilla.org/xpcom/ini-parser-factory;1", &rv);
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  nsCOMPtr<nsIINIParser> iniParser;
-  rv = iniFactory->CreateINIParser(reporterINI, getter_AddRefs(iniParser));
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  // If we're writing the pref, just set and we're done.
   if (writePref) {
-    nsCOMPtr<nsIINIParserWriter> iniWriter = do_QueryInterface(iniParser);
-    NS_ENSURE_TRUE(iniWriter, NS_ERROR_FAILURE);
-
-    rv = iniWriter->SetString("Crash Reporter"_ns, "SubmitReport"_ns,
-                              *aSubmitReports ? "1"_ns : "0"_ns);
-    NS_ENSURE_SUCCESS(rv, rv);
-    rv = iniWriter->WriteFile(reporterINI);
-    return rv;
+    root["submit_report"] = *aSubmitReports;
+    std::ofstream file(*file_path);
+    file << root;
+  } else if (root["submit_report"].isBool()) {
+    *aSubmitReports = root["submit_report"].asBool();
+  } else {
+    // Default to "true" if the pref can't be found.
+    *aSubmitReports = true;
   }
-
-  nsAutoCString submitReportValue;
-  rv = iniParser->GetString("Crash Reporter"_ns, "SubmitReport"_ns,
-                            submitReportValue);
-
-  // Default to "true" if the pref can't be found.
-  if (NS_FAILED(rv))
-    *aSubmitReports = true;
-  else if (submitReportValue.EqualsASCII("0"))
-    *aSubmitReports = false;
-  else
-    *aSubmitReports = true;
 
   return NS_OK;
 #else
@@ -2825,19 +2853,17 @@ static void SetCrashEventsDir(nsIFile* aDir) {
     EnsureDirectoryExists(eventsDir);
   }
 
-  xpstring* path = CreatePathFromFile(eventsDir);
+  std::optional<xpstring> path = CreatePathFromFile(eventsDir);
   if (!path) {
     return;  // There's no clean failure from this
   }
 
-  eventsDirectory = xpstring(*path);
+  eventsDirectory = *path;
 #ifdef XP_WIN
   SetEnvironmentVariableW(eventsDirectoryEnv, path->c_str());
 #else
   setenv(eventsDirectoryEnv, path->c_str(), /* overwrite */ 1);
 #endif
-
-  delete path;
 }
 
 void SetProfileDirectory(nsIFile* aDir) {
@@ -2875,7 +2901,7 @@ void UpdateCrashEventsDir() {
     return;
   }
 
-  rv = NS_GetSpecialDirectory("UAppData", getter_AddRefs(eventsDir));
+  rv = NS_GetSpecialDirectory(XRE_USER_APP_DATA_DIR, getter_AddRefs(eventsDir));
   if (NS_SUCCEEDED(rv)) {
     SetUserAppDataDirectory(eventsDir);
     return;
@@ -2937,7 +2963,8 @@ static void FindPendingDir() {
     return;
   }
   nsCOMPtr<nsIFile> pendingDir;
-  nsresult rv = NS_GetSpecialDirectory("UAppData", getter_AddRefs(pendingDir));
+  nsresult rv =
+      NS_GetSpecialDirectory(XRE_USER_APP_DATA_DIR, getter_AddRefs(pendingDir));
   if (NS_FAILED(rv)) {
     NS_WARNING(
         "Couldn't get the user appdata directory, crash dumps will go in an "
@@ -3113,12 +3140,89 @@ bool WriteExtraFile(const nsAString& id, const AnnotationTable& annotations) {
   return WriteExtraFile(pw, annotations);
 }
 
+template <typename T>
+static bool IsFixedSizeAnnotation(AnnotationContents& contents) {
+  return ((contents.tag == AnnotationContents::Tag::ByteBuffer) &&
+          (contents.byte_buffer._0 == sizeof(T))) ||
+         ((contents.tag == AnnotationContents::Tag::OwnedByteBuffer) &&
+          (contents.owned_byte_buffer._0 == sizeof(T)));
+}
+
 // This adds annotations that were populated in the main process but are not
 // present among the ones that were passed in. Additionally common annotations
 // which are present in every crash report are added, including crash time,
 // uptime, etc...
 static void AddSharedAnnotations(AnnotationTable& aAnnotations) {
-  MergeContentCrashAnnotations(aAnnotations);
+  for (auto key : MakeEnumeratedRange(Annotation::Count)) {
+    AnnotationContents contents = {};
+    nsAutoCString value;
+    size_t address =
+        mozannotation_get_contents(static_cast<uint32_t>(key), &contents);
+
+    if (address) {
+      switch (TypeOfAnnotation(key)) {
+        case AnnotationType::String:
+          switch (contents.tag) {
+            case AnnotationContents::Tag::Empty:
+              break;
+            case AnnotationContents::Tag::CStringPointer:
+              address = *reinterpret_cast<size_t*>(address);
+              if (address == 0) {
+                break;
+              }
+              // FALLTHROUGH
+            case AnnotationContents::Tag::CString:
+              value.Assign(reinterpret_cast<const char*>(address));
+              break;
+            case AnnotationContents::Tag::NSCStringPointer:
+              value.Assign(*reinterpret_cast<nsCString*>(address));
+              break;
+            case AnnotationContents::Tag::ByteBuffer:
+              value.Assign(reinterpret_cast<const char*>(address),
+                           contents.byte_buffer._0);
+              break;
+            case AnnotationContents::Tag::OwnedByteBuffer:
+              value.Assign(reinterpret_cast<const char*>(address),
+                           contents.owned_byte_buffer._0);
+              break;
+          }
+
+          break;
+        case AnnotationType::Boolean:
+          if (IsFixedSizeAnnotation<bool>(contents)) {
+            value.Assign(*reinterpret_cast<const bool*>(address) ? "1" : "0");
+          }
+          break;
+        case AnnotationType::U32:
+          if (IsFixedSizeAnnotation<uint32_t>(contents)) {
+            value.AppendInt(*reinterpret_cast<const uint32_t*>(address));
+          }
+          break;
+        case AnnotationType::U64:
+          if (IsFixedSizeAnnotation<uint64_t>(contents)) {
+            value.AppendInt(*reinterpret_cast<const uint64_t*>(address));
+          }
+          break;
+        case AnnotationType::USize:
+          if (IsFixedSizeAnnotation<size_t>(contents)) {
+#ifdef XP_MACOSX
+            // macOS defines size_t as unsigned long, which causes ambiguity
+            // when it comes to function overload, use a 64-bit integer instead
+            value.AppendInt(*reinterpret_cast<const uint64_t*>(address));
+#else
+            value.AppendInt(*reinterpret_cast<const size_t*>(address));
+#endif
+          }
+          break;
+      }
+
+      if (!value.IsEmpty() && aAnnotations[key].IsEmpty() &&
+          ShouldIncludeAnnotation(key, value.get())) {
+        aAnnotations[key] = value;
+      }
+    }
+  }
+
   AddCommonAnnotations(aAnnotations);
 }
 
@@ -3132,54 +3236,71 @@ static void AddChildProcessAnnotations(
   }
 
   for (const auto& annotation : *aChildAnnotations) {
-    switch (annotation.data.tag) {
-      case AnnotationData::Tag::Empty:
-        break;
+    Annotation id = static_cast<Annotation>(annotation.id);
+    const AnnotationData& data = annotation.data;
 
-      case AnnotationData::Tag::UsizeData:
-        if (annotation.id ==
-            static_cast<uint32_t>(Annotation::OOMAllocationSize)) {
-          // We need to special-case OOMAllocationSize here because it should
-          // not be added if its value is 0. We'll come up with a more general
-          // method of skipping ignored values for crash annotations in the
-          // follow-ups.
-          if (annotation.data.usize_data._0 != 0) {
-            aAnnotations[static_cast<Annotation>(annotation.id)] =
-                nsPrintfCString("%zu", annotation.data.usize_data._0);
-          }
-        } else {
-          aAnnotations[static_cast<Annotation>(annotation.id)] =
-              nsPrintfCString("%zu", annotation.data.usize_data._0);
-        }
-        break;
-
-      case AnnotationData::Tag::NSCStringData: {
-        const auto& string = annotation.data.nsc_string_data._0;
-        if (!string.IsEmpty()) {
-          aAnnotations[static_cast<Annotation>(annotation.id)] =
-              annotation.data.nsc_string_data._0;
-        }
-      } break;
-
-      case AnnotationData::Tag::ByteBuffer: {
-        if (annotation.id ==
-            static_cast<uint32_t>(Annotation::PHCBaseAddress)) {
+    if ((id == Annotation::PHCBaseAddress) &&
+        (data.tag == AnnotationData::Tag::ByteBuffer)) {
+      // PHC is special for now, let's deal with it here
 #ifdef MOZ_PHC
-          const auto& buffer = annotation.data.byte_buffer._0;
-          mozilla::phc::AddrInfo addr_info;
-          memcpy(&addr_info, buffer.Elements(), sizeof(addr_info));
-          PopulatePHCAnnotations(aAnnotations, &addr_info);
+      const auto& buffer = data.byte_buffer._0;
+      mozilla::phc::AddrInfo addr_info;
+      memcpy(&addr_info, buffer.Elements(), sizeof(addr_info));
+      PopulatePHCAnnotations(aAnnotations, &addr_info);
+#endif
+      continue;
+    }
+
+    if (data.tag == AnnotationData::Tag::Empty) {
+      continue;
+    }
+
+    nsAutoCString value;
+    const uint8_t* buffer = data.byte_buffer._0.Elements();
+    const size_t length = data.byte_buffer._0.Length();
+
+    switch (TypeOfAnnotation(id)) {
+      case AnnotationType::String:
+        value.Assign(reinterpret_cast<const char*>(buffer), length);
+        break;
+      case AnnotationType::Boolean:
+        if (length == sizeof(bool)) {
+          value.Assign(*reinterpret_cast<const bool*>(buffer) ? "1" : "0");
+        }
+        break;
+      case AnnotationType::U32:
+        if (length == sizeof(uint32_t)) {
+          value.AppendInt(*reinterpret_cast<const uint32_t*>(buffer));
+        }
+        break;
+      case AnnotationType::U64:
+        if (length == sizeof(uint64_t)) {
+          value.AppendInt(*reinterpret_cast<const uint64_t*>(buffer));
+        }
+        break;
+      case AnnotationType::USize:
+        if (length == sizeof(size_t)) {
+#ifdef XP_MACOSX
+          // macOS defines size_t as unsigned long, which causes ambiguity
+          // when it comes to function overload, use a 64-bit integer instead
+          value.AppendInt(*reinterpret_cast<const uint64_t*>(buffer));
+#else
+          value.AppendInt(*reinterpret_cast<const size_t*>(buffer));
 #endif
         }
-      } break;
+        break;
+    }
+
+    if (!value.IsEmpty() && ShouldIncludeAnnotation(id, value.get())) {
+      aAnnotations[id] = value;
     }
   }
 }
 
 // It really only makes sense to call this function when
 // ShouldReport() is true.
-// Uses dumpFile's filename to generate memoryReport's filename (same name with
-// a different extension)
+// Uses dumpFile's filename to generate memoryReport's filename (same name
+// with a different extension)
 static bool MoveToPending(nsIFile* dumpFile, nsIFile* extraFile,
                           nsIFile* memoryReport) {
   nsCOMPtr<nsIFile> pendingDir;
@@ -3259,29 +3380,16 @@ static void OnChildProcessDumpRequested(
   // add an error to the minidump to highlight this fact.
 
   {
-#ifdef MOZ_CRASHREPORTER_INJECTOR
-    bool runCallback;
-#endif
-    {
-      MutexAutoLock lock(*dumpMapLock);
-      ChildProcessData* pd = pidToMinidump->PutEntry(pid);
-      MOZ_ASSERT(!pd->minidump);
-      pd->minidump = minidump;
-      pd->sequence = ++crashSequence;
-      pd->annotations = MakeUnique<AnnotationTable>();
-      AnnotationTable& annotations = *(pd->annotations);
-      AddSharedAnnotations(annotations);
-      AddChildProcessAnnotations(annotations, child_annotations);
+    MutexAutoLock lock(*dumpMapLock);
+    ChildProcessData* pd = pidToMinidump->PutEntry(pid);
+    MOZ_ASSERT(!pd->minidump);
+    pd->minidump = minidump;
+    pd->annotations = MakeUnique<AnnotationTable>();
+    AnnotationTable& annotations = *(pd->annotations);
+    AddSharedAnnotations(annotations);
+    AddChildProcessAnnotations(annotations, child_annotations);
 
-      MaybeAnnotateDumperError(aClientInfo, annotations);
-
-#ifdef MOZ_CRASHREPORTER_INJECTOR
-      runCallback = nullptr != pd->callback;
-#endif
-    }
-#ifdef MOZ_CRASHREPORTER_INJECTOR
-    if (runCallback) NS_DispatchToMainThread(new ReportInjectedCrash(pid));
-#endif
+    MaybeAnnotateDumperError(aClientInfo, annotations);
   }
 
   if (child_annotations) {
@@ -3377,13 +3485,6 @@ static void OOPDeinit() {
     return;
   }
 
-#ifdef MOZ_CRASHREPORTER_INJECTOR
-  if (sInjectorThread) {
-    sInjectorThread->Shutdown();
-    NS_RELEASE(sInjectorThread);
-  }
-#endif
-
   delete crashServer;
   crashServer = nullptr;
 
@@ -3410,59 +3511,6 @@ const char* GetChildNotificationPipe() {
 }
 #endif
 
-#ifdef MOZ_CRASHREPORTER_INJECTOR
-void InjectCrashReporterIntoProcess(DWORD processID,
-                                    InjectorCrashCallback* cb) {
-  if (!GetEnabled()) return;
-
-  if (!OOPInitialized()) OOPInit();
-
-  if (!sInjectorThread) {
-    if (NS_FAILED(NS_NewNamedThread("CrashRep Inject", &sInjectorThread)))
-      return;
-  }
-
-  {
-    MutexAutoLock lock(*dumpMapLock);
-    ChildProcessData* pd = pidToMinidump->PutEntry(processID);
-    MOZ_ASSERT(!pd->minidump && !pd->callback);
-    pd->callback = cb;
-    pd->minidumpOnly = true;
-  }
-
-  nsCOMPtr<nsIRunnable> r = new InjectCrashRunnable(processID);
-  sInjectorThread->Dispatch(r, nsIEventTarget::DISPATCH_NORMAL);
-}
-
-NS_IMETHODIMP
-ReportInjectedCrash::Run() {
-  // Crash reporting may have been disabled after this method was dispatched
-  if (!OOPInitialized()) return NS_OK;
-
-  InjectorCrashCallback* cb;
-  {
-    MutexAutoLock lock(*dumpMapLock);
-    ChildProcessData* pd = pidToMinidump->GetEntry(mPID);
-    if (!pd || !pd->callback) return NS_OK;
-
-    MOZ_ASSERT(pd->minidump);
-
-    cb = pd->callback;
-  }
-
-  cb->OnCrash(mPID);
-  return NS_OK;
-}
-
-void UnregisterInjectorCallback(DWORD processID) {
-  if (!OOPInitialized()) return;
-
-  MutexAutoLock lock(*dumpMapLock);
-  pidToMinidump->RemoveEntry(processID);
-}
-
-#endif  // MOZ_CRASHREPORTER_INJECTOR
-
 #if defined(XP_LINUX)
 
 // Parent-side API for children
@@ -3486,44 +3534,15 @@ bool CreateNotificationPipeForChild(int* childCrashFd, int* childCrashRemapFd) {
 bool SetRemoteExceptionHandler(const char* aCrashPipe) {
   MOZ_ASSERT(!gExceptionHandler, "crash client already init'd");
   RegisterRuntimeExceptionModule();
-  InitializeAnnotationFacilities();
-  for (auto key : MakeEnumeratedRange(Annotation::Count)) {
-    switch (key) {
-      case Annotation::MozCrashReason:
-#ifdef MOZ_COLLECTING_RUNNABLE_TELEMETRY
-      case Annotation::MainThreadRunnableName:
-#endif
-      case Annotation::OOMAllocationSize:
-#ifdef MOZ_PHC
-      case Annotation::PHCBaseAddress:
-#endif
-        break;
-
-      default:
-        mozannotation_register_nscstring(static_cast<uint32_t>(key),
-                                         &crashReporterAPIData_Table[key]);
-    }
-  }
-
-  mozannotation_register_cstring(
-      static_cast<uint32_t>(Annotation::MozCrashReason), &gMozCrashReason);
-
-#ifdef MOZ_COLLECTING_RUNNABLE_TELEMETRY
-  mozannotation_register_char_buffer(
-      static_cast<uint32_t>(Annotation::MainThreadRunnableName),
-      &nsThread::sMainThreadRunnableName[0]);
-#endif
-
-  mozannotation_register_usize(
-      static_cast<uint32_t>(Annotation::OOMAllocationSize),
-      &gOOMAllocationSize);
+  InitializeAppNotes();
+  RegisterAnnotations();
 
 #ifdef MOZ_PHC
   // HACK: We're using the PHCBaseAddress annotation to point to the actual
   // PHC address information object. This is because we currently have no
   // difference between the internal representation of annotations and their
-  // external representation. Once we remove the old annotation API this will
-  // be properly addressed.
+  // external representation. Once we remove the old annotation API this
+  // will be properly addressed.
   mozannotation_register_bytebuffer(
       static_cast<uint32_t>(Annotation::PHCBaseAddress),
       &mozilla::phc::gAddrInfo, sizeof(mozilla::phc::gAddrInfo));
@@ -3565,7 +3584,7 @@ bool SetRemoteExceptionHandler(const char* aCrashPipe) {
   return gExceptionHandler->IsOutOfProcess();
 }
 
-void GetAnnotation(uint32_t childPid, Annotation annotation,
+void GetAnnotation(ProcessId childPid, Annotation annotation,
                    nsACString& outStr) {
   if (!GetEnabled()) {
     return;
@@ -3581,8 +3600,8 @@ void GetAnnotation(uint32_t childPid, Annotation annotation,
   outStr = (*pd->annotations)[annotation];
 }
 
-bool TakeMinidumpForChild(uint32_t childPid, nsIFile** dump,
-                          AnnotationTable& aAnnotations, uint32_t* aSequence) {
+bool TakeMinidumpForChild(ProcessId childPid, nsIFile** dump,
+                          AnnotationTable& aAnnotations) {
   if (!GetEnabled()) return false;
 
   MutexAutoLock lock(*dumpMapLock);
@@ -3591,21 +3610,14 @@ bool TakeMinidumpForChild(uint32_t childPid, nsIFile** dump,
   if (!pd) return false;
 
   NS_IF_ADDREF(*dump = pd->minidump);
-  // Only plugin process minidumps taken using the injector don't have
-  // annotations.
-  if (!pd->minidumpOnly) {
-    aAnnotations = *(pd->annotations);
-  }
-  if (aSequence) {
-    *aSequence = pd->sequence;
-  }
+  aAnnotations = *(pd->annotations);
 
   pidToMinidump->RemoveEntry(pd);
 
   return !!*dump;
 }
 
-bool FinalizeOrphanedMinidump(uint32_t aChildPid, GeckoProcessType aType,
+bool FinalizeOrphanedMinidump(ProcessId aChildPid, GeckoProcessType aType,
                               nsString* aDumpId) {
   AnnotationTable annotations;
   nsCOMPtr<nsIFile> minidump;
@@ -3634,9 +3646,19 @@ bool FinalizeOrphanedMinidump(uint32_t aChildPid, GeckoProcessType aType,
 // Function invoked by the WER runtime exception handler running in an
 // external process. This function isn't used anywhere inside Gecko directly
 // but rather invoked via CreateRemoteThread() in the main process.
-DWORD WINAPI WerNotifyProc(LPVOID aParameter) {
+
+// Store this global in a section called mozwerpt where we can find it by just
+// looking at the program headers.
+#  pragma section("mozwerpt", read, executable, shared)
+
+__declspec(allocate("mozwerpt")) MOZ_EXPORT DWORD WINAPI
+WerNotifyProc(LPVOID aParameter) {
   const WindowsErrorReportingData* werData =
       static_cast<const WindowsErrorReportingData*>(aParameter);
+
+  auto freeParameterOnExit = MakeScopeExit([&aParameter] {
+    VirtualFree(aParameter, sizeof(WindowsErrorReportingData), MEM_RELEASE);
+  });
 
   // Hold the mutex until the current dump request is complete, to
   // prevent UnsetExceptionHandler() from pulling the rug out from
@@ -3661,15 +3683,8 @@ DWORD WINAPI WerNotifyProc(LPVOID aParameter) {
     ChildProcessData* pd = pidToMinidump->PutEntry(pid);
     MOZ_ASSERT(!pd->minidump);
     pd->minidump = minidump;
-    pd->sequence = ++crashSequence;
     pd->annotations = MakeUnique<AnnotationTable>();
     (*pd->annotations)[Annotation::WindowsErrorReporting] = "1"_ns;
-    if (werData->mOOMAllocationSize > 0) {
-      char buffer[32] = {};
-      XP_STOA(werData->mOOMAllocationSize, buffer);
-      (*pd->annotations)[Annotation::OOMAllocationSize] = buffer;
-    }
-
     AddSharedAnnotations(*(pd->annotations));
   }
 
@@ -3878,7 +3893,8 @@ bool UnsetRemoteExceptionHandler(bool wasSet) {
     gExceptionHandler = nullptr;
   }
 #endif
-  TeardownAnnotationFacilities();
+  gServerURL = "";
+  TeardownAppNotes();
 
   return true;
 }
@@ -3890,39 +3906,3 @@ void SetNotificationPipeForChild(int childCrashFd) {
 #endif
 
 }  // namespace CrashReporter
-
-#if defined(__ANDROID_API__) && (__ANDROID_API__ < 24)
-
-// Bionic introduced support for getgrgid_r() and getgrnam_r() only in version
-// 24 (that is Android Nougat / 7.1.2). Since GeckoView is built by version 16
-// (32-bit) or 21 (64-bit), those functions aren't defined, but nix needs them
-// and minidump-writer relies on nix. These functions should never be called in
-// practice hence we implement them only to satisfy nix linking requirements but
-// we crash if we accidentally enter them.
-
-extern "C" {
-
-int getgrgid_r(gid_t gid, struct group* grp, char* buf, size_t buflen,
-               struct group** result) {
-  MOZ_CRASH("getgrgid_r() is not available");
-  return EPERM;
-}
-
-int getgrnam_r(const char* name, struct group* grp, char* buf, size_t buflen,
-               struct group** result) {
-  MOZ_CRASH("getgrnam_r() is not available");
-  return EPERM;
-}
-
-int mlockall(int flags) {
-  MOZ_CRASH("mlockall() is not available");
-  return EPERM;
-}
-
-int munlockall(void) {
-  MOZ_CRASH("munlockall() is not available");
-  return EPERM;
-}
-}
-
-#endif  // __ANDROID_API__ && (__ANDROID_API__ < 24)

@@ -28,12 +28,14 @@ const { RemoteSettings } = ChromeUtils.importESModule(
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
+  MESSAGE_TYPE_HASH: "resource:///modules/asrouter/ActorConstants.mjs",
   ASRouterPreferences:
     "resource:///modules/asrouter/ASRouterPreferences.sys.mjs",
   ASRouterTargeting: "resource:///modules/asrouter/ASRouterTargeting.sys.mjs",
   ASRouterTriggerListeners:
     "resource:///modules/asrouter/ASRouterTriggerListeners.sys.mjs",
   AttributionCode: "resource:///modules/AttributionCode.sys.mjs",
+  BookmarksBarButton: "resource:///modules/asrouter/BookmarksBarButton.sys.mjs",
   Downloader: "resource://services-settings/Attachments.sys.mjs",
   ExperimentAPI: "resource://nimbus/ExperimentAPI.sys.mjs",
   FeatureCalloutBroker:
@@ -55,7 +57,6 @@ ChromeUtils.defineESModuleGetters(lazy, {
   Spotlight: "resource:///modules/asrouter/Spotlight.sys.mjs",
   ToastNotification: "resource:///modules/asrouter/ToastNotification.sys.mjs",
   ToolbarBadgeHub: "resource:///modules/asrouter/ToolbarBadgeHub.sys.mjs",
-  ToolbarPanelHub: "resource:///modules/asrouter/ToolbarPanelHub.sys.mjs",
 });
 
 XPCOMUtils.defineLazyServiceGetters(lazy, {
@@ -67,7 +68,6 @@ ChromeUtils.defineLazyGetter(lazy, "log", () => {
   );
   return new Logger("ASRouter");
 });
-import { actionCreators as ac } from "resource://activity-stream/common/Actions.sys.mjs";
 import { MESSAGING_EXPERIMENTS_DEFAULT_FEATURES } from "resource:///modules/asrouter/MessagingExperimentConstants.sys.mjs";
 import { CFRMessageProvider } from "resource:///modules/asrouter/CFRMessageProvider.sys.mjs";
 import { OnboardingMessageProvider } from "resource:///modules/asrouter/OnboardingMessageProvider.sys.mjs";
@@ -106,18 +106,10 @@ const TOPIC_EXPERIMENT_ENROLLMENT_CHANGED = "nimbus:enrollments-updated";
 const USE_REMOTE_L10N_PREF =
   "browser.newtabpage.activity-stream.asrouter.useRemoteL10n";
 
-// Experiment groups that need to report the reach event in Messaging-Experiments.
-// If you're adding new groups to it, make sure they're also added in the
-// `messaging_experiments.reach.objects` defined in "toolkit/components/telemetry/Events.yaml"
-const REACH_EVENT_GROUPS = [
-  "cfr",
-  "moments-page",
-  "infobar",
-  "spotlight",
-  "featureCallout",
-];
 const REACH_EVENT_CATEGORY = "messaging_experiments";
 const REACH_EVENT_METHOD = "reach";
+// Reach for the pbNewtab feature will be added in bug 1755401
+const NO_REACH_EVENT_GROUPS = ["pbNewtab"];
 
 export const MessageLoaderUtils = {
   STARTPAGE_VERSION,
@@ -405,7 +397,11 @@ export const MessageLoaderUtils = {
       // Add Reach messages from unenrolled sibling branches, provided we are
       // recording Reach events for this feature. If we are in a rollout, we do
       // not have sibling branches.
-      if (!REACH_EVENT_GROUPS.includes(featureId) || !experimentData) {
+      if (
+        NO_REACH_EVENT_GROUPS.includes(featureId) ||
+        !MESSAGING_EXPERIMENTS_DEFAULT_FEATURES.includes(featureId) ||
+        !experimentData
+      ) {
         continue;
       }
 
@@ -442,16 +438,15 @@ export const MessageLoaderUtils = {
   },
 
   _handleRemoteSettingsUndesiredEvent(event, providerId, dispatchCFRAction) {
-    if (dispatchCFRAction) {
-      dispatchCFRAction(
-        ac.ASRouterUserEvent({
-          action: "asrouter_undesired_event",
-          event,
-          message_id: "n/a",
-          event_context: providerId,
-        })
-      );
-    }
+    dispatchCFRAction?.({
+      type: lazy.MESSAGE_TYPE_HASH.AS_ROUTER_TELEMETRY_USER_EVENT,
+      data: {
+        action: "asrouter_undesired_event",
+        message_id: "n/a",
+        event,
+        event_context: providerId,
+      },
+    });
   },
 
   /**
@@ -534,12 +529,81 @@ export const MessageLoaderUtils = {
             provider: provider.id,
           };
 
+          // Render local messages with experiment l10n structure if devtools
+          // are enabled. This is not a production feature, since local messages
+          // do not use experiment localization, and experimental messages are
+          // translated in ExperimentAPI.sys.mjs. This is useful for development
+          // to allow quickly testing experimental messages without needing to
+          // manually convert all the $l10n objects to strings. We lock this
+          // behind the devtools because it requires recursively processing
+          // every message at least once, for a small performance hit.
+          if (
+            provider.type === "local" &&
+            lazy.ASRouterPreferences.devtoolsEnabled
+          ) {
+            try {
+              return this._delocalizeValues(message);
+            } catch (e) {
+              lazy.log.error(
+                `Failed to delocalize message ${message.id}:`,
+                e.message,
+                e.cause
+              );
+            }
+          }
+
           return message;
         })
         .filter(message => message.weight > 0),
       lastUpdated,
       errors: MessageLoaderUtils.errors,
     };
+  },
+
+  /**
+   * For a given input (e.g. a message or a property), search for $l10n
+   * properties and flatten them to just their `text` property. This is done so
+   * that a message set up for experiment localization can be tested locally.
+   * Without this, the messaging surface would not be able to read the message
+   * because all the localized copy would be in $l10n objects. Normally, these
+   * objects are translated by ExperimentFeature.substituteLocalizations. Rather
+   * than returning $l10n.text, it would return localizations[$l10n.id] for the
+   * active language. Localizations are included in the recipe, not in the
+   * message, so we can't actually translate the message. But every $l10n object
+   * should have a `text` property with the original English copy. So you can
+   * copy a message straight from the recipe into a local message provider, and
+   * it should render the English version with no issues.
+   *
+   * @param {object} values An object to delocalize
+   * @returns {object} The object, stripped of any $l10n objects
+   */
+  _delocalizeValues(values) {
+    if (typeof values !== "object" || values === null) {
+      return values;
+    }
+
+    if (Array.isArray(values)) {
+      return values.map(value => this._delocalizeValues(value));
+    }
+
+    const substituted = Object.assign({}, values);
+    for (const [key, value] of Object.entries(values)) {
+      if (key === "$l10n") {
+        if (typeof value === "object" && value !== null) {
+          if (value?.text) {
+            return value.text;
+          }
+          throw new Error(`Expected $l10n to have a text property, but got`, {
+            cause: value,
+          });
+        }
+        throw new Error(`Expected $l10n to be an object, but got`, {
+          cause: value,
+        });
+      }
+      substituted[key] = this._delocalizeValues(value);
+    }
+    return substituted;
   },
 
   /**
@@ -624,7 +688,6 @@ export class _ASRouter {
     this._onLocaleChanged = this._onLocaleChanged.bind(this);
     this.isUnblockedMessage = this.isUnblockedMessage.bind(this);
     this.unblockAll = this.unblockAll.bind(this);
-    this.forceWNPanel = this.forceWNPanel.bind(this);
     this._onExperimentEnrollmentsUpdated =
       this._onExperimentEnrollmentsUpdated.bind(this);
     this.forcePBWindow = this.forcePBWindow.bind(this);
@@ -862,6 +925,10 @@ export class _ASRouter {
     if (needsUpdate.length) {
       let newState = { messages: [], providers: [] };
       for (const provider of this.state.providers) {
+        if (provider.id === "message-groups") {
+          // Message groups are handled separately by loadAllMessageGroups
+          continue;
+        }
         if (needsUpdate.includes(provider)) {
           const { messages, lastUpdated, errors } =
             await MessageLoaderUtils.loadMessagesForProvider(provider, {
@@ -947,7 +1014,7 @@ export class _ASRouter {
     return this.state;
   }
 
-  async _onLocaleChanged(subject, topic, data) {
+  async _onLocaleChanged() {
     await this._maybeUpdateL10nAttachment();
   }
 
@@ -997,10 +1064,6 @@ export class _ASRouter {
       addImpression: this.addImpression,
       blockMessageById: this.blockMessageById,
       unblockMessageById: this.unblockMessageById,
-      sendTelemetry: this.sendTelemetry,
-    });
-    lazy.ToolbarPanelHub.init(this.waitForInitialized, {
-      getMessages: this.handleMessageRequest,
       sendTelemetry: this.sendTelemetry,
     });
     lazy.MomentsPageHub.init(this.waitForInitialized, {
@@ -1059,7 +1122,6 @@ export class _ASRouter {
 
     lazy.ASRouterPreferences.removeListener(this.onPrefChange);
     lazy.ASRouterPreferences.uninit();
-    lazy.ToolbarPanelHub.uninit();
     lazy.ToolbarBadgeHub.uninit();
     lazy.MomentsPageHub.uninit();
 
@@ -1183,14 +1245,15 @@ export class _ASRouter {
 
   _handleTargetingError(error, message) {
     console.error(error);
-    this.dispatchCFRAction(
-      ac.ASRouterUserEvent({
-        message_id: message.id,
+    this.dispatchCFRAction?.({
+      type: lazy.MESSAGE_TYPE_HASH.AS_ROUTER_TELEMETRY_USER_EVENT,
+      data: {
         action: "asrouter_undesired_event",
+        message_id: message.id,
         event: "TARGETING_EXPRESSION_ERROR",
         event_context: {},
-      })
-    );
+      },
+    });
   }
 
   // Return an object containing targeting parameters used to select messages
@@ -1313,16 +1376,6 @@ export class _ASRouter {
     return true;
   }
 
-  async _extraTemplateStrings(originalMessage) {
-    let extraTemplateStrings;
-    let localProvider = this._findProvider(originalMessage.provider);
-    if (localProvider && localProvider.getExtraAttributes) {
-      extraTemplateStrings = await localProvider.getExtraAttributes();
-    }
-
-    return extraTemplateStrings;
-  }
-
   _findProvider(providerID) {
     return this._localProviders[
       this.state.providers.find(i => i.id === providerID).localProvider
@@ -1350,11 +1403,6 @@ export class _ASRouter {
     }
 
     switch (message.template) {
-      case "whatsnew_panel_message":
-        if (force) {
-          lazy.ToolbarPanelHub.forceShowMessage(browser, message);
-        }
-        break;
       case "cfr_doorhanger":
       case "milestone_message":
         if (force) {
@@ -1429,6 +1477,9 @@ export class _ASRouter {
           message,
           this.dispatchCFRAction
         );
+        break;
+      case "bookmarks_bar_button":
+        lazy.BookmarksBarButton.showBookmarksBarButton(browser, message);
         break;
     }
 
@@ -1743,7 +1794,7 @@ export class _ASRouter {
     }
     // Update storage
     this._storage.set("groupImpressions", newGroupImpressions);
-    return this.setState(({ groups }) => ({
+    return this.setState(() => ({
       groupImpressions: newGroupImpressions,
     }));
   }
@@ -1968,6 +2019,17 @@ export class _ASRouter {
     if (!skipLoadingMessages) {
       await this.loadMessagesFromAllProviders();
     }
+    // Implement the global `browserIsSelected` context property.
+    if (trigger && browser?.constructor.name === "MozBrowser") {
+      if (!Object.prototype.hasOwnProperty.call(trigger, "context")) {
+        trigger.context = {};
+      }
+      if (typeof trigger.context === "object") {
+        trigger.context.browserIsSelected =
+          trigger.context.browserIsSelected ||
+          browser === browser.ownerGlobal.gBrowser?.selectedBrowser;
+      }
+    }
     const telemetryObject = { tabId };
     TelemetryStopwatch.start("MS_MESSAGE_REQUEST_TIME_MS", telemetryObject);
     // Return all the messages so that it can record the Reach event
@@ -2007,29 +2069,6 @@ export class _ASRouter {
       trigger,
       false
     );
-  }
-
-  async forceWNPanel(browser) {
-    let win = browser.ownerGlobal;
-    await lazy.ToolbarPanelHub.enableToolbarButton();
-
-    win.PanelUI.showSubView(
-      "PanelUI-whatsNew",
-      win.document.getElementById("whats-new-menu-button")
-    );
-
-    let panel = win.document.getElementById("customizationui-widget-panel");
-    // Set the attribute to keep the panel open
-    panel.setAttribute("noautohide", true);
-  }
-
-  async closeWNPanel(browser) {
-    let win = browser.ownerGlobal;
-    let panel = win.document.getElementById("customizationui-widget-panel");
-    // Set the attribute to allow the panel to close
-    panel.setAttribute("noautohide", false);
-    // Removing the button is enough to close the panel.
-    await lazy.ToolbarPanelHub._hideToolbarButton(win);
   }
 
   async _onExperimentEnrollmentsUpdated() {

@@ -62,6 +62,7 @@
 #include "nsIScriptError.h"
 #include "nsIScriptSecurityManager.h"
 #include "nsISupportsImpl.h"
+#include "nsISupportsPriority.h"
 #include "nsIURI.h"
 #include "nsIUploadChannel2.h"
 #include "nsNetUtil.h"
@@ -321,10 +322,18 @@ Result<IPCInternalRequest, nsresult> GetIPCInternalRequest(
   MOZ_ALWAYS_SUCCEEDS(internalChannel->GetRedirectMode(&redirectMode));
   RequestRedirect requestRedirect = static_cast<RequestRedirect>(redirectMode);
 
+  // request's priority is not copied by the new Request() constructor used by
+  // a fetch() call while request's internal priority is. So let's use the
+  // default, otherwise a fetch(event.request) from a worker on an intercepted
+  // fetch event would adjust priority twice.
+  // https://fetch.spec.whatwg.org/#dom-global-fetch
+  // https://fetch.spec.whatwg.org/#dom-request
+  RequestPriority requestPriority = RequestPriority::Auto;
+
   RequestCredentials requestCredentials =
       InternalRequest::MapChannelToRequestCredentials(underlyingChannel);
 
-  nsAutoString referrer;
+  nsAutoCString referrer;
   ReferrerPolicy referrerPolicy = ReferrerPolicy::_empty;
   ReferrerPolicy environmentReferrerPolicy = ReferrerPolicy::_empty;
 
@@ -339,6 +348,11 @@ Result<IPCInternalRequest, nsresult> GetIPCInternalRequest(
 
   nsCOMPtr<nsILoadInfo> loadInfo = underlyingChannel->LoadInfo();
   nsContentPolicyType contentPolicyType = loadInfo->InternalContentPolicyType();
+
+  int32_t internalPriority = nsISupportsPriority::PRIORITY_NORMAL;
+  if (nsCOMPtr<nsISupportsPriority> p = do_QueryInterface(underlyingChannel)) {
+    p->GetPriority(&internalPriority);
+  }
 
   nsAutoString integrity;
   MOZ_TRY(internalChannel->GetIntegrityMetadata(integrity));
@@ -403,11 +417,11 @@ Result<IPCInternalRequest, nsresult> GetIPCInternalRequest(
   // efficient, because there's no move-friendly constructor generated.
   return IPCInternalRequest(
       method, {spec}, ipcHeadersGuard, ipcHeaders, Nothing(), -1,
-      alternativeDataType, contentPolicyType, referrer, referrerPolicy,
-      environmentReferrerPolicy, requestMode, requestCredentials, cacheMode,
-      requestRedirect, integrity, fragment, principalInfo,
-      interceptionPrincipalInfo, contentPolicyType, redirectChain,
-      isThirdPartyChannel, embedderPolicy);
+      alternativeDataType, contentPolicyType, internalPriority, referrer,
+      referrerPolicy, environmentReferrerPolicy, requestMode,
+      requestCredentials, cacheMode, requestRedirect, requestPriority,
+      integrity, false, fragment, principalInfo, interceptionPrincipalInfo,
+      contentPolicyType, redirectChain, isThirdPartyChannel, embedderPolicy);
 }
 
 nsresult MaybeStoreStreamForBackgroundThread(nsIInterceptedChannel* aChannel,
@@ -533,6 +547,8 @@ nsresult ServiceWorkerPrivate::Initialize() {
   // partitionKey from the principal URI.
   Maybe<uint64_t> overriddenFingerprintingSettingsArg;
   Maybe<RFPTarget> overriddenFingerprintingSettings;
+  nsCOMPtr<nsIURI> firstPartyURI;
+  bool foreignByAncestorContext = false;
   if (!principal->OriginAttributesRef().mPartitionKey.IsEmpty()) {
     net::CookieJarSettings::Cast(cookieJarSettings)
         ->SetPartitionKey(principal->OriginAttributesRef().mPartitionKey);
@@ -544,11 +560,12 @@ nsresult ServiceWorkerPrivate::Initialize() {
     nsAutoString scheme;
     nsAutoString pkBaseDomain;
     int32_t unused;
+    bool _foreignByAncestorContext;
 
     if (OriginAttributes::ParsePartitionKey(
             principal->OriginAttributesRef().mPartitionKey, scheme,
-            pkBaseDomain, unused)) {
-      nsCOMPtr<nsIURI> firstPartyURI;
+            pkBaseDomain, unused, _foreignByAncestorContext)) {
+      foreignByAncestorContext = _foreignByAncestorContext;
       rv = NS_NewURI(getter_AddRefs(firstPartyURI),
                      scheme + u"://"_ns + pkBaseDomain);
       if (NS_SUCCEEDED(rv)) {
@@ -565,7 +582,6 @@ nsresult ServiceWorkerPrivate::Initialize() {
     // Using the first party domain to know the context of the service worker.
     // We will run into here if FirstPartyIsolation is enabled. In this case,
     // the PartitionKey won't get populated.
-    nsCOMPtr<nsIURI> firstPartyURI;
     // Because the service worker is only available in secure contexts, so we
     // don't need to consider http and only use https as scheme to create
     // the first-party URI
@@ -592,7 +608,9 @@ nsresult ServiceWorkerPrivate::Initialize() {
       }
     }
   } else {
-    net::CookieJarSettings::Cast(cookieJarSettings)->SetPartitionKey(uri);
+    net::CookieJarSettings::Cast(cookieJarSettings)
+        ->SetPartitionKey(uri, false);
+    firstPartyURI = uri;
 
     // The service worker is for a first-party context, we can use the uri of
     // the service worker as the first-party domain to get the fingerprinting
@@ -603,6 +621,26 @@ nsresult ServiceWorkerPrivate::Initialize() {
     if (overriddenFingerprintingSettings.isSome()) {
       overriddenFingerprintingSettingsArg.emplace(
           uint64_t(overriddenFingerprintingSettings.ref()));
+    }
+  }
+
+  bool shouldResistFingerprinting =
+      nsContentUtils::ShouldResistFingerprinting_dangerous(
+          principal,
+          "Service Workers exist outside a Document or Channel; as a property "
+          "of the domain (and origin attributes). We don't have a "
+          "CookieJarSettings to perform the nested check, but we can rely on"
+          "the FPI/dFPI partition key check. The WorkerPrivate's "
+          "ShouldResistFingerprinting function for the ServiceWorker depends "
+          "on this boolean and will also consider an explicit RFPTarget.",
+          RFPTarget::IsAlwaysEnabledForPrecompute);
+
+  if (shouldResistFingerprinting && NS_SUCCEEDED(rv) && firstPartyURI) {
+    auto rfpKey = nsRFPService::GenerateKeyForServiceWorker(
+        firstPartyURI, principal, foreignByAncestorContext);
+    if (rfpKey.isSome()) {
+      net::CookieJarSettings::Cast(cookieJarSettings)
+          ->SetFingerprintingRandomizationKey(rfpKey.ref());
     }
   }
 
@@ -669,16 +707,7 @@ nsresult ServiceWorkerPrivate::Initialize() {
       // already_AddRefed<>. Let's set it to null.
       /* referrerInfo */ nullptr,
 
-      storageAccess, isThirdPartyContextToTopWindow,
-      nsContentUtils::ShouldResistFingerprinting_dangerous(
-          principal,
-          "Service Workers exist outside a Document or Channel; as a property "
-          "of the domain (and origin attributes). We don't have a "
-          "CookieJarSettings to perform the nested check, but we can rely on"
-          "the FPI/dFPI partition key check. The WorkerPrivate's "
-          "ShouldResistFingerprinting function for the ServiceWorker depends "
-          "on this boolean and will also consider an explicit RFPTarget.",
-          RFPTarget::IsAlwaysEnabledForPrecompute),
+      storageAccess, isThirdPartyContextToTopWindow, shouldResistFingerprinting,
       overriddenFingerprintingSettingsArg,
       // Origin trials are associated to a window, so it doesn't make sense on
       // service workers.
@@ -1476,16 +1505,12 @@ void ServiceWorkerPrivate::UpdateRunning(int32_t aDelta, int32_t aFetchDelta) {
   if (sRunningServiceWorkers > sRunningServiceWorkersMax) {
     sRunningServiceWorkersMax = sRunningServiceWorkers;
     LOG(("ServiceWorker max now %d", sRunningServiceWorkersMax));
-    Telemetry::ScalarSet(Telemetry::ScalarID::SERVICEWORKER_RUNNING_MAX,
-                         u"All"_ns, sRunningServiceWorkersMax);
   }
   MOZ_ASSERT(((int64_t)sRunningServiceWorkersFetch) + aFetchDelta >= 0);
   sRunningServiceWorkersFetch += aFetchDelta;
   if (sRunningServiceWorkersFetch > sRunningServiceWorkersFetchMax) {
     sRunningServiceWorkersFetchMax = sRunningServiceWorkersFetch;
     LOG(("ServiceWorker Fetch max now %d", sRunningServiceWorkersFetchMax));
-    Telemetry::ScalarSet(Telemetry::ScalarID::SERVICEWORKER_RUNNING_MAX,
-                         u"Fetch"_ns, sRunningServiceWorkersFetchMax);
   }
   LOG(("ServiceWorkers running now %d/%d", sRunningServiceWorkers,
        sRunningServiceWorkersFetch));
@@ -1559,8 +1584,8 @@ void ServiceWorkerPrivate::ErrorReceived(const ErrorValue& aError) {
   ServiceWorkerInfo* info = mInfo;
 
   swm->HandleError(nullptr, info->Principal(), info->Scope(),
-                   NS_ConvertUTF8toUTF16(info->ScriptSpec()), u""_ns, u""_ns,
-                   u""_ns, 0, 0, nsIScriptError::errorFlag, JSEXN_ERR);
+                   info->ScriptSpec(), u""_ns, ""_ns, u""_ns, 0, 0,
+                   nsIScriptError::errorFlag, JSEXN_ERR);
 }
 
 void ServiceWorkerPrivate::Terminated() {

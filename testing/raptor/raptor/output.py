@@ -571,6 +571,7 @@ class PerftestOutput(object):
                         "alertThreshold": float(test["alert_threshold"]),
                         "lowerIsBetter": test["subtest_lower_is_better"],
                         "name": sub,
+                        "shouldAlert": True,
                         "replicates": [],
                     }
                 # pylint: disable=W1633
@@ -1837,7 +1838,6 @@ class BrowsertimeOutput(PerftestOutput):
             if self.app in (
                 "chrome",
                 "chrome-m",
-                "chromium",
                 "custom-car",
                 "cstm-car-m",
             ):
@@ -1854,9 +1854,12 @@ class BrowsertimeOutput(PerftestOutput):
                 subtest["name"] = measurement_name
                 subtest["lowerIsBetter"] = test["subtest_lower_is_better"]
                 subtest["alertThreshold"] = float(test["alert_threshold"])
-                subtest["unit"] = (
-                    "ms" if measurement_name == "cpuTime" else test["subtest_unit"]
-                )
+                if measurement_name == "cpuTime":
+                    subtest["unit"] = "ms"
+                elif measurement_name == "powerUsage":
+                    subtest["unit"] = "uWh"
+                else:
+                    subtest["unit"] = test["subtest_unit"]
 
                 # Add the alert window settings if needed here too in case
                 # there is no summary value in the test
@@ -1880,7 +1883,6 @@ class BrowsertimeOutput(PerftestOutput):
                         if self.app in (
                             "chrome",
                             "chrome-m",
-                            "chromium",
                             "custom-car",
                             "cstm-car-m",
                         ):
@@ -1900,6 +1902,12 @@ class BrowsertimeOutput(PerftestOutput):
                 test.get("support_class").summarize_test(test, suite)
 
             elif test["type"] in ["pageload", "scenario", "power"]:
+                LOG.warning(
+                    "This test is using a soon-to-be deprecated method for summarizing "
+                    "output. A subclass of browsertime_pageload.py should be built for "
+                    "this instead. Output handling is already built there, and the results "
+                    "parsing will need to be added for this specific test."
+                )
                 for measurement_name, replicates in test["measurements"].items():
                     new_subtest = _process_measurements(measurement_name, replicates)
                     if measurement_name not in suite["subtests"]:
@@ -1959,6 +1967,12 @@ class BrowsertimeOutput(PerftestOutput):
                     cpu_subtest = _process_measurements("cpuTime", replicates)
                     _process(cpu_subtest)
                     suite["subtests"].append(cpu_subtest)
+
+                if "powerUsage" in test["measurements"]:
+                    replicates = test["measurements"]["powerUsage"]
+                    power_subtest = _process_measurements("powerUsage", replicates)
+                    power_subtest["value"] = round(filters.mean(replicates), 2)
+                    suite["subtests"].append(power_subtest)
 
                 # summarize results for both benchmark type tests
                 if len(subtests) > 1:

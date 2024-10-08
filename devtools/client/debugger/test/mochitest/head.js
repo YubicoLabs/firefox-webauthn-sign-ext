@@ -136,6 +136,7 @@ const INTEGRATION_TEST_PAGE_SOURCES = [
   // But there is even more source actors (named evals and duplicated script tags).
   "same-url.sjs",
   "same-url.sjs",
+  "log-worker.js",
 ];
 // The iframe one is only available when fission is enabled, or EFT
 if (isFissionEnabled() || isEveryFrameTargetEnabled()) {
@@ -230,7 +231,7 @@ async function assertBreakableLines(
 ) {
   await selectSource(dbg, source);
   is(
-    getCM(dbg).lineCount(),
+    getLineCount(dbg),
     numberOfLines,
     `We show the expected number of lines in CodeMirror for ${source}`
   );
@@ -253,14 +254,6 @@ function getRange(start, end) {
     range.push(i);
   }
   return range;
-}
-
-/**
- * Wait for CodeMirror to start searching
- */
-function waitForSearchState(dbg) {
-  const cm = getCM(dbg);
-  return waitFor(() => cm.state.search);
 }
 
 /**

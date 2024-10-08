@@ -6,7 +6,7 @@
 esid: sec-Intl.DurationFormat.prototype.format
 description: >
   Test format method with negative duration and default style
-locale: [en-US]
+locale: [en]
 includes: [testIntl.js]
 features: [Intl.DurationFormat]
 ---*/
@@ -24,9 +24,10 @@ const duration = {
   nanoseconds: -9,
 };
 
-const expected = formatDurationFormatPattern(duration);
-
 const df = new Intl.DurationFormat("en");
+
+const expected = formatDurationFormatPattern(df, duration);
+
 assert.sameValue(
   df.format(duration),
   expected,

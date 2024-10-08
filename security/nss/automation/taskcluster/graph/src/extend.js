@@ -20,11 +20,6 @@ const ACVP_IMAGE = {
   path: "automation/taskcluster/docker-acvp"
 };
 
-const ECCKIILA_IMAGE = {
-  name: "ecckiila",
-  path: "automation/taskcluster/docker-ecckiila"
-};
-
 const CLANG_FORMAT_IMAGE = {
   name: "clang-format",
   path: "automation/taskcluster/docker-clang-format"
@@ -38,12 +33,6 @@ const LINUX_GCC44_IMAGE = {
 const FUZZ_IMAGE = {
   name: "fuzz",
   path: "automation/taskcluster/docker-fuzz"
-};
-
-// Bug 1488148 - temporary image for fuzzing 32-bit builds.
-const FUZZ_IMAGE_32 = {
-  name: "fuzz32",
-  path: "automation/taskcluster/docker-fuzz32"
 };
 
 const WINDOWS_CHECKOUT_CMD =
@@ -655,7 +644,7 @@ function scheduleFuzzingRun(base, name, target, max_len, symbol = null, corpus =
       "/bin/bash",
       "-c",
       "bin/checkout.sh && nss/automation/taskcluster/scripts/fuzz.sh " +
-        `${target} nss/fuzz/corpus/${corpus || target} ` +
+        `${target} ${corpus || target} ` +
         `-max_total_time=${MAX_FUZZ_TIME} ` +
         `-max_len=${max_len}`
     ],
@@ -783,7 +772,7 @@ async function scheduleFuzzing32() {
     features: ["allowPtrace"],
     platform: "linux32",
     collection: "fuzz",
-    image: FUZZ_IMAGE_32
+    image: FUZZ_IMAGE
   };
 
   // Build base definition.
@@ -1146,7 +1135,6 @@ async function scheduleTools() {
     ]
   }));
 
-
   queue.scheduleTask(merge(base, {
     symbol: "scan-build",
     name: "scan-build",
@@ -1181,17 +1169,6 @@ async function scheduleTools() {
     ]
   }));
   
-  queue.scheduleTask(merge(base, {
-    symbol: "ecckiila",
-    name: "ecckiila",
-    image: ECCKIILA_IMAGE,
-    command: [
-      "/bin/bash",
-      "-c",
-      "bin/checkout.sh && bin/ecckiila.sh && bin/run.sh"
-    ]
-  }));
-
   queue.scheduleTask(merge(base, {
     symbol: "Coverage",
     name: "Coverage",

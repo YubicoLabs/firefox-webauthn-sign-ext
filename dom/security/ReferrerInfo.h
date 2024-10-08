@@ -14,7 +14,7 @@
 #include "mozilla/HashFunctions.h"
 #include "mozilla/dom/ReferrerPolicyBinding.h"
 
-#define REFERRERINFOF_CONTRACTID "@mozilla.org/referrer-info;1"
+#define REFERRERINFO_CONTRACTID "@mozilla.org/referrer-info;1"
 // 041a129f-10ce-4bda-a60d-e027a26d5ed0
 #define REFERRERINFO_CID                             \
   {                                                  \
@@ -257,13 +257,6 @@ class ReferrerInfo : public nsIReferrerInfo {
    */
   static ReferrerPolicyEnum ReferrerPolicyFromHeaderString(
       const nsAString& aContent);
-
-  /*
-   * Helper function to convert ReferrerPolicy enum to string
-   *
-   * @param aPolicy referrer policy to convert.
-   */
-  static const char* ReferrerPolicyToString(ReferrerPolicyEnum aPolicy);
 
   /**
    * Hash function for this object

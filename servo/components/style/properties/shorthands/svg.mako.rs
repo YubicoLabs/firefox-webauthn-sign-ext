@@ -5,7 +5,6 @@
 <%namespace name="helpers" file="/helpers.mako.rs" />
 
 <%helpers:shorthand name="mask" engines="gecko" extra_prefixes="webkit"
-                    flags="SHORTHAND_IN_GETCS"
                     sub_properties="mask-mode mask-repeat mask-clip mask-origin mask-composite mask-position-x
                                     mask-position-y mask-size mask-image"
                     spec="https://drafts.fxtf.org/css-masking/#propdef-mask">
@@ -144,8 +143,8 @@
             //   <mask-reference> ||
             //   <position> [ / <bg-size> ]? ||
             //   <repeat-style> ||
-            //   <geometry-box> ||
-            //   [ <geometry-box> | no-clip ] ||
+            //   <coord-box> ||
+            //   [ <coord-box> | no-clip ] ||
             //   <compositing-operator> ||
             //   <masking-mode>
             // https://drafts.fxtf.org/css-masking-1/#the-mask
@@ -198,12 +197,21 @@
                     writer.item(repeat)?;
                 }
 
-                // <geometry-box>
-                if has_origin {
+                // <coord-box>
+                // Note:
+                // Even if 'mask-origin' is at its initial value 'border-box',
+                // we still have to serialize it to avoid ambiguity iF the
+                // 'mask-clip' longhand has some other <coord-box> value
+                // (i.e. neither 'border-box' nor 'no-clip'). (If we naively
+                // declined to serialize the 'mask-origin' value in this
+                // situation, then whatever value we serialize for 'mask-clip'
+                // would implicitly also represent 'mask-origin' and would be
+                // providing the wrong value for that longhand.)
+                if has_origin || (has_clip && *clip != Clip::NoClip) {
                     writer.item(origin)?;
                 }
 
-                // [ <geometry-box> | no-clip ]
+                // [ <coord-box> | no-clip ]
                 if has_clip && *clip != From::from(*origin) {
                     writer.item(clip)?;
                 }
@@ -225,7 +233,6 @@
 </%helpers:shorthand>
 
 <%helpers:shorthand name="mask-position" engines="gecko" extra_prefixes="webkit"
-                    flags="SHORTHAND_IN_GETCS"
                     sub_properties="mask-position-x mask-position-y"
                     spec="https://drafts.csswg.org/css-masks-4/#the-mask-position">
     use crate::properties::longhands::{mask_position_x,mask_position_y};

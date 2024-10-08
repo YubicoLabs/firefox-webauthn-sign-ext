@@ -10,19 +10,43 @@ const { NimbusFeatures } = ChromeUtils.importESModule(
   "resource://nimbus/ExperimentAPI.sys.mjs"
 );
 
-const baseURL = "https://www.google.com/search?q=foo";
+const baseURL = "https://example.com/search?";
 
 let getVariableStub;
 let updateStub;
+
+const CONFIG = [
+  {
+    identifier: "preferenceEngine",
+    base: {
+      urls: {
+        search: {
+          base: "https://example.com/search",
+          params: [
+            {
+              name: "code",
+              experimentConfig: "code",
+            },
+            {
+              name: "test",
+              experimentConfig: "test",
+            },
+          ],
+          searchTermParamName: "q",
+        },
+      },
+    },
+  },
+];
 
 add_setup(async function () {
   updateStub = sinon.stub(NimbusFeatures.search, "onUpdate");
   getVariableStub = sinon.stub(NimbusFeatures.search, "getVariable");
   sinon.stub(NimbusFeatures.search, "ready").resolves();
 
-  // The test engines used in this test need to be recognized as 'default'
-  // engines, or their MozParams will be ignored.
-  await SearchTestUtils.useTestEngines();
+  // The test engines used in this test need to be recognized as application
+  // provided engines, or their MozParams will be ignored.
+  SearchTestUtils.setRemoteSettingsConfig(CONFIG);
 });
 
 add_task(async function test_pref_initial_value() {
@@ -37,7 +61,6 @@ add_task(async function test_pref_initial_value() {
     },
   ]);
 
-  await AddonTestUtils.promiseStartupManager();
   await Services.search.init();
 
   Assert.ok(
@@ -45,10 +68,10 @@ add_task(async function test_pref_initial_value() {
     "Should have called onUpdate to listen for future updates"
   );
 
-  const engine = Services.search.getEngineByName("engine-pref");
+  const engine = Services.search.getEngineById("preferenceEngine");
   Assert.equal(
     engine.getSubmission("foo").uri.spec,
-    baseURL + "&code=good%26id%3Dunique",
+    baseURL + "code=good%26id%3Dunique&q=foo",
     "Should have got the submission URL with the correct code"
   );
 });
@@ -65,10 +88,10 @@ add_task(async function test_pref_updated() {
   // Update the pref without re-init nor restart.
   updateStub.firstCall.args[0]();
 
-  const engine = Services.search.getEngineByName("engine-pref");
+  const engine = Services.search.getEngineById("preferenceEngine");
   Assert.equal(
     engine.getSubmission("foo").uri.spec,
-    baseURL + "&code=supergood%26id%3Dunique123456",
+    baseURL + "code=supergood%26id%3Dunique123456&q=foo",
     "Should have got the submission URL with the updated code"
   );
 });
@@ -87,10 +110,10 @@ add_task(async function test_multiple_params() {
   // Update the pref without re-init nor restart.
   updateStub.firstCall.args[0]();
 
-  let engine = Services.search.getEngineByName("engine-pref");
+  let engine = Services.search.getEngineById("preferenceEngine");
   Assert.equal(
     engine.getSubmission("foo").uri.spec,
-    baseURL + "&code=sng&test=sup",
+    baseURL + "code=sng&test=sup&q=foo",
     "Should have got the submission URL with both parameters"
   );
 
@@ -104,10 +127,10 @@ add_task(async function test_multiple_params() {
   // Update the pref without re-init nor restart.
   updateStub.firstCall.args[0]();
 
-  engine = Services.search.getEngineByName("engine-pref");
+  engine = Services.search.getEngineById("preferenceEngine");
   Assert.equal(
     engine.getSubmission("foo").uri.spec,
-    baseURL + "&code=sng",
+    baseURL + "code=sng&q=foo",
     "Should have got the submission URL with one parameter"
   );
 });
@@ -118,10 +141,10 @@ add_task(async function test_pref_cleared() {
   getVariableStub.withArgs("extraParams").returns([]);
   updateStub.firstCall.args[0]();
 
-  let engine = Services.search.getEngineByName("engine-pref");
+  let engine = Services.search.getEngineById("preferenceEngine");
   Assert.equal(
     engine.getSubmission("foo").uri.spec,
-    baseURL,
+    baseURL + "q=foo",
     "Should have just the base URL after the pref was cleared"
   );
 });

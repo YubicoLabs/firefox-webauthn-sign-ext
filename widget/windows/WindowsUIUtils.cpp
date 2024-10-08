@@ -127,9 +127,9 @@ namespace Foundation {
 
 template <>
 struct __declspec(uuid("808aef30-2660-51b0-9c11-f75dd42006b4"))
-    ITypedEventHandler<ABI::Windows::UI::ViewManagement::UISettings*,
-                       ABI::Windows::UI::ViewManagement::
-                           UISettingsAutoHideScrollBarsChangedEventArgs*>
+ITypedEventHandler<ABI::Windows::UI::ViewManagement::UISettings*,
+                   ABI::Windows::UI::ViewManagement::
+                       UISettingsAutoHideScrollBarsChangedEventArgs*>
     : ITypedEventHandler_impl<
           ABI::Windows::Foundation::Internal::AggregateType<
               ABI::Windows::UI::ViewManagement::UISettings*,
@@ -555,17 +555,9 @@ void WindowsUIUtils::UpdateInTabletMode() {
   nsCOMPtr<nsIWidget> widget;
   nsCOMPtr<mozIDOMWindowProxy> navWin;
 
-  rv = winMediator->GetMostRecentWindow(u"navigator:browser",
-                                        getter_AddRefs(navWin));
+  rv = winMediator->GetMostRecentBrowserWindow(getter_AddRefs(navWin));
   if (NS_FAILED(rv) || !navWin) {
-    // Fall back to the hidden window
-    nsCOMPtr<nsIAppShellService> appShell(
-        do_GetService(NS_APPSHELLSERVICE_CONTRACTID));
-
-    rv = appShell->GetHiddenDOMWindow(getter_AddRefs(navWin));
-    if (NS_FAILED(rv) || !navWin) {
-      return;
-    }
+    return;
   }
 
   nsPIDOMWindowOuter* win = nsPIDOMWindowOuter::From(navWin);

@@ -11,6 +11,7 @@
 #include "mozilla/Maybe.h"
 #include "mozilla/Result.h"
 #include "mozilla/ResultVariant.h"
+#include "mozilla/TimeStamp.h"
 
 #include "nsTArray.h"
 
@@ -20,6 +21,7 @@
 #include "prtime.h"
 
 using mozilla::Preferences;
+using mozilla::TimeDuration;
 using namespace mozilla::glean;
 using namespace mozilla::glean::impl;
 
@@ -181,6 +183,7 @@ TEST_F(FOGFixture, TestCppMemoryDistWorks) {
   // Sum is in bytes, test_only::do_you_remember is in megabytes. So
   // multiplication ahoy!
   ASSERT_EQ(data.sum, 24UL * 1024 * 1024);
+  ASSERT_EQ(data.count, 2UL);
   for (const auto& entry : data.values) {
     const uint64_t bucket = entry.GetKey();
     const uint64_t count = entry.GetData();
@@ -196,6 +199,7 @@ TEST_F(FOGFixture, TestCppCustomDistWorks) {
   DistributionData data =
       test_only_ipc::a_custom_dist.TestGetValue("store1"_ns).unwrap().ref();
   ASSERT_EQ(data.sum, 7UL + 268435458);
+  ASSERT_EQ(data.count, 2UL);
   for (const auto& entry : data.values) {
     const uint64_t bucket = entry.GetKey();
     const uint64_t count = entry.GetData();
@@ -253,6 +257,10 @@ TEST_F(FOGFixture, TestCppTimingDistWorks) {
 
   DistributionData data =
       test_only::what_time_is_it.TestGetValue().unwrap().ref();
+
+  // Cancelled timers should not increase count.
+  ASSERT_EQ(data.count, 2UL);
+
   const uint64_t NANOS_IN_MILLIS = 1e6;
 
   // bug 1701847 - Sleeps don't necessarily round up as you'd expect.
@@ -269,6 +277,15 @@ TEST_F(FOGFixture, TestCppTimingDistWorks) {
     sampleCount += value;
   }
   ASSERT_EQ(sampleCount, (uint64_t)2);
+}
+
+TEST_F(FOGFixture, TestCppTimingDistNegativeDuration) {
+  // Intentionally a negative duration to test the error case.
+  auto negDuration = TimeDuration::FromSeconds(-1);
+  test_only::what_time_is_it.AccumulateRawDuration(negDuration);
+
+  ASSERT_EQ(mozilla::Nothing(),
+            test_only::what_time_is_it.TestGetValue().unwrap());
 }
 
 TEST_F(FOGFixture, TestLabeledBooleanWorks) {
@@ -345,6 +362,9 @@ TEST_F(FOGFixture, TestLabeledCounterWithLabelsWorks) {
   test_only::mabels_labeled_counters
       .EnumGet(test_only::MabelsLabeledCountersLabel::eClean)
       .Add(2);
+  test_only::mabels_labeled_counters
+      .EnumGet(test_only::MabelsLabeledCountersLabel::e1stCounter)
+      .Add(3);
   ASSERT_EQ(
       1, test_only::mabels_labeled_counters
              .EnumGet(test_only::MabelsLabeledCountersLabel::eNextToTheFridge)
@@ -353,6 +373,11 @@ TEST_F(FOGFixture, TestLabeledCounterWithLabelsWorks) {
              .ref());
   ASSERT_EQ(2, test_only::mabels_labeled_counters
                    .EnumGet(test_only::MabelsLabeledCountersLabel::eClean)
+                   .TestGetValue()
+                   .unwrap()
+                   .ref());
+  ASSERT_EQ(3, test_only::mabels_labeled_counters
+                   .EnumGet(test_only::MabelsLabeledCountersLabel::e1stCounter)
                    .TestGetValue()
                    .unwrap()
                    .ref());
@@ -461,6 +486,89 @@ TEST_F(FOGFixture, TestCppTextWorks) {
                    .unwrap()
                    .value()
                    .get());
+}
+
+TEST_F(FOGFixture, TestLabeledCustomDistributionWorks) {
+  ASSERT_EQ(mozilla::Nothing(),
+            test_only::mabels_custom_label_lengths.Get("officeSupplies"_ns)
+                .TestGetValue()
+                .unwrap());
+  test_only::mabels_custom_label_lengths.Get("officeSupplies"_ns)
+      .AccumulateSamples({7, 268435458});
+
+  DistributionData data =
+      test_only::mabels_custom_label_lengths.Get("officeSupplies"_ns)
+          .TestGetValue()
+          .unwrap()
+          .ref();
+  ASSERT_EQ(data.sum, 7UL + 268435458);
+  ASSERT_EQ(data.count, 2UL);
+  for (const auto& entry : data.values) {
+    const uint64_t bucket = entry.GetKey();
+    const uint64_t count = entry.GetData();
+    ASSERT_TRUE(count == 0 ||
+                (count == 1 && (bucket == 1 || bucket == 268435456)))
+    << "Only two occupied buckets";
+  }
+}
+
+TEST_F(FOGFixture, TestLabeledMemoryDistWorks) {
+  test_only::what_do_you_remember.Get("bittersweet"_ns).Accumulate(7);
+  test_only::what_do_you_remember.Get("bittersweet"_ns).Accumulate(17);
+
+  DistributionData data = test_only::what_do_you_remember.Get("bittersweet"_ns)
+                              .TestGetValue()
+                              .unwrap()
+                              .ref();
+  // Sum is in bytes, test_only::what_do_you_remember is in megabytes. So
+  // multiplication ahoy!
+  ASSERT_EQ(data.sum, 24UL * 1024 * 1024);
+  ASSERT_EQ(data.count, 2UL);
+  for (const auto& entry : data.values) {
+    const uint64_t bucket = entry.GetKey();
+    const uint64_t count = entry.GetData();
+    ASSERT_TRUE(count == 0 ||
+                (count == 1 && (bucket == 17520006 || bucket == 7053950)))
+    << "Only two occupied buckets";
+  }
+}
+
+TEST_F(FOGFixture, TestLabeledTimingDistWorks) {
+  auto id1 = test_only::where_has_the_time_gone.Get("UTC"_ns).Start();
+  auto id2 = test_only::where_has_the_time_gone.Get("UTC"_ns).Start();
+  PR_Sleep(PR_MillisecondsToInterval(5));
+  auto id3 = test_only::where_has_the_time_gone.Get("UTC"_ns).Start();
+  test_only::where_has_the_time_gone.Get("UTC"_ns).Cancel(std::move(id1));
+  PR_Sleep(PR_MillisecondsToInterval(5));
+  test_only::where_has_the_time_gone.Get("UTC"_ns).StopAndAccumulate(
+      std::move(id2));
+  test_only::where_has_the_time_gone.Get("UTC"_ns).StopAndAccumulate(
+      std::move(id3));
+
+  DistributionData data = test_only::where_has_the_time_gone.Get("UTC"_ns)
+                              .TestGetValue()
+                              .unwrap()
+                              .ref();
+
+  // Cancelled timers should not increase count.
+  ASSERT_EQ(data.count, 2UL);
+
+  const uint64_t NANOS_IN_MILLIS = 1e6;
+
+  // bug 1701847 - Sleeps don't necessarily round up as you'd expect.
+  // Give ourselves a 200000ns (0.2ms) window to be off on fast machines.
+  const uint64_t EPSILON = 200000;
+
+  // We don't know exactly how long those sleeps took, only that it was at
+  // least 15ms total.
+  ASSERT_GT(data.sum, (uint64_t)(15 * NANOS_IN_MILLIS) - EPSILON);
+
+  // We also can't guarantee the buckets, but we can guarantee two samples.
+  uint64_t sampleCount = 0;
+  for (const auto& value : data.values.Values()) {
+    sampleCount += value;
+  }
+  ASSERT_EQ(sampleCount, (uint64_t)2);
 }
 
 extern "C" void Rust_TestRustInGTest();

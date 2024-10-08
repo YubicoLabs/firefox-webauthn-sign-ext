@@ -8,6 +8,15 @@ Releases
    :glob:
    :hidden:
 
+   nss_3_104.rst
+   nss_3_103.rst
+   nss_3_102_1.rst
+   nss_3_102.rst
+   nss_3_101.2.rst
+   nss_3_101_1.rst
+   nss_3_101.rst
+   nss_3_100.rst
+   nss_3_99.rst
    nss_3_98.rst
    nss_3_97.rst
    nss_3_96_1.rst
@@ -16,8 +25,12 @@ Releases
    nss_3_94.rst
    nss_3_93.rst
    nss_3_92.rst
-   nss_3_91_0.rst
-   nss_3_90_0.rst
+   nss_3_91.rst
+   nss_3_90_4.rst
+   nss_3_90_3.rst
+   nss_3_90_2.rst
+   nss_3_90_1.rst
+   nss_3_90.rst
    nss_3_89_1.rst
    nss_3_89.rst
    nss_3_88_1.rst
@@ -63,37 +76,44 @@ Releases
 
 .. note::
 
-   **NSS 3.98** is the latest version of NSS.
-   Complete release notes are available here: :ref:`mozilla_projects_nss_nss_3_98_release_notes`
+   **NSS 3.104** is the latest version of NSS.
+   Complete release notes are available here: :ref:`mozilla_projects_nss_nss_3_104_release_notes`
 
-   **NSS 3.90.2 (ESR)** is the latest version of NSS.
-   Complete release notes are available here: :ref:`mozilla_projects_nss_nss_3_90_2_release_notes`
+   **NSS 3.101.2 (ESR)** is the latest ESR version of NSS.
+   Complete release notes are available here: :ref:`mozilla_projects_nss_nss_3_101_1_release_notes`
 
 .. container::
 
-   Changes in 3.98 included in this release:
+   Changes in 3.104 included in this release:
 
-  - Bug 1780432 - (CVE-2023-5388) Timing attack against RSA decryption in TLS.
-  - Bug 1879513 - Certificate Compression: enabling the check that the compression was advertised.
-  - Bug 1831552 - Move Windows workers to nss-1/b-win2022-alpha.
-  - Bug 1879945 - Remove Email trust bit from OISTE WISeKey Global Root GC CA.
-  - Bug 1877344 - Replace `distutils.spawn.find_executable` with `shutil.which` within `mach` in `nss`.
-  - Bug 1548723 - Certificate Compression: Updating nss_bogo_shim to support Certificate compression.
-  - Bug 1548723 - TLS Certificate Compression (RFC 8879) Implementation.
-  - Bug 1875356 - Add valgrind annotations to freebl kyber operations for constant-time execution tests.
-  - Bug 1870673 - Set nssckbi version number to 2.66.
-  - Bug 1874017 - Add Telekom Security roots.
-  - Bug 1873095 - Add D-Trust 2022 S/MIME roots.
-  - Bug 1865450 - Remove expired Security Communication RootCA1 root.
-  - Bug 1876179 - move keys to a slot that supports concatenation in PK11_ConcatSymKeys.
-  - Bug 1876800 - remove unmaintained tls-interop tests.
-  - Bug 1874937 - bogo: add support for the -ipv6 and -shim-id shim flags.
-  - Bug 1874937 - bogo: add support for the -curves shim flag and update Kyber expectations.
-  - Bug 1874937 - bogo: adjust expectation for a key usage bit test.
-  - Bug 1757758 - mozpkix: add option to ignore invalid subject alternative names.
-  - Bug 1841029 - Fix selfserv not stripping `publicname:` from -X value.
-  - Bug 1876390 - take ownership of ecckilla shims.
-  - Bug 1874458 - add valgrind annotations to freebl/ec.c.
-  - Bug  864039 - PR_INADDR_ANY needs PR_htonl before assignment to inet.ip.
-  - Bug 1875965 - Update zlib to 1.3.1.
+   - Bug 1910071 - Copy original corpus to heap-allocated buffer
+   - Bug 1910079 - Fix min ssl version for DTLS client fuzzer
+   - Bug 1908990 - Remove OS2 support just like we did on NSPR
+   - Bug 1910605 - clang-format NSS improvements
+   - Bug 1902078 - Adding basicutil.h to use HexString2SECItem function
+   - Bug 1908990 - removing dirent.c from build
+   - Bug 1902078 - Allow handing in keymaterial to shlibsign to make the output reproducible (
+   - Bug 1908990 - remove nec4.3, sunos4, riscos and SNI references
+   - Bug 1908990 - remove other old OS (BSDI, old HP UX, NCR, openunix, sco, unixware or reliantUnix
+   - Bug 1908990 - remove mentions of WIN95
+   - Bug 1908990 - remove mentions of WIN16
+   - Bug 1913750 - More explicit directory naming
+   - Bug 1913755 - Add more options to TLS server fuzz target
+   - Bug 1913675 - Add more options to TLS client fuzz target
+   - Bug 1835240 - Use OSS-Fuzz corpus in NSS CI
+   - Bug 1908012 - set nssckbi version number to 2.70.
+   - Bug 1914499 - Remove Email Trust bit from ACCVRAIZ1 root cert.
+   - Bug 1908009 - Remove Email Trust bit from certSIGN ROOT CA.
+   - Bug 1908006 - Add Cybertrust Japan Roots to NSS.
+   - Bug 1908004 - Add Taiwan CA Roots to NSS.
+   - Bug 1911354 - remove search by decoded serial in nssToken_FindCertificateByIssuerAndSerialNumber.
+   - Bug 1913132 - Fix tstclnt CI build failure
+   - Bug 1913047 - vfyserv: ensure peer cert chain is in db for CERT_VerifyCertificateNow.
+   - Bug 1912427 - Enable all supported protocol versions for UDP
+   - Bug 1910361 - Actually use random PSK hash type
+   - Bug 1911576: Initialize NSS DB once
+   - Bug 1910361 - Additional ECH cipher suites and PSK hash types
+   - Bug 1903604: Automate corpus file generation for TLS client Fuzzer
+   - Bug 1910364 - Fix crash with UNSAFE_FUZZER_MODE
+   - Bug 1910605 - clang-format shlibsign.c
 

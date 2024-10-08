@@ -13,22 +13,28 @@
 
 #include "absl/types/optional.h"
 #include "api/array_view.h"
+#include "rtc_base/system/rtc_export.h"
 
 namespace webrtc {
 
 // A class for parsing out video parameter set (VPS) data from an H265 NALU.
-class H265VpsParser {
+class RTC_EXPORT H265VpsParser {
  public:
   // The parsed state of the VPS. Only some select values are stored.
   // Add more as they are actually needed.
-  struct VpsState {
+  struct RTC_EXPORT VpsState {
     VpsState();
 
     uint32_t id = 0;
   };
 
   // Unpack RBSP and parse VPS state from the supplied buffer.
-  static absl::optional<VpsState> ParseVps(const uint8_t* data, size_t length);
+  static absl::optional<VpsState> ParseVps(rtc::ArrayView<const uint8_t> data);
+  // TODO: bugs.webrtc.org/42225170 - Deprecate.
+  static inline absl::optional<VpsState> ParseVps(const uint8_t* data,
+                                                  size_t length) {
+    return ParseVps(rtc::MakeArrayView(data, length));
+  }
 
  protected:
   // Parse the VPS state, for a bit buffer where RBSP decoding has already been

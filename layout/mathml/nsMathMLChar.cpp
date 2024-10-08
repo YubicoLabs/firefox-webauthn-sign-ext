@@ -624,7 +624,7 @@ static nsresult InitCharGlobals() {
 
   // Allocate the placeholders for the preferred parts and variants
   nsresult rv = NS_ERROR_OUT_OF_MEMORY;
-  RefPtr<nsGlyphTableList> glyphTableList = new nsGlyphTableList();
+  auto glyphTableList = MakeRefPtr<nsGlyphTableList>();
   if (glyphTableList) {
     rv = glyphTableList->Initialize();
   }
@@ -1193,8 +1193,7 @@ bool nsMathMLChar::StretchEnumContext::TryParts(
     int32_t i;
     // Try and find the first existing part and then determine the extremal
     // horizontal metrics of the parts.
-    for (i = 0; i <= 3 && !textRun[i]; i++)
-      ;
+    for (i = 0; i <= 3 && !textRun[i]; i++);
     if (i == 4) {
       NS_ERROR("Cannot stretch - All parts missing");
       return false;
@@ -1227,8 +1226,7 @@ bool nsMathMLChar::StretchEnumContext::TryParts(
     int32_t i;
     // Try and find the first existing part and then determine the extremal
     // vertical metrics of the parts.
-    for (i = 0; i <= 3 && !textRun[i]; i++)
-      ;
+    for (i = 0; i <= 3 && !textRun[i]; i++);
     if (i == 4) {
       NS_ERROR("Cannot stretch - All parts missing");
       return false;
@@ -1811,12 +1809,6 @@ void nsMathMLChar::Display(nsDisplayListBuilder* aBuilder, nsIFrame* aForFrame,
   if (isSelected) {
     aLists.BorderBackground()->AppendNewToTop<nsDisplayMathMLSelectionRect>(
         aBuilder, aForFrame, *aSelectedRect);
-  } else if (mRect.width && mRect.height) {
-#if defined(DEBUG) && defined(SHOW_BOUNDING_BOX)
-    // for visual debug
-    aLists.BorderBackground()->AppendNewToTop<nsDisplayMathMLCharDebug>(
-        aBuilder, aForFrame, mRect);
-#endif
   }
   aLists.Content()->AppendNewToTopWithIndex<nsDisplayMathMLCharForeground>(
       aBuilder, aForFrame, aIndex, this, isSelected);

@@ -7,7 +7,7 @@
 use std::{cell::RefCell, mem, rc::Rc};
 
 use neqo_common::event::Provider;
-use test_fixture::{self, now};
+use test_fixture::now;
 
 use super::{
     super::{Connection, Error, Output},
@@ -370,7 +370,7 @@ fn low() {
     let validation = Rc::new(RefCell::new(
         AddressValidation::new(now, ValidateAddress::Never).unwrap(),
     ));
-    server.set_validation(Rc::clone(&validation));
+    server.set_validation(&validation);
     connect(&mut client, &mut server);
 
     let id = server.stream_create(StreamType::UniDi).unwrap();
@@ -386,7 +386,7 @@ fn low() {
     // Send a session ticket and make it big enough to require a whole packet.
     // The resulting CRYPTO frame beats out the stream data.
     let stats_before = server.stats().frame_tx;
-    server.send_ticket(now, &[0; 2048]).unwrap();
+    server.send_ticket(now, &vec![0; server.plpmtu()]).unwrap();
     mem::drop(server.process_output(now));
     let stats_after = server.stats().frame_tx;
     assert_eq!(stats_after.crypto, stats_before.crypto + 1);

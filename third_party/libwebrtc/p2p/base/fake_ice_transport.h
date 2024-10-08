@@ -24,7 +24,9 @@
 #include "api/units/time_delta.h"
 #include "p2p/base/ice_transport_internal.h"
 #include "rtc_base/copy_on_write_buffer.h"
+#include "rtc_base/network/received_packet.h"
 #include "rtc_base/task_queue_for_test.h"
+#include "rtc_base/time_utils.h"
 
 namespace cricket {
 using ::webrtc::SafeTask;
@@ -124,7 +126,7 @@ class FakeIceTransport : public IceTransportInternal {
     RTC_DCHECK_RUN_ON(network_thread_);
     if (gathering_state_ != kIceGatheringComplete) {
       gathering_state_ = kIceGatheringComplete;
-      SignalGatheringState(this);
+      SendGatheringStateEvent();
     }
   }
 
@@ -145,10 +147,6 @@ class FakeIceTransport : public IceTransportInternal {
   // Fake IceTransportInternal implementation.
   const std::string& transport_name() const override { return name_; }
   int component() const override { return component_; }
-  uint64_t IceTiebreaker() const {
-    RTC_DCHECK_RUN_ON(network_thread_);
-    return tiebreaker_;
-  }
   IceMode remote_ice_mode() const {
     RTC_DCHECK_RUN_ON(network_thread_);
     return remote_ice_mode_;
@@ -210,10 +208,6 @@ class FakeIceTransport : public IceTransportInternal {
     RTC_DCHECK_RUN_ON(network_thread_);
     return role_;
   }
-  void SetIceTiebreaker(uint64_t tiebreaker) override {
-    RTC_DCHECK_RUN_ON(network_thread_);
-    tiebreaker_ = tiebreaker;
-  }
   void SetIceParameters(const IceParameters& ice_params) override {
     RTC_DCHECK_RUN_ON(network_thread_);
     ice_parameters_ = ice_params;
@@ -232,7 +226,7 @@ class FakeIceTransport : public IceTransportInternal {
     RTC_DCHECK_RUN_ON(network_thread_);
     if (gathering_state_ == kIceGatheringNew) {
       gathering_state_ = kIceGatheringGathering;
-      SignalGatheringState(this);
+      SendGatheringStateEvent();
     }
   }
 
@@ -391,8 +385,8 @@ class FakeIceTransport : public IceTransportInternal {
       RTC_EXCLUSIVE_LOCKS_REQUIRED(network_thread_) {
     if (dest_) {
       last_sent_packet_ = packet;
-      dest_->SignalReadPacket(dest_, packet.data<char>(), packet.size(),
-                              rtc::TimeMicros(), 0);
+      dest_->NotifyPacketReceived(rtc::ReceivedPacket::CreateFromLegacy(
+          packet.data(), packet.size(), rtc::TimeMicros()));
     }
   }
 
@@ -404,7 +398,6 @@ class FakeIceTransport : public IceTransportInternal {
   Candidates remote_candidates_ RTC_GUARDED_BY(network_thread_);
   IceConfig ice_config_ RTC_GUARDED_BY(network_thread_);
   IceRole role_ RTC_GUARDED_BY(network_thread_) = ICEROLE_UNKNOWN;
-  uint64_t tiebreaker_ RTC_GUARDED_BY(network_thread_) = 0;
   IceParameters ice_parameters_ RTC_GUARDED_BY(network_thread_);
   IceParameters remote_ice_parameters_ RTC_GUARDED_BY(network_thread_);
   IceMode remote_ice_mode_ RTC_GUARDED_BY(network_thread_) = ICEMODE_FULL;

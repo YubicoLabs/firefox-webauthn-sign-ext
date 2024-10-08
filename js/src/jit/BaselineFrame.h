@@ -109,7 +109,9 @@ class BaselineFrame {
   bool isConstructing() const {
     return CalleeTokenIsConstructing(calleeToken());
   }
-  JSScript* script() const { return ScriptFromCalleeToken(calleeToken()); }
+  JSScript* script() const {
+    return MaybeForwardedScriptFromCalleeToken(calleeToken());
+  }
   JSFunction* callee() const { return CalleeTokenToFunction(calleeToken()); }
   Value calleev() const { return ObjectValue(*callee()); }
 
@@ -314,6 +316,10 @@ class BaselineFrame {
   [[nodiscard]] bool pushClassBodyEnvironment(JSContext* cx,
                                               Handle<ClassBodyScope*> scope);
   [[nodiscard]] bool pushVarEnvironment(JSContext* cx, Handle<Scope*> scope);
+
+#ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT
+  [[nodiscard]] ArrayObject* getOrCreateDisposeCapability(JSContext* cx);
+#endif
 
   void initArgsObjUnchecked(ArgumentsObject& argsobj) {
     flags_ |= HAS_ARGS_OBJ;

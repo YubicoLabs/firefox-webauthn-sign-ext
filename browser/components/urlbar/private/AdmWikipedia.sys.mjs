@@ -135,7 +135,7 @@ export class AdmWikipedia extends BaseFeature {
     this.#suggestionsMap = suggestionsMap;
   }
 
-  makeResult(queryContext, suggestion, searchString) {
+  makeResult(queryContext, suggestion) {
     let originalUrl;
     if (suggestion.source == "rust") {
       // The Rust backend defines `rawUrl` on AMP suggestions, and its value is
@@ -178,10 +178,6 @@ export class AdmWikipedia extends BaseFeature {
       originalUrl,
       url: suggestion.url,
       title: suggestion.title,
-      qsSuggestion: [
-        suggestion.full_keyword,
-        lazy.UrlbarUtils.HIGHLIGHT.SUGGESTED,
-      ],
       isSponsored: suggestion.is_sponsored,
       requestId: suggestion.request_id,
       urlTimestampIndex: suggestion.urlTimestampIndex,
@@ -190,15 +186,27 @@ export class AdmWikipedia extends BaseFeature {
       sponsoredBlockId: suggestion.block_id,
       sponsoredAdvertiser: suggestion.advertiser,
       sponsoredIabCategory: suggestion.iab_category,
-      helpUrl: lazy.QuickSuggest.HELP_URL,
-      helpL10n: {
-        id: "urlbar-result-menu-learn-more-about-firefox-suggest",
-      },
       isBlockable: true,
       blockL10n: {
         id: "urlbar-result-menu-dismiss-firefox-suggest",
       },
+      isManageable: true,
     };
+
+    let isAmpTopPick =
+      suggestion.is_sponsored &&
+      lazy.UrlbarPrefs.get("quickSuggestAmpTopPickCharThreshold") &&
+      (lazy.UrlbarPrefs.get("quickSuggestAmpTopPickCharThreshold") <=
+        queryContext.trimmedLowerCaseSearchString.length ||
+        suggestion.full_keyword.trim().toLocaleLowerCase() ==
+          queryContext.trimmedLowerCaseSearchString);
+
+    payload.qsSuggestion = [
+      suggestion.full_keyword,
+      isAmpTopPick
+        ? lazy.UrlbarUtils.HIGHLIGHT.TYPED
+        : lazy.UrlbarUtils.HIGHLIGHT.SUGGESTED,
+    ];
 
     let result = new lazy.UrlbarResult(
       lazy.UrlbarUtils.RESULT_TYPE.URL,
@@ -210,14 +218,21 @@ export class AdmWikipedia extends BaseFeature {
     );
 
     if (suggestion.is_sponsored) {
-      if (!lazy.UrlbarPrefs.get("quickSuggestSponsoredPriority")) {
-        result.richSuggestionIconSize = 16;
-      }
-
-      result.payload.descriptionL10n = {
-        id: "urlbar-result-action-sponsored",
-      };
       result.isRichSuggestion = true;
+      if (isAmpTopPick) {
+        result.isBestMatch = true;
+        result.suggestedIndex = 1;
+      } else {
+        if (lazy.UrlbarPrefs.get("quickSuggestSponsoredPriority")) {
+          result.isBestMatch = true;
+          result.suggestedIndex = 1;
+        } else {
+          result.richSuggestionIconSize = 16;
+        }
+        result.payload.descriptionL10n = {
+          id: "urlbar-result-action-sponsored",
+        };
+      }
     }
 
     return result;
@@ -281,6 +296,8 @@ export class AdmWikipedia extends BaseFeature {
    *
    * @param {string} path
    *   The icon's remote settings path.
+   * @returns {string}
+   *   The absolute file path to the downloaded attachment.
    */
   async #fetchIcon(path) {
     if (!path) {

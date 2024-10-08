@@ -16,7 +16,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#if defined(__cplusplus) || defined(c_plusplus)
+#ifdef __cplusplus
 extern "C" {
 #endif
 
@@ -33,6 +33,8 @@ extern "C" {
 #define JXL_FALSE 0
 /** Converts of bool-like value to either ::JXL_TRUE or ::JXL_FALSE. */
 #define TO_JXL_BOOL(C) (!!(C) ? JXL_TRUE : JXL_FALSE)
+/** Converts JXL_BOOL to C++ bool. */
+#define FROM_JXL_BOOL(C) (static_cast<bool>(C))
 
 /** Data type for the sample values per channel per pixel.
  */
@@ -143,7 +145,7 @@ typedef struct {
  */
 typedef char JxlBoxType[4];
 
-#if defined(__cplusplus) || defined(c_plusplus)
+#ifdef __cplusplus
 }
 #endif
 

@@ -14,7 +14,7 @@ import { createPendingSelectedLocation } from "../utils/location";
 export const UNDEFINED_LOCATION = Symbol("Undefined location");
 export const NO_LOCATION = Symbol("No location");
 
-export function initialSourcesState(state) {
+export function initialSourcesState() {
   /* eslint sort-keys: "error" */
   return {
     /**
@@ -44,13 +44,6 @@ export function initialSourcesState(state) {
      * Map(source id => array<Original Source ID>)
      */
     mutableOriginalSources: new Map(),
-
-    /**
-     * List of override objects whose sources texts have been locally overridden.
-     *
-     * Object { sourceUrl, path }
-     */
-    mutableOverrideSources: state?.mutableOverrideSources || new Map(),
 
     /**
      * Mapping of source id's to one or more source-actor's.
@@ -110,6 +103,13 @@ export function initialSourcesState(state) {
     selectedOriginalLocation: UNDEFINED_LOCATION,
 
     /**
+     * By default, the `selectedLocation` should be highlighted in the editor with a special background.
+     * On demand, this flag can be set to false in order to prevent this.
+     * The location will be shown, but not highlighted.
+     */
+    shouldHighlightSelectedLocation: true,
+
+    /**
      * By default, if we have a source-mapped source, we would automatically try
      * to select and show the content of the original source. But, if we explicitly
      * select a generated source, we remember this choice. That, until we explicitly
@@ -149,6 +149,8 @@ function update(state = initialSourcesState(), action) {
         selectedOriginalLocation: UNDEFINED_LOCATION,
         pendingSelectedLocation,
         shouldSelectOriginalLocation: action.shouldSelectOriginalLocation,
+        shouldHighlightSelectedLocation: action.shouldHighlightSelectedLocation,
+        shouldScrollToSelectedLocation: action.shouldScrollToSelectedLocation,
       };
     }
 
@@ -227,18 +229,6 @@ function update(state = initialSourcesState(), action) {
 
     case "REMOVE_THREAD": {
       return removeSourcesAndActors(state, action);
-    }
-
-    case "SET_OVERRIDE": {
-      state.mutableOverrideSources.set(action.url, action.path);
-      return state;
-    }
-
-    case "REMOVE_OVERRIDE": {
-      if (state.mutableOverrideSources.has(action.url)) {
-        state.mutableOverrideSources.delete(action.url);
-      }
-      return state;
     }
   }
 

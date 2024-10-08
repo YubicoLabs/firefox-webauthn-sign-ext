@@ -9,7 +9,7 @@
  */
 
 const EventEmitter = require("devtools/shared/event-emitter");
-const { getCSSLexer } = require("devtools/shared/css/lexer");
+const { InspectorCSSParserWrapper } = require("devtools/shared/css/lexer");
 const { throttle } = require("devtools/shared/throttle");
 const XHTML_NS = "http://www.w3.org/1999/xhtml";
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -43,9 +43,14 @@ class LinearEasingFunctionWidget extends EventEmitter {
     this.parent = parent;
     this.#initMarkup();
 
-    this.#svgEl.addEventListener("mousedown", this.#onMouseDown.bind(this), {
-      signal: this.#abortController.signal,
-    });
+    this.#svgEl.addEventListener(
+      "pointerdown",
+      this.#onPointerDown.bind(this),
+      {
+        signal: this.#abortController.signal,
+        passive: true,
+      }
+    );
     this.#svgEl.addEventListener("dblclick", this.#onDoubleClick.bind(this), {
       signal: this.#abortController.signal,
     });
@@ -179,12 +184,15 @@ class LinearEasingFunctionWidget extends EventEmitter {
   }
 
   /**
-   * Handle mousedown event on the svg
+   * Handle pointerdown event on the svg
    *
-   * @param {MouseEvent} event
+   * @param {PointerEvent} event
    */
-  #onMouseDown(event) {
+  #onPointerDown(event) {
     if (
+      // We want to handle a drag during a mouse button is pressed.  So, we can
+      // ignore pointer events which are caused by other devices.
+      event.pointerType != "mouse" ||
       !event.target.classList.contains(
         LinearEasingFunctionWidget.CONTROL_POINTS_CLASSNAME
       )
@@ -196,14 +204,20 @@ class LinearEasingFunctionWidget extends EventEmitter {
     this.#draggedEl.setPointerCapture(event.pointerId);
 
     this.#dragAbortController = new AbortController();
+    // Note that "pointermove" is also fired when the button state is changed.
+    // Therefore, we should listen to "mousemove".
     this.#draggedEl.addEventListener(
       "mousemove",
       this.#onMouseMove.bind(this),
       { signal: this.#dragAbortController.signal }
     );
-    this.#draggedEl.addEventListener("mouseup", this.#onMouseUp.bind(this), {
-      signal: this.#dragAbortController.signal,
-    });
+    this.#draggedEl.addEventListener(
+      "pointerup",
+      this.#onPointerUp.bind(this),
+      {
+        signal: this.#dragAbortController.signal,
+      }
+    );
   }
 
   /**
@@ -255,13 +269,10 @@ class LinearEasingFunctionWidget extends EventEmitter {
   }, 20);
 
   /**
-   * Handle mouseup event on a control point. Only active when there's a control point
+   * Handle pointerup event on a control point. Only active when there's a control point
    * being dragged.
-   *
-   * @param {MouseEvent} event
    */
-  #onMouseUp(event) {
-    this.#draggedEl.releasePointerCapture(event.pointerId);
+  #onPointerUp() {
     this.#draggedEl = null;
     this.#dragAbortController.abort();
     this.#dragAbortController = null;
@@ -578,13 +589,13 @@ class TimingFunctionPreviewWidget {
  */
 function parseTimingFunction(value) {
   value = value.trim();
-  const tokenStream = getCSSLexer(value);
+  const tokenStream = new InspectorCSSParserWrapper(value);
   const getNextToken = () => {
     while (true) {
       const token = tokenStream.nextToken();
       if (
         !token ||
-        (token.tokenType !== "whitespace" && token.tokenType !== "comment")
+        (token.tokenType !== "WhiteSpace" && token.tokenType !== "Comment")
       ) {
         return token;
       }
@@ -592,7 +603,7 @@ function parseTimingFunction(value) {
   };
 
   let token = getNextToken();
-  if (!token || token.tokenType !== "function" || token.text !== "linear") {
+  if (!token || token.tokenType !== "Function" || token.value !== "linear") {
     return undefined;
   }
 
@@ -601,11 +612,11 @@ function parseTimingFunction(value) {
   let largestInput = -Infinity;
 
   while ((token = getNextToken())) {
-    if (token.text === ")") {
+    if (token.tokenType === "CloseParenthesis") {
       break;
     }
 
-    if (token.tokenType === "number") {
+    if (token.tokenType === "Number") {
       // [parsing step 4.1]
       const point = { input: null, output: token.number };
       // [parsing step 4.2]
@@ -614,7 +625,7 @@ function parseTimingFunction(value) {
       // get nextToken to see if there's a linear stop length
       token = getNextToken();
       // [parsing step 4.3]
-      if (token && token.tokenType === "percentage") {
+      if (token && token.tokenType === "Percentage") {
         // [parsing step 4.3.1]
         point.input = Math.max(token.number, largestInput);
         // [parsing step 4.3.2]
@@ -624,7 +635,7 @@ function parseTimingFunction(value) {
         token = getNextToken();
 
         // [parsing step 4.3.3]
-        if (token && token.tokenType === "percentage") {
+        if (token && token.tokenType === "Percentage") {
           // [parsing step 4.3.3.1]
           const extraPoint = { input: null, output: point.output };
           // [parsing step 4.3.3.2]

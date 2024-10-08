@@ -9,6 +9,10 @@ const { UrlClassifierTestUtils } = ChromeUtils.importESModule(
   "resource://testing-common/UrlClassifierTestUtils.sys.mjs"
 );
 
+const { ReportBrokenSite } = ChromeUtils.importESModule(
+  "resource:///modules/ReportBrokenSite.sys.mjs"
+);
+
 const BASE_URL =
   "https://example.com/browser/browser/components/reportbrokensite/test/browser/";
 
@@ -27,14 +31,20 @@ const PREFS = {
   SEND_MORE_INFO: "ui.new-webcompat-reporter.send-more-info-link",
   NEW_REPORT_ENDPOINT: "ui.new-webcompat-reporter.new-report-endpoint",
   REPORT_SITE_ISSUE_ENABLED: "extensions.webcompat-reporter.enabled",
-  PREFERS_CONTRAST_ENABLED: "layout.css.prefers-contrast.enabled",
+  TOUCH_EVENTS: "dom.w3c_touch_events.enabled",
   USE_ACCESSIBILITY_THEME: "ui.useAccessibilityTheme",
 };
 
 function add_common_setup() {
   add_setup(async function () {
     await SpecialPowers.pushPrefEnv({
-      set: [[PREFS.NEW_REPORT_ENDPOINT, NEW_REPORT_ENDPOINT_TEST_URL]],
+      set: [
+        [PREFS.NEW_REPORT_ENDPOINT, NEW_REPORT_ENDPOINT_TEST_URL],
+
+        // set touch events to auto-detect, as the pref gets set to 1 somewhere
+        // while tests are running, making hasTouchScreen checks unreliable.
+        [PREFS.TOUCH_EVENTS, 2],
+      ],
     });
     registerCleanupFunction(function () {
       for (const prefName of Object.values(PREFS)) {
@@ -551,11 +561,17 @@ class MenuHelper {
     return true;
   }
 
-  get reportBrokenSite() {}
+  get reportBrokenSite() {
+    throw new Error("Should be defined in derived class");
+  }
 
-  get reportSiteIssue() {}
+  get reportSiteIssue() {
+    throw new Error("Should be defined in derived class");
+  }
 
-  get popup() {}
+  get popup() {
+    throw new Error("Should be defined in derived class");
+  }
 
   get opened() {
     return this.popup?.hasAttribute("panelopen");
@@ -820,7 +836,7 @@ async function tabTo(match, win = window) {
   return undefined;
 }
 
-async function setupStrictETP(fn) {
+async function setupStrictETP() {
   await UrlClassifierTestUtils.addTestTrackers();
   registerCleanupFunction(() => {
     UrlClassifierTestUtils.cleanupTestTrackers();

@@ -13,7 +13,7 @@ import {
   actionCreators as ac,
   actionTypes as at,
   actionUtils as au,
-} from "resource://activity-stream/common/Actions.sys.mjs";
+} from "resource://activity-stream/common/Actions.mjs";
 
 const ABOUT_NEW_TAB_URL = "about:newtab";
 
@@ -67,7 +67,7 @@ export class ActivityStreamMessageChannel {
    * @param  {object} store A redux store
    * @return {function} Redux middleware
    */
-  middleware(store) {
+  middleware() {
     return next => action => {
       const skipMain = action.meta && action.meta.skipMain;
       if (au.isSendToOneContent(action)) {

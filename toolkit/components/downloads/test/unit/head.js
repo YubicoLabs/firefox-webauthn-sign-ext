@@ -275,6 +275,16 @@ function promiseStartLegacyDownload(aSourceUrl, aOptions) {
     mimeInfo.preferredApplicationHandler = localHandlerApp;
     mimeInfo.preferredAction = Ci.nsIMIMEInfo.useHelperApp;
   }
+  if (aOptions && aOptions.launcherId) {
+    Assert.ok(mimeInfo != null);
+
+    let gioHandlerApp = Cc["@mozilla.org/gio-service;1"]
+      .getService(Ci.nsIGIOService)
+      .createHandlerAppFromAppId(aOptions.launcherId);
+
+    mimeInfo.preferredApplicationHandler = gioHandlerApp;
+    mimeInfo.preferredAction = Ci.nsIMIMEInfo.useHelperApp;
+  }
 
   if (aOptions && aOptions.launchWhenSucceeded) {
     Assert.ok(mimeInfo != null);
@@ -718,7 +728,7 @@ async function promiseBlockedDownload({
   useLegacySaver,
   verdict = Downloads.Error.BLOCK_VERDICT_UNCOMMON,
 } = {}) {
-  let blockFn = base => ({
+  let blockFn = () => ({
     shouldBlockForReputationCheck: () =>
       Promise.resolve({
         shouldBlock: true,
@@ -1159,13 +1169,7 @@ add_setup(function test_common_initialize() {
   // saved to disk without asking for a destination interactively.
   let mock = {
     QueryInterface: ChromeUtils.generateQI(["nsIHelperAppLauncherDialog"]),
-    promptForSaveToFileAsync(
-      aLauncher,
-      aWindowContext,
-      aDefaultFileName,
-      aSuggestedFileExtension,
-      aForcePrompt
-    ) {
+    promptForSaveToFileAsync(aLauncher) {
       // The dialog should create the empty placeholder file.
       let file = getTempFile(TEST_TARGET_FILE_NAME);
       file.create(Ci.nsIFile.NORMAL_FILE_TYPE, FileUtils.PERMS_FILE);

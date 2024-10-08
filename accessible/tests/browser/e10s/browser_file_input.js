@@ -34,7 +34,7 @@ addAccessibleTask(
     function chooseFile(id) {
       return invokeContentTask(browser, [id], contentId => {
         const MockFilePicker = content.SpecialPowers.MockFilePicker;
-        MockFilePicker.init(content);
+        MockFilePicker.init(content.browsingContext);
         MockFilePicker.useBlobFile();
         MockFilePicker.returnValue = MockFilePicker.returnOK;
         const input = content.document.getElementById(contentId);
@@ -48,7 +48,14 @@ addAccessibleTask(
             { once: true }
           )
         );
+
+        // Activate the page to allow opening the file picker.
+        content.SpecialPowers.wrap(
+          content.document
+        ).notifyUserGestureActivation();
+
         input.click();
+
         return inputReceived;
       });
     }

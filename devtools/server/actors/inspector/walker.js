@@ -327,7 +327,7 @@ class WalkerActor extends Actor {
         const mutation = {
           type: "events",
           target: actor.actorID,
-          hasEventListeners: actor._hasEventListeners,
+          hasEventListeners: actor.hasEventListeners(/* refreshCache */ true),
         };
         this.queueMutation(mutation);
       }
@@ -339,6 +339,10 @@ class WalkerActor extends Actor {
     return {
       actor: this.actorID,
       root: this.rootNode.form(),
+      rfpCSSColorScheme: ChromeUtils.shouldResistFingerprinting(
+        "CSSPrefersColorScheme",
+        null
+      ),
       traits: {},
     };
   }
@@ -347,14 +351,16 @@ class WalkerActor extends Actor {
     return "[WalkerActor " + this.actorID + "]";
   }
 
-  getDocumentWalker(node, skipTo) {
-    // Allow native anon content (like <video> controls) if preffed on
-    const filter = this.showAllAnonymousContent
+  getDocumentWalkerFilter() {
+    // Allow native anonymous content (like <video> controls) if preffed on
+    return this.showAllAnonymousContent
       ? allAnonymousContentTreeWalkerFilter
       : standardTreeWalkerFilter;
+  }
 
+  getDocumentWalker(node, skipTo) {
     return new DocumentWalker(node, this.rootWin, {
-      filter,
+      filter: this.getDocumentWalkerFilter(),
       skipTo,
       showAnonymousContent: true,
     });
@@ -380,7 +386,6 @@ class WalkerActor extends Actor {
       this.layoutHelpers = null;
       this._orphaned = null;
       this._retainedOrphans = null;
-      this._nodeActorsMap = null;
 
       this.targetActor.off("will-navigate", this.onFrameUnload);
       this.targetActor.off("window-ready", this.onFrameLoad);
@@ -429,6 +434,9 @@ class WalkerActor extends Actor {
         this._onEventListenerChange
       );
 
+      // Only nullify some key attributes after having removed all the listeners
+      // as they may still be used in the related listeners.
+      this._nodeActorsMap = null;
       this.onMutations = null;
 
       this.layoutActor = null;
@@ -522,7 +530,7 @@ class WalkerActor extends Actor {
    * When a custom element is defined, send a customElementDefined mutation for all the
    * NodeActors using this tag name.
    */
-  onCustomElementDefined({ name, actors }) {
+  onCustomElementDefined({ actors }) {
     actors.forEach(actor =>
       this.queueMutation({
         target: actor.actorID,
@@ -532,7 +540,7 @@ class WalkerActor extends Actor {
     );
   }
 
-  _onReflows(reflows) {
+  _onReflows() {
     // Going through the nodes the walker knows about, see which ones have had their
     // containerType, display, scrollable or overflow state changed and send events if any.
     const containerTypeChanges = [];
@@ -897,7 +905,7 @@ class WalkerActor extends Actor {
   }
 
   /**
-   * Returns the raw children of the DOM node, with anon content filtered as needed
+   * Returns the raw children of the DOM node, with anonymous content filtered as needed
    * @param Node rawNode.
    * @param boolean includeAssigned
    *   Whether <slot> assigned children should be returned. See
@@ -1065,6 +1073,32 @@ class WalkerActor extends Actor {
     }
 
     return new NodeListActor(this, nodeList);
+  }
+
+  /**
+   * Return the node in the baseNode rootNode matching the passed id referenced in a
+   * idref/idreflist attribute, as those are scoped within a shadow root.
+   *
+   * @param NodeActor baseNode
+   * @param string id
+   */
+  getIdrefNode(baseNode, id) {
+    if (isNodeDead(baseNode)) {
+      return {};
+    }
+
+    // Get the document or the shadow root for baseNode
+    const rootNode = baseNode.rawNode.getRootNode({ composed: false });
+    if (!rootNode) {
+      return {};
+    }
+
+    const node = rootNode.getElementById(id);
+    if (!node) {
+      return {};
+    }
+
+    return this.attachElement(node);
   }
 
   /**
@@ -2171,6 +2205,19 @@ class WalkerActor extends Actor {
    *    See https://developer.mozilla.org/en-US/docs/Web/API/MutationObserver#MutationRecord
    */
   onMutations(mutations) {
+    // Don't send a mutation event if the mutation target would be ignored by the walker
+    // filter function.
+    const documentWalkerFilter = this.getDocumentWalkerFilter();
+    if (
+      mutations.every(
+        mutation =>
+          documentWalkerFilter(mutation.target) ===
+          nodeFilterConstants.FILTER_SKIP
+      )
+    ) {
+      return;
+    }
+
     // Notify any observers that want *all* mutations (even on nodes that aren't
     // referenced).  This is not sent over the protocol so can only be used by
     // scripts running in the server process.
@@ -2297,6 +2344,13 @@ class WalkerActor extends Actor {
    */
   onAnonymousrootcreated(event) {
     const root = event.target;
+
+    // Don't trigger a mutation if the document walker would filter out the element.
+    const documentWalkerFilter = this.getDocumentWalkerFilter();
+    if (documentWalkerFilter(root) === nodeFilterConstants.FILTER_SKIP) {
+      return;
+    }
+
     const parent = this.rawParentNode(root);
     if (!parent) {
       // These events are async. The node might have been removed already, in

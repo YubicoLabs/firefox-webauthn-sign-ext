@@ -17,7 +17,6 @@
 #include "mozilla/dom/HTMLInputElementBinding.h"
 #include "mozilla/dom/Nullable.h"
 #include "nsCycleCollectionParticipant.h"
-#include "nsITextControlFrame.h"
 #include "nsITimer.h"
 
 class nsTextControlFrame;
@@ -33,6 +32,12 @@ class IMEContentObserver;
 class TextEditor;
 class TextInputListener;
 class TextInputSelectionController;
+
+enum class SelectionDirection : uint8_t {
+  None,
+  Forward,
+  Backward,
+};
 
 namespace dom {
 class Element;
@@ -190,7 +195,6 @@ class TextControlState final : public SupportsWeakPtr {
  public:
   using Element = dom::Element;
   using HTMLInputElement = dom::HTMLInputElement;
-  using SelectionDirection = nsITextControlFrame::SelectionDirection;
 
   static TextControlState* Construct(TextControlElement* aOwningElement);
 
@@ -324,7 +328,7 @@ class TextControlState final : public SupportsWeakPtr {
   bool IsPasswordTextControl() const {
     return mTextCtrlElement->IsPasswordTextControl();
   }
-  int32_t GetCols() { return mTextCtrlElement->GetCols(); }
+  int32_t GetColsOrDefault() { return mTextCtrlElement->GetColsOrDefault(); }
   int32_t GetWrapCols() {
     int32_t wrapCols = mTextCtrlElement->GetWrapCols();
     MOZ_ASSERT(wrapCols >= 0);
@@ -400,8 +404,7 @@ class TextControlState final : public SupportsWeakPtr {
                          ErrorResult& aRv);
 
   // Get the selection direction
-  nsITextControlFrame::SelectionDirection GetSelectionDirection(
-      ErrorResult& aRv);
+  SelectionDirection GetSelectionDirection(ErrorResult& aRv);
 
   enum class ScrollAfterSelection { No, Yes };
 
@@ -415,8 +418,8 @@ class TextControlState final : public SupportsWeakPtr {
   //
   // If we have a frame, this method will scroll the selection into view.
   MOZ_CAN_RUN_SCRIPT void SetSelectionRange(
-      uint32_t aStart, uint32_t aEnd,
-      nsITextControlFrame::SelectionDirection aDirection, ErrorResult& aRv,
+      uint32_t aStart, uint32_t aEnd, SelectionDirection aDirection,
+      ErrorResult& aRv,
       ScrollAfterSelection aScroll = ScrollAfterSelection::Yes);
 
   // Set the selection range, but with an optional string for the direction.

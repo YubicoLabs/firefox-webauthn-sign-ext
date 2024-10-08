@@ -19,6 +19,8 @@
 #include "wasm/WasmBCClass.h"
 #include "wasm/WasmBCDefs.h"
 #include "wasm/WasmBCRegDefs.h"
+#include "wasm/WasmConstants.h"
+#include "wasm/WasmMemory.h"
 
 #include "jit/MacroAssembler-inl.h"
 
@@ -30,6 +32,8 @@
 
 namespace js {
 namespace wasm {
+
+using mozilla::Nothing;
 
 //////////////////////////////////////////////////////////////////////////////
 //
@@ -98,8 +102,8 @@ void BaseCompiler::bceCheckLocal(MemoryAccessDesc* access, AccessCheck* check,
     return;
   }
 
-  uint32_t offsetGuardLimit =
-      GetMaxOffsetGuardLimit(moduleEnv_.hugeMemoryEnabled(0));
+  uint64_t offsetGuardLimit =
+      GetMaxOffsetGuardLimit(codeMeta_.hugeMemoryEnabled(0));
 
   if ((bceSafe_ & (BCESet(1) << local)) &&
       access->offset64() < offsetGuardLimit) {
@@ -131,17 +135,24 @@ void BaseCompiler::bceLocalIsUpdated(uint32_t local) {
 template <>
 RegI32 BaseCompiler::popConstMemoryAccess<RegI32>(MemoryAccessDesc* access,
                                                   AccessCheck* check) {
+  MOZ_ASSERT(isMem32(access->memoryIndex()));
+
   int32_t addrTemp;
   MOZ_ALWAYS_TRUE(popConst(&addrTemp));
   uint32_t addr = addrTemp;
 
-  uint32_t offsetGuardLimit = GetMaxOffsetGuardLimit(
-      moduleEnv_.hugeMemoryEnabled(access->memoryIndex()));
+  uint64_t offsetGuardLimit = GetMaxOffsetGuardLimit(
+      codeMeta_.hugeMemoryEnabled(access->memoryIndex()));
 
-  uint64_t ea = uint64_t(addr) + uint64_t(access->offset());
-  uint64_t limit =
-      moduleEnv_.memories[access->memoryIndex()].initialLength32() +
-      offsetGuardLimit;
+  // Validation ensures that the offset is in 32-bit range, and the calculation
+  // of the limit cannot overflow due to our choice of HugeOffsetGuardLimit.
+#ifdef WASM_SUPPORTS_HUGE_MEMORY
+  static_assert(MaxMemory32PagesValidation * PageSize <=
+                UINT64_MAX - HugeOffsetGuardLimit);
+#endif
+  uint64_t ea = uint64_t(addr) + uint64_t(access->offset32());
+  uint64_t limit = codeMeta_.memories[access->memoryIndex()].initialLength32() +
+                   offsetGuardLimit;
 
   check->omitBoundsCheck = ea < limit;
   check->omitAlignmentCheck = (ea & (access->byteSize() - 1)) == 0;
@@ -162,26 +173,28 @@ RegI32 BaseCompiler::popConstMemoryAccess<RegI32>(MemoryAccessDesc* access,
 template <>
 RegI64 BaseCompiler::popConstMemoryAccess<RegI64>(MemoryAccessDesc* access,
                                                   AccessCheck* check) {
+  MOZ_ASSERT(isMem64(access->memoryIndex()));
+
   int64_t addrTemp;
   MOZ_ALWAYS_TRUE(popConst(&addrTemp));
   uint64_t addr = addrTemp;
 
-  uint32_t offsetGuardLimit = GetMaxOffsetGuardLimit(
-      moduleEnv_.hugeMemoryEnabled(access->memoryIndex()));
+  uint64_t offsetGuardLimit = GetMaxOffsetGuardLimit(
+      codeMeta_.hugeMemoryEnabled(access->memoryIndex()));
 
-  uint64_t ea = addr + access->offset64();
-  bool overflow = ea < addr;
-  uint64_t limit =
-      moduleEnv_.memories[access->memoryIndex()].initialLength64() +
-      offsetGuardLimit;
+  mozilla::CheckedUint64 ea(addr);
+  ea += access->offset64();
+  mozilla::CheckedUint64 limit(
+      codeMeta_.memories[access->memoryIndex()].initialLength64());
+  limit += offsetGuardLimit;
 
-  if (!overflow) {
-    check->omitBoundsCheck = ea < limit;
-    check->omitAlignmentCheck = (ea & (access->byteSize() - 1)) == 0;
+  if (ea.isValid() && limit.isValid()) {
+    check->omitBoundsCheck = ea.value() < limit.value();
+    check->omitAlignmentCheck = (ea.value() & (access->byteSize() - 1)) == 0;
 
     // Fold the offset into the pointer if we can, as this is always
     // beneficial.
-    addr = uint64_t(ea);
+    addr = ea.value();
     access->clearOffset();
   }
 
@@ -366,8 +379,8 @@ template <typename RegIndexType>
 void BaseCompiler::prepareMemoryAccess(MemoryAccessDesc* access,
                                        AccessCheck* check, RegPtr instance,
                                        RegIndexType ptr) {
-  uint32_t offsetGuardLimit = GetMaxOffsetGuardLimit(
-      moduleEnv_.hugeMemoryEnabled(access->memoryIndex()));
+  uint64_t offsetGuardLimit = GetMaxOffsetGuardLimit(
+      codeMeta_.hugeMemoryEnabled(access->memoryIndex()));
 
   // Fold offset if necessary for further computations.
   if (access->offset64() >= offsetGuardLimit ||
@@ -395,7 +408,7 @@ void BaseCompiler::prepareMemoryAccess(MemoryAccessDesc* access,
 
   // Ensure no instance if we don't need it.
 
-  if (moduleEnv_.hugeMemoryEnabled(access->memoryIndex()) &&
+  if (codeMeta_.hugeMemoryEnabled(access->memoryIndex()) &&
       access->memoryIndex() == 0) {
     // We have HeapReg and no bounds checking and need load neither
     // memoryBase nor boundsCheckLimit from instance.
@@ -409,17 +422,15 @@ void BaseCompiler::prepareMemoryAccess(MemoryAccessDesc* access,
 
   // Bounds check if required.
 
-  if (!moduleEnv_.hugeMemoryEnabled(access->memoryIndex()) &&
+  if (!codeMeta_.hugeMemoryEnabled(access->memoryIndex()) &&
       !check->omitBoundsCheck) {
     Label ok;
 #ifdef JS_64BIT
     // The checking depends on how many bits are in the pointer and how many
     // bits are in the bound.
     static_assert(0x100000000 % PageSize == 0);
-    if (!moduleEnv_.memories[access->memoryIndex()]
-             .boundsCheckLimitIs32Bits() &&
-        MaxMemoryPages(
-            moduleEnv_.memories[access->memoryIndex()].indexType()) >=
+    if (!codeMeta_.memories[access->memoryIndex()].boundsCheckLimitIs32Bits() &&
+        MaxMemoryPages(codeMeta_.memories[access->memoryIndex()].indexType()) >=
             Pages(0x100000000 / PageSize)) {
       boundsCheck4GBOrLargerAccess(access->memoryIndex(), instance, ptr, &ok);
     } else {
@@ -437,7 +448,7 @@ void BaseCompiler::prepareMemoryAccess(MemoryAccessDesc* access,
 
 template <typename RegIndexType>
 void BaseCompiler::computeEffectiveAddress(MemoryAccessDesc* access) {
-  if (access->offset()) {
+  if (access->offset64()) {
     Label ok;
     RegIndexType ptr = pop<RegIndexType>();
     branchAddNoOverflow(access->offset64(), ptr, &ok);
@@ -477,7 +488,7 @@ bool BaseCompiler::needInstanceForAccess(const MemoryAccessDesc* access,
     // Need instance to load the memory base
     return true;
   }
-  return !moduleEnv_.hugeMemoryEnabled(access->memoryIndex()) &&
+  return !codeMeta_.hugeMemoryEnabled(access->memoryIndex()) &&
          !check.omitBoundsCheck;
 #endif
 }
@@ -528,10 +539,11 @@ RegPtr BaseCompiler::maybeLoadInstanceForAccess(const MemoryAccessDesc* access,
 void BaseCompiler::executeLoad(MemoryAccessDesc* access, AccessCheck* check,
                                RegPtr instance, RegPtr memoryBase, RegI32 ptr,
                                AnyReg dest, RegI32 temp) {
-  // Emit the load.  At this point, 64-bit offsets will have been resolved.
+  // Emit the load. At this point, 64-bit offsets will have been folded away by
+  // prepareMemoryAccess.
 #if defined(JS_CODEGEN_X64)
   MOZ_ASSERT(temp.isInvalid());
-  Operand srcAddr(memoryBase, ptr, TimesOne, access->offset());
+  Operand srcAddr(memoryBase, ptr, TimesOne, access->offset32());
 
   if (dest.tag == AnyReg::I64) {
     masm.wasmLoadI64(*access, srcAddr, dest.i64());
@@ -543,7 +555,7 @@ void BaseCompiler::executeLoad(MemoryAccessDesc* access, AccessCheck* check,
   masm.addPtr(
       Address(instance, instanceOffsetOfMemoryBase(access->memoryIndex())),
       ptr);
-  Operand srcAddr(ptr, access->offset());
+  Operand srcAddr(ptr, access->offset32());
 
   if (dest.tag == AnyReg::I64) {
     MOZ_ASSERT(dest.i64() == specific_.abiReturnRegI64);
@@ -661,10 +673,11 @@ void BaseCompiler::load(MemoryAccessDesc* access, AccessCheck* check,
 void BaseCompiler::executeStore(MemoryAccessDesc* access, AccessCheck* check,
                                 RegPtr instance, RegPtr memoryBase, RegI32 ptr,
                                 AnyReg src, RegI32 temp) {
-  // Emit the store.  At this point, 64-bit offsets will have been resolved.
+  // Emit the store. At this point, 64-bit offsets will have been folded away by
+  // prepareMemoryAccess.
 #if defined(JS_CODEGEN_X64)
   MOZ_ASSERT(temp.isInvalid());
-  Operand dstAddr(memoryBase, ptr, TimesOne, access->offset());
+  Operand dstAddr(memoryBase, ptr, TimesOne, access->offset32());
 
   masm.wasmStore(*access, src.any(), dstAddr);
 #elif defined(JS_CODEGEN_X86)
@@ -672,7 +685,7 @@ void BaseCompiler::executeStore(MemoryAccessDesc* access, AccessCheck* check,
   masm.addPtr(
       Address(instance, instanceOffsetOfMemoryBase(access->memoryIndex())),
       ptr);
-  Operand dstAddr(ptr, access->offset());
+  Operand dstAddr(ptr, access->offset32());
 
   if (access->type() == Scalar::Int64) {
     masm.wasmStoreI64(*access, src.i64(), dstAddr);
@@ -1033,8 +1046,9 @@ Address BaseCompiler::prepareAtomicMemoryAccess(MemoryAccessDesc* access,
       ToRegister(ptr));
 #endif
 
-  // At this point, 64-bit offsets will have been resolved.
-  return Address(ToRegister(ptr), access->offset());
+  // At this point, 64-bit offsets will have been folded away by
+  // prepareMemoryAccess.
+  return Address(ToRegister(ptr), access->offset32());
 }
 
 #ifndef WASM_HAS_HEAPREG
@@ -1212,7 +1226,7 @@ static void PopAndAllocate(BaseCompiler* bc, ValType type,
                            Scalar::Type viewType, AtomicOp op, RegI32* rd,
                            RegI32* rv, Temps* temps) {
   bc->needI32(bc->specific_.eax);
-  if (op == AtomicFetchAddOp || op == AtomicFetchSubOp) {
+  if (op == AtomicOp::Add || op == AtomicOp::Sub) {
     // We use xadd, so source and destination are the same.  Using
     // eax here is overconstraining, but for byte operations on x86
     // we do need something with a byte register.
@@ -1246,7 +1260,7 @@ static void Perform(BaseCompiler* bc, const MemoryAccessDesc& access, T srcAddr,
 #  else
   RegI32 temp;
   ScratchI32 scratch(*bc);
-  if (op != AtomicFetchAddOp && op != AtomicFetchSubOp) {
+  if (op != AtomicOp::Add && op != AtomicOp::Sub) {
     temp = scratch;
   }
 #  endif
@@ -1401,7 +1415,7 @@ namespace atomic_rmw64 {
 
 static void PopAndAllocate(BaseCompiler* bc, AtomicOp op, RegI64* rd,
                            RegI64* rv, RegI64* temp) {
-  if (op == AtomicFetchAddOp || op == AtomicFetchSubOp) {
+  if (op == AtomicOp::Add || op == AtomicOp::Sub) {
     // We use xaddq, so input and output must be the same register.
     *rv = bc->popI64();
     *rd = *rv;
@@ -1422,7 +1436,7 @@ static void Perform(BaseCompiler* bc, const MemoryAccessDesc& access,
 
 static void Deallocate(BaseCompiler* bc, AtomicOp op, RegI64 rv, RegI64 temp) {
   bc->maybeFree(temp);
-  if (op != AtomicFetchAddOp && op != AtomicFetchSubOp) {
+  if (op != AtomicOp::Add && op != AtomicOp::Sub) {
     bc->freeI64(rv);
   }
 }

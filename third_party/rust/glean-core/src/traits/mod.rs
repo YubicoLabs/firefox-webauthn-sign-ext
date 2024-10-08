@@ -7,6 +7,10 @@
 //! Individual metric types implement this trait to expose the specific metrics API.
 //! It can be used by wrapping implementations to guarantee API conformance.
 
+/// Re-export for use in generated code.
+#[doc(hidden)]
+pub extern crate serde as __serde;
+
 mod boolean;
 mod counter;
 mod custom_distribution;
@@ -15,6 +19,7 @@ mod event;
 mod labeled;
 mod memory_distribution;
 mod numerator;
+mod object;
 mod ping;
 mod quantity;
 mod rate;
@@ -37,6 +42,7 @@ pub use self::event::NoExtraKeys;
 pub use self::labeled::Labeled;
 pub use self::memory_distribution::MemoryDistribution;
 pub use self::numerator::Numerator;
+pub use self::object::{ObjectError, ObjectSerialize};
 pub use self::ping::Ping;
 pub use self::quantity::Quantity;
 pub use self::rate::Rate;
@@ -48,3 +54,16 @@ pub use self::timing_distribution::TimingDistribution;
 pub use self::url::Url;
 pub use self::uuid::Uuid;
 pub use crate::histogram::HistogramType;
+
+#[doc(hidden)]
+pub mod __serde_helper {
+    /// Deserialize value to a `Vec<T>`.
+    ///
+    /// If the value was `null`  return an empty vector.
+    pub fn vec_null<'de, D: serde::Deserializer<'de>, T: serde::Deserialize<'de>>(
+        d: D,
+    ) -> Result<Vec<T>, D::Error> {
+        let res: Option<Vec<T>> = serde::Deserialize::deserialize(d)?;
+        Ok(res.unwrap_or_default())
+    }
+}

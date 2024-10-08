@@ -2,7 +2,6 @@
 support-files = ["head.js"]
 prefs = [
   "signon.management.page.vulnerable-passwords.enabled=true",
-  "signon.management.page.os-auth.enabled=true",
   "toolkit.telemetry.ipcBatchTimeout=10", # lower the interval for event telemetry in the content process to update the parent process
 ]
 # Run first so content events from previous tests won't trickle in.
@@ -52,10 +51,9 @@ skip-if = ["os == 'linux' && bits == 64 && os_version == '18.04'"] # Bug 1587625
 ["browser_openFiltered.js"]
 
 ["browser_openImport.js"]
-skip-if = [
-  "os == 'linux'",  # import is only available on Windows and macOS
-  "os == 'android'",  # import is only available on Windows and macOS
-  "os == 'mac' && !debug",  # bug 1775753
+run-if = [
+  "os == 'win'", #  import is only available on Windows and macOS
+  "os == 'mac'", #  import is only available on Windows and macOS
 ]
 
 ["browser_openImportCSV.js"]

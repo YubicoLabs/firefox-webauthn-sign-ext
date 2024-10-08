@@ -10,12 +10,12 @@ const { BackgroundUpdate } = ChromeUtils.importESModule(
   "resource://gre/modules/BackgroundUpdate.sys.mjs"
 );
 
-// These tests use per-installation prefs, and those are a shared resource, so
-// they require some non-trivial setup.
-setupTestCommon(null);
-standardInit();
+add_setup(async function test_setup() {
+  // These tests use per-installation prefs, and those are a shared resource, so
+  // they require some non-trivial setup.
+  setupTestCommon(null);
+  await standardInit();
 
-add_setup(function test_setup() {
   // FOG needs a profile directory to put its data in.
   do_get_profile();
 
@@ -58,9 +58,9 @@ add_task(async function test_reasons_overflow() {
   }
 });
 
-add_task(() => {
+add_task(async () => {
   // `setupTestCommon()` calls `do_test_pending()`; this calls
   // `do_test_finish()`.  The `add_task` schedules this to run after all the
   // other tests have completed.
-  doTestFinish();
+  await doTestFinish();
 });

@@ -142,7 +142,8 @@ impl LocalExternalImageHandler {
             ExternalImageData {
                 id: image_id,
                 channel_index: channel_idx,
-                image_type: ExternalImageType::TextureHandle(target)
+                image_type: ExternalImageType::TextureHandle(target),
+                normalized_uvs: false,
             }
         )
     }
@@ -1235,6 +1236,15 @@ impl YamlFrameReader {
 
                 YuvData::P010(y_key, uv_key)
             }
+            "nv16" => {
+                let y_path = rsrc_path(&item["src-y"], &self.aux_dir);
+                let (y_key, _) = self.add_or_get_image(&y_path, None, item, wrench);
+
+                let uv_path = rsrc_path(&item["src-uv"], &self.aux_dir);
+                let (uv_key, _) = self.add_or_get_image(&uv_path, None, item, wrench);
+
+                YuvData::NV16(y_key, uv_key)
+            }
             "interleaved" => {
                 let yuv_path = rsrc_path(&item["src"], &self.aux_dir);
                 let (yuv_key, _) = self.add_or_get_image(&yuv_path, None, item, wrench);
@@ -1685,6 +1695,7 @@ impl YamlFrameReader {
             yaml["horizontal-offset-bounds"].as_sticky_offset_bounds(),
             yaml["previously-applied-offset"].as_vector().unwrap_or_else(LayoutVector2D::zero),
             self.next_spatial_key(),
+            None,
         );
 
         if let Some(numeric_id) = numeric_id {

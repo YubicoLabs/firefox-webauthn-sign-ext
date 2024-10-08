@@ -5,6 +5,7 @@
 import json
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 
 import jsonschema
 import yaml
@@ -14,7 +15,7 @@ HEADER_LINE = (
     " DO NOT EDIT.\n"
 )
 
-FEATURE_MANIFEST_SCHEMA = Path("schemas", "ExperimentFeatureManifest.schema.json")
+FEATURE_SCHEMA = Path("schemas", "ExperimentFeature.schema.json")
 
 NIMBUS_FALLBACK_PREFS = (
     "constexpr std::pair<nsLiteralCString, nsLiteralCString>"
@@ -24,38 +25,12 @@ NIMBUS_FALLBACK_PREFS = (
 # Do not add new feature IDs to this list! isEarlyStartup is being deprecated.
 # See https://bugzilla.mozilla.org/show_bug.cgi?id=1875331 for details.
 ALLOWED_ISEARLYSTARTUP_FEATURE_IDS = {
-    "abouthomecache",
     "aboutwelcome",
-    "backgroundThreads",
-    "backgroundUpdate",
-    "bookmarks",
-    "dapTelemetry",
-    "deviceMigration",
-    "frecency",
-    "fullPageTranslation",
-    "fullPageTranslationAutomaticPopup",
-    "fxaButtonVisibility",
-    "gcParallelMarking",
-    "gleanInternalSdk",
-    "jitHintsCache",
-    "jitThresholds",
-    "jsParallelParsing",
-    "majorRelease2022",
-    "migrationWizard",
     "newtab",
-    "nimbus-qa-2",
-    "opaqueResponseBlocking",
-    "phc",
     "pocketNewtab",
-    "powerSaver",
-    "reportBrokenSite",
-    "saveToPocket",
     "searchConfiguration",
-    "shellService",
     "testFeature",
-    "updatePrompt",
     "upgradeDialog",
-    "windowsJumpList",
 }
 
 
@@ -64,6 +39,8 @@ def write_fm_headers(fd):
 
 
 def validate_feature_manifest(schema_path, manifest_path, manifest):
+    TOPSRCDIR = Path(__file__).parent.parent.parent.parent.parent
+
     with open(schema_path, "r") as f:
         schema = json.load(f)
 
@@ -91,7 +68,7 @@ def validate_feature_manifest(schema_path, manifest_path, manifest):
                         f"Feature {feature_id} is not early startup but is in the allow list."
                     )
                     print("Please remove it from generate_feature_manifest.py")
-                raise Exception("isEarlyStatup is deprecated")
+                raise Exception("isEarlyStartup is deprecated")
 
             for variable, variable_def in feature.get("variables", {}).items():
                 set_pref = variable_def.get("setPref")
@@ -143,6 +120,17 @@ def validate_feature_manifest(schema_path, manifest_path, manifest):
                         )
                         raise Exception("Set prefs and fallback prefs cannot overlap")
 
+            if "schema" in feature:
+                schema_path = TOPSRCDIR / feature["schema"]["path"]
+                if not schema_path.exists():
+                    raise Exception(f"Schema does not exist at {schema_path}")
+
+                uri = urlparse(feature["schema"]["uri"])
+                if uri.scheme not in ("resource", "chrome"):
+                    raise Exception(
+                        "Only resource:// and chrome:// URIs are supported for schemas"
+                    )
+
         except Exception as e:
             print("Error while validating FeatureManifest.yaml")
             print(f"On key: {feature_id}")
@@ -158,7 +146,7 @@ def generate_feature_manifest(fd, input_file):
             manifest = yaml.safe_load(f)
 
         validate_feature_manifest(
-            Path(input_file).parent / FEATURE_MANIFEST_SCHEMA, input_file, manifest
+            Path(input_file).parent / FEATURE_SCHEMA, input_file, manifest
         )
 
         fd.write(f"export const FeatureManifest = {json.dumps(manifest)};")

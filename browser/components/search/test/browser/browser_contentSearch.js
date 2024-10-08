@@ -37,18 +37,26 @@ add_setup(async function () {
     ],
   });
 
-  await SearchTestUtils.promiseNewSearchEngine({
+  await SearchTestUtils.installOpenSearchEngine({
     url: "chrome://mochitests/content/browser/browser/components/search/test/browser/testEngine.xml",
     setAsDefault: true,
   });
 
-  await SearchTestUtils.promiseNewSearchEngine({
+  await SearchTestUtils.installOpenSearchEngine({
     url: "chrome://mochitests/content/browser/browser/components/search/test/browser/testEngine_diacritics.xml",
     setAsDefaultPrivate: true,
   });
 
-  await SearchTestUtils.promiseNewSearchEngine({
+  await SearchTestUtils.installOpenSearchEngine({
     url: getRootDirectory(gTestPath) + "testEngine_chromeicon.xml",
+  });
+
+  // Install a WebExtension based engine to allow testing passing of plain
+  // URIs (moz-extension://) to the content process.
+  await SearchTestUtils.installSearchExtension({
+    icons: {
+      16: "favicon.ico",
+    },
   });
 });
 
@@ -59,6 +67,7 @@ add_task(async function GetState() {
     type: "GetState",
   });
   let msg = await statePromise.donePromise;
+
   checkMsg(msg, {
     type: "State",
     data: await currentStateObj(false),
@@ -172,8 +181,7 @@ add_task(async function search() {
     healthReportKey: "ContentSearchTest",
     searchPurpose: "ContentSearchTest",
   };
-  let submissionURL = engine.getSubmission(data.searchString, "", data.whence)
-    .uri.spec;
+  let submissionURL = engine.getSubmission(data.searchString, "").uri.spec;
 
   await performSearch(browser, data, submissionURL);
 });
@@ -191,15 +199,14 @@ add_task(async function searchInBackgroundTab() {
     healthReportKey: "ContentSearchTest",
     searchPurpose: "ContentSearchTest",
   };
-  let submissionURL = engine.getSubmission(data.searchString, "", data.whence)
-    .uri.spec;
+  let submissionURL = engine.getSubmission(data.searchString, "").uri.spec;
 
   let searchPromise = performSearch(browser, data, submissionURL);
   let newTab = BrowserTestUtils.addTab(gBrowser);
   gBrowser.selectedTab = newTab;
-  registerCleanupFunction(() => gBrowser.removeTab(newTab));
 
   await searchPromise;
+  gBrowser.removeTab(newTab);
 });
 
 add_task(async function badImage() {
@@ -435,7 +442,7 @@ async function waitForNewEngine(browser, basename) {
   // There are two events triggerd by engine-added and engine-loaded
   let statePromise = await waitForTestMsg(browser, "CurrentState");
 
-  let engine = await SearchTestUtils.promiseNewSearchEngine({
+  let engine = await SearchTestUtils.installOpenSearchEngine({
     url: getRootDirectory(gTestPath) + basename,
   });
   return [engine, await statePromise.donePromise];
@@ -460,7 +467,7 @@ var currentStateObj = async function (isPrivateWindowValue, hiddenEngine = "") {
     ),
   };
   for (let engine of await Services.search.getVisibleEngines()) {
-    let uri = engine.getIconURL(16);
+    let uri = await engine.getIconURL(16);
     state.engines.push({
       name: engine.name,
       iconData: await iconDataFromURI(uri),
@@ -476,7 +483,7 @@ var currentStateObj = async function (isPrivateWindowValue, hiddenEngine = "") {
 };
 
 async function constructEngineObj(engine) {
-  let uriFavicon = engine.getIconURL(16);
+  let uriFavicon = await engine.getIconURL(16);
   return {
     name: engine.name,
     iconData: await iconDataFromURI(uriFavicon),
@@ -484,33 +491,24 @@ async function constructEngineObj(engine) {
   };
 }
 
-function iconDataFromURI(uri) {
+async function iconDataFromURI(uri) {
   if (!uri) {
-    return Promise.resolve(
-      "chrome://browser/skin/search-engine-placeholder.png"
-    );
+    return "chrome://browser/skin/search-engine-placeholder.png";
   }
 
-  if (!uri.startsWith("data:")) {
+  if (!uri.startsWith("data:") && !uri.startsWith("blob:")) {
     plainURIIconTested = true;
-    return Promise.resolve(uri);
+    return uri;
   }
 
-  return new Promise(resolve => {
-    let xhr = new XMLHttpRequest();
-    xhr.open("GET", uri, true);
-    xhr.responseType = "arraybuffer";
-    xhr.onerror = () => {
-      resolve("chrome://browser/skin/search-engine-placeholder.png");
-    };
-    xhr.onload = () => {
-      arrayBufferIconTested = true;
-      resolve(xhr.response);
-    };
-    try {
-      xhr.send();
-    } catch (err) {
-      resolve("chrome://browser/skin/search-engine-placeholder.png");
-    }
-  });
+  try {
+    const response = await fetch(uri);
+    const mimeType = response.headers.get("Content-Type") || "";
+    const data = await response.arrayBuffer();
+    arrayBufferIconTested = true;
+    return { icon: data, mimeType };
+  } catch (err) {
+    console.error("Fetch error: ", err);
+    return "chrome://browser/skin/search-engine-placeholder.png";
+  }
 }

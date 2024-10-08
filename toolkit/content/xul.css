@@ -306,7 +306,7 @@ groupbox {
 
 /******** draggable elements *********/
 
-toolbar:not([nowindowdrag="true"], [customizing="true"]) {
+toolbar:not([nowindowdrag], [customizing]) {
   -moz-window-dragging: drag;
 }
 
@@ -387,10 +387,6 @@ tooltip {
   max-width: 40em;
   overflow: clip;
   pointer-events: none;
-}
-
-tooltip:not([position]) {
-  margin-top: 21px;
 }
 
 /**
@@ -602,20 +598,6 @@ menulist[popuponly] {
   min-height: 0 !important;
   border: 0 !important;
   padding: 0 !important;
-}
-
-/********** splitter **********/
-
-.tree-splitter {
-  margin-inline: -4px;
-  width: 8px;
-  max-width: 8px;
-  min-width: 8px;
-  appearance: none !important;
-  border: none !important;
-  background: none !important;
-  order: 2147483646;
-  z-index: 2147483646;
 }
 
 /******** scrollbar ********/

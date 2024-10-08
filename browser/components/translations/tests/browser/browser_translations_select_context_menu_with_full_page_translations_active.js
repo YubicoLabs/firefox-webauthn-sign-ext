@@ -12,7 +12,7 @@
 add_task(
   async function test_translate_selection_menuitem_with_text_selected_and_full_page_translations_active() {
     const { cleanup, resolveDownloads, runInPage } = await loadTestPage({
-      page: SPANISH_PAGE_URL,
+      page: SELECT_TEST_PAGE_URL,
       languagePairs: LANGUAGE_PAIRS,
       prefs: [["browser.translations.select.enable", true]],
     });
@@ -27,15 +27,17 @@ add_task(
     await SelectTranslationsTestUtils.assertContextMenuTranslateSelectionItem(
       runInPage,
       {
-        selectSpanishParagraph: true,
-        openAtSpanishParagraph: true,
+        selectSpanishSentence: true,
+        openAtSpanishSentence: true,
         expectMenuItemVisible: true,
         expectedTargetLanguage: "en",
       },
       "The translate-selection context menu item should be available while full-page translations is inactive."
     );
 
-    await FullPageTranslationsTestUtils.openTranslationsPanel({
+    await FullPageTranslationsTestUtils.openPanel({
+      expectedFromLanguage: "es",
+      expectedToLanguage: "en",
       onOpenPanel: FullPageTranslationsTestUtils.assertPanelViewDefault,
     });
 
@@ -52,14 +54,16 @@ add_task(
     await SelectTranslationsTestUtils.assertContextMenuTranslateSelectionItem(
       runInPage,
       {
-        selectSpanishParagraph: true,
-        openAtSpanishParagraph: true,
-        expectMenuItemVisible: false,
+        selectSpanishSentence: true,
+        openAtSpanishSentence: true,
+        expectMenuItemVisible: true,
+        expectedTargetLanguage: "en",
       },
-      "The translate-selection context menu item should be unavailable while full-page translations is active."
+      "The translate-selection context menu item should be available even while full-page translations is active."
     );
 
-    await FullPageTranslationsTestUtils.openTranslationsPanel({
+    await FullPageTranslationsTestUtils.openPanel({
+      expectedToLanguage: "en",
       onOpenPanel: FullPageTranslationsTestUtils.assertPanelViewRevisit,
     });
 
@@ -70,8 +74,8 @@ add_task(
     await SelectTranslationsTestUtils.assertContextMenuTranslateSelectionItem(
       runInPage,
       {
-        selectSpanishParagraph: true,
-        openAtSpanishParagraph: true,
+        selectSpanishSentence: true,
+        openAtSpanishSentence: true,
         expectMenuItemVisible: true,
         expectedTargetLanguage: "en",
       },
@@ -91,7 +95,7 @@ add_task(
 add_task(
   async function test_translate_selection_menuitem_with_link_clicked_and_full_page_translations_active() {
     const { cleanup, resolveDownloads, runInPage } = await loadTestPage({
-      page: SPANISH_PAGE_URL,
+      page: SELECT_TEST_PAGE_URL,
       languagePairs: LANGUAGE_PAIRS,
       prefs: [["browser.translations.select.enable", true]],
     });
@@ -106,7 +110,7 @@ add_task(
     await SelectTranslationsTestUtils.assertContextMenuTranslateSelectionItem(
       runInPage,
       {
-        selectSpanishParagraph: false,
+        selectSpanishSentence: false,
         openAtSpanishHyperlink: true,
         expectMenuItemVisible: true,
         expectedTargetLanguage: "en",
@@ -114,7 +118,9 @@ add_task(
       "The translate-selection context menu item should be available while full-page translations is inactive."
     );
 
-    await FullPageTranslationsTestUtils.openTranslationsPanel({
+    await FullPageTranslationsTestUtils.openPanel({
+      expectedFromLanguage: "es",
+      expectedToLanguage: "en",
       onOpenPanel: FullPageTranslationsTestUtils.assertPanelViewDefault,
     });
 
@@ -131,14 +137,16 @@ add_task(
     await SelectTranslationsTestUtils.assertContextMenuTranslateSelectionItem(
       runInPage,
       {
-        selectSpanishParagraph: false,
+        selectSpanishSentence: false,
         openAtSpanishHyperlink: true,
-        expectMenuItemVisible: false,
+        expectMenuItemVisible: true,
+        expectedTargetLanguage: "en",
       },
-      "The translate-selection context menu item should be unavailable while full-page translations is active."
+      "The translate-selection context menu item should be available even while full-page translations is active."
     );
 
-    await FullPageTranslationsTestUtils.openTranslationsPanel({
+    await FullPageTranslationsTestUtils.openPanel({
+      expectedToLanguage: "en",
       onOpenPanel: FullPageTranslationsTestUtils.assertPanelViewRevisit,
     });
 
@@ -149,7 +157,7 @@ add_task(
     await SelectTranslationsTestUtils.assertContextMenuTranslateSelectionItem(
       runInPage,
       {
-        selectSpanishParagraph: false,
+        selectSpanishSentence: false,
         openAtSpanishHyperlink: true,
         expectMenuItemVisible: true,
         expectedTargetLanguage: "en",

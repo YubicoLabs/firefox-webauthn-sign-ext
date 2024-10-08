@@ -44,8 +44,8 @@ class CmsStage : public RenderPipelineStage {
   Status ProcessRow(const RowInfo& input_rows, const RowInfo& output_rows,
                     size_t xextra, size_t xsize, size_t xpos, size_t ypos,
                     size_t thread_id) const final {
-    JXL_ASSERT(xsize == xsize_);
-    // TODO(firsching): handle grey case seperately
+    JXL_ENSURE(xsize <= xsize_);
+    // TODO(firsching): handle grey case separately
     //  interleave
     float* JXL_RESTRICT row0 = GetInputRow(input_rows, 0, 0);
     float* JXL_RESTRICT row1 = GetInputRow(input_rows, 1, 0);
@@ -60,7 +60,7 @@ class CmsStage : public RenderPipelineStage {
     const float* buf_src = mutable_buf_src;
     float* JXL_RESTRICT buf_dst = color_space_transform->BufDst(thread_id);
     JXL_RETURN_IF_ERROR(
-        color_space_transform->Run(thread_id, buf_src, buf_dst));
+        color_space_transform->Run(thread_id, buf_src, buf_dst, xsize));
     // de-interleave
     for (size_t x = 0; x < xsize; x++) {
       row0[x] = buf_dst[3 * x + 0];
@@ -84,13 +84,11 @@ class CmsStage : public RenderPipelineStage {
 
   Status SetInputSizes(
       const std::vector<std::pair<size_t, size_t>>& input_sizes) override {
-#if JXL_ENABLE_ASSERT
-    JXL_ASSERT(input_sizes.size() >= 3);
+    JXL_ENSURE(input_sizes.size() >= 3);
     for (size_t c = 1; c < input_sizes.size(); c++) {
-      JXL_ASSERT(input_sizes[c].first == input_sizes[0].first);
-      JXL_ASSERT(input_sizes[c].second == input_sizes[0].second);
+      JXL_ENSURE(input_sizes[c].first == input_sizes[0].first);
+      JXL_ENSURE(input_sizes[c].second == input_sizes[0].second);
     }
-#endif
     xsize_ = input_sizes[0].first;
     return true;
   }

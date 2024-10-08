@@ -25,7 +25,6 @@
 #include <stdint.h>  // int32_t, int64_t, uint32_t
 
 #include "gc/Barrier.h"        // HeapPtr
-#include "gc/SweepingAPI.h"    // WeakCache
 #include "gc/ZoneAllocator.h"  // ZoneAllocPolicy
 #include "js/AllocPolicy.h"    // SystemAllocPolicy
 #include "js/Class.h"          // JSClassOps, ClassSpec
@@ -33,6 +32,7 @@
 #include "js/GCVector.h"       // GCVector
 #include "js/PropertySpec.h"   // JSPropertySpec, JSFunctionSpec
 #include "js/RootingAPI.h"     // StableCellHasher
+#include "js/SweepingAPI.h"    // JS::WeakCache
 #include "js/TypeDecls.h"  // HandleValue, HandleObject, MutableHandleObject, MutableHandleFunction
 #include "js/Vector.h"  // JS::Vector
 #include "js/WasmFeatures.h"
@@ -111,6 +111,7 @@ bool IsWasmExportedFunction(JSFunction* fun);
 Instance& ExportedFunctionToInstance(JSFunction* fun);
 WasmInstanceObject* ExportedFunctionToInstanceObject(JSFunction* fun);
 uint32_t ExportedFunctionToFuncIndex(JSFunction* fun);
+const wasm::TypeDef& ExportedFunctionToTypeDef(JSFunction* fun);
 
 bool IsSharedWasmMemoryObject(JSObject* obj);
 
@@ -167,6 +168,8 @@ class WasmGlobalObject : public NativeObject {
   static bool valueSetterImpl(JSContext* cx, const CallArgs& args);
   static bool valueSetter(JSContext* cx, unsigned argc, Value* vp);
 
+  wasm::GCPtrVal& mutableVal();
+
  public:
   static const unsigned RESERVED_SLOTS = 2;
   static const JSClass class_;
@@ -182,7 +185,9 @@ class WasmGlobalObject : public NativeObject {
 
   bool isMutable() const;
   wasm::ValType type() const;
-  wasm::GCPtrVal& val() const;
+  const wasm::GCPtrVal& val() const;
+  void setVal(wasm::HandleVal value);
+  void* addressOfCell() const;
 };
 
 // The class of WebAssembly.Instance. Each WasmInstanceObject owns a
@@ -192,10 +197,9 @@ class WasmGlobalObject : public NativeObject {
 class WasmInstanceObject : public NativeObject {
   static const unsigned INSTANCE_SLOT = 0;
   static const unsigned EXPORTS_OBJ_SLOT = 1;
-  static const unsigned EXPORTS_SLOT = 2;
-  static const unsigned SCOPES_SLOT = 3;
-  static const unsigned INSTANCE_SCOPE_SLOT = 4;
-  static const unsigned GLOBALS_SLOT = 5;
+  static const unsigned SCOPES_SLOT = 2;
+  static const unsigned INSTANCE_SCOPE_SLOT = 3;
+  static const unsigned GLOBALS_SLOT = 4;
 
   static const JSClassOps classOps_;
   static const ClassSpec classSpec_;
@@ -205,20 +209,12 @@ class WasmInstanceObject : public NativeObject {
   static void finalize(JS::GCContext* gcx, JSObject* obj);
   static void trace(JSTracer* trc, JSObject* obj);
 
-  // ExportMap maps from function index to exported function object.
-  // This allows the instance to lazily create exported function
-  // objects on demand (instead up-front for all table elements) while
-  // correctly preserving observable function object identity.
-  using ExportMap = GCHashMap<uint32_t, HeapPtr<JSFunction*>,
-                              DefaultHasher<uint32_t>, CellAllocPolicy>;
-  ExportMap& exports() const;
-
   // See the definition inside WasmJS.cpp.
   class UnspecifiedScopeMap;
   UnspecifiedScopeMap& scopes() const;
 
  public:
-  static const unsigned RESERVED_SLOTS = 6;
+  static const unsigned RESERVED_SLOTS = 5;
   static const JSClass class_;
   static const JSClass& protoClass_;
   static const JSPropertySpec properties[];
@@ -246,8 +242,9 @@ class WasmInstanceObject : public NativeObject {
       JSContext* cx, Handle<WasmInstanceObject*> instanceObj,
       uint32_t funcIndex, MutableHandleFunction fun);
 
-  const wasm::CodeRange& getExportedFunctionCodeRange(JSFunction* fun,
-                                                      wasm::Tier tier);
+  void getExportedFunctionCodeRange(JSFunction* fun,
+                                    const wasm::CodeRange** range,
+                                    uint8_t** codeBase);
 
   static WasmInstanceScope* getScope(JSContext* cx,
                                      Handle<WasmInstanceObject*> instanceObj);
@@ -280,10 +277,9 @@ class WasmMemoryObject : public NativeObject {
   static bool discard(JSContext* cx, unsigned argc, Value* vp);
   static uint64_t growShared(Handle<WasmMemoryObject*> memory, uint64_t delta);
 
-  using InstanceSet =
-      WeakCache<GCHashSet<WeakHeapPtr<WasmInstanceObject*>,
-                          StableCellHasher<WeakHeapPtr<WasmInstanceObject*>>,
-                          CellAllocPolicy>>;
+  using InstanceSet = JS::WeakCache<GCHashSet<
+      WeakHeapPtr<WasmInstanceObject*>,
+      StableCellHasher<WeakHeapPtr<WasmInstanceObject*>>, CellAllocPolicy>>;
   bool hasObservers() const;
   InstanceSet& observers() const;
   InstanceSet* getOrCreateObservers(JSContext* cx);
@@ -375,8 +371,7 @@ class WasmTableObject : public NativeObject {
   // Note that, after creation, a WasmTableObject's table() is not initialized
   // and must be initialized before use.
 
-  static WasmTableObject* create(JSContext* cx, uint32_t initialLength,
-                                 mozilla::Maybe<uint32_t> maximumLength,
+  static WasmTableObject* create(JSContext* cx, wasm::Limits limits,
                                  wasm::RefType tableType, HandleObject proto);
   wasm::Table& table() const;
 
@@ -498,6 +493,30 @@ class WasmNamespaceObject : public NativeObject {
 };
 
 extern const JSClass WasmFunctionClass;
+
+bool IsWasmSuspendingObject(JSObject* obj);
+
+#ifdef ENABLE_WASM_JSPI
+
+class WasmSuspendingObject : public NativeObject {
+ public:
+  static const ClassSpec classSpec_;
+  static const JSClass class_;
+  static const JSClass& protoClass_;
+  static const unsigned WRAPPED_FN_SLOT = 0;
+  static const unsigned RESERVED_SLOTS = 1;
+  static bool construct(JSContext*, unsigned, Value*);
+
+  JSObject* wrappedFunction() const {
+    return getReservedSlot(WRAPPED_FN_SLOT).toObjectOrNull();
+  }
+  void setWrappedFunction(HandleObject fn) {
+    return setReservedSlot(WRAPPED_FN_SLOT, ObjectValue(*fn));
+  }
+};
+
+JSObject* MaybeUnwrapSuspendingObject(JSObject* wrapper);
+#endif
 
 }  // namespace js
 

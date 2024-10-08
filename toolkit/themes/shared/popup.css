@@ -27,7 +27,7 @@ panel {
   margin: calc(-1 * var(--panel-shadow-margin));
 
   /* Panel design token theming */
-  --color-canvas: var(--panel-background);
+  --background-color-canvas: var(--panel-background);
 
   @media (-moz-platform: linux) {
     --panel-border-radius: 8px;
@@ -41,6 +41,12 @@ panel {
   @media (-moz-platform: linux) or (-moz-platform: windows) {
     /* To account for the box-shadow below */
     --panel-shadow-margin: 4px;
+  }
+
+  /* On some linux WMs we need to draw square menus because alpha is not available */
+  @media (-moz-platform: linux) and (not (-moz-gtk-csd-transparency-available)) {
+    --panel-shadow-margin: 0px !important;
+    --panel-border-radius: 0px !important;
   }
 
   @media (-moz-platform: macos) {
@@ -172,6 +178,10 @@ panel[type="arrow"] {
       &[side="bottom"] {
         -moz-window-transform: translateY(70px);
       }
+    }
+    /* If the @media rule above is removed, then we can also remove this */
+    &[animate="cancel"] {
+      -moz-window-opacity: 0;
     }
   }
 

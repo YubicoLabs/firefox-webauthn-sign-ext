@@ -238,7 +238,9 @@ class NetEqNetworkStatsTest {
             kPayloadType, frame_size_samples_, &rtp_header_);
         if (!Lost(next_send_time)) {
           static const uint8_t payload[kPayloadSizeByte] = {0};
-          ASSERT_EQ(NetEq::kOK, neteq_->InsertPacket(rtp_header_, payload));
+          ASSERT_EQ(NetEq::kOK,
+                    neteq_->InsertPacket(rtp_header_, payload,
+                                         Timestamp::Millis(next_send_time)));
         }
       }
       bool muted = true;
@@ -273,15 +275,16 @@ class NetEqNetworkStatsTest {
 
     // Next we introduce packet losses.
     SetPacketLossRate(0.1);
-    expects.stats_ref.expand_rate = expects.stats_ref.speech_expand_rate = 898;
+    expects.expand_rate = expects.speech_expand_rate = kLargerThan;
     RunTest(50, expects);
 
     // Next we enable FEC.
     decoder_->set_fec_enabled(true);
     // If FEC fills in the lost packets, no packet loss will be counted.
+    expects.expand_rate = expects.speech_expand_rate = kEqual;
     expects.stats_ref.expand_rate = expects.stats_ref.speech_expand_rate = 0;
-    expects.stats_ref.secondary_decoded_rate = 2006;
-    expects.stats_ref.secondary_discarded_rate = 14336;
+    expects.secondary_decoded_rate = kLargerThan;
+    expects.secondary_discarded_rate = kLargerThan;
     RunTest(50, expects);
   }
 

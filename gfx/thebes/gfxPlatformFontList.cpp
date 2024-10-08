@@ -378,6 +378,40 @@ gfxPlatformFontList::~gfxPlatformFontList() {
   NS_RELEASE(gFontListPrefObserver);
 }
 
+void gfxPlatformFontList::GetMissingFonts(nsCString& aMissingFonts) {
+  AutoLock lock(mLock);
+
+  auto fontLists = GetFilteredPlatformFontLists();
+
+  if (!fontLists.Length()) {
+    aMissingFonts.Append("No font list available for this device.");
+  }
+
+  for (unsigned int i = 0; i < fontLists.Length(); i++) {
+    for (unsigned int j = 0; j < fontLists[i].second; j++) {
+      nsCString key(fontLists[i].first[j]);
+      GenerateFontListKey(key);
+
+      if (SharedFontList()) {
+        fontlist::Family* family = SharedFontList()->FindFamily(key);
+        if (!family) {
+          aMissingFonts.Append(fontLists[i].first[j]);
+          aMissingFonts.Append("|");
+        }
+      } else {
+        gfxFontFamily* familyEntry = mFontFamilies.GetWeak(key);
+        if (!familyEntry) {
+          familyEntry = mOtherFamilyNames.GetWeak(key);
+        }
+        if (!familyEntry) {
+          aMissingFonts.Append(fontLists[i].first[j]);
+          aMissingFonts.Append("|");
+        }
+      }
+    }
+  }
+}
+
 /* static */
 void gfxPlatformFontList::FontWhitelistPrefChanged(const char* aPref,
                                                    void* aClosure) {
@@ -401,12 +435,6 @@ void gfxPlatformFontList::ApplyWhitelist() {
   AutoTArray<RefPtr<gfxFontFamily>, 128> accepted;
   bool whitelistedFontFound = false;
   for (const auto& entry : mFontFamilies) {
-    if (entry.GetData()->IsHidden()) {
-      // Hidden system fonts are exempt from whitelisting, but don't count
-      // towards determining whether we "kept" any (user-visible) fonts
-      accepted.AppendElement(entry.GetData());
-      continue;
-    }
     nsAutoCString fontFamilyName(entry.GetKey());
     ToLowerCase(fontFamilyName);
     if (familyNamesWhitelist.Contains(fontFamilyName)) {
@@ -442,8 +470,7 @@ void gfxPlatformFontList::ApplyWhitelist(
   AutoTArray<fontlist::Family::InitData, 128> accepted;
   bool keptNonHidden = false;
   for (auto& f : aFamilies) {
-    if (f.mVisibility == FontVisibility::Hidden ||
-        familyNamesWhitelist.Contains(f.mKey)) {
+    if (familyNamesWhitelist.Contains(f.mKey)) {
       accepted.AppendElement(f);
       if (f.mVisibility != FontVisibility::Hidden) {
         keptNonHidden = true;
@@ -700,6 +727,10 @@ void gfxPlatformFontList::GenerateFontListKey(const nsACString& aKeyName,
   ToLowerCase(aResult);
 }
 
+void gfxPlatformFontList::GenerateFontListKey(nsACString& aKeyName) {
+  ToLowerCase(aKeyName);
+}
+
 // Used if a stylo thread wants to trigger InitOtherFamilyNames in the main
 // process: we can't do IPC from the stylo thread so we post this to the main
 // thread instead.
@@ -755,7 +786,7 @@ bool gfxPlatformFontList::InitOtherFamilyNames(
   // (This is used so we can reliably run reftests that depend on localized
   // font-family names being available.)
   if (aDeferOtherFamilyNamesLoading &&
-      StaticPrefs::gfx_font_loader_delay_AtStartup() > 0) {
+      StaticPrefs::gfx_font_loader_delay() > 0) {
     if (!mPendingOtherFamilyNameTask) {
       RefPtr<mozilla::CancelableRunnable> task =
           new InitOtherFamilyNamesRunnable();
@@ -2008,13 +2039,27 @@ void gfxPlatformFontList::MaybeRemoveCmap(gfxCharacterMap* aCharMap) {
   }
 }
 
-static void GetSystemUIFontFamilies([[maybe_unused]] nsAtom* aLangGroup,
+static void GetSystemUIFontFamilies(const nsPresContext* aPresContext,
+                                    [[maybe_unused]] nsAtom* aLangGroup,
                                     nsTArray<nsCString>& aFamilies) {
   // TODO: On macOS, use CTCreateUIFontForLanguage or such thing (though the
   // code below ends up using [NSFont systemFontOfSize: 0.0].
   nsFont systemFont;
   gfxFontStyle fontStyle;
   nsAutoString systemFontName;
+  if (aPresContext ? aPresContext->Document()->ShouldResistFingerprinting(
+                         RFPTarget::FontVisibilityRestrictGenerics)
+                   : nsContentUtils::ShouldResistFingerprinting(
+                         "aPresContext not available",
+                         RFPTarget::FontVisibilityRestrictGenerics)) {
+#if defined(XP_MACOSX) || defined(MOZ_WIDGET_UIKIT)
+    *aFamilies.AppendElement() = "-apple-system"_ns;
+    return;
+#elif !defined(MOZ_WIDGET_ANDROID)
+    *aFamilies.AppendElement() = "sans-serif"_ns;
+    return;
+#endif
+  }
   if (!LookAndFeel::GetFont(StyleSystemFont::Menu, systemFontName, fontStyle)) {
     return;
   }
@@ -2050,7 +2095,7 @@ void gfxPlatformFontList::ResolveGenericFontNames(
   MOZ_ASSERT(langGroup, "null lang group for pref lang");
 
   if (aGenericType == StyleGenericFontFamily::SystemUi) {
-    GetSystemUIFontFamilies(langGroup, genericFamilies);
+    GetSystemUIFontFamilies(aPresContext, langGroup, genericFamilies);
   }
 
   GetFontFamiliesFromGenericFamilies(
@@ -2169,6 +2214,12 @@ eFontPrefLang gfxPlatformFontList::GetFontPrefLangFor(const char* aLang) {
   }
   for (uint32_t i = 0; i < ArrayLength(gPrefLangNames); ++i) {
     if (!nsCRT::strcasecmp(gPrefLangNames[i], aLang)) {
+      return eFontPrefLang(i);
+    }
+    // If the pref-lang is a two-character lang tag, try ignoring any trailing
+    // subtags in aLang and see if the base lang matches.
+    if (strlen(gPrefLangNames[i]) == 2 && strlen(aLang) > 3 &&
+        aLang[2] == '-' && !nsCRT::strncasecmp(gPrefLangNames[i], aLang, 2)) {
       return eFontPrefLang(i);
     }
   }
@@ -2648,7 +2699,7 @@ bool gfxPlatformFontList::LoadFontInfo() {
     // Limit the time spent reading fonts in one pass, unless the font-loader
     // delay was set to zero, in which case we run to completion even if it
     // causes some jank.
-    if (StaticPrefs::gfx_font_loader_delay_AtStartup() > 0) {
+    if (StaticPrefs::gfx_font_loader_delay() > 0) {
       TimeDuration elapsed = TimeStamp::Now() - start;
       if (elapsed.ToMilliseconds() > FONT_LOADER_MAX_TIMESLICE &&
           i + 1 != endIndex) {
@@ -2751,7 +2802,7 @@ void gfxPlatformFontList::GetPrefsAndStartLoader() {
   if (AppShutdown::IsInOrBeyond(ShutdownPhase::AppShutdownConfirmed)) {
     return;
   }
-  uint32_t delay = std::max(1u, StaticPrefs::gfx_font_loader_delay_AtStartup());
+  uint32_t delay = std::max(1u, StaticPrefs::gfx_font_loader_delay());
   if (NS_IsMainThread()) {
     StartLoader(delay);
   } else {

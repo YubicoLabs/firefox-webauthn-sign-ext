@@ -78,6 +78,8 @@ support-files = [
   "file_backforward_restore_scroll.html^headers^",
 ]
 
+["browser_backforward_text_fragment_restore_urlbar.js"]
+
 ["browser_backforward_userinteraction.js"]
 support-files = ["dummy_iframe_page.html"]
 skip-if = ["os == 'linux' && bits == 64 && !debug"] # Bug 1607713
@@ -243,6 +245,8 @@ https_first_disabled = true
 
 ["browser_click_link_within_view_source.js"]
 
+["browser_crossGroupOpener.js"]
+
 ["browser_cross_process_csp_inheritance.js"]
 https_first_disabled = true
 
@@ -257,6 +261,8 @@ support-files = [
   "file_csp_uir.html",
   "file_csp_uir_dummy.html",
 ]
+
+["browser_current_entry_always_in_history_menu.js"]
 
 ["browser_dataURI_unique_opaque_origin.js"]
 https_first_disabled = true
@@ -286,6 +292,12 @@ support-files = ["head_browser_onbeforeunload.js"]
 ["browser_onbeforeunload_navigation.js"]
 skip-if = ["os == 'win' && !debug"] # bug 1300351
 
+["browser_onbeforeunload_nested_with_delay.js"]
+support-files = [
+  "file_onbeforeunload_nested_inner.html",
+  "file_onbeforeunload_nested_outer.html",
+]
+
 ["browser_onbeforeunload_parent.js"]
 support-files = ["head_browser_onbeforeunload.js"]
 
@@ -296,6 +308,12 @@ https_first_disabled = true
 support-files = ["overlink_test.html"]
 
 ["browser_platform_emulation.js"]
+
+["browser_replace_state_during_navigation.js"]
+support-files = ["file_replace_state_during_navigation.html"]
+
+["browser_replace_state_during_navigation_from_first_page.js"]
+support-files = ["file_replace_state_during_navigation.html"]
 
 ["browser_search_notification.js"]
 

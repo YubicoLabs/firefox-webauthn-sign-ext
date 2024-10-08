@@ -447,23 +447,26 @@
     NoCheck, 16 * 1024 * 1024)                                                 \
                                                                                \
   /*                                                                           \
-   * JSGC_NURSERY_FREE_THRESHOLD_FOR_IDLE_COLLECTION                           \
-   * JSGC_NURSERY_FREE_THRESHOLD_FOR_IDLE_COLLECTION_FRACTION                  \
-   * JSGC_NURSERY_TIMEOUT_FOR_IDLE_COLLECTION_MS                               \
+   * JSGC_NURSERY_EAGER_COLLECTION_THRESHOLD_KB                                \
+   * JSGC_NURSERY_EAGER_COLLECTION_THRESHOLD_PERCENT                           \
+   * JSGC_NURSERY_EAGER_COLLECTION_TIMEOUT_MS                                  \
    *                                                                           \
-   * Attempt to run a minor GC in the idle time if the free space falls below  \
-   * this threshold or if it hasn't been collected for too long. The absolute  \
-   * threshold is used when the nursery is large and the percentage when it is \
-   * small. See Nursery::shouldCollect().                                      \
+   * JS::MaybeRunNurseryCollection will run a minor GC if the free space falls \
+   * below a threshold or if it hasn't been collected for too long.            \
+   *                                                                           \
+   * To avoid making this too eager, two thresholds must be met. The free      \
+   * space must fall below a size threshold and the fraction of free space     \
+   * remaining must also fall below a threshold.                               \
+   *                                                                           \
+   * See Nursery::wantEagerCollection() for more details.                      \
    */                                                                          \
-  _(JSGC_NURSERY_FREE_THRESHOLD_FOR_IDLE_COLLECTION, size_t,                   \
-    nurseryFreeThresholdForIdleCollection, ConvertSize, NoCheck,               \
-    ChunkSize / 4)                                                             \
-  _(JSGC_NURSERY_FREE_THRESHOLD_FOR_IDLE_COLLECTION_PERCENT, double,           \
-    nurseryFreeThresholdForIdleCollectionFraction, ConvertTimes100,            \
+  _(JSGC_NURSERY_EAGER_COLLECTION_THRESHOLD_KB, size_t,                        \
+    nurseryEagerCollectionThresholdBytes, ConvertKB, NoCheck, ChunkSize / 4)   \
+  _(JSGC_NURSERY_EAGER_COLLECTION_THRESHOLD_PERCENT, double,                   \
+    nurseryEagerCollectionThresholdPercent, ConvertTimes100,                   \
     CheckNonZeroUnitRange, 0.25)                                               \
-  _(JSGC_NURSERY_TIMEOUT_FOR_IDLE_COLLECTION_MS, mozilla::TimeDuration,        \
-    nurseryTimeoutForIdleCollection, ConvertMillis, NoCheck,                   \
+  _(JSGC_NURSERY_EAGER_COLLECTION_TIMEOUT_MS, mozilla::TimeDuration,           \
+    nurseryEagerCollectionTimeout, ConvertMillis, NoCheck,                     \
     mozilla::TimeDuration::FromSeconds(5))                                     \
                                                                                \
   /*                                                                           \
@@ -489,7 +492,13 @@
    * JSGC_PARALLEL_MARKING_THRESHOLD_MB                                        \
    */                                                                          \
   _(JSGC_PARALLEL_MARKING_THRESHOLD_MB, size_t, parallelMarkingThresholdBytes, \
-    ConvertMB, NoCheck, 4 * 1024 * 1024)
+    ConvertMB, NoCheck, 4 * 1024 * 1024)                                       \
+                                                                               \
+  /*                                                                           \
+   * JSGC_GENERATE_MISSING_ALLOC_SITES                                         \
+   */                                                                          \
+  _(JSGC_GENERATE_MISSING_ALLOC_SITES, bool, generateMissingAllocSites,        \
+    ConvertBool, NoCheck, false)
 
 namespace js {
 
@@ -512,9 +521,6 @@ namespace TuningDefaults {
 /* JSGC_MIN_EMPTY_CHUNK_COUNT */
 static const uint32_t MinEmptyChunkCount = 1;
 
-/* JSGC_MAX_EMPTY_CHUNK_COUNT */
-static const uint32_t MaxEmptyChunkCount = 30;
-
 /* JSGC_SLICE_TIME_BUDGET_MS */
 static const int64_t DefaultTimeBudgetMS = 0;  // Unlimited by default.
 
@@ -527,17 +533,26 @@ static const bool PerZoneGCEnabled = false;
 /* JSGC_COMPACTING_ENABLED */
 static const bool CompactingEnabled = true;
 
+/* JSGC_NURSERY_ENABLED */
+static const bool NurseryEnabled = true;
+
 /* JSGC_PARALLEL_MARKING_ENABLED */
 static const bool ParallelMarkingEnabled = false;
 
 /* JSGC_INCREMENTAL_WEAKMAP_ENABLED */
 static const bool IncrementalWeakMapMarkingEnabled = true;
 
+/* JSGC_SEMISPACE_NURSERY_ENABLED */
+static const bool SemispaceNurseryEnabled = false;
+
 /* JSGC_HELPER_THREAD_RATIO */
 static const double HelperThreadRatio = 0.5;
 
 /* JSGC_MAX_HELPER_THREADS */
 static const size_t MaxHelperThreads = 8;
+
+/* JSGC_MAX_MARKING_THREADS */
+static const size_t MaxMarkingThreads = 2;
 
 }  // namespace TuningDefaults
 
@@ -582,10 +597,12 @@ class GCSchedulingState {
 
   bool inHighFrequencyGCMode() const { return inHighFrequencyGCMode_; }
 
-  void updateHighFrequencyMode(const mozilla::TimeStamp& lastGCTime,
-                               const mozilla::TimeStamp& currentTime,
-                               const GCSchedulingTunables& tunables);
-  void updateHighFrequencyModeForReason(JS::GCReason reason);
+  void updateHighFrequencyModeOnGCStart(JS::GCOptions options,
+                                        const mozilla::TimeStamp& lastGCTime,
+                                        const mozilla::TimeStamp& currentTime,
+                                        const GCSchedulingTunables& tunables);
+  void updateHighFrequencyModeOnSliceStart(JS::GCOptions options,
+                                           JS::GCReason reason);
 };
 
 struct TriggerResult {

@@ -8,8 +8,6 @@ import { ExtensionUtils } from "resource://gre/modules/ExtensionUtils.sys.mjs";
 
 import { ExtensionParent } from "resource://gre/modules/ExtensionParent.sys.mjs";
 
-import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
-
 const { StartupCache } = ExtensionParent;
 
 const lazy = {};
@@ -19,13 +17,6 @@ ChromeUtils.defineESModuleGetters(lazy, {
   KeyValueService: "resource://gre/modules/kvstore.sys.mjs",
 });
 
-XPCOMUtils.defineLazyPreferenceGetter(
-  lazy,
-  "matchAboutBlankDefaultFalse",
-  "extensions.scripting.matchAboutBlankDefaultFalse",
-  false
-);
-
 class Store {
   async _init() {
     const { path: storePath } = lazy.FileUtils.getDir("ProfD", [
@@ -33,9 +24,10 @@ class Store {
     ]);
     // Make sure the folder exists.
     await IOUtils.makeDirectory(storePath, { ignoreExisting: true });
-    this._store = await lazy.KeyValueService.getOrCreate(
+    this._store = await lazy.KeyValueService.getOrCreateWithOptions(
       storePath,
-      "scripting-contentScripts"
+      "scripting-contentScripts",
+      { strategy: lazy.KeyValueService.RecoveryStrategy.RENAME }
     );
   }
 
@@ -45,6 +37,11 @@ class Store {
     }
 
     return this._initPromise;
+  }
+
+  _uninitForTesting() {
+    this._store = null;
+    this._initPromise = null;
   }
 
   /**
@@ -188,15 +185,12 @@ export const makeInternalContentScript = (
       cssPaths,
       excludeMatches: options.excludeMatches,
       jsPaths,
-      // TODO(Bug 1853411): revert the short-term workaround special casing
-      // webcompat extension id once it is not necessary anymore.
-      matchAboutBlank: lazy.matchAboutBlankDefaultFalse
-        ? false // If the hidden pref is set, then forcefully set matchAboutBlank to false
-        : extension.id !== "webcompat@mozilla.org",
       matches: options.matches,
+      matchOriginAsFallback: options.matchOriginAsFallback || false,
       originAttributesPatterns: null,
       persistAcrossSessions: options.persistAcrossSessions,
       runAt: options.runAt || "document_idle",
+      world: options.world || "ISOLATED",
     },
   };
 };
@@ -220,7 +214,9 @@ export const makePublicContentScript = (extension, internalScript) => {
     id: internalScript.id,
     allFrames: internalScript.allFrames,
     matches: internalScript.matches,
+    matchOriginAsFallback: internalScript.matchOriginAsFallback,
     runAt: internalScript.runAt,
+    world: internalScript.world,
     persistAcrossSessions: internalScript.persistAcrossSessions,
   };
 

@@ -9,6 +9,7 @@ This test will ideally test the following cases
     Case A 3: Page has random subhost, with same host, removed by wildcard
     Case A 4: Page is localhost and localhost:port, removed by host
     Case A 5: Page is a `file://` type address, removed by empty host
+    Case A 6: Page has a uri with a trailing dot
     Cases A 1,2,3 will be tried with and without bookmarks added (which prevent page deletion)
   Case B: Tests in which no pages are removed (Inverses)
     Case B 1 (inverse): Page has no visits in timeframe, and nothing is deleted
@@ -114,6 +115,7 @@ add_task(async function test_removeByFilter() {
     "http://localhost/" + Math.random(),
   ];
   const fileUriList = ["file:///home/user/files" + Math.random()];
+  const trailingDotUriList = ["http://example.com./" + Math.random()];
   const title = "Title " + Math.random();
   let sameHostVisits = [
     {
@@ -165,6 +167,12 @@ add_task(async function test_removeByFilter() {
       title,
     },
   ];
+  let trailingDotVisits = [
+    {
+      uri: trailingDotUriList[0],
+      title,
+    },
+  ];
   let assertInDB = async function (aUri) {
     Assert.ok(await PlacesTestUtils.isPageInDB(aUri));
   };
@@ -174,13 +182,13 @@ add_task(async function test_removeByFilter() {
   for (let callbackUse of [true, false]) {
     // Case A Positives
     for (let bookmarkUse of [true, false]) {
-      let bookmarkedUri = arr => undefined;
+      let bookmarkedUri = () => undefined;
       let checkableArray = arr => arr;
       let checkClosure = assertNotInDB;
       if (bookmarkUse) {
         bookmarkedUri = arr => arr[0];
         checkableArray = arr => arr.slice(1);
-        checkClosure = function (aUri) {};
+        checkClosure = function () {};
       }
       // Case A 1: Dates
       await removeByFilterTester(
@@ -246,6 +254,22 @@ add_task(async function test_removeByFilter() {
       },
       async () => {
         for (let uri of fileUriList) {
+          await assertNotInDB(uri);
+        }
+      },
+      callbackUse
+    );
+    // Case A 6: Trailing Dot Hostname
+    await removeByFilterTester(
+      trailingDotVisits,
+      { host: "example.com." },
+      async () => {
+        for (let uri of trailingDotUriList) {
+          await assertInDB(uri);
+        }
+      },
+      async () => {
+        for (let uri of trailingDotUriList) {
           await assertNotInDB(uri);
         }
       },
@@ -398,10 +422,6 @@ add_task(async function test_error_cases() {
   );
   Assert.throws(
     () => PlacesUtils.history.removeByFilter({ host: "*" }),
-    /TypeError: Expected well formed hostname string for/
-  );
-  Assert.throws(
-    () => PlacesUtils.history.removeByFilter({ host: "local.host." }),
     /TypeError: Expected well formed hostname string for/
   );
   Assert.throws(

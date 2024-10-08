@@ -324,7 +324,7 @@ HandlerService.prototype = {
   },
 
   // nsIObserver
-  observe(subject, topic, data) {
+  observe(subject, topic) {
     if (topic != "handlersvc-json-replace") {
       return;
     }
@@ -490,6 +490,10 @@ HandlerService.prototype = {
     if (handlerInfo.type == "application/pdf") {
       Services.obs.notifyObservers(null, TOPIC_PDFJS_HANDLER_CHANGED);
     }
+
+    if (handlerInfo.type == "mailto") {
+      Services.obs.notifyObservers(null, "mailto::onClearCache");
+    }
   },
 
   // nsIHandlerService
@@ -598,6 +602,11 @@ HandlerService.prototype = {
         name: handler.name,
         command: handler.command,
       };
+    } else if (handler instanceof Ci.nsIGIOHandlerApp) {
+      return {
+        name: handler.name,
+        id: handler.id,
+      };
     }
     // If the handler is an unknown handler type, return null.
     // Android default application handler is the case.
@@ -642,6 +651,14 @@ HandlerService.prototype = {
         handlerApp = Cc["@mozilla.org/gio-service;1"]
           .getService(Ci.nsIGIOService)
           .createAppFromCommand(handlerObj.command, handlerObj.name);
+      } catch (ex) {
+        return null;
+      }
+    } else if ("id" in handlerObj && "@mozilla.org/gio-service;1" in Cc) {
+      try {
+        handlerApp = Cc["@mozilla.org/gio-service;1"]
+          .getService(Ci.nsIGIOService)
+          .createHandlerAppFromAppId(handlerObj.id);
       } catch (ex) {
         return null;
       }
@@ -726,7 +743,7 @@ HandlerService.prototype = {
     this._mockedProtocol = protocol;
     this._mockedHandler = {
       QueryInterface: ChromeUtils.generateQI([Ci.nsILocalHandlerApp]),
-      launchWithURI(uri, context) {
+      launchWithURI(uri) {
         Services.obs.notifyObservers(uri, "mocked-protocol-handler");
       },
       name: "Mocked handler",

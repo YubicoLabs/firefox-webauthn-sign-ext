@@ -26,7 +26,11 @@ int dim_1d = NagaDimensions1D(image_1d);
 ```
 */
 
-use super::{super::FunctionCtx, BackendResult};
+use super::{
+    super::FunctionCtx,
+    writer::{EXTRACT_BITS_FUNCTION, INSERT_BITS_FUNCTION},
+    BackendResult,
+};
 use crate::{arena::Handle, proc::NameKey};
 use std::fmt::Write;
 
@@ -57,6 +61,18 @@ pub(super) struct WrappedStructMatrixAccess {
 #[derive(Clone, Copy, Debug, Hash, Eq, Ord, PartialEq, PartialOrd)]
 pub(super) struct WrappedMatCx2 {
     pub(super) columns: crate::VectorSize,
+}
+
+#[derive(Clone, Copy, Debug, Hash, Eq, Ord, PartialEq, PartialOrd)]
+pub(super) struct WrappedMath {
+    pub(super) fun: crate::MathFunction,
+    pub(super) scalar: crate::Scalar,
+    pub(super) components: Option<u32>,
+}
+
+#[derive(Clone, Copy, Debug, Hash, Eq, Ord, PartialEq, PartialOrd)]
+pub(super) struct WrappedZeroValue {
+    pub(super) ty: Handle<crate::Type>,
 }
 
 /// HLSL backend requires its own `ImageQuery` enum.
@@ -348,7 +364,7 @@ impl<'a, W: Write> super::Writer<'a, W> {
     }
 
     /// Helper function that write wrapped function for `Expression::Compose` for structures.
-    pub(super) fn write_wrapped_constructor_function(
+    fn write_wrapped_constructor_function(
         &mut self,
         module: &crate::Module,
         constructor: WrappedConstructor,
@@ -851,13 +867,170 @@ impl<'a, W: Write> super::Writer<'a, W> {
         Ok(())
     }
 
+    // TODO: we could merge this with iteration in write_wrapped_compose_functions...
+    //
+    /// Helper function that writes zero value wrapped functions
+    pub(super) fn write_wrapped_zero_value_functions(
+        &mut self,
+        module: &crate::Module,
+        expressions: &crate::Arena<crate::Expression>,
+    ) -> BackendResult {
+        for (handle, _) in expressions.iter() {
+            if let crate::Expression::ZeroValue(ty) = expressions[handle] {
+                let zero_value = WrappedZeroValue { ty };
+                if self.wrapped.zero_values.insert(zero_value) {
+                    self.write_wrapped_zero_value_function(module, zero_value)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn write_wrapped_math_functions(
+        &mut self,
+        module: &crate::Module,
+        func_ctx: &FunctionCtx,
+    ) -> BackendResult {
+        for (_, expression) in func_ctx.expressions.iter() {
+            if let crate::Expression::Math {
+                fun,
+                arg,
+                arg1: _arg1,
+                arg2: _arg2,
+                arg3: _arg3,
+            } = *expression
+            {
+                match fun {
+                    crate::MathFunction::ExtractBits => {
+                        // The behavior of our extractBits polyfill is undefined if offset + count > bit_width. We need
+                        // to first sanitize the offset and count first. If we don't do this, we will get out-of-spec
+                        // values if the extracted range is not within the bit width.
+                        //
+                        // This encodes the exact formula specified by the wgsl spec:
+                        // https://gpuweb.github.io/gpuweb/wgsl/#extractBits-unsigned-builtin
+                        //
+                        // w = sizeof(x) * 8
+                        // o = min(offset, w)
+                        // c = min(count, w - o)
+                        //
+                        // bitfieldExtract(x, o, c)
+                        let arg_ty = func_ctx.resolve_type(arg, &module.types);
+                        let scalar = arg_ty.scalar().unwrap();
+                        let components = arg_ty.components();
+
+                        let wrapped = WrappedMath {
+                            fun,
+                            scalar,
+                            components,
+                        };
+
+                        if !self.wrapped.math.insert(wrapped) {
+                            continue;
+                        }
+
+                        // Write return type
+                        self.write_value_type(module, arg_ty)?;
+
+                        let scalar_width: u8 = scalar.width * 8;
+
+                        // Write function name and parameters
+                        writeln!(self.out, " {EXTRACT_BITS_FUNCTION}(")?;
+                        write!(self.out, "    ")?;
+                        self.write_value_type(module, arg_ty)?;
+                        writeln!(self.out, " e,")?;
+                        writeln!(self.out, "    uint offset,")?;
+                        writeln!(self.out, "    uint count")?;
+                        writeln!(self.out, ") {{")?;
+
+                        // Write function body
+                        writeln!(self.out, "    uint w = {scalar_width};")?;
+                        writeln!(self.out, "    uint o = min(offset, w);")?;
+                        writeln!(self.out, "    uint c = min(count, w - o);")?;
+                        writeln!(
+                            self.out,
+                            "    return (c == 0 ? 0 : (e << (w - c - o)) >> (w - c));"
+                        )?;
+
+                        // End of function body
+                        writeln!(self.out, "}}")?;
+                    }
+                    crate::MathFunction::InsertBits => {
+                        // The behavior of our insertBits polyfill has the same constraints as the extractBits polyfill.
+
+                        let arg_ty = func_ctx.resolve_type(arg, &module.types);
+                        let scalar = arg_ty.scalar().unwrap();
+                        let components = arg_ty.components();
+
+                        let wrapped = WrappedMath {
+                            fun,
+                            scalar,
+                            components,
+                        };
+
+                        if !self.wrapped.math.insert(wrapped) {
+                            continue;
+                        }
+
+                        // Write return type
+                        self.write_value_type(module, arg_ty)?;
+
+                        let scalar_width: u8 = scalar.width * 8;
+                        let scalar_max: u64 = match scalar.width {
+                            1 => 0xFF,
+                            2 => 0xFFFF,
+                            4 => 0xFFFFFFFF,
+                            8 => 0xFFFFFFFFFFFFFFFF,
+                            _ => unreachable!(),
+                        };
+
+                        // Write function name and parameters
+                        writeln!(self.out, " {INSERT_BITS_FUNCTION}(")?;
+                        write!(self.out, "    ")?;
+                        self.write_value_type(module, arg_ty)?;
+                        writeln!(self.out, " e,")?;
+                        write!(self.out, "    ")?;
+                        self.write_value_type(module, arg_ty)?;
+                        writeln!(self.out, " newbits,")?;
+                        writeln!(self.out, "    uint offset,")?;
+                        writeln!(self.out, "    uint count")?;
+                        writeln!(self.out, ") {{")?;
+
+                        // Write function body
+                        writeln!(self.out, "    uint w = {scalar_width}u;")?;
+                        writeln!(self.out, "    uint o = min(offset, w);")?;
+                        writeln!(self.out, "    uint c = min(count, w - o);")?;
+
+                        // The `u` suffix on the literals is _extremely_ important. Otherwise it will use
+                        // i32 shifting instead of the intended u32 shifting.
+                        writeln!(
+                            self.out,
+                            "    uint mask = (({scalar_max}u >> ({scalar_width}u - c)) << o);"
+                        )?;
+                        writeln!(
+                            self.out,
+                            "    return (c == 0 ? e : ((e & ~mask) | ((newbits << o) & mask)));"
+                        )?;
+
+                        // End of function body
+                        writeln!(self.out, "}}")?;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Helper function that writes various wrapped functions
     pub(super) fn write_wrapped_functions(
         &mut self,
         module: &crate::Module,
         func_ctx: &FunctionCtx,
     ) -> BackendResult {
+        self.write_wrapped_math_functions(module, func_ctx)?;
         self.write_wrapped_compose_functions(module, func_ctx.expressions)?;
+        self.write_wrapped_zero_value_functions(module, func_ctx.expressions)?;
 
         for (handle, _) in func_ctx.expressions.iter() {
             match func_ctx.expressions[handle] {
@@ -871,7 +1044,12 @@ impl<'a, W: Write> super::Writer<'a, W> {
                         crate::Expression::GlobalVariable(var_handle) => {
                             &module.global_variables[var_handle]
                         }
-                        ref other => unreachable!("Array length of base {:?}", other),
+                        ref other => {
+                            return Err(super::Error::Unimplemented(format!(
+                                "Array length of base {:?}",
+                                other
+                            )))
+                        }
                     };
                     let storage_access = match global_var.space {
                         crate::AddressSpace::Storage { access } => access,
@@ -1132,6 +1310,73 @@ impl<'a, W: Write> super::Writer<'a, W> {
                 }
             }
         }
+
+        Ok(())
+    }
+
+    pub(super) fn write_wrapped_zero_value_function_name(
+        &mut self,
+        module: &crate::Module,
+        zero_value: WrappedZeroValue,
+    ) -> BackendResult {
+        let name = crate::TypeInner::hlsl_type_id(zero_value.ty, module.to_ctx(), &self.names)?;
+        write!(self.out, "ZeroValue{name}")?;
+        Ok(())
+    }
+
+    /// Helper function that write wrapped function for `Expression::ZeroValue`
+    ///
+    /// This is necessary since we might have a member access after the zero value expression, e.g.
+    /// `.y` (in practice this can come up when consuming SPIRV that's been produced by glslc).
+    ///
+    /// So we can't just write `(float4)0` since `(float4)0.y` won't parse correctly.
+    ///
+    /// Parenthesizing the expression like `((float4)0).y` would work... except DXC can't handle
+    /// cases like:
+    ///
+    /// ```text
+    /// tests\out\hlsl\access.hlsl:183:41: error: cannot compile this l-value expression yet
+    ///     t_1.am = (__mat4x2[2])((float4x2[2])0);
+    ///                                         ^
+    /// ```
+    fn write_wrapped_zero_value_function(
+        &mut self,
+        module: &crate::Module,
+        zero_value: WrappedZeroValue,
+    ) -> BackendResult {
+        use crate::back::INDENT;
+
+        const RETURN_VARIABLE_NAME: &str = "ret";
+
+        // Write function return type and name
+        if let crate::TypeInner::Array { base, size, .. } = module.types[zero_value.ty].inner {
+            write!(self.out, "typedef ")?;
+            self.write_type(module, zero_value.ty)?;
+            write!(self.out, " ret_")?;
+            self.write_wrapped_zero_value_function_name(module, zero_value)?;
+            self.write_array_size(module, base, size)?;
+            writeln!(self.out, ";")?;
+
+            write!(self.out, "ret_")?;
+            self.write_wrapped_zero_value_function_name(module, zero_value)?;
+        } else {
+            self.write_type(module, zero_value.ty)?;
+        }
+        write!(self.out, " ")?;
+        self.write_wrapped_zero_value_function_name(module, zero_value)?;
+
+        // Write function parameters (none) and start function body
+        writeln!(self.out, "() {{")?;
+
+        // Write `ZeroValue` function.
+        write!(self.out, "{INDENT}return ")?;
+        self.write_default_init(module, zero_value.ty)?;
+        writeln!(self.out, ";")?;
+
+        // End of function body
+        writeln!(self.out, "}}")?;
+        // Write extra new line
+        writeln!(self.out)?;
 
         Ok(())
     }

@@ -4,7 +4,6 @@
 import concurrent.futures
 import json
 import logging
-import multiprocessing
 import ntpath
 import os
 import pathlib
@@ -28,7 +27,7 @@ from six.moves import input
 from mozbuild import build_commands
 from mozbuild.controller.clobber import Clobberer
 from mozbuild.nodeutil import find_node_executable
-from mozbuild.util import memoize
+from mozbuild.util import cpu_count, memoize
 
 
 # Function used to run clang-format on a batch of files. It is a helper function
@@ -51,7 +50,7 @@ def build_repo_relative_path(abs_path, repo_path):
 
 def prompt_bool(prompt, limit=5):
     """Prompts the user with prompt and requires a boolean value."""
-    from distutils.util import strtobool
+    from mach.util import strtobool
 
     for _ in range(limit):
         try:
@@ -386,7 +385,7 @@ def check(
     ) as output_manager:
         import math
 
-        batch_size = int(math.ceil(float(len(source)) / multiprocessing.cpu_count()))
+        batch_size = int(math.ceil(float(len(source)) / cpu_count()))
         for i in range(0, len(source), batch_size):
             args = _get_clang_tidy_command(
                 command_context,
@@ -711,7 +710,7 @@ def autotest(
         )
         return TOOLS_UNSUPORTED_PLATFORM
 
-    max_workers = multiprocessing.cpu_count()
+    max_workers = cpu_count()
 
     command_context.log(
         logging.INFO,
@@ -1593,7 +1592,9 @@ def get_clang_tools(
 
     from mozbuild.bootstrap import bootstrap_toolchain
 
-    bootstrap_toolchain("clang-tools/clang-tidy")
+    clang_tidy = bootstrap_toolchain("clang-tools/clang-tidy")
+    if not clang_tidy:
+        raise Exception("clang-tidy not found")
 
     return 0 if _is_version_eligible(command_context, clang_paths) else 1, clang_paths
 
@@ -1904,7 +1905,7 @@ def _run_clang_format_path(
     # Run clang-format in parallel trying to saturate all of the available cores.
     import math
 
-    max_workers = multiprocessing.cpu_count()
+    max_workers = cpu_count()
 
     # To maximize CPU usage when there are few items to handle,
     # underestimate the number of items per batch, then dispatch

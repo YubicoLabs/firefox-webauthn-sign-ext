@@ -81,8 +81,9 @@ Handle<T>::Handle(T object, Isolate* isolate)
     : location_(isolate->getHandleLocation(object.value())) {}
 
 template Handle<ByteArray>::Handle(ByteArray b, Isolate* isolate);
+template Handle<TrustedByteArray>::Handle(TrustedByteArray b, Isolate* isolate);
 template Handle<HeapObject>::Handle(const JS::Value& v, Isolate* isolate);
-template Handle<JSRegExp>::Handle(JSRegExp re, Isolate* isolate);
+template Handle<IrRegExpData>::Handle(IrRegExpData re, Isolate* isolate);
 template Handle<String>::Handle(String s, Isolate* isolate);
 
 template <typename T>
@@ -227,15 +228,32 @@ Handle<ByteArray> Isolate::NewByteArray(int length, AllocationType alloc) {
 
   js::AutoEnterOOMUnsafeRegion oomUnsafe;
 
-  size_t alloc_size = sizeof(uint32_t) + length;
+  size_t alloc_size = sizeof(ByteArrayData) + length;
   ByteArrayData* data =
       static_cast<ByteArrayData*>(allocatePseudoHandle(alloc_size));
   if (!data) {
     oomUnsafe.crash("Irregexp NewByteArray");
   }
-  data->length = length;
+  new (data) ByteArrayData(length);
 
   return Handle<ByteArray>(JS::PrivateValue(data), this);
+}
+
+Handle<TrustedByteArray> Isolate::NewTrustedByteArray(int length,
+                                                      AllocationType alloc) {
+  MOZ_RELEASE_ASSERT(length >= 0);
+
+  js::AutoEnterOOMUnsafeRegion oomUnsafe;
+
+  size_t alloc_size = sizeof(ByteArrayData) + length;
+  ByteArrayData* data =
+      static_cast<ByteArrayData*>(allocatePseudoHandle(alloc_size));
+  if (!data) {
+    oomUnsafe.crash("Irregexp NewTrustedByteArray");
+  }
+  new (data) ByteArrayData(length);
+
+  return Handle<TrustedByteArray>(JS::PrivateValue(data), this);
 }
 
 Handle<FixedArray> Isolate::NewFixedArray(int length) {
@@ -261,7 +279,7 @@ Handle<FixedIntegerArray<T>> Isolate::NewFixedIntegerArray(uint32_t length) {
   if (!data) {
     oomUnsafe.crash("Irregexp NewFixedIntegerArray");
   }
-  data->length = rawLength;
+  new (data) ByteArrayData(rawLength);
 
   return Handle<FixedIntegerArray<T>>(JS::PrivateValue(data), this);
 }

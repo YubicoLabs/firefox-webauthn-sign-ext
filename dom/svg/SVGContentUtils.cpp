@@ -33,7 +33,7 @@
 #include "mozilla/gfx/Types.h"
 #include "mozilla/FloatingPoint.h"
 #include "mozilla/ComputedStyle.h"
-#include "SVGPathDataParser.h"
+#include "SVGOuterSVGFrame.h"
 #include "SVGPathData.h"
 #include "SVGPathElement.h"
 
@@ -433,6 +433,26 @@ float SVGContentUtils::GetFontXHeight(const ComputedStyle* aComputedStyle,
   return nsPresContext::AppUnitsToFloatCSSPixels(xHeight) /
          aPresContext->TextZoom();
 }
+
+float SVGContentUtils::GetLineHeight(const Element* aElement) {
+  float result = 16.0f * ReflowInput::kNormalLineHeightFactor;
+  if (!aElement) {
+    return result;
+  }
+  SVGGeometryProperty::DoForComputedStyle(
+      aElement, [&](const ComputedStyle* style) {
+        auto* context = nsContentUtils::GetContextForContent(aElement);
+        if (!context) {
+          return;
+        }
+        const auto lineHeightAu = ReflowInput::CalcLineHeight(
+            *style, context, aElement, NS_UNCONSTRAINEDSIZE, 1.0f);
+        result = CSSPixel::FromAppUnits(lineHeightAu);
+      });
+
+  return result;
+}
+
 nsresult SVGContentUtils::ReportToConsole(const Document* doc,
                                           const char* aWarning,
                                           const nsTArray<nsString>& aParams) {
@@ -469,28 +489,28 @@ SVGViewportElement* SVGContentUtils::GetNearestViewportElement(
   return nullptr;
 }
 
-static gfx::Matrix GetCTMInternal(SVGElement* aElement, bool aScreenCTM,
+enum class CTMType { NearestViewport, NonScalingStroke, Screen };
+
+static gfx::Matrix GetCTMInternal(SVGElement* aElement, CTMType aCTMType,
                                   bool aHaveRecursed) {
   auto getLocalTransformHelper =
       [](SVGElement const* e, bool shouldIncludeChildToUserSpace) -> gfxMatrix {
     gfxMatrix ret;
-
     if (auto* f = e->GetPrimaryFrame()) {
       ret = SVGUtils::GetTransformMatrixInUserSpace(f);
-    } else {
-      // FIXME: Ideally we should also return the correct matrix
-      // for display:none, but currently transform related code relies
-      // heavily on the present of a frame.
-      // For now we just fall back to |PrependLocalTransformsTo| which
-      // doesn't account for CSS transform.
-      ret = e->PrependLocalTransformsTo({}, eUserSpaceToParent);
     }
-
     if (shouldIncludeChildToUserSpace) {
-      ret = e->PrependLocalTransformsTo({}, eChildToUserSpace) * ret;
+      ret = e->ChildToUserSpaceTransform() * ret;
     }
-
     return ret;
+  };
+
+  auto postTranslateFrameOffset = [](nsIFrame* aFrame, nsIFrame* aAncestorFrame,
+                                     gfx::Matrix& aMatrix) {
+    auto point = aFrame->GetOffsetTo(aAncestorFrame);
+    aMatrix =
+        aMatrix.PostTranslate(nsPresContext::AppUnitsToFloatCSSPixels(point.x),
+                              nsPresContext::AppUnitsToFloatCSSPixels(point.y));
   };
 
   gfxMatrix matrix = getLocalTransformHelper(aElement, aHaveRecursed);
@@ -501,8 +521,21 @@ static gfx::Matrix GetCTMInternal(SVGElement* aElement, bool aScreenCTM,
   while (ancestor && ancestor->IsSVGElement() &&
          !ancestor->IsSVGElement(nsGkAtoms::foreignObject)) {
     element = static_cast<SVGElement*>(ancestor);
+    if (aCTMType == CTMType::NonScalingStroke) {
+      if (auto* el = SVGSVGElement::FromNode(element); el && !el->IsInner()) {
+        if (SVGOuterSVGFrame* frame =
+                do_QueryFrame(element->GetPrimaryFrame())) {
+          Matrix childTransform;
+          if (frame->HasChildrenOnlyTransform(&childTransform)) {
+            return gfx::ToMatrix(matrix) * childTransform;
+          }
+        }
+        return gfx::ToMatrix(matrix);
+      }
+    }
     matrix *= getLocalTransformHelper(element, true);
-    if (!aScreenCTM && SVGContentUtils::EstablishesViewport(element)) {
+    if (aCTMType == CTMType::NearestViewport &&
+        SVGContentUtils::EstablishesViewport(element)) {
       if (!element->IsAnyOfSVGElements(nsGkAtoms::svg, nsGkAtoms::symbol)) {
         NS_ERROR("New (SVG > 1.1) SVG viewport establishing element?");
         return gfx::Matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);  // singular
@@ -512,7 +545,7 @@ static gfx::Matrix GetCTMInternal(SVGElement* aElement, bool aScreenCTM,
     }
     ancestor = ancestor->GetFlattenedTreeParent();
   }
-  if (!aScreenCTM) {
+  if (aCTMType == CTMType::NearestViewport) {
     // didn't find a nearestViewportElement
     return gfx::Matrix(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);  // singular
   }
@@ -530,43 +563,74 @@ static gfx::Matrix GetCTMInternal(SVGElement* aElement, bool aScreenCTM,
     matrix = getLocalTransformHelper(aElement, true);
   }
 
-  if (auto* f = element->GetPrimaryFrame()) {
-    if (f->IsSVGOuterSVGFrame()) {
-      nsMargin bp = f->GetUsedBorderAndPadding();
-      matrix.PostTranslate(
-          NSAppUnitsToFloatPixels(bp.left, AppUnitsPerCSSPixel()),
-          NSAppUnitsToFloatPixels(bp.top, AppUnitsPerCSSPixel()));
-    }
+  gfx::Matrix tm = gfx::ToMatrix(matrix);
+  nsIFrame* frame = element->GetPrimaryFrame();
+  if (!frame) {
+    return tm;
+  }
+  if (frame->IsSVGOuterSVGFrame()) {
+    nsMargin bp = frame->GetUsedBorderAndPadding();
+    int32_t appUnitsPerCSSPixel = AppUnitsPerCSSPixel();
+    tm.PostTranslate(NSAppUnitsToFloatPixels(bp.left, appUnitsPerCSSPixel),
+                     NSAppUnitsToFloatPixels(bp.top, appUnitsPerCSSPixel));
   }
 
   if (!ancestor || !ancestor->IsElement()) {
-    return gfx::ToMatrix(matrix);
+    return tm;
   }
   if (auto* ancestorSVG = SVGElement::FromNode(ancestor)) {
-    return gfx::ToMatrix(matrix) * GetCTMInternal(ancestorSVG, true, true);
+    return tm * GetCTMInternal(ancestorSVG, aCTMType, true);
+  }
+  nsIFrame* parentFrame = frame->GetParent();
+  if (!parentFrame) {
+    return tm;
+  }
+  postTranslateFrameOffset(frame, parentFrame, tm);
+
+  nsIContent* nearestSVGAncestor = ancestor;
+  while (nearestSVGAncestor && !nearestSVGAncestor->IsSVGElement()) {
+    nearestSVGAncestor = nearestSVGAncestor->GetFlattenedTreeParent();
   }
 
-  // XXX this does not take into account CSS transform, or that the non-SVG
-  // content that we've hit may itself be inside an SVG foreignObject higher up
-  Document* currentDoc = aElement->GetComposedDoc();
-  float x = 0.0f, y = 0.0f;
-  if (currentDoc && element->IsSVGElement(nsGkAtoms::svg)) {
-    PresShell* presShell = currentDoc->GetPresShell();
-    if (presShell) {
-      nsIFrame* frame = element->GetPrimaryFrame();
-      nsIFrame* ancestorFrame = presShell->GetRootFrame();
-      if (frame && ancestorFrame) {
-        nsPoint point = frame->GetOffsetTo(ancestorFrame);
-        x = nsPresContext::AppUnitsToFloatCSSPixels(point.x);
-        y = nsPresContext::AppUnitsToFloatCSSPixels(point.y);
-      }
-    }
+  nsIFrame* ancestorFrame;
+  if (nearestSVGAncestor) {
+    ancestorFrame = nearestSVGAncestor->GetPrimaryFrame();
+  } else {
+    Document* currentDoc = aElement->GetComposedDoc();
+    PresShell* presShell = currentDoc ? currentDoc->GetPresShell() : nullptr;
+    ancestorFrame = presShell ? presShell->GetRootFrame() : nullptr;
   }
-  return ToMatrix(matrix).PostTranslate(x, y);
+  if (!ancestorFrame) {
+    return tm;
+  }
+  auto transformToAncestor = nsLayoutUtils::GetTransformToAncestor(
+      RelativeTo{parentFrame, ViewportType::Layout},
+      RelativeTo{ancestorFrame, ViewportType::Layout}, nsIFrame::IN_CSS_UNITS);
+  gfx::Matrix result2d;
+  if (transformToAncestor.CanDraw2D(&result2d)) {
+    tm = tm * result2d;
+  } else {
+    // The transform from our outer SVG matrix to the root is a 3D
+    // transform. We can't really process that so give up and just
+    // return the overall translation from the outer SVG to the root.
+    postTranslateFrameOffset(parentFrame, ancestorFrame, tm);
+  }
+  return nearestSVGAncestor
+             ? tm * GetCTMInternal(static_cast<SVGElement*>(nearestSVGAncestor),
+                                   aCTMType, true)
+             : tm;
 }
 
-gfx::Matrix SVGContentUtils::GetCTM(SVGElement* aElement, bool aScreenCTM) {
-  return GetCTMInternal(aElement, aScreenCTM, false);
+gfx::Matrix SVGContentUtils::GetCTM(SVGElement* aElement) {
+  return GetCTMInternal(aElement, CTMType::NearestViewport, false);
+}
+
+gfx::Matrix SVGContentUtils::GetNonScalingStrokeCTM(SVGElement* aElement) {
+  return GetCTMInternal(aElement, CTMType::NonScalingStroke, false);
+}
+
+gfx::Matrix SVGContentUtils::GetScreenCTM(SVGElement* aElement) {
+  return GetCTMInternal(aElement, CTMType::Screen, false);
 }
 
 void SVGContentUtils::RectilinearGetStrokeBounds(
@@ -818,10 +882,9 @@ float SVGContentUtils::CoordToFloat(const SVGElement* aContent,
 }
 
 already_AddRefed<gfx::Path> SVGContentUtils::GetPath(
-    const nsAString& aPathString) {
-  SVGPathData pathData;
-  SVGPathDataParser parser(aPathString, &pathData);
-  if (!parser.Parse()) {
+    const nsACString& aPathString) {
+  SVGPathData pathData(aPathString);
+  if (pathData.IsEmpty()) {
     return nullptr;
   }
 
@@ -830,7 +893,9 @@ already_AddRefed<gfx::Path> SVGContentUtils::GetPath(
   RefPtr<PathBuilder> builder =
       drawTarget->CreatePathBuilder(FillRule::FILL_WINDING);
 
-  return pathData.BuildPath(builder, StyleStrokeLinecap::Butt, 1);
+  // This is called from canvas, so we don't need to get the effective zoom here
+  // or so.
+  return pathData.BuildPath(builder, StyleStrokeLinecap::Butt, 1, 1.0f);
 }
 
 bool SVGContentUtils::ShapeTypeHasNoCorners(const nsIContent* aContent) {

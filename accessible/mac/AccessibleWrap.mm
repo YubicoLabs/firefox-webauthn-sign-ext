@@ -18,6 +18,7 @@
 
 #import "MOXLandmarkAccessibles.h"
 #import "MOXMathAccessibles.h"
+#import "MOXOuterDoc.h"
 #import "MOXTextMarkerDelegate.h"
 #import "MOXWebAreaAccessible.h"
 #import "mozAccessible.h"
@@ -118,6 +119,14 @@ Class AccessibleWrap::GetNativeType() {
     return [MOXWebAreaAccessible class];
   }
 
+  if (IsOuterDoc()) {
+    return [MOXOuterDoc class];
+  }
+
+  if (IsTextField() && !HasNumericValue()) {
+    return [mozTextAccessible class];
+  }
+
   return GetTypeFromRole(Role());
 
   NS_OBJC_END_TRY_BLOCK_RETURN(nil);
@@ -192,6 +201,12 @@ Class a11y::GetTypeFromRole(roles::Role aRole) {
     case roles::RADIO_MENU_ITEM:
       return [mozRadioButtonAccessible class];
 
+    case roles::PROGRESSBAR:
+      return [mozRangeAccessible class];
+
+    case roles::METER:
+      return [mozMeterAccessible class];
+
     case roles::SPINBUTTON:
     case roles::SLIDER:
       return [mozIncrementableAccessible class];
@@ -203,10 +218,7 @@ Class a11y::GetTypeFromRole(roles::Role aRole) {
       return [mozTabGroupAccessible class];
 
     case roles::ENTRY:
-    case roles::CAPTION:
-    case roles::EDITCOMBOBOX:
     case roles::PASSWORD_TEXT:
-      // normal textfield (static or editable)
       return [mozTextAccessible class];
 
     case roles::TEXT_LEAF:

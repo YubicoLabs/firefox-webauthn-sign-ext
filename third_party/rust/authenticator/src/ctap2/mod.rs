@@ -660,44 +660,16 @@ pub fn sign<Dev: FidoDevice>(
             return false;
         }
 
-        // Third, use the shared secret in the extensions, if requested
-        if let Some(extension) = get_assertion.extensions.hmac_secret.as_mut() {
-            if let Some(secret) = dev.get_shared_secret() {
-                match extension.calculate(secret, pin_uv_auth_result.get_pin_uv_auth_token()) {
-                    Ok(_) => {}
-                    Err(e) => {
-                        callback.call(Err(e));
-                        return false;
-                    }
-                }
-            }
-        }
-
-        // Calculate prf extension inputs unless hmac-secret has already taken the spot
-        if let (Some(prf), None) = (
-            &get_assertion.extensions.prf,
-            &get_assertion.extensions.hmac_secret,
+        // Use the shared secret in the extensions, if requested
+        get_assertion = match get_assertion.process_hmac_secret_and_prf_extension(
+            dev.get_shared_secret().map(|s| (s, &pin_uv_auth_result)),
         ) {
-            if let Some(secret) = dev.get_shared_secret() {
-                match prf.calculate(
-                    secret,
-                    &get_assertion.allow_list,
-                    pin_uv_auth_result.get_pin_uv_auth_token(),
-                ) {
-                    Ok(Some((hmac_secret, selected_credential))) => {
-                        get_assertion.extensions.hmac_secret = Some(hmac_secret);
-                        if let Some(selected_cred_id) = selected_credential {
-                            get_assertion.allow_list = vec![selected_cred_id.clone()];
-                        }
-                    }
-                    Ok(None) => {}
-                    Err(e) => {
-                        callback.call(Err(e));
-                        return false;
-                    }
-                }
+            Ok(value) => value,
+            Err(e) => {
+                callback.call(Err(e));
+                return false;
             }
-        }
+        };
 
         if let Some(sign_extension_input) = get_assertion.extensions.sign.as_mut() {
             sign_extension_input.filter_and_order_key_handles(&get_assertion.allow_list)

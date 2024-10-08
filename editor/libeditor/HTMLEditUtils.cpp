@@ -224,6 +224,12 @@ bool HTMLEditUtils::IsBlockElement(const nsIContent& aContent,
   if (MOZ_UNLIKELY(!aContent.IsElement())) {
     return false;
   }
+  // If it's a <br>, we should always treat it as an inline element because
+  // its preceding collapse white-spaces and another <br> works same as usual
+  // even if you set its style to `display:block`.
+  if (aContent.IsHTMLElement(nsGkAtoms::br)) {
+    return false;
+  }
   if (!StaticPrefs::editor_block_inline_check_use_computed_style() ||
       aBlockInlineCheck == BlockInlineCheck::UseHTMLDefaultStyle) {
     return IsHTMLBlockElementByDefault(aContent);
@@ -269,6 +275,12 @@ bool HTMLEditUtils::IsInlineContent(const nsIContent& aContent,
   MOZ_ASSERT(aBlockInlineCheck != BlockInlineCheck::Unused);
 
   if (!aContent.IsElement()) {
+    return true;
+  }
+  // If it's a <br>, we should always treat it as an inline element because
+  // its preceding collapse white-spaces and another <br> works same as usual
+  // even if you set its style to `display:block`.
+  if (aContent.IsHTMLElement(nsGkAtoms::br)) {
     return true;
   }
   if (!StaticPrefs::editor_block_inline_check_use_computed_style() ||
@@ -526,7 +538,7 @@ bool HTMLEditUtils::IsLink(const nsINode* aNode) {
     return false;
   }
 
-  nsAutoString tmpText;
+  nsAutoCString tmpText;
   anchor->GetHref(tmpText);
   return !tmpText.IsEmpty();
 }
@@ -1192,13 +1204,10 @@ struct ElementInfo final {
 
 #ifdef DEBUG
 #  define ELEM(_tag, _isContainer, _canContainSelf, _group, _canContainGroups) \
-    {                                                                          \
-      eHTMLTag_##_tag, _group, _canContainGroups, _isContainer,                \
-          _canContainSelf                                                      \
-    }
+    {eHTMLTag_##_tag, _group, _canContainGroups, _isContainer, _canContainSelf}
 #else
 #  define ELEM(_tag, _isContainer, _canContainSelf, _group, _canContainGroups) \
-    { _group, _canContainGroups, _isContainer, _canContainSelf }
+    {_group, _canContainGroups, _isContainer, _canContainSelf}
 #endif
 
 static const ElementInfo kElements[eHTMLTag_userdefined] = {
@@ -2191,8 +2200,8 @@ nsIContent* HTMLEditUtils::GetContentToPreserveInlineStyles(
     return aPoint.template ContainerAs<nsIContent>();
   }
   for (auto point = aPoint.template To<EditorRawDOMPoint>(); point.IsSet();) {
-    WSScanResult nextVisibleThing =
-        WSRunScanner::ScanNextVisibleNodeOrBlockBoundary(
+    const WSScanResult nextVisibleThing =
+        WSRunScanner::ScanInclusiveNextVisibleNodeOrBlockBoundary(
             &aEditingHost, point,
             BlockInlineCheck::UseComputedDisplayOutsideStyle);
     if (nextVisibleThing.InVisibleOrCollapsibleCharacters()) {
@@ -2203,8 +2212,8 @@ nsIContent* HTMLEditUtils::GetContentToPreserveInlineStyles(
     // view of users.
     if (nextVisibleThing.ReachedSpecialContent() &&
         nextVisibleThing.IsContentEditable() &&
-        nextVisibleThing.GetContent()->IsElement() &&
-        !nextVisibleThing.GetContent()->HasChildNodes() &&
+        nextVisibleThing.ContentIsElement() &&
+        !nextVisibleThing.ElementPtr()->HasChildNodes() &&
         HTMLEditUtils::IsContainerNode(*nextVisibleThing.ElementPtr())) {
       point.SetAfter(nextVisibleThing.ElementPtr());
       continue;
@@ -2248,13 +2257,12 @@ EditorDOMPointType HTMLEditUtils::GetBetterInsertionPointFor(
   // If the insertion position is after the last visible item in a line,
   // i.e., the insertion position is just before a visible line break <br>,
   // we want to skip to the position just after the line break (see bug 68767).
-  WSScanResult forwardScanFromPointToInsertResult =
-      wsScannerForPointToInsert.ScanNextVisibleNodeOrBlockBoundaryFrom(
+  const WSScanResult forwardScanFromPointToInsertResult =
+      wsScannerForPointToInsert.ScanInclusiveNextVisibleNodeOrBlockBoundaryFrom(
           pointToInsert);
   // So, if the next visible node isn't a <br> element, we can insert the block
   // level element to the point.
-  if (!forwardScanFromPointToInsertResult.GetContent() ||
-      !forwardScanFromPointToInsertResult.ReachedBRElement()) {
+  if (!forwardScanFromPointToInsertResult.ReachedBRElement()) {
     return pointToInsert;
   }
 
@@ -2262,7 +2270,7 @@ EditorDOMPointType HTMLEditUtils::GetBetterInsertionPointFor(
   // positioned at the beginning of a block, in that case skipping the <br>
   // would not insert the <br> at the caret position, but after the current
   // empty line.
-  WSScanResult backwardScanFromPointToInsertResult =
+  const WSScanResult backwardScanFromPointToInsertResult =
       wsScannerForPointToInsert.ScanPreviousVisibleNodeOrBlockBoundaryFrom(
           pointToInsert);
   // So, if there is no previous visible node,
@@ -2270,14 +2278,15 @@ EditorDOMPointType HTMLEditUtils::GetBetterInsertionPointFor(
   // or, if the previous visible node is different block,
   // we need to skip the following <br>.  So, otherwise, we can insert the
   // block at the insertion point.
-  if (!backwardScanFromPointToInsertResult.GetContent() ||
+  if (NS_WARN_IF(backwardScanFromPointToInsertResult.Failed()) ||
+      backwardScanFromPointToInsertResult.ReachedInlineEditingHostBoundary() ||
       backwardScanFromPointToInsertResult.ReachedBRElement() ||
       backwardScanFromPointToInsertResult.ReachedCurrentBlockBoundary()) {
     return pointToInsert;
   }
 
   return forwardScanFromPointToInsertResult
-      .template PointAfterContent<EditorDOMPointType>();
+      .template PointAfterReachedContent<EditorDOMPointType>();
 }
 
 // static
@@ -2298,7 +2307,7 @@ EditorDOMPointType HTMLEditUtils::GetBetterCaretPositionToInsertText(
   if (aPoint.IsEndOfContainer()) {
     WSRunScanner scanner(&aEditingHost, aPoint,
                          BlockInlineCheck::UseComputedDisplayStyle);
-    WSScanResult previousThing =
+    const WSScanResult previousThing =
         scanner.ScanPreviousVisibleNodeOrBlockBoundaryFrom(aPoint);
     if (previousThing.InVisibleOrCollapsibleCharacters()) {
       return EditorDOMPointType::AtEndOf(*previousThing.TextPtr());

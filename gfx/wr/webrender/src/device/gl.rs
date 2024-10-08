@@ -138,9 +138,13 @@ pub enum UploadMethod {
 }
 
 /// Plain old data that can be used to initialize a texture.
-pub unsafe trait Texel: Copy {}
-unsafe impl Texel for u8 {}
-unsafe impl Texel for f32 {}
+pub unsafe trait Texel: Copy + Default {
+    fn image_format() -> ImageFormat;
+}
+
+unsafe impl Texel for u8 {
+    fn image_format() -> ImageFormat { ImageFormat::R8 }
+}
 
 /// Returns the size in bytes of a depth target with the given dimensions.
 fn depth_target_size_in_bytes(dimensions: &DeviceIntSize) -> usize {
@@ -193,10 +197,6 @@ pub fn get_unoptimized_shader_source(shader_name: &str, base_path: Option<&PathB
             .source
         )
     }
-}
-
-pub trait FileWatcherHandler: Send {
-    fn file_changed(&self, path: PathBuf);
 }
 
 impl VertexAttributeKind {
@@ -934,7 +934,7 @@ impl VertexUsageHint {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct UniformLocation(gl::GLint);
+pub struct UniformLocation(#[allow(dead_code)] gl::GLint);
 
 impl UniformLocation {
     pub const INVALID: Self = UniformLocation(-1);
@@ -1408,7 +1408,8 @@ fn parse_mali_version(version_string: &str) -> Option<(u32, u32, u32)> {
     let (r_str, version_string) = version_string.split_once("p")?;
     let r = r_str.parse().ok()?;
 
-    let (p_str, _) = version_string.split_once("-")?;
+    // Not all devices have the trailing string following the "p" number.
+    let (p_str, _) = version_string.split_once("-").unwrap_or((version_string, ""));
     let p = p_str.parse().ok()?;
 
     Some((v, r, p))
@@ -1976,12 +1977,12 @@ impl Device {
                 }
             }
             Parameter::Bool(BoolParameter::BatchedUploads, enabled) => {
-                self.use_batched_texture_uploads = *enabled;
+                if self.capabilities.requires_batched_texture_uploads.is_none() {
+                    self.use_batched_texture_uploads = *enabled;
+                }
             }
             Parameter::Bool(BoolParameter::DrawCallsForTextureCopy, enabled) => {
-                if self.capabilities.requires_batched_texture_uploads.is_none() {
-                    self.use_draw_calls_for_texture_copy = *enabled;
-                }
+                self.use_draw_calls_for_texture_copy = *enabled;
             }
             Parameter::Int(IntParameter::BatchedUploadThreshold, threshold) => {
                 self.batched_upload_threshold = *threshold;

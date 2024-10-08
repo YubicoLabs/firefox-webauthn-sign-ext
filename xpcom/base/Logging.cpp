@@ -6,8 +6,6 @@
 
 #include "mozilla/Logging.h"
 
-#include <algorithm>
-
 #include "base/process_util.h"
 #include "GeckoProfiler.h"
 #include "mozilla/ClearOnShutdown.h"
@@ -72,12 +70,6 @@ void log_print(const LogModule* aModule, LogLevel aLevel, TimeStamp* aStart,
 }
 
 }  // namespace detail
-
-LogLevel ToLogLevel(int32_t aLevel) {
-  aLevel = std::min(aLevel, static_cast<int32_t>(LogLevel::Verbose));
-  aLevel = std::max(aLevel, static_cast<int32_t>(LogLevel::Disabled));
-  return static_cast<LogLevel>(aLevel);
-}
 
 static const char* ToLogStr(LogLevel aLevel) {
   switch (aLevel) {
@@ -774,6 +766,13 @@ class LogModuleManager {
     }
   }
 
+  void DisableModules() {
+    OffTheBooksMutexAutoLock guard(mModulesLock);
+    for (auto& m : mModules) {
+      (*(m.GetModifiableData()))->SetLevel(LogLevel::Disabled);
+    }
+  }
+
  private:
   OffTheBooksMutex mModulesLock;
   nsClassHashtable<nsCharPtrHashKey, LogModule> mModules;
@@ -840,6 +839,8 @@ void LogModule::SetIsSync(bool aIsSync) {
 void LogModule::SetCaptureStacks(bool aCaptureStacks) {
   sLogModuleManager->SetCaptureStacks(aCaptureStacks);
 }
+
+void LogModule::DisableModules() { sLogModuleManager->DisableModules(); }
 
 // This function is defined in gecko_logger/src/lib.rs
 // We mirror the level in rust code so we don't get forwarded all of the

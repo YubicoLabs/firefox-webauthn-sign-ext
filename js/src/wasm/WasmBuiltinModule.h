@@ -62,41 +62,84 @@ struct MOZ_STACK_CLASS BuiltinModuleInstances {
 // An builtin module func is a natively implemented function that may be
 // compiled into a 'builtin module', which may be instantiated with a provided
 // memory yielding an exported WebAssembly function wrapping the builtin module.
-struct BuiltinModuleFunc {
-  // The name of the func as it is exported
-  const char* exportName;
-  // The params taken by the func.
-  mozilla::Span<const ValType> params;
-  // The optional result returned by the func.
-  mozilla::Maybe<const ValType> result;
-  // The signature of the builtin that implements the func
-  const SymbolicAddressSignature& signature;
-  // Whether this function takes a pointer to the memory base as a hidden final
-  // parameter.
-  bool usesMemory;
+class BuiltinModuleFunc {
+ private:
+  SharedRecGroup recGroup_;
+  const char* exportName_;
+  const SymbolicAddressSignature* sig_;
+  bool usesMemory_;
+  BuiltinInlineOp inlineOp_;
 
-  // Allocate a FuncType for this func, returning false for OOM
-  bool funcType(FuncType* type) const;
+ public:
+  // Default constructor so this can be used in an EnumeratedArray.
+  BuiltinModuleFunc() = default;
+
+  // Initialize this builtin. Must only be called once.
+  [[nodiscard]] bool init(const RefPtr<TypeContext>& types,
+                          mozilla::Span<const ValType> params,
+                          mozilla::Maybe<ValType> result, bool usesMemory,
+                          const SymbolicAddressSignature* sig,
+                          BuiltinInlineOp inlineOp, const char* exportName);
+
+  // The rec group for the function type for this builtin.
+  const RecGroup* recGroup() const { return recGroup_.get(); }
+  // The type definition for the function type for this builtin.
+  const TypeDef* typeDef() const { return &recGroup_->type(0); }
+  // The function type for this builtin.
+  const FuncType* funcType() const { return &typeDef()->funcType(); }
+
+  // The name of the func as it is exported
+  const char* exportName() const { return exportName_; }
+  // The signature of the builtin that implements this function.
+  const SymbolicAddressSignature* sig() const { return sig_; }
+  // Whether this function takes a pointer to the memory base as a hidden final
+  // parameter. This parameter will show up in the SymbolicAddressSignature,
+  // but not the function type. Compilers must pass the memoryBase to the
+  // function call as the last parameter.
+  bool usesMemory() const { return usesMemory_; }
+  // An optional inline operation that can be used for this function instead of
+  // calling `sig`.
+  BuiltinInlineOp inlineOp() const { return inlineOp_; }
+};
+
+// Static storage for all builtin module funcs in the system.
+class BuiltinModuleFuncs {
+  using Storage =
+      mozilla::EnumeratedArray<BuiltinModuleFuncId, BuiltinModuleFunc,
+                               size_t(BuiltinModuleFuncId::Limit)>;
+  Storage funcs_;
+
+  static BuiltinModuleFuncs* singleton_;
+
+ public:
+  [[nodiscard]] static bool init();
+  static void destroy();
 
   // Get the BuiltinModuleFunc for an BuiltinModuleFuncId. BuiltinModuleFuncId
   // must be validated.
-  static const BuiltinModuleFunc& getFromId(BuiltinModuleFuncId id);
+  static const BuiltinModuleFunc& getFromId(BuiltinModuleFuncId id) {
+    return singleton_->funcs_[id];
+  }
 };
 
-Maybe<BuiltinModuleId> ImportMatchesBuiltinModule(
+mozilla::Maybe<BuiltinModuleId> ImportMatchesBuiltinModule(
     mozilla::Span<const char> importName, BuiltinModuleIds enabledBuiltins);
-Maybe<const BuiltinModuleFunc*> ImportMatchesBuiltinModuleFunc(
-    mozilla::Span<const char> importName, BuiltinModuleId module);
+bool ImportMatchesBuiltinModuleFunc(mozilla::Span<const char> importName,
+                                    BuiltinModuleId module,
+                                    const BuiltinModuleFunc** matchedFunc,
+                                    BuiltinModuleFuncId* matchedFuncId);
 
 // Compile and return the builtin module for a particular
 // builtin module.
-bool CompileBuiltinModule(JSContext* cx, BuiltinModuleId module,
-                          MutableHandle<WasmModuleObject*> result);
+[[nodiscard]] bool CompileBuiltinModule(
+    JSContext* cx, BuiltinModuleId module,
+    MutableHandle<WasmModuleObject*> result);
 
 // Compile, instantiate and return the builtin module instance for a particular
 // builtin module.
-bool InstantiateBuiltinModule(JSContext* cx, BuiltinModuleId module,
-                              MutableHandle<JSObject*> result);
+[[nodiscard]] bool InstantiateBuiltinModule(JSContext* cx,
+                                            BuiltinModuleId module,
+                                            MutableHandle<JSObject*> result);
 
 }  // namespace wasm
 }  // namespace js

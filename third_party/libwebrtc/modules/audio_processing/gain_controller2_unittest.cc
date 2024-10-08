@@ -16,7 +16,6 @@
 #include <numeric>
 #include <tuple>
 
-#include "api/array_view.h"
 #include "modules/audio_processing/agc2/agc2_testing_common.h"
 #include "modules/audio_processing/audio_buffer.h"
 #include "modules/audio_processing/test/audio_buffer_tools.h"
@@ -450,7 +449,7 @@ TEST(GainController2, CheckFinalGainWithAdaptiveDigitalController) {
   const float applied_gain_db =
       20.0f * std::log10(audio_buffer.channels_const()[0][0]);
 
-  constexpr float kExpectedGainDb = 5.6f;
+  constexpr float kExpectedGainDb = 7.0f;
   constexpr float kToleranceDb = 0.3f;
   EXPECT_NEAR(applied_gain_db, kExpectedGainDb, kToleranceDb);
 }
@@ -596,9 +595,7 @@ TEST(GainController2,
     agc2_reference.Process(absl::nullopt, /*input_volume_changed=*/false,
                            &audio_buffer_reference);
     test::CopyVectorToAudioBuffer(stream_config, frame, &audio_buffer);
-    float speech_probability = vad.Analyze(AudioFrameView<const float>(
-        audio_buffer.channels(), audio_buffer.num_channels(),
-        audio_buffer.num_frames()));
+    float speech_probability = vad.Analyze(audio_buffer.view());
     agc2.Process(speech_probability, /*input_volume_changed=*/false,
                  &audio_buffer);
     // Check the output buffer.

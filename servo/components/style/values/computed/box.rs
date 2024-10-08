@@ -331,7 +331,7 @@ impl ToAnimatedValue for Zoom {
     type AnimatedValue = Number;
 
     #[inline]
-    fn to_animated_value(self) -> Self::AnimatedValue {
+    fn to_animated_value(self, _: &crate::values::animated::Context) -> Self::AnimatedValue {
         self.value()
     }
 
@@ -355,6 +355,21 @@ impl Zoom {
     #[inline]
     pub fn is_one(self) -> bool {
         self == Self::ONE
+    }
+
+    /// Returns whether we're the `document` keyword.
+    #[inline]
+    pub fn is_document(self) -> bool {
+        self == Self::DOCUMENT
+    }
+
+    /// Returns the inverse of our value.
+    #[inline]
+    pub fn inverted(&self) -> Option<Self> {
+        if self.0.value == 0 {
+            return None;
+        }
+        Some(Self(Self::ONE.0 / self.0))
     }
 
     /// Returns the value as a float.
@@ -383,6 +398,15 @@ impl Zoom {
         if self == Self::ONE {
             return value;
         }
-        self.value() * value
+        value * self.value()
+    }
+
+    /// Returns the un-zoomed value.
+    #[inline]
+    pub fn unzoom(self, value: f32) -> f32 {
+        if self == Self::ONE {
+            return value;
+        }
+        value / self.value()
     }
 }

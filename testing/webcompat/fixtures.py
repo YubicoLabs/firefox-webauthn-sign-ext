@@ -21,6 +21,7 @@ PIP_OVERRIDES_PREF = "extensions.webcompat.enable_picture_in_picture_overrides"
 SHIMS_PREF = "extensions.webcompat.enable_shims"
 STRICT_ETP_PREF = "privacy.trackingprotection.enabled"
 UA_OVERRIDES_PREF = "extensions.webcompat.perform_ua_overrides"
+SYSTEM_ADDON_UPDATES_PREF = "extensions.systemAddon.update.enabled"
 
 
 class WebDriver:
@@ -31,8 +32,10 @@ class WebDriver:
         self.addon = config.getoption("addon")
         self.webdriver_binary = config.getoption("webdriver_binary")
         self.port = config.getoption("webdriver_port")
-        self.wsPort = config.getoption("webdriver_ws_port")
+        self.ws_port = config.getoption("webdriver_ws_port")
+        self.log_level = config.getoption("webdriver_log_level")
         self.headless = config.getoption("headless")
+        self.debug = config.getoption("debug")
         self.proc = None
 
     def command_line_driver(self):
@@ -52,14 +55,18 @@ class WebDriver:
 
 class FirefoxWebDriver(WebDriver):
     def command_line_driver(self):
-        return [
+        rv = [
             self.webdriver_binary,
             "--port",
             str(self.port),
             "--websocket-port",
-            str(self.wsPort),
-            "-vv",
+            str(self.ws_port),
         ]
+        if self.debug:
+            rv.append("-vv")
+        elif self.log_level == "DEBUG":
+            rv.append("-v")
+        return rv
 
     def capabilities(self, test_config):
         prefs = {}
@@ -81,6 +88,9 @@ class FirefoxWebDriver(WebDriver):
 
         if "use_strict_etp" in test_config:
             prefs[STRICT_ETP_PREF] = test_config["use_strict_etp"]
+
+        # keep system addon updates off to prevent bug 1882562
+        prefs[SYSTEM_ADDON_UPDATES_PREF] = False
 
         # remote/cdp/CDP.sys.mjs sets cookieBehavior to 0,
         # which we definitely do not want, so set it back to 5.
@@ -125,7 +135,7 @@ def config_file(request):
 
 @pytest.fixture
 def bug_number(request):
-    return re.findall("\d+", str(request.fspath.basename))[0]
+    return re.findall(r"\d+", str(request.fspath.basename))[0]
 
 
 @pytest.fixture
@@ -171,11 +181,11 @@ def install_addon(session, addon_file_path):
         """
         const addon_file_path = arguments[0];
         const cb = arguments[1];
-        const { AddonManager } = ChromeUtils.import(
-            "resource://gre/modules/AddonManager.jsm"
+        const { AddonManager } = ChromeUtils.importESModule(
+            "resource://gre/modules/AddonManager.sys.mjs"
         );
-        const { ExtensionPermissions } = ChromeUtils.import(
-            "resource://gre/modules/ExtensionPermissions.jsm"
+        const { ExtensionPermissions } = ChromeUtils.importESModule(
+            "resource://gre/modules/ExtensionPermissions.sys.mjs"
         );
         const { FileUtils } = ChromeUtils.importESModule(
             "resource://gre/modules/FileUtils.sys.mjs"

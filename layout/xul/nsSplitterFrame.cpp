@@ -29,7 +29,6 @@
 #include "mozilla/ComputedStyle.h"
 #include "mozilla/CSSOrderAwareFrameIterator.h"
 #include "nsContainerFrame.h"
-#include "nsContentCID.h"
 #include "nsLayoutUtils.h"
 #include "nsDisplayList.h"
 #include "nsContentUtils.h"
@@ -632,18 +631,18 @@ nsresult nsSplitterFrameInner::MouseDown(Event* aMouseEvent) {
 
     nsSize curSize = childBox->GetSize();
     const auto& pos = *childBox->StylePosition();
-    nsSize minSize = ToLengthWithFallback(pos.mMinWidth, pos.mMinHeight);
-    nsSize maxSize = ToLengthWithFallback(pos.mMaxWidth, pos.mMaxHeight,
+    nsSize minSize =
+        ToLengthWithFallback(pos.GetMinWidth(), pos.GetMinHeight());
+    nsSize maxSize = ToLengthWithFallback(pos.GetMaxWidth(), pos.GetMaxHeight(),
                                           NS_UNCONSTRAINEDSIZE);
-    nsSize prefSize(ToLengthWithFallback(pos.mWidth, curSize.width),
-                    ToLengthWithFallback(pos.mHeight, curSize.height));
+    nsSize prefSize(ToLengthWithFallback(pos.GetWidth(), curSize.width),
+                    ToLengthWithFallback(pos.GetHeight(), curSize.height));
 
     maxSize.width = std::max(maxSize.width, minSize.width);
     maxSize.height = std::max(maxSize.height, minSize.height);
-    prefSize.width =
-        NS_CSS_MINMAX(prefSize.width, minSize.width, maxSize.width);
+    prefSize.width = CSSMinMax(prefSize.width, minSize.width, maxSize.width);
     prefSize.height =
-        NS_CSS_MINMAX(prefSize.height, minSize.height, maxSize.height);
+        CSSMinMax(prefSize.height, minSize.height, maxSize.height);
 
     nsMargin m;
     childBox->StyleMargin()->GetMargin(m);

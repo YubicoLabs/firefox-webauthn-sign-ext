@@ -4,25 +4,41 @@
 #ifndef mozilla_BounceTrackingProtection_h__
 #define mozilla_BounceTrackingProtection_h__
 
+#include "BounceTrackingStorageObserver.h"
 #include "mozilla/Logging.h"
 #include "mozilla/MozPromise.h"
 #include "nsIBounceTrackingProtection.h"
-#include "nsIClearDataService.h"
+#include "nsIBTPRemoteExceptionList.h"
+#include "mozilla/Maybe.h"
+#include "nsIObserver.h"
+#include "nsWeakReference.h"
+#include "nsTHashSet.h"
 
 class nsIPrincipal;
 class nsITimer;
 
 namespace mozilla {
 
+class BounceTrackingAllowList;
 class BounceTrackingState;
 class BounceTrackingStateGlobal;
 class BounceTrackingProtectionStorage;
+class ClearDataCallback;
 class OriginAttributes;
+
+namespace dom {
+class WindowContext;
+}
+
+using ClearDataMozPromise = MozPromise<nsCString, uint32_t, true>;
 
 extern LazyLogModule gBounceTrackingProtectionLog;
 
-class BounceTrackingProtection final : public nsIBounceTrackingProtection {
+class BounceTrackingProtection final : public nsIBounceTrackingProtection,
+                                       public nsIObserver,
+                                       public nsSupportsWeakReference {
   NS_DECL_ISUPPORTS
+  NS_DECL_NSIOBSERVER
   NS_DECL_NSIBOUNCETRACKINGPROTECTION
 
  public:
@@ -33,50 +49,104 @@ class BounceTrackingProtection final : public nsIBounceTrackingProtection {
   // navigation start for bounce tracking, or if the client bounce detection
   // timer expires after process response received for bounce tracking without
   // observing a client redirect.
-  nsresult RecordStatefulBounces(BounceTrackingState* aBounceTrackingState);
+  [[nodiscard]] nsresult RecordStatefulBounces(
+      BounceTrackingState* aBounceTrackingState);
 
-  // Stores a user activation flag with a timestamp for the given principal.
-  nsresult RecordUserActivation(nsIPrincipal* aPrincipal);
+  // Stores a user activation flag with a timestamp for the given principal. The
+  // timestamp defaults to the current time, but can be overridden via
+  // aActivationTime.
+  // Parent process only. Prefer the WindowContext variant if possible.
+  [[nodiscard]] static nsresult RecordUserActivation(
+      nsIPrincipal* aPrincipal, Maybe<PRTime> aActivationTime = Nothing());
+
+  // Same as above but can be called from any process given a WindowContext.
+  // Gecko callers should prefer this method because it takes care of IPC and
+  // gets the principal user activation. IPC messages from the content to parent
+  // passing a principal should be avoided for security reasons. aActivationTime
+  // defaults to PR_Now().
+  [[nodiscard]] static nsresult RecordUserActivation(
+      dom::WindowContext* aWindowContext);
+
+  // Clears expired user interaction flags for the given state global. If
+  // aStateGlobal == nullptr, clears expired user interaction flags for all
+  // state globals.
+  [[nodiscard]] nsresult ClearExpiredUserInteractions(
+      BounceTrackingStateGlobal* aStateGlobal = nullptr);
 
  private:
-  BounceTrackingProtection();
+  BounceTrackingProtection() = default;
   ~BounceTrackingProtection() = default;
+
+  // Initializes the singleton instance of BounceTrackingProtection.
+  [[nodiscard]] nsresult Init();
+
+  // Listens for feature pref changes and enables / disables BTP.
+  static void OnPrefChange(const char* aPref, void* aData);
+
+  // Called by OnPrefChange when the mode pref changes.
+  // isStartup indicates whether this is the initial mode change after startup.
+  nsresult OnModeChange(bool aIsStartup);
+
+  // Schedules or cancels the periodic bounce tracker purging. If this method is
+  // called while purging is already scheduled it will cancel the existing timer
+  // and then start a new timer.
+  nsresult UpdateBounceTrackingPurgeTimer(bool aShouldEnable);
+
+  // Keeps track of whether the feature is enabled based on pref state.
+  // Initialized on first call of GetSingleton.
+  static Maybe<bool> sFeatureIsEnabled;
 
   // Timer which periodically runs PurgeBounceTrackers.
   nsCOMPtr<nsITimer> mBounceTrackingPurgeTimer;
 
+  // Used to notify BounceTrackingState of storage and cookie access.
+  RefPtr<BounceTrackingStorageObserver> mStorageObserver;
+
   // Storage for user agent globals.
   RefPtr<BounceTrackingProtectionStorage> mStorage;
+
+  // Interface to remote settings exception list.
+  nsCOMPtr<nsIBTPRemoteExceptionList> mRemoteExceptionList;
+  RefPtr<GenericNonExclusivePromise> mRemoteExceptionListInitPromise;
+
+  // In-memory copy of the remote settings exception list.
+  nsTHashSet<nsCStringHashKey> mRemoteSiteHostExceptions;
+
+  // Lazily initializes the remote exception list.
+  RefPtr<GenericNonExclusivePromise> EnsureRemoteExceptionListService();
 
   // Clear state for classified bounce trackers. To be called on an interval.
   using PurgeBounceTrackersMozPromise =
       MozPromise<nsTArray<nsCString>, nsresult, true>;
   RefPtr<PurgeBounceTrackersMozPromise> PurgeBounceTrackers();
 
-  nsresult PurgeBounceTrackersForStateGlobal(
+  // Report purged trackers to the anti-tracking database via
+  // nsITrackingDBService.
+  static void ReportPurgedTrackersToAntiTrackingDB(
+      const nsTArray<nsCString>& aPurgedSiteHosts);
+
+  // Clear state for classified bounce trackers for a specific state global.
+  // aClearPromises is populated with promises for each host that is cleared.
+  [[nodiscard]] nsresult PurgeBounceTrackersForStateGlobal(
       BounceTrackingStateGlobal* aStateGlobal,
-      const OriginAttributes& aOriginAttributes);
+      BounceTrackingAllowList& aBounceTrackingAllowList,
+      nsTArray<RefPtr<ClearDataMozPromise>>& aClearPromises);
 
-  // Pending clear operations are stored as ClearDataMozPromise, one per host.
-  using ClearDataMozPromise = MozPromise<nsCString, uint32_t, true>;
-  nsTArray<RefPtr<ClearDataMozPromise>> mClearPromises;
+  // Whether a purge operation is currently in progress. This avoids running
+  // multiple purge operations at the same time.
+  bool mPurgeInProgress = false;
 
-  // Wraps nsIClearDataCallback in MozPromise.
-  class ClearDataCallback final : public nsIClearDataCallback {
-   public:
-    NS_DECL_ISUPPORTS
-    NS_DECL_NSICLEARDATACALLBACK
+  // Imports user activation permissions from permission manager if needed. This
+  // is important so we don't purge data for sites the user has interacted with
+  // before the feature was enabled.
+  [[nodiscard]] nsresult MaybeMigrateUserInteractionPermissions();
 
-    explicit ClearDataCallback(ClearDataMozPromise::Private* aPromise,
-                               const nsACString& aHost)
-        : mHost(aHost), mPromise(aPromise){};
-
-   private:
-    virtual ~ClearDataCallback() { mPromise->Reject(0, __func__); }
-
-    nsCString mHost;
-    RefPtr<ClearDataMozPromise::Private> mPromise;
-  };
+  // Log a warning about the classification of a site as a bounce tracker. The
+  // message is logged to the devtools console aBounceTrackingState is
+  // associated with.
+  [[nodiscard]] static nsresult LogBounceTrackersClassifiedToWebConsole(
+      BounceTrackingState* aBounceTrackingState,
+      const nsTArray<nsCString>& aSiteHosts);
 };
 
 }  // namespace mozilla

@@ -25,6 +25,7 @@
         'pk11_des_unittest.cc',
         'pk11_dsa_unittest.cc',
         'pk11_ecdsa_unittest.cc',
+        'pk11_eddsa_unittest.cc',
         'pk11_ecdh_unittest.cc',
         'pk11_encrypt_derive_unittest.cc',
         'pk11_find_certs_unittest.cc',
@@ -38,6 +39,7 @@
         'pk11_keygen.cc',
         'pk11_key_unittest.cc',
         'pk11_module_unittest.cc',
+        'pk11_pbe_unittest.cc',
         'pk11_pbkdf2_unittest.cc',
         'pk11_prf_unittest.cc',
         'pk11_prng_unittest.cc',
@@ -48,6 +50,7 @@
         'pk11_seed_cbc_unittest.cc',
         'pk11_symkey_unittest.cc',
         'pk11_signature_test.cc',
+        'pk11_x25519_unittest.cc',
         '<(DEPTH)/gtests/common/gtests.cc'
       ],
       'dependencies': [

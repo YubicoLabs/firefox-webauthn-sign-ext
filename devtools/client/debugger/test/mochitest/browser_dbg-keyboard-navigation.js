@@ -12,30 +12,41 @@ add_task(async function () {
 
   await selectSource(dbg, "simple2.js");
 
-  await waitForElementWithSelector(dbg, ".CodeMirror");
-  findElementWithSelector(dbg, ".CodeMirror").focus();
+  await waitForElement(dbg, "codeMirror");
 
-  // Enter code editor
-  pressKey(dbg, "Enter");
+  info("Focus on the editor");
+  findElement(dbg, "codeMirror").focus();
+
+  is(findElement(dbg, "codeMirror"), doc.activeElement, "Editor is focused");
+
+  info(
+    "Press shift + tab to navigate out of the editor to the previous tab element"
+  );
+  pressKey(dbg, "ShiftTab");
+
   is(
-    findElementWithSelector(dbg, "textarea"),
+    findElementWithSelector(dbg, ".command-bar-button.toggle-button.end"),
     doc.activeElement,
-    "Editor is enabled"
+    "The left sidebar toggle button is focused"
   );
 
-  // Exit code editor and focus on container
-  pressKey(dbg, "Escape");
-  is(
-    findElementWithSelector(dbg, ".CodeMirror"),
-    doc.activeElement,
-    "Focused on container"
-  );
-
-  // Enter code editor
+  info("Press tab to navigate back to the editor");
   pressKey(dbg, "Tab");
+
   is(
-    findElementWithSelector(dbg, "textarea"),
+    findElement(dbg, "codeMirror"),
     doc.activeElement,
-    "Editor is enabled"
+    "Editor is focused again"
+  );
+
+  info("Press tab again to navigate out of the editor to the next tab element");
+  // The extra tab is needed as in CM5 there is a <textarea> which gets a focus
+  pressKey(dbg, "Tab");
+  pressKey(dbg, "Tab");
+
+  is(
+    findElementWithSelector(dbg, ".action.black-box"),
+    doc.activeElement,
+    "The ignore source button is focused"
   );
 });

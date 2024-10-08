@@ -11,6 +11,7 @@
 #include "mozilla/Maybe.h"            // mozilla::{Maybe, Nothing}
 #include "mozilla/MemoryReporting.h"  // mozilla::MallocSizeOf
 #include "mozilla/Span.h"             // mozilla::Span
+#include "mozilla/Variant.h"          // mozilla::Variant
 
 #include <stddef.h>  // size_t
 #include <stdint.h>  // char16_t, uint8_t, uint16_t, uint32_t
@@ -245,19 +246,39 @@ class BigIntStencil {
 
   // Source of the BigInt literal.
   // It's not null-terminated, and also trailing 'n' suffix is not included.
-  mozilla::Span<char16_t> source_;
+  //
+  // Int64-sized BigInt values are directly stored inline as int64_t.
+  mozilla::Variant<mozilla::Span<char16_t>, int64_t> bigInt_{int64_t{}};
+
+  // Methods used by XDR.
+  mozilla::Span<char16_t>& source() {
+    if (bigInt_.is<int64_t>()) {
+      bigInt_ = mozilla::AsVariant(mozilla::Span<char16_t>{});
+    }
+    return bigInt_.as<mozilla::Span<char16_t>>();
+  }
+  const mozilla::Span<char16_t>& source() const {
+    return bigInt_.as<mozilla::Span<char16_t>>();
+  }
+
+  [[nodiscard]] bool initFromChars(FrontendContext* fc, LifoAlloc& alloc,
+                                   mozilla::Span<const char16_t> buf);
 
  public:
   BigIntStencil() = default;
 
   [[nodiscard]] bool init(FrontendContext* fc, LifoAlloc& alloc,
-                          const mozilla::Span<const char16_t> buf);
+                          mozilla::Span<const char16_t> buf);
+
+  [[nodiscard]] bool init(FrontendContext* fc, LifoAlloc& alloc,
+                          const BigIntStencil& other);
 
   BigInt* createBigInt(JSContext* cx) const;
 
+  // Methods used by constant-folding.
   bool isZero() const;
-
-  mozilla::Span<const char16_t> source() const { return source_; }
+  bool inplaceNegate();
+  bool inplaceBitNot();
 
 #ifdef DEBUG
   bool isContainedIn(const LifoAlloc& alloc) const;
@@ -269,6 +290,8 @@ class BigIntStencil {
   void dumpCharsNoQuote(GenericPrinter& out) const;
 #endif
 };
+
+using BigIntStencilVector = Vector<BigIntStencil, 0, js::SystemAllocPolicy>;
 
 class ScopeStencil {
   friend class StencilXDR;
@@ -502,23 +525,25 @@ class ScopeStencil {
   }
 };
 
-class StencilModuleAssertion {
+class StencilModuleImportAttribute {
  public:
   TaggedParserAtomIndex key;
   TaggedParserAtomIndex value;
 
-  StencilModuleAssertion() = default;
-  StencilModuleAssertion(TaggedParserAtomIndex key, TaggedParserAtomIndex value)
+  StencilModuleImportAttribute() = default;
+  StencilModuleImportAttribute(TaggedParserAtomIndex key,
+                               TaggedParserAtomIndex value)
       : key(key), value(value) {}
 };
 
 class StencilModuleRequest {
  public:
   TaggedParserAtomIndex specifier;
+  TaggedParserAtomIndex firstUnsupportedAttributeKey;
 
-  using AssertionVector =
-      Vector<StencilModuleAssertion, 0, js::SystemAllocPolicy>;
-  AssertionVector assertions;
+  using ImportAttributeVector =
+      Vector<StencilModuleImportAttribute, 0, js::SystemAllocPolicy>;
+  ImportAttributeVector attributes;
 
   // For XDR only.
   StencilModuleRequest() = default;
@@ -529,25 +554,30 @@ class StencilModuleRequest {
   }
 
   StencilModuleRequest(const StencilModuleRequest& other)
-      : specifier(other.specifier) {
+      : specifier(other.specifier),
+        firstUnsupportedAttributeKey(other.firstUnsupportedAttributeKey) {
     AutoEnterOOMUnsafeRegion oomUnsafe;
-    if (!assertions.appendAll(other.assertions)) {
+    if (!attributes.appendAll(other.attributes)) {
       oomUnsafe.crash("StencilModuleRequest::StencilModuleRequest");
     }
   }
 
   StencilModuleRequest(StencilModuleRequest&& other) noexcept
-      : specifier(other.specifier), assertions(std::move(other.assertions)) {}
+      : specifier(other.specifier),
+        firstUnsupportedAttributeKey(other.firstUnsupportedAttributeKey),
+        attributes(std::move(other.attributes)) {}
 
   StencilModuleRequest& operator=(StencilModuleRequest& other) {
     specifier = other.specifier;
-    assertions = std::move(other.assertions);
+    firstUnsupportedAttributeKey = other.firstUnsupportedAttributeKey;
+    attributes = std::move(other.attributes);
     return *this;
   }
 
   StencilModuleRequest& operator=(StencilModuleRequest&& other) noexcept {
     specifier = other.specifier;
-    assertions = std::move(other.assertions);
+    firstUnsupportedAttributeKey = other.firstUnsupportedAttributeKey;
+    attributes = std::move(other.attributes);
     return *this;
   }
 };

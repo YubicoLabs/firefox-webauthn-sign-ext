@@ -7,7 +7,10 @@
 // It should move around when the eyedropper is close to the edges of the viewport so as
 // to always stay visible.
 
-const HIGHLIGHTER_TYPE = "EyeDropper";
+const { TYPES } = ChromeUtils.importESModule(
+  "resource://devtools/shared/highlighters.mjs"
+);
+const HIGHLIGHTER_TYPE = TYPES.EYEDROPPER;
 const ID = "eye-dropper-";
 
 const HTML = `
@@ -65,14 +68,14 @@ const TEST_DATA = [
   },
   {
     desc: "Move the mouse to the top left",
-    getCoordinates: (width, height) => {
+    getCoordinates: () => {
       return { x: 0, y: 0 };
     },
     expectedPositions: { top: false, right: true, left: false },
   },
   {
     desc: "Move the mouse to the top right",
-    getCoordinates: (width, height) => {
+    getCoordinates: width => {
       return { x: width, y: 0 };
     },
     expectedPositions: { top: false, right: false, left: true },

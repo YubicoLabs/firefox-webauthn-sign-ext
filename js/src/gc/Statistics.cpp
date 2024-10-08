@@ -37,6 +37,8 @@ using mozilla::Maybe;
 using mozilla::TimeDuration;
 using mozilla::TimeStamp;
 
+using JS::SliceBudget;
+
 static const size_t BYTES_PER_MB = 1024 * 1024;
 
 /*
@@ -154,11 +156,11 @@ struct PhaseInfo {
 };
 
 // A table of PhaseInfo indexed by Phase.
-using PhaseTable = EnumeratedArray<Phase, Phase::LIMIT, PhaseInfo>;
+using PhaseTable = EnumeratedArray<Phase, PhaseInfo, size_t(Phase::LIMIT)>;
 
 // A table of PhaseKindInfo indexed by PhaseKind.
 using PhaseKindTable =
-    EnumeratedArray<PhaseKind, PhaseKind::LIMIT, PhaseKindInfo>;
+    EnumeratedArray<PhaseKind, PhaseKindInfo, size_t(PhaseKind::LIMIT)>;
 
 #include "gc/StatsPhasesGenerated.inc"
 
@@ -595,7 +597,7 @@ UniqueChars Statistics::formatDetailedTotals() const {
 void Statistics::formatJsonSlice(size_t sliceNum, JSONPrinter& json) const {
   /*
    * We number each of the slice properties to keep the code in
-   * GCTelemetry.jsm in sync.  See MAX_SLICE_KEYS.
+   * GCTelemetry.sys.mjs in sync.  See MAX_SLICE_KEYS.
    */
   json.beginObject();
   formatJsonSliceDescription(sliceNum, slices_[sliceNum], json);  // # 1-11

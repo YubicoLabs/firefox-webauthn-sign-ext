@@ -16,6 +16,7 @@
 #include "vm/JitActivation.h"  // js::jit::JitActivation
 #include "vm/JSContext.h"
 #include "vm/StringType.h"
+#include "wasm/WasmStubs.h"
 
 #include "jit/MacroAssembler-inl.h"
 
@@ -505,8 +506,9 @@ void MacroAssemblerX64::boxValue(JSValueType type, Register src,
   orq(src, dest);
 }
 
-void MacroAssemblerX64::handleFailureWithHandlerTail(Label* profilerExitTail,
-                                                     Label* bailoutTail) {
+void MacroAssemblerX64::handleFailureWithHandlerTail(
+    Label* profilerExitTail, Label* bailoutTail,
+    uint32_t* returnValueCheckOffset) {
   // Reserve space for exception information.
   subq(Imm32(sizeof(ResumeFromException)), rsp);
   movq(rsp, rax);
@@ -518,13 +520,15 @@ void MacroAssemblerX64::handleFailureWithHandlerTail(Label* profilerExitTail,
   asMasm().callWithABI<Fn, HandleException>(
       ABIType::General, CheckUnsafeCallWithABI::DontCheckHasExitFrame);
 
+  *returnValueCheckOffset = asMasm().currentOffset();
+
   Label entryFrame;
   Label catch_;
   Label finally;
   Label returnBaseline;
   Label returnIon;
   Label bailout;
-  Label wasm;
+  Label wasmInterpEntry;
   Label wasmCatch;
 
   load32(Address(rsp, ResumeFromException::offsetOfKind()), rax);
@@ -541,8 +545,9 @@ void MacroAssemblerX64::handleFailureWithHandlerTail(Label* profilerExitTail,
                     Imm32(ExceptionResumeKind::ForcedReturnIon), &returnIon);
   asMasm().branch32(Assembler::Equal, rax, Imm32(ExceptionResumeKind::Bailout),
                     &bailout);
-  asMasm().branch32(Assembler::Equal, rax, Imm32(ExceptionResumeKind::Wasm),
-                    &wasm);
+  asMasm().branch32(Assembler::Equal, rax,
+                    Imm32(ExceptionResumeKind::WasmInterpEntry),
+                    &wasmInterpEntry);
   asMasm().branch32(Assembler::Equal, rax,
                     Imm32(ExceptionResumeKind::WasmCatch), &wasmCatch);
 
@@ -627,21 +632,17 @@ void MacroAssemblerX64::handleFailureWithHandlerTail(Label* profilerExitTail,
   move32(Imm32(1), ReturnReg);
   jump(bailoutTail);
 
-  // If we are throwing and the innermost frame was a wasm frame, reset SP and
-  // FP; SP is pointing to the unwound return address to the wasm entry, so
-  // we can just ret().
-  bind(&wasm);
+  // Reset SP and FP; SP is pointing to the unwound return address to the wasm
+  // interpreter entry, so we can just ret().
+  bind(&wasmInterpEntry);
   loadPtr(Address(rsp, ResumeFromException::offsetOfFramePointer()), rbp);
   loadPtr(Address(rsp, ResumeFromException::offsetOfStackPointer()), rsp);
-  movePtr(ImmPtr((const void*)wasm::FailInstanceReg), InstanceReg);
+  movePtr(ImmPtr((const void*)wasm::InterpFailInstanceReg), InstanceReg);
   masm.ret();
 
   // Found a wasm catch handler, restore state and jump to it.
   bind(&wasmCatch);
-  loadPtr(Address(rsp, ResumeFromException::offsetOfTarget()), rax);
-  loadPtr(Address(rsp, ResumeFromException::offsetOfFramePointer()), rbp);
-  loadPtr(Address(rsp, ResumeFromException::offsetOfStackPointer()), rsp);
-  jmp(Operand(rax));
+  wasm::GenerateJumpToCatchHandler(asMasm(), rsp, rax, rbx);
 }
 
 void MacroAssemblerX64::profilerEnterFrame(Register framePtr,
@@ -734,6 +735,68 @@ void MacroAssemblerX64::convertDoubleToPtr(FloatRegister src, Register dest,
   vucomisd(scratch, src);
   j(Assembler::Parity, fail);
   j(Assembler::NotEqual, fail);
+}
+
+// This operation really consists of five phases, in order to enforce the
+// restriction that on x64, srcDest must be rax and rdx will be clobbered.
+//
+//     Input: { rhs, lhsOutput }
+//
+//  [PUSH] Preserve registers
+//  [MOVE] Generate moves to specific registers
+//
+//  [DIV] Input: { regForRhs, RAX }
+//  [DIV] extend RAX into RDX
+//  [DIV] x64 Division operator
+//  [DIV] Ouptut: { RAX, RDX }
+//
+//  [MOVE] Move specific registers to outputs
+//  [POP] Restore registers
+//
+//    Output: { lhsOutput, remainderOutput }
+void MacroAssemblerX64::flexibleDivMod64(Register rhs, Register lhsOutput,
+                                         bool isUnsigned, bool isDiv) {
+  if (lhsOutput == rhs) {
+    movq(ImmWord(isDiv ? 1 : 0), lhsOutput);
+    return;
+  }
+
+  // Choose a register that is neither rdx nor rax to hold the rhs;
+  // rbx is chosen arbitrarily, and will be preserved if necessary.
+  Register regForRhs = (rhs == rax || rhs == rdx) ? rbx : rhs;
+
+  // Add registers we will be clobbering as live, but also remove the set we
+  // do not restore.
+  LiveGeneralRegisterSet preserve;
+  preserve.add(rdx);
+  preserve.add(rax);
+  preserve.add(regForRhs);
+
+  preserve.takeUnchecked(lhsOutput);
+
+  asMasm().PushRegsInMask(preserve);
+
+  // Shuffle input into place.
+  asMasm().moveRegPair(lhsOutput, rhs, rax, regForRhs);
+  if (oom()) {
+    return;
+  }
+
+  // Sign extend rax into rdx to make (rdx:rax): idiv/udiv are 128-bit.
+  if (isUnsigned) {
+    movq(ImmWord(0), rdx);
+    udivq(regForRhs);
+  } else {
+    cqo();
+    idivq(regForRhs);
+  }
+
+  Register result = isDiv ? rax : rdx;
+  if (result != lhsOutput) {
+    movq(result, lhsOutput);
+  }
+
+  asMasm().PopRegsInMask(preserve);
 }
 
 //{{{ check_macroassembler_style
@@ -878,6 +941,21 @@ void MacroAssembler::moveValue(const ValueOperand& src,
 void MacroAssembler::moveValue(const Value& src, const ValueOperand& dest) {
   movWithPatch(ImmWord(src.asRawBits()), dest.valueReg());
   writeDataRelocation(src);
+}
+
+// ===============================================================
+// Arithmetic functions
+
+void MacroAssembler::flexibleQuotientPtr(
+    Register rhs, Register srcDest, bool isUnsigned,
+    const LiveRegisterSet& volatileLiveRegs) {
+  flexibleDivMod64(rhs, srcDest, isUnsigned, /* isDiv= */ true);
+}
+
+void MacroAssembler::flexibleRemainderPtr(
+    Register rhs, Register srcDest, bool isUnsigned,
+    const LiveRegisterSet& volatileLiveRegs) {
+  flexibleDivMod64(rhs, srcDest, isUnsigned, /* isDiv= */ false);
 }
 
 // ===============================================================
@@ -1082,6 +1160,7 @@ void MacroAssembler::wasmLoad(const wasm::MemoryAccessDesc& access,
     }
     case Scalar::Int64:
       MOZ_CRASH("int64 loads must use load64");
+    case Scalar::Float16:
     case Scalar::BigInt64:
     case Scalar::BigUint64:
     case Scalar::Uint8Clamped:
@@ -1135,6 +1214,7 @@ void MacroAssembler::wasmLoadI64(const wasm::MemoryAccessDesc& access,
              FaultingCodeOffset(currentOffset()));
       movq(srcAddr, out.reg);
       break;
+    case Scalar::Float16:
     case Scalar::Float32:
     case Scalar::Float64:
     case Scalar::Simd128:
@@ -1199,6 +1279,7 @@ void MacroAssembler::wasmStore(const wasm::MemoryAccessDesc& access,
     case Scalar::Uint8Clamped:
     case Scalar::BigInt64:
     case Scalar::BigUint64:
+    case Scalar::Float16:
     case Scalar::MaxTypedArrayViewType:
       MOZ_CRASH("unexpected array type");
   }
@@ -1459,7 +1540,7 @@ static void AtomicFetchOp64(MacroAssembler& masm,
                             Register output) {
   // NOTE: the generated code must match the assembly code in gen_fetchop in
   // GenerateAtomicOperations.py
-  if (op == AtomicFetchAddOp) {
+  if (op == AtomicOp::Add) {
     if (value != output) {
       masm.movq(value, output);
     }
@@ -1468,7 +1549,7 @@ static void AtomicFetchOp64(MacroAssembler& masm,
                   FaultingCodeOffset(masm.currentOffset()));
     }
     masm.lock_xaddq(output, Operand(mem));
-  } else if (op == AtomicFetchSubOp) {
+  } else if (op == AtomicOp::Sub) {
     if (value != output) {
       masm.movq(value, output);
     }
@@ -1492,13 +1573,13 @@ static void AtomicFetchOp64(MacroAssembler& masm,
     masm.bind(&again);
     masm.movq(rax, temp);
     switch (op) {
-      case AtomicFetchAndOp:
+      case AtomicOp::And:
         masm.andq(value, temp);
         break;
-      case AtomicFetchOrOp:
+      case AtomicOp::Or:
         masm.orq(value, temp);
         break;
-      case AtomicFetchXorOp:
+      case AtomicOp::Xor:
         masm.xorq(value, temp);
         break;
       default:
@@ -1532,19 +1613,19 @@ static void AtomicEffectOp64(MacroAssembler& masm,
                 FaultingCodeOffset(masm.currentOffset()));
   }
   switch (op) {
-    case AtomicFetchAddOp:
+    case AtomicOp::Add:
       masm.lock_addq(value, Operand(mem));
       break;
-    case AtomicFetchSubOp:
+    case AtomicOp::Sub:
       masm.lock_subq(value, Operand(mem));
       break;
-    case AtomicFetchAndOp:
+    case AtomicOp::And:
       masm.lock_andq(value, Operand(mem));
       break;
-    case AtomicFetchOrOp:
+    case AtomicOp::Or:
       masm.lock_orq(value, Operand(mem));
       break;
-    case AtomicFetchXorOp:
+    case AtomicOp::Xor:
       masm.lock_xorq(value, Operand(mem));
       break;
     default:
@@ -1558,8 +1639,8 @@ void MacroAssembler::wasmAtomicEffectOp64(const wasm::MemoryAccessDesc& access,
   AtomicEffectOp64(*this, &access, op, value.reg, mem);
 }
 
-void MacroAssembler::compareExchange64(const Synchronization&,
-                                       const Address& mem, Register64 expected,
+void MacroAssembler::compareExchange64(Synchronization, const Address& mem,
+                                       Register64 expected,
                                        Register64 replacement,
                                        Register64 output) {
   // NOTE: the generated code must match the assembly code in gen_cmpxchg in
@@ -1571,8 +1652,7 @@ void MacroAssembler::compareExchange64(const Synchronization&,
   lock_cmpxchgq(replacement.reg, Operand(mem));
 }
 
-void MacroAssembler::compareExchange64(const Synchronization&,
-                                       const BaseIndex& mem,
+void MacroAssembler::compareExchange64(Synchronization, const BaseIndex& mem,
                                        Register64 expected,
                                        Register64 replacement,
                                        Register64 output) {
@@ -1583,9 +1663,8 @@ void MacroAssembler::compareExchange64(const Synchronization&,
   lock_cmpxchgq(replacement.reg, Operand(mem));
 }
 
-void MacroAssembler::atomicExchange64(const Synchronization&,
-                                      const Address& mem, Register64 value,
-                                      Register64 output) {
+void MacroAssembler::atomicExchange64(Synchronization, const Address& mem,
+                                      Register64 value, Register64 output) {
   // NOTE: the generated code must match the assembly code in gen_exchange in
   // GenerateAtomicOperations.py
   if (value != output) {
@@ -1594,33 +1673,32 @@ void MacroAssembler::atomicExchange64(const Synchronization&,
   xchgq(output.reg, Operand(mem));
 }
 
-void MacroAssembler::atomicExchange64(const Synchronization&,
-                                      const BaseIndex& mem, Register64 value,
-                                      Register64 output) {
+void MacroAssembler::atomicExchange64(Synchronization, const BaseIndex& mem,
+                                      Register64 value, Register64 output) {
   if (value != output) {
     movq(value.reg, output.reg);
   }
   xchgq(output.reg, Operand(mem));
 }
 
-void MacroAssembler::atomicFetchOp64(const Synchronization& sync, AtomicOp op,
+void MacroAssembler::atomicFetchOp64(Synchronization sync, AtomicOp op,
                                      Register64 value, const Address& mem,
                                      Register64 temp, Register64 output) {
   AtomicFetchOp64(*this, nullptr, op, value.reg, mem, temp.reg, output.reg);
 }
 
-void MacroAssembler::atomicFetchOp64(const Synchronization& sync, AtomicOp op,
+void MacroAssembler::atomicFetchOp64(Synchronization sync, AtomicOp op,
                                      Register64 value, const BaseIndex& mem,
                                      Register64 temp, Register64 output) {
   AtomicFetchOp64(*this, nullptr, op, value.reg, mem, temp.reg, output.reg);
 }
 
-void MacroAssembler::atomicEffectOp64(const Synchronization& sync, AtomicOp op,
+void MacroAssembler::atomicEffectOp64(Synchronization sync, AtomicOp op,
                                       Register64 value, const Address& mem) {
   AtomicEffectOp64(*this, nullptr, op, value.reg, mem);
 }
 
-void MacroAssembler::atomicEffectOp64(const Synchronization& sync, AtomicOp op,
+void MacroAssembler::atomicEffectOp64(Synchronization sync, AtomicOp op,
                                       Register64 value, const BaseIndex& mem) {
   AtomicEffectOp64(*this, nullptr, op, value.reg, mem);
 }
@@ -1656,7 +1734,7 @@ void MacroAssembler::wasmBoundsCheck64(Condition cond, Register64 index,
 }
 
 #ifdef ENABLE_WASM_TAIL_CALLS
-void MacroAssembler::wasmMarkSlowCall() {
+void MacroAssembler::wasmMarkCallAsSlow() {
   static_assert(InstanceReg == r14);
   orPtr(Imm32(0), r14);
 }

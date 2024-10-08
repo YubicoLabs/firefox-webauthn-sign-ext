@@ -116,6 +116,10 @@ class InspectorActor extends Actor {
     this.destroyEyeDropper = this.destroyEyeDropper.bind(this);
   }
 
+  highlightersState = {
+    fadingViewportSizeHiglighter: null,
+  };
+
   destroy() {
     super.destroy();
     this.destroyEyeDropper();
@@ -182,7 +186,7 @@ class InspectorActor extends Actor {
       return this._pageStylePromise;
     }
 
-    this._pageStylePromise = this.getWalker().then(walker => {
+    this._pageStylePromise = this.getWalker().then(() => {
       const pageStyle = new PageStyleActor(this);
       this.manage(pageStyle);
       return pageStyle;
@@ -264,7 +268,7 @@ class InspectorActor extends Actor {
       return url;
     }
 
-    const baseURI = Services.io.newURI(document.location.href);
+    const baseURI = Services.io.newURI(document.baseURI);
     return Services.io.newURI(url, null, baseURI).spec;
   }
 

@@ -8,9 +8,6 @@
 const { setTimeout, clearTimeout } = ChromeUtils.importESModule(
   "resource://gre/modules/Timer.sys.mjs"
 );
-const { OSKeyStore } = ChromeUtils.importESModule(
-  "resource://gre/modules/OSKeyStore.sys.mjs"
-);
 
 const TESTCASES = [
   {
@@ -125,7 +122,6 @@ const TESTCASES = [
                <input id="tel" autocomplete="shipping tel"></form>`,
     focusedInputId: "given-name",
     profileData: {
-      guid: "123",
       "street-address": "",
       "address-level2": "",
       country: "",
@@ -151,7 +147,6 @@ const TESTCASES = [
                </form>`,
     focusedInputId: "given-name",
     profileData: {
-      guid: "123",
       "given-name": "John",
       "family-name": "Doe",
       "street-address": "2 Harrison St",
@@ -177,7 +172,6 @@ const TESTCASES = [
                </form>`,
     focusedInputId: "given-name",
     profileData: {
-      guid: "123",
       "given-name": "John",
       "family-name": "Doe",
       "street-address": "2 Harrison St",
@@ -209,7 +203,6 @@ const TESTCASES = [
                </form>`,
     focusedInputId: "given-name",
     profileData: {
-      guid: "123",
       country: "US",
       "address-level1": "CA",
     },
@@ -235,7 +228,6 @@ const TESTCASES = [
                </form>`,
     focusedInputId: "given-name",
     profileData: {
-      guid: "123",
       country: "United States",
       "address-level1": "California",
     },
@@ -254,7 +246,6 @@ const TESTCASES = [
                </form>`,
     focusedInputId: "given-name",
     profileData: {
-      guid: "123",
       "given-name": "John",
       "family-name": "Doe",
       "street-address": "100 Main Street",
@@ -287,7 +278,6 @@ const TESTCASES = [
                </form>`,
     focusedInputId: "given-name",
     profileData: {
-      guid: "123",
       "street-address": "2 Harrison St line2",
       "-moz-street-address-one-line": "2 Harrison St line2",
       "address-level2": "San Francisco",
@@ -328,7 +318,6 @@ const TESTCASES = [
                </form>`,
     focusedInputId: "cc-number",
     profileData: {
-      guid: "123",
       "cc-number": "4111111111111111",
       "cc-name": "test name",
       "cc-exp-month": 6,
@@ -358,7 +347,6 @@ const TESTCASES = [
               `,
     focusedInputId: "cc-number",
     profileData: {
-      guid: "123",
       "cc-number": "4111111111111111",
       "cc-name": "test name",
       "cc-exp-month": 6,
@@ -383,7 +371,6 @@ const TESTCASES = [
               `,
     focusedInputId: "cc-number",
     profileData: {
-      guid: "123",
       "cc-number": "4111111111111111",
       "cc-name": "test name",
       "cc-exp-month": 6,
@@ -408,7 +395,6 @@ const TESTCASES = [
               `,
     focusedInputId: "cc-number",
     profileData: {
-      guid: "123",
       "cc-number": "4111111111111111",
       "cc-name": "test name",
       "cc-exp-month": 6,
@@ -423,6 +409,37 @@ const TESTCASES = [
   },
   {
     description:
+      "Form with hidden input and visible input that share the same autocomplete attribute",
+    document: `<form>
+               <input id="hidden-cc" autocomplete="cc-number" hidden>
+               <input id="hidden-cc-2" autocomplete="cc-number" style="display:none">
+               <input id="visible-cc" autocomplete="cc-number">
+               <input id="hidden-name" autocomplete="cc-name" hidden>
+               <input id="hidden-name-2" autocomplete="cc-name" style="display:none">
+               <input id="visible-name" autocomplete="cc-name">
+               <input id="cc-exp-month" autocomplete="cc-exp-month">
+               <input id="cc-exp-year" autocomplete="cc-exp-year">
+               </form>`,
+    focusedInputId: "visible-cc",
+    profileData: {
+      "cc-number": "4111111111111111",
+      "cc-name": "test name",
+      "cc-exp-month": 6,
+      "cc-exp-year": 25,
+    },
+    expectedResult: {
+      "visible-cc": "4111111111111111",
+      "visible-name": "test name",
+      "cc-exp-month": "06",
+      "cc-exp-year": "25",
+      "hidden-cc": "4111111111111111",
+      "hidden-cc-2": "4111111111111111",
+      "hidden-name": "test name",
+      "hidden-name-2": "test name",
+    },
+  },
+  {
+    description:
       "Fill credit card fields in a form where the value property is being used as a placeholder for cardholder name",
     document: `<form>
               <input id="cc-number" autocomplete="cc-number">
@@ -432,14 +449,12 @@ const TESTCASES = [
               </form>`,
     focusedInputId: "cc-number",
     profileData: {
-      guid: "123",
       "cc-number": "4111111111111111",
       "cc-name": "test name",
       "cc-exp-month": 6,
       "cc-exp-year": 25,
     },
     expectedResult: {
-      guid: "123",
       "cc-number": "4111111111111111",
       "cc-name": "test name",
       "cc-exp-month": "06",
@@ -459,13 +474,11 @@ const TESTCASES = [
                 </form>`,
     focusedInputId: "cc-number1",
     profileData: {
-      guid: "123",
       "cc-number": "371449635398431",
       "cc-exp-month": 6,
       "cc-exp-year": 25,
     },
     expectedResult: {
-      guid: "123",
       "cc-number1": "3714",
       "cc-number2": "4963",
       "cc-number3": "5398",
@@ -474,55 +487,56 @@ const TESTCASES = [
       "cc-exp-year": "25",
     },
   },
-  {
-    description:
-      "Fill credit card number fields in a form with multiple valid credit card sections",
-    document: `<form>
-                <input id="cc-type1">
-                <input id="cc-number1" maxlength="4">
-                <input id="cc-number2" maxlength="4">
-                <input id="cc-number3" maxlength="4">
-                <input id="cc-number4" maxlength="4">
-                <input id="cc-exp-month1">
-                <input id="cc-exp-year1">
-                <input id="cc-type2">
-                <input id="cc-number5" maxlength="4">
-                <input id="cc-number6" maxlength="4">
-                <input id="cc-number7" maxlength="4">
-                <input id="cc-number8" maxlength="4">
-                <input id="cc-exp-month2">
-                <input id="cc-exp-year2">
-                <input>
-                <input>
-                <input>
-              </form>
-                `,
-    focusedInputId: "cc-number1",
-    profileData: {
-      guid: "123",
-      "cc-type": "mastercard",
-      "cc-number": "371449635398431",
-      "cc-exp-month": 6,
-      "cc-exp-year": 25,
-    },
-    expectedResult: {
-      guid: "123",
-      "cc-type1": "mastercard",
-      "cc-number1": "3714",
-      "cc-number2": "4963",
-      "cc-number3": "5398",
-      "cc-number4": "431",
-      "cc-exp-month1": "06",
-      "cc-exp-year1": "25",
-      "cc-type2": "",
-      "cc-number-5": "",
-      "cc-number-6": "",
-      "cc-number-7": "",
-      "cc-number-8": "",
-      "cc-exp-month2": "",
-      "cc-exp-year2": "",
-    },
-  },
+  // TODO: Bug 1902233 - Migrate this test to browser test
+  //{
+  //description:
+  //"Fill credit card number fields in a form with multiple valid credit card sections",
+  //document: `<form>
+  //<input id="cc-type1">
+  //<input id="cc-number1" maxlength="4">
+  //<input id="cc-number2" maxlength="4">
+  //<input id="cc-number3" maxlength="4">
+  //<input id="cc-number4" maxlength="4">
+  //<input id="cc-exp-month1">
+  //<input id="cc-exp-year1">
+  //<input id="cc-type2">
+  //<input id="cc-number5" maxlength="4">
+  //<input id="cc-number6" maxlength="4">
+  //<input id="cc-number7" maxlength="4">
+  //<input id="cc-number8" maxlength="4">
+  //<input id="cc-exp-month2">
+  //<input id="cc-exp-year2">
+  //<input>
+  //<input>
+  //<input>
+  //</form>
+  //`,
+  //focusedInputId: "cc-number1",
+  //profileData: {
+  //guid: "123",
+  //"cc-type": "mastercard",
+  //"cc-number": "371449635398431",
+  //"cc-exp-month": 6,
+  //"cc-exp-year": 25,
+  //},
+  //expectedResult: {
+  //guid: "123",
+  //"cc-type1": "mastercard",
+  //"cc-number1": "3714",
+  //"cc-number2": "4963",
+  //"cc-number3": "5398",
+  //"cc-number4": "431",
+  //"cc-exp-month1": "06",
+  //"cc-exp-year1": "25",
+  //"cc-type2": "",
+  //"cc-number-5": "",
+  //"cc-number-6": "",
+  //"cc-number-7": "",
+  //"cc-number-8": "",
+  //"cc-exp-month2": "",
+  //"cc-exp-year2": "",
+  //},
+  //},
   {
     description:
       "Fill credit card fields in a form with placeholders on month and year and these inputs are type=tel",
@@ -535,7 +549,6 @@ const TESTCASES = [
               `,
     focusedInputId: "cardHolder",
     profileData: {
-      guid: "123",
       "cc-number": "4111111111111111",
       "cc-name": "test name",
       "cc-exp-month": 6,
@@ -567,7 +580,6 @@ const TESTCASES_INPUT_UNCHANGED = [
                </form>`,
     focusedInputId: "given-name",
     profileData: {
-      guid: "123",
       country: "US",
       "address-level1": "unknown state",
     },
@@ -591,7 +603,6 @@ const TESTCASES_FILL_SELECT = [
                </select></form>`,
     focusedInputId: "given-name",
     profileData: {
-      guid: "123",
       country: "US",
       "address-level1": "CA",
     },
@@ -631,7 +642,6 @@ const TESTCASES_FILL_SELECT = [
                </select></form>`,
     focusedInputId: "given-name",
     profileData: {
-      guid: "123",
       country: "US",
       "address-level1": " California ",
     },
@@ -651,7 +661,6 @@ const TESTCASES_FILL_SELECT = [
                </select></form>`,
     focusedInputId: "given-name",
     profileData: {
-      guid: "123",
       country: "US",
       "address-level1": "WA",
     },
@@ -672,7 +681,6 @@ const TESTCASES_FILL_SELECT = [
                </select></form>`,
     focusedInputId: "given-name",
     profileData: {
-      guid: "123",
       country: "US",
     },
     expectedResult: {
@@ -690,7 +698,6 @@ const TESTCASES_FILL_SELECT = [
                </select></form>`,
     focusedInputId: "given-name",
     profileData: {
-      guid: "123",
       country: "US",
     },
     expectedResult: {
@@ -708,7 +715,6 @@ const TESTCASES_FILL_SELECT = [
                </select></form>`,
     focusedInputId: "given-name",
     profileData: {
-      guid: "123",
       country: "US",
     },
     expectedResult: {
@@ -726,7 +732,6 @@ const TESTCASES_FILL_SELECT = [
                </select></form>`,
     focusedInputId: "given-name",
     profileData: {
-      guid: "123",
       country: "US",
     },
     expectedResult: {
@@ -745,7 +750,6 @@ const TESTCASES_FILL_SELECT = [
                </select></form>`,
     focusedInputId: "given-name",
     profileData: {
-      guid: "123",
       country: "US",
     },
     expectedResult: {
@@ -764,7 +768,6 @@ const TESTCASES_FILL_SELECT = [
               </select></form>`,
     focusedInputId: "cc-number",
     profileData: {
-      guid: "123",
       "cc-number": "4111111111111111",
       "cc-name": "test name",
       "cc-exp-month": 6,
@@ -793,7 +796,6 @@ const TESTCASES_FILL_SELECT = [
               </form>`,
     focusedInputId: "cc-number",
     profileData: {
-      guid: "123",
       "cc-number": "378282246310005",
       "cc-type": "amex",
       "cc-name": "test name",
@@ -801,7 +803,6 @@ const TESTCASES_FILL_SELECT = [
       "cc-exp-year": 26,
     },
     expectedResult: {
-      guid: "123",
       "cc-number": "378282246310005",
       "cc-type": "AX",
       "cc-name": "test name",
@@ -823,7 +824,6 @@ const TESTCASES_BOTH_CHANGED_AND_UNCHANGED = [
              </form>`,
     focusedInputId: "given-name",
     profileData: {
-      guid: "123",
       "given-name": "John",
       "family-name": "Doe",
       "street-address": "100 Main Street",
@@ -839,53 +839,33 @@ const TESTCASES_BOTH_CHANGED_AND_UNCHANGED = [
 ];
 
 function do_test(testcases, testFn) {
-  for (let tc of testcases) {
+  for (const tc of testcases) {
     (function () {
-      let testcase = tc;
+      const testcase = tc;
       add_task(async function () {
         info("Starting testcase: " + testcase.description);
-        let ccNumber = testcase.profileData["cc-number"];
-        if (ccNumber) {
-          testcase.profileData["cc-number-encrypted"] =
-            await OSKeyStore.encrypt(ccNumber);
-          delete testcase.profileData["cc-number"];
-        }
-
-        let doc = MockDocument.createTestDocument(
+        const doc = MockDocument.createTestDocument(
           "http://localhost:8080/test/",
           testcase.document
         );
-        let form = doc.querySelector("form");
-        let formLike = FormLikeFactory.createFromForm(form);
-        let handler = new FormAutofillHandler(formLike);
-        let promises = [];
-        // Replace the internal decrypt method with OSKeyStore API,
-        // but don't pass the reauth parameter to avoid triggering
-        // reauth login dialog in these tests.
-        let decryptHelper = async (cipherText, reauth) => {
-          return OSKeyStore.decrypt(cipherText, false);
-        };
-        handler.collectFormFields();
+        const form = doc.querySelector("form");
+        const formLike = FormLikeFactory.createFromForm(form);
+        const handler = new FormAutofillHandler(formLike);
+        const promises = [];
 
-        let focusedInput = doc.getElementById(testcase.focusedInputId);
-        try {
-          handler.focusedInput = focusedInput;
-        } catch (e) {
-          if (e.message.includes("WeakMap key must be an object")) {
-            throw new Error(
-              `Couldn't find the focusedInputId in the current form! Make sure focusedInputId exists in your test form! testcase description:${testcase.description}`
-            );
-          } else {
-            throw e;
+        const fieldDetails = FormAutofillHandler.collectFormFields(
+          handler.form
+        );
+        // TODO: This test should be a browser test instead
+        FormAutofillHeuristics.parseAndUpdateFieldNamesParent(fieldDetails);
+        handler.setIdentifiedFieldDetails(fieldDetails);
+
+        let focusedInputIdentifier;
+        handler.fieldDetails.forEach(field => {
+          const element = field.element;
+          if (element.id == testcase.focusedInputId) {
+            focusedInputIdentifier = field.elementId;
           }
-        }
-
-        for (let section of handler.sections) {
-          section._decrypt = decryptHelper;
-        }
-
-        handler.activeSection.fieldDetails.forEach(field => {
-          let element = field.element;
           if (!testcase.profileData[field.fieldName]) {
             // Avoid waiting for `change` event of a input with a blank value to
             // be filled.
@@ -894,14 +874,13 @@ function do_test(testcases, testFn) {
           promises.push(...testFn(testcase, element));
         });
 
-        let [adaptedProfile] = handler.activeSection.getAdaptedProfiles([
-          testcase.profileData,
-        ]);
-        await handler.autofillFormFields(adaptedProfile, focusedInput);
-        Assert.equal(
-          handler.activeSection.filledRecordGUID,
-          testcase.profileData.guid,
-          "Check if filledRecordGUID is set correctly"
+        const ids = handler.fieldDetails.map(
+          fieldDetail => fieldDetail.elementId
+        );
+        await handler.fillFields(
+          focusedInputIdentifier,
+          ids,
+          testcase.profileData
         );
         await Promise.all(promises);
       });

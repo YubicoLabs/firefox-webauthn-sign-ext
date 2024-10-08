@@ -29,11 +29,16 @@ ChromeUtils.defineESModuleGetters(lazy, {
   MarionettePrefs: "chrome://remote/content/marionette/prefs.sys.mjs",
   modal: "chrome://remote/content/shared/Prompt.sys.mjs",
   navigate: "chrome://remote/content/marionette/navigate.sys.mjs",
-  permissions: "chrome://remote/content/marionette/permissions.sys.mjs",
+  permissions: "chrome://remote/content/shared/Permissions.sys.mjs",
   pprint: "chrome://remote/content/shared/Format.sys.mjs",
   print: "chrome://remote/content/shared/PDF.sys.mjs",
+  PollPromise: "chrome://remote/content/shared/Sync.sys.mjs",
+  PromptHandlers:
+    "chrome://remote/content/shared/webdriver/UserPromptHandler.sys.mjs",
   PromptListener:
     "chrome://remote/content/shared/listeners/PromptListener.sys.mjs",
+  PromptTypes:
+    "chrome://remote/content/shared/webdriver/UserPromptHandler.sys.mjs",
   quit: "chrome://remote/content/shared/Browser.sys.mjs",
   reftest: "chrome://remote/content/marionette/reftest.sys.mjs",
   registerCommandsActor:
@@ -43,8 +48,6 @@ ChromeUtils.defineESModuleGetters(lazy, {
   TabManager: "chrome://remote/content/shared/TabManager.sys.mjs",
   TimedPromise: "chrome://remote/content/marionette/sync.sys.mjs",
   Timeouts: "chrome://remote/content/shared/webdriver/Capabilities.sys.mjs",
-  UnhandledPromptBehavior:
-    "chrome://remote/content/shared/webdriver/Capabilities.sys.mjs",
   unregisterCommandsActor:
     "chrome://remote/content/marionette/actors/MarionetteCommandsParent.sys.mjs",
   waitForInitialNavigationCompleted:
@@ -113,6 +116,9 @@ export function GeckoDriver(server) {
 
   // WebDriver Session
   this._currentSession = null;
+
+  // Flag to indicate a WebDriver HTTP session
+  this._sessionConfigFlags = new Set([lazy.WebDriverSession.SESSION_FLAG_HTTP]);
 
   // Flag to indicate that the application is shutting down
   this._isShuttingDown = false;
@@ -215,7 +221,8 @@ GeckoDriver.prototype.handleClosedModalDialog = function () {
 GeckoDriver.prototype.handleOpenModalDialog = function (eventName, data) {
   this.dialog = data.prompt;
 
-  if (this.dialog.promptType === "beforeunload") {
+  if (this.dialog.promptType === "beforeunload" && !this.currentSession?.bidi) {
+    // Only implicitly accept the prompt when its not a BiDi session.
     lazy.logger.trace(`Implicitly accepted "beforeunload" prompt`);
     this.dialog.accept();
     return;
@@ -227,10 +234,19 @@ GeckoDriver.prototype.handleOpenModalDialog = function (eventName, data) {
 };
 
 /**
- * Get the current visible URL.
+ * Get the current URL.
+ *
+ * @param {object} options
+ * @param {boolean=} options.top
+ *     If set to true return the window's top-level URL,
+ *     otherwise the one from the currently selected frame. Defaults to true.
+ * @see https://w3c.github.io/webdriver/#get-current-url
  */
-GeckoDriver.prototype._getCurrentURL = function () {
-  const browsingContext = this.getBrowsingContext({ top: true });
+GeckoDriver.prototype._getCurrentURL = function (options = {}) {
+  if (options.top === undefined) {
+    options.top = true;
+  }
+  const browsingContext = this.getBrowsingContext(options);
   return new URL(browsingContext.currentURI.spec);
 };
 
@@ -380,7 +396,7 @@ GeckoDriver.prototype.registerBrowser = function (browserElement) {
  * Create a new WebDriver session.
  *
  * @param {object} cmd
- * @param {Object<string, *>=} cmd.parameters
+ * @param {Record<string, *>=} cmd.parameters
  *     JSON Object containing any of the recognised capabilities as listed
  *     on the `WebDriverSession` class.
  *
@@ -400,14 +416,20 @@ GeckoDriver.prototype.newSession = async function (cmd) {
   const { parameters: capabilities } = cmd;
 
   try {
-    // If the WebDriver BiDi protocol is active always use the Remote Agent
-    // to handle the WebDriver session. If it's not the case then Marionette
-    // itself needs to handle it, and has to nullify the "webSocketUrl"
-    // capability.
     if (lazy.RemoteAgent.webDriverBiDi) {
-      await lazy.RemoteAgent.webDriverBiDi.createSession(capabilities);
+      // If the WebDriver BiDi protocol is active always use the Remote Agent
+      // to handle the WebDriver session.
+      await lazy.RemoteAgent.webDriverBiDi.createSession(
+        capabilities,
+        this._sessionConfigFlags
+      );
     } else {
-      this._currentSession = new lazy.WebDriverSession(capabilities);
+      // If it's not the case then Marionette itself needs to handle it, and
+      // has to nullify the "webSocketUrl" capability.
+      this._currentSession = new lazy.WebDriverSession(
+        capabilities,
+        this._sessionConfigFlags
+      );
       this._currentSession.capabilities.delete("webSocketUrl");
     }
 
@@ -540,7 +562,7 @@ GeckoDriver.prototype.handleEvent = function ({ target, type }) {
   }
 };
 
-GeckoDriver.prototype.observe = async function (subject, topic, data) {
+GeckoDriver.prototype.observe = async function (subject, topic) {
   switch (topic) {
     case TOPIC_BROWSER_READY:
       this.registerWindow(subject);
@@ -588,7 +610,10 @@ GeckoDriver.prototype.getSessionCapabilities = function () {
  *     If <var>value</var> is not a valid browsing context.
  */
 GeckoDriver.prototype.setContext = function (cmd) {
-  let value = lazy.assert.string(cmd.parameters.value);
+  let value = lazy.assert.string(
+    cmd.parameters.value,
+    lazy.pprint`Expected "value" to be a string, got ${cmd.parameters.value}`
+  );
 
   this.context = value;
 };
@@ -761,24 +786,30 @@ GeckoDriver.prototype.execute_ = async function (
 
   lazy.assert.string(
     script,
-    lazy.pprint`Expected "script" to be a string: ${script}`
+    lazy.pprint`Expected "script" to be a string, got ${script}`
   );
   lazy.assert.array(
     args,
-    lazy.pprint`Expected script args to be an array: ${args}`
+    lazy.pprint`Expected "args" to be an array, got ${args}`
   );
   if (sandboxName !== null) {
     lazy.assert.string(
       sandboxName,
-      lazy.pprint`Expected sandbox name to be a string: ${sandboxName}`
+      lazy.pprint`Expected "sandboxName" to be a string, got ${sandboxName}`
     );
   }
   lazy.assert.boolean(
     newSandbox,
-    lazy.pprint`Expected newSandbox to be boolean: ${newSandbox}`
+    lazy.pprint`Expected "newSandbox" to be boolean, got ${newSandbox}`
   );
-  lazy.assert.string(file, lazy.pprint`Expected file to be a string: ${file}`);
-  lazy.assert.number(line, lazy.pprint`Expected line to be a number: ${line}`);
+  lazy.assert.string(
+    file,
+    lazy.pprint`Expected "file" to be a string, got ${file}`
+  );
+  lazy.assert.number(
+    line,
+    lazy.pprint`Expected "line" to be a number, got ${line}`
+  );
 
   let opts = {
     timeout: this.currentSession.timeouts.script,
@@ -1068,7 +1099,7 @@ GeckoDriver.prototype.getWindowHandles = function () {
  * window outerWidth and outerHeight values, which include scroll bars,
  * title bars, etc.
  *
- * @returns {Object<string, number>}
+ * @returns {Record<string, number>}
  *     Object with |x| and |y| coordinates, and |width| and |height|
  *     of browser window.
  *
@@ -1104,7 +1135,7 @@ GeckoDriver.prototype.getWindowRect = async function () {
  * @param {number} cmd.parameters.height
  *     Height to resize the window to.
  *
- * @returns {Object<string, number>}
+ * @returns {Record<string, number>}
  *     Object with `x` and `y` coordinates and `width` and `height`
  *     dimensions.
  *
@@ -1122,16 +1153,28 @@ GeckoDriver.prototype.setWindowRect = async function (cmd) {
 
   const { x = null, y = null, width = null, height = null } = cmd.parameters;
   if (x !== null) {
-    lazy.assert.integer(x);
+    lazy.assert.integer(
+      x,
+      lazy.pprint`Expected "x" to be an integer value, got ${x}`
+    );
   }
   if (y !== null) {
-    lazy.assert.integer(y);
+    lazy.assert.integer(
+      y,
+      lazy.pprint`Expected "y" to be an integer value, got ${y}`
+    );
   }
   if (height !== null) {
-    lazy.assert.positiveInteger(height);
+    lazy.assert.positiveInteger(
+      height,
+      lazy.pprint`Expected "height" to be a positive integer value, got ${height}`
+    );
   }
   if (width !== null) {
-    lazy.assert.positiveInteger(width);
+    lazy.assert.positiveInteger(
+      width,
+      lazy.pprint`Expected "width" to be a positive integer value, got ${width}`
+    );
   }
 
   const win = this.getCurrentWindow();
@@ -1357,7 +1400,7 @@ GeckoDriver.prototype.switchToFrame = async function (cmd) {
   if (typeof id == "number") {
     lazy.assert.unsignedShort(
       id,
-      `Expected id to be unsigned short, got ${id}`
+      lazy.pprint`Expected "id" to be an unsigned short, got ${id}`
     );
   }
 
@@ -1373,9 +1416,20 @@ GeckoDriver.prototype.switchToFrame = async function (cmd) {
     byFrame = el;
   }
 
-  const { browsingContext } = await this.getActor({ top }).switchToFrame(
-    byFrame || id
-  );
+  // If the current context changed during the switchToFrame call, attempt to
+  // call switchToFrame again until the browsing context remains stable.
+  // See https://bugzilla.mozilla.org/show_bug.cgi?id=1786640#c11
+  let browsingContext;
+  for (let i = 0; i < 5; i++) {
+    const currentBrowsingContext = this.currentSession.contentBrowsingContext;
+    ({ browsingContext } = await this.getActor({ top }).switchToFrame(
+      byFrame || id
+    ));
+
+    if (currentBrowsingContext == this.currentSession.contentBrowsingContext) {
+      break;
+    }
+  }
 
   this.currentSession.contentBrowsingContext = browsingContext;
 };
@@ -1388,7 +1442,7 @@ GeckoDriver.prototype.getTimeouts = function () {
  * Set timeout for page loading, searching, and scripts.
  *
  * @param {object} cmd
- * @param {Object<string, number>} cmd.parameters
+ * @param {Record<string, number>} cmd.parameters
  *     Dictionary of timeout types and their new value, where all timeout
  *     types are optional.
  *
@@ -1730,7 +1784,10 @@ GeckoDriver.prototype.clickElement = async function (cmd) {
   const browsingContext = lazy.assert.open(this.getBrowsingContext());
   await this._handleUserPrompts();
 
-  let id = lazy.assert.string(cmd.parameters.id);
+  let id = lazy.assert.string(
+    cmd.parameters.id,
+    lazy.pprint`Expected "id" to be a string, got ${cmd.parameters.id}`
+  );
   let webEl = lazy.WebElement.fromUUID(id).toJSON();
 
   const actor = this.getActor();
@@ -1781,8 +1838,14 @@ GeckoDriver.prototype.getElementAttribute = async function (cmd) {
   lazy.assert.open(this.getBrowsingContext());
   await this._handleUserPrompts();
 
-  const id = lazy.assert.string(cmd.parameters.id);
-  const name = lazy.assert.string(cmd.parameters.name);
+  const id = lazy.assert.string(
+    cmd.parameters.id,
+    lazy.pprint`Expected "id" to be a string, got ${cmd.parameters.id}`
+  );
+  const name = lazy.assert.string(
+    cmd.parameters.name,
+    lazy.pprint`Expected "name" to be a string, got ${cmd.parameters.name}`
+  );
   const webEl = lazy.WebElement.fromUUID(id).toJSON();
 
   return this.getActor().getElementAttribute(webEl, name);
@@ -1815,8 +1878,14 @@ GeckoDriver.prototype.getElementProperty = async function (cmd) {
   lazy.assert.open(this.getBrowsingContext());
   await this._handleUserPrompts();
 
-  const id = lazy.assert.string(cmd.parameters.id);
-  const name = lazy.assert.string(cmd.parameters.name);
+  const id = lazy.assert.string(
+    cmd.parameters.id,
+    lazy.pprint`Expected "id" to be a string, got ${cmd.parameters.id}`
+  );
+  const name = lazy.assert.string(
+    cmd.parameters.name,
+    lazy.pprint`Expected "name" to be a string, got ${cmd.parameters.name}`
+  );
   const webEl = lazy.WebElement.fromUUID(id).toJSON();
 
   return this.getActor().getElementProperty(webEl, name);
@@ -1848,7 +1917,10 @@ GeckoDriver.prototype.getElementText = async function (cmd) {
   lazy.assert.open(this.getBrowsingContext());
   await this._handleUserPrompts();
 
-  let id = lazy.assert.string(cmd.parameters.id);
+  let id = lazy.assert.string(
+    cmd.parameters.id,
+    lazy.pprint`Expected "id" to be a string, got ${cmd.parameters.id}`
+  );
   let webEl = lazy.WebElement.fromUUID(id).toJSON();
 
   return this.getActor().getElementText(webEl);
@@ -1879,7 +1951,10 @@ GeckoDriver.prototype.getElementTagName = async function (cmd) {
   lazy.assert.open(this.getBrowsingContext());
   await this._handleUserPrompts();
 
-  let id = lazy.assert.string(cmd.parameters.id);
+  let id = lazy.assert.string(
+    cmd.parameters.id,
+    lazy.pprint`Expected "id" to be a string, got ${cmd.parameters.id}`
+  );
   let webEl = lazy.WebElement.fromUUID(id).toJSON();
 
   return this.getActor().getElementTagName(webEl);
@@ -1908,7 +1983,10 @@ GeckoDriver.prototype.isElementDisplayed = async function (cmd) {
   lazy.assert.open(this.getBrowsingContext());
   await this._handleUserPrompts();
 
-  let id = lazy.assert.string(cmd.parameters.id);
+  let id = lazy.assert.string(
+    cmd.parameters.id,
+    lazy.pprint`Expected "id" to be a string, got ${cmd.parameters.id}`
+  );
   let webEl = lazy.WebElement.fromUUID(id).toJSON();
 
   return this.getActor().isElementDisplayed(
@@ -1944,8 +2022,14 @@ GeckoDriver.prototype.getElementValueOfCssProperty = async function (cmd) {
   lazy.assert.open(this.getBrowsingContext());
   await this._handleUserPrompts();
 
-  let id = lazy.assert.string(cmd.parameters.id);
-  let prop = lazy.assert.string(cmd.parameters.propertyName);
+  let id = lazy.assert.string(
+    cmd.parameters.id,
+    lazy.pprint`Expected "id" to be a string, got ${cmd.parameters.id}`
+  );
+  let prop = lazy.assert.string(
+    cmd.parameters.propertyName,
+    lazy.pprint`Expected "propertyName" to be a string, got ${cmd.parameters.propertyName}`
+  );
   let webEl = lazy.WebElement.fromUUID(id).toJSON();
 
   return this.getActor().getElementValueOfCssProperty(webEl, prop);
@@ -1976,7 +2060,10 @@ GeckoDriver.prototype.isElementEnabled = async function (cmd) {
   lazy.assert.open(this.getBrowsingContext());
   await this._handleUserPrompts();
 
-  let id = lazy.assert.string(cmd.parameters.id);
+  let id = lazy.assert.string(
+    cmd.parameters.id,
+    lazy.pprint`Expected "id" to be a string, got ${cmd.parameters.id}`
+  );
   let webEl = lazy.WebElement.fromUUID(id).toJSON();
 
   return this.getActor().isElementEnabled(
@@ -2008,7 +2095,10 @@ GeckoDriver.prototype.isElementSelected = async function (cmd) {
   lazy.assert.open(this.getBrowsingContext());
   await this._handleUserPrompts();
 
-  let id = lazy.assert.string(cmd.parameters.id);
+  let id = lazy.assert.string(
+    cmd.parameters.id,
+    lazy.pprint`Expected "id" to be a string, got ${cmd.parameters.id}`
+  );
   let webEl = lazy.WebElement.fromUUID(id).toJSON();
 
   return this.getActor().isElementSelected(
@@ -2033,7 +2123,10 @@ GeckoDriver.prototype.getElementRect = async function (cmd) {
   lazy.assert.open(this.getBrowsingContext());
   await this._handleUserPrompts();
 
-  let id = lazy.assert.string(cmd.parameters.id);
+  let id = lazy.assert.string(
+    cmd.parameters.id,
+    lazy.pprint`Expected "id" to be a string, got ${cmd.parameters.id}`
+  );
   let webEl = lazy.WebElement.fromUUID(id).toJSON();
 
   return this.getActor().getElementRect(webEl);
@@ -2063,8 +2156,14 @@ GeckoDriver.prototype.sendKeysToElement = async function (cmd) {
   lazy.assert.open(this.getBrowsingContext());
   await this._handleUserPrompts();
 
-  let id = lazy.assert.string(cmd.parameters.id);
-  let text = lazy.assert.string(cmd.parameters.text);
+  let id = lazy.assert.string(
+    cmd.parameters.id,
+    lazy.pprint`Expected "id" to be a string, got ${cmd.parameters.id}`
+  );
+  let text = lazy.assert.string(
+    cmd.parameters.text,
+    lazy.pprint`Expected "text" to be a string, got ${cmd.parameters.text}`
+  );
   let webEl = lazy.WebElement.fromUUID(id).toJSON();
 
   return this.getActor().sendKeysToElement(
@@ -2096,7 +2195,10 @@ GeckoDriver.prototype.clearElement = async function (cmd) {
   lazy.assert.open(this.getBrowsingContext());
   await this._handleUserPrompts();
 
-  let id = lazy.assert.string(cmd.parameters.id);
+  let id = lazy.assert.string(
+    cmd.parameters.id,
+    lazy.pprint`Expected "id" to be a string, got ${cmd.parameters.id}`
+  );
   let webEl = lazy.WebElement.fromUUID(id).toJSON();
 
   await this.getActor().clearElement(webEl);
@@ -2125,7 +2227,7 @@ GeckoDriver.prototype.addCookie = async function (cmd) {
   lazy.assert.open(this.getBrowsingContext());
   await this._handleUserPrompts();
 
-  let { protocol, hostname } = this._getCurrentURL();
+  let { protocol, hostname } = this._getCurrentURL({ top: false });
 
   const networkSchemes = ["http:", "https:"];
   if (!networkSchemes.includes(protocol)) {
@@ -2155,7 +2257,7 @@ GeckoDriver.prototype.getCookies = async function () {
   lazy.assert.open(this.getBrowsingContext());
   await this._handleUserPrompts();
 
-  let { hostname, pathname } = this._getCurrentURL();
+  let { hostname, pathname } = this._getCurrentURL({ top: false });
   return [...lazy.cookie.iter(hostname, pathname)];
 };
 
@@ -2174,7 +2276,7 @@ GeckoDriver.prototype.deleteAllCookies = async function () {
   lazy.assert.open(this.getBrowsingContext());
   await this._handleUserPrompts();
 
-  let { hostname, pathname } = this._getCurrentURL();
+  let { hostname, pathname } = this._getCurrentURL({ top: false });
   for (let toDelete of lazy.cookie.iter(hostname, pathname)) {
     lazy.cookie.remove(toDelete);
   }
@@ -2195,8 +2297,11 @@ GeckoDriver.prototype.deleteCookie = async function (cmd) {
   lazy.assert.open(this.getBrowsingContext());
   await this._handleUserPrompts();
 
-  let { hostname, pathname } = this._getCurrentURL();
-  let name = lazy.assert.string(cmd.parameters.name);
+  let { hostname, pathname } = this._getCurrentURL({ top: false });
+  let name = lazy.assert.string(
+    cmd.parameters.name,
+    lazy.pprint`Expected "name" to be a string, got ${cmd.parameters.name}`
+  );
   for (let c of lazy.cookie.iter(hostname, pathname)) {
     if (c.name === name) {
       lazy.cookie.remove(c);
@@ -2219,7 +2324,7 @@ GeckoDriver.prototype.deleteCookie = async function (cmd) {
  *     new top-level browsing context should be a private window.
  *     Defaults to false.
  *
- * @returns {Object<string, string>}
+ * @returns {Record<string, string>}
  *     Handle and type of the new browsing context.
  *
  * @throws {NoSuchWindowError}
@@ -2269,16 +2374,17 @@ GeckoDriver.prototype.newWindow = async function (cmd) {
   let contentBrowser;
 
   switch (type) {
-    case "window":
+    case "window": {
       let win = await this.curBrowser.openBrowserWindow(focus, isPrivate);
       contentBrowser = lazy.TabManager.getTabBrowser(win).selectedBrowser;
       break;
-
-    default:
+    }
+    default: {
       // To not fail if a new type gets added in the future, make opening
       // a new tab the default action.
       let tab = await this.curBrowser.openTab(focus);
       contentBrowser = lazy.TabManager.getBrowserForTab(tab);
+    }
   }
 
   // Actors need the new window to be loaded to safely execute queries.
@@ -2519,7 +2625,7 @@ GeckoDriver.prototype.setScreenOrientation = async function (cmd) {
   ];
 
   let or = String(cmd.parameters.orientation);
-  lazy.assert.string(or);
+  lazy.assert.string(or, lazy.pprint`Expected "or" to be a string, got ${or}`);
   let mozOr = or.toLowerCase();
   if (!ors.includes(mozOr)) {
     throw new lazy.error.InvalidArgumentError(
@@ -2546,7 +2652,7 @@ GeckoDriver.prototype.setScreenOrientation = async function (cmd) {
  *
  * Not supported on Fennec.
  *
- * @returns {Object<string, number>}
+ * @returns {Record<string, number>}
  *     Window rect and window state.
  *
  * @throws {NoSuchWindowError}
@@ -2598,7 +2704,7 @@ GeckoDriver.prototype.minimizeWindow = async function () {
  *
  * Not supported on Fennec.
  *
- * @returns {Object<string, number>}
+ * @returns {Record<string, number>}
  *     Window rect.
  *
  * @throws {NoSuchWindowError}
@@ -2775,7 +2881,10 @@ GeckoDriver.prototype.sendKeysToDialog = async function (cmd) {
   lazy.assert.open(this.getBrowsingContext({ top: true }));
   this._checkIfAlertIsPresent();
 
-  let text = lazy.assert.string(cmd.parameters.text);
+  let text = lazy.assert.string(
+    cmd.parameters.text,
+    lazy.pprint`Expected "text" to be a string, got ${cmd.parameters.text}`
+  );
   let promptType = this.dialog.args.promptType;
 
   switch (promptType) {
@@ -2806,43 +2915,56 @@ GeckoDriver.prototype._handleUserPrompts = async function () {
     return;
   }
 
-  if (this.dialog.promptType == "beforeunload") {
-    // Wait until the "beforeunload" prompt has been accepted.
-    await this.promptListener.dialogClosed();
+  const promptType = this.dialog.promptType;
+  const textContent = await this.dialog.getText();
+
+  if (promptType === "beforeunload" && !this.currentSession.bidi) {
+    // In an HTTP-only session, this prompt will be automatically accepted.
+    // Since this occurs asynchronously, we need to wait until it closes
+    // to prevent race conditions, particularly in slow builds.
+    await lazy.PollPromise((resolve, reject) => {
+      this.dialog?.isOpen ? reject() : resolve();
+    });
     return;
   }
 
-  const textContent = await this.dialog.getText();
+  let type = lazy.PromptTypes.Default;
+  switch (promptType) {
+    case "alert":
+      type = lazy.PromptTypes.Alert;
+      break;
+    case "beforeunload":
+      type = lazy.PromptTypes.BeforeUnload;
+      break;
+    case "confirm":
+      type = lazy.PromptTypes.Confirm;
+      break;
+    case "prompt":
+      type = lazy.PromptTypes.Prompt;
+      break;
+  }
 
-  const behavior = this.currentSession.unhandledPromptBehavior;
-  switch (behavior) {
-    case lazy.UnhandledPromptBehavior.Accept:
+  const userPromptHandler = this.currentSession.userPromptHandler;
+  const handlerConfig = userPromptHandler.getPromptHandler(type);
+
+  switch (handlerConfig.handler) {
+    case lazy.PromptHandlers.Accept:
       await this.acceptDialog();
       break;
-
-    case lazy.UnhandledPromptBehavior.AcceptAndNotify:
-      await this.acceptDialog();
-      throw new lazy.error.UnexpectedAlertOpenError(
-        `Accepted user prompt dialog: ${textContent}`
-      );
-
-    case lazy.UnhandledPromptBehavior.Dismiss:
+    case lazy.PromptHandlers.Dismiss:
       await this.dismissDialog();
       break;
+    case lazy.PromptHandlers.Ignore:
+      break;
+  }
 
-    case lazy.UnhandledPromptBehavior.DismissAndNotify:
-      await this.dismissDialog();
-      throw new lazy.error.UnexpectedAlertOpenError(
-        `Dismissed user prompt dialog: ${textContent}`
-      );
-
-    case lazy.UnhandledPromptBehavior.Ignore:
-      throw new lazy.error.UnexpectedAlertOpenError(
-        "Encountered unhandled user prompt dialog"
-      );
-
-    default:
-      throw new TypeError(`Unknown unhandledPromptBehavior "${behavior}"`);
+  if (handlerConfig.notify) {
+    throw new lazy.error.UnexpectedAlertOpenError(
+      `Unexpected ${promptType} dialog detected. Performed handler "${handlerConfig.handler}"`,
+      {
+        text: textContent,
+      }
+    );
   }
 };
 
@@ -2864,7 +2986,10 @@ GeckoDriver.prototype._handleUserPrompts = async function () {
  *     True if the server should accept new socket connections.
  */
 GeckoDriver.prototype.acceptConnections = async function (cmd) {
-  lazy.assert.boolean(cmd.parameters.value);
+  lazy.assert.boolean(
+    cmd.parameters.value,
+    lazy.pprint`Expected "value" to be a boolean, got ${cmd.parameters.value}`
+  );
   await this._server.setAcceptConnections(cmd.parameters.value);
 };
 
@@ -2891,7 +3016,7 @@ GeckoDriver.prototype.acceptConnections = async function (cmd) {
  *     Optional flag to indicate that the application has to
  *     be restarted in safe mode.
  *
- * @returns {Object<string,boolean>}
+ * @returns {Record<string,boolean>}
  *     Dictionary containing information that explains the shutdown reason.
  *     The value for `cause` contains the shutdown kind like "shutdown" or
  *     "restart", while `forced` will indicate if it was a normal or forced
@@ -2905,8 +3030,14 @@ GeckoDriver.prototype.acceptConnections = async function (cmd) {
 GeckoDriver.prototype.quit = async function (cmd) {
   const { flags = [], safeMode = false } = cmd.parameters;
 
-  lazy.assert.array(flags, `Expected "flags" to be an array`);
-  lazy.assert.boolean(safeMode, `Expected "safeMode" to be a boolean`);
+  lazy.assert.array(
+    flags,
+    lazy.pprint`Expected "flags" to be an array, got ${flags}`
+  );
+  lazy.assert.boolean(
+    safeMode,
+    lazy.pprint`Expected "safeMode" to be a boolean, got ${safeMode}`
+  );
 
   if (safeMode && !flags.includes("eRestart")) {
     throw new lazy.error.InvalidArgumentError(
@@ -3067,9 +3198,18 @@ GeckoDriver.prototype.runReftest = function (cmd) {
     );
   }
 
-  lazy.assert.string(test);
-  lazy.assert.string(expected);
-  lazy.assert.array(references);
+  lazy.assert.string(
+    test,
+    lazy.pprint`Expected "test" to be a string, got ${test}`
+  );
+  lazy.assert.string(
+    expected,
+    lazy.pprint`Expected "expected" to be a string, got ${expected}`
+  );
+  lazy.assert.array(
+    references,
+    lazy.pprint`Expected "references" to be an array, got ${references}`
+  );
 
   return this._reftest.run(
     test,
@@ -3149,36 +3289,45 @@ GeckoDriver.prototype.print = async function (cmd) {
   for (const prop of ["top", "bottom", "left", "right"]) {
     lazy.assert.positiveNumber(
       settings.margin[prop],
-      lazy.pprint`margin.${prop} is not a positive number`
+      lazy.pprint`Expected "margin.${prop}" to be a positive number, got ${settings.margin[prop]}`
     );
   }
   for (const prop of ["width", "height"]) {
     lazy.assert.positiveNumber(
       settings.page[prop],
-      lazy.pprint`page.${prop} is not a positive number`
+      lazy.pprint`Expected "page.${prop}" to be a positive number, got ${settings.page[prop]}`
     );
   }
   lazy.assert.positiveNumber(
     settings.scale,
-    `scale ${settings.scale} is not a positive number`
+    lazy.pprint`Expected "scale" to be a positive number, got ${settings.scale}`
   );
   lazy.assert.that(
     s =>
       s >= lazy.print.minScaleValue &&
       settings.scale <= lazy.print.maxScaleValue,
-    `scale ${settings.scale} is outside the range ${lazy.print.minScaleValue}-${lazy.print.maxScaleValue}`
+    lazy.pprint`scale ${settings.scale} is outside the range ${lazy.print.minScaleValue}-${lazy.print.maxScaleValue}`
   )(settings.scale);
-  lazy.assert.boolean(settings.shrinkToFit);
+  lazy.assert.boolean(
+    settings.shrinkToFit,
+    lazy.pprint`Expected "shrinkToFit" to be a boolean, got ${settings.shrinkToFit}`
+  );
   lazy.assert.that(
     orientation => lazy.print.defaults.orientationValue.includes(orientation),
-    `orientation ${
+    lazy.pprint`orientation ${
       settings.orientation
     } doesn't match allowed values "${lazy.print.defaults.orientationValue.join(
       "/"
     )}"`
   )(settings.orientation);
-  lazy.assert.boolean(settings.background);
-  lazy.assert.array(settings.pageRanges);
+  lazy.assert.boolean(
+    settings.background,
+    lazy.pprint`Expected "background" to be a boolean, got ${settings.background}`
+  );
+  lazy.assert.array(
+    settings.pageRanges,
+    lazy.pprint`Expected "pageRanges" to be an array, got ${settings.pageRanges}`
+  );
 
   const browsingContext = this.curBrowser.tab.linkedBrowser.browsingContext;
   const printSettings = await lazy.print.getPrintSettings(settings);
@@ -3202,27 +3351,27 @@ GeckoDriver.prototype.addVirtualAuthenticator = function (cmd) {
 
   lazy.assert.string(
     protocol,
-    "addVirtualAuthenticator: protocol must be a string"
+    lazy.pprint`Expected "protocol" to be a string, got ${protocol}`
   );
   lazy.assert.string(
     transport,
-    "addVirtualAuthenticator: transport must be a string"
+    lazy.pprint`Expected "transport" to be a string, got ${transport}`
   );
   lazy.assert.boolean(
     hasResidentKey,
-    "addVirtualAuthenticator: hasResidentKey must be a boolean"
+    lazy.pprint`Expected "hasResidentKey" to be a boolean, got ${hasResidentKey}`
   );
   lazy.assert.boolean(
     hasUserVerification,
-    "addVirtualAuthenticator: hasUserVerification must be a boolean"
+    lazy.pprint`Expected "hasUserVerification" to be a boolean, got ${hasUserVerification}`
   );
   lazy.assert.boolean(
     isUserConsenting,
-    "addVirtualAuthenticator: isUserConsenting must be a boolean"
+    lazy.pprint`Expected "isUserConsenting" to be a boolean, got ${isUserConsenting}`
   );
   lazy.assert.boolean(
     isUserVerified,
-    "addVirtualAuthenticator: isUserVerified must be a boolean"
+    lazy.pprint`Expected "isUserVerified" to be a boolean, got ${isUserVerified}`
   );
 
   return lazy.webauthn.addVirtualAuthenticator(
@@ -3240,7 +3389,7 @@ GeckoDriver.prototype.removeVirtualAuthenticator = function (cmd) {
 
   lazy.assert.positiveInteger(
     authenticatorId,
-    "removeVirtualAuthenticator: authenticatorId must be a positiveInteger"
+    lazy.pprint`Expected "authenticatorId" to be a positiveInteger, got ${authenticatorId}`
   );
 
   lazy.webauthn.removeVirtualAuthenticator(authenticatorId);
@@ -3259,25 +3408,34 @@ GeckoDriver.prototype.addCredential = function (cmd) {
 
   lazy.assert.positiveInteger(
     authenticatorId,
-    "addCredential: authenticatorId must be a positiveInteger"
+    lazy.pprint`Expected "authenticatorId" to be a positiveInteger, got ${authenticatorId}`
   );
   lazy.assert.string(
     credentialId,
-    "addCredential: credentialId must be a string"
+    lazy.pprint`Expected "credentialId" to be a string, got ${credentialId}`
   );
   lazy.assert.boolean(
     isResidentCredential,
-    "addCredential: isResidentCredential must be a boolean"
+    lazy.pprint`Expected "isResidentCredential" to be a boolean, got ${isResidentCredential}`
   );
-  lazy.assert.string(rpId, "addCredential: rpId must be a string");
-  lazy.assert.string(privateKey, "addCredential: privateKey must be a string");
+  lazy.assert.string(
+    rpId,
+    lazy.pprint`Expected "rpId" to be a string, got ${rpId}`
+  );
+  lazy.assert.string(
+    privateKey,
+    lazy.pprint`Expected "privateKey" to be a string, got ${privateKey}`
+  );
   if (userHandle) {
     lazy.assert.string(
       userHandle,
-      "addCredential: userHandle must be a string if present"
+      lazy.pprint`Expected "userHandle" to be a string, got ${userHandle}`
     );
   }
-  lazy.assert.number(signCount, "addCredential: signCount must be a number");
+  lazy.assert.number(
+    signCount,
+    lazy.pprint`Expected "signCount" to be a number, got ${signCount}`
+  );
 
   lazy.webauthn.addCredential(
     authenticatorId,
@@ -3295,7 +3453,7 @@ GeckoDriver.prototype.getCredentials = function (cmd) {
 
   lazy.assert.positiveInteger(
     authenticatorId,
-    "getCredentials: authenticatorId must be a positiveInteger"
+    lazy.pprint`Expected "authenticatorId" to be a positiveInteger, got ${authenticatorId}`
   );
 
   return lazy.webauthn.getCredentials(authenticatorId);
@@ -3306,11 +3464,11 @@ GeckoDriver.prototype.removeCredential = function (cmd) {
 
   lazy.assert.positiveInteger(
     authenticatorId,
-    "removeCredential: authenticatorId must be a positiveInteger"
+    lazy.pprint`Expected "authenticatorId" to be a positiveInteger, got ${authenticatorId}`
   );
   lazy.assert.string(
     credentialId,
-    "removeCredential: credentialId must be a string"
+    lazy.pprint`Expected "credentialId" to be a string, got ${credentialId}`
   );
 
   lazy.webauthn.removeCredential(authenticatorId, credentialId);
@@ -3321,7 +3479,7 @@ GeckoDriver.prototype.removeAllCredentials = function (cmd) {
 
   lazy.assert.positiveInteger(
     authenticatorId,
-    "removeAllCredentials: authenticatorId must be a positiveInteger"
+    lazy.pprint`Expected "authenticatorId" to be a positiveInteger, got ${authenticatorId}`
   );
 
   lazy.webauthn.removeAllCredentials(authenticatorId);
@@ -3332,11 +3490,11 @@ GeckoDriver.prototype.setUserVerified = function (cmd) {
 
   lazy.assert.positiveInteger(
     authenticatorId,
-    "setUserVerified: authenticatorId must be a positiveInteger"
+    lazy.pprint`Expected "authenticatorId" to be a positiveInteger, got ${authenticatorId}`
   );
   lazy.assert.boolean(
     isUserVerified,
-    "setUserVerified: isUserVerified must be a boolean"
+    lazy.pprint`Expected "isUserVerified" to be a boolean, got ${isUserVerified}`
   );
 
   lazy.webauthn.setUserVerified(authenticatorId, isUserVerified);
@@ -3346,41 +3504,8 @@ GeckoDriver.prototype.setPermission = async function (cmd) {
   const { descriptor, state, oneRealm = false } = cmd.parameters;
   const browsingContext = lazy.assert.open(this.getBrowsingContext());
 
-  // XXX: WPT should not have these but currently they do and we pass testing pref to
-  // pass them, see bug 1875837.
-  if (
-    ["clipboard-read", "clipboard-write"].includes(descriptor.name) &&
-    state === "granted"
-  ) {
-    if (
-      Services.prefs.getBoolPref("dom.events.testing.asyncClipboard", false)
-    ) {
-      // Okay, do nothing. The clipboard module will work without permission.
-      return;
-    }
-    throw new lazy.error.UnsupportedOperationError(
-      "setPermission: expected dom.events.testing.asyncClipboard to be set"
-    );
-  }
-
-  // XXX: We currently depend on camera/microphone tests throwing UnsupportedOperationError,
-  // the fix is ongoing in bug 1609427.
-  if (["camera", "microphone"].includes(descriptor.name)) {
-    throw new lazy.error.UnsupportedOperationError(
-      "setPermission: camera and microphone permissions are currently unsupported"
-    );
-  }
-
-  // XXX: Allowing this permission causes timing related Android crash, see also bug 1878741
-  if (descriptor.name === "notifications") {
-    if (Services.prefs.getBoolPref("notification.prompt.testing", false)) {
-      // Okay, do nothing. The notifications module will work without permission.
-      return;
-    }
-    throw new lazy.error.UnsupportedOperationError(
-      "setPermission: expected notification.prompt.testing to be set"
-    );
-  }
+  lazy.permissions.validateDescriptor(descriptor);
+  lazy.permissions.validateState(state);
 
   let params;
   try {
@@ -3393,9 +3518,25 @@ GeckoDriver.prototype.setPermission = async function (cmd) {
     throw new lazy.error.InvalidArgumentError(`setPermission: ${err.message}`);
   }
 
-  lazy.assert.boolean(oneRealm);
+  lazy.assert.boolean(
+    oneRealm,
+    lazy.pprint`Expected "oneRealm" to be a boolean, got ${oneRealm}`
+  );
 
-  lazy.permissions.set(params.type, params.state, oneRealm, browsingContext);
+  let origin = browsingContext.currentURI.prePath;
+
+  // storage-access is a special case.
+  if (descriptor.name === "storage-access") {
+    origin = browsingContext.top.currentURI.prePath;
+
+    params = {
+      type: lazy.permissions.getStorageAccessPermissionsType(
+        browsingContext.currentWindowGlobal.documentURI
+      ),
+    };
+  }
+
+  lazy.permissions.set(params, state, origin);
 };
 
 /**
@@ -3413,7 +3554,10 @@ GeckoDriver.prototype.getComputedLabel = async function (cmd) {
   lazy.assert.open(this.getBrowsingContext());
   await this._handleUserPrompts();
 
-  let id = lazy.assert.string(cmd.parameters.id);
+  let id = lazy.assert.string(
+    cmd.parameters.id,
+    lazy.pprint`Expected "id" to be a string, got ${cmd.parameters.id}`
+  );
   let webEl = lazy.WebElement.fromUUID(id).toJSON();
 
   return this.getActor().getComputedLabel(webEl);
@@ -3434,7 +3578,10 @@ GeckoDriver.prototype.getComputedRole = async function (cmd) {
   lazy.assert.open(this.getBrowsingContext());
   await this._handleUserPrompts();
 
-  let id = lazy.assert.string(cmd.parameters.id);
+  let id = lazy.assert.string(
+    cmd.parameters.id,
+    lazy.pprint`Expected "id" to be a string, got ${cmd.parameters.id}`
+  );
   let webEl = lazy.WebElement.fromUUID(id).toJSON();
   return this.getActor().getComputedRole(webEl);
 };

@@ -2,6 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+pub mod cache;
 pub mod error;
 pub use error::{RemoteSettingsError, Result};
 use std::{fs::File, io::prelude::Write};
@@ -11,7 +12,7 @@ pub use client::{
     RsJsonObject, SortOrder,
 };
 pub mod config;
-pub use config::RemoteSettingsConfig;
+pub use config::{RemoteSettingsConfig, RemoteSettingsServer};
 
 uniffi::include_scaffolding!("remote_settings");
 
@@ -70,7 +71,10 @@ mod test {
         .create();
 
         let config = RemoteSettingsConfig {
-            server_url: Some(mockito::server_url()),
+            server: Some(RemoteSettingsServer::Custom {
+                url: mockito::server_url(),
+            }),
+            server_url: None,
             bucket_name: Some(String::from("the-bucket")),
             collection_name: String::from("the-collection"),
         };
@@ -98,7 +102,10 @@ mod test {
         .create();
 
         let config = RemoteSettingsConfig {
-            server_url: Some(mockito::server_url()),
+            server: Some(RemoteSettingsServer::Custom {
+                url: mockito::server_url(),
+            }),
+            server_url: None,
             bucket_name: Some(String::from("the-bucket")),
             collection_name: String::from("the-collection"),
         };
@@ -119,7 +126,10 @@ mod test {
     fn test_download() {
         viaduct_reqwest::use_reqwest_backend();
         let config = RemoteSettingsConfig {
-            server_url: Some("http://localhost:8888".to_string()),
+            server: Some(RemoteSettingsServer::Custom {
+                url: "http://localhost:8888".into(),
+            }),
+            server_url: None,
             bucket_name: Some(String::from("the-bucket")),
             collection_name: String::from("the-collection"),
         };

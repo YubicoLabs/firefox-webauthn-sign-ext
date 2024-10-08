@@ -10,24 +10,71 @@ use remote_settings::RemoteSettingsError;
 /// type for private and crate-internal methods, and is never returned to the
 /// application.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum Error {
+pub enum Error {
     #[error("Error opening database: {0}")]
     OpenDatabase(#[from] sql_support::open_database::Error),
 
-    #[error("Error executing SQL: {0}")]
-    Sql(#[from] rusqlite::Error),
+    #[error("Error executing SQL: {inner} (context: {context})")]
+    Sql {
+        inner: rusqlite::Error,
+        context: String,
+    },
 
-    #[error("JSON error: {0}")]
-    Json(#[from] serde_json::Error),
+    #[error("Serialization error: {0}")]
+    Serialization(String),
 
     #[error("Error from Remote Settings: {0}")]
     RemoteSettings(#[from] RemoteSettingsError),
+
+    #[error("Remote settings record is missing an attachment (id: u64)")]
+    MissingAttachment(String),
 
     #[error("Operation interrupted")]
     Interrupted(#[from] interrupt_support::Interrupted),
 
     #[error("SuggestStoreBuilder {0}")]
     SuggestStoreBuilder(String),
+}
+
+impl Error {
+    fn sql(e: rusqlite::Error, context: impl Into<String>) -> Self {
+        Self::Sql {
+            inner: e,
+            context: context.into(),
+        }
+    }
+}
+
+impl From<rusqlite::Error> for Error {
+    fn from(e: rusqlite::Error) -> Self {
+        Self::sql(e, "<none>")
+    }
+}
+
+impl From<serde_json::Error> for Error {
+    fn from(e: serde_json::Error) -> Self {
+        Self::Serialization(e.to_string())
+    }
+}
+
+impl From<rmp_serde::decode::Error> for Error {
+    fn from(e: rmp_serde::decode::Error) -> Self {
+        Self::Serialization(e.to_string())
+    }
+}
+
+impl From<rmp_serde::encode::Error> for Error {
+    fn from(e: rmp_serde::encode::Error) -> Self {
+        Self::Serialization(e.to_string())
+    }
+}
+
+#[extend::ext(name=RusqliteResultExt)]
+pub impl<T> Result<T, rusqlite::Error> {
+    // Convert an rusqlite::Error to our error type, with a context value
+    fn with_context(self, context: &str) -> Result<T, Error> {
+        self.map_err(|e| Error::sql(e, context))
+    }
 }
 
 /// The error type for all Suggest component operations. These errors are

@@ -101,8 +101,7 @@ VideoEncoderConfigInternal::VideoEncoderConfigInternal(
       mBitrateMode(aConfig.mBitrateMode),
       mLatencyMode(aConfig.mLatencyMode),
       mContentHint(aConfig.mContentHint),
-      mAvc(aConfig.mAvc) {
-}
+      mAvc(aConfig.mAvc) {}
 
 VideoEncoderConfigInternal::VideoEncoderConfigInternal(
     const VideoEncoderConfig& aConfig)
@@ -119,14 +118,14 @@ VideoEncoderConfigInternal::VideoEncoderConfigInternal(
       mBitrateMode(aConfig.mBitrateMode),
       mLatencyMode(aConfig.mLatencyMode),
       mContentHint(OptionalToMaybe(aConfig.mContentHint)),
-      mAvc(OptionalToMaybe(aConfig.mAvc)) {
-}
+      mAvc(OptionalToMaybe(aConfig.mAvc)) {}
 
-nsString VideoEncoderConfigInternal::ToString() const {
-  nsString rv;
+nsCString VideoEncoderConfigInternal::ToString() const {
+  nsCString rv;
 
-  rv.AppendPrintf("Codec: %s, [%" PRIu32 "x%" PRIu32 "],",
-                  NS_ConvertUTF16toUTF8(mCodec).get(), mWidth, mHeight);
+  rv.AppendLiteral("Codec: ");
+  rv.Append(NS_ConvertUTF16toUTF8(mCodec));
+  rv.AppendPrintf(" [%" PRIu32 "x%" PRIu32 "],", mWidth, mHeight);
   if (mDisplayWidth.isSome()) {
     rv.AppendPrintf(", display[%" PRIu32 "x%" PRIu32 "]", mDisplayWidth.value(),
                     mDisplayHeight.value());
@@ -137,26 +136,20 @@ nsString VideoEncoderConfigInternal::ToString() const {
   if (mFramerate.isSome()) {
     rv.AppendPrintf(", %lfHz", mFramerate.value());
   }
-  rv.AppendPrintf(
-      " hw: %s",
-      HardwareAccelerationValues::GetString(mHardwareAcceleration).data());
-  rv.AppendPrintf(", alpha: %s", AlphaOptionValues::GetString(mAlpha).data());
+  rv.AppendPrintf(" hw: %s", GetEnumString(mHardwareAcceleration).get());
+  rv.AppendPrintf(", alpha: %s", GetEnumString(mAlpha).get());
   if (mScalabilityMode.isSome()) {
     rv.AppendPrintf(", scalability mode: %s",
                     NS_ConvertUTF16toUTF8(mScalabilityMode.value()).get());
   }
-  rv.AppendPrintf(
-      ", bitrate mode: %s",
-      VideoEncoderBitrateModeValues::GetString(mBitrateMode).data());
-  rv.AppendPrintf(", latency mode: %s",
-                  LatencyModeValues::GetString(mLatencyMode).data());
+  rv.AppendPrintf(", bitrate mode: %s", GetEnumString(mBitrateMode).get());
+  rv.AppendPrintf(", latency mode: %s", GetEnumString(mLatencyMode).get());
   if (mContentHint.isSome()) {
     rv.AppendPrintf(", content hint: %s",
                     NS_ConvertUTF16toUTF8(mContentHint.value()).get());
   }
   if (mAvc.isSome()) {
-    rv.AppendPrintf(", avc-specific: %s",
-                    AvcBitstreamFormatValues::GetString(mAvc->mFormat).data());
+    rv.AppendPrintf(", avc-specific: %s", GetEnumString(mAvc->mFormat).get());
   }
 
   return rv;
@@ -202,20 +195,19 @@ bool VideoEncoderConfigInternal::CanReconfigure(
 }
 
 EncoderConfig VideoEncoderConfigInternal::ToEncoderConfig() const {
-  MediaDataEncoder::Usage usage;
+  Usage usage;
   if (mLatencyMode == LatencyMode::Quality) {
-    usage = MediaDataEncoder::Usage::Record;
+    usage = Usage::Record;
   } else {
-    usage = MediaDataEncoder::Usage::Realtime;
+    usage = Usage::Realtime;
   }
-  MediaDataEncoder::HardwarePreference hwPref =
-      MediaDataEncoder::HardwarePreference::None;
+  HardwarePreference hwPref = HardwarePreference::None;
   if (mHardwareAcceleration ==
       mozilla::dom::HardwareAcceleration::Prefer_hardware) {
-    hwPref = MediaDataEncoder::HardwarePreference::RequireHardware;
+    hwPref = HardwarePreference::RequireHardware;
   } else if (mHardwareAcceleration ==
              mozilla::dom::HardwareAcceleration::Prefer_software) {
-    hwPref = MediaDataEncoder::HardwarePreference::RequireSoftware;
+    hwPref = HardwarePreference::RequireSoftware;
   }
   CodecType codecType;
   auto maybeCodecType = CodecStringToCodecType(mCodec);
@@ -226,7 +218,8 @@ EncoderConfig VideoEncoderConfigInternal::ToEncoderConfig() const {
   }
   Maybe<EncoderConfig::CodecSpecific> specific;
   if (codecType == CodecType::H264) {
-    uint8_t profile, constraints, level;
+    uint8_t profile, constraints;
+    H264_LEVEL level;
     H264BitStreamFormat format;
     if (mAvc) {
       format = mAvc->mFormat == AvcBitstreamFormat::Annexb
@@ -235,13 +228,29 @@ EncoderConfig VideoEncoderConfigInternal::ToEncoderConfig() const {
     } else {
       format = H264BitStreamFormat::AVC;
     }
-    if (ExtractH264CodecDetails(mCodec, profile, constraints, level)) {
+    if (ExtractH264CodecDetails(mCodec, profile, constraints, level,
+                                H264CodecStringStrictness::Strict)) {
       if (profile == H264_PROFILE_BASE || profile == H264_PROFILE_MAIN ||
           profile == H264_PROFILE_EXTENDED || profile == H264_PROFILE_HIGH) {
         specific.emplace(
-            H264Specific(static_cast<H264_PROFILE>(profile), static_cast<H264_LEVEL>(level), format));
+            H264Specific(static_cast<H264_PROFILE>(profile), level, format));
       }
     }
+  }
+  uint8_t numTemporalLayers = 1;
+  ScalabilityMode scalabilityMode;
+  if (mScalabilityMode) {
+    if (mScalabilityMode->EqualsLiteral("L1T2")) {
+      scalabilityMode = ScalabilityMode::L1T2;
+      numTemporalLayers = 2;
+    } else if (mScalabilityMode->EqualsLiteral("L1T3")) {
+      scalabilityMode = ScalabilityMode::L1T3;
+      numTemporalLayers = 3;
+    } else {
+      scalabilityMode = ScalabilityMode::None;
+    }
+  } else {
+    scalabilityMode = ScalabilityMode::None;
   }
   // Only for vp9, not vp8
   if (codecType == CodecType::VP9) {
@@ -254,27 +263,26 @@ EncoderConfig VideoEncoderConfigInternal::ToEncoderConfig() const {
       LOGE("Error extracting VPX codec details, non fatal");
     }
 #endif
-    specific.emplace(VP9Specific());
+    specific.emplace(VP9Specific(
+        VPXComplexity::Normal, /* Complexity */
+        true,                  /* Resilience */
+        numTemporalLayers,     /* Number of temporal layers */
+        true,                  /* Denoising */
+        false,                 /* Auto resize */
+        false,                 /* Frame dropping */
+        true,                  /* Adaptive Qp */
+        1,                     /* Number of spatial layers */
+        false                  /* Flexible */
+        ));
   }
-  MediaDataEncoder::ScalabilityMode scalabilityMode;
-  if (mScalabilityMode) {
-    if (mScalabilityMode->EqualsLiteral("L1T2")) {
-      scalabilityMode = MediaDataEncoder::ScalabilityMode::L1T2;
-    } else if (mScalabilityMode->EqualsLiteral("L1T3")) {
-      scalabilityMode = MediaDataEncoder::ScalabilityMode::L1T3;
-    } else {
-      scalabilityMode = MediaDataEncoder::ScalabilityMode::None;
-    }
-  } else {
-    scalabilityMode = MediaDataEncoder::ScalabilityMode::None;
-  }
-  return EncoderConfig(
-      codecType, {mWidth, mHeight}, usage, ImageBitmapFormat::RGBA32, ImageBitmapFormat::RGBA32,
-      AssertedCast<uint8_t>(mFramerate.refOr(0.f)), 0, mBitrate.refOr(0),
-      mBitrateMode == VideoEncoderBitrateMode::Constant
-          ? MediaDataEncoder::BitrateMode::Constant
-          : MediaDataEncoder::BitrateMode::Variable,
-      hwPref, scalabilityMode, specific);
+  return EncoderConfig(codecType, {mWidth, mHeight}, usage,
+                       ImageBitmapFormat::RGBA32, ImageBitmapFormat::RGBA32,
+                       AssertedCast<uint8_t>(mFramerate.refOr(0.f)), 0,
+                       mBitrate.refOr(0), 0, 0,
+                       mBitrateMode == VideoEncoderBitrateMode::Constant
+                           ? mozilla::BitrateMode::Constant
+                           : mozilla::BitrateMode::Variable,
+                       hwPref, scalabilityMode, specific);
 }
 already_AddRefed<WebCodecsConfigurationChangeList>
 VideoEncoderConfigInternal::Diff(
@@ -326,27 +334,6 @@ VideoEncoderConfigInternal::Diff(
   return list.forget();
 }
 
-/*
- * The followings are helpers for VideoEncoder methods
- */
-static bool IsEncodeSupportedCodec(const nsAString& aCodec) {
-  LOG("IsEncodeSupported: %s", NS_ConvertUTF16toUTF8(aCodec).get());
-  if (!IsVP9CodecString(aCodec) && !IsVP8CodecString(aCodec) &&
-      !IsH264CodecString(aCodec) && !IsAV1CodecString(aCodec)) {
-    return false;
-  }
-
-  // Gecko allows codec string starts with vp9 or av1 but Webcodecs requires to
-  // starts with av01 and vp09.
-  // https://www.w3.org/TR/webcodecs-codec-registry/#video-codec-registry
-  if (StringBeginsWith(aCodec, u"vp9"_ns) ||
-      StringBeginsWith(aCodec, u"av1"_ns)) {
-    return false;
-  }
-
-  return true;
-}
-
 // https://w3c.github.io/webcodecs/#check-configuration-support
 static bool CanEncode(const RefPtr<VideoEncoderConfigInternal>& aConfig) {
   auto parsedCodecString =
@@ -355,28 +342,19 @@ static bool CanEncode(const RefPtr<VideoEncoderConfigInternal>& aConfig) {
   if (IsOnAndroid()) {
     return false;
   }
-  if (!IsEncodeSupportedCodec(parsedCodecString)) {
+  if (!IsSupportedVideoCodec(parsedCodecString)) {
     return false;
   }
-
-  // TODO (bug 1872879, bug 1872880): Support this on Windows and Mac.
   if (aConfig->mScalabilityMode.isSome()) {
-    // We only support L1T2 and L1T3 ScalabilityMode in VP8 and VP9 encoders on
-    // Linux.
-    bool supported = IsOnLinux() && (IsVP8CodecString(parsedCodecString) ||
-                                     IsVP9CodecString(parsedCodecString))
-                         ? aConfig->mScalabilityMode->EqualsLiteral("L1T2") ||
-                               aConfig->mScalabilityMode->EqualsLiteral("L1T3")
-                         : false;
-
-    if (!supported) {
+    // Check if ScalabilityMode string is valid.
+    if (!aConfig->mScalabilityMode->EqualsLiteral("L1T2") &&
+        !aConfig->mScalabilityMode->EqualsLiteral("L1T3")) {
       LOGE("Scalability mode %s not supported for codec: %s",
            NS_ConvertUTF16toUTF8(aConfig->mScalabilityMode.value()).get(),
            NS_ConvertUTF16toUTF8(parsedCodecString).get());
       return false;
     }
   }
-
   return EncoderSupport::Supports(aConfig);
 }
 
@@ -433,26 +411,40 @@ bool VideoEncoderTraits::Validate(const VideoEncoderConfig& aConfig,
   Maybe<nsString> codec = ParseCodecString(aConfig.mCodec);
   // 1.
   if (!codec || codec->IsEmpty()) {
-    LOGE("Invalid VideoEncoderConfig: invalid codec string");
+    aErrorMessage.AssignLiteral(
+        "Invalid VideoEncoderConfig: invalid codec string");
+    LOGE("%s", aErrorMessage.get());
     return false;
   }
 
   // 2.
   if (aConfig.mWidth == 0 || aConfig.mHeight == 0) {
-    LOGE("Invalid VideoEncoderConfig: %s equal to 0",
-         aConfig.mWidth == 0 ? "width" : "height");
+    aErrorMessage.AppendPrintf("Invalid VideoEncoderConfig: %s equal to 0",
+                               aConfig.mWidth == 0 ? "width" : "height");
+    LOGE("%s", aErrorMessage.get());
     return false;
   }
 
   // 3.
-  if ((aConfig.mDisplayWidth.WasPassed() &&
-       aConfig.mDisplayWidth.Value() == 0)) {
-    LOGE("Invalid VideoEncoderConfig: displayWidth equal to 0");
+  if (aConfig.mDisplayWidth.WasPassed() && aConfig.mDisplayWidth.Value() == 0) {
+    aErrorMessage.AssignLiteral(
+        "Invalid VideoEncoderConfig: displayWidth equal to 0");
+    LOGE("%s", aErrorMessage.get());
     return false;
   }
-  if ((aConfig.mDisplayHeight.WasPassed() &&
-       aConfig.mDisplayHeight.Value() == 0)) {
-    LOGE("Invalid VideoEncoderConfig: displayHeight equal to 0");
+  if (aConfig.mDisplayHeight.WasPassed() &&
+      aConfig.mDisplayHeight.Value() == 0) {
+    aErrorMessage.AssignLiteral(
+        "Invalid VideoEncoderConfig: displayHeight equal to 0");
+    LOGE("%s", aErrorMessage.get());
+    return false;
+  }
+
+  // https://github.com/w3c/webcodecs/issues/816
+  if ((aConfig.mBitrate.WasPassed() && aConfig.mBitrate.Value() == 0)) {
+    aErrorMessage.AssignLiteral(
+        "Invalid VideoEncoderConfig: bitrate equal to 0");
+    LOGE("%s", aErrorMessage.get());
     return false;
   }
 
@@ -573,7 +565,7 @@ already_AddRefed<Promise> VideoEncoder::IsConfigSupported(
 }
 
 RefPtr<EncodedVideoChunk> VideoEncoder::EncodedDataToOutputType(
-    nsIGlobalObject* aGlobalObject, RefPtr<MediaRawData>& aData) {
+    nsIGlobalObject* aGlobalObject, const RefPtr<MediaRawData>& aData) {
   AssertIsOnOwningThread();
 
   MOZ_RELEASE_ASSERT(aData->mType == MediaData::Type::RAW_DATA);
@@ -590,29 +582,41 @@ RefPtr<EncodedVideoChunk> VideoEncoder::EncodedDataToOutputType(
   return encodedVideoChunk;
 }
 
-VideoDecoderConfigInternal VideoEncoder::EncoderConfigToDecoderConfig(
-    nsIGlobalObject* aGlobal, const RefPtr<MediaRawData>& aRawData,
-    const VideoEncoderConfigInternal& mOutputConfig) const {
-  // Colorspace is mandatory when outputing a decoder config after encode
-  VideoColorSpaceInternal init;
-  init.mFullRange.emplace(false);
-  init.mMatrix.emplace(VideoMatrixCoefficients::Bt709);
-  init.mPrimaries.emplace(VideoColorPrimaries::Bt709);
-  init.mTransfer.emplace(VideoTransferCharacteristics::Bt709);
+void VideoEncoder::EncoderConfigToDecoderConfig(
+    JSContext* aCx, const RefPtr<MediaRawData>& aRawData,
+    const VideoEncoderConfigInternal& aSrcConfig,
+    VideoDecoderConfig& aDestConfig) const {
+  MOZ_ASSERT(aCx);
 
-  return VideoDecoderConfigInternal(
-      mOutputConfig.mCodec,        /* aCodec */
-      Some(mOutputConfig.mHeight), /* aCodedHeight */
-      Some(mOutputConfig.mWidth),  /* aCodedWidth */
-      Some(init),                  /* aColorSpace */
-      aRawData->mExtraData && !aRawData->mExtraData->IsEmpty()
-          ? Some(aRawData->mExtraData)
-          : Nothing(),                               /* aDescription*/
-      Maybe<uint32_t>(mOutputConfig.mDisplayHeight), /* aDisplayAspectHeight*/
-      Maybe<uint32_t>(mOutputConfig.mDisplayWidth),  /* aDisplayAspectWidth */
-      mOutputConfig.mHardwareAcceleration,           /* aHardwareAcceleration */
-      Nothing()                                      /*  aOptimizeForLatency */
-  );
+  aDestConfig.mCodec = aSrcConfig.mCodec;
+  aDestConfig.mCodedHeight.Construct(aSrcConfig.mHeight);
+  aDestConfig.mCodedWidth.Construct(aSrcConfig.mWidth);
+
+  // Colorspace is mandatory when outputing a decoder config after encode
+  RootedDictionary<VideoColorSpaceInit> colorSpace(aCx);
+  colorSpace.mFullRange.SetValue(false);
+  colorSpace.mMatrix.SetValue(VideoMatrixCoefficients::Bt709);
+  colorSpace.mPrimaries.SetValue(VideoColorPrimaries::Bt709);
+  colorSpace.mTransfer.SetValue(VideoTransferCharacteristics::Bt709);
+  aDestConfig.mColorSpace.Construct(std::move(colorSpace));
+
+  if (aRawData->mExtraData && !aRawData->mExtraData->IsEmpty()) {
+    Span<const uint8_t> description(aRawData->mExtraData->Elements(),
+                                    aRawData->mExtraData->Length());
+    if (!CopyExtradataToDescription(aCx, description,
+                                    aDestConfig.mDescription.Construct())) {
+      LOGE("Failed to copy extra data");
+    }
+  }
+
+  if (aSrcConfig.mDisplayHeight) {
+    aDestConfig.mDisplayAspectHeight.Construct(
+        aSrcConfig.mDisplayHeight.value());
+  }
+  if (aSrcConfig.mDisplayWidth) {
+    aDestConfig.mDisplayAspectWidth.Construct(aSrcConfig.mDisplayWidth.value());
+  }
+  aDestConfig.mHardwareAcceleration = aSrcConfig.mHardwareAcceleration;
 }
 
 #undef LOG

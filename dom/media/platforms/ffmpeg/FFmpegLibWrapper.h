@@ -5,9 +5,10 @@
 #ifndef __FFmpegLibWrapper_h__
 #define __FFmpegLibWrapper_h__
 
-#include "FFmpegRDFTTypes.h"  // for AvRdftInitFn, etc.
 #include "mozilla/Attributes.h"
+#include "mozilla/DefineEnum.h"
 #include "mozilla/Types.h"
+#include "ffvpx/tx.h"
 
 struct AVCodec;
 struct AVCodecContext;
@@ -36,46 +37,11 @@ struct MOZ_ONLY_USED_TO_AVOID_STATIC_CONSTRUCTORS FFmpegLibWrapper {
   // anyway.
   ~FFmpegLibWrapper() = default;
 
-  enum class LinkResult {
-    Success,
-    NoProvidedLib,
-    NoAVCodecVersion,
-    CannotUseLibAV57,
-    BlockedOldLibAVVersion,
-    UnknownFutureLibAVVersion,
-    UnknownFutureFFMpegVersion,
-    UnknownOlderFFMpegVersion,
-    MissingFFMpegFunction,
-    MissingLibAVFunction,
-  };
-
-  static const char* LinkResultToString(LinkResult aResult) {
-    switch (aResult) {
-      case LinkResult::Success:
-        return "Success";
-      case LinkResult::NoProvidedLib:
-        return "NoProvidedLib";
-      case LinkResult::NoAVCodecVersion:
-        return "NoAVCodecVersion";
-      case LinkResult::CannotUseLibAV57:
-        return "CannotUseLibAV57";
-      case LinkResult::BlockedOldLibAVVersion:
-        return "BlockedOldLibAVVersion";
-      case LinkResult::UnknownFutureLibAVVersion:
-        return "UnknownFutureLibAVVersion";
-      case LinkResult::UnknownFutureFFMpegVersion:
-        return "UnknownFutureFFMpegVersion";
-      case LinkResult::UnknownOlderFFMpegVersion:
-        return "UnknownOlderFFMpegVersion";
-      case LinkResult::MissingFFMpegFunction:
-        return "MissingFFMpegFunction";
-      case LinkResult::MissingLibAVFunction:
-        return "MissingLibAVFunction";
-      default:
-        break;
-    }
-    return "Unknown";
-  }
+  MOZ_DEFINE_ENUM_CLASS_WITH_TOSTRING_AT_CLASS_SCOPE(
+      LinkResult, (Success, NoProvidedLib, NoAVCodecVersion, CannotUseLibAV57,
+                   BlockedOldLibAVVersion, UnknownFutureLibAVVersion,
+                   UnknownFutureFFMpegVersion, UnknownOlderFFMpegVersion,
+                   MissingFFMpegFunction, MissingLibAVFunction));
 
   // Examine mAVCodecLib, mAVUtilLib and mVALib, and attempt to resolve
   // all symbols.
@@ -138,20 +104,17 @@ struct MOZ_ONLY_USED_TO_AVOID_STATIC_CONSTRUCTORS FFmpegLibWrapper {
                                      int flags);
 
   // libavcodec >= v57
-  AVPacket* (*av_packet_alloc)(void);
   void (*av_packet_unref)(AVPacket* pkt);
   void (*av_packet_free)(AVPacket** pkt);
+
+  // libavcodec >= 61
+  AVPacket* (*av_packet_alloc)();
 
   // libavcodec v58 and later only
   int (*avcodec_send_packet)(AVCodecContext* avctx, const AVPacket* avpkt);
   int (*avcodec_receive_packet)(AVCodecContext* avctx, AVPacket* avpkt);
   int (*avcodec_send_frame)(AVCodecContext* avctx, const AVFrame* frame);
   int (*avcodec_receive_frame)(AVCodecContext* avctx, AVFrame* frame);
-
-  // libavcodec optional
-  AvRdftInitFn av_rdft_init;
-  AvRdftCalcFn av_rdft_calc;
-  AvRdftEndFn av_rdft_end;
 
   // libavutil
   void (*av_log_set_level)(int level);
@@ -166,11 +129,16 @@ struct MOZ_ONLY_USED_TO_AVOID_STATIC_CONSTRUCTORS FFmpegLibWrapper {
                                     int nb_channels);
   void (*av_channel_layout_from_mask)(AVChannelLayout* ch_layout,
                                       uint64_t mask);
+  int (*av_channel_layout_copy)(AVChannelLayout* dst, AVChannelLayout* src);
   int (*av_dict_set)(AVDictionary** pm, const char* key, const char* value,
                      int flags);
   void (*av_dict_free)(AVDictionary** m);
   int (*av_opt_set)(void* obj, const char* name, const char* val,
                     int search_flags);
+  int (*av_opt_set_double)(void* obj, const char* name, double val,
+                           int search_flags);
+  int (*av_opt_set_int)(void* obj, const char* name, int64_t val,
+                        int search_flags);
 
   // libavutil v55 and later only
   AVFrame* (*av_frame_alloc)();
@@ -215,6 +183,10 @@ struct MOZ_ONLY_USED_TO_AVOID_STATIC_CONSTRUCTORS FFmpegLibWrapper {
   int (*vaTerminate)(void* dpy);
   void* (*vaGetDisplayDRM)(int fd);
 #endif
+
+  // Only ever used with ffvpx
+  decltype(::av_tx_init)* av_tx_init;
+  decltype(::av_tx_uninit)* av_tx_uninit;
 
   PRLibrary* mAVCodecLib;
   PRLibrary* mAVUtilLib;

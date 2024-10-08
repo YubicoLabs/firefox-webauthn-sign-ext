@@ -124,7 +124,7 @@ add_task(async function testSimpleSourcesWithManualClickExpand() {
   info("Test the download file context menu");
   // Before trigerring the menu, mock the file picker
   const MockFilePicker = SpecialPowers.MockFilePicker;
-  MockFilePicker.init(window);
+  MockFilePicker.init(window.browsingContext);
   const nsiFile = new FileUtils.File(
     PathUtils.join(PathUtils.tempDir, `export_source_content_${Date.now()}.log`)
   );
@@ -320,11 +320,12 @@ add_task(async function testSourceTreeOnTheIntegrationTestPage() {
     .getAllThreads()
     .find(thread => thread.name == "Main Thread");
 
+  // When EFT is disabled the iframe's source is meld into the main target.
+  const expectedSameUrlSources = isEveryFrameTargetEnabled() ? 3 : 4;
   is(
     sourceActors.filter(actor => actor.thread == mainThread.actor).length,
-    // When EFT is disabled the iframe's source is meld into the main target
-    isEveryFrameTargetEnabled() ? 3 : 4,
-    "same-url.js is loaded 3 times in the main thread"
+    expectedSameUrlSources,
+    `same-url.js is loaded ${expectedSameUrlSources} times in the main thread`
   );
 
   if (isEveryFrameTargetEnabled()) {
@@ -341,7 +342,7 @@ add_task(async function testSourceTreeOnTheIntegrationTestPage() {
 
   const workerThread = dbg.selectors
     .getAllThreads()
-    .find(thread => thread.name == testServer.urlFor("same-url.sjs"));
+    .find(thread => thread.url == testServer.urlFor("same-url.sjs"));
 
   is(
     sourceActors.filter(actor => actor.thread == workerThread.actor).length,

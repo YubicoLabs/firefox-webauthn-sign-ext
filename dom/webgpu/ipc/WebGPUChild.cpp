@@ -40,10 +40,10 @@ void WebGPUChild::JsWarning(nsIGlobalObject* aGlobal,
   if (aGlobal) {
     dom::AutoJSAPI api;
     if (api.Init(aGlobal)) {
-      JS::WarnUTF8(api.cx(), "%s", flatString.get());
+      JS::WarnUTF8(api.cx(), "Uncaptured WebGPU error: %s", flatString.get());
     }
   } else {
-    printf_stderr("Validation error without device target: %s\n",
+    printf_stderr("Uncaptured WebGPU error without device target: %s\n",
                   flatString.get());
   }
 }
@@ -59,17 +59,9 @@ WebGPUChild::~WebGPUChild() = default;
 
 RefPtr<AdapterPromise> WebGPUChild::InstanceRequestAdapter(
     const dom::GPURequestAdapterOptions& aOptions) {
-  const int max_ids = 10;
-  RawId ids[max_ids] = {0};
-  unsigned long count =
-      ffi::wgpu_client_make_adapter_ids(mClient.get(), ids, max_ids);
+  RawId id = ffi::wgpu_client_make_adapter_id(mClient.get());
 
-  nsTArray<RawId> sharedIds(count);
-  for (unsigned long i = 0; i != count; ++i) {
-    sharedIds.AppendElement(ids[i]);
-  }
-
-  return SendInstanceRequestAdapter(aOptions, sharedIds)
+  return SendInstanceRequestAdapter(aOptions, id)
       ->Then(
           GetCurrentSerialEventTarget(), __func__,
           [](ipc::ByteBuf&& aInfoBuf) {
@@ -88,15 +80,18 @@ RefPtr<AdapterPromise> WebGPUChild::InstanceRequestAdapter(
 }
 
 Maybe<DeviceRequest> WebGPUChild::AdapterRequestDevice(
-    RawId aSelfId, const ffi::WGPUDeviceDescriptor& aDesc) {
-  RawId id = ffi::wgpu_client_make_device_id(mClient.get(), aSelfId);
+    RawId aSelfId, const ffi::WGPUFfiDeviceDescriptor& aDesc) {
+  ffi::WGPUDeviceQueueId ids =
+      ffi::wgpu_client_make_device_queue_id(mClient.get());
 
   ByteBuf bb;
   ffi::wgpu_client_serialize_device_descriptor(&aDesc, ToFFI(&bb));
 
   DeviceRequest request;
-  request.mId = id;
-  request.mPromise = SendAdapterRequestDevice(aSelfId, std::move(bb), id);
+  request.mDeviceId = ids.device;
+  request.mQueueId = ids.queue;
+  request.mPromise =
+      SendAdapterRequestDevice(aSelfId, std::move(bb), ids.device, ids.queue);
 
   return Some(std::move(request));
 }
@@ -110,8 +105,8 @@ RawId WebGPUChild::RenderBundleEncoderFinish(
   desc.label = label.Get();
 
   ipc::ByteBuf bb;
-  RawId id = ffi::wgpu_client_create_render_bundle(
-      mClient.get(), &aEncoder, aDeviceId, &desc, ToFFI(&bb));
+  RawId id = ffi::wgpu_client_create_render_bundle(mClient.get(), &aEncoder,
+                                                   &desc, ToFFI(&bb));
 
   SendDeviceAction(aDeviceId, std::move(bb));
 
@@ -124,7 +119,7 @@ RawId WebGPUChild::RenderBundleEncoderFinishError(RawId aDeviceId,
 
   ipc::ByteBuf bb;
   RawId id = ffi::wgpu_client_create_render_bundle_error(
-      mClient.get(), aDeviceId, label.Get(), ToFFI(&bb));
+      mClient.get(), label.Get(), ToFFI(&bb));
 
   SendDeviceAction(aDeviceId, std::move(bb));
 
@@ -195,8 +190,7 @@ void WebGPUChild::DeviceCreateSwapChain(
   RawId queueId = aSelfId;  // TODO: multiple queues
   nsTArray<RawId> bufferIds(maxBufferCount);
   for (size_t i = 0; i < maxBufferCount; ++i) {
-    bufferIds.AppendElement(
-        ffi::wgpu_client_make_buffer_id(mClient.get(), aSelfId));
+    bufferIds.AppendElement(ffi::wgpu_client_make_buffer_id(mClient.get()));
   }
   SendDeviceCreateSwapChain(aSelfId, queueId, aRgbDesc, bufferIds, aOwnerId,
                             aUseExternalTextureInSwapChain);
@@ -217,7 +211,7 @@ void WebGPUChild::SwapChainPresent(RawId aTextureId,
                                    const RemoteTextureOwnerId& aOwnerId) {
   // Hack: the function expects `DeviceId`, but it only uses it for `backend()`
   // selection.
-  RawId encoderId = ffi::wgpu_client_make_encoder_id(mClient.get(), aTextureId);
+  RawId encoderId = ffi::wgpu_client_make_encoder_id(mClient.get());
   SendSwapChainPresent(aTextureId, encoderId, aRemoteTextureId, aOwnerId);
 }
 
@@ -226,7 +220,7 @@ void WebGPUChild::RegisterDevice(Device* const aDevice) {
 }
 
 void WebGPUChild::UnregisterDevice(RawId aDeviceId) {
-  if (IsOpen()) {
+  if (CanSend()) {
     SendDeviceDrop(aDeviceId);
   }
   mDeviceMap.erase(aDeviceId);

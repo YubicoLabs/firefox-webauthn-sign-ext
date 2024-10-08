@@ -20,6 +20,7 @@
 #include "vm/Runtime.h"
 #include "vm/TypedArrayObject.h"
 
+#include "gc/Heap-inl.h"
 #include "vm/JSContext-inl.h"
 
 using namespace js;
@@ -169,6 +170,7 @@ static void MakeGray(const JS::ArrayBufferOrView& view) {
 //  - WeakHeapPtr
 BEGIN_TEST(testGCHeapPostBarriers) {
   AutoLeaveZeal nozeal(cx);
+  AutoGCParameter disableSemispace(cx, JSGC_SEMISPACE_NURSERY_ENABLED, 0);
 
   /* Sanity check - objects start in the nursery and then become tenured. */
   JS_GC(cx);
@@ -501,9 +503,9 @@ bool CallDuringIncrementalGC(uint32_t mode, F&& f) {
 
   const int64_t BudgetMS = 10000;  // 10S should be long enough for anyone.
 
-  JS_SetGCZeal(cx, mode, 0);
+  JS::SetGCZeal(cx, mode, 0);
   JS::PrepareZoneForGC(cx, js::GetContextZone(cx));
-  js::SliceBudget budget{TimeBudget(BudgetMS)};
+  JS::SliceBudget budget{JS::TimeBudget(BudgetMS)};
   JS::StartIncrementalGC(cx, JS::GCOptions(), JS::GCReason::DEBUG_GC, budget);
   CHECK(JS::IsIncrementalGCInProgress(cx));
 
@@ -658,7 +660,7 @@ BEGIN_TEST(testGCHeapPreBarriers) {
   // Start an incremental GC so we can detect if we cause barriers to fire, as
   // these will mark objects black.
   JS::PrepareForFullGC(cx);
-  SliceBudget budget(WorkBudget(1));
+  JS::SliceBudget budget(JS::WorkBudget(1));
   gc::GCRuntime* gc = &cx->runtime()->gc;
   gc->startDebugGC(JS::GCOptions::Normal, budget);
   while (gc->state() != gc::State::Mark) {

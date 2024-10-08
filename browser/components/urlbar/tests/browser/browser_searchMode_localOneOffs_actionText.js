@@ -21,7 +21,7 @@ add_setup(async function () {
       ["browser.urlbar.shortcuts.quickactions", false],
     ],
   });
-  engine = await SearchTestUtils.promiseNewSearchEngine({
+  engine = await SearchTestUtils.installOpenSearchEngine({
     url: getRootDirectory(gTestPath) + SUGGESTIONS_ENGINE_NAME,
     setAsDefault: true,
   });
@@ -94,7 +94,7 @@ add_task(async function localOneOff() {
   );
   Assert.equal(
     result.image,
-    oneOffButtons.selectedButton.engine.getIconURL(),
+    await oneOffButtons.selectedButton.engine.getIconURL(),
     "Check the heuristic icon"
   );
 

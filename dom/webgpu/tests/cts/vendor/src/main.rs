@@ -6,12 +6,13 @@ use std::{
 };
 
 use clap::Parser;
+use itertools::Itertools;
 use lets_find_up::{find_up_with, FindUpKind, FindUpOptions};
 use miette::{bail, ensure, miette, Context, Diagnostic, IntoDiagnostic, Report, SourceSpan};
 use regex::Regex;
 
 use crate::{
-    fs::{copy_dir, create_dir_all, existing_file, remove_file, FileRoot},
+    fs::{copy_dir, create_dir_all, remove_file, FileRoot},
     path::join_path,
     process::{which, EasyCommand},
 };
@@ -62,14 +63,15 @@ fn run(args: CliArgs) -> miette::Result<()> {
             cwd: Path::new("."),
             kind: FindUpKind::Dir,
         };
-        let find_up = |root_dir_name| {
+        let find_up = |repo_tech_name, root_dir_name| {
             let err = || {
                 miette!(
                     concat!(
-                        "failed to find a Mercurial repository ({:?}) in any of current ",
+                        "failed to find a {} repository ({:?}) in any of current ",
                         "working directory and its parent directories",
                     ),
-                    root_dir_name
+                    repo_tech_name,
+                    root_dir_name,
                 )
             };
             find_up_with(root_dir_name, find_up_opts())
@@ -81,16 +83,19 @@ fn run(args: CliArgs) -> miette::Result<()> {
                     dir
                 })
         };
-        let gecko_source_root = find_up(".hg").or_else(|e| match find_up(".git") {
-            Ok(path) => {
-                log::debug!("{e:?}");
-                Ok(path)
-            }
-            Err(e2) => {
-                log::warn!("{e:?}");
-                log::warn!("{e2:?}");
-                bail!("failed to find a Gecko repository root")
-            }
+        let gecko_source_root = find_up("Mercurial", ".hg").or_else(|hg_err| {
+            find_up("Git", ".git").or_else(|git_err| match find_up("Jujutsu", ".jj") {
+                Ok(path) => {
+                    log::debug!("{hg_err:?}");
+                    Ok(path)
+                }
+                Err(jj_err) => {
+                    log::warn!("{hg_err:?}");
+                    log::warn!("{git_err:?}");
+                    log::warn!("{jj_err:?}");
+                    bail!("failed to find a Gecko repository root")
+                }
+            })
         })?;
 
         let root = FileRoot::new("gecko", &gecko_source_root)?;
@@ -277,13 +282,6 @@ fn run(args: CliArgs) -> miette::Result<()> {
     })?;
 
     let cts_https_html_path = out_wpt_dir.child("cts.https.html");
-    log::info!("refining the output of {cts_https_html_path} with `npm run gen_wpt_cts_html …`…");
-    EasyCommand::new(&npm_bin, |cmd| {
-        cmd.args(["run", "gen_wpt_cts_html"]).arg(existing_file(
-            &cts_ckt.child("tools/gen_wpt_cfg_unchunked.json"),
-        ))
-    })
-    .spawn()?;
 
     {
         let extra_cts_https_html_path = out_wpt_dir.child("cts-chunked2sec.https.html");
@@ -550,6 +548,45 @@ fn run(args: CliArgs) -> miette::Result<()> {
 
         log::info!("  …removing {cts_https_html_path}, now that it's been divided up…");
         remove_file(&cts_https_html_path)?;
+
+        log::info!("moving ready-to-go WPT test files into `cts`…");
+
+        let webgpu_dir = out_wpt_dir.child("webgpu");
+        let ready_to_go_tests = wax::Glob::new("**/*.{html,{any,sub,worker}.js}")
+            .unwrap()
+            .walk(&webgpu_dir)
+            .map_ok(|entry| webgpu_dir.child(entry.into_path()))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(Report::msg)
+            .wrap_err_with(|| {
+                format!("failed to walk {webgpu_dir} for ready-to-go WPT test files")
+            })?;
+
+        log::trace!("  …will move the following: {ready_to_go_tests:#?}");
+
+        for file in ready_to_go_tests {
+            let path_relative_to_webgpu_dir = file.strip_prefix(&webgpu_dir).unwrap();
+            let dst_path = cts_tests_dir.child(path_relative_to_webgpu_dir);
+            log::trace!("…moving {file} to {dst_path}…");
+            ensure!(
+                !fs::try_exists(&dst_path)?,
+                "internal error: duplicate path found while moving ready-to-go test {} to {}",
+                file,
+                dst_path,
+            );
+            fs::create_dir_all(dst_path.parent().unwrap()).wrap_err_with(|| {
+                format!(
+                    concat!(
+                        "failed to create destination parent dirs. ",
+                        "while recursively moving from {} to {}",
+                    ),
+                    file, dst_path,
+                )
+            })?;
+            fs::rename(&file, &dst_path)
+                .wrap_err_with(|| format!("failed to move {file} to {dst_path}"))?;
+        }
+        log::debug!("  …finished moving ready-to-go WPT test files");
 
         Ok(())
     })?;

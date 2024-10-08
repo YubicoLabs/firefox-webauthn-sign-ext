@@ -78,7 +78,7 @@
 
 #include "mozilla/dom/DocumentL10n.h"
 
-#ifdef XP_MACOSX
+#if defined(XP_MACOSX) || defined(MOZ_WIDGET_GTK)
 #  include "mozilla/widget/NativeMenuSupport.h"
 #  define USE_NATIVE_MENUS
 #endif
@@ -217,8 +217,8 @@ nsresult AppWindow::Initialize(nsIAppWindow* aParent, nsIAppWindow* aOpener,
   NS_ENSURE_SUCCESS(rv, rv);
 
   LayoutDeviceIntRect r = mWindow->GetClientBounds();
-  // Match the default background color of content. Important on windows
-  // since we no longer use content child widgets.
+  // Match the default background color of content. Previously important on
+  // Windows, but no longer has any effect there.
   mWindow->SetBackgroundColor(NS_RGB(255, 255, 255));
 
   // All Chrome BCs exist within the same BrowsingContextGroup, so we don't need
@@ -297,58 +297,6 @@ NS_IMETHODIMP AppWindow::GetDocShell(nsIDocShell** aDocShell) {
 
   *aDocShell = mDocShell;
   NS_IF_ADDREF(*aDocShell);
-  return NS_OK;
-}
-
-NS_IMETHODIMP AppWindow::GetZLevel(uint32_t* outLevel) {
-  nsCOMPtr<nsIWindowMediator> mediator(
-      do_GetService(NS_WINDOWMEDIATOR_CONTRACTID));
-  if (mediator)
-    mediator->GetZLevel(this, outLevel);
-  else
-    *outLevel = normalZ;
-  return NS_OK;
-}
-
-NS_IMETHODIMP AppWindow::SetZLevel(uint32_t aLevel) {
-  nsCOMPtr<nsIWindowMediator> mediator(
-      do_GetService(NS_WINDOWMEDIATOR_CONTRACTID));
-  if (!mediator) return NS_ERROR_FAILURE;
-
-  uint32_t zLevel;
-  mediator->GetZLevel(this, &zLevel);
-  if (zLevel == aLevel) return NS_OK;
-
-  /* refuse to raise a maximized window above the normal browser level,
-     for fear it could hide newly opened browser windows */
-  if (aLevel > nsIAppWindow::normalZ && mWindow) {
-    nsSizeMode sizeMode = mWindow->SizeMode();
-    if (sizeMode == nsSizeMode_Maximized || sizeMode == nsSizeMode_Fullscreen) {
-      return NS_ERROR_FAILURE;
-    }
-  }
-
-  // do it
-  mediator->SetZLevel(this, aLevel);
-  PersistentAttributesDirty(PersistentAttribute::Misc, Sync);
-
-  nsCOMPtr<nsIDocumentViewer> viewer;
-  mDocShell->GetDocViewer(getter_AddRefs(viewer));
-  if (viewer) {
-    RefPtr<dom::Document> doc = viewer->GetDocument();
-    if (doc) {
-      ErrorResult rv;
-      RefPtr<dom::Event> event =
-          doc->CreateEvent(u"Events"_ns, dom::CallerType::System, rv);
-      if (event) {
-        event->InitEvent(u"windowZLevel"_ns, true, false);
-
-        event->SetTrusted(true);
-
-        doc->DispatchEvent(*event);
-      }
-    }
-  }
   return NS_OK;
 }
 
@@ -491,10 +439,10 @@ NS_IMETHODIMP AppWindow::ShowModal() {
 
 #ifdef USE_NATIVE_MENUS
   if (!gfxPlatform::IsHeadless()) {
-    // macOS only: For modals created early in startup.
-    // (e.g. ProfileManager/ProfileDowngrade) this creates a fallback menu for
-    // the menu bar which only contains a "Quit" menu item.
-    // This allows the user to quit the application in a regular way with cmd+Q.
+    // On macOS, for modals created early in startup. (e.g.
+    // ProfileManager/ProfileDowngrade) this creates a fallback menu for the
+    // menu bar which only contains a "Quit" menu item. This allows the user to
+    // quit the application in a regular way with cmd+Q.
     widget::NativeMenuSupport::CreateNativeMenuBar(mWindow, nullptr);
   }
 #endif
@@ -531,6 +479,13 @@ NS_IMETHODIMP AppWindow::ShowModal() {
   */
 
   return mModalStatus;
+}
+
+NS_IMETHODIMP AppWindow::RollupAllPopups() {
+  if (nsXULPopupManager* pm = nsXULPopupManager::GetInstance()) {
+    pm->Rollup({});
+  }
+  return NS_OK;
 }
 
 //*****************************************************************************
@@ -583,40 +538,6 @@ NS_IMETHODIMP AppWindow::Destroy() {
   // interactions with destroyed windows on X11 either.
 #ifndef MOZ_WIDGET_GTK
   if (mWindow) mWindow->Show(false);
-#endif
-
-#if defined(XP_WIN)
-  // We need to explicitly set the focus on Windows, but
-  // only if the parent is visible.
-  nsCOMPtr<nsIBaseWindow> parent(do_QueryReferent(mParentWindow));
-  if (parent) {
-    nsCOMPtr<nsIWidget> parentWidget;
-    parent->GetMainWidget(getter_AddRefs(parentWidget));
-
-    if (parentWidget && parentWidget->IsVisible()) {
-      bool isParentHiddenWindow = false;
-
-      if (appShell) {
-        bool hasHiddenWindow = false;
-        appShell->GetHasHiddenWindow(&hasHiddenWindow);
-        if (hasHiddenWindow) {
-          nsCOMPtr<nsIBaseWindow> baseHiddenWindow;
-          nsCOMPtr<nsIAppWindow> hiddenWindow;
-          appShell->GetHiddenWindow(getter_AddRefs(hiddenWindow));
-          if (hiddenWindow) {
-            baseHiddenWindow = do_GetInterface(hiddenWindow);
-            isParentHiddenWindow = (baseHiddenWindow == parent);
-          }
-        }
-      }
-
-      // somebody screwed up somewhere. hiddenwindow shouldn't be anybody's
-      // parent. still, when it happens, skip activating it.
-      if (!isParentHiddenWindow) {
-        parentWidget->PlaceBehind(eZPlacementTop, 0, true);
-      }
-    }
-  }
 #endif
 
   RemoveTooltipSupport();
@@ -753,8 +674,8 @@ AppWindow::GetDimensions(DimensionKind aDimensionKind, int32_t* aX, int32_t* aY,
 nsresult AppWindow::MoveResize(const Maybe<LayoutDeviceIntPoint>& aPosition,
                                const Maybe<LayoutDeviceIntSize>& aSize,
                                bool aRepaint) {
+  NS_ENSURE_STATE(mWindow);
   DesktopToLayoutDeviceScale scale = mWindow->GetDesktopToDeviceScale();
-
   return MoveResize(aPosition ? Some(*aPosition / scale) : Nothing(),
                     aSize ? Some(*aSize / scale) : Nothing(), aRepaint);
 }
@@ -974,10 +895,26 @@ NS_IMETHODIMP AppWindow::SetVisibility(bool aVisibility) {
   mDocShell->SetVisibility(aVisibility);
   // Store locally so it doesn't die on us. 'Show' can result in the window
   // being closed with AppWindow::Destroy being called. That would set
-  // mWindow to null and posibly destroy the nsIWidget while its Show method
+  // mWindow to null and possibly destroy the nsIWidget while its Show method
   // is on the stack. We need to keep it alive until Show finishes.
   nsCOMPtr<nsIWidget> window = mWindow;
   window->Show(aVisibility);
+
+  // NOTE(emilio): A bit hacky, but we need to synchronously trigger resizes
+  // for remote frames here if we're a sized popup (mDominantClientSize=true).
+  //
+  // This is because what we do to show a popup window with a specified size is
+  // to wait until the chrome loads (and gets sized, and thus laid out at a
+  // particular pre-size), then size the window, and call Show(), which ends up
+  // here.
+  //
+  // After bug 1917458, that remote browser resize would happen asynchronously,
+  // which means content might be able to observe the old size unexpectedly.
+  if (aVisibility && mDominantClientSize) {
+    if (RefPtr doc = mDocShell->GetDocument()) {
+      doc->SynchronouslyUpdateRemoteBrowserDimensions();
+    }
+  }
 
   nsCOMPtr<nsIWindowMediator> windowMediator(
       do_GetService(NS_WINDOWMEDIATOR_CONTRACTID));
@@ -1391,13 +1328,13 @@ void AppWindow::SetSpecifiedSize(int32_t aSpecWidth, int32_t aSpecHeight) {
    because it's important to load those before one of the misc
    attributes (sizemode) and they require extra processing. */
 bool AppWindow::UpdateWindowStateFromMiscXULAttributes() {
-  bool gotState = false;
-
   /* There are no misc attributes of interest to the hidden window.
      It's especially important not to try to validate that window's
      size or position, because some platforms (Mac OS X) need to
      make it visible and offscreen. */
-  if (mIsHiddenWindow) return false;
+  if (mIsHiddenWindow) {
+    return false;
+  }
 
   nsCOMPtr<dom::Element> windowElement = GetWindowDOMElement();
   NS_ENSURE_TRUE(windowElement, false);
@@ -1422,10 +1359,9 @@ bool AppWindow::UpdateWindowStateFromMiscXULAttributes() {
       if (mChromeFlags & nsIWebBrowserChrome::CHROME_WINDOW_RESIZE) {
         mIntrinsicallySized = false;
 
-        if (stateString.Equals(SIZEMODE_MAXIMIZED))
-          sizeMode = nsSizeMode_Maximized;
-        else
-          sizeMode = nsSizeMode_Fullscreen;
+        sizeMode = stateString.Equals(SIZEMODE_MAXIMIZED)
+                       ? nsSizeMode_Maximized
+                       : nsSizeMode_Fullscreen;
       }
     }
   }
@@ -1444,18 +1380,7 @@ bool AppWindow::UpdateWindowStateFromMiscXULAttributes() {
     }
     mWindow->SetSizeMode(sizeMode);
   }
-  gotState = true;
-
-  // zlevel
-  windowElement->GetAttr(nsGkAtoms::zlevel, stateString);
-  if (!stateString.IsEmpty()) {
-    nsresult errorCode;
-    int32_t zLevel = stateString.ToInteger(&errorCode);
-    if (NS_SUCCEEDED(errorCode) && zLevel >= lowestZ && zLevel <= highestZ)
-      SetZLevel(zLevel);
-  }
-
-  return gotState;
+  return true;
 }
 
 /* Stagger windows of the same type so they don't appear on top of each other.
@@ -1631,30 +1556,33 @@ void AppWindow::SyncAttributesToWidget() {
 
   NS_ENSURE_TRUE_VOID(mWindow);
 
+  // Only change blank window status once we're loaded, so that a
+  // partially-loaded browser window doesn't start painting early.
+  if (mChromeLoaded) {
+    mWindow->SetIsEarlyBlankWindow(attr.EqualsLiteral("navigator:blank"));
+    NS_ENSURE_TRUE_VOID(mWindow);
+  }
+
   // "icon" attribute
   windowElement->GetAttribute(u"icon"_ns, attr);
   if (!attr.IsEmpty()) {
     mWindow->SetIcon(attr);
-
     NS_ENSURE_TRUE_VOID(mWindow);
   }
 
   // "drawtitle" attribute
   windowElement->GetAttribute(u"drawtitle"_ns, attr);
   mWindow->SetDrawsTitle(attr.LowerCaseEqualsLiteral("true"));
-
   NS_ENSURE_TRUE_VOID(mWindow);
 
   // "toggletoolbar" attribute
   windowElement->GetAttribute(u"toggletoolbar"_ns, attr);
   mWindow->SetShowsToolbarButton(attr.LowerCaseEqualsLiteral("true"));
-
   NS_ENSURE_TRUE_VOID(mWindow);
 
   // "macnativefullscreen" attribute
   windowElement->GetAttribute(u"macnativefullscreen"_ns, attr);
   mWindow->SetSupportsNativeFullscreen(attr.LowerCaseEqualsLiteral("true"));
-
   NS_ENSURE_TRUE_VOID(mWindow);
 
   // "macanimationtype" attribute
@@ -2076,20 +2004,6 @@ void AppWindow::MaybeSavePersistentMiscAttributes(
   aRootElement.SetAttribute(u"gtktiledwindow"_ns,
                             mWindow->IsTiled() ? u"true"_ns : u"false"_ns,
                             IgnoreErrors());
-  if (aPersistString.Find(u"zlevel") >= 0) {
-    uint32_t zLevel;
-    nsCOMPtr<nsIWindowMediator> mediator(
-        do_GetService(NS_WINDOWMEDIATOR_CONTRACTID));
-    if (mediator) {
-      mediator->GetZLevel(this, &zLevel);
-      sizeString.Truncate();
-      sizeString.AppendInt(zLevel);
-      aRootElement.SetAttr(nsGkAtoms::zlevel, sizeString, IgnoreErrors());
-      if (aShouldPersist) {
-        Unused << SetPersistentValue(nsGkAtoms::zlevel, sizeString);
-      }
-    }
-  }
 }
 
 void AppWindow::SavePersistentAttributes(
@@ -2385,141 +2299,6 @@ void AppWindow::EnableParent(bool aEnable) {
   if (parentWidget) parentWidget->Enable(aEnable);
 }
 
-// Constrain the window to its proper z-level
-bool AppWindow::ConstrainToZLevel(bool aImmediate, nsWindowZ* aPlacement,
-                                  nsIWidget* aReqBelow,
-                                  nsIWidget** aActualBelow) {
-#if 0
-  /* Do we have a parent window? This means our z-order is already constrained,
-     since we're a dependent window. Our window list isn't hierarchical,
-     so we can't properly calculate placement for such a window.
-     Should we just abort? */
-  nsCOMPtr<nsIBaseWindow> parentWindow = do_QueryReferent(mParentWindow);
-  if (parentWindow)
-    return false;
-#endif
-
-  nsCOMPtr<nsIWindowMediator> mediator(
-      do_GetService(NS_WINDOWMEDIATOR_CONTRACTID));
-  if (!mediator) return false;
-
-  bool altered;
-  uint32_t position, newPosition, zLevel;
-  nsIAppWindow* us = this;
-
-  altered = false;
-  mediator->GetZLevel(this, &zLevel);
-
-  // translate from WidgetGUIEvent to nsIWindowMediator constants
-  position = nsIWindowMediator::zLevelTop;
-  if (*aPlacement == nsWindowZBottom || zLevel == nsIAppWindow::lowestZ)
-    position = nsIWindowMediator::zLevelBottom;
-  else if (*aPlacement == nsWindowZRelative)
-    position = nsIWindowMediator::zLevelBelow;
-
-  if (NS_SUCCEEDED(mediator->CalculateZPosition(
-          us, position, aReqBelow, &newPosition, aActualBelow, &altered))) {
-    /* If we were asked to move to the top but constrained to remain
-       below one of our other windows, first move all windows in that
-       window's layer and above to the top. This allows the user to
-       click a window which can't be topmost and still bring mozilla
-       to the foreground. */
-    if (altered &&
-        (position == nsIWindowMediator::zLevelTop ||
-         (position == nsIWindowMediator::zLevelBelow && aReqBelow == 0)))
-      PlaceWindowLayersBehind(zLevel + 1, nsIAppWindow::highestZ, 0);
-
-    if (*aPlacement != nsWindowZBottom &&
-        position == nsIWindowMediator::zLevelBottom)
-      altered = true;
-    if (altered || aImmediate) {
-      if (newPosition == nsIWindowMediator::zLevelTop)
-        *aPlacement = nsWindowZTop;
-      else if (newPosition == nsIWindowMediator::zLevelBottom)
-        *aPlacement = nsWindowZBottom;
-      else
-        *aPlacement = nsWindowZRelative;
-
-      if (aImmediate) {
-        nsCOMPtr<nsIBaseWindow> ourBase = do_QueryObject(this);
-        if (ourBase) {
-          nsCOMPtr<nsIWidget> ourWidget;
-          ourBase->GetMainWidget(getter_AddRefs(ourWidget));
-          ourWidget->PlaceBehind(*aPlacement == nsWindowZBottom
-                                     ? eZPlacementBottom
-                                     : eZPlacementBelow,
-                                 *aActualBelow, false);
-        }
-      }
-    }
-
-    /* CalculateZPosition can tell us to be below nothing, because it tries
-       not to change something it doesn't recognize. A request to verify
-       being below an unrecognized window, then, is treated as a request
-       to come to the top (below null) */
-    nsCOMPtr<nsIAppWindow> windowAbove;
-    if (newPosition == nsIWindowMediator::zLevelBelow && *aActualBelow) {
-      windowAbove = (*aActualBelow)->GetWidgetListener()->GetAppWindow();
-    }
-
-    mediator->SetZPosition(us, newPosition, windowAbove);
-  }
-
-  return altered;
-}
-
-/* Re-z-position all windows in the layers from aLowLevel to aHighLevel,
-   inclusive, to be behind aBehind. aBehind of null means on top.
-   Note this method actually does nothing to our relative window positions.
-   (And therefore there's no need to inform WindowMediator we're moving
-   things, because we aren't.) This method is useful for, say, moving
-   a range of layers of our own windows relative to windows belonging to
-   external applications.
-*/
-void AppWindow::PlaceWindowLayersBehind(uint32_t aLowLevel, uint32_t aHighLevel,
-                                        nsIAppWindow* aBehind) {
-  // step through windows in z-order from top to bottommost window
-
-  nsCOMPtr<nsIWindowMediator> mediator(
-      do_GetService(NS_WINDOWMEDIATOR_CONTRACTID));
-  if (!mediator) return;
-
-  nsCOMPtr<nsISimpleEnumerator> windowEnumerator;
-  mediator->GetZOrderAppWindowEnumerator(0, true,
-                                         getter_AddRefs(windowEnumerator));
-  if (!windowEnumerator) return;
-
-  // each window will be moved behind previousHighWidget, itself
-  // a moving target. initialize it.
-  nsCOMPtr<nsIWidget> previousHighWidget;
-  if (aBehind) {
-    nsCOMPtr<nsIBaseWindow> highBase(do_QueryInterface(aBehind));
-    if (highBase) highBase->GetMainWidget(getter_AddRefs(previousHighWidget));
-  }
-
-  // get next lower window
-  bool more;
-  while (NS_SUCCEEDED(windowEnumerator->HasMoreElements(&more)) && more) {
-    uint32_t nextZ;  // z-level of nextWindow
-    nsCOMPtr<nsISupports> nextWindow;
-    windowEnumerator->GetNext(getter_AddRefs(nextWindow));
-    nsCOMPtr<nsIAppWindow> nextAppWindow(do_QueryInterface(nextWindow));
-    nextAppWindow->GetZLevel(&nextZ);
-    if (nextZ < aLowLevel)
-      break;  // we've processed all windows through aLowLevel
-
-    // move it just below its next higher window
-    nsCOMPtr<nsIBaseWindow> nextBase(do_QueryInterface(nextAppWindow));
-    if (nextBase) {
-      nsCOMPtr<nsIWidget> nextWidget;
-      nextBase->GetMainWidget(getter_AddRefs(nextWidget));
-      if (nextZ <= aHighLevel)
-        nextWidget->PlaceBehind(eZPlacementBelow, previousHighWidget, false);
-      previousHighWidget = nextWidget;
-    }
-  }
-}
-
 void AppWindow::SetContentScrollbarVisibility(bool aVisible) {
   nsCOMPtr<nsPIDOMWindowOuter> contentWin(
       do_GetInterface(mPrimaryContentShell));
@@ -2657,7 +2436,7 @@ void AppWindow::IntrinsicallySizeShell(const CSSIntSize& aWindowDiff,
       // TODO: Make this more generic perhaps?
       if (prefWidthAttr.EqualsLiteral("min-width")) {
         if (auto* f = element->GetPrimaryFrame(FlushType::Frames)) {
-          const auto& coord = f->StylePosition()->mMinWidth;
+          const auto& coord = f->StylePosition()->GetMinWidth();
           if (coord.ConvertsToLength()) {
             prefWidth = CSSPixel::FromAppUnitsRounded(coord.ToLength());
           }
@@ -2917,18 +2696,6 @@ void AppWindow::SizeModeChanged(nsSizeMode aSizeMode) {
     FullscreenWillChange(mIsWidgetInFullscreen);
   }
 
-  // An alwaysRaised (or higher) window will hide any newly opened normal
-  // browser windows, so here we just drop a raised window to the normal
-  // zlevel if it's maximized. We make no provision for automatically
-  // re-raising it when restored.
-  if (aSizeMode == nsSizeMode_Maximized || aSizeMode == nsSizeMode_Fullscreen) {
-    uint32_t zLevel;
-    GetZLevel(&zLevel);
-    if (zLevel > nsIAppWindow::normalZ) {
-      SetZLevel(nsIAppWindow::normalZ);
-    }
-  }
-
   RecomputeBrowsingContextVisibility();
 
   PersistentAttributesDirty(PersistentAttribute::Misc, Sync);
@@ -2952,15 +2719,6 @@ void AppWindow::SizeModeChanged(nsSizeMode aSizeMode) {
   // the state and pass the event on to the OS. The day is coming
   // when we'll handle the event here, and the return result will
   // then need to be different.
-}
-
-void AppWindow::UIResolutionChanged() {
-  nsCOMPtr<nsPIDOMWindowOuter> ourWindow =
-      mDocShell ? mDocShell->GetWindow() : nullptr;
-  if (ourWindow) {
-    ourWindow->DispatchCustomEvent(u"resolutionchange"_ns,
-                                   ChromeOnlyDispatch::eYes);
-  }
 }
 
 void AppWindow::FullscreenWillChange(bool aInFullscreen) {
@@ -3018,6 +2776,9 @@ void AppWindow::FullscreenChanged(bool aInFullscreen) {
 
 void AppWindow::FinishFullscreenChange(bool aInFullscreen) {
   mFullscreenChangeState = FullscreenChangeState::NotChanging;
+  if (nsXULPopupManager* pm = nsXULPopupManager::GetInstance()) {
+    pm->Rollup({});
+  }
   if (mDocShell) {
     if (nsCOMPtr<nsPIDOMWindowOuter> ourWindow = mDocShell->GetWindow()) {
       ourWindow->FinishFullscreenChange(aInFullscreen);
@@ -3082,14 +2843,6 @@ void AppWindow::OSToolbarButtonPressed() {
   wbc->SetChromeFlags(chromeFlags);
 }
 
-bool AppWindow::ZLevelChanged(bool aImmediate, nsWindowZ* aPlacement,
-                              nsIWidget* aRequestBelow,
-                              nsIWidget** aActualBelow) {
-  if (aActualBelow) *aActualBelow = nullptr;
-
-  return ConstrainToZLevel(aImmediate, aPlacement, aRequestBelow, aActualBelow);
-}
-
 void AppWindow::WindowActivated() {
   nsCOMPtr<nsIAppWindow> appWindow(this);
 
@@ -3129,7 +2882,16 @@ struct LoadNativeMenusListener {
   nsCOMPtr<nsIWidget> mParentWindow;
 };
 
-static bool sHiddenWindowLoadedNativeMenus = false;
+// On macOS the hidden window is created eagerly, and we want to wait for it to
+// load the native menus.
+static bool sWaitingForHiddenWindowToLoadNativeMenus =
+#  ifdef XP_MACOSX
+    true
+#  else
+    false
+#  endif
+    ;
+
 static nsTArray<LoadNativeMenusListener> sLoadNativeMenusListeners;
 
 static void BeginLoadNativeMenus(Document* aDoc, nsIWidget* aParentWindow);
@@ -3140,25 +2902,18 @@ static void LoadNativeMenus(Document* aDoc, nsIWidget* aParentWindow) {
   // Find the menubar tag (if there is more than one, we ignore all but
   // the first).
   nsCOMPtr<nsINodeList> menubarElements = aDoc->GetElementsByTagNameNS(
-      nsLiteralString(
-          u"http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"),
+      u"http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"_ns,
       u"menubar"_ns);
 
-  nsCOMPtr<nsINode> menubarNode;
+  RefPtr<Element> menubar;
   if (menubarElements) {
-    menubarNode = menubarElements->Item(0);
+    menubar = Element::FromNodeOrNull(menubarElements->Item(0));
   }
 
-  using widget::NativeMenuSupport;
-  if (menubarNode) {
-    nsCOMPtr<Element> menubarContent(do_QueryInterface(menubarNode));
-    NativeMenuSupport::CreateNativeMenuBar(aParentWindow, menubarContent);
-  } else {
-    NativeMenuSupport::CreateNativeMenuBar(aParentWindow, nullptr);
-  }
+  widget::NativeMenuSupport::CreateNativeMenuBar(aParentWindow, menubar);
 
-  if (!sHiddenWindowLoadedNativeMenus) {
-    sHiddenWindowLoadedNativeMenus = true;
+  if (sWaitingForHiddenWindowToLoadNativeMenus) {
+    sWaitingForHiddenWindowToLoadNativeMenus = false;
     for (auto& listener : sLoadNativeMenusListeners) {
       BeginLoadNativeMenus(listener.mDocument, listener.mParentWindow);
     }
@@ -3197,13 +2952,11 @@ class L10nReadyPromiseHandler final : public dom::PromiseNativeHandler {
 NS_IMPL_ISUPPORTS0(L10nReadyPromiseHandler)
 
 static void BeginLoadNativeMenus(Document* aDoc, nsIWidget* aParentWindow) {
-  RefPtr<DocumentL10n> l10n = aDoc->GetL10n();
-  if (l10n) {
+  if (RefPtr<DocumentL10n> l10n = aDoc->GetL10n()) {
     // Wait for l10n to be ready so the menus are localized.
     RefPtr<Promise> promise = l10n->Ready();
     MOZ_ASSERT(promise);
-    RefPtr<L10nReadyPromiseHandler> handler =
-        new L10nReadyPromiseHandler(aDoc, aParentWindow);
+    RefPtr handler = new L10nReadyPromiseHandler(aDoc, aParentWindow);
     promise->AppendNativeHandler(handler);
   } else {
     // Something went wrong loading the doc and l10n wasn't created. This
@@ -3314,16 +3067,11 @@ AppWindow::OnStateChange(nsIWebProgress* aProgress, nsIRequest* aRequest,
   // commands
   ///////////////////////////////
   if (!gfxPlatform::IsHeadless()) {
-    nsCOMPtr<nsIDocumentViewer> viewer;
-    mDocShell->GetDocViewer(getter_AddRefs(viewer));
-    if (viewer) {
-      RefPtr<Document> menubarDoc = viewer->GetDocument();
-      if (menubarDoc) {
-        if (mIsHiddenWindow || sHiddenWindowLoadedNativeMenus) {
-          BeginLoadNativeMenus(menubarDoc, mWindow);
-        } else {
-          sLoadNativeMenusListeners.EmplaceBack(menubarDoc, mWindow);
-        }
+    if (RefPtr<Document> menubarDoc = mDocShell->GetExtantDocument()) {
+      if (mIsHiddenWindow || !sWaitingForHiddenWindowToLoadNativeMenus) {
+        BeginLoadNativeMenus(menubarDoc, mWindow);
+      } else {
+        sLoadNativeMenusListeners.EmplaceBack(menubarDoc, mWindow);
       }
     }
   }
@@ -3455,11 +3203,6 @@ void AppWindow::WidgetListenerDelegate::SizeModeChanged(nsSizeMode aSizeMode) {
   holder->SizeModeChanged(aSizeMode);
 }
 
-void AppWindow::WidgetListenerDelegate::UIResolutionChanged() {
-  RefPtr<AppWindow> holder = mAppWindow;
-  holder->UIResolutionChanged();
-}
-
 void AppWindow::WidgetListenerDelegate::MacFullscreenMenubarOverlapChanged(
     DesktopCoord aOverlapAmount) {
   RefPtr<AppWindow> holder = mAppWindow;
@@ -3475,14 +3218,6 @@ void AppWindow::WidgetListenerDelegate::OcclusionStateChanged(
 void AppWindow::WidgetListenerDelegate::OSToolbarButtonPressed() {
   RefPtr<AppWindow> holder = mAppWindow;
   holder->OSToolbarButtonPressed();
-}
-
-bool AppWindow::WidgetListenerDelegate::ZLevelChanged(
-    bool aImmediate, nsWindowZ* aPlacement, nsIWidget* aRequestBelow,
-    nsIWidget** aActualBelow) {
-  RefPtr<AppWindow> holder = mAppWindow;
-  return holder->ZLevelChanged(aImmediate, aPlacement, aRequestBelow,
-                               aActualBelow);
 }
 
 void AppWindow::WidgetListenerDelegate::WindowActivated() {

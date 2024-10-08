@@ -4,9 +4,6 @@
 
 "use strict";
 
-const {
-  TYPES: { SOURCE },
-} = require("resource://devtools/server/actors/resources/index.js");
 const Targets = require("resource://devtools/server/actors/targets/index.js");
 
 const {
@@ -44,6 +41,8 @@ class SourceWatcher {
     this.sourcesManager = targetActor.sourcesManager;
     this.onAvailable = onAvailable;
 
+    threadActor.attach({});
+
     // Disable `ThreadActor.newSource` RDP event in order to avoid unnecessary traffic
     threadActor.disableNewSourceEvents();
 
@@ -69,13 +68,12 @@ class SourceWatcher {
     // Before fetching all sources, process existing ones.
     // The ThreadActor is already up and running before this code runs
     // and have sources already registered and for which newSource event already fired.
-    onAvailable(
-      threadActor.sourcesManager.iter().map(s => {
-        const resource = s.form();
-        resource.resourceType = SOURCE;
-        return resource;
-      })
-    );
+    const sources = [];
+    for (const sourceActor of threadActor.sourcesManager.iter()) {
+      const resource = sourceActor.form();
+      sources.push(resource);
+    }
+    onAvailable(sources);
 
     // Requesting all sources should end up emitting newSource on threadActor.sourcesManager
     threadActor.addAllSources();
@@ -92,7 +90,6 @@ class SourceWatcher {
 
   onNewSource(source) {
     const resource = source.form();
-    resource.resourceType = SOURCE;
     this.onAvailable([resource]);
   }
 }

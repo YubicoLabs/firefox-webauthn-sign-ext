@@ -14,6 +14,7 @@ add_setup(async function () {
     set: [
       ["privacy.query_stripping.strip_on_share.enabled", true],
       ["privacy.query_stripping.enabled", false],
+      ["privacy.query_stripping.strip_on_share.canDisable", false],
     ],
   });
 
@@ -80,7 +81,7 @@ add_task(async function testMultiQueryParams() {
 });
 
 async function testStripOnShare(validUrl, strippedUrl) {
-  await BrowserTestUtils.withNewTab(validUrl, async function (browser) {
+  await BrowserTestUtils.withNewTab(validUrl, async function () {
     gURLBar.focus();
     gURLBar.select();
     let menuitem = await promiseContextualMenuitem("strip-on-share");

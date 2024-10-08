@@ -47,10 +47,10 @@ EPlatformDisabledState PlatformDisabledState();
 void PreInit();
 #endif
 
-#if defined(MOZ_ACCESSIBILITY_ATK) || defined(XP_MACOSX)
+#if defined(MOZ_ACCESSIBILITY_ATK) || defined(XP_DARWIN)
 /**
  * Is platform accessibility enabled.
- * Only used on linux with atk and MacOS for now.
+ * Only used on Linux, MacOS and iOS for now.
  */
 bool ShouldA11yBeEnabled();
 #endif
@@ -129,6 +129,12 @@ void PlatformTextSelectionChangeEvent(Accessible* aTarget,
 void PlatformRoleChangedEvent(Accessible* aTarget, const a11y::role& aRole,
                               uint8_t aRoleMapEntryIndex);
 #endif
+
+// Get the cache domains needed by any known clients interacting with Gecko. If
+// any known clients are found, the return value is aCacheDomains bitwise OR'd
+// with the required cache domains for those clients. Otherwise, the return
+// value is aCacheDomains unaltered.
+uint64_t GetCacheDomainsForKnownClients(uint64_t aCacheDomains);
 
 }  // namespace a11y
 }  // namespace mozilla

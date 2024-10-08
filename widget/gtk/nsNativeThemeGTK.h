@@ -64,10 +64,8 @@ class nsNativeThemeGTK final : public mozilla::widget::Theme {
       nsPresContext* aPresContext, nsIFrame* aFrame,
       StyleAppearance aAppearance) override;
 
-  NS_IMETHOD WidgetStateChanged(nsIFrame* aFrame, StyleAppearance aAppearance,
-                                nsAtom* aAttribute, bool* aShouldRepaint,
-                                const nsAttrValue* aOldValue) override;
-
+  bool WidgetAttributeChangeRequiresRepaint(StyleAppearance,
+                                            nsAtom* aAttribute) override;
   NS_IMETHOD ThemeChanged() override;
 
   NS_IMETHOD_(bool)
@@ -93,7 +91,6 @@ class nsNativeThemeGTK final : public mozilla::widget::Theme {
                             WidgetNodeType& aGtkWidgetType,
                             GtkWidgetState* aState, gint* aWidgetFlags);
   mozilla::CSSIntMargin GetExtraSizeForWidget(nsIFrame*, StyleAppearance);
-  bool IsWidgetVisible(StyleAppearance aAppearance);
 
   void RefreshWidgetWindow(nsIFrame* aFrame);
   WidgetNodeType NativeThemeToGtkTheme(StyleAppearance aAppearance,

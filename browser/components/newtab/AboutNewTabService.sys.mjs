@@ -109,7 +109,11 @@ export const AboutHomeStartupCacheChild = {
       );
     }
 
-    if (!lazy.NimbusFeatures.abouthomecache.getVariable("enabled")) {
+    if (
+      !Services.prefs.getBoolPref(
+        "browser.startup.homepage.abouthome_cache.enabled"
+      )
+    ) {
       return;
     }
 
@@ -339,7 +343,7 @@ export const AboutHomeStartupCacheChild = {
     });
   },
 
-  observe(subject, topic, data) {
+  observe(subject, topic) {
     if (topic === "memory-pressure" && this._cacheWorker) {
       this._cacheWorker.terminate();
       this._cacheWorker = null;
@@ -447,7 +451,7 @@ class BaseAboutNewTabService {
     return this.defaultURL;
   }
 
-  aboutHomeChannel(uri, loadInfo) {
+  aboutHomeChannel() {
     throw Components.Exception(
       "AboutHomeChannel not implemented for this process.",
       Cr.NS_ERROR_NOT_IMPLEMENTED

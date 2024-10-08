@@ -1,7 +1,6 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-/* eslint-disable import/no-unassigned-import */
 
 import { html, ifDefined } from "../vendor/lit.all.mjs";
 import "./moz-message-bar.mjs";
@@ -120,4 +119,10 @@ WithSupportLink.args = {
   dismissable: false,
   hasSupportLink: true,
   hasActionButton: false,
+};
+
+export const WithHeading = Template.bind({});
+WithHeading.args = {
+  ...Default.args,
+  l10nId: "moz-message-bar-message-heading",
 };

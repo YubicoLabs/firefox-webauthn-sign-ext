@@ -64,11 +64,6 @@ form {
   display: none;
 }
 
-input[type="password"],
-input[type="text"],
-input[type="url"] {
-  text-align: match-parent !important; /* override `all: unset` in the rule below */
-}
 
 :host(:not([data-editing])) input[type="password"]:read-only,
 input[type="text"]:read-only,
@@ -80,6 +75,17 @@ input[type="url"]:read-only {
   text-overflow: ellipsis;
   overflow: hidden;
   width: 100%;
+}
+
+input:is([type="password"], [type="text"], [type="url"]) {
+  /* Override all: unset above */
+  appearance: textfield !important;
+  text-align: match-parent !important;
+}
+
+input.password-display,
+input[name="password"] {
+  font-family: monospace !important; /* Override all: unset above */
 }
 
 /* We can't use `margin-inline-start` here because we force
@@ -197,11 +203,6 @@ moz-button-group,
   box-shadow: none;
 }
 
-input.password-display,
-input[name="password"] {
-  font-family: monospace !important; /* override `all: unset` in the rule above */
-}
-
 .reveal-password-checkbox {
   appearance: none;
   background-image: url("resource://gre-resources/password.svg");
@@ -246,7 +247,7 @@ login-command-button {
 
 .alert-title {
   font-size: var(--font-size-xlarge);
-  font-weight: var(--font-weight-default);
+  font-weight: var(--font-weight);
   line-height: 1em;
   margin-block: 0 12px;
 }

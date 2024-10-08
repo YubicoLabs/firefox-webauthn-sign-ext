@@ -9,6 +9,7 @@
 
 #include "vm/JSObject.h"
 
+#include "gc/Zone.h"
 #include "js/Object.h"  // JS::GetBuiltinClass
 #include "vm/ArrayObject.h"
 #include "vm/BoundFunctionObject.h"
@@ -88,7 +89,7 @@ inline void JSObject::finalize(JS::GCContext* gcx) {
   MOZ_ASSERT(isTenured());
   if (!IsBackgroundFinalized(asTenured().getAllocKind())) {
     /* Assert we're on the main thread. */
-    MOZ_ASSERT(CurrentThreadCanAccessZone(zone()));
+    MOZ_ASSERT(js::CurrentThreadCanAccessZone(zone()));
   }
 #endif
 
@@ -137,6 +138,12 @@ inline bool JSObject::isUnqualifiedVarObj() const {
     return as<js::DebugEnvironmentProxy>().environment().isUnqualifiedVarObj();
   }
   return is<js::GlobalObject>() || is<js::NonSyntacticVariablesObject>();
+}
+
+inline bool JSObject::setQualifiedVarObj(
+    JSContext* cx, JS::Handle<js::WithEnvironmentObject*> obj) {
+  MOZ_ASSERT(!obj->isSyntactic());
+  return setFlag(cx, obj, js::ObjectFlag::QualifiedVarObj);
 }
 
 inline bool JSObject::canHaveFixedElements() const {
@@ -189,8 +196,9 @@ template <typename T>
   MOZ_ASSERT(!cx->realm()->hasObjectPendingMetadata());
 
   // The metadata builder is invoked for each object created on the main thread,
-  // except when it's suppressed.
-  if (!cx->zone()->suppressAllocationMetadataBuilder) {
+  // except when it's suppressed or we're throwing over-recursion error.
+  if (!cx->zone()->suppressAllocationMetadataBuilder &&
+      !cx->isThrowingOverRecursed()) {
     // Don't collect metadata on objects that represent metadata, to avoid
     // recursion.
     AutoSuppressAllocationMetadataBuilder suppressMetadata(cx);

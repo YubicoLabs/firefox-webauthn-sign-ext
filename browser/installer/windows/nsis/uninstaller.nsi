@@ -55,6 +55,9 @@ Var RefreshRequested
 ; MigrateTaskBarShortcut and is not intended to be used here.
 ; See Bug 1329869 for more.
 Var AddTaskbarSC
+; Will be the registry hive that we are going to write things like class keys
+; into. This will generally be HKLM if running with elevation, otherwise HKCU.
+Var RegHive
 
 ; Other included files may depend upon these includes!
 ; The following includes are provided by NSIS.
@@ -411,54 +414,6 @@ SectionEnd
 ################################################################################
 # Uninstall Sections
 
-/**
- * Deletes the registry keys for a protocol handler but only if those registry
- * keys were pointed to the installation being uninstalled.
- * Does this with both the HKLM and the HKCU registry entries.
- *
- * @param   _PROTOCOL
- *          The protocol to delete the registry keys for
- */
-!macro DeleteProtocolRegistryIfSetToInstallation _PROTOCOL
-  Push $0
-  Push $1
-  ; Check if there is a protocol handler registered by fetching the DefaultIcon value
-  ; in the registry.
-  ; If there is something registered for the icon, it will be the path to the executable,
-  ; plus a comma and a number for the id of the resource for the icon.
-  ; Use StrCpy with -2 to remove the comma and the resource id so that
-  ; the whole path to the executable can be compared against what's being
-  ; uninstalled.
-
-  ; Do all of that twice, once for the local machine and once for the current user
-
-  ; Remove protocol handlers
-  ClearErrors
-  ${un.GetLongPath} "$INSTDIR\${FileMainEXE}" $1
-  ReadRegStr $0 HKLM "Software\Classes\${_PROTOCOL}\DefaultIcon" ""
-  ${If} $0 != ""
-    StrCpy $0 $0 -2
-    ${If} $0 == $1
-      DeleteRegKey HKLM "Software\Classes\${_PROTOCOL}"
-    ${EndIf}
-  ${EndIf}
-
-  ClearErrors
-  ReadRegStr $0 HKCU "Software\Classes\${_PROTOCOL}\DefaultIcon" ""
-  ${If} $0 != ""
-    StrCpy $0 $0 -2
-    ${If} $0 == $1
-      DeleteRegKey HKCU "Software\Classes\${_PROTOCOL}"
-    ${EndIf}
-  ${EndIf}
-
-  ClearErrors
-
-  Pop $0
-  Pop $1
-!macroend
-!define DeleteProtocolRegistryIfSetToInstallation '!insertmacro DeleteProtocolRegistryIfSetToInstallation'
-
 Section "Uninstall"
   SetDetailsPrint textonly
   DetailPrint $(STATUS_UNINSTALL_MAIN)
@@ -523,11 +478,11 @@ Section "Uninstall"
   ClearErrors
   WriteRegStr HKLM "Software\Mozilla" "${BrandShortName}InstallerTest" "Write Test"
   ${If} ${Errors}
-    StrCpy $TmpVal "HKCU" ; used primarily for logging
+    StrCpy $RegHive "HKCU"
   ${Else}
     SetShellVarContext all  ; Set SHCTX to HKLM
     DeleteRegValue HKLM "Software\Mozilla" "${BrandShortName}InstallerTest"
-    StrCpy $TmpVal "HKLM" ; used primarily for logging
+    StrCpy $RegHive "HKLM"
     ${un.RegCleanMain} "Software\Mozilla"
     ${un.RegCleanUninstall}
     ${un.DeleteShortcuts}
@@ -571,9 +526,12 @@ Section "Uninstall"
   ; Clean up "launch on login" registry key for this installation.
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Mozilla-${AppName}-$AppUserModelID"
 
-  ; Remove dual browser extension protocol handlers
-  ${DeleteProtocolRegistryIfSetToInstallation} "firefox"
-  ${DeleteProtocolRegistryIfSetToInstallation} "firefox-private"
+  ; Remove FirefoxBridge extension protocol handlers
+  Push $1
+  ${un.GetLongPath} "$INSTDIR\${FileMainEXE}" $1
+  ${DeleteProtocolRegistryIfSetToInstallation} "$1" "firefox-bridge"
+  ${DeleteProtocolRegistryIfSetToInstallation} "$1" "firefox-private-bridge"
+  Pop $1
 
   ; Remove old protocol handler and StartMenuInternet keys without install path
   ; hashes, but only if they're for this installation.  We've never supported

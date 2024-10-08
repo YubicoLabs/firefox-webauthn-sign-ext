@@ -7,24 +7,14 @@
 ##########
 # android_version strings
 #   https://en.wikipedia.org/wiki/Android_version_history
-#   * Android 'ICS' 4.0-4.0.2: 14 ('4.0' slaves, inactive)
-#   * Android 'Jelly Bean' 4.2: 17 ('4.2' slaves)
-#   * Android 'Jelly Bean' 4.3: 18 ('4.3' slaves)
-#   * Android 'Lollipop' 5.0: 21 ('5.0' slaves)
-#   * Android            8.0: 26 (pixel 2 phones)
 #   * Android           13.0: 33 (pixel 5 phones)
 
 ##########
 # os_version strings
 #   https://msdn.microsoft.com/en-us/library/windows/desktop/ms724832%28v=vs.85%29.aspx
-#   * Windows 7: 6.1
-#   * Windows 8: 6.2
-#   * Windows 8.1: 6.3
 #   * Windows 10: 10.0
 
 [DEFAULT]
-# Cross-process WebGL doesn't seem to work under an emulator
-skip-if = ["os == 'android' && isEmulator"]
 # Bug 1799213
 prefs = "media.seamless-looping-video=false"
 
@@ -32,19 +22,69 @@ prefs = "media.seamless-looping-video=false"
 fail-if = ["true"]
 
 ####################
+# Failures from 2024-04 CTS update
+
+["generated/test_2_conformance2__textures__misc__tex-image-10bpc.html"]
+# gl.checkFramebufferStatus(gl.FRAMEBUFFER) should be 36053. Was 36054.
+# uniquePixels.size should be >= 7. Was 1 (of type number).
+fail-if = ["true"]
+
+
+["generated/test_2_conformance2__wasm__bufferdata-16gb-wasm-memory.html"]
+# successfullyParsed should be true (of type boolean). Was undefined (of type undefined).
+fail-if = ["true"]
+
+["generated/test_2_conformance2__wasm__bufferdata-4gb-wasm-memory.html"]
+# successfullyParsed should be true (of type boolean). Was undefined (of type undefined).
+fail-if = ["true"]
+
+["generated/test_2_conformance2__wasm__buffersubdata-16gb-wasm-memory.html"]
+# successfullyParsed should be true (of type boolean). Was undefined (of type undefined).
+fail-if = ["true"]
+
+["generated/test_2_conformance2__wasm__buffersubdata-4gb-wasm-memory.html"]
+# successfullyParsed should be true (of type boolean). Was undefined (of type undefined).
+fail-if = ["true"]
+
+["generated/test_2_conformance2__wasm__getbuffersubdata-16gb-wasm-memory.html"]
+# successfullyParsed should be true (of type boolean). Was undefined (of type undefined).
+fail-if = ["true"]
+
+["generated/test_2_conformance2__wasm__getbuffersubdata-4gb-wasm-memory.html"]
+# successfullyParsed should be true (of type boolean). Was undefined (of type undefined).
+fail-if = ["true"]
+
+["generated/test_2_conformance2__wasm__readpixels-16gb-wasm-memory.html"]
+# successfullyParsed should be true (of type boolean). Was undefined (of type undefined).
+fail-if = ["true"]
+
+["generated/test_2_conformance2__wasm__readpixels-4gb-wasm-memory.html"]
+# successfullyParsed should be true (of type boolean). Was undefined (of type undefined).
+fail-if = ["true"]
+
+["generated/test_2_conformance2__wasm__teximage2d-16gb-wasm-memory.html"]
+# successfullyParsed should be true (of type boolean). Was undefined (of type undefined).
+fail-if = ["true"]
+
+["generated/test_2_conformance2__wasm__teximage2d-4gb-wasm-memory.html"]
+# successfullyParsed should be true (of type boolean). Was undefined (of type undefined).
+fail-if = ["true"]
+
+["generated/test_2_conformance2__wasm__texsubimage2d-16gb-wasm-memory.html"]
+# successfullyParsed should be true (of type boolean). Was undefined (of type undefined).
+fail-if = ["true"]
+
+["generated/test_2_conformance2__wasm__texsubimage2d-4gb-wasm-memory.html"]
+# successfullyParsed should be true (of type boolean). Was undefined (of type undefined).
+fail-if = ["true"]
+
+["generated/test_2_conformance2__glsl3__texture-bias.html"]
+# should be: 3,3,3,3
+# should be: 13,13,13,13
+fail-if = ["os == 'win'"]
+
+####################
 # Bugs surfaced during fx106 CTS update
-
-["generated/test_conformance__programs__program-handling.html"]
-# getError expected: INVALID_OPERATION. Was NO_ERROR : because the current program has been invalidated, uniform* calls generate INVALID_OPERATION
-fail-if = ["true"]
-
-["generated/test_2_conformance__programs__program-handling.html"]
-# Ditto
-fail-if = ["true"]
-
-["generated/test_conformance__rendering__blending.html"]
-# Expected [1,1,1,1], was [1000,1,1,1]
-fail-if = ["true"]
 
 ["generated/test_2_conformance2__reading__read-pixels-into-pixel-pack-buffer.html"]
 # getError expected: INVALID_ENUM. Was INVALID_OPERATION : Format should not be able to read as DEPTH_STENCIL
@@ -144,14 +184,12 @@ skip-if = ["os == 'linux' && debug"]
 ["generated/test_conformance__glsl__bugs__vector-matrix-constructor-scalarization.html"]
 # https://bugzilla.mozilla.org/show_bug.cgi?id=1725075
 fail-if = [
-  "os == 'android' && android_version == '26'",
   "os == 'mac' && !apple_silicon",
 ]
 
 ["generated/test_2_conformance__glsl__bugs__vector-matrix-constructor-scalarization.html"]
 # Ditto
 fail-if = [
-  "os == 'android' && android_version == '26'",
   "os == 'android' && !debug",
   "os == 'mac' && !apple_silicon",
 ]
@@ -470,6 +508,10 @@ fail-if = ["os == 'mac' && !apple_silicon"]
 
 ########################################################################
 # Complicated
+
+["generated/test_conformance__ogles__GL__abs__abs_001_to_006.html"]
+# Test suite terminates, e.g. at pixel @ (412, 253 was [191,0,0,255] expected [98,0,0,255]. Bug 1897792
+skip-if = ["os == 'android' && debug"]
 
 ["generated/test_conformance__context__context-attributes-alpha-depth-stencil-antialias.html"]
 # Asserts on linux debug. Crashes on Android.
@@ -814,8 +856,6 @@ skip-if = ["os == 'android'"]
 skip-if = ["os == 'android'"]
 
 ["generated/test_conformance__extensions__oes-texture-half-float.html"]
-# Timeout
-fail-if = ["os == 'android'"]
 
 ["generated/test_conformance__canvas__rapid-resizing.html"]
 # Frequent orange crash.
@@ -1105,7 +1145,6 @@ fail-if = ["os == 'win' && debug"]
 skip-if = ["os == 'android'"]
 
 ["generated/test_2_conformance2__renderbuffers__multisampled-renderbuffer-initialization.html"]
-fail-if = ["os == 'android' && android_version == '26'"]
 
 ["generated/test_conformance__extensions__ext-sRGB.html"]
 fail-if = ["os == 'android'"]
@@ -1246,6 +1285,11 @@ fail-if = ["os == 'linux' && display != 'wayland'"]
 ["generated/test_conformance__rendering__line-rendering-quality.html"]
 # Found 0 lines, looking in the vertical direction, expected 2
 fail-if = ["os == 'linux' && display != 'wayland'"]
+
+["generated/test_conformance__rendering__blending.html"]
+# Android 13.0 Pixel5 AArch64
+# dom/canvas/test/webgl-conf/generated/test_conformance__rendering__blending.html | Expected [100,2,3,4], was [1,2,3,4]
+fail-if = ["os == 'android'"]
 
 ["generated/test_2_conformance__rendering__blending.html"]
 fail-if = ["os == 'android'"]
@@ -1783,34 +1827,6 @@ fail-if = [
   "os == 'mac'",
   "os == 'linux'",
 ]
-
-# Bug 1673105 for mac+WR
-["generated/test_2_conformance2__textures__video__tex-2d-rgb565-rgb-unsigned_byte.html"]
-skip-if = ["os == 'mac'"]
-
-["generated/test_2_conformance2__textures__video__tex-2d-rgb5_a1-rgba-unsigned_byte.html"]
-skip-if = ["os == 'mac'"]
-
-["generated/test_2_conformance2__textures__video__tex-2d-rgb8-rgb-unsigned_byte.html"]
-skip-if = ["os == 'mac'"]
-
-["generated/test_2_conformance2__textures__video__tex-2d-rgba4-rgba-unsigned_byte.html"]
-skip-if = ["os == 'mac'"]
-
-["generated/test_2_conformance2__textures__video__tex-2d-rgba8-rgba-unsigned_byte.html"]
-skip-if = ["os == 'mac'"]
-
-["generated/test_2_conformance2__textures__video__tex-2d-srgb8-rgb-unsigned_byte.html"]
-skip-if = ["os == 'mac'"]
-
-["generated/test_2_conformance2__textures__video__tex-2d-srgb8_alpha8-rgba-unsigned_byte.html"]
-skip-if = ["os == 'mac'"]
-
-["generated/test_2_conformance__textures__video__tex-2d-rgb-rgb-unsigned_byte.html"]
-skip-if = ["os == 'mac'"]
-
-["generated/test_2_conformance__textures__video__tex-2d-rgba-rgba-unsigned_byte.html"]
-skip-if = ["os == 'mac'"]
 
 ["generated/test_conformance__extensions__angle-instanced-arrays.html"]
 skip-if = ["os == 'mac' && os_version == '10.15'"]

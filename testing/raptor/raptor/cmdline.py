@@ -7,11 +7,11 @@ import os
 import six
 from mozlog.commandline import add_logging_group
 
-(FIREFOX, CHROME, CHROMIUM, SAFARI, CHROMIUM_RELEASE) = DESKTOP_APPS = [
+(FIREFOX, CHROME, SAFARI, SAFARI_TP, CHROMIUM_RELEASE) = DESKTOP_APPS = [
     "firefox",
     "chrome",
-    "chromium",
     "safari",
+    "safari-tp",
     "custom-car",
 ]
 (GECKOVIEW, REFBROW, FENIX) = FIREFOX_ANDROID_APPS = [
@@ -25,12 +25,12 @@ from mozlog.commandline import add_logging_group
 ]
 FIREFOX_APPS = FIREFOX_ANDROID_APPS + [FIREFOX]
 
-CHROMIUM_DISTROS = [CHROME, CHROMIUM]
+CHROMIUM_DISTROS = [CHROME, CHROMIUM_RELEASE]
 APPS = {
     FIREFOX: {"long_name": "Firefox Desktop"},
     CHROME: {"long_name": "Google Chrome Desktop"},
-    CHROMIUM: {"long_name": "Google Chromium Desktop"},
     SAFARI: {"long_name": "Safari Desktop"},
+    SAFARI_TP: {"long_name": "Safari Technology Preview Desktop"},
     CHROMIUM_RELEASE: {"long_name": "Custom Chromium-as-Release desktop"},
     GECKOVIEW: {
         "long_name": "Firefox GeckoView on Android",
@@ -62,7 +62,14 @@ INTEGRATED_APPS = list(APPS.keys())
 
 GECKO_PROFILER_APPS = (FIREFOX, GECKOVIEW, REFBROW, FENIX)
 
-TRACE_APPS = (CHROME, CHROMIUM, CHROMIUM_RELEASE)
+TRACE_APPS = (CHROME, CHROMIUM_RELEASE)
+
+APP_BINARIES = {
+    "fenix": "org.mozilla.fenix",
+    "focus": "org.mozilla.focus",
+    "geckoview": "org.mozilla.geckoview_example",
+    "refbrow": "org.mozilla.reference.browser",
+}
 
 
 def print_all_activities():
@@ -193,7 +200,7 @@ def create_parser(mach_interface=False):
     add_arg(
         "--gecko-profile-interval",
         dest="gecko_profile_interval",
-        type=int,
+        type=float,
         help="How frequently to take samples (milliseconds)",
     )
     add_arg(
@@ -244,7 +251,7 @@ def create_parser(mach_interface=False):
         "--post-startup-delay",
         dest="post_startup_delay",
         type=int,
-        default=30000,
+        default=None,
         help="How long to wait (ms) after browser start-up before starting the tests",
     )
     add_arg(
@@ -341,8 +348,8 @@ def create_parser(mach_interface=False):
             help="This contains the path to mozbuild.",
         )
     add_arg(
-        "--noinstall",
-        dest="noinstall",
+        "--no-install",
+        dest="no_install",
         default=False,
         action="store_true",
         help="Flag which indicates if Raptor should not offer to install Android APK.",
@@ -520,6 +527,20 @@ def create_parser(mach_interface=False):
         type=str,
         help="Repository branch that should be used for a particular benchmark test.",
     )
+    add_arg(
+        "--screenshot-on-failure",
+        action="store_true",
+        dest="screenshot_on_failure",
+        default=False,
+        help="Take a screenshot when the test fails.",
+    )
+    add_arg(
+        "--power-test",
+        action="store_true",
+        dest="power_test",
+        default=False,
+        help="Gather power usage measurements on this test (Android only).",
+    )
 
     add_logging_group(parser)
     return parser
@@ -528,7 +549,11 @@ def create_parser(mach_interface=False):
 def verify_options(parser, args):
     ctx = vars(args)
     if args.binary is None and args.app != "chrome-m":
-        parser.error("--binary is required!")
+        args.binary = APP_BINARIES.get(args.app, None)
+        if args.binary is None:
+            parser.error("--binary is required!")
+        else:
+            print(f"Using {args.binary} as default binary argument for {args.app} app")
 
     # Debug-mode is disabled in CI (check for attribute in case of mach_interface issues)
     if hasattr(args, "run_local") and (not args.run_local and args.debug_mode):
@@ -603,6 +628,10 @@ def verify_options(parser, args):
             parser.error(
                 "When a benchmark repository is provided, a revision is also required."
             )
+
+    if args.post_startup_delay:
+        if args.post_startup_delay < 0:
+            parser.error("--post-startup-delay must be a positive integer (in ms).")
 
 
 def parse_args(argv=None):
@@ -704,7 +733,7 @@ class _PrintTests(_StopAction):
         # exit Raptor
         parser.exit()
 
-    def filter_app(self, tests, values):
+    def filter_app(self, tests, values, strict=True):
         for test in tests:
             if values["app"] in test["apps"]:
                 yield test

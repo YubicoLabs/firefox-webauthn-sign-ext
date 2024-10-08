@@ -28,6 +28,9 @@
 #include "nsCOMPtr.h"
 #include "nsStringFwd.h"
 #include "nsXULAppAPI.h"
+#ifdef MOZ_HAS_REMOTE
+#  include "nsIRemoteService.h"
+#endif
 
 class nsINativeAppSupport;
 class nsXREDirProvider;
@@ -56,7 +59,7 @@ extern bool gIsGtest;
 
 extern bool gKioskMode;
 extern int gKioskMonitor;
-extern bool gAllowContentAnalysis;
+extern bool gAllowContentAnalysisArgPresent;
 
 namespace mozilla {
 nsresult AppInfoConstructor(const nsID& aIID, void** aResult);
@@ -81,6 +84,10 @@ int32_t CompareCompatVersions(const nsACString& aOldCompatVersion,
  */
 nsresult NS_CreateNativeAppSupport(nsINativeAppSupport** aResult);
 already_AddRefed<nsINativeAppSupport> NS_GetNativeAppSupport();
+
+#ifdef MOZ_HAS_REMOTE
+already_AddRefed<nsIRemoteService> GetRemoteService();
+#endif
 
 /**
  * Try to acquire exclusive access to the specified profile directory.

@@ -2,11 +2,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-import { actionTypes as at } from "resource://activity-stream/common/Actions.sys.mjs";
+import { actionTypes as at } from "resource://activity-stream/common/Actions.mjs";
 
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
+  BrowserUtils: "resource://gre/modules/BrowserUtils.sys.mjs",
   DownloadsCommon: "resource:///modules/DownloadsCommon.sys.mjs",
   DownloadsViewUI: "resource:///modules/DownloadsViewUI.sys.mjs",
   FileUtils: "resource://gre/modules/FileUtils.sys.mjs",
@@ -16,7 +17,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
 const DOWNLOAD_CHANGED_DELAY_TIME = 1000; // time in ms to delay timer for downloads changed events
 
 export class DownloadsManager {
-  constructor(store) {
+  constructor() {
     this._downloadData = null;
     this._store = null;
     this._downloadItems = new Map();
@@ -166,10 +167,8 @@ export class DownloadsManager {
           );
         });
         break;
-      case at.OPEN_DOWNLOAD_FILE:
-        const win = action._target.browser.ownerGlobal;
-        const openWhere =
-          action.data.event && win.whereToOpenLink(action.data.event);
+      case at.OPEN_DOWNLOAD_FILE: {
+        const openWhere = lazy.BrowserUtils.whereToOpenLink(action.data.event);
         doDownloadAction(download => {
           lazy.DownloadsCommon.openDownload(download, {
             // Replace "current" or unknown value with "tab" as the default behavior
@@ -180,6 +179,7 @@ export class DownloadsManager {
           });
         });
         break;
+      }
       case at.UNINIT:
         this.uninit();
         break;

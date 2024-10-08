@@ -156,7 +156,8 @@ void ChildSHistory::Go(int32_t aOffset, bool aRequireUserInteraction,
     // Check for user interaction if desired, except for the first and last
     // history entries. We compare with >= to account for the case where
     // aOffset >= Count().
-    if (!aRequireUserInteraction || index.value() >= Count() - 1 ||
+    if (!StaticPrefs::browser_navigation_requireUserInteraction() ||
+        !aRequireUserInteraction || index.value() >= Count() - 1 ||
         index.value() <= 0) {
       break;
     }
@@ -176,7 +177,7 @@ void ChildSHistory::AsyncGo(int32_t aOffset, bool aRequireUserInteraction,
   MOZ_LOG(gSHLog, LogLevel::Debug,
           ("ChildSHistory::AsyncGo(%d), current index = %d", aOffset,
            index.value()));
-  nsresult rv = mBrowsingContext->CheckLocationChangeRateLimit(aCallerType);
+  nsresult rv = mBrowsingContext->CheckNavigationRateLimit(aCallerType);
   if (NS_FAILED(rv)) {
     MOZ_LOG(gSHLog, LogLevel::Debug, ("Rejected"));
     aRv.Throw(rv);

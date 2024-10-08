@@ -53,7 +53,6 @@
 #include "nsIContentInlines.h"
 #include "nsIDocShell.h"
 #include "nsIFormControl.h"
-#include "nsIScrollableFrame.h"
 #include "nsISHistory.h"
 #include "nsIXULRuntime.h"
 #include "nsPresContext.h"
@@ -659,9 +658,8 @@ static uint32_t CollectInputElement(Document* aDocument,
   uint32_t length = inputlist->Length();
   for (uint32_t i = 0; i < length; ++i) {
     MOZ_ASSERT(inputlist->Item(i), "null item in node list!");
-    nsCOMPtr<nsIFormControl> formControl =
-        do_QueryInterface(inputlist->Item(i));
-    if (formControl) {
+    if (const auto* formControl =
+            nsIFormControl::FromNodeOrNull(inputlist->Item(i))) {
       auto controlType = formControl->ControlType();
       if (controlType == FormControlType::InputPassword ||
           controlType == FormControlType::InputHidden ||
@@ -917,9 +915,8 @@ void SessionStoreUtils::CollectFromInputElement(Document& aDocument,
   uint32_t length = inputlist->Length(true);
   for (uint32_t i = 0; i < length; ++i) {
     MOZ_ASSERT(inputlist->Item(i), "null item in node list!");
-    nsCOMPtr<nsIFormControl> formControl =
-        do_QueryInterface(inputlist->Item(i));
-    if (formControl) {
+    if (const auto* formControl =
+            nsIFormControl::FromNodeOrNull(inputlist->Item(i))) {
       auto controlType = formControl->ControlType();
       if (controlType == FormControlType::InputPassword ||
           controlType == FormControlType::InputHidden ||
@@ -1317,14 +1314,13 @@ class FormDataParseContext : public txIParseContext {
   explicit FormDataParseContext(bool aCaseInsensitive)
       : mIsCaseInsensitive(aCaseInsensitive) {}
 
-  nsresult resolveNamespacePrefix(nsAtom* aPrefix, int32_t& aID) override {
+  int32_t resolveNamespacePrefix(nsAtom* aPrefix) override {
     if (aPrefix == nsGkAtoms::xul) {
-      aID = kNameSpaceID_XUL;
-    } else {
-      MOZ_ASSERT(nsDependentAtomString(aPrefix).EqualsLiteral("xhtml"));
-      aID = kNameSpaceID_XHTML;
+      return kNameSpaceID_XUL;
     }
-    return NS_OK;
+
+    MOZ_ASSERT(nsDependentAtomString(aPrefix).EqualsLiteral("xhtml"));
+    return kNameSpaceID_XHTML;
   }
 
   nsresult resolveFunctionCall(nsAtom* aName, int32_t aID,

@@ -73,6 +73,7 @@ function run_test() {
   do_get_profile();
 
   Services.prefs.setBoolPref("network.http.rcwn.enabled", false);
+  Services.prefs.setBoolPref("network.auth.confirmAuth.enabled", true);
 
   httpServer = new HttpServer();
   httpServer.registerPathHandler("/content", contentHandler);
@@ -95,7 +96,7 @@ function firstTimeThrough(request, buffer) {
   Assert.ok(gMockPromptService.firstTimeCalled, "Prompt service invoked");
 }
 
-function secondTimeThrough(request, buffer) {
+function secondTimeThrough(request) {
   Assert.equal(request.status, Cr.NS_ERROR_SUPERFLUOS_AUTH);
   httpServer.stop(do_test_finished);
 }

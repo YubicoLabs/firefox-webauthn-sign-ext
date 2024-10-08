@@ -66,13 +66,11 @@ class ServoRestyleState {
   // our children too if we're out of flow since they aren't necessarily
   // parented in DOM order, and thus a change handled by a DOM ancestor doesn't
   // necessarily mean that it's handled for an ancestor frame.
-  enum class Type {
-    InFlow,
-    OutOfFlow,
-  };
+  enum class CanUseHandledHints : bool { No = false, Yes };
 
   ServoRestyleState(const nsIFrame& aOwner, ServoRestyleState& aParentState,
-                    nsChangeHint aHintForThisFrame, Type aType,
+                    nsChangeHint aHintForThisFrame,
+                    CanUseHandledHints aCanUseHandledHints,
                     bool aAssertWrapperRestyleLength = true)
       : mStyleSet(aParentState.mStyleSet),
         mChangeList(aParentState.mChangeList),
@@ -81,7 +79,7 @@ class ServoRestyleState {
             aParentState.mPendingScrollAnchorSuppressions),
         mPendingWrapperRestyleOffset(
             aParentState.mPendingWrapperRestyles.Length()),
-        mChangesHandled(aType == Type::InFlow
+        mChangesHandled(bool(aCanUseHandledHints)
                             ? aParentState.mChangesHandled | aHintForThisFrame
                             : aHintForThisFrame)
 #ifdef DEBUG
@@ -90,7 +88,7 @@ class ServoRestyleState {
         mAssertWrapperRestyleLength(aAssertWrapperRestyleLength)
 #endif
   {
-    if (aType == Type::InFlow) {
+    if (bool(aCanUseHandledHints)) {
       AssertOwner(aParentState);
     }
   }
@@ -361,6 +359,11 @@ class RestyleManager {
 
   void ElementStateChanged(Element*, dom::ElementState);
 
+  void CustomStatesWillChange(Element&);
+  void CustomStateChanged(Element&, nsAtom* aState);
+  void MaybeRestyleForNthOfCustomState(ServoStyleSet&, Element&,
+                                       nsAtom* aState);
+
   /**
    * Posts restyle hints for siblings of an element and their descendants if the
    * element's parent has NODE_HAS_SLOW_SELECTOR_NTH_OF and the element has a
@@ -387,10 +390,12 @@ class RestyleManager {
    * element's parent has NODE_HAS_SLOW_SELECTOR_NTH_OF and the element has a
    * relevant attribute dependency.
    */
-  void MaybeRestyleForNthOfAttribute(dom::Element* aChild, nsAtom* aAttribute,
+  void MaybeRestyleForNthOfAttribute(dom::Element* aChild, int32_t aNameSpaceID,
+                                     nsAtom* aAttribute,
                                      const nsAttrValue* aOldValue);
 
   void MaybeRestyleForRelativeSelectorAttribute(dom::Element* aElement,
+                                                int32_t aNameSpaceID,
                                                 nsAtom* aAttribute,
                                                 const nsAttrValue* aOldValue);
   void MaybeRestyleForRelativeSelectorState(ServoStyleSet& aStyleSet,

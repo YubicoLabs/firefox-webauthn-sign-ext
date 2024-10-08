@@ -1,7 +1,4 @@
-import {
-  actionCreators as ac,
-  actionTypes as at,
-} from "common/Actions.sys.mjs";
+import { actionCreators as ac, actionTypes as at } from "common/Actions.mjs";
 import { GlobalOverrider } from "test/unit/utils";
 import { MIN_RICH_FAVICON_SIZE } from "content-src/components/TopSites/TopSitesConstants";
 import {
@@ -562,6 +559,7 @@ describe("<TopSiteLink>", () => {
     });
     it("should prevent dragging with sponsored_position from dragstart", () => {
       const preventDefault = sinon.stub();
+      // eslint-disable-next-line no-shadow
       const blur = sinon.stub();
       wrapper.setProps({ link: { sponsored_position: 1 } });
       wrapper.instance().onDragEvent({
@@ -575,6 +573,7 @@ describe("<TopSiteLink>", () => {
     });
     it("should prevent dragging with link.shim from dragstart", () => {
       const preventDefault = sinon.stub();
+      // eslint-disable-next-line no-shadow
       const blur = sinon.stub();
       wrapper.setProps({ link: { type: "SPOC" } });
       wrapper.instance().onDragEvent({
@@ -886,6 +885,7 @@ describe("<TopSite>", () => {
         type: "SPOC",
         pos: 1,
         label: "test advertiser",
+        shim: { click: "shim_click_id" },
       };
       const wrapper = shallow(
         <TopSite
@@ -913,8 +913,18 @@ describe("<TopSite>", () => {
       assert.propertyVal(action.data, "click", 0);
       assert.propertyVal(action.data, "source", "TOP_SITES");
 
-      // Topsite SPOC click event.
       [action] = dispatch.getCall(3).args;
+      assert.equal(action.type, at.DISCOVERY_STREAM_USER_EVENT);
+
+      assert.propertyVal(action.data, "event", "CLICK");
+      assert.propertyVal(action.data, "action_position", 1);
+      assert.propertyVal(action.data, "source", "TOP_SITES");
+      assert.propertyVal(action.data.value, "card_type", "spoc");
+      assert.propertyVal(action.data.value, "tile_id", 1);
+      assert.propertyVal(action.data.value, "shim", "shim_click_id");
+
+      // Topsite SPOC click event.
+      [action] = dispatch.getCall(4).args;
       assert.equal(action.type, at.TOP_SITES_SPONSORED_IMPRESSION_STATS);
 
       assert.propertyVal(action.data, "type", "click");
@@ -946,7 +956,7 @@ describe("<TopSiteForm>", () => {
   let wrapper;
   let sandbox;
 
-  function setup(props = {}) {
+  function testSetup(props = {}) {
     sandbox = sinon.createSandbox();
     const customProps = Object.assign(
       {},
@@ -957,7 +967,7 @@ describe("<TopSiteForm>", () => {
   }
 
   describe("validateForm", () => {
-    beforeEach(() => setup({ site: { url: "http://foo" } }));
+    beforeEach(() => testSetup({ site: { url: "http://foo" } }));
 
     it("should return true for a correct URL", () => {
       wrapper.setState({ url: "foo" });
@@ -999,7 +1009,7 @@ describe("<TopSiteForm>", () => {
 
   describe("#previewButton", () => {
     beforeEach(() =>
-      setup({
+      testSetup({
         site: { customScreenshotURL: "http://foo.com" },
         previewResponse: null,
       })
@@ -1027,7 +1037,7 @@ describe("<TopSiteForm>", () => {
 
   describe("preview request", () => {
     beforeEach(() => {
-      setup({
+      testSetup({
         site: { customScreenshotURL: "http://foo.com", url: "http://foo.com" },
         previewResponse: null,
       });
@@ -1065,7 +1075,7 @@ describe("<TopSiteForm>", () => {
 
   describe("#TopSiteLink", () => {
     beforeEach(() => {
-      setup();
+      testSetup();
     });
 
     it("should display a TopSiteLink preview", () => {
@@ -1105,7 +1115,7 @@ describe("<TopSiteForm>", () => {
   });
 
   describe("#addMode", () => {
-    beforeEach(() => setup());
+    beforeEach(() => testSetup());
 
     it("should render the component", () => {
       assert.ok(wrapper.find(TopSiteForm).exists());
@@ -1196,7 +1206,7 @@ describe("<TopSiteForm>", () => {
 
   describe("edit existing Topsite", () => {
     beforeEach(() =>
-      setup({
+      testSetup({
         site: {
           url: "https://foo.bar",
           label: "baz",
@@ -1342,7 +1352,7 @@ describe("<TopSiteForm>", () => {
   });
 
   describe("#previewMode", () => {
-    beforeEach(() => setup({ previewResponse: null }));
+    beforeEach(() => testSetup({ previewResponse: null }));
 
     it("should transition from save to preview", () => {
       wrapper.setProps({
@@ -1394,7 +1404,7 @@ describe("<TopSiteForm>", () => {
 
   describe("#validateUrl", () => {
     it("should properly validate URLs", () => {
-      setup();
+      testSetup();
       assert.ok(wrapper.instance().validateUrl("mozilla.org"));
       assert.ok(wrapper.instance().validateUrl("https://mozilla.org"));
       assert.ok(wrapper.instance().validateUrl("http://mozilla.org"));
@@ -1414,7 +1424,7 @@ describe("<TopSiteForm>", () => {
 
   describe("#cleanUrl", () => {
     it("should properly prepend http:// to URLs when required", () => {
-      setup();
+      testSetup();
       assert.equal(
         "http://mozilla.org",
         wrapper.instance().cleanUrl("mozilla.org")
@@ -1477,20 +1487,21 @@ describe("<TopSiteList>", () => {
       TOP_SITES_DEFAULT_ROWS * TOP_SITES_MAX_SITES_PER_ROW
     );
   });
-  it("should fill with placeholders if TopSites rows is less than TopSitesRows", () => {
+  it("should add a single placeholder is there is availible space in the row", () => {
     const rows = [{ url: "https://foo.com" }, { url: "https://bar.com" }];
+    const availibleRows = 1;
     const wrapper = shallow(
       <TopSiteList
         {...DEFAULT_PROPS}
         TopSites={{ rows }}
-        TopSitesRows={1}
+        TopSitesRows={availibleRows}
         App={{ APP }}
       />
     );
     assert.lengthOf(wrapper.find(TopSite), 2, "topSites");
     assert.lengthOf(
       wrapper.find(TopSitePlaceholder),
-      TOP_SITES_MAX_SITES_PER_ROW - 2,
+      availibleRows >= wrapper.find(TopSite).length ? 0 : 1,
       "placeholders"
     );
   });
@@ -1511,11 +1522,7 @@ describe("<TopSiteList>", () => {
       />
     );
     assert.lengthOf(wrapper.find(TopSite), 2, "topSites");
-    assert.lengthOf(
-      wrapper.find(TopSitePlaceholder),
-      TOP_SITES_MAX_SITES_PER_ROW - 2,
-      "placeholders"
-    );
+    assert.lengthOf(wrapper.find(TopSitePlaceholder), 4, "placeholders");
   });
   it("should fill any holes in TopSites with placeholders", () => {
     const rows = [{ url: "https://foo.com" }];
@@ -1529,11 +1536,7 @@ describe("<TopSiteList>", () => {
       />
     );
     assert.lengthOf(wrapper.find(TopSite), 2, "topSites");
-    assert.lengthOf(
-      wrapper.find(TopSitePlaceholder),
-      TOP_SITES_MAX_SITES_PER_ROW - 2,
-      "placeholders"
-    );
+    assert.lengthOf(wrapper.find(TopSitePlaceholder), 1, "placeholders");
   });
   it("should update state onDragStart and clear it onDragEnd", () => {
     const wrapper = shallow(<TopSiteList {...DEFAULT_PROPS} App={{ APP }} />);
@@ -1627,6 +1630,7 @@ describe("<TopSiteList>", () => {
         App={{ APP }}
       />
     );
+    const addButton = { isAddButton: true };
     let instance = wrapper.instance();
     instance.setState({
       draggedIndex: 0,
@@ -1641,7 +1645,7 @@ describe("<TopSiteList>", () => {
       site2,
       draggedSite,
       site3,
-      null,
+      addButton,
       null,
       null,
       null,
@@ -1651,7 +1655,7 @@ describe("<TopSiteList>", () => {
       site2,
       site3,
       draggedSite,
-      null,
+      addButton,
       null,
       null,
       null,
@@ -1660,7 +1664,7 @@ describe("<TopSiteList>", () => {
     assert.deepEqual(instance._makeTopSitesPreview(3), [
       site2,
       site3,
-      null,
+      addButton,
       draggedSite,
       null,
       null,
@@ -1672,7 +1676,7 @@ describe("<TopSiteList>", () => {
       site2,
       draggedSite,
       site3,
-      null,
+      addButton,
       null,
       null,
       null,
@@ -1682,7 +1686,7 @@ describe("<TopSiteList>", () => {
       site3,
       site2,
       draggedSite,
-      null,
+      addButton,
       null,
       null,
       null,
@@ -1693,7 +1697,7 @@ describe("<TopSiteList>", () => {
       site2,
       draggedSite,
       site3,
-      null,
+      addButton,
       null,
       null,
       null,
@@ -1703,7 +1707,7 @@ describe("<TopSiteList>", () => {
       site2,
       site3,
       draggedSite,
-      null,
+      addButton,
       null,
       null,
       null,
@@ -1714,7 +1718,7 @@ describe("<TopSiteList>", () => {
       site2,
       draggedSite,
       site3,
-      null,
+      addButton,
       null,
       null,
       null,
@@ -1724,7 +1728,7 @@ describe("<TopSiteList>", () => {
       site2,
       site3,
       draggedSite,
-      null,
+      addButton,
       null,
       null,
       null,
@@ -1741,7 +1745,7 @@ describe("<TopSiteList>", () => {
       draggedSite,
       site1,
       site3,
-      null,
+      addButton,
       null,
       null,
       null,
@@ -1751,7 +1755,7 @@ describe("<TopSiteList>", () => {
       site1,
       site3,
       draggedSite,
-      null,
+      addButton,
       null,
       null,
       null,
@@ -1768,7 +1772,7 @@ describe("<TopSiteList>", () => {
       draggedSite,
       site2,
       site1,
-      null,
+      addButton,
       null,
       null,
       null,
@@ -1786,7 +1790,7 @@ describe("<TopSiteList>", () => {
       draggedSite,
       site2,
       site1,
-      null,
+      addButton,
       null,
       null,
       null,
@@ -1811,13 +1815,13 @@ describe("<TopSiteList>", () => {
 });
 
 describe("TopSitePlaceholder", () => {
-  it("should dispatch a TOP_SITES_EDIT action when edit-button is clicked", () => {
+  it("should dispatch a TOP_SITES_EDIT action when the addbutton is clicked", () => {
     const dispatch = sinon.spy();
     const wrapper = shallow(
-      <TopSitePlaceholder dispatch={dispatch} index={7} />
+      <TopSitePlaceholder dispatch={dispatch} index={7} isAddButton={true} />
     );
 
-    wrapper.find(".edit-button").first().simulate("click");
+    wrapper.find(".add-button").first().simulate("click");
 
     assert.calledOnce(dispatch);
     assert.calledWithExactly(dispatch, {

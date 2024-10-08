@@ -14,8 +14,12 @@ ChromeUtils.defineESModuleGetters(lazy, {
     "resource:///modules/PartnerLinkAttribution.sys.mjs",
   MerinoClient: "resource:///modules/MerinoClient.sys.mjs",
   QuickSuggest: "resource:///modules/QuickSuggest.sys.mjs",
+  SearchUtils: "resource://gre/modules/SearchUtils.sys.mjs",
   UrlbarPrefs: "resource:///modules/UrlbarPrefs.sys.mjs",
+  UrlbarProviderSearchSuggestions:
+    "resource:///modules/UrlbarProviderSearchSuggestions.sys.mjs",
   UrlbarResult: "resource:///modules/UrlbarResult.sys.mjs",
+  UrlbarSearchUtils: "resource:///modules/UrlbarSearchUtils.sys.mjs",
 });
 
 // `contextId` is a unique identifier used by Contextual Services
@@ -45,7 +49,6 @@ const TELEMETRY_SCALARS = {
   CLICK_NAV_SUPERCEDED: `${TELEMETRY_PREFIX}.click_nav_superceded`,
   CLICK_NONSPONSORED: `${TELEMETRY_PREFIX}.click_nonsponsored`,
   CLICK_SPONSORED: `${TELEMETRY_PREFIX}.click_sponsored`,
-  HELP_DYNAMIC_WIKIPEDIA: `${TELEMETRY_PREFIX}.help_dynamic_wikipedia`,
   HELP_NONSPONSORED: `${TELEMETRY_PREFIX}.help_nonsponsored`,
   HELP_SPONSORED: `${TELEMETRY_PREFIX}.help_sponsored`,
   IMPRESSION_DYNAMIC_WIKIPEDIA: `${TELEMETRY_PREFIX}.impression_dynamic_wikipedia`,
@@ -105,7 +108,7 @@ class ProviderQuickSuggest extends UrlbarProvider {
    * @returns {boolean} Whether this provider should be invoked for the search.
    */
   isActive(queryContext) {
-    this.#resultFromLastQuery = null;
+    this.#topPicksResultFromLastQuery = null;
 
     // If the sources don't include search or the user used a restriction
     // character other than search, don't allow any suggestions.
@@ -128,11 +131,15 @@ class ProviderQuickSuggest extends UrlbarProvider {
     // Trim only the start of the search string because a trailing space can
     // affect the suggestions.
     let trimmedSearchString = queryContext.searchString.trimStart();
-    if (!trimmedSearchString) {
+
+    // Per product requirements, at least two characters must be typed to
+    // trigger a Suggest suggestion. Suggestion keywords should always be at
+    // least two characters long, but we check here anyway to be safe. Note we
+    // called `trimStart()` above, so we only call `trimEnd()` here.
+    if (trimmedSearchString.trimEnd().length < 2) {
       return false;
     }
     this._trimmedSearchString = trimmedSearchString;
-
     return true;
   }
 
@@ -196,8 +203,14 @@ class ProviderQuickSuggest extends UrlbarProvider {
     // required for looking up the features that manage them.
     let requiredKeys = ["source", "provider"];
 
-    // Add a result for the first suggestion that can be shown.
+    // Convert each suggestion into a result and add it. Don't add more than
+    // `maxResults` visible results so we don't spam the muxer.
+    let remainingCount = queryContext.maxResults ?? 10;
     for (let suggestion of suggestions) {
+      if (!remainingCount) {
+        break;
+      }
+
       for (let key of requiredKeys) {
         if (!suggestion[key]) {
           this.logger.error(
@@ -212,57 +225,65 @@ class ProviderQuickSuggest extends UrlbarProvider {
       if (instance != this.queryInstance) {
         return;
       }
-
-      let result;
-      if (
-        canAdd &&
-        (result = await this.#makeResult(queryContext, suggestion))
-      ) {
-        this.#resultFromLastQuery = result;
-        addCallback(this, result);
-        return;
+      if (canAdd) {
+        let result = await this.#makeResult(queryContext, suggestion);
+        if (instance != this.queryInstance) {
+          return;
+        }
+        if (result) {
+          addCallback(this, result);
+          if (!result.isHiddenExposure) {
+            remainingCount--;
+          }
+          if (result.payload.telemetryType == "top_picks") {
+            this.#topPicksResultFromLastQuery = result;
+          }
+        }
       }
     }
   }
 
-  onEngagement(state, queryContext, details, controller) {
-    // Ignore engagements on other results that didn't end the session.
-    if (details.result?.providerName != this.name && details.isSessionOngoing) {
-      return;
+  onImpression(state, queryContext, controller, providerVisibleResults) {
+    // Legacy Suggest telemetry should be recorded when a Suggest result is
+    // visible at the end of an engagement on any result.
+    this.#sessionResult =
+      state == "engagement" ? providerVisibleResults[0].result : null;
+  }
+
+  onEngagement(queryContext, controller, details) {
+    if (details.isSessionOngoing) {
+      // When the session remains ongoing -- e.g., a result is dismissed --
+      // tests expect legacy telemetry to be recorded immediately on engagement,
+      // not deferred until the session ends, so record it now.
+      this.#recordEngagement(queryContext, details.result, details);
     }
 
+    let feature = this.#getFeatureByResult(details.result);
+    if (feature?.handleCommand) {
+      feature.handleCommand(
+        controller.view,
+        details.result,
+        details.selType,
+        this._trimmedSearchString
+      );
+    } else if (details.selType == "dismiss") {
+      // Handle dismissals.
+      this.#dismissResult(controller, details.result);
+    }
+
+    feature?.onEngagement?.(queryContext, controller, details);
+  }
+
+  onSearchSessionEnd(queryContext, controller, details) {
     // Reset the Merino session ID when a session ends. By design for the user's
     // privacy, we don't keep it around between engagements.
-    if (state != "start" && !details.isSessionOngoing) {
-      this.#merino?.resetSession();
-    }
+    this.#merino?.resetSession();
 
-    // Impression and clicked telemetry are both recorded on engagement. We
-    // define "impression" to mean a quick suggest result was present in the
-    // view when any result was picked.
-    if (state == "engagement" && queryContext) {
-      // Get the result that's visible in the view. `details.result` is the
-      // engaged result, if any; if it's from this provider, then that's the
-      // visible result. Otherwise fall back to #getVisibleResultFromLastQuery.
-      let { result } = details;
-      if (result?.providerName != this.name) {
-        result = this.#getVisibleResultFromLastQuery(controller.view);
-      }
+    // Record legacy Suggest telemetry.
+    this.#recordEngagement(queryContext, this.#sessionResult, details);
 
-      this.#recordEngagement(queryContext, result, details);
-    }
-
-    if (details.result?.providerName == this.name) {
-      let feature = this.#getFeatureByResult(details.result);
-      if (feature?.handleCommand) {
-        feature.handleCommand(controller.view, details.result, details.selType);
-      } else if (details.selType == "dismiss") {
-        // Handle dismissals.
-        this.#dismissResult(controller, details.result);
-      }
-    }
-
-    this.#resultFromLastQuery = null;
+    this.#sessionResult = null;
+    this.#topPicksResultFromLastQuery = null;
   }
 
   /**
@@ -377,23 +398,34 @@ class ProviderQuickSuggest extends UrlbarProvider {
         result.richSuggestionIconSize ||= 52;
         result.suggestedIndex = 1;
       } else if (
-        suggestion.is_sponsored &&
-        lazy.UrlbarPrefs.get("quickSuggestSponsoredPriority")
-      ) {
-        result.isBestMatch = true;
-        result.suggestedIndex = 1;
-      } else if (
         !isNaN(suggestion.position) &&
         lazy.UrlbarPrefs.get("quickSuggestAllowPositionInSuggestions")
       ) {
         result.suggestedIndex = suggestion.position;
       } else {
         result.isSuggestedIndexRelativeToGroup = true;
-        result.suggestedIndex = lazy.UrlbarPrefs.get(
-          suggestion.is_sponsored
-            ? "quickSuggestSponsoredIndex"
-            : "quickSuggestNonSponsoredIndex"
-        );
+        if (!suggestion.is_sponsored) {
+          result.suggestedIndex = lazy.UrlbarPrefs.get(
+            "quickSuggestNonSponsoredIndex"
+          );
+        } else if (
+          lazy.UrlbarPrefs.get("showSearchSuggestionsFirst") &&
+          lazy.UrlbarProviderSearchSuggestions.isActive(queryContext) &&
+          lazy.UrlbarSearchUtils.getDefaultEngine(
+            queryContext.isPrivate
+          ).supportsResponseType(lazy.SearchUtils.URL_TYPE.SUGGEST_JSON)
+        ) {
+          // Show sponsored suggestions somewhere other than the bottom of the
+          // Suggest section only if search suggestions are shown first, the
+          // search suggestions provider is active for the current context (it
+          // will not be active if search suggestions are disabled, among other
+          // reasons), and the default engine supports suggestions.
+          result.suggestedIndex = lazy.UrlbarPrefs.get(
+            "quickSuggestSponsoredIndex"
+          );
+        } else {
+          result.suggestedIndex = -1;
+        }
       }
     }
 
@@ -404,14 +436,11 @@ class ProviderQuickSuggest extends UrlbarProvider {
     let payload = {
       url: suggestion.url,
       isSponsored: suggestion.is_sponsored,
-      helpUrl: lazy.QuickSuggest.HELP_URL,
-      helpL10n: {
-        id: "urlbar-result-menu-learn-more-about-firefox-suggest",
-      },
       isBlockable: true,
       blockL10n: {
         id: "urlbar-result-menu-dismiss-firefox-suggest",
       },
+      isManageable: true,
     };
 
     if (suggestion.full_keyword) {
@@ -433,22 +462,6 @@ class ProviderQuickSuggest extends UrlbarProvider {
         payload
       )
     );
-  }
-
-  #getVisibleResultFromLastQuery(view) {
-    let result = this.#resultFromLastQuery;
-
-    if (
-      result?.rowIndex >= 0 &&
-      view?.visibleResults?.[result.rowIndex] == result
-    ) {
-      // The result was visible.
-      return result;
-    }
-
-    // Find a visible result. Quick suggest results typically appear last in the
-    // view, so do a reverse search.
-    return view?.visibleResults?.findLast(r => r.providerName == this.name);
   }
 
   #dismissResult(controller, result) {
@@ -477,8 +490,8 @@ class ProviderQuickSuggest extends UrlbarProvider {
    *   end of the engagement or that was dismissed. Null if no quick suggest
    *   result was present.
    * @param {object} details
-   *   The `details` object that was passed to `onEngagement()`. It must look
-   *   like this: `{ selType, selIndex }`
+   *   The `details` object that was passed to `onEngagement()` or
+   *   `onSearchSessionEnd()`.
    */
   #recordEngagement(queryContext, result, details) {
     let resultSelType = "";
@@ -583,9 +596,6 @@ class ProviderQuickSuggest extends UrlbarProvider {
           scalars.push(TELEMETRY_SCALARS.CLICK_DYNAMIC_WIKIPEDIA);
         } else {
           switch (resultSelType) {
-            case "help":
-              scalars.push(TELEMETRY_SCALARS.HELP_DYNAMIC_WIKIPEDIA);
-              break;
             case "dismiss":
               scalars.push(TELEMETRY_SCALARS.BLOCK_DYNAMIC_WIKIPEDIA);
               break;
@@ -768,20 +778,16 @@ class ProviderQuickSuggest extends UrlbarProvider {
    * @param {UrlbarResult} options.result
    *   The quick suggest result related to the engagement, or null if no result
    *   was present.
-   * @param {string} options.resultSelType
-   *   If an element in the result's row was clicked, this should be its
-   *   `selType`. Otherwise it should be an empty string.
    * @param {boolean} options.resultClicked
    *   True if the main part of the result's row was clicked; false if a button
    *   like help or dismiss was clicked or if no part of the row was clicked.
    * @param {object} options.details
-   *   The `details` object that was passed to `onEngagement()`. It must look
-   *   like this: `{ selType, selIndex }`
+   *   The `details` object that was passed to `onEngagement()` or
+   *   `onSearchSessionEnd()`.
    */
   #recordNavSuggestionTelemetry({
     queryContext,
     result,
-    resultSelType,
     resultClicked,
     details,
   }) {
@@ -797,10 +803,7 @@ class ProviderQuickSuggest extends UrlbarProvider {
       } else if (heuristicClicked) {
         scalars.push(TELEMETRY_SCALARS.CLICK_NAV_SHOWN_HEURISTIC);
       }
-    } else if (
-      this.#resultFromLastQuery?.payload.telemetryType == "top_picks" &&
-      this.#resultFromLastQuery?.payload.dupedHeuristic
-    ) {
+    } else if (this.#topPicksResultFromLastQuery?.payload.dupedHeuristic) {
       // nav suggestion duped heuristic
       scalars.push(TELEMETRY_SCALARS.IMPRESSION_NAV_SUPERCEDED);
       if (heuristicClicked) {
@@ -824,11 +827,8 @@ class ProviderQuickSuggest extends UrlbarProvider {
 
   /**
    * Cancels the current query.
-   *
-   * @param {UrlbarQueryContext} queryContext
-   *   The query context.
    */
-  cancelQuery(queryContext) {
+  cancelQuery() {
     // Cancel the Rust query.
     let backend = lazy.QuickSuggest.getFeature("SuggestBackendRust");
     if (backend?.isEnabled) {
@@ -891,12 +891,14 @@ class ProviderQuickSuggest extends UrlbarProvider {
     this.logger.info("Checking if suggestion can be added");
     this.logger.debug(JSON.stringify({ suggestion }));
 
-    // Return false if suggestions are disabled.
+    // Return false if suggestions are disabled. Always allow Rust exposure
+    // suggestions.
     if (
-      (suggestion.is_sponsored &&
+      ((suggestion.is_sponsored &&
         !lazy.UrlbarPrefs.get("suggest.quicksuggest.sponsored")) ||
-      (!suggestion.is_sponsored &&
-        !lazy.UrlbarPrefs.get("suggest.quicksuggest.nonsponsored"))
+        (!suggestion.is_sponsored &&
+          !lazy.UrlbarPrefs.get("suggest.quicksuggest.nonsponsored"))) &&
+      (suggestion.source != "rust" || suggestion.provider != "Exposure")
     ) {
       this.logger.info("Suggestions disabled, not adding suggestion");
       return false;
@@ -939,8 +941,12 @@ class ProviderQuickSuggest extends UrlbarProvider {
     return this.#merino;
   }
 
-  // The result we added during the most recent query.
-  #resultFromLastQuery = null;
+  // The "top_picks" result added during the most recent query, if any.
+  #topPicksResultFromLastQuery = null;
+
+  // The result from this provider that was visible at the end of the current
+  // search session, if the session ended in an engagement.
+  #sessionResult;
 
   // The Merino client.
   #merino = null;

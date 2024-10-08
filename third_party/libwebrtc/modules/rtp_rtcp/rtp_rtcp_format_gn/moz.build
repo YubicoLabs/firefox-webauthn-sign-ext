@@ -18,7 +18,7 @@ DEFINES["WEBRTC_MOZILLA_BUILD"] = True
 DEFINES["WEBRTC_NON_STATIC_TRACE_EVENT_HANDLERS"] = "0"
 DEFINES["WEBRTC_STRICT_FIELD_TRIALS"] = "0"
 
-FINAL_LIBRARY = "webrtc"
+FINAL_LIBRARY = "xul"
 
 
 LOCAL_INCLUDES += [
@@ -44,6 +44,7 @@ UNIFIED_SOURCES += [
     "/third_party/libwebrtc/modules/rtp_rtcp/source/rtcp_packet/bye.cc",
     "/third_party/libwebrtc/modules/rtp_rtcp/source/rtcp_packet/common_header.cc",
     "/third_party/libwebrtc/modules/rtp_rtcp/source/rtcp_packet/compound_packet.cc",
+    "/third_party/libwebrtc/modules/rtp_rtcp/source/rtcp_packet/congestion_control_feedback.cc",
     "/third_party/libwebrtc/modules/rtp_rtcp/source/rtcp_packet/dlrr.cc",
     "/third_party/libwebrtc/modules/rtp_rtcp/source/rtcp_packet/extended_reports.cc",
     "/third_party/libwebrtc/modules/rtp_rtcp/source/rtcp_packet/fir.cc",

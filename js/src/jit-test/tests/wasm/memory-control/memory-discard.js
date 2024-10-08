@@ -1,4 +1,4 @@
-// |jit-test| skip-if: !wasmMemoryControlEnabled(); test-also=--wasm-memory64; test-also=--no-wasm-memory64
+// |jit-test| skip-if: !wasmMemoryControlEnabled(); test-also=--setpref=wasm_memory64=true; test-also=--setpref=wasm_memory64=false
 
 // This tests memory.discard and WebAssembly.Memory.discard() by placing data
 // (the alphabet) halfway across a page boundary, then discarding the first
@@ -114,7 +114,7 @@ testAll(function testWithGrow(discardViaJS, shared, memType) {
     checkSecondHalf(exp, true);
 
     // Oops we just grew by a preposterous amount, time to move
-    exp.memory.grow(200)
+    exp.memory.grow(memType === "i64" ? 200n : 200);
 
     // The memory should still be readable
     checkFirstHalf(exp, false);

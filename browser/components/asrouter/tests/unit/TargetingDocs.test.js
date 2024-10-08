@@ -50,7 +50,7 @@ describe("ASRTargeting docs", () => {
 
   describe("All targeting params documented in targeting-attributes.md", () => {
     for (const targetingParam of ASRTargetingAttributes) {
-      // If this test is failing, you probably forgot to add docs to content-src/asrouter/targeting-attributes.md
+      // If this test is failing, you probably forgot to add docs to asrouter/docs/targeting-attributes.md
       // for a new targeting attribute, or you forgot to put it in the table of contents up top.
       it(`should have docs and table of contents entry for ${targetingParam}`, () => {
         assert.include(
@@ -70,7 +70,11 @@ describe("ASRTargeting docs", () => {
     // "allow" includes targeting attributes that are not implemented by
     // ASRTargetingAttributes. For example trigger context passed to the evaluation
     // context in when a trigger runs or ASRouter state used in the evaluation.
-    const allow = ["messageImpressions", "screenImpressions"];
+    const allow = [
+      "messageImpressions",
+      "screenImpressions",
+      "browserIsSelected",
+    ];
     for (const targetingParam of DOCS_TARGETING_HEADINGS.filter(
       doc => !allow.includes(doc)
     )) {

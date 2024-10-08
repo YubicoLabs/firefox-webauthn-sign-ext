@@ -2,7 +2,6 @@
 
 add_setup(async function () {
   useHttpServer();
-  await AddonTestUtils.promiseStartupManager();
   await Services.search.init();
 });
 
@@ -119,7 +118,7 @@ add_task(async function test_engine_change_alias() {
   );
 
   let observed = false;
-  Services.obs.addObserver(function observer(aSubject, aTopic, aData) {
+  Services.obs.addObserver(function observer() {
     observed = true;
   }, SearchUtils.TOPIC_ENGINE_MODIFIED);
 

@@ -31,7 +31,7 @@
 // This is a hack to hide HttpOnly cookies from older browsers
 #define HTTP_ONLY_PREFIX "#HttpOnly_"
 
-constexpr auto COOKIES_SCHEMA_VERSION = 13;
+constexpr auto COOKIES_SCHEMA_VERSION = 14;
 
 // parameter indexes; see |Read|
 constexpr auto IDX_NAME = 0;
@@ -132,14 +132,7 @@ NS_IMETHODIMP
 ConvertAppIdToOriginAttrsSQLFunction::OnFunctionCall(
     mozIStorageValueArray* aFunctionArguments, nsIVariant** aResult) {
   nsresult rv;
-  int32_t inIsolatedMozBrowser;
-
-  rv = aFunctionArguments->GetInt32(1, &inIsolatedMozBrowser);
-  NS_ENSURE_SUCCESS(rv, rv);
-
-  // Create an originAttributes object by inIsolatedMozBrowser.
-  // Then create the originSuffix string from this object.
-  OriginAttributes attrs(inIsolatedMozBrowser != 0);
+  OriginAttributes attrs;
   nsAutoCString suffix;
   attrs.CreateSuffix(suffix);
 
@@ -205,7 +198,7 @@ SetInBrowserFromOriginAttributesSQLFunction::OnFunctionCall(
   NS_ENSURE_TRUE(success, NS_ERROR_FAILURE);
 
   RefPtr<nsVariant> outVar(new nsVariant());
-  rv = outVar->SetAsInt32(attrs.mInIsolatedMozBrowser);
+  rv = outVar->SetAsInt32(false);
   NS_ENSURE_SUCCESS(rv, rv);
 
   outVar.forget(aResult);
@@ -628,8 +621,8 @@ void CookiePersistentStorage::MaybeStoreCookiesToDB(
   MOZ_ASSERT(NS_SUCCEEDED(rv));
 }
 
-void CookiePersistentStorage::StaleCookies(const nsTArray<Cookie*>& aCookieList,
-                                           int64_t aCurrentTimeInUsec) {
+void CookiePersistentStorage::StaleCookies(
+    const nsTArray<RefPtr<Cookie>>& aCookieList, int64_t aCurrentTimeInUsec) {
   // Create an array of parameters to bind to our update statement. Batching
   // is OK here since we're updating cookies with no interleaved operations.
   nsCOMPtr<mozIStorageBindingParamsArray> paramsArray;
@@ -1395,10 +1388,6 @@ CookiePersistentStorage::OpenDBResult CookiePersistentStorage::TryInitDB(
 
         COOKIE_LOGSTRING(LogLevel::Debug,
                          ("Upgraded database to schema version 12"));
-
-        // No more upgrades. Update the schema version.
-        rv = mSyncConn->SetSchemaVersion(COOKIES_SCHEMA_VERSION);
-        NS_ENSURE_SUCCESS(rv, RESULT_RETRY);
       }
         [[fallthrough]];
 
@@ -1411,6 +1400,15 @@ CookiePersistentStorage::OpenDBResult CookiePersistentStorage::TryInitDB(
 
         COOKIE_LOGSTRING(LogLevel::Debug,
                          ("Upgraded database to schema version 13"));
+
+        [[fallthrough]];
+      }
+
+      case 13: {
+        rv = mSyncConn->ExecuteSimpleSQL(
+            nsLiteralCString("UPDATE moz_cookies SET expiry = unixepoch() + "
+                             "34560000 WHERE expiry > unixepoch() + 34560000"));
+        NS_ENSURE_SUCCESS(rv, RESULT_RETRY);
 
         // No more upgrades. Update the schema version.
         rv = mSyncConn->SetSchemaVersion(COOKIES_SCHEMA_VERSION);
@@ -2112,22 +2110,22 @@ void CookiePersistentStorage::CollectCookieJarSizeData() {
     if (cookieEntry.IsPartitioned()) {
       uint16_t cePartitioned = cookieEntry.GetCookies().Length();
       sumPartitioned += cePartitioned;
-      mozilla::glean::networking::cookie_count_part_by_key.AccumulateSamples(
-          {cePartitioned});
+      mozilla::glean::networking::cookie_count_part_by_key
+          .AccumulateSingleSample(cePartitioned);
     } else {
       uint16_t ceUnpartitioned = cookieEntry.GetCookies().Length();
       sumUnpartitioned += ceUnpartitioned;
-      mozilla::glean::networking::cookie_count_unpart_by_key.AccumulateSamples(
-          {ceUnpartitioned});
+      mozilla::glean::networking::cookie_count_unpart_by_key
+          .AccumulateSingleSample(ceUnpartitioned);
     }
   }
 
-  mozilla::glean::networking::cookie_count_total.AccumulateSamples(
-      {mCookieCount});
-  mozilla::glean::networking::cookie_count_partitioned.AccumulateSamples(
-      {sumPartitioned});
-  mozilla::glean::networking::cookie_count_unpartitioned.AccumulateSamples(
-      {sumUnpartitioned});
+  mozilla::glean::networking::cookie_count_total.AccumulateSingleSample(
+      mCookieCount);
+  mozilla::glean::networking::cookie_count_partitioned.AccumulateSingleSample(
+      sumPartitioned);
+  mozilla::glean::networking::cookie_count_unpartitioned.AccumulateSingleSample(
+      sumUnpartitioned);
 }
 
 }  // namespace net

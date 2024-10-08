@@ -109,6 +109,7 @@ class GlobalObjectData {
 
   ~GlobalObjectData();
 
+#ifndef NIGHTLY_BUILD
   // The global environment record's [[VarNames]] list that contains all
   // names declared using FunctionDeclaration, GeneratorDeclaration, and
   // VariableDeclaration declarations in global code in this global's realm.
@@ -117,6 +118,7 @@ class GlobalObjectData {
   using VarNamesSet =
       GCHashSet<HeapPtr<JSAtom*>, DefaultHasher<JSAtom*>, CellAllocPolicy>;
   VarNamesSet varNames;
+#endif
 
   // The original values for built-in constructors (with their prototype
   // objects) based on JSProtoKey.
@@ -129,8 +131,8 @@ class GlobalObjectData {
     HeapPtr<JSObject*> constructor;
     HeapPtr<JSObject*> prototype;
   };
-  using CtorArray =
-      mozilla::EnumeratedArray<JSProtoKey, JSProto_LIMIT, ConstructorWithProto>;
+  using CtorArray = mozilla::EnumeratedArray<JSProtoKey, ConstructorWithProto,
+                                             size_t(JSProto_LIMIT)>;
   CtorArray builtinConstructors;
 
   // Built-in prototypes for this global. Note that this is different from the
@@ -154,8 +156,8 @@ class GlobalObjectData {
 
     Limit
   };
-  using ProtoArray =
-      mozilla::EnumeratedArray<ProtoKind, ProtoKind::Limit, HeapPtr<JSObject*>>;
+  using ProtoArray = mozilla::EnumeratedArray<ProtoKind, HeapPtr<JSObject*>,
+                                              size_t(ProtoKind::Limit)>;
   ProtoArray builtinProtos;
 
   HeapPtr<GlobalScope*> emptyGlobalScope;
@@ -195,8 +197,9 @@ class GlobalObjectData {
 
   // Shape for PlainObject with %Object.prototype% as proto, for each object
   // AllocKind.
-  using PlainObjectShapeArray = mozilla::EnumeratedArray<
-      PlainObjectSlotsKind, PlainObjectSlotsKind::Limit, HeapPtr<SharedShape*>>;
+  using PlainObjectShapeArray =
+      mozilla::EnumeratedArray<PlainObjectSlotsKind, HeapPtr<SharedShape*>,
+                               size_t(PlainObjectSlotsKind::Limit)>;
   PlainObjectShapeArray plainObjectShapesWithDefaultProto;
 
   // Shape for JSFunction with %Function.prototype% as proto, for both
@@ -510,6 +513,10 @@ class GlobalObject : public NativeObject {
     MOZ_ASSERT(functionObjectClassesInitialized());
     return getPrototype(JSProto_Function);
   }
+  Handle<JSObject*> getFunctionPrototypeHandle() {
+    MOZ_ASSERT(functionObjectClassesInitialized());
+    return getPrototypeHandle(JSProto_Function);
+  }
   JSFunction& getEvalFunction() {
     MOZ_ASSERT(data().eval);
     return *data().eval;
@@ -604,6 +611,14 @@ class GlobalObject : public NativeObject {
     return &global->getPrototype(JSProto_RegExp);
   }
 
+  static JSObject* getOrCreateRegExpConstructor(JSContext* cx,
+                                                Handle<GlobalObject*> global) {
+    if (!ensureConstructor(cx, global, JSProto_RegExp)) {
+      return nullptr;
+    }
+    return &global->getConstructor(JSProto_RegExp);
+  }
+
   JSObject* maybeGetRegExpPrototype() {
     if (classIsInitialized(JSProto_RegExp)) {
       return &getPrototype(JSProto_RegExp);
@@ -641,6 +656,14 @@ class GlobalObject : public NativeObject {
       return nullptr;
     }
     return &global->getPrototype(JSProto_SharedArrayBuffer);
+  }
+
+  static JSObject* getOrCreateSharedArrayBufferConstructor(
+      JSContext* cx, Handle<GlobalObject*> global) {
+    if (!ensureConstructor(cx, global, JSProto_SharedArrayBuffer)) {
+      return nullptr;
+    }
+    return &global->getConstructor(JSProto_SharedArrayBuffer);
   }
 
   static JSObject* getOrCreateCustomErrorPrototype(JSContext* cx,
@@ -978,6 +1001,7 @@ class GlobalObject : public NativeObject {
   // global.
   bool valueIsEval(const Value& val);
 
+#ifndef NIGHTLY_BUILD
   void removeFromVarNames(JSAtom* name) { data().varNames.remove(name); }
 
   // Whether the given name is in [[VarNames]].
@@ -985,6 +1009,7 @@ class GlobalObject : public NativeObject {
 
   // Add a name to [[VarNames]].  Reports OOM on failure.
   [[nodiscard]] bool addToVarNames(JSContext* cx, JS::Handle<JSAtom*> name);
+#endif
 
   static ArgumentsObject* getOrCreateArgumentsTemplateObject(JSContext* cx,
                                                              bool mapped);
@@ -1055,10 +1080,7 @@ class GlobalObject : public NativeObject {
   void setSourceURLsHolder(ArrayObject* holder) {
     data().sourceURLsHolder = holder;
   }
-  void clearSourceURLSHolder() {
-    // This is called at the start of shrinking GCs, so avoids barriers.
-    data().sourceURLsHolder.unbarrieredSet(nullptr);
-  }
+  void clearSourceURLSHolder() { setSourceURLsHolder(nullptr); }
 
   SharedShape* maybeArrayShapeWithDefaultProto() const {
     return data().arrayShapeWithDefaultProto;

@@ -158,17 +158,10 @@ TransportFeedbackAdapter::ProcessTransportFeedback(
 
   TransportPacketsFeedback msg;
   msg.feedback_time = feedback_receive_time;
-
-  msg.prior_in_flight = in_flight_.GetOutstandingData(network_route_);
   msg.packet_feedbacks =
       ProcessTransportFeedbackInner(feedback, feedback_receive_time);
   if (msg.packet_feedbacks.empty())
     return absl::nullopt;
-
-  auto it = history_.find(last_ack_seq_num_);
-  if (it != history_.end()) {
-    msg.first_unacked_send_time = it->second.sent.send_time;
-  }
   msg.data_in_flight = in_flight_.GetOutstandingData(network_route_);
 
   return msg;
@@ -260,9 +253,10 @@ TransportFeedbackAdapter::ProcessTransportFeedbackInner(
       });
 
   if (failed_lookups > 0) {
-    RTC_LOG(LS_WARNING) << "Failed to lookup send time for " << failed_lookups
-                        << " packet" << (failed_lookups > 1 ? "s" : "")
-                        << ". Send time history too small?";
+    RTC_LOG(LS_WARNING)
+        << "Failed to lookup send time for " << failed_lookups << " packet"
+        << (failed_lookups > 1 ? "s" : "")
+        << ". Packets reordered or send time history too small?";
   }
   if (ignored > 0) {
     RTC_LOG(LS_INFO) << "Ignoring " << ignored

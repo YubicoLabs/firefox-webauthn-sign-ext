@@ -23,7 +23,7 @@
 #  define gettid() static_cast<pid_t>(syscall(__NR_gettid))
 #endif
 
-#if defined(JS_ION_PERF) && (defined(ANDROID) || defined(XP_MACOSX))
+#if defined(JS_ION_PERF) && (defined(ANDROID) || defined(XP_DARWIN))
 #  include <limits.h>
 #  include <stdlib.h>
 #  include <unistd.h>
@@ -42,7 +42,7 @@ char* get_current_dir_name() {
 }
 #endif
 
-#if defined(JS_ION_PERF) && defined(XP_MACOSX)
+#if defined(JS_ION_PERF) && defined(XP_DARWIN)
 #  include <pthread.h>
 #  include <unistd.h>
 
@@ -66,6 +66,7 @@ pid_t gettid_pthread() {
 #include "jit/Jitdump.h"
 #include "jit/JitSpewer.h"
 #include "jit/LIR.h"
+#include "jit/MIR-wasm.h"
 #include "jit/MIR.h"
 #include "js/ColumnNumber.h"  // JS::LimitedColumnNumberOneOrigin, JS::ColumnNumberOffset
 #include "js/JitCodeAPI.h"
@@ -128,7 +129,7 @@ static uint64_t GetMonotonicTimestamp() {
   return TimeStamp::Now().RawClockMonotonicNanosecondsSinceBoot();
 #  elif XP_WIN
   return TimeStamp::Now().RawQueryPerformanceCounterValue().value();
-#  elif XP_MACOSX
+#  elif XP_DARWIN
   return TimeStamp::Now().RawMachAbsoluteTimeNanoseconds();
 #  else
   MOZ_CRASH("no timestamp");
@@ -590,7 +591,8 @@ void BaselinePerfSpewer::recordInstruction(JSContext* cx, MacroAssembler& masm,
       case JSOp::SetName:
       case JSOp::SetGName:
       case JSOp::BindName:
-      case JSOp::BindGName:
+      case JSOp::BindUnqualifiedName:
+      case JSOp::BindUnqualifiedGName:
       case JSOp::GetName:
       case JSOp::GetGName: {
         // Emit the name used for these ops

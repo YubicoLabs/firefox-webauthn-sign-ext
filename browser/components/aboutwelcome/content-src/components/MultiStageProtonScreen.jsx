@@ -7,7 +7,7 @@ import { Localized } from "./MSLocalized";
 import { AboutWelcomeUtils } from "../lib/aboutwelcome-utils.mjs";
 import { MobileDownloads } from "./MobileDownloads";
 import { MultiSelect } from "./MultiSelect";
-import { Themes } from "./Themes";
+import { SingleSelect } from "./SingleSelect";
 import {
   SecondaryCTA,
   StepsIndicator,
@@ -39,14 +39,33 @@ export const MultiStageProtonScreen = props => {
     return () => {};
   }, [autoAdvance, handleAction, order]);
 
+  // Set narrow on an outer element to allow for use of SCSS outer selector and
+  // consolidation of styles for small screen widths with those for messages
+  // configured to always be narrow
+  if (props.content.narrow) {
+    document
+      .querySelector("#multi-stage-message-root")
+      ?.setAttribute("narrow", "");
+  } else {
+    // Clear narrow attribute in case it was set by a previous screen
+    document
+      .querySelector("#multi-stage-message-root")
+      ?.removeAttribute("narrow");
+  }
+
   return (
     <ProtonScreen
       content={props.content}
       id={props.id}
       order={props.order}
       activeTheme={props.activeTheme}
+      installedAddons={props.installedAddons}
+      screenMultiSelects={props.screenMultiSelects}
+      setScreenMultiSelects={props.setScreenMultiSelects}
       activeMultiSelect={props.activeMultiSelect}
       setActiveMultiSelect={props.setActiveMultiSelect}
+      activeSingleSelect={props.activeSingleSelect}
+      setActiveSingleSelect={props.setActiveSingleSelect}
       totalNumberOfScreens={props.totalNumberOfScreens}
       handleAction={props.handleAction}
       isFirstScreen={props.isFirstScreen}
@@ -236,19 +255,19 @@ export class ProtonScreen extends React.PureComponent {
       <picture className={className} style={{ marginInline, marginBlock }}>
         {darkModeReducedMotionImageURL ? (
           <source
-            srcSet={darkModeReducedMotionImageURL}
+            srcset={darkModeReducedMotionImageURL}
             media="(prefers-color-scheme: dark) and (prefers-reduced-motion: reduce)"
           />
         ) : null}
         {darkModeImageURL ? (
           <source
-            srcSet={darkModeImageURL}
+            srcset={darkModeImageURL}
             media="(prefers-color-scheme: dark)"
           />
         ) : null}
         {reducedMotionImageURL ? (
           <source
-            srcSet={reducedMotionImageURL}
+            srcset={reducedMotionImageURL}
             media="(prefers-reduced-motion: reduce)"
           />
         ) : null}
@@ -276,17 +295,21 @@ export class ProtonScreen extends React.PureComponent {
         content.tiles.data ? (
           <AddonsPicker
             content={content}
+            installedAddons={this.props.installedAddons}
             message_id={this.props.messageId}
             handleAction={this.props.handleAction}
           />
         ) : null}
         {content.tiles &&
-        content.tiles.type === "theme" &&
+        (content.tiles.type === "theme" ||
+          content.tiles.type === "single-select") &&
         content.tiles.data ? (
-          <Themes
+          <SingleSelect
             content={content}
             activeTheme={this.props.activeTheme}
             handleAction={this.props.handleAction}
+            activeSingleSelect={this.props.activeSingleSelect}
+            setActiveSingleSelect={this.props.setActiveSingleSelect}
           />
         ) : null}
         {content.tiles &&
@@ -302,12 +325,17 @@ export class ProtonScreen extends React.PureComponent {
         content.tiles.data ? (
           <MultiSelect
             content={content}
+            screenMultiSelects={this.props.screenMultiSelects}
+            setScreenMultiSelects={this.props.setScreenMultiSelects}
             activeMultiSelect={this.props.activeMultiSelect}
             setActiveMultiSelect={this.props.setActiveMultiSelect}
           />
         ) : null}
         {content.tiles && content.tiles.type === "migration-wizard" ? (
-          <EmbeddedMigrationWizard handleAction={this.props.handleAction} />
+          <EmbeddedMigrationWizard
+            handleAction={this.props.handleAction}
+            content={content}
+          />
         ) : null}
       </React.Fragment>
     );
@@ -353,13 +381,20 @@ export class ProtonScreen extends React.PureComponent {
   }
 
   renderStepsIndicator() {
-    const currentStep = (this.props.order ?? 0) + 1;
-    const previousStep = (this.props.previousOrder ?? -1) + 1;
-    const { content, totalNumberOfScreens: total } = this.props;
+    const {
+      order,
+      previousOrder,
+      content,
+      totalNumberOfScreens: total,
+      aboveButtonStepsIndicator,
+    } = this.props;
+    const currentStep = (order ?? 0) + 1;
+    const previousStep = (previousOrder ?? -1) + 1;
     return (
       <div
         id="steps"
         className={`steps${content.progress_bar ? " progress-bar" : ""}`}
+        above-button={aboveButtonStepsIndicator ? "" : null}
         data-l10n-id={
           content.steps_indicator?.string_id ||
           "onboarding-welcome-steps-indicator-label"
@@ -381,10 +416,7 @@ export class ProtonScreen extends React.PureComponent {
             totalNumberOfScreens={total}
           />
         ) : (
-          <StepsIndicator
-            order={this.props.order}
-            totalNumberOfScreens={total}
-          />
+          <StepsIndicator order={order} totalNumberOfScreens={total} />
         )}
       </div>
     );
@@ -406,6 +438,9 @@ export class ProtonScreen extends React.PureComponent {
             : {}
         }
       >
+        {content.dismiss_button && content.reverse_split
+          ? this.renderDismissButton()
+          : null}
         <Localized text={content.image_alt_text}>
           <div className="sr-only image-alt" role="img" />
         </Localized>
@@ -496,6 +531,8 @@ export class ProtonScreen extends React.PureComponent {
       <main
         className={`screen ${this.props.id || ""}
           ${screenClassName} ${textColorClass}`}
+        reverse-split={content.reverse_split ? "" : null}
+        fullscreen={content.fullscreen ? "" : null}
         role={ariaRole ?? "alertdialog"}
         layout={content.layout}
         pos={content.position || "center"}
@@ -504,6 +541,7 @@ export class ProtonScreen extends React.PureComponent {
         ref={input => {
           this.mainContentHeader = input;
         }}
+        no-rdm={content.no_rdm ? "" : null}
       >
         {isCenterPosition ? null : this.renderSecondarySection(content)}
         <div
@@ -525,7 +563,9 @@ export class ProtonScreen extends React.PureComponent {
             />
           ) : null}
           {includeNoodles ? this.renderNoodles() : null}
-          {content.dismiss_button ? this.renderDismissButton() : null}
+          {content.dismiss_button && !content.reverse_split
+            ? this.renderDismissButton()
+            : null}
           <div
             className={`main-content ${hideStepsIndicator ? "no-steps" : ""}`}
             style={{
@@ -537,9 +577,17 @@ export class ProtonScreen extends React.PureComponent {
                 content.width && content.position !== "split"
                   ? content.width
                   : null,
+              paddingBlock: content.split_content_padding_block
+                ? content.split_content_padding_block
+                : null,
+              paddingInline: content.split_content_padding_inline
+                ? content.split_content_padding_inline
+                : null,
             }}
           >
-            {content.logo ? this.renderPicture(content.logo) : null}
+            {content.logo && !content.fullscreen
+              ? this.renderPicture(content.logo)
+              : null}
 
             {isRtamo ? (
               <div className="rtamo-icon">
@@ -555,43 +603,53 @@ export class ProtonScreen extends React.PureComponent {
               </div>
             ) : null}
 
-            <div className="main-content-inner">
-              <div className={`welcome-text ${content.title_style || ""}`}>
-                {content.title ? this.renderTitle(content) : null}
+            <div
+              className="main-content-inner"
+              style={{
+                justifyContent: content.split_content_justify_content,
+              }}
+            >
+              {content.logo && content.fullscreen
+                ? this.renderPicture(content.logo)
+                : null}
+              {content.title || content.subtitle ? (
+                <div className={`welcome-text ${content.title_style || ""}`}>
+                  {content.title ? this.renderTitle(content) : null}
 
-                {content.subtitle ? (
-                  <Localized text={content.subtitle}>
-                    <h2
-                      data-l10n-args={JSON.stringify({
-                        "addon-name": this.props.addonName,
-                        ...this.props.appAndSystemLocaleInfo?.displayNames,
-                      })}
-                      aria-flowto={
-                        this.props.messageId?.includes("FEATURE_TOUR")
-                          ? "steps"
-                          : ""
-                      }
+                  {content.subtitle ? (
+                    <Localized text={content.subtitle}>
+                      <h2
+                        data-l10n-args={JSON.stringify({
+                          "addon-name": this.props.addonName,
+                          ...this.props.appAndSystemLocaleInfo?.displayNames,
+                        })}
+                        aria-flowto={
+                          this.props.messageId?.includes("FEATURE_TOUR")
+                            ? "steps"
+                            : ""
+                        }
+                      />
+                    </Localized>
+                  ) : null}
+                  {content.cta_paragraph ? (
+                    <CTAParagraph
+                      content={content.cta_paragraph}
+                      handleAction={this.props.handleAction}
                     />
-                  </Localized>
-                ) : null}
-                {content.cta_paragraph ? (
-                  <CTAParagraph
-                    content={content.cta_paragraph}
-                    handleAction={this.props.handleAction}
-                  />
-                ) : null}
-              </div>
+                  ) : null}
+                </div>
+              ) : null}
               {content.video_container ? (
                 <OnboardingVideo
                   content={content.video_container}
                   handleAction={this.props.handleAction}
                 />
               ) : null}
+              {this.renderContentTiles()}
+              {this.renderLanguageSwitcher()}
               {content.above_button_content
                 ? this.renderOrderedContent(content.above_button_content)
                 : null}
-              {this.renderContentTiles()}
-              {this.renderLanguageSwitcher()}
               {!hideStepsIndicator && aboveButtonStepsIndicator
                 ? this.renderStepsIndicator()
                 : null}

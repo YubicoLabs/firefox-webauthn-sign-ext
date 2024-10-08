@@ -15,14 +15,12 @@ import subprocess
 import sys
 from abc import ABCMeta, abstractmethod, abstractproperty
 from argparse import SUPPRESS, Action
-from contextlib import contextmanager
 from textwrap import dedent
 
 import mozpack.path as mozpath
 import requests
 import six
 from mozbuild.base import BuildEnvironmentNotFoundException, MozbuildObject
-from mozversioncontrol import Repository
 from taskgraph.util import taskcluster
 
 from .tasks import resolve_tests_by_suite
@@ -30,24 +28,6 @@ from .util.ssh import get_ssh_user
 
 here = pathlib.Path(__file__).parent
 build = MozbuildObject.from_environment(cwd=str(here))
-
-
-@contextmanager
-def try_config_commit(vcs: Repository, commit_message: str):
-    """Context manager that creates and removes a try config commit."""
-    # Add the `try_task_config.json` file if it exists.
-    try_task_config_path = pathlib.Path(build.topsrcdir) / "try_task_config.json"
-    if try_task_config_path.exists():
-        vcs.add_remove_files("try_task_config.json")
-
-    try:
-        # Create a try config commit.
-        vcs.create_try_commit(commit_message)
-
-        yield
-    finally:
-        # Revert the try config commit.
-        vcs.remove_current_commit()
 
 
 class ParameterConfig:
@@ -80,7 +60,7 @@ class TryConfig(ParameterConfig):
 
     def get_parameters(self, **kwargs):
         result = self.try_config(**kwargs)
-        if result is None:
+        if not result:
             return None
         return {"try_task_config": result}
 
@@ -149,6 +129,7 @@ class Pernosco(TryConfig):
         return super().add_arguments(group)
 
     def try_config(self, pernosco, **kwargs):
+        pernosco = pernosco or os.environ.get("MOZ_USE_PERNOSCO")
         if pernosco is None:
             return
 
@@ -187,9 +168,12 @@ class Pernosco(TryConfig):
                         break
 
         return {
+            "pernosco": True,
+            # TODO Bug 1907076: Remove the env below once Pernosco consumers
+            # are using the `pernosco-v1` task routes.
             "env": {
                 "PERNOSCO": str(int(pernosco)),
-            }
+            },
         }
 
     def validate(self, **kwargs):
@@ -232,6 +216,29 @@ class Path(TryConfig):
                 "MOZHARNESS_TEST_PATHS": six.ensure_text(
                     json.dumps(resolve_tests_by_suite(paths))
                 ),
+            }
+        }
+
+
+class Tag(TryConfig):
+    arguments = [
+        [
+            ["--tag"],
+            {
+                "action": "append",
+                "default": [],
+                "help": "Run tests matching the specified tag.",
+            },
+        ],
+    ]
+
+    def try_config(self, tag, **kwargs):
+        if not tag:
+            return
+
+        return {
+            "env": {
+                "MOZHARNESS_TEST_TAG": json.dumps(tag),
             }
         }
 
@@ -579,9 +586,18 @@ class WorkerOverrides(TryConfig):
                 ),
             },
         ],
+        [
+            ["--worker-type"],
+            {
+                "action": "append",
+                "dest": "worker_types",
+                "default": [],
+                "help": "Select tasks that only run on the specified worker.",
+            },
+        ],
     ]
 
-    def try_config(self, worker_overrides, worker_suffixes, **kwargs):
+    def try_config(self, worker_overrides, worker_suffixes, worker_types, **kwargs):
         from gecko_taskgraph.util.workertypes import get_worker_type
         from taskgraph.config import load_graph_config
 
@@ -601,7 +617,7 @@ class WorkerOverrides(TryConfig):
 
         if worker_suffixes:
             root = build.topsrcdir
-            root = os.path.join(root, "taskcluster", "ci")
+            root = os.path.join(root, "taskcluster")
             graph_config = load_graph_config(root)
             for worker_suffix in worker_suffixes:
                 alias, suffix = worker_suffix.split("=", 1)
@@ -621,8 +637,13 @@ class WorkerOverrides(TryConfig):
                     provisioner=provisioner, worker_type=worker_type, suffix=suffix
                 )
 
+        retVal = {}
+        if worker_types:
+            retVal["worker-types"] = list(overrides.keys()) + worker_types
+
         if overrides:
-            return {"worker-overrides": overrides}
+            retVal["worker-overrides"] = overrides
+        return retVal
 
 
 all_task_configs = {
@@ -635,6 +656,7 @@ all_task_configs = {
     "gecko-profile": GeckoProfile,
     "new-test-config": NewConfig,
     "path": Path,
+    "test-tag": Tag,
     "pernosco": Pernosco,
     "rebuild": Rebuild,
     "routes": Routes,

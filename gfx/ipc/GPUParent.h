@@ -42,7 +42,8 @@ class GPUParent final : public PGPUParent {
 
   bool Init(mozilla::ipc::UntypedEndpoint&& aEndpoint,
             const char* aParentBuildID);
-  void NotifyDeviceReset();
+  void NotifyDeviceReset(DeviceResetReason aReason,
+                         DeviceResetDetectPlace aPlace);
   void NotifyOverlayInfo(layers::OverlayInfo aInfo);
   void NotifySwapChainInfo(layers::SwapChainInfo aInfo);
   void NotifyDisableRemoteCanvas();
@@ -75,6 +76,8 @@ class GPUParent final : public PGPUParent {
   mozilla::ipc::IPCResult RecvUpdateVar(const GfxVarUpdate& pref);
   mozilla::ipc::IPCResult RecvPreferenceUpdate(const Pref& pref);
   mozilla::ipc::IPCResult RecvScreenInformationChanged();
+  mozilla::ipc::IPCResult RecvNotifyBatteryInfo(
+      const BatteryInformation& aBatteryInfo);
   mozilla::ipc::IPCResult RecvNewContentCompositorManager(
       Endpoint<PCompositorManagerParent>&& aEndpoint,
       const ContentParentId& aChildId, uint32_t aNamespace);

@@ -1,64 +1,39 @@
-From: Nico Grunbaum <na-g@nostrum.com>
-Date: Wed, 15 Nov 2023 22:33:00 +0000
-Subject: Bug 1863041 - P0 - add device filter control to
- RTCCameraVideoCapturer;r=pehrsons,webrtc-reviewers
+From: Andreas Pehrson <apehrson@mozilla.com>
+Date: Wed, 10 Apr 2024 21:54:00 +0000
+Subject: Bug 1888181 - (fix-52fec7d3) Limit scope of race checker in
+ VideoCaptureModuleV4L2::StartCapture. r=mjf
 
-I have filed this bug upstream: https://bugs.chromium.org/p/webrtc/issues/detail?id=15639
+TSAN detects a race between destroying the scoped race checker in StartCapture
+and creating the scoped race checker in CaptureProcess, because once the capture
+thread has been created (and given its run function) there is no synchronization
+before the run function starts to run.
 
-Differential Revision: https://phabricator.services.mozilla.com/D193172
-Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/91a763d768b74acc9cf4828f91a86df4a7b092ce
+This patch avoids the race by destroying the StartCapture scoped race checker
+before creating the capture thread.
+
+Differential Revision: https://phabricator.services.mozilla.com/D207203
+Mercurial Revision: https://hg.mozilla.org/mozilla-central/rev/b046a1446cee5ab485d4868b3ca9784b16b2d02f
 ---
- .../capturer/RTCCameraVideoCapturer.h           |  5 ++++-
- .../capturer/RTCCameraVideoCapturer.m           | 17 +++++++++++++++--
- 2 files changed, 19 insertions(+), 3 deletions(-)
+ modules/video_capture/linux/video_capture_v4l2.cc | 2 ++
+ 1 file changed, 2 insertions(+)
 
-diff --git a/sdk/objc/components/capturer/RTCCameraVideoCapturer.h b/sdk/objc/components/capturer/RTCCameraVideoCapturer.h
-index 370bfa70f0..b1f3f64f74 100644
---- a/sdk/objc/components/capturer/RTCCameraVideoCapturer.h
-+++ b/sdk/objc/components/capturer/RTCCameraVideoCapturer.h
-@@ -26,7 +26,10 @@ NS_EXTENSION_UNAVAILABLE_IOS("Camera not available in app extensions.")
- @property(readonly, nonatomic) AVCaptureSession *captureSession;
+diff --git a/modules/video_capture/linux/video_capture_v4l2.cc b/modules/video_capture/linux/video_capture_v4l2.cc
+index 6d8a5e463f..db2450a2c7 100644
+--- a/modules/video_capture/linux/video_capture_v4l2.cc
++++ b/modules/video_capture/linux/video_capture_v4l2.cc
+@@ -129,6 +129,7 @@ int32_t VideoCaptureModuleV4L2::StartCapture(
+     }
+   }
  
- // Returns list of available capture devices that support video capture.
--+ (NSArray<AVCaptureDevice *> *)captureDevices;
-++ (NSArray<AVCaptureDevice *> *)captureDevicesWithDeviceTypes:
-+    (NSArray<AVCaptureDeviceType> *)deviceTypes;
-+// Returns list of default capture devices types
-++ (NSArray<AVCaptureDeviceType> *)defaultCaptureDeviceTypes;
- // Returns list of formats that are supported by this class for this device.
- + (NSArray<AVCaptureDeviceFormat *> *)supportedFormatsForDevice:(AVCaptureDevice *)device;
- 
-diff --git a/sdk/objc/components/capturer/RTCCameraVideoCapturer.m b/sdk/objc/components/capturer/RTCCameraVideoCapturer.m
-index e7c47b4e99..1361207faf 100644
---- a/sdk/objc/components/capturer/RTCCameraVideoCapturer.m
-+++ b/sdk/objc/components/capturer/RTCCameraVideoCapturer.m
-@@ -117,14 +117,27 @@ const int64_t kNanosecondsPerSecond = 1000000000;
-   [[NSNotificationCenter defaultCenter] removeObserver:self];
- }
- 
--+ (NSArray<AVCaptureDevice *> *)captureDevices {
-++ (NSArray<AVCaptureDevice *> *)captureDevicesWithDeviceTypes:
-+    (NSArray<AVCaptureDeviceType> *)deviceTypes {
-   AVCaptureDeviceDiscoverySession *session = [AVCaptureDeviceDiscoverySession
--      discoverySessionWithDeviceTypes:@[ AVCaptureDeviceTypeBuiltInWideAngleCamera ]
-+      discoverySessionWithDeviceTypes:deviceTypes
-                             mediaType:AVMediaTypeVideo
-                              position:AVCaptureDevicePositionUnspecified];
-   return session.devices;
- }
- 
-++ (NSArray<AVCaptureDeviceType> *)defaultCaptureDeviceTypes {
-+  NSArray *types = @[ AVCaptureDeviceTypeBuiltInWideAngleCamera ];
-+#if !defined(WEBRTC_IOS)
-+  if (@available(macOS 14.0, *)) {
-+    types = [types arrayByAddingObject:AVCaptureDeviceTypeExternal];
-+  } else {
-+    types = [types arrayByAddingObject:AVCaptureDeviceTypeExternalUnknown];
++  {
+   // We don't want members above to be guarded by capture_checker_ as
+   // it's meant to be for members that are accessed on the API thread
+   // only when we are not capturing. The code above can be called many
+@@ -298,6 +299,7 @@ int32_t VideoCaptureModuleV4L2::StartCapture(
+   _requestedCapability = capability;
+   _captureStarted = true;
+   _streaming = true;
 +  }
-+#endif
-+  return types;
-+}
-+
- + (NSArray<AVCaptureDeviceFormat *> *)supportedFormatsForDevice:(AVCaptureDevice *)device {
-   // Support opening the device in any format. We make sure it's converted to a format we
-   // can handle, if needed, in the method `-setupVideoDataOutput`.
+ 
+   // start capture thread;
+   if (_captureThread.empty()) {

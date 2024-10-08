@@ -18,6 +18,7 @@ var crypto = require("crypto");
 const dnsPacket = require(`${node_http2_root}/../dns-packet`);
 const ip = require(`${node_http2_root}/../node_ip`);
 const { fork } = require("child_process");
+const { spawn } = require("child_process");
 const path = require("path");
 const zlib = require("zlib");
 
@@ -56,7 +57,7 @@ var framer_module = node_http2_root + "/lib/protocol/framer";
 var http2_framer = require(framer_module);
 var Serializer = http2_framer.Serializer;
 var originalTransform = Serializer.prototype._transform;
-var newTransform = function (frame, encoding, done) {
+var newTransform = function (frame) {
   if (frame.type == "DATA") {
     // Insert our empty DATA frame
     const emptyFrame = {};
@@ -834,6 +835,16 @@ function handleRequest(req, res) {
     });
     push.writeHead(200, pushResponseHeaders);
     push.end("ok");
+  } else if (u.pathname === "/hugecontinuedheaders") {
+    for (let i = 0; i < u.query.size; i++) {
+      res.setHeader(
+        "X-Test-Header-" + i,
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".repeat(1024)
+      );
+    }
+    res.writeHead(200);
+    res.end(content);
+    return;
   } else if (u.pathname === "/altsvc1") {
     if (
       req.httpVersionMajor != 2 ||
@@ -879,9 +890,13 @@ function handleRequest(req, res) {
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader(
       "Alt-Svc",
-      "h2=foo2.example.com:8000,h3-29=" +
-        req.headers["x-altsvc"] +
-        ",h3-30=foo2.example.com:8443"
+      "h2=foo2.example.com:8000,h3-29=" + req.headers["x-altsvc"]
+    );
+  } else if (u.pathname === "/http3-test3") {
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader(
+      "Alt-Svc",
+      "h3-29=" + req.headers["x-altsvc"] + ",h3=" + req.headers["x-altsvc"]
     );
   }
   // for use with test_trr.js
@@ -1678,7 +1693,7 @@ function handleRequest(req, res) {
   } else if (u.pathname === "/redirect_to_http") {
     res.setHeader(
       "Location",
-      `http://test.httpsrr.redirect.com:${u.query.port}/redirect_to_http`
+      `http://test.httpsrr.redirect.com:${u.query.port}/redirect_to_http?port=${u.query.port}`
     );
     res.writeHead(307);
     res.end("");
@@ -1753,7 +1768,7 @@ server.on("connection", function (socket) {
   });
 });
 
-server.on("connect", function (req, clientSocket, head) {
+server.on("connect", function (req, clientSocket) {
   clientSocket.write(
     "HTTP/1.1 404 Not Found\r\nProxy-agent: Node.js-Proxy\r\n\r\n"
   );
@@ -1818,6 +1833,17 @@ let httpServer = http.createServer((req, res) => {
     if (u.pathname == "/fork") {
       let id = forkProcess();
       computeAndSendBackResponse(id);
+      return;
+    }
+
+    if (u.pathname == "/forkH3Server") {
+      forkH3Server(u.query.path, u.query.dbPath)
+        .then(result => {
+          computeAndSendBackResponse(result);
+        })
+        .catch(error => {
+          computeAndSendBackResponse(error);
+        });
       return;
     }
 
@@ -1888,10 +1914,27 @@ let httpServer = http.createServer((req, res) => {
   });
 });
 
+function forkH3Server(serverPath, dbPath) {
+  const args = [dbPath];
+  let process = spawn(serverPath, args);
+  let id = forkProcessInternal(process);
+  // Return a promise that resolves when we receive data from stdout
+  return new Promise((resolve, _) => {
+    process.stdout.on("data", data => {
+      console.log(data.toString());
+      resolve({ id, output: data.toString().trim() });
+    });
+  });
+}
+
 function forkProcess() {
   let scriptPath = path.resolve(__dirname, "moz-http2-child.js");
-  let id = makeid(6);
   let forked = fork(scriptPath);
+  return forkProcessInternal(forked);
+}
+
+function forkProcessInternal(forked) {
+  let id = makeid(6);
   forked.errors = "";
   globalObjects[id] = forked;
   forked.on("message", msg => {

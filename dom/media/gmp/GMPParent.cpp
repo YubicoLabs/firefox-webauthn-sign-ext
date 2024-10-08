@@ -40,6 +40,7 @@
 #ifdef XP_WIN
 #  include "mozilla/FileUtilsWin.h"
 #  include "mozilla/WinDllServices.h"
+#  include "PDMFactory.h"
 #  include "WMFDecoderModule.h"
 #endif
 #if defined(MOZ_WIDGET_ANDROID)
@@ -512,6 +513,8 @@ void GMPParent::CloseIfUnused() {
 
     // Shutdown GMPStorage. Given that all protocol actors must be shutdown
     // (!Used() is true), all storage operations should be complete.
+    GMP_PARENT_LOG_DEBUG("%p shutdown storage (sz=%zu)", this,
+                         mStorage.Length());
     for (size_t i = mStorage.Length(); i > 0; i--) {
       mStorage[i - 1]->Shutdown();
     }
@@ -739,7 +742,8 @@ bool GMPCapability::Supports(const nsTArray<GMPCapability>& aCapabilities,
         // certain services packs.
         if (tag.EqualsLiteral(kClearKeyKeySystemName)) {
           if (capabilities.mAPIName.EqualsLiteral(GMP_API_VIDEO_DECODER)) {
-            if (!WMFDecoderModule::CanCreateMFTDecoder(WMFStreamType::H264)) {
+            auto pdmFactory = MakeRefPtr<PDMFactory>();
+            if (pdmFactory->SupportsMimeType("video/avc"_ns).isEmpty()) {
               continue;
             }
           }
@@ -770,13 +774,15 @@ bool GMPParent::EnsureProcessLoaded() {
 
 void GMPParent::AddCrashAnnotations() {
   if (mCrashReporter) {
-    mCrashReporter->AddAnnotation(CrashReporter::Annotation::GMPPlugin, true);
-    mCrashReporter->AddAnnotation(CrashReporter::Annotation::PluginFilename,
-                                  NS_ConvertUTF16toUTF8(mName));
-    mCrashReporter->AddAnnotation(CrashReporter::Annotation::PluginName,
-                                  mDisplayName);
-    mCrashReporter->AddAnnotation(CrashReporter::Annotation::PluginVersion,
-                                  mVersion);
+    mCrashReporter->AddAnnotationBool(CrashReporter::Annotation::GMPPlugin,
+                                      true);
+    mCrashReporter->AddAnnotationNSCString(
+        CrashReporter::Annotation::PluginFilename,
+        NS_ConvertUTF16toUTF8(mName));
+    mCrashReporter->AddAnnotationNSCString(
+        CrashReporter::Annotation::PluginName, mDisplayName);
+    mCrashReporter->AddAnnotationNSCString(
+        CrashReporter::Annotation::PluginVersion, mVersion);
   }
 }
 
@@ -1134,7 +1140,7 @@ RefPtr<GenericPromise> GMPParent::ParseChromiumManifest(
 #if XP_WIN
       // psapi.dll added for GetMappedFileNameW, which could possibly be avoided
       // in future versions, see bug 1383611 for details.
-      mLibs = "dxva2.dll, ole32.dll, psapi.dll, winmm.dll"_ns;
+      mLibs = "dxva2.dll, ole32.dll, psapi.dll, shell32.dll, winmm.dll"_ns;
 #endif
       break;
 #ifdef MOZ_WMF_CDM
@@ -1270,7 +1276,8 @@ bool GMPParent::OpenPGMPContent() {
   Endpoint<PGMPContentParent> parent;
   Endpoint<PGMPContentChild> child;
   if (NS_WARN_IF(NS_FAILED(PGMPContent::CreateEndpoints(
-          base::GetCurrentProcId(), OtherPid(), &parent, &child)))) {
+          mozilla::ipc::EndpointProcInfo::Current(), OtherEndpointProcInfo(),
+          &parent, &child)))) {
     return false;
   }
 

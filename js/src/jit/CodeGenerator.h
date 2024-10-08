@@ -109,6 +109,11 @@ class CodeGenerator final : public CodeGeneratorSpecific {
                                   const StoreOutputTo& out);
 
   template <typename LCallIns>
+  void emitCallNative(LCallIns* call, JSNative native, Register argContextReg,
+                      Register argUintNReg, Register argVpReg, Register tempReg,
+                      uint32_t unusedStack);
+
+  template <typename LCallIns>
   void emitCallNative(LCallIns* call, JSNative native);
 
  public:
@@ -204,6 +209,14 @@ class CodeGenerator final : public CodeGeneratorSpecific {
                              wasm::BytecodeOffset bytecodeOffset);
   void visitOutOfLineWasmNewArray(OutOfLineWasmNewArray* ool);
 
+#ifdef ENABLE_WASM_JSPI
+  void callWasmUpdateSuspenderState(wasm::UpdateSuspenderStateAction kind,
+                                    Register suspender, Register temp);
+  // Stack switching trampoline requires two arguments (suspender and data) to
+  // be passed. The function prepares stack and registers according Wasm ABI.
+  void prepareWasmStackSwitchTrampolineCall(Register suspender, Register data);
+#endif
+
  private:
   void emitPostWriteBarrier(const LAllocation* obj);
   void emitPostWriteBarrier(Register objreg);
@@ -239,11 +252,34 @@ class CodeGenerator final : public CodeGeneratorSpecific {
                          uint32_t extraFormals);
   void emitPushArrayAsArguments(Register tmpArgc, Register srcBaseAndArgc,
                                 Register scratch, size_t argvSrcOffset);
-  void emitPushArguments(LApplyArgsGeneric* apply, Register scratch);
-  void emitPushArguments(LApplyArgsObj* apply, Register scratch);
-  void emitPushArguments(LApplyArrayGeneric* apply, Register scratch);
-  void emitPushArguments(LConstructArgsGeneric* construct, Register scratch);
-  void emitPushArguments(LConstructArrayGeneric* construct, Register scratch);
+  void emitPushArguments(LApplyArgsGeneric* apply);
+  void emitPushArguments(LApplyArgsObj* apply);
+  void emitPushArguments(LApplyArrayGeneric* apply);
+  void emitPushArguments(LConstructArgsGeneric* construct);
+  void emitPushArguments(LConstructArrayGeneric* construct);
+
+  template <typename T>
+  void emitApplyNative(T* apply);
+  template <typename T>
+  void emitAlignStackForApplyNative(T* apply, Register argc);
+  template <typename T>
+  void emitPushNativeArguments(T* apply);
+  template <typename T>
+  void emitPushArrayAsNativeArguments(T* apply);
+  void emitPushArguments(LApplyArgsNative* apply);
+  void emitPushArguments(LApplyArgsObjNative* apply);
+  void emitPushArguments(LApplyArrayNative* apply);
+  void emitPushArguments(LConstructArgsNative* construct);
+  void emitPushArguments(LConstructArrayNative* construct);
+
+  template <typename T>
+  void emitApplyArgsGuard(T* apply);
+
+  template <typename T>
+  void emitApplyArgsObjGuard(T* apply);
+
+  template <typename T>
+  void emitApplyArrayGuard(T* apply);
 
   template <class GetInlinedArgument>
   void emitGetInlinedArgument(GetInlinedArgument* lir, Register index,
@@ -312,7 +348,8 @@ class CodeGenerator final : public CodeGeneratorSpecific {
                                        Register64 input, Register output);
 
   void emitCreateBigInt(LInstruction* lir, Scalar::Type type, Register64 input,
-                        Register output, Register maybeTemp);
+                        Register output, Register maybeTemp,
+                        Register64 maybeTemp64 = Register64::Invalid());
 
   template <size_t NumDefs>
   void emitIonToWasmCallBase(LIonToWasmCallBase<NumDefs>* lir);
@@ -420,10 +457,9 @@ class CodeGenerator final : public CodeGeneratorSpecific {
   uint32_t zoneStubsToReadBarrier_;
 
 #ifdef FUZZING_JS_FUZZILLI
-  void emitFuzzilliHashDouble(FloatRegister floatDouble, Register scratch,
-                              Register output);
   void emitFuzzilliHashObject(LInstruction* lir, Register obj, Register output);
-  void emitFuzzilliHashBigInt(Register bigInt, Register output);
+  void emitFuzzilliHashBigInt(LInstruction* lir, Register bigInt,
+                              Register output);
 #endif
 
 #define LIR_OP(op) void visit##op(L##op* ins);
@@ -435,39 +471,19 @@ class CodeGenerator final : public CodeGeneratorSpecific {
   void assertObjectDoesNotEmulateUndefined(Register input, Register temp,
                                            const MInstruction* mir);
 
-  // Enumerates the fuses that a code generation can depend on. These will
-  // be mapped to an actual fuse by validateAndRegisterFuseDependencies.
-  enum class FuseDependencyKind {
-    HasSeenObjectEmulateUndefinedFuse,
-  };
-
-  // The set of fuses this code generation depends on.
-  mozilla::EnumSet<FuseDependencyKind> fuseDependencies;
-
   // Register a dependency on the HasSeenObjectEmulateUndefined fuse.
-  void addHasSeenObjectEmulateUndefinedFuseDependency() {
-    fuseDependencies += FuseDependencyKind::HasSeenObjectEmulateUndefinedFuse;
-  }
+  bool addHasSeenObjectEmulateUndefinedFuseDependency();
 
-  // Called during linking on main-thread: Ensures that the fuses are still
-  // intact, and registers a script dependency on a specific fuse before
-  // finishing compilation.
-  void validateAndRegisterFuseDependencies(JSContext* cx, HandleScript script,
-                                           bool* isValid);
-
-  // Return true if the fuse is intact, andd if the fuse is intact note the
+  // Return true if the fuse is intact, and if the fuse is intact note the
   // dependency
   bool hasSeenObjectEmulateUndefinedFuseIntactAndDependencyNoted() {
-    if (!JS::Prefs::use_emulates_undefined_fuse()) {
-      // if we're not active, simply pretend the fuse is popped.
-      return false;
-    }
-
     bool intact = gen->outerInfo().hasSeenObjectEmulateUndefinedFuseIntact();
     if (intact) {
-      addHasSeenObjectEmulateUndefinedFuseDependency();
+      bool tryToAdd = addHasSeenObjectEmulateUndefinedFuseDependency();
+      // If we oom, just pretend that the fuse is popped.
+      return tryToAdd;
     }
-    return intact;
+    return false;
   }
 };
 

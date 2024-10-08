@@ -191,7 +191,11 @@ ABIFunctionType MacroAssembler::signature() const {
     case Args_Double_None:
     case Args_Int_Double:
     case Args_Float32_Float32:
+    case Args_Float32_Float64:
+    case Args_Float32_General:
+    case Args_Float32_Int32:
     case Args_Int_Float32:
+    case Args_Int32_Float32:
     case Args_Double_Double:
     case Args_Double_Int:
     case Args_Double_DoubleInt:
@@ -409,8 +413,12 @@ void MacroAssembler::addPtr(ImmPtr imm, Register dest) {
 // ===============================================================
 // Branch functions
 
-template <class L>
-void MacroAssembler::branchIfFalseBool(Register reg, L label) {
+void MacroAssembler::branchTest64(Condition cond, Register64 lhs,
+                                  Register64 rhs, Label* success, Label* fail) {
+  branchTest64(cond, lhs, rhs, InvalidReg, success, fail);
+}
+
+void MacroAssembler::branchIfFalseBool(Register reg, Label* label) {
   // Note that C++ bool is only 1 byte, so ignore the higher-order bits.
   branchTest32(Assembler::Zero, reg, Imm32(0xFF), label);
 }
@@ -484,17 +492,13 @@ void MacroAssembler::branchIfNotFunctionIsNonBuiltinCtor(Register fun,
   branch32(Assembler::NotEqual, scratch, Imm32(expected), label);
 }
 
-void MacroAssembler::branchIfFunctionHasNoJitEntry(Register fun,
-                                                   bool isConstructing,
-                                                   Label* label) {
-  uint16_t flags = FunctionFlags::HasJitEntryFlags(isConstructing);
+void MacroAssembler::branchIfFunctionHasNoJitEntry(Register fun, Label* label) {
+  uint16_t flags = FunctionFlags::HasJitEntryFlags();
   branchTestFunctionFlags(fun, flags, Assembler::Zero, label);
 }
 
-void MacroAssembler::branchIfFunctionHasJitEntry(Register fun,
-                                                 bool isConstructing,
-                                                 Label* label) {
-  uint16_t flags = FunctionFlags::HasJitEntryFlags(isConstructing);
+void MacroAssembler::branchIfFunctionHasJitEntry(Register fun, Label* label) {
+  uint16_t flags = FunctionFlags::HasJitEntryFlags();
   branchTestFunctionFlags(fun, flags, Assembler::NonZero, label);
 }
 
@@ -544,22 +548,23 @@ void MacroAssembler::branchIfObjectEmulatesUndefined(Register objReg,
   MOZ_ASSERT(objReg != scratch);
 
   Label done;
-  if (JS::Prefs::use_emulates_undefined_fuse()) {
-    loadPtr(AbsoluteAddress(
-                runtime()->addressOfHasSeenObjectEmulateUndefinedFuse()),
-            scratch);
-    branchPtr(Assembler::Equal, scratch, ImmPtr(nullptr), &done);
-  }
 
-  // The branches to out-of-line code here implement a conservative version
-  // of the JSObject::isWrapper test performed in EmulatesUndefined.
+  loadPtr(
+      AbsoluteAddress(runtime()->addressOfHasSeenObjectEmulateUndefinedFuse()),
+      scratch);
+  branchPtr(Assembler::Equal, scratch, ImmPtr(nullptr), &done);
+
   loadObjClassUnsafe(objReg, scratch);
-
-  branchTestClassIsProxy(true, scratch, slowCheck);
 
   Address flags(scratch, JSClass::offsetOfFlags());
   branchTest32(Assembler::NonZero, flags, Imm32(JSCLASS_EMULATES_UNDEFINED),
                label);
+
+  // Call into C++ if the object is a wrapper.
+  branchTestClassIsProxy(false, scratch, &done);
+  branchTestProxyHandlerFamily(Assembler::Equal, objReg, scratch,
+                               &Wrapper::family, slowCheck);
+
   bind(&done);
 }
 
@@ -606,9 +611,7 @@ void MacroAssembler::branchTestObjClass(Condition cond, Register obj,
   MOZ_ASSERT(obj != scratch);
   MOZ_ASSERT(scratch != spectreRegToZero);
 
-  loadPtr(Address(obj, JSObject::offsetOfShape()), scratch);
-  loadPtr(Address(scratch, Shape::offsetOfBaseShape()), scratch);
-  loadPtr(Address(scratch, BaseShape::offsetOfClasp()), scratch);
+  loadObjClassUnsafe(obj, scratch);
   branchPtr(cond, clasp, scratch, label);
 
   if (JitOptions.spectreObjectMitigations) {
@@ -620,9 +623,7 @@ void MacroAssembler::branchTestObjClassNoSpectreMitigations(
     Condition cond, Register obj, const Address& clasp, Register scratch,
     Label* label) {
   MOZ_ASSERT(obj != scratch);
-  loadPtr(Address(obj, JSObject::offsetOfShape()), scratch);
-  loadPtr(Address(scratch, Shape::offsetOfBaseShape()), scratch);
-  loadPtr(Address(scratch, BaseShape::offsetOfClasp()), scratch);
+  loadObjClassUnsafe(obj, scratch);
   branchPtr(cond, clasp, scratch, label);
 }
 
@@ -633,9 +634,7 @@ void MacroAssembler::branchTestObjClass(Condition cond, Register obj,
   MOZ_ASSERT(obj != scratch);
   MOZ_ASSERT(scratch != spectreRegToZero);
 
-  loadPtr(Address(obj, JSObject::offsetOfShape()), scratch);
-  loadPtr(Address(scratch, Shape::offsetOfBaseShape()), scratch);
-  loadPtr(Address(scratch, BaseShape::offsetOfClasp()), scratch);
+  loadObjClassUnsafe(obj, scratch);
   branchPtr(cond, clasp, scratch, label);
 
   if (JitOptions.spectreObjectMitigations) {
@@ -643,20 +642,51 @@ void MacroAssembler::branchTestObjClass(Condition cond, Register obj,
   }
 }
 
-void MacroAssembler::branchTestClassIsFunction(Condition cond, Register clasp,
-                                               Label* label) {
+void MacroAssembler::branchTestClass(
+    Condition cond, Register clasp,
+    std::pair<const JSClass*, const JSClass*> classes, Label* label) {
   MOZ_ASSERT(cond == Assembler::Equal || cond == Assembler::NotEqual);
 
   if (cond == Assembler::Equal) {
-    branchPtr(Assembler::Equal, clasp, ImmPtr(&FunctionClass), label);
-    branchPtr(Assembler::Equal, clasp, ImmPtr(&ExtendedFunctionClass), label);
+    branchPtr(Assembler::Equal, clasp, ImmPtr(classes.first), label);
+    branchPtr(Assembler::Equal, clasp, ImmPtr(classes.second), label);
     return;
   }
 
-  Label isFunction;
-  branchPtr(Assembler::Equal, clasp, ImmPtr(&FunctionClass), &isFunction);
-  branchPtr(Assembler::NotEqual, clasp, ImmPtr(&ExtendedFunctionClass), label);
-  bind(&isFunction);
+  Label isClass;
+  branchPtr(Assembler::Equal, clasp, ImmPtr(classes.first), &isClass);
+  branchPtr(Assembler::NotEqual, clasp, ImmPtr(classes.second), label);
+  bind(&isClass);
+}
+
+void MacroAssembler::branchTestObjClass(
+    Condition cond, Register obj,
+    std::pair<const JSClass*, const JSClass*> classes, Register scratch,
+    Register spectreRegToZero, Label* label) {
+  MOZ_ASSERT(scratch != spectreRegToZero);
+
+  branchTestObjClassNoSpectreMitigations(cond, obj, classes, scratch, label);
+
+  if (JitOptions.spectreObjectMitigations) {
+    spectreZeroRegister(cond, scratch, spectreRegToZero);
+  }
+}
+
+void MacroAssembler::branchTestObjClassNoSpectreMitigations(
+    Condition cond, Register obj,
+    std::pair<const JSClass*, const JSClass*> classes, Register scratch,
+    Label* label) {
+  MOZ_ASSERT(cond == Assembler::Equal || cond == Assembler::NotEqual);
+  MOZ_ASSERT(obj != scratch);
+
+  loadObjClassUnsafe(obj, scratch);
+  branchTestClass(cond, scratch, classes, label);
+}
+
+void MacroAssembler::branchTestClassIsFunction(Condition cond, Register clasp,
+                                               Label* label) {
+  return branchTestClass(cond, clasp, {&FunctionClass, &ExtendedFunctionClass},
+                         label);
 }
 
 void MacroAssembler::branchTestObjIsFunction(Condition cond, Register obj,
@@ -677,9 +707,7 @@ void MacroAssembler::branchTestObjIsFunctionNoSpectreMitigations(
   MOZ_ASSERT(cond == Assembler::Equal || cond == Assembler::NotEqual);
   MOZ_ASSERT(obj != scratch);
 
-  loadPtr(Address(obj, JSObject::offsetOfShape()), scratch);
-  loadPtr(Address(scratch, Shape::offsetOfBaseShape()), scratch);
-  loadPtr(Address(scratch, BaseShape::offsetOfClasp()), scratch);
+  loadObjClassUnsafe(obj, scratch);
   branchTestClassIsFunction(cond, scratch, label);
 }
 
@@ -973,6 +1001,26 @@ void MacroAssembler::fallibleUnboxBigInt(const T& src, Register dest,
 
 //}}} check_macroassembler_style
 // ===============================================================
+
+void MacroAssembler::ensureDouble(const ValueOperand& source,
+                                  FloatRegister dest, Label* failure) {
+  Label isDouble, done;
+
+  {
+    ScratchTagScope tag(*this, source);
+    splitTagForTest(source, tag);
+    branchTestDouble(Assembler::Equal, tag, &isDouble);
+    branchTestInt32(Assembler::NotEqual, tag, failure);
+  }
+
+  convertInt32ToDouble(source.payloadOrValueReg(), dest);
+  jump(&done);
+
+  bind(&isDouble);
+  unboxDouble(source, dest);
+
+  bind(&done);
+}
 
 #ifndef JS_CODEGEN_ARM64
 

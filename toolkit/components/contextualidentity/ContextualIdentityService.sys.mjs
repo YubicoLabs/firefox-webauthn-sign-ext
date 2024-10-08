@@ -41,7 +41,7 @@ _TabRemovalObserver.prototype = {
 
   QueryInterface: ChromeUtils.generateQI(["nsIObserver"]),
 
-  observe(subject, topic, data) {
+  observe(subject) {
     let remoteTab = subject.QueryInterface(Ci.nsIRemoteTab);
     if (this._remoteTabIds.has(remoteTab.tabId)) {
       this._remoteTabIds.delete(remoteTab.tabId);
@@ -90,7 +90,7 @@ _ContextualIdentityService.prototype = {
       name: "userContextIdInternal.thumbnail",
       accessKey: "",
     },
-    // This userContextId is used by ExtensionStorageIDB.jsm to create an IndexedDB database
+    // This userContextId is used by ExtensionStorageIDB.sys.mjs to create an IndexedDB database
     // opened with the extension principal but not directly accessible to the extension code
     // (do not change the userContextId assigned here, otherwise the installed extensions will
     // not be able to access the data previously stored with the browser.storage.local API).

@@ -7,6 +7,8 @@
 
 add_common_setup();
 
+requestLongerTimeout(2);
+
 async function ensureTabOrder(order, win = window) {
   const config = { window: win };
   for (let matches of order) {
@@ -122,12 +124,9 @@ add_task(async function testTabOrdering() {
   ensureReportBrokenSitePreffedOn();
   ensureSendMoreInfoEnabled();
 
-  await BrowserTestUtils.withNewTab(
-    REPORTABLE_PAGE_URL,
-    async function (browser) {
-      await testTabOrder(AppMenu());
-      await testTabOrder(ProtectionsPanel());
-      await testTabOrder(HelpMenu());
-    }
-  );
+  await BrowserTestUtils.withNewTab(REPORTABLE_PAGE_URL, async function () {
+    await testTabOrder(AppMenu());
+    await testTabOrder(ProtectionsPanel());
+    await testTabOrder(HelpMenu());
+  });
 });

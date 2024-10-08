@@ -30,6 +30,10 @@ bool FissionExperimentEnrolled();
 // fission.disableSessionHistoryInParent is false.
 bool SessionHistoryInParent();
 
+// Returns true if SessionHistoryInParent() is true and
+// browser.sessionstore.disable_platform_collection is false.
+bool SessionStorePlatformCollection();
+
 // Returns true if SessionHistoryInParent() returns true and
 // fission.bfcacheInParent is true.
 bool BFCacheInParent();
@@ -169,6 +173,11 @@ interface nsIXULRuntime : nsISupports
   readonly attribute boolean sessionHistoryInParent;
 
   /**
+   * Whether Gecko code drives session store collection data.
+   */
+  readonly attribute boolean sessionStorePlatformCollection;
+
+  /**
    * Whether to write console errors to a log file. If a component
    * encounters startup errors that might prevent the app from showing
    * proper UI, it should set this flag to "true".
@@ -288,15 +297,6 @@ interface nsIXULRuntime : nsISupports
    * fastload data to be re-created.
    */
   void invalidateCachesOnRestart();
-
-  /**
-   * Starts a child process. This method is intented to pre-start a
-   * content child process so that when it is actually needed, it is
-   * ready to go.
-   *
-   * @throw NS_ERROR_NOT_AVAILABLE if not available.
-   */
-  void ensureContentProcess();
 
   /**
    * Modification time of the profile lock before the profile was locked on

@@ -586,13 +586,13 @@ class ProfileBufferEntryWriter {
 //
 // Usage: `aEW.WriteObject(123);`.
 //
-// Raw pointers, though trivially-copyable, are explictly forbidden when writing
-// (to avoid unexpected leaks/UAFs), instead use one of
+// Raw pointers, though trivially-copyable, are explicitly forbidden when
+// writing (to avoid unexpected leaks/UAFs), instead use one of
 // `WrapProfileBufferLiteralCStringPointer`, `WrapProfileBufferUnownedCString`,
 // or `WrapProfileBufferRawPointer` as needed.
 template <typename T>
 struct ProfileBufferEntryWriter::Serializer {
-  static_assert(std::is_trivially_copyable<T>::value,
+  static_assert(std::is_trivially_copyable_v<T>,
                 "Serializer only works with trivially-copyable types by "
                 "default, use/add specialization for other types.");
 
@@ -609,7 +609,7 @@ struct ProfileBufferEntryWriter::Serializer {
 // Usage: `aER.ReadObject<int>();` or `int x; aER.ReadIntoObject(x);`.
 template <typename T>
 struct ProfileBufferEntryReader::Deserializer {
-  static_assert(std::is_trivially_copyable<T>::value,
+  static_assert(std::is_trivially_copyable_v<T>,
                 "Deserializer only works with trivially-copyable types by "
                 "default, use/add specialization for other types.");
 

@@ -11,6 +11,7 @@
 #include "MainThreadUtils.h"
 #include "ScriptLoader.h"
 #include "js/ContextOptions.h"
+#include "mozilla/Atomics.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/AutoRestore.h"
 #include "mozilla/BasePrincipal.h"
@@ -42,13 +43,14 @@
 #include "mozilla/StaticPrefs_extensions.h"
 #include "nsContentUtils.h"
 #include "nsIChannel.h"
-#include "nsIContentSecurityPolicy.h"
+#include "nsIContentPolicy.h"
 #include "nsIEventTarget.h"
 #include "nsILoadInfo.h"
 #include "nsRFPService.h"
 #include "nsTObserverArray.h"
 #include "stdint.h"
 
+class nsIContentSecurityPolicy;
 class nsIThreadInternal;
 
 namespace JS {
@@ -77,6 +79,7 @@ class JSExecutionManager;
 class MessagePort;
 class UniqueMessagePortId;
 class PerformanceStorage;
+class StrongWorkerRef;
 class TimeoutHandler;
 class WorkerControlRunnable;
 class WorkerCSPEventListener;
@@ -85,10 +88,12 @@ class WorkerDebuggerGlobalScope;
 class WorkerErrorReport;
 class WorkerEventTarget;
 class WorkerGlobalScope;
+class WorkerParentRef;
 class WorkerRef;
 class WorkerRunnable;
 class WorkerDebuggeeRunnable;
 class WorkerThread;
+class WorkerThreadRunnable;
 
 // SharedMutex is a small wrapper around an (internal) reference-counted Mutex
 // object. It exists to avoid changing a lot of code to use Mutex* instead of
@@ -293,6 +298,17 @@ class WorkerPrivate final
     mCondVar.Notify();
   }
 
+  // Mark worker private as running in the background tab
+  // for further throttling
+  void SetIsRunningInBackground();
+
+  void SetIsRunningInForeground();
+
+  bool ChangeBackgroundStateInternal(bool aIsBackground);
+
+  // returns true, if worker is running in the background tab
+  bool IsRunningInBackground() const { return mIsInBackground; }
+
   void WaitForIsDebuggerRegistered(bool aDebuggerRegistered) {
     AssertIsOnParentThread();
 
@@ -354,7 +370,7 @@ class WorkerPrivate final
 
   void UnrootGlobalScopes();
 
-  bool InterruptCallback(JSContext* aCx);
+  MOZ_CAN_RUN_SCRIPT bool InterruptCallback(JSContext* aCx);
 
   bool IsOnCurrentThread();
 
@@ -391,7 +407,7 @@ class WorkerPrivate final
 
   void SetDebuggerImmediate(Function& aHandler, ErrorResult& aRv);
 
-  void ReportErrorToDebugger(const nsAString& aFilename, uint32_t aLineno,
+  void ReportErrorToDebugger(const nsACString& aFilename, uint32_t aLineno,
                              const nsAString& aMessage);
 
   bool NotifyInternal(WorkerStatus aStatus);
@@ -535,6 +551,7 @@ class WorkerPrivate final
 
   void ClearPreStartRunnables();
 
+  MOZ_CAN_RUN_SCRIPT void ProcessSingleDebuggerRunnable();
   void ClearDebuggerEventQueue();
 
   void OnProcessNextEvent();
@@ -590,7 +607,7 @@ class WorkerPrivate final
                                 uint32_t aFlags = NS_DISPATCH_NORMAL);
 
   nsresult DispatchDebuggeeToMainThread(
-      already_AddRefed<WorkerDebuggeeRunnable> aRunnable,
+      already_AddRefed<WorkerRunnable> aRunnable,
       uint32_t aFlags = NS_DISPATCH_NORMAL);
 
   // Get an event target that will dispatch runnables as control runnables on
@@ -628,6 +645,13 @@ class WorkerPrivate final
 
     MutexAutoLock lock(mMutex);
     return mParentStatus < Canceling;
+  }
+
+  // This method helps know if the Worker is already at Dead status.
+  // Note that it is racy. The status may change after the function returns.
+  bool IsDead() MOZ_EXCLUDES(mMutex) {
+    MutexAutoLock lock(mMutex);
+    return mStatus == Dead;
   }
 
   WorkerStatus ParentStatusProtected() {
@@ -695,6 +719,16 @@ class WorkerPrivate final
   // worker, so WorkerPrivate* should be safe in the moment of calling.
   // We would like to have stronger type-system annotated/enforced handling.
   WorkerPrivate* GetParent() const { return mParent; }
+
+  // Returns the top level worker. It can be the current worker if it's the top
+  // level one.
+  WorkerPrivate* GetTopLevelWorker() const {
+    WorkerPrivate const* wp = this;
+    while (wp->GetParent()) {
+      wp = wp->GetParent();
+    }
+    return const_cast<WorkerPrivate*>(wp);
+  }
 
   bool IsFrozen() const {
     AssertIsOnParentThread();
@@ -972,9 +1006,7 @@ class WorkerPrivate final
   }
 
   // Determine if the worker was created under a third-party context.
-  bool IsThirdPartyContextToTopWindow() const {
-    return mLoadInfo.mIsThirdPartyContextToTopWindow;
-  }
+  bool IsThirdPartyContext() const { return mLoadInfo.mIsThirdPartyContext; }
 
   bool IsWatchedByDevTools() const { return mLoadInfo.mWatchedByDevTools; }
 
@@ -997,6 +1029,8 @@ class WorkerPrivate final
   bool Thaw(const nsPIDOMWindowInner* aWindow);
 
   void PropagateStorageAccessPermissionGranted();
+
+  void NotifyStorageKeyUsed();
 
   void EnableDebugger();
 
@@ -1050,12 +1084,15 @@ class WorkerPrivate final
                     nsIEventTarget* aSyncLoopTarget = nullptr);
 
   nsresult DispatchControlRunnable(
-      already_AddRefed<WorkerControlRunnable> aWorkerControlRunnable);
+      already_AddRefed<WorkerRunnable> aWorkerRunnable);
 
   nsresult DispatchDebuggerRunnable(
       already_AddRefed<WorkerRunnable> aDebuggerRunnable);
 
+  nsresult DispatchToParent(already_AddRefed<WorkerRunnable> aRunnable);
+
   bool IsOnParentThread() const;
+  void DebuggerInterruptRequest();
 
 #ifdef DEBUG
   void AssertIsOnParentThread() const;
@@ -1171,6 +1208,24 @@ class WorkerPrivate final
   // Worker thread only.
   void AdjustNonblockingCCBackgroundActorCount(int32_t aCount);
 
+  RefPtr<WorkerParentRef> GetWorkerParentRef() const;
+
+  bool MayContinueRunning() {
+    AssertIsOnWorkerThread();
+
+    WorkerStatus status;
+    {
+      MutexAutoLock lock(mMutex);
+      status = mStatus;
+    }
+
+    if (status < Canceling) {
+      return true;
+    }
+
+    return false;
+  }
+
  private:
   WorkerPrivate(
       WorkerPrivate* aParent, const nsAString& aScriptURL, bool aIsChromeWorker,
@@ -1192,22 +1247,6 @@ class WorkerPrivate final
   static AgentClusterIdAndCoop ComputeAgentClusterIdAndCoop(
       WorkerPrivate* aParent, WorkerKind aWorkerKind,
       WorkerLoadInfo* aLoadInfo);
-
-  bool MayContinueRunning() {
-    AssertIsOnWorkerThread();
-
-    WorkerStatus status;
-    {
-      MutexAutoLock lock(mMutex);
-      status = mStatus;
-    }
-
-    if (status < Canceling) {
-      return true;
-    }
-
-    return false;
-  }
 
   void CancelAllTimeouts();
 
@@ -1368,8 +1407,9 @@ class WorkerPrivate final
 
   WorkerDebugger* mDebugger;
 
-  workerinternals::Queue<WorkerControlRunnable*, 4> mControlQueue;
-  workerinternals::Queue<WorkerRunnable*, 4> mDebuggerQueue;
+  workerinternals::Queue<WorkerRunnable*, 4> mControlQueue;
+  workerinternals::Queue<WorkerRunnable*, 4> mDebuggerQueue
+      MOZ_GUARDED_BY(mMutex);
 
   // Touched on multiple threads, protected with mMutex. Only modified on the
   // worker thread
@@ -1419,7 +1459,8 @@ class WorkerPrivate final
   RefPtr<WorkerCSPEventListener> mCSPEventListener;
 
   // Protected by mMutex.
-  nsTArray<RefPtr<WorkerRunnable>> mPreStartRunnables MOZ_GUARDED_BY(mMutex);
+  nsTArray<RefPtr<WorkerThreadRunnable>> mPreStartRunnables
+      MOZ_GUARDED_BY(mMutex);
 
   // Only touched on the parent thread.  Used for both SharedWorker and
   // ServiceWorker RemoteWorkers.
@@ -1512,6 +1553,13 @@ class WorkerPrivate final
     uint32_t mCurrentTimerNestingLevel;
 
     bool mFrozen;
+
+    // This flag is set by the debugger interrupt control runnable to indicate
+    // that we want to process debugger runnables as part of control runnable
+    // processing, which is something we don't normally want to do. The flag is
+    // cleared after processing the debugger runnables.
+    bool mDebuggerInterruptRequested;
+
     bool mTimerRunning;
     bool mRunningExpiredTimeouts;
     bool mPeriodicGCTimerRunning;
@@ -1534,10 +1582,13 @@ class WorkerPrivate final
     ~AutoPushEventLoopGlobal();
 
    private:
-    // We cannot make this CheckedUnsafePtr<WorkerPrivate> as this would violate
-    // our static assert
-    MOZ_NON_OWNING_REF WorkerPrivate* mWorkerPrivate;
     nsCOMPtr<nsIGlobalObject> mOldEventLoopGlobal;
+
+#ifdef DEBUG
+    // This is used to checking if we are on the right stack while push the
+    // mOldEventLoopGlobal back.
+    nsCOMPtr<nsIGlobalObject> mNewEventLoopGlobal;
+#endif
   };
   friend class AutoPushEventLoopGlobal;
 
@@ -1556,6 +1607,16 @@ class WorkerPrivate final
   bool mIsChromeWorker;
   bool mParentFrozen;
 
+  // In order to ensure that the debugger can interrupt a busy worker,
+  // including when atomics are used, we reuse the worker's existing
+  // JS Interrupt facility used by control runnables.
+  // Rather that triggering an interrupt immediately when a debugger runnable
+  // is dispatched, we instead start a timer that will fire if we haven't
+  // already processed the runnable, targeting the timer's callback at the
+  // control event target. This allows existing runnables that were going to
+  // finish in a timely fashion to finish.
+  nsCOMPtr<nsITimer> mDebuggerInterruptTimer MOZ_GUARDED_BY(mMutex);
+
   // mIsSecureContext is set once in our constructor; after that it can be read
   // from various threads.
   //
@@ -1565,6 +1626,7 @@ class WorkerPrivate final
   const bool mIsSecureContext;
 
   bool mDebuggerRegistered MOZ_GUARDED_BY(mMutex);
+  mozilla::Atomic<bool> mIsInBackground;
 
   // During registration, this worker may be marked as not being ready to
   // execute debuggee runnables or content.
@@ -1620,44 +1682,66 @@ class WorkerPrivate final
 
   // The flag indicates if the worke is idle for events in the main event loop.
   bool mWorkerLoopIsIdle MOZ_GUARDED_BY(mMutex){false};
+
+  // This flag is used to ensure we only call NotifyStorageKeyUsed once per
+  // global.
+  bool hasNotifiedStorageKeyUsed{false};
+
+  RefPtr<WorkerParentRef> mParentRef;
 };
 
 class AutoSyncLoopHolder {
-  CheckedUnsafePtr<WorkerPrivate> mWorkerPrivate;
+  RefPtr<StrongWorkerRef> mWorkerRef;
   nsCOMPtr<nsISerialEventTarget> mTarget;
   uint32_t mIndex;
 
  public:
   // See CreateNewSyncLoop() for more information about the correct value to use
   // for aFailStatus.
-  AutoSyncLoopHolder(WorkerPrivate* aWorkerPrivate, WorkerStatus aFailStatus)
-      : mWorkerPrivate(aWorkerPrivate),
-        mTarget(aWorkerPrivate->CreateNewSyncLoop(aFailStatus)),
-        mIndex(aWorkerPrivate->mSyncLoopStack.Length() - 1) {
-    aWorkerPrivate->AssertIsOnWorkerThread();
-  }
+  AutoSyncLoopHolder(WorkerPrivate* aWorkerPrivate, WorkerStatus aFailStatus,
+                     const char* const aName = "AutoSyncLoopHolder");
 
-  ~AutoSyncLoopHolder() {
-    if (mWorkerPrivate && mTarget) {
-      mWorkerPrivate->AssertIsOnWorkerThread();
-      mWorkerPrivate->StopSyncLoop(mTarget, NS_ERROR_FAILURE);
-      mWorkerPrivate->DestroySyncLoop(mIndex);
-    }
-  }
+  ~AutoSyncLoopHolder();
 
-  nsresult Run() {
-    CheckedUnsafePtr<WorkerPrivate> workerPrivate = mWorkerPrivate;
-    mWorkerPrivate = nullptr;
+  nsresult Run();
 
-    workerPrivate->AssertIsOnWorkerThread();
+  nsISerialEventTarget* GetSerialEventTarget() const;
+};
 
-    return workerPrivate->RunCurrentSyncLoop();
-  }
+/**
+ * WorkerParentRef is a RefPtr<WorkerPrivate> wrapper for cross-thread access.
+ * WorkerPrivate needs to be accessed in multiple threads; for example,
+ * in WorkerParentThreadRunnable, the associated WorkerPrivate must be accessed
+ * in the worker thread when creating/dispatching and in the parent thread when
+ * executing. Unfortunately, RefPtr can not be used on this WorkerPrivate since
+ * it is not a thread-safe ref-counted object.
+ *
+ * Instead of using a raw pointer and a complicated mechanism to ensure the
+ * WorkerPrivate's accessibility. WorkerParentRef is used to resolve the
+ * problem. WorkerParentRef has a RefPtr<WorkerPrivate> mWorkerPrivate
+ * initialized on the parent thread when WorkerPrivate::Constructor().
+ * WorkerParentRef is a thread-safe ref-counted object that can be copied at
+ * any thread by WorkerPrivate::GetWorkerParentRef() and propagated to other
+ * threads. In the target thread, call WorkerParentRef::Private() to get the
+ * reference for WorkerPrivate or get a nullptr if the Worker has shut down.
+ *
+ * Since currently usage cases, WorkerParentRef::Private() will assert to be on
+ * the parent thread.
+ */
+class WorkerParentRef final {
+ public:
+  NS_INLINE_DECL_THREADSAFE_REFCOUNTING(WorkerParentRef);
 
-  nsISerialEventTarget* GetSerialEventTarget() const {
-    // This can be null if CreateNewSyncLoop() fails.
-    return mTarget;
-  }
+  explicit WorkerParentRef(RefPtr<WorkerPrivate>& aWorkerPrivate);
+
+  const RefPtr<WorkerPrivate>& Private() const;
+
+  void DropWorkerPrivate();
+
+ private:
+  ~WorkerParentRef();
+
+  RefPtr<WorkerPrivate> mWorkerPrivate;
 };
 
 }  // namespace dom

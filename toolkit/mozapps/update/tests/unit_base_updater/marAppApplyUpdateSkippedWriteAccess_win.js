@@ -48,12 +48,12 @@ async function run_test() {
   });
 
   // Reload the update manager now that the update directory files are locked.
-  reloadUpdateManagerData();
+  await reloadUpdateManagerData();
   await runUpdateUsingApp(STATE_PENDING);
-  standardInit();
+  await testPostUpdateProcessing();
   checkPostUpdateRunningFile(false);
   checkFilesAfterUpdateFailure(getApplyDirFile);
-  checkUpdateManager(STATE_PENDING, false, STATE_NONE, 0, 0);
+  await checkUpdateManager(STATE_PENDING, false, STATE_NONE, 0, 0);
 
   let dir = getUpdateDirFile(DIR_PATCH);
   Assert.ok(dir.exists(), MSG_SHOULD_EXIST + getMsgPath(dir.path));
@@ -70,5 +70,5 @@ async function run_test() {
   file = getUpdateDirFile(FILE_BACKUP_UPDATE_LOG);
   Assert.ok(!file.exists(), MSG_SHOULD_NOT_EXIST + getMsgPath(file.path));
 
-  waitForFilesInUse();
+  await waitForFilesInUse();
 }

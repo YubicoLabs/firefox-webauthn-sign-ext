@@ -89,7 +89,6 @@ import org.mozilla.geckoview.GeckoSession.TextInputDelegate;
 import org.mozilla.geckoview.GeckoSessionSettings;
 import org.mozilla.geckoview.MediaSession;
 import org.mozilla.geckoview.OrientationController;
-import org.mozilla.geckoview.RuntimeTelemetry;
 import org.mozilla.geckoview.SessionTextInput;
 import org.mozilla.geckoview.TranslationsController;
 import org.mozilla.geckoview.WebExtension;
@@ -825,13 +824,12 @@ public class GeckoSessionTestRule implements TestRule {
       return null;
     }
 
-    // The default impl of this will call `onLocationChange(2)` which causes duplicated
-    // call records, to avoid that we implement it here so that it doesn't do anything.
     @Override
     public void onLocationChange(
         @NonNull GeckoSession session,
         @Nullable String url,
-        @NonNull List<ContentPermission> perms) {}
+        @NonNull final List<ContentPermission> perms,
+        @NonNull Boolean hasUserGesture) {}
 
     @Override
     public void onShutdown() {}
@@ -985,10 +983,6 @@ public class GeckoSessionTestRule implements TestRule {
    */
   public @NonNull GeckoRuntime getRuntime() {
     return RuntimeCreator.getRuntime();
-  }
-
-  public void setTelemetryDelegate(final RuntimeTelemetry.Delegate delegate) {
-    RuntimeCreator.setTelemetryDelegate(delegate);
   }
 
   /** Sets an experiment delegate on the runtime creator. */
@@ -1462,7 +1456,6 @@ public class GeckoSessionTestRule implements TestRule {
     mLastWaitStart = 0;
     mLastWaitEnd = 0;
     mTimeoutMillis = 0;
-    RuntimeCreator.setTelemetryDelegate(null);
     RuntimeCreator.setExperimentDelegate(null);
   }
 
@@ -2772,6 +2765,11 @@ public class GeckoSessionTestRule implements TestRule {
     webExtensionApiCall(session, "FlushApzRepaints", null);
   }
 
+  /** Invokes nsIDOMWindowUtils.zoomToFocusedInput. */
+  public void zoomToFocusedInput(final GeckoSession session) {
+    webExtensionApiCall(session, "ZoomToFocusedInput", null);
+  }
+
   /** Invokes a simplified version of promiseAllPaintsDone in paint_listener.js. */
   public void promiseAllPaintsDone(final GeckoSession session) {
     webExtensionApiCall(session, "PromiseAllPaintsDone", null);
@@ -2795,6 +2793,11 @@ public class GeckoSessionTestRule implements TestRule {
   /** Clears sites from the HSTS list. */
   public void clearHSTSState() {
     webExtensionApiCall("ClearHSTSState", null);
+  }
+
+  /** Checks if SHIP is running. */
+  public boolean isSessionHistoryInParentRunning() {
+    return (Boolean) webExtensionApiCall("IsSessionHistoryInParentRunning", null);
   }
 
   private Object webExtensionApiCall(

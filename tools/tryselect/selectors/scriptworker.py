@@ -86,7 +86,7 @@ def get_release_graph(release):
 
 def get_nightly_graph():
     return find_task_id(
-        "gecko.v2.mozilla-central.latest.taskgraph.decision-nightly-desktop"
+        "gecko.v2.mozilla-central.latest.taskgraph.decision-nightly-all"
     )
 
 
@@ -102,7 +102,7 @@ def get_hg_file(parameters, path):
     session = get_session()
     response = session.get(parameters.file_url(path))
     response.raise_for_status()
-    return response.content
+    return response.text
 
 
 def run(

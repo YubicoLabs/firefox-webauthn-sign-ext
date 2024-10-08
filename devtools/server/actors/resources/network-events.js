@@ -9,9 +9,9 @@ const { isWindowGlobalPartOfContext } = ChromeUtils.importESModule(
   "resource://devtools/server/actors/watcher/browsing-context-helpers.sys.mjs",
   { global: "contextual" }
 );
-const { WatcherRegistry } = ChromeUtils.importESModule(
-  "resource://devtools/server/actors/watcher/WatcherRegistry.sys.mjs",
-  // WatcherRegistry needs to be a true singleton and loads ActorManagerParent
+const { ParentProcessWatcherRegistry } = ChromeUtils.importESModule(
+  "resource://devtools/server/actors/watcher/ParentProcessWatcherRegistry.sys.mjs",
+  // ParentProcessWatcherRegistry needs to be a true singleton and loads ActorManagerParent
   // which also has to be a true singleton.
   { global: "shared" }
 );
@@ -241,6 +241,10 @@ class NetworkEventWatcher {
    * Called by NetworkObserver in order to know if the channel should be ignored
    */
   shouldIgnoreChannel(channel) {
+    // Bug 972821. Ignore data channels, until support in DevTools is implemented.
+    if (channel instanceof Ci.nsIDataChannel) {
+      return true;
+    }
     // First of all, check if the channel matches the watcherActor's session.
     const filters = { sessionContext: this.watcherActor.sessionContext };
     if (!lazy.NetworkUtils.matchRequest(channel, filters)) {
@@ -253,7 +257,7 @@ class NetworkEventWatcher {
     // (i.e. the process where this Watcher runs)
     const isParentProcessOnlyBrowserToolbox =
       this.watcherActor.sessionContext.type == "all" &&
-      !WatcherRegistry.isWatchingTargets(
+      !ParentProcessWatcherRegistry.isWatchingTargets(
         this.watcherActor,
         Targets.TYPES.FRAME
       );
@@ -302,7 +306,6 @@ class NetworkEventWatcher {
       browsingContextID: resource.browsingContextID,
       innerWindowId: resource.innerWindowId,
       resourceId: resource.resourceId,
-      resourceType: resource.resourceType,
       isBlocked,
       isFileRequest: resource.isFileRequest,
       receivedUpdates: [],
@@ -341,6 +344,10 @@ class NetworkEventWatcher {
     const { resourceUpdates, receivedUpdates } = networkEvent;
 
     switch (updateResource.updateType) {
+      case "cacheDetails":
+        resourceUpdates.fromCache = updateResource.fromCache;
+        resourceUpdates.fromServiceWorker = updateResource.fromServiceWorker;
+        break;
       case "responseStart":
         resourceUpdates.httpVersion = updateResource.httpVersion;
         resourceUpdates.status = updateResource.status;
@@ -393,7 +400,6 @@ class NetworkEventWatcher {
   _emitUpdate(networkEvent) {
     this.onNetworkEventUpdated([
       {
-        resourceType: networkEvent.resourceType,
         resourceId: networkEvent.resourceId,
         resourceUpdates: networkEvent.resourceUpdates,
         browsingContextID: networkEvent.browsingContextID,

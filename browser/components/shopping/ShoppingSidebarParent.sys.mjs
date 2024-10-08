@@ -34,6 +34,8 @@ export class ShoppingSidebarParent extends JSWindowActorParent {
     "browser.shopping.experience2023.sidebarClosedCount";
   static SHOW_KEEP_SIDEBAR_CLOSED_MESSAGE_PREF =
     "browser.shopping.experience2023.showKeepSidebarClosedMessage";
+  static INTEGRATED_SIDEBAR_PANEL_PREF =
+    "browser.shopping.experience2023.integratedSidebar";
 
   updateProductURL(uri, flags) {
     this.sendAsyncMessage("ShoppingSidebar:UpdateProductURL", {
@@ -43,6 +45,9 @@ export class ShoppingSidebarParent extends JSWindowActorParent {
   }
 
   async receiveMessage(message) {
+    if (this.browsingContext.usePrivateBrowsing) {
+      throw new Error("We should never be invoked in PBM.");
+    }
     switch (message.name) {
       case "GetProductURL":
         let sidebarBrowser = this.browsingContext.top.embedderElement;
@@ -168,6 +173,12 @@ class ShoppingSidebarManagerClass {
   #initialized = false;
   #everyWindowCallbackId = `shopping-${Services.uuid.generateUUID()}`;
 
+  // Public API methods - these check that we are not in private browsing
+  // mode. (It might be nice to eventually shift pref checks to the public
+  // API, too.)
+  //
+  // Note that any refactoring should preserve the PBM checks in public APIs.
+
   ensureInitialized() {
     if (this.#initialized) {
       return;
@@ -187,6 +198,13 @@ class ShoppingSidebarManagerClass {
       "isActive",
       ShoppingSidebarParent.SHOPPING_ACTIVE_PREF,
       true,
+      this.updateSidebarVisibility
+    );
+    XPCOMUtils.defineLazyPreferenceGetter(
+      this,
+      "isIntegratedSidebarPanel",
+      ShoppingSidebarParent.INTEGRATED_SIDEBAR_PANEL_PREF,
+      false,
       this.updateSidebarVisibility
     );
     this.updateSidebarVisibility();
@@ -217,9 +235,14 @@ class ShoppingSidebarManagerClass {
   }
 
   updateSidebarVisibility() {
-    this.enabled = lazy.NimbusFeatures.shopping2023.getVariable("enabled");
-
+    this.enabled =
+      lazy.NimbusFeatures.shopping2023.getVariable("enabled") &&
+      !this.isIntegratedSidebarPanel;
     for (let window of lazy.BrowserWindowTracker.orderedWindows) {
+      let isPBM = lazy.PrivateBrowsingUtils.isWindowPrivate(window);
+      if (isPBM) {
+        continue;
+      }
       this.updateSidebarVisibilityForWindow(window);
     }
   }
@@ -233,12 +256,22 @@ class ShoppingSidebarManagerClass {
       return;
     }
 
+    let isPBM = lazy.PrivateBrowsingUtils.isWindowPrivate(window);
+    if (isPBM) {
+      return;
+    }
+
     let document = window.document;
 
     if (!this.isActive) {
       document.querySelectorAll("shopping-sidebar").forEach(sidebar => {
         sidebar.hidden = true;
       });
+      document
+        .querySelectorAll(".shopping-sidebar-splitter")
+        .forEach(splitter => {
+          splitter.hidden = true;
+        });
     }
 
     this._maybeToggleButton(window.gBrowser);
@@ -247,12 +280,72 @@ class ShoppingSidebarManagerClass {
       document.querySelectorAll("shopping-sidebar").forEach(sidebar => {
         sidebar.remove();
       });
+      document
+        .querySelectorAll(".shopping-sidebar-splitter")
+        .forEach(splitter => {
+          splitter.remove();
+        });
+      let button = document.getElementById("shopping-sidebar-button");
+      if (button) {
+        button.hidden = true;
+        // Reset attributes to defaults.
+        button.setAttribute("shoppingsidebaropen", false);
+        document.l10n.setAttributes(button, "shopping-sidebar-open-button2");
+      }
       return;
     }
 
     let { selectedBrowser, currentURI } = window.gBrowser;
     this._maybeToggleSidebar(selectedBrowser, currentURI, 0, false);
   }
+
+  /**
+   * Called by TabsProgressListener whenever any browser navigates from one
+   * URL to another.
+   * Note that this includes hash changes / pushState navigations, because
+   * those can be significant for us.
+   */
+  onLocationChange(aBrowser, aLocationURI, aFlags) {
+    let isPBM = lazy.PrivateBrowsingUtils.isWindowPrivate(aBrowser.ownerGlobal);
+    if (isPBM) {
+      return;
+    }
+
+    lazy.ShoppingUtils.onLocationChange(aLocationURI, aFlags);
+
+    this._maybeToggleButton(aBrowser.getTabBrowser());
+    this._maybeToggleSidebar(aBrowser, aLocationURI, aFlags, true);
+  }
+
+  handleEvent(event) {
+    switch (event.type) {
+      case "TabSelect": {
+        if (!this.enabled) {
+          return;
+        }
+        this.updateSidebarVisibility();
+        if (event.detail?.previousTab.linkedBrowser) {
+          this._updateBCActiveness(event.detail.previousTab.linkedBrowser);
+        }
+        break;
+      }
+      case "visibilitychange": {
+        if (!this.enabled) {
+          return;
+        }
+        let { gBrowser } = event.target.ownerGlobal.top;
+        if (!gBrowser) {
+          return;
+        }
+        this.updateSidebarVisibilityForWindow(event.target.ownerGlobal.top);
+        this._updateBCActiveness(gBrowser.selectedBrowser);
+      }
+    }
+  }
+
+  // Private API methods - these assume we are not in private browsing
+  // mode. (It might be nice to eventually shift pref checks to the public
+  // API, too.)
 
   _maybeToggleSidebar(aBrowser, aLocationURI, aFlags, aIsNavigation) {
     let gBrowser = aBrowser.getTabBrowser();
@@ -275,16 +368,20 @@ class ShoppingSidebarManagerClass {
         sidebar = document.createXULElement("shopping-sidebar");
         sidebar.hidden = false;
         let splitter = document.createXULElement("splitter");
-        splitter.classList.add("sidebar-splitter");
+        splitter.classList.add("sidebar-splitter", "shopping-sidebar-splitter");
         browserPanel.appendChild(splitter);
         browserPanel.appendChild(sidebar);
       } else {
         actor?.updateProductURL(aLocationURI, aFlags);
         sidebar.hidden = false;
+        let splitter = browserPanel.querySelector(".shopping-sidebar-splitter");
+        splitter.hidden = false;
       }
     } else if (sidebar && !sidebar.hidden) {
       actor?.updateProductURL(null);
       sidebar.hidden = true;
+      let splitter = browserPanel.querySelector(".shopping-sidebar-splitter");
+      splitter.hidden = true;
     }
 
     this._updateBCActiveness(aBrowser);
@@ -379,50 +476,6 @@ class ShoppingSidebarManagerClass {
       ? "shopping-sidebar-close-button2"
       : "shopping-sidebar-open-button2";
     document.l10n.setAttributes(button, l10nId);
-  }
-
-  /**
-   * Called by TabsProgressListener whenever any browser navigates from one
-   * URL to another.
-   * Note that this includes hash changes / pushState navigations, because
-   * those can be significant for us.
-   */
-  onLocationChange(aBrowser, aLocationURI, aFlags) {
-    let isPBM = lazy.PrivateBrowsingUtils.isWindowPrivate(aBrowser.ownerGlobal);
-    if (isPBM) {
-      return;
-    }
-
-    lazy.ShoppingUtils.onLocationChange(aLocationURI, aFlags);
-
-    this._maybeToggleButton(aBrowser.getTabBrowser());
-    this._maybeToggleSidebar(aBrowser, aLocationURI, aFlags, true);
-  }
-
-  handleEvent(event) {
-    switch (event.type) {
-      case "TabSelect": {
-        if (!this.enabled) {
-          return;
-        }
-        this.updateSidebarVisibility();
-        if (event.detail?.previousTab.linkedBrowser) {
-          this._updateBCActiveness(event.detail.previousTab.linkedBrowser);
-        }
-        break;
-      }
-      case "visibilitychange": {
-        if (!this.enabled) {
-          return;
-        }
-        let { gBrowser } = event.target.ownerGlobal.top;
-        if (!gBrowser) {
-          return;
-        }
-        this.updateSidebarVisibilityForWindow(event.target.ownerGlobal.top);
-        this._updateBCActiveness(gBrowser.selectedBrowser);
-      }
-    }
   }
 }
 

@@ -14,7 +14,6 @@
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/ResultExtensions.h"
 #include "mozilla/StaticPrefs_extensions.h"
-#include "mozilla/Telemetry.h"
 #include "mozilla/dom/HeadersBinding.h"
 #include "mozilla/dom/InternalHeaders.h"
 #include "mozilla/dom/InternalResponse.h"
@@ -278,7 +277,7 @@ static_assert(int(HeadersGuardEnum::None) == 0 &&
                   int(HeadersGuardEnum::Request_no_cors) == 2 &&
                   int(HeadersGuardEnum::Response) == 3 &&
                   int(HeadersGuardEnum::Immutable) == 4 &&
-                  HeadersGuardEnumValues::Count == 5,
+                  ContiguousEnumSize<HeadersGuardEnum>::value == 5,
               "HeadersGuardEnum values are as expected");
 static_assert(int(ReferrerPolicy::_empty) == 0 &&
                   int(ReferrerPolicy::No_referrer) == 1 &&
@@ -289,18 +288,18 @@ static_assert(int(ReferrerPolicy::_empty) == 0 &&
                   int(ReferrerPolicy::Same_origin) == 6 &&
                   int(ReferrerPolicy::Strict_origin) == 7 &&
                   int(ReferrerPolicy::Strict_origin_when_cross_origin) == 8 &&
-                  ReferrerPolicyValues::Count == 9,
+                  ContiguousEnumSize<ReferrerPolicy>::value == 9,
               "ReferrerPolicy values are as expected");
 static_assert(int(RequestMode::Same_origin) == 0 &&
                   int(RequestMode::No_cors) == 1 &&
                   int(RequestMode::Cors) == 2 &&
                   int(RequestMode::Navigate) == 3 &&
-                  RequestModeValues::Count == 4,
+                  ContiguousEnumSize<RequestMode>::value == 4,
               "RequestMode values are as expected");
 static_assert(int(RequestCredentials::Omit) == 0 &&
                   int(RequestCredentials::Same_origin) == 1 &&
                   int(RequestCredentials::Include) == 2 &&
-                  RequestCredentialsValues::Count == 3,
+                  ContiguousEnumSize<RequestCredentials>::value == 3,
               "RequestCredentials values are as expected");
 static_assert(int(RequestCache::Default) == 0 &&
                   int(RequestCache::No_store) == 1 &&
@@ -308,19 +307,19 @@ static_assert(int(RequestCache::Default) == 0 &&
                   int(RequestCache::No_cache) == 3 &&
                   int(RequestCache::Force_cache) == 4 &&
                   int(RequestCache::Only_if_cached) == 5 &&
-                  RequestCacheValues::Count == 6,
+                  ContiguousEnumSize<RequestCache>::value == 6,
               "RequestCache values are as expected");
 static_assert(int(RequestRedirect::Follow) == 0 &&
                   int(RequestRedirect::Error) == 1 &&
                   int(RequestRedirect::Manual) == 2 &&
-                  RequestRedirectValues::Count == 3,
+                  ContiguousEnumSize<RequestRedirect>::value == 3,
               "RequestRedirect values are as expected");
 static_assert(int(ResponseType::Basic) == 0 && int(ResponseType::Cors) == 1 &&
                   int(ResponseType::Default) == 2 &&
                   int(ResponseType::Error) == 3 &&
                   int(ResponseType::Opaque) == 4 &&
                   int(ResponseType::Opaqueredirect) == 5 &&
-                  ResponseTypeValues::Count == 6,
+                  ContiguousEnumSize<ResponseType>::value == 6,
               "ResponseType values are as expected");
 
 // If the static_asserts below fails, it means that you have changed the
@@ -365,7 +364,7 @@ static_assert(
         nsIContentPolicy::TYPE_INTERNAL_AUDIO == 30 &&
         nsIContentPolicy::TYPE_INTERNAL_VIDEO == 31 &&
         nsIContentPolicy::TYPE_INTERNAL_TRACK == 32 &&
-        nsIContentPolicy::TYPE_INTERNAL_XMLHTTPREQUEST == 33 &&
+        nsIContentPolicy::TYPE_INTERNAL_XMLHTTPREQUEST_ASYNC == 33 &&
         nsIContentPolicy::TYPE_INTERNAL_EVENTSOURCE == 34 &&
         nsIContentPolicy::TYPE_INTERNAL_SERVICE_WORKER == 35 &&
         nsIContentPolicy::TYPE_INTERNAL_SCRIPT_PRELOAD == 36 &&
@@ -391,7 +390,9 @@ static_assert(
         nsIContentPolicy::TYPE_WEB_IDENTITY == 57 &&
         nsIContentPolicy::TYPE_INTERNAL_WORKER_STATIC_MODULE == 58 &&
         nsIContentPolicy::TYPE_WEB_TRANSPORT == 59 &&
-        nsIContentPolicy::TYPE_END == 60,
+        nsIContentPolicy::TYPE_INTERNAL_XMLHTTPREQUEST_SYNC == 60 &&
+        nsIContentPolicy::TYPE_INTERNAL_EXTERNAL_RESOURCE == 61 &&
+        nsIContentPolicy::TYPE_END == 62,
     "nsContentPolicyType values are as expected");
 
 namespace {
@@ -497,33 +498,6 @@ class MOZ_RAII AutoDisableForeignKeyChecking {
   bool mForeignKeyCheckingDisabled;
 };
 
-nsresult IntegrityCheck(mozIStorageConnection& aConn) {
-  // CACHE_INTEGRITY_CHECK_COUNT is designed to report at most once.
-  static bool reported = false;
-  if (reported) {
-    return NS_OK;
-  }
-
-  QM_TRY_INSPECT(const auto& stmt,
-                 quota::CreateAndExecuteSingleStepStatement(
-                     aConn,
-                     "SELECT COUNT(*) FROM pragma_integrity_check() "
-                     "WHERE integrity_check != 'ok';"_ns));
-
-  QM_TRY_INSPECT(const auto& result, MOZ_TO_RESULT_INVOKE_MEMBER_TYPED(
-                                         nsString, *stmt, GetString, 0));
-
-  nsresult rv;
-  const uint32_t count = result.ToInteger(&rv);
-  QM_TRY(OkIf(NS_SUCCEEDED(rv)), rv);
-
-  Telemetry::ScalarSet(Telemetry::ScalarID::CACHE_INTEGRITY_CHECK_COUNT, count);
-
-  reported = true;
-
-  return NS_OK;
-}
-
 nsresult CreateOrMigrateSchema(nsIFile& aDBDir, mozIStorageConnection& aConn) {
   MOZ_ASSERT(!NS_IsMainThread());
 
@@ -596,12 +570,7 @@ nsresult CreateOrMigrateSchema(nsIFile& aDBDir, mozIStorageConnection& aConn) {
     // if a new migration is incorrect by fast failing on the corruption.
     // Unfortunately, this must be performed outside of the transaction.
 
-    QM_TRY(MOZ_TO_RESULT(aConn.ExecuteSimpleSQL("VACUUM"_ns)), QM_PROPAGATE,
-           ([&aConn](const nsresult rv) {
-             if (rv == NS_ERROR_STORAGE_CONSTRAINT) {
-               QM_WARNONLY_TRY(QM_TO_RESULT(IntegrityCheck(aConn)));
-             }
-           }));
+    QM_TRY(MOZ_TO_RESULT(aConn.ExecuteSimpleSQL("VACUUM"_ns)));
   }
 
   return NS_OK;
@@ -1646,7 +1615,7 @@ nsresult DeleteSecurityInfo(mozIStorageConnection& aConn, int32_t aId,
         QM_TRY_RETURN(MOZ_TO_RESULT_INVOKE_MEMBER(*state, GetInt32, 0));
       }()));
 
-  MOZ_DIAGNOSTIC_ASSERT(refcount >= aCount);
+  MOZ_ASSERT_DEBUG_OR_FUZZING(refcount >= aCount);
 
   // Next, calculate the new refcount
   int32_t newCount = refcount - aCount;
@@ -1794,8 +1763,8 @@ nsresult InsertEntry(mozIStorageConnection& aConn, CacheId aCacheId,
     QM_TRY(MOZ_TO_RESULT(state->BindUTF8StringByName("request_url_fragment"_ns,
                                                      aRequest.urlFragment())));
 
-    QM_TRY(MOZ_TO_RESULT(
-        state->BindStringByName("request_referrer"_ns, aRequest.referrer())));
+    QM_TRY(MOZ_TO_RESULT(state->BindUTF8StringByName("request_referrer"_ns,
+                                                     aRequest.referrer())));
 
     QM_TRY(MOZ_TO_RESULT(state->BindInt32ByName(
         "request_referrer_policy"_ns,
@@ -2208,7 +2177,8 @@ Result<SavedRequest, nsresult> ReadRequest(mozIStorageConnection& aConn,
       MOZ_TO_RESULT(state->GetUTF8String(2, savedRequest.mValue.urlQuery())));
   QM_TRY(MOZ_TO_RESULT(
       state->GetUTF8String(3, savedRequest.mValue.urlFragment())));
-  QM_TRY(MOZ_TO_RESULT(state->GetString(4, savedRequest.mValue.referrer())));
+  QM_TRY(
+      MOZ_TO_RESULT(state->GetUTF8String(4, savedRequest.mValue.referrer())));
 
   QM_TRY_INSPECT(const int32_t& referrerPolicy,
                  MOZ_TO_RESULT_INVOKE_MEMBER(state, GetInt32, 5));

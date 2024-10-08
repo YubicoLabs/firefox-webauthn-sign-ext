@@ -62,6 +62,15 @@ Span<AudioDataValue> AudioData::Data() const {
   return Span{GetAdjustedData(), mFrames * mChannels};
 }
 
+nsCString AudioData::ToString() const {
+  nsCString rv;
+  rv.AppendPrintf("AudioData: %s %s %" PRIu32 " frames %" PRIu32 "Hz, %" PRIu32
+                  "ch",
+                  mTime.ToString().get(), mDuration.ToString().get(), mFrames,
+                  mRate, mChannels);
+  return rv;
+}
+
 void AudioData::SetOriginalStartTime(const media::TimeUnit& aStartTime) {
   MOZ_ASSERT(mTime == mOriginalTime,
              "Do not call this if data has been trimmed!");
@@ -439,12 +448,16 @@ already_AddRefed<VideoData> VideoData::CreateAndCopyData(
 
   // The naming convention for libyuv and associated utils is word-order.
   // The naming convention in the gfx stack is byte-order.
-  ConvertI420AlphaToARGB(aBuffer.mPlanes[0].mData, aBuffer.mPlanes[1].mData,
-                         aBuffer.mPlanes[2].mData, aAlphaPlane.mData,
-                         AssertedCast<int>(aBuffer.mPlanes[0].mStride),
-                         AssertedCast<int>(aBuffer.mPlanes[1].mStride),
-                         buffer.data, buffer.stride, buffer.size.width,
-                         buffer.size.height);
+  nsresult result = ConvertI420AlphaToARGB(
+      aBuffer.mPlanes[0].mData, aBuffer.mPlanes[1].mData,
+      aBuffer.mPlanes[2].mData, aAlphaPlane.mData,
+      AssertedCast<int>(aBuffer.mPlanes[0].mStride),
+      AssertedCast<int>(aBuffer.mPlanes[1].mStride), buffer.data, buffer.stride,
+      buffer.size.width, buffer.size.height);
+  if (NS_FAILED(result)) {
+    MOZ_ASSERT_UNREACHABLE("Failed to convert I420 YUVA into RGBA data");
+    return nullptr;
+  }
 
   return v.forget();
 }
@@ -473,7 +486,6 @@ nsCString VideoData::ToString() const {
       "D3D11_SHARE_HANDLE_TEXTURE",
       "D3D11_TEXTURE_IMF_SAMPLE",
       "TEXTURE_WRAPPER",
-      "D3D11_YCBCR_IMAGE",
       "GPU_VIDEO",
       "DMABUF",
       "DCOMP_SURFACE",
@@ -585,18 +597,40 @@ void MediaRawDataWriter::PopFront(size_t aSize) {
   mTarget->mBuffer.PopFront(aSize);
 }
 
-const char* CryptoSchemeToString(const CryptoScheme& aScheme) {
-  switch (aScheme) {
-    case CryptoScheme::None:
-      return "None";
-    case CryptoScheme::Cenc:
-      return "Cenc";
-    case CryptoScheme::Cbcs:
-      return "Cbcs";
-    default:
-      MOZ_ASSERT_UNREACHABLE();
-      return "";
+nsCString CryptoSchemeSetToString(const CryptoSchemeSet& aSchemes) {
+  nsAutoCString rv;
+  if (aSchemes.contains(CryptoScheme::Cenc)) {
+    rv.AppendLiteral("cenc");
   }
+  if (aSchemes.contains(CryptoScheme::Cbcs)) {
+    if (!rv.IsEmpty()) {
+      rv.AppendLiteral("/");
+    }
+    rv.AppendLiteral("cbcs");
+  }
+  if (aSchemes.contains(CryptoScheme::Cbcs_1_9)) {
+    if (!rv.IsEmpty()) {
+      rv.AppendLiteral("/");
+    }
+    rv.AppendLiteral("cbcs-1-9");
+  }
+  if (rv.IsEmpty()) {
+    rv.AppendLiteral("none");
+  }
+  return std::move(rv);
+}
+
+CryptoScheme StringToCryptoScheme(const nsAString& aString) {
+  if (aString.EqualsLiteral("cenc")) {
+    return CryptoScheme::Cenc;
+  }
+  if (aString.EqualsLiteral("cbcs")) {
+    return CryptoScheme::Cbcs;
+  }
+  if (aString.EqualsLiteral("cbcs-1-9")) {
+    return CryptoScheme::Cbcs_1_9;
+  }
+  return CryptoScheme::None;
 }
 
 }  // namespace mozilla

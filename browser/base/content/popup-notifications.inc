@@ -35,7 +35,7 @@
         <description id="webRTC-all-windows-shared" hidden="true" data-l10n-id="popup-all-windows-shared"></description>
       </popupnotificationcontent>
 
-      <popupnotificationcontent id="webRTC-preview" hidden="true">
+      <popupnotificationcontent id="webRTC-preview" orient="vertical" hidden="true">
         <html:video id="webRTC-previewVideo" tabindex="-1"/>
         <vbox id="webRTC-previewWarningBox">
           <description id="webRTC-previewWarning"/>
@@ -78,7 +78,7 @@
       <popupnotificationcontent orient="vertical">
         <label data-l10n-id="panel-save-update-username" control="password-notification-username" class="password-notification-label"></label>
         <stack>
-          <html:input id="password-notification-username" 
+          <html:input id="password-notification-username"
                       type="text"
                       class="ac-has-end-icon"
                       autocompletesearch="login-doorhanger-username"
@@ -111,20 +111,14 @@
       <popupnotificationcontent id="addon-install-confirmation-content" orient="vertical"/>
     </popupnotification>
 
-    <popupnotification id="addon-webext-permissions-notification" hidden="true">
+    <popupnotification id="addon-webext-permissions-notification"
+                       is="addon-webext-permissions-notification"
+                       hidden="true">
       <popupnotificationcontent class="addon-webext-perm-notification-content" orient="vertical">
         <description id="addon-webext-perm-text" class="addon-webext-perm-text"/>
         <label id="addon-webext-perm-intro" class="addon-webext-perm-text"/>
         <label id="addon-webext-perm-single-entry" class="addon-webext-perm-single-entry"/>
         <html:ul id="addon-webext-perm-list" class="addon-webext-perm-list"/>
-        <hbox>
-          <html:a
-            is="moz-support-link"
-            id="addon-webext-perm-info"
-            class="popup-notification-learnmore-link"
-            support-page="extension-permissions"
-          />
-        </hbox>
       </popupnotificationcontent>
     </popupnotification>
 
@@ -132,7 +126,7 @@
       <popupnotificationcontent id="addon-install-blocked-content" orient="vertical">
         <description id="addon-install-blocked-message" class="popup-notification-description"></description>
         <hbox>
-          <html:a 
+          <html:a
               is="moz-support-link"
               id="addon-install-blocked-info"
               class="popup-notification-learnmore-link"
@@ -177,10 +171,29 @@
         </vbox>
       </popupnotificationfooter>
     </popupnotification>
-
+    <popupnotification id="credential-chooser-notification" hidden="true">
+      <popupnotificationheader id="credential-chooser-header" orient="horizontal">
+        <html:div id="credential-chooser-header-container">
+          <html:span id="credential-chooser-header-text"/>
+        </html:div>
+      </popupnotificationheader>
+      <popupnotificationcontent id="credential-chooser-entry" orient="vertical">
+        <html:div id="credential-chooser-entry-selector-container"/>
+        <html:template id="template-credential-entry-list-item">
+          <html:label class="identity-credential-list-item" align="center">
+            <html:input type="radio" name="credential-entry" class="identity-credential-list-item-radio"></html:input>
+            <html:img class="identity-credential-list-item-icon"/>
+            <html:div class="identity-credential-list-item-label-stack">
+              <html:div class="identity-credential-list-item-label-primary"/>
+              <html:div class="identity-credential-list-item-label-secondary" hidden="true"/>
+            </html:div>
+          </html:label>
+        </html:template>
+      </popupnotificationcontent>
+    </popupnotification>
     <popupnotification id="identity-credential-notification" hidden="true">
       <popupnotificationheader id="identity-credential-header" orient="horizontal" hidden="true">
-        <html:div class="identity-credential-header-container">
+        <html:div id="identity-credential-header-container">
           <html:img class="identity-credential-header-icon"></html:img>
           <span id="identity-credential-header-text"></span>
         </html:div>
@@ -234,6 +247,19 @@
       </popupnotificationcontent>
     </popupnotification>
 
+    <popupnotification id="fxa-and-relay-integration-offer-notification" hidden="true">
+      <popupnotificationcontent orient="vertical">
+        <html:div>
+          <html:p data-l10n-id="firefox-relay-offer-why-to-use-relay"></html:p>
+          <html:p id="firefox-relay-offer-what-fxa-and-relay-provides" data-l10n-id="firefox-relay-offer-what-fxa-and-relay-provides"></html:p>
+          <html:p id="firefox-fxa-and-relay-offer-legal-notice" data-l10n-id="firefox-relay-offer-legal-notice">
+            <label id="firefox-fxa-and-relay-offer-tos-url" is="text-link" data-l10n-name="tos-url"/>
+            <label id="firefox-fxa-and-relay-offer-privacy-url" is="text-link" data-l10n-name="privacy-url"/>
+          </html:p>
+        </html:div>
+      </popupnotificationcontent>
+    </popupnotification>
+
     <popupnotification id="relay-integration-reuse-masks-notification" hidden="true">
       <popupnotificationcontent orient="vertical">
         <html:div>
@@ -261,7 +287,7 @@
     <popupnotification id="address-save-update-notification" class="address-capture-notification" hidden="true">
       <popupnotificationcontent class="address-save-update-notification-content" orient="vertical">
         <html:div class="address-capture-header">
-          <html:p/>
+          <html:h1/>
         </html:div>
         <html:div class="address-capture-description">
           <html:p/>
@@ -274,7 +300,7 @@
     <popupnotification id="address-edit-notification" class="address-capture-notification" hidden="true">
       <popupnotificationcontent class="address-edit-notification-content" orient="vertical">
         <html:div class="address-capture-header">
-          <html:p/>
+          <html:h1/>
         </html:div>
         <html:div class="address-capture-content">
         </html:div>

@@ -20,7 +20,7 @@ var channelResumed = false;
 var observer = {
   QueryInterface: ChromeUtils.generateQI(["nsIObserver"]),
 
-  observe(subject, topic, data) {
+  observe(subject, topic) {
     if (
       topic === "http-on-examine-merged-response" &&
       subject instanceof Ci.nsIHttpChannel
@@ -39,7 +39,7 @@ var observer = {
 };
 
 var listener = {
-  onStartRequest(request) {
+  onStartRequest() {
     buffer = "";
   },
 
@@ -106,7 +106,6 @@ function storeCache(aCacheEntry, aResponseHeads, aContent) {
     );
   }
   oStream.close();
-  aCacheEntry.close();
 }
 
 function test_partial() {

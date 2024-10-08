@@ -57,7 +57,6 @@ EXPORTS.mozilla.ipc += [
     "ScopedPort.h",
     "SerializedStructuredCloneBuffer.h",
     "SharedMemory.h",
-    "SharedMemoryBasic.h",
     "Shmem.h",
     "ShmemMessageUtils.h",
     "SideVariant.h",
@@ -115,12 +114,11 @@ else:
     ]
 
 if CONFIG["OS_ARCH"] == "Darwin":
-    EXPORTS.mozilla.ipc += ["SharedMemoryBasic_mach.h"]
-    SOURCES += [
-        "SharedMemoryBasic_mach.mm",
-    ]
+    EXPORTS.mozilla.ipc += ["SharedMemoryImpl_mach.h"]
+    SOURCES += ["SharedMemoryImpl_mach.cpp"]
 else:
-    EXPORTS.mozilla.ipc += ["SharedMemoryBasic_chromium.h"]
+    EXPORTS.mozilla.ipc += ["SharedMemoryImpl_chromium.h"]
+    SOURCES += ["SharedMemoryImpl_chromium.cpp"]
 
 if CONFIG["OS_ARCH"] == "Linux":
     UNIFIED_SOURCES += [
@@ -138,7 +136,7 @@ elif CONFIG["OS_ARCH"] in ("DragonFly", "FreeBSD", "NetBSD", "OpenBSD"):
     EXPORTS.mozilla.ipc += [
         "SetProcessTitle.h",
     ]
-elif CONFIG["OS_ARCH"] == "Darwin":
+elif CONFIG["TARGET_OS"] == "OSX":
     UNIFIED_SOURCES += ["ProcessUtils_mac.mm"]
 else:
     UNIFIED_SOURCES += [
@@ -151,6 +149,14 @@ if CONFIG["OS_ARCH"] != "WINNT":
     ]
     UNIFIED_SOURCES += [
         "FileDescriptorShuffle.cpp",
+    ]
+
+if CONFIG["TARGET_OS"] == "iOS":
+    EXPORTS.mozilla.ipc += [
+        "ExtensionKitUtils.h",
+    ]
+    UNIFIED_SOURCES += [
+        "ExtensionKitUtils.mm",
     ]
 
 EXPORTS.ipc += [
@@ -175,7 +181,6 @@ UNIFIED_SOURCES += [
     "InputStreamUtils.cpp",
     "IPCMessageUtilsSpecializations.cpp",
     "IPCStreamUtils.cpp",
-    "LaunchError.cpp",
     "MessageChannel.cpp",
     "MessageLink.cpp",
     "MessagePump.cpp",
@@ -284,8 +289,10 @@ include("/ipc/chromium/chromium-config.mozbuild")
 
 FINAL_LIBRARY = "xul"
 
-if CONFIG["OS_ARCH"] == "Darwin":
+if CONFIG["TARGET_OS"] == "OSX":
     OS_LIBS += ["bsm"]  # for audit_token_to_pid
+elif CONFIG["TARGET_OS"] == "iOS":
+    OS_LIBS += ["-framework BrowserEngineKit"]
 
 for var in (
     "MOZ_CHILD_PROCESS_NAME",

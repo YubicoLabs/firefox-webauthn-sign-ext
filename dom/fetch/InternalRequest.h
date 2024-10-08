@@ -8,6 +8,7 @@
 #define mozilla_dom_InternalRequest_h
 
 #include "mozilla/dom/HeadersBinding.h"
+#include "mozilla/dom/InternalResponse.h"
 #include "mozilla/dom/InternalHeaders.h"
 #include "mozilla/dom/RequestBinding.h"
 #include "mozilla/dom/SafeRefPtr.h"
@@ -17,6 +18,7 @@
 #include "nsIChannelEventSink.h"
 #include "nsIInputStream.h"
 #include "nsISupportsImpl.h"
+#include "nsISupportsPriority.h"
 #include "mozilla/net/NeckoChannelParams.h"
 #ifdef DEBUG
 #  include "nsIURLParser.h"
@@ -86,15 +88,6 @@ class InternalRequest final : public AtomicSafeRefCounted<InternalRequest> {
  public:
   MOZ_DECLARE_REFCOUNTED_TYPENAME(InternalRequest)
   InternalRequest(const nsACString& aURL, const nsACString& aFragment);
-  InternalRequest(const nsACString& aURL, const nsACString& aFragment,
-                  const nsACString& aMethod,
-                  already_AddRefed<InternalHeaders> aHeaders,
-                  RequestCache aCacheMode, RequestMode aMode,
-                  RequestRedirect aRequestRedirect,
-                  RequestCredentials aRequestCredentials,
-                  const nsAString& aReferrer, ReferrerPolicy aReferrerPolicy,
-                  nsContentPolicyType aContentPolicyType,
-                  const nsAString& aIntegrity);
 
   explicit InternalRequest(const IPCInternalRequest& aIPCRequest);
 
@@ -158,9 +151,9 @@ class InternalRequest final : public AtomicSafeRefCounted<InternalRequest> {
   void GetURLListWithoutFragment(nsTArray<nsCString>& aURLList) {
     aURLList.Assign(mURLList);
   }
-  void GetReferrer(nsAString& aReferrer) const { aReferrer.Assign(mReferrer); }
+  void GetReferrer(nsACString& aReferrer) const { aReferrer.Assign(mReferrer); }
 
-  void SetReferrer(const nsAString& aReferrer) {
+  void SetReferrer(const nsACString& aReferrer) {
 #ifdef DEBUG
     bool validReferrer = false;
     if (aReferrer.IsEmpty() ||
@@ -178,10 +171,9 @@ class InternalRequest final : public AtomicSafeRefCounted<InternalRequest> {
         uint32_t pathPos;
         int32_t pathLen;
 
-        NS_ConvertUTF16toUTF8 ref(aReferrer);
-        nsresult rv =
-            parser->ParseURL(ref.get(), ref.Length(), &schemePos, &schemeLen,
-                             &authorityPos, &authorityLen, &pathPos, &pathLen);
+        nsresult rv = parser->ParseURL(
+            aReferrer.BeginReading(), aReferrer.Length(), &schemePos,
+            &schemeLen, &authorityPos, &authorityLen, &pathPos, &pathLen);
         if (NS_FAILED(rv)) {
           NS_WARNING("Invalid referrer URL!");
         } else if (schemeLen < 0 || authorityLen < 0) {
@@ -250,15 +242,33 @@ class InternalRequest final : public AtomicSafeRefCounted<InternalRequest> {
     mRedirectMode = aRedirectMode;
   }
 
+  RequestPriority GetPriorityMode() const { return mPriorityMode; }
+
+  void SetPriorityMode(RequestPriority aPriorityMode) {
+    mPriorityMode = aPriorityMode;
+  }
+
   const nsString& GetIntegrity() const { return mIntegrity; }
 
   void SetIntegrity(const nsAString& aIntegrity) {
     mIntegrity.Assign(aIntegrity);
   }
 
+  bool GetKeepalive() const { return mKeepalive; }
+
+  void SetKeepalive(const bool aKeepalive) { mKeepalive = aKeepalive; }
+
   bool MozErrors() const { return mMozErrors; }
 
   void SetMozErrors() { mMozErrors = true; }
+
+  void SetTriggeringPrincipal(nsIPrincipal* aPrincipal) {
+    mTriggeringPrincipalOverride = aPrincipal;
+  }
+
+  nsIPrincipal* GetTriggeringPrincipalOverride() {
+    return mTriggeringPrincipalOverride;
+  }
 
   const nsCString& GetFragment() const { return mFragment; }
 
@@ -269,6 +279,11 @@ class InternalRequest final : public AtomicSafeRefCounted<InternalRequest> {
 
   RequestDestination Destination() const {
     return MapContentPolicyTypeToRequestDestination(mContentPolicyType);
+  }
+
+  int32_t InternalPriority() const { return mInternalPriority; }
+  void SetInternalPriority(int32_t aInternalPriority) {
+    mInternalPriority = aInternalPriority;
   }
 
   bool UnsafeRequest() const { return mUnsafeRequest; }
@@ -299,6 +314,8 @@ class InternalRequest final : public AtomicSafeRefCounted<InternalRequest> {
       *aBodyLength = mBodyLength;
     }
   }
+
+  int64_t BodyLength() const { return mBodyLength; }
 
   void SetBodyBlobURISpec(nsACString& aBlobURISpec) {
     mBodyBlobURISpec = aBlobURISpec;
@@ -368,6 +385,10 @@ class InternalRequest final : public AtomicSafeRefCounted<InternalRequest> {
   nsContentPolicyType InterceptionContentPolicyType() const {
     return mInterceptionContentPolicyType;
   }
+  RequestDestination InterceptionDestination() const {
+    return MapContentPolicyTypeToRequestDestination(
+        mInterceptionContentPolicyType);
+  }
   void SetInterceptionContentPolicyType(nsContentPolicyType aContentPolicyType);
 
   const nsTArray<RedirectHistoryEntryInfo>& InterceptionRedirectChain() const {
@@ -424,16 +445,20 @@ class InternalRequest final : public AtomicSafeRefCounted<InternalRequest> {
   nsCString mBodyBlobURISpec;
   nsString mBodyLocalPath;
   nsCOMPtr<nsIInputStream> mBodyStream;
-  int64_t mBodyLength;
+
+  nsCOMPtr<nsIPrincipal> mTriggeringPrincipalOverride;
+  int64_t mBodyLength{InternalResponse::UNKNOWN_BODY_SIZE};
 
   nsCString mPreferredAlternativeDataType;
 
   nsContentPolicyType mContentPolicyType;
 
+  int32_t mInternalPriority = nsISupportsPriority::PRIORITY_NORMAL;
+
   // Empty string: no-referrer
   // "about:client": client (default)
   // URL: an URL
-  nsString mReferrer;
+  nsCString mReferrer;
   ReferrerPolicy mReferrerPolicy;
 
   // This will be used for request created from Window or Worker contexts
@@ -445,7 +470,9 @@ class InternalRequest final : public AtomicSafeRefCounted<InternalRequest> {
   LoadTainting mResponseTainting = LoadTainting::Basic;
   RequestCache mCacheMode;
   RequestRedirect mRedirectMode;
+  RequestPriority mPriorityMode = RequestPriority::Auto;
   nsString mIntegrity;
+  bool mKeepalive = false;
   bool mMozErrors = false;
   nsCString mFragment;
   bool mSkipServiceWorker = false;

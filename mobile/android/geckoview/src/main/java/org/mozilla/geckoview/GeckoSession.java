@@ -8,6 +8,7 @@ package org.mozilla.geckoview;
 
 import static org.mozilla.geckoview.GeckoSession.GeckoPrintException.ERROR_NO_PRINT_DELEGATE;
 
+import android.Manifest;
 import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
 import android.content.ContentResolver;
@@ -283,6 +284,7 @@ public class GeckoSession {
   private float mViewportLeft;
   private float mViewportTop;
   private float mViewportZoom = 1.0f;
+  private int mKeyboardHeight = 0; // The software keyboard height, 0 if it's hidden.
 
   //
   // NOTE: These values are also defined in
@@ -408,6 +410,9 @@ public class GeckoSession {
 
     @WrapForJNI(calledFrom = "ui", dispatchTo = "gecko")
     public native void onSafeAreaInsetsChanged(int top, int right, int bottom, int left);
+
+    @WrapForJNI(calledFrom = "ui", dispatchTo = "gecko")
+    public native void onKeyboardHeightChanged(int height);
 
     @WrapForJNI(calledFrom = "ui")
     public void setPointerIcon(
@@ -543,7 +548,6 @@ public class GeckoSession {
             "GeckoView:CookieBannerEvent:Handled",
             "GeckoView:SavePdf",
             "GeckoView:GetNimbusFeature",
-            "GeckoView:OnProductUrl",
           }) {
         @Override
         public void handleMessage(
@@ -632,8 +636,6 @@ public class GeckoSession {
                     callback.sendError("Failed to create response");
                   }
                 });
-          } else if ("GeckoView:OnProductUrl".equals(event)) {
-            delegate.onProductUrl(GeckoSession.this);
           }
         }
       };
@@ -652,7 +654,7 @@ public class GeckoSession {
             case 0: // OPEN_DEFAULTWINDOW
             case 1: // OPEN_CURRENTWINDOW
               return NavigationDelegate.TARGET_WINDOW_CURRENT;
-            default: // OPEN_NEWWINDOW, OPEN_NEWTAB, OPEN_NEWTAB_BACKGROUND
+            default: // OPEN_NEWWINDOW, OPEN_NEWTAB, OPEN_NEWTAB_BACKGROUND, OPEN_NEWTAB_FOREGROUND
               return NavigationDelegate.TARGET_WINDOW_NEW;
           }
         }
@@ -685,7 +687,11 @@ public class GeckoSession {
               final GeckoBundle[] perms = message.getBundleArray("permissions");
               final List<PermissionDelegate.ContentPermission> permList =
                   PermissionDelegate.ContentPermission.fromBundleArray(perms);
-              delegate.onLocationChange(GeckoSession.this, message.getString("uri"), permList);
+              delegate.onLocationChange(
+                  GeckoSession.this,
+                  message.getString("uri"),
+                  permList,
+                  message.getBoolean("hasUserGesture"));
             }
             delegate.onCanGoBack(GeckoSession.this, message.getBoolean("canGoBack"));
             delegate.onCanGoForward(GeckoSession.this, message.getBoolean("canGoForward"));
@@ -1082,9 +1088,19 @@ public class GeckoSession {
             return;
           }
           if ("GeckoView:AndroidPermission".equals(event)) {
+            List<String> permsList = Arrays.asList(message.getStringArray("perms"));
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+              if (permsList.contains(Manifest.permission.ACCESS_FINE_LOCATION)
+                  && !permsList.contains(Manifest.permission.ACCESS_COARSE_LOCATION)) {
+                // If we are requesting ACCESS_FINE_LOCATION we should also be
+                // requesting ACCESS_COARSE_LOCATION. See bug 1790467
+                permsList = new ArrayList<String>(permsList);
+                permsList.add(Manifest.permission.ACCESS_COARSE_LOCATION);
+              }
+            }
             delegate.onAndroidPermissionsRequest(
                 GeckoSession.this,
-                message.getStringArray("perms"),
+                permsList.toArray(new String[0]),
                 new PermissionCallback("android", callback));
           } else if ("GeckoView:ContentPermission".equals(event)) {
             final GeckoResult<Integer> res =
@@ -1323,7 +1339,13 @@ public class GeckoSession {
    */
   @AnyThread
   public static @NonNull String getDefaultUserAgent() {
-    return BuildConfig.USER_AGENT_GECKOVIEW_MOBILE;
+    // Spoof version "Android 10" for Android OS versions < 10 (Q) to reduce
+    // their fingerprintable user information. For Android OS versions >= 10,
+    // report the real OS version because some enterprise websites only want to
+    // permit clients with recent OS version (like bug 1876742).
+    return Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
+        ? BuildConfig.USER_AGENT_GECKOVIEW_MOBILE_ANDROID_10
+        : BuildConfig.USER_AGENT_GECKOVIEW_MOBILE;
   }
 
   /**
@@ -1590,31 +1612,17 @@ public class GeckoSession {
     }
 
     @WrapForJNI(calledFrom = "gecko")
-    private void onUpdateSessionStore(final GeckoBundle aBundle) {
+    private void onHideDynamicToolbar() {
+      final Window self = this;
       ThreadUtils.runOnUiThread(
           () -> {
-            final GeckoSession session = mOwner.get();
+            final GeckoSession session = self.mOwner.get();
             if (session == null) {
               return;
             }
-            GeckoBundle scroll = aBundle.getBundle("scroll");
-            if (scroll == null) {
-              scroll = new GeckoBundle();
-              aBundle.putBundle("scroll", scroll);
-            }
-
-            // Here we unfortunately need to do some re-mapping since `zoom` is passed in a separate
-            // bunds and we wish to keep the bundle format.
-            scroll.putBundle("zoom", aBundle.getBundle("zoom"));
-            final SessionState stateCache = session.mStateCache;
-            stateCache.updateSessionState(aBundle);
-            final SessionState state = new SessionState(stateCache);
-            if (!state.isEmpty()) {
-              final ProgressDelegate progressDelegate = session.getProgressDelegate();
-              if (progressDelegate != null) {
-                progressDelegate.onSessionStateChange(session, state);
-              } else {
-              }
+            final ContentDelegate delegate = session.getContentDelegate();
+            if (delegate != null) {
+              delegate.onHideDynamicToolbar(session);
             }
           });
     }
@@ -1928,7 +1936,7 @@ public class GeckoSession {
   // https://searchfox.org/mozilla-central/source/docshell/base/nsIWebNavigation.idl
   //
   // We do not use the same values directly in order to insulate ourselves from
-  // changes in Gecko. Instead, the flags are converted in GeckoViewNavigation.jsm.
+  // changes in Gecko. Instead, the flags are converted in GeckoViewNavigation.sys.mjs.
 
   /** Default load flag, no special considerations. */
   public static final int LOAD_FLAGS_NONE = 0;
@@ -2444,12 +2452,16 @@ public class GeckoSession {
   @IntDef(
       flag = true,
       value = {
+        FINDER_FIND_FORWARD,
         FINDER_FIND_BACKWARDS,
         FINDER_FIND_LINKS_ONLY,
         FINDER_FIND_MATCH_CASE,
         FINDER_FIND_WHOLE_WORD
       })
   public @interface FinderFindFlags {}
+
+  /** Go forward when finding the next match. */
+  public static final int FINDER_FIND_FORWARD = 0;
 
   /** Go backwards when finding the next match. */
   public static final int FINDER_FIND_BACKWARDS = 1;
@@ -2630,6 +2642,10 @@ public class GeckoSession {
     } else {
       // Delete any pending memory pressure events since we're active again.
       ThreadUtils.removeUiThreadCallbacks(mNotifyMemoryPressure);
+
+      if (mAttachedCompositor) {
+        mCompositor.onKeyboardHeightChanged(mKeyboardHeight);
+      }
     }
 
     ThreadUtils.runOnUiThread(() -> getAutofillSupport().onActiveChanged(active));
@@ -4286,14 +4302,6 @@ public class GeckoSession {
     default void onMetaViewportFitChange(
         @NonNull final GeckoSession session, @NonNull final String viewportFit) {}
 
-    /**
-     * Session is on a product url.
-     *
-     * @param session The GeckoSession that initiated the callback.
-     */
-    @UiThread
-    default void onProductUrl(@NonNull final GeckoSession session) {}
-
     /** Element details for onContextMenu callbacks. */
     class ContextElement {
       @Retention(RetentionPolicy.SOURCE)
@@ -4521,6 +4529,14 @@ public class GeckoSession {
      */
     @UiThread
     default void onShowDynamicToolbar(@NonNull final GeckoSession geckoSession) {}
+
+    /**
+     * The app should hide its dynamic toolbar.
+     *
+     * @param geckoSession GeckoSession that initiated the callback.
+     */
+    @UiThread
+    default void onHideDynamicToolbar(@NonNull final GeckoSession geckoSession) {}
 
     /**
      * This method is called when a cookie banner was detected.
@@ -4938,12 +4954,15 @@ public class GeckoSession {
      * @param session The GeckoSession that initiated the callback.
      * @param url The resource being loaded.
      * @param perms The permissions currently associated with this url.
+     * @param hasUserGesture Whether or not there was an active user gesture when the location
+     *     change was requested.
      */
     @UiThread
     default void onLocationChange(
         @NonNull GeckoSession session,
         @Nullable String url,
-        final @NonNull List<PermissionDelegate.ContentPermission> perms) {}
+        final @NonNull List<PermissionDelegate.ContentPermission> perms,
+        @NonNull Boolean hasUserGesture) {}
 
     /**
      * The view's ability to go back has changed.
@@ -5004,7 +5023,7 @@ public class GeckoSession {
           case 0: // OPEN_DEFAULTWINDOW
           case 1: // OPEN_CURRENTWINDOW
             return TARGET_WINDOW_CURRENT;
-          default: // OPEN_NEWWINDOW, OPEN_NEWTAB, OPEN_NEWTAB_BACKGROUND
+          default: // OPEN_NEWWINDOW, OPEN_NEWTAB, OPEN_NEWTAB_BACKGROUND, OPEN_NEWTAB_FOREGROUND
             return TARGET_WINDOW_NEW;
         }
       }
@@ -7870,6 +7889,20 @@ public class GeckoSession {
 
     if (mAttachedCompositor) {
       mCompositor.onSafeAreaInsetsChanged(top, right, bottom, left);
+    }
+  }
+
+  /* package */ void onKeyboardHeight(final int height) {
+    ThreadUtils.assertOnUiThread();
+
+    if (mKeyboardHeight == height) {
+      return;
+    }
+
+    mKeyboardHeight = height;
+
+    if (mAttachedCompositor) {
+      mCompositor.onKeyboardHeightChanged(mKeyboardHeight);
     }
   }
 

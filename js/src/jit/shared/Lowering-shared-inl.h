@@ -9,6 +9,7 @@
 
 #include "jit/shared/Lowering-shared.h"
 
+#include "jit/MIR-wasm.h"
 #include "jit/MIR.h"
 #include "jit/MIRGenerator.h"
 
@@ -348,6 +349,14 @@ static inline bool IsCompatibleLIRCoercion(MIRType to, MIRType from) {
   }
 #  ifndef JS_64BIT
   if (from == MIRType::IntPtr && to == MIRType::Int32) {
+    return true;
+  }
+#  endif
+
+#  ifdef JS_64BIT
+  // On 64-bit platforms IntPtr and Int64 are both 64-bit integers.
+  if ((to == MIRType::IntPtr || to == MIRType::Int64) &&
+      (from == MIRType::IntPtr || from == MIRType::Int64)) {
     return true;
   }
 #  endif

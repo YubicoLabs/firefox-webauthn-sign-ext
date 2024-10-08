@@ -7,10 +7,10 @@
 #ifndef mozilla_BounceTrackingState_h
 #define mozilla_BounceTrackingState_h
 
+#include "BounceTrackingRecord.h"
 #include "mozilla/WeakPtr.h"
 #include "mozilla/OriginAttributes.h"
 #include "nsIPrincipal.h"
-#include "nsIWeakReferenceUtils.h"
 #include "nsStringFwd.h"
 #include "nsIWebProgressListener.h"
 #include "nsWeakReference.h"
@@ -22,7 +22,6 @@ class nsIPrincipal;
 namespace mozilla {
 
 class BounceTrackingProtection;
-class BounceTrackingRecord;
 
 namespace dom {
 class CanonicalBrowsingContext;
@@ -45,48 +44,61 @@ class BounceTrackingState : public nsIWebProgressListener,
   // return nullptr if the given web progress / browsing context is not suitable
   // (see ShouldCreateBounceTrackingStateForWebProgress).
   static already_AddRefed<BounceTrackingState> GetOrCreate(
-      dom::BrowsingContextWebProgress* aWebProgress);
+      dom::BrowsingContextWebProgress* aWebProgress, nsresult& aRv);
 
   // Reset state for all BounceTrackingState instances this includes resetting
   // BounceTrackingRecords and cancelling any running timers.
   static void ResetAll();
+
+  // Resets and destroys all BounceTrackingState objects. This is used when the
+  // feature gets disabled.
+  static void DestroyAll();
+
+  // Reset BounceTrackingState objects matching OriginAttributes.
   static void ResetAllForOriginAttributes(
       const OriginAttributes& aOriginAttributes);
+  // Same as above but for a pattern.
   static void ResetAllForOriginAttributesPattern(
       const OriginAttributesPattern& aPattern);
 
-  BounceTrackingRecord* GetBounceTrackingRecord();
+  const Maybe<BounceTrackingRecord>& GetBounceTrackingRecord();
 
   void ResetBounceTrackingRecord();
 
   // Callback for when we received a response from the server and are about to
   // create a document for the response. Calls into
   // BounceTrackingState::OnResponseReceived.
-  nsresult OnDocumentStartRequest(nsIChannel* aChannel);
+  [[nodiscard]] nsresult OnDocumentStartRequest(nsIChannel* aChannel);
 
   // At the start of a navigation, either initialize a new bounce tracking
   // record, or append a client-side redirect to the current bounce tracking
   // record.
   // Should only be called for top level content navigations.
-  nsresult OnStartNavigation(nsIPrincipal* aTriggeringPrincipal,
-                             const bool aHasValidUserGestureActivation);
+  [[nodiscard]] nsresult OnStartNavigation(
+      nsIPrincipal* aTriggeringPrincipal,
+      const bool aHasValidUserGestureActivation);
 
   // Record sites which have written cookies in the current extended
   // navigation.
-  nsresult OnCookieWrite(const nsACString& aSiteHost);
+  [[nodiscard]] nsresult OnCookieWrite(const nsACString& aSiteHost);
 
   // Whether the given BrowsingContext should hold a BounceTrackingState
   // instance to monitor bounce tracking navigations.
   static bool ShouldCreateBounceTrackingStateForBC(
       dom::CanonicalBrowsingContext* aBrowsingContext);
 
+  // Whether the given principal should be tracked for bounce tracking.
+  static bool ShouldTrackPrincipal(nsIPrincipal* aPrincipal);
+
   // Check if there is a BounceTrackingState which current browsing context is
-  // associated with aSiteHost.
+  // associated with aSiteHost. Also takes OriginAttributes into account for
+  // isolation between normal browsing, private browsing and containers.
   // This is an approximation for checking if a given site is currently loaded
   // in the top level context, e.g. in a tab. See Bug 1842047 for adding a more
   // accurate check that calls into the browser implementations.
-  static nsresult HasBounceTrackingStateForSite(const nsACString& aSiteHost,
-                                                bool& aResult);
+  [[nodiscard]] static nsresult HasBounceTrackingStateForSite(
+      const nsACString& aSiteHost, const OriginAttributes& aOriginAttributes,
+      bool& aResult);
 
   // Get the currently associated BrowsingContext. Returns nullptr if it has not
   // been attached yet.
@@ -99,9 +111,15 @@ class BounceTrackingState : public nsIWebProgressListener,
   // Create a string that describes this object. Used for logging.
   nsCString Describe();
 
+  // Record sites which have accessed storage in the current extended
+  // navigation.
+  [[nodiscard]] nsresult OnStorageAccess(nsIPrincipal* aPrincipal);
+
  private:
   explicit BounceTrackingState();
   virtual ~BounceTrackingState();
+
+  bool mIsInitialized{false};
 
   uint64_t mBrowserId{};
 
@@ -113,7 +131,7 @@ class BounceTrackingState : public nsIWebProgressListener,
 
   // Record to keep track of extended navigation data. Reset on extended
   // navigation end.
-  RefPtr<BounceTrackingRecord> mBounceTrackingRecord;
+  Maybe<BounceTrackingRecord> mBounceTrackingRecord;
 
   // Timer to wait to wait for a client redirect after a navigation ends.
   RefPtr<nsITimer> mClientBounceDetectionTimeout;
@@ -130,25 +148,20 @@ class BounceTrackingState : public nsIWebProgressListener,
       dom::BrowsingContextWebProgress* aWebProgress);
 
   // Init to be called after creation, attaches nsIWebProgressListener.
-  nsresult Init(dom::BrowsingContextWebProgress* aWebProgress);
+  [[nodiscard]] nsresult Init(dom::BrowsingContextWebProgress* aWebProgress);
 
   // When the response is received at the end of a navigation, fill the
   // bounce set.
-  nsresult OnResponseReceived(const nsTArray<nsCString>& aSiteList);
+  [[nodiscard]] nsresult OnResponseReceived(
+      const nsTArray<nsCString>& aSiteList);
 
   // When the document is loaded at the end of a navigation, update the
   // final host.
-  nsresult OnDocumentLoaded(nsIPrincipal* aDocumentPrincipal);
-
-  // TODO: Bug 1839918: Detection of stateful bounces.
-
-  // Record sites which have accessed storage in the current extended
-  // navigation.
-  nsresult OnStorageAccess();
+  [[nodiscard]] nsresult OnDocumentLoaded(nsIPrincipal* aDocumentPrincipal);
 
   // Record sites which have activated service workers in the current
   // extended navigation.
-  nsresult OnServiceWorkerActivation();
+  [[nodiscard]] nsresult OnServiceWorkerActivation();
 };
 
 }  // namespace mozilla

@@ -17,8 +17,8 @@
 #include "js/CompileOptions.h"  // JS::CompileOptions, JS::OwningCompileOptions
 #include "js/CompilationAndEvaluation.h"
 #include "js/experimental/CompileScript.h"  // JS::CompileGlobalScriptToStencil, JS::NewFrontendContext, JS::DestroyFrontendContext, JS::SetNativeStackQuota, JS::ThreadStackQuotaForSize, JS::HadFrontendErrors, JS::ConvertFrontendErrorsToRuntimeErrors
-#include "js/experimental/JSStencil.h"  // JS::Stencil, JS::CompileGlobalScriptToStencil, JS::InstantiateGlobalStencil, JS::CompilationStorage
-#include "js/SourceText.h"              // JS::SourceText
+#include "js/experimental/JSStencil.h"  // JS::Stencil, JS::CompileGlobalScriptToStencil, JS::InstantiateGlobalStencil
+#include "js/SourceText.h"  // JS::SourceText
 #include "js/Utility.h"
 
 #include "mozilla/AlreadyAddRefed.h"  // already_AddRefed
@@ -119,9 +119,8 @@ class AsyncScriptCompileTask final : public Task {
     JS::SetNativeStackQuota(mFrontendContext,
                             JS::ThreadStackQuotaForSize(stackSize));
 
-    JS::CompilationStorage compileStorage;
-    mStencil = JS::CompileGlobalScriptToStencil(mFrontendContext, mOptions,
-                                                mSrcBuf, compileStorage);
+    mStencil =
+        JS::CompileGlobalScriptToStencil(mFrontendContext, mOptions, mSrcBuf);
   }
 
   // Cancel the task.
@@ -293,7 +292,14 @@ nsresult AsyncScriptCompiler::Start(
   mCharset = aOptions.mCharset;
 
   CompileOptions options(aCx);
-  options.setFile(mURL.get()).setNoScriptRval(!aOptions.mHasReturnValue);
+  nsAutoCString filename;
+  if (aOptions.mFilename.WasPassed()) {
+    filename = NS_ConvertUTF16toUTF8(aOptions.mFilename.Value());
+    options.setFile(filename.get());
+  } else {
+    options.setFile(mURL.get());
+  }
+  options.setNoScriptRval(!aOptions.mHasReturnValue);
 
   if (!aOptions.mLazilyParse) {
     options.setForceFullParse();
@@ -419,7 +425,8 @@ void AsyncScriptCompiler::Reject(JSContext* aCx, const char* aMsg) {
   nsAutoString msg;
   msg.AppendASCII(aMsg);
   msg.AppendLiteral(": ");
-  AppendUTF8toUTF16(mURL, msg);
+  nsDependentCString filename(mOptions.filename().c_str());
+  AppendUTF8toUTF16(filename, msg);
 
   RootedValue exn(aCx);
   if (xpc::NonVoidStringToJsval(aCx, msg, &exn)) {
@@ -428,6 +435,9 @@ void AsyncScriptCompiler::Reject(JSContext* aCx, const char* aMsg) {
 
   Reject(aCx);
 }
+
+NS_IMETHODIMP
+AsyncScriptCompiler::OnStartRequest(nsIRequest* aRequest) { return NS_OK; }
 
 NS_IMETHODIMP
 AsyncScriptCompiler::OnIncrementalData(nsIIncrementalStreamLoader* aLoader,
@@ -502,7 +512,7 @@ PrecompiledScript::PrecompiledScript(nsISupports* aParent,
                                      JS::ReadOnlyCompileOptions& aOptions)
     : mParent(aParent),
       mStencil(aStencil),
-      mURL(aOptions.filename().c_str()),
+      mPublicURL(aOptions.filename().c_str()),
       mHasReturnValue(!aOptions.noScriptRval) {
   MOZ_ASSERT(aParent);
   MOZ_ASSERT(aStencil);
@@ -552,7 +562,9 @@ void PrecompiledScript::ExecuteInGlobal(JSContext* aCx, HandleObject aGlobal,
   JS_WrapValue(aCx, aRval);
 }
 
-void PrecompiledScript::GetUrl(nsAString& aUrl) { CopyUTF8toUTF16(mURL, aUrl); }
+void PrecompiledScript::GetUrl(nsAString& aUrl) {
+  CopyUTF8toUTF16(mPublicURL, aUrl);
+}
 
 bool PrecompiledScript::HasReturnValue() { return mHasReturnValue; }
 

@@ -300,8 +300,9 @@ static already_AddRefed<CSSAnimation> BuildAnimation(
     return nullptr;
   }
 
+  const StyleAnimationDuration& duration = aStyle.GetAnimationDuration(animIdx);
   TimingParams timing = TimingParamsFromCSSParams(
-      aStyle.GetAnimationDuration(animIdx).ToMilliseconds(),
+      duration.IsAuto() ? Nothing() : Some(duration.AsTime().ToMilliseconds()),
       aStyle.GetAnimationDelay(animIdx).ToMilliseconds(),
       aStyle.GetAnimationIterationCount(animIdx),
       aStyle.GetAnimationDirection(animIdx),
@@ -335,14 +336,14 @@ static already_AddRefed<CSSAnimation> BuildAnimation(
   }
 
   KeyframeEffectParams effectOptions(composition);
-  RefPtr<KeyframeEffect> effect = new dom::CSSAnimationKeyframeEffect(
+  auto effect = MakeRefPtr<dom::CSSAnimationKeyframeEffect>(
       aPresContext->Document(),
       OwningAnimationTarget(aTarget.mElement, aTarget.mPseudoType),
       std::move(timing), effectOptions);
 
   aBuilder.SetKeyframes(*effect, std::move(keyframes), timeline);
 
-  RefPtr<CSSAnimation> animation = new CSSAnimation(
+  auto animation = MakeRefPtr<CSSAnimation>(
       aPresContext->Document()->GetScopeObject(), animationName);
   animation->SetOwningElement(
       OwningElementRef(*aTarget.mElement, aTarget.mPseudoType));

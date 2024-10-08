@@ -4,75 +4,74 @@
 
 <%namespace name="helpers" file="/helpers.mako.rs" />
 
-<% data.new_style_struct("InheritedUI", inherited=True, gecko_name="UI") %>
-
 ${helpers.predefined_type(
     "cursor",
     "Cursor",
     "computed::Cursor::auto()",
-    engines="gecko servo-2013 servo-2020",
+    engines="gecko servo",
     initial_specified_value="specified::Cursor::auto()",
-    animation_value_type="discrete",
+    animation_type="discrete",
     spec="https://drafts.csswg.org/css-ui/#cursor",
     affects="paint",
 )}
 
-// NB: `pointer-events: auto` (and use of `pointer-events` in anything that isn't SVG, in fact)
-// is nonstandard, slated for CSS4-UI.
-// TODO(pcwalton): SVG-only values.
-${helpers.single_keyword(
+${helpers.predefined_type(
     "pointer-events",
-    "auto none",
-    engines="gecko servo-2013 servo-2020",
-    animation_value_type="discrete",
-    extra_gecko_values="visiblepainted visiblefill visiblestroke visible painted fill stroke all",
+    "PointerEvents",
+    "specified::PointerEvents::Auto",
+    engines="gecko servo",
+    animation_type="discrete",
     spec="https://svgwg.org/svg2-draft/interact.html#PointerEventsProperty",
-    gecko_enum_prefix="StylePointerEvents",
     affects="paint",
 )}
 
-${helpers.single_keyword(
+${helpers.predefined_type(
     "-moz-inert",
-    "none inert",
+    "Inert",
+    "specified::Inert::None",
     engines="gecko",
     gecko_ffi_name="mInert",
-    gecko_enum_prefix="StyleInert",
-    animation_value_type="discrete",
+    animation_type="discrete",
     enabled_in="ua",
     spec="Nonstandard (https://html.spec.whatwg.org/multipage/#inert-subtrees)",
     affects="paint",
 )}
 
-${helpers.single_keyword(
+${helpers.predefined_type(
     "-moz-user-input",
-    "auto none",
+    "UserInput",
+    "specified::UserInput::Auto",
     engines="gecko",
     gecko_ffi_name="mUserInput",
-    gecko_enum_prefix="StyleUserInput",
-    animation_value_type="discrete",
+    animation_type="discrete",
     spec="Nonstandard (https://developer.mozilla.org/en-US/docs/Web/CSS/-moz-user-input)",
     affects="",
 )}
 
-${helpers.single_keyword(
+// This property is marked as enabled_in="chrome" because until we fully remove it, we still need
+// the internal uses. It is slightly more convenient to have it as a chrome rather than ua-only
+// property (there are tests that parse UA sheets as chrome stylesheets and so).
+${helpers.predefined_type(
     "-moz-user-modify",
-    "read-only read-write write-only",
+    "UserModify",
+    "specified::UserModify::ReadOnly",
     engines="gecko",
     gecko_ffi_name="mUserModify",
-    gecko_enum_prefix="StyleUserModify",
-    needs_conversion=True,
-    animation_value_type="discrete",
+    gecko_pref="layout.css.moz-user-modify.enabled",
+    enabled_in="chrome",
+    has_effect_on_gecko_scrollbars=False,
+    animation_type="discrete",
     spec="Nonstandard (https://developer.mozilla.org/en-US/docs/Web/CSS/-moz-user-modify)",
     affects="",
 )}
 
-${helpers.single_keyword(
+${helpers.predefined_type(
     "-moz-user-focus",
-    "normal none ignore",
+    "UserFocus",
+    "specified::UserFocus::Normal",
     engines="gecko",
     gecko_ffi_name="mUserFocus",
-    gecko_enum_prefix="StyleUserFocus",
-    animation_value_type="discrete",
+    animation_type="discrete",
     spec="Nonstandard (https://developer.mozilla.org/en-US/docs/Web/CSS/-moz-user-focus)",
     enabled_in="chrome",
     affects="",
@@ -84,7 +83,6 @@ ${helpers.predefined_type(
     "generics::color::CaretColor::auto()",
     engines="gecko",
     spec="https://drafts.csswg.org/css-ui/#caret-color",
-    animation_value_type="CaretColor",
     ignored_when_colors_disabled=True,
     affects="paint",
 )}
@@ -95,7 +93,6 @@ ${helpers.predefined_type(
     "generics::color::ColorOrAuto::Auto",
     engines="gecko",
     spec="https://drafts.csswg.org/css-ui-4/#widget-accent",
-    animation_value_type="ColorOrAuto",
     ignored_when_colors_disabled=True,
     affects="paint",
 )}
@@ -106,18 +103,17 @@ ${helpers.predefined_type(
     "specified::color::ColorScheme::normal()",
     engines="gecko",
     spec="https://drafts.csswg.org/css-color-adjust/#color-scheme-prop",
-    animation_value_type="discrete",
+    animation_type="discrete",
     ignored_when_colors_disabled=True,
     affects="paint",
 )}
 
 ${helpers.predefined_type(
     "scrollbar-color",
-    "ui::ScrollbarColor",
+    "ScrollbarColor",
     "Default::default()",
     engines="gecko",
     spec="https://drafts.csswg.org/css-scrollbars-1/#scrollbar-color",
-    animation_value_type="ScrollbarColor",
     boxed=True,
     ignored_when_colors_disabled=True,
     affects="paint",
@@ -125,11 +121,11 @@ ${helpers.predefined_type(
 
 ${helpers.predefined_type(
     "-moz-theme",
-    "ui::MozTheme",
-    "specified::ui::MozTheme::Auto",
+    "MozTheme",
+    "specified::MozTheme::Auto",
     engines="gecko",
     enabled_in="chrome",
-    animation_value_type="discrete",
+    animation_type="discrete",
     spec="Internal",
     affects="paint",
 )}

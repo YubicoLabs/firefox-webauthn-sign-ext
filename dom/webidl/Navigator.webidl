@@ -148,7 +148,9 @@ partial interface Navigator {
 partial interface Navigator {
     // We don't support sequences in unions yet
     //boolean vibrate ((unsigned long or sequence<unsigned long>) pattern);
+    [Pref="dom.vibrator.enabled"]
     boolean vibrate(unsigned long duration);
+    [Pref="dom.vibrator.enabled"]
     boolean vibrate(sequence<unsigned long> pattern);
 };
 
@@ -161,7 +163,7 @@ partial interface Navigator {
 // https://wicg.github.io/media-capabilities/#idl-index
 [Exposed=Window]
 partial interface Navigator {
-  [SameObject, Func="mozilla::dom::MediaCapabilities::Enabled"]
+  [SameObject]
   readonly attribute MediaCapabilities mediaCapabilities;
 };
 
@@ -217,6 +219,15 @@ partial interface Navigator {
 partial interface Navigator {
   [Throws, Pref="dom.gamepad.test.enabled"]
   GamepadServiceTest requestGamepadServiceTest();
+};
+
+// Chrome-only interface for acquiring all gamepads. Normally, a gamepad can
+// only become visible if it gets interacted by the user. This function bypasses
+// this restriction; it allow requesting all gamepad info without user
+// interacting with the gamepads.
+partial interface Navigator {
+  [Throws, ChromeOnly]
+  Promise<sequence<Gamepad>> requestAllGamepads();
 };
 
 // https://immersive-web.github.io/webvr/spec/1.1/#interface-navigator
@@ -384,4 +395,10 @@ partial interface Navigator {
 partial interface Navigator {
   [SameObject, Pref="dom.screenwakelock.enabled"]
   readonly attribute WakeLock wakeLock;
+};
+
+[SecureContext]
+partial interface Navigator {
+  [SameObject, Trial="PrivateAttributionV2"]
+  readonly attribute PrivateAttribution privateAttribution;
 };

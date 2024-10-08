@@ -30,6 +30,7 @@ namespace test {
 class MockChannelReceive : public voe::ChannelReceiveInterface {
  public:
   MOCK_METHOD(void, SetNACKStatus, (bool enable, int max_packets), (override));
+  MOCK_METHOD(void, SetRtcpMode, (RtcpMode mode), (override));
   MOCK_METHOD(void, SetNonSenderRttMeasurement, (bool enabled), (override));
   MOCK_METHOD(void,
               RegisterReceiverCongestionControlObjects,
@@ -113,7 +114,9 @@ class MockChannelSend : public voe::ChannelSendInterface {
  public:
   MOCK_METHOD(void,
               SetEncoder,
-              (int payload_type, std::unique_ptr<AudioEncoder> encoder),
+              (int payload_type,
+               const SdpAudioFormat& encoder_format,
+               std::unique_ptr<AudioEncoder> encoder),
               (override));
   MOCK_METHOD(
       void,

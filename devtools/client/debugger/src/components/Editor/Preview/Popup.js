@@ -100,14 +100,14 @@ export class Popup extends Component {
 
   renderExceptionPreview(exception) {
     return React.createElement(ExceptionPopup, {
-      exception: exception,
-      clearPreview: this.props.clearPreview,
+      exception,
+      mouseout: this.props.clearPreview,
     });
   }
 
   renderPreview() {
     const {
-      preview: { root, exception, resultGrip },
+      preview: { root, exception, resultGrip, previewType },
     } = this.props;
 
     const usesCustomFormatter =
@@ -119,11 +119,21 @@ export class Popup extends Component {
 
     return div(
       {
-        className: "preview-popup",
+        className: `preview-popup preview-type-${previewType}`,
         style: {
           maxHeight: this.calculateMaxHeight(),
         },
       },
+      // Bug 1915610 - JS Tracer isn't localized yet
+      previewType == "tracer"
+        ? div({ className: "preview-tracer-header" }, "Tracer preview")
+        : null,
+      previewType == "tracer" && !nodeIsPrimitive(root)
+        ? div(
+            { className: "preview-tracer-warning" },
+            "Attribute previews on traced objects are showing the current values and not the value at execution of the selected frame."
+          )
+        : null,
       React.createElement(ObjectInspector, {
         roots: [root],
         autoExpandDepth: 1,
@@ -182,8 +192,8 @@ export class Popup extends Component {
       Popover,
       {
         targetPosition: cursorPos,
-        type: type,
-        editorRef: editorRef,
+        type,
+        editorRef,
         target: this.props.preview.target,
         mouseout: this.props.clearPreview,
       },

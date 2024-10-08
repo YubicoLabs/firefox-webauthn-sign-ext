@@ -57,7 +57,8 @@ class HTMLFormElement final : public nsGenericHTMLElement {
 
   /** Whether we already dispatched a DOMFormHasPassword event or not */
   bool mHasPendingPasswordEvent = false;
-  /** Whether we already dispatched a DOMFormHasPossibleUsername event or not */
+  /** Whether we already dispatched a DOMPossibleUsernameInputAdded event or not
+   */
   bool mHasPendingPossibleUsernameEvent = false;
 
   // nsIContent
@@ -212,11 +213,11 @@ class HTMLFormElement final : public nsGenericHTMLElement {
    *
    * @return Whether the form is valid.
    *
-   * @note Do not call this method if novalidate/formnovalidate is used.
    * @note This method might disappear with bug 592124, hopefuly.
    * @see
    * https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#interactively-validate-the-constraints
    */
+  MOZ_CAN_RUN_SCRIPT
   bool CheckValidFormSubmission();
 
   /**
@@ -330,6 +331,7 @@ class HTMLFormElement final : public nsGenericHTMLElement {
 
   bool CheckValidity() { return CheckFormValidity(nullptr); }
 
+  MOZ_CAN_RUN_SCRIPT
   bool ReportValidity() { return CheckValidFormSubmission(); }
 
   Element* IndexedGetter(uint32_t aIndex, bool& aFound);
@@ -480,6 +482,11 @@ class HTMLFormElement final : public nsGenericHTMLElement {
    */
   nsresult GetActionURL(nsIURI** aActionURL, Element* aOriginatingElement);
 
+  // Get the target to submit to. This is either the submitter's |formtarget| or
+  // the form's |target| (Including <base>).
+  void GetSubmissionTarget(nsGenericHTMLElement* aSubmitter,
+                           nsAString& aTarget);
+
   // Returns a number for this form that is unique within its owner document.
   // This is used by nsContentUtils::GenerateStateKey to identify form controls
   // that are inserted into the document by the parser.
@@ -584,7 +591,8 @@ class HTMLFormElement final : public nsGenericHTMLElement {
   void MaybeFireFormRemoved();
 
   MOZ_CAN_RUN_SCRIPT
-  void ReportInvalidUnfocusableElements();
+  void ReportInvalidUnfocusableElements(
+      const nsTArray<RefPtr<Element>>&& aInvalidElements);
 
   ~HTMLFormElement();
 };

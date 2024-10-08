@@ -20,13 +20,7 @@ function onHashChange() {
 
 function changeView(view) {
   viewsDeck.selectedViewName = view;
-  pageNav.currentPage = view;
-  if (pageNav.pageNavButtons.includes(document.activeElement)) {
-    let currentPageButton = pageNav.pageNavButtons.find(
-      pageButton => pageButton.view === view
-    );
-    (currentPageButton || pageNav.pageNavButtons[0]).focus();
-  }
+  pageNav.currentView = view;
 }
 
 function onViewsDeckViewChange() {
@@ -48,16 +42,10 @@ function recordNavigationTelemetry(source, eventTarget) {
     view = eventTarget.shortPageName;
   }
   // Record telemetry
-  Services.telemetry.recordEvent(
-    "firefoxview_next",
-    "change_page",
-    "navigation",
-    null,
-    {
-      page: view,
-      source,
-    }
-  );
+  Glean.firefoxviewNext.changePageNavigation.record({
+    page: view,
+    source,
+  });
 }
 
 async function updateSearchTextboxSize() {
@@ -68,7 +56,7 @@ async function updateSearchTextboxSize() {
     { id: "firefoxview-search-text-box-syncedtabs" },
     { id: "firefoxview-search-text-box-history" },
   ];
-  let maxLength = 0;
+  let maxLength = 30;
   for (const msg of await document.l10n.formatMessages(msgs)) {
     const placeholder = msg.attributes[0].value;
     maxLength = Math.max(maxLength, placeholder.length);
@@ -84,6 +72,16 @@ async function updateSearchKeyboardShortcut() {
   ]);
   const key = message.attributes[0].value;
   searchKeyboardShortcut = key.toLocaleLowerCase();
+}
+
+function updateSyncVisibility() {
+  const syncEnabled = Services.prefs.getBoolPref(
+    "identity.fxaccounts.enabled",
+    false
+  );
+  for (const el of document.querySelectorAll(".sync-ui-item")) {
+    el.hidden = !syncEnabled;
+  }
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
@@ -112,6 +110,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   onViewsDeckViewChange();
   await updateSearchTextboxSize();
   await updateSearchKeyboardShortcut();
+  updateSyncVisibility();
 
   if (Cu.isInAutomation) {
     Services.obs.notifyObservers(null, "firefoxview-entered");
@@ -131,15 +130,9 @@ document.addEventListener("visibilitychange", () => {
 });
 
 function recordEnteredTelemetry() {
-  Services.telemetry.recordEvent(
-    "firefoxview_next",
-    "entered",
-    "firefoxview",
-    null,
-    {
-      page: document.location?.hash?.substring(1) || "recentbrowsing",
-    }
-  );
+  Glean.firefoxviewNext.enteredFirefoxview.record({
+    page: document.location?.hash?.substring(1) || "recentbrowsing",
+  });
 }
 
 document.addEventListener("keydown", e => {
@@ -156,12 +149,17 @@ window.addEventListener(
     document.body.textContent = "";
     topChromeWindow.removeEventListener("command", onCommand);
     Services.obs.removeObserver(onLocalesChanged, "intl:app-locales-changed");
+    Services.prefs.removeObserver(
+      "identity.fxaccounts.enabled",
+      updateSyncVisibility
+    );
   },
   { once: true }
 );
 
 topChromeWindow.addEventListener("command", onCommand);
 Services.obs.addObserver(onLocalesChanged, "intl:app-locales-changed");
+Services.prefs.addObserver("identity.fxaccounts.enabled", updateSyncVisibility);
 
 function onCommand(e) {
   if (document.hidden || !e.target.closest("#contentAreaContextMenu")) {
@@ -169,16 +167,10 @@ function onCommand(e) {
   }
   const item =
     e.target.closest("#context-openlinkinusercontext-menu") || e.target;
-  Services.telemetry.recordEvent(
-    "firefoxview_next",
-    "browser_context_menu",
-    "tabs",
-    null,
-    {
-      menu_action: item.id,
-      page: location.hash?.substring(1) || "recentbrowsing",
-    }
-  );
+  Glean.firefoxviewNext.browserContextMenuTabs.record({
+    menu_action: item.id,
+    page: location.hash?.substring(1) || "recentbrowsing",
+  });
 }
 
 function onLocalesChanged() {

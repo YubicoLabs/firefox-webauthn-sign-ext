@@ -7,7 +7,8 @@
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
-  accessibility: "chrome://remote/content/marionette/accessibility.sys.mjs",
+  accessibility:
+    "chrome://remote/content/shared/webdriver/Accessibility.sys.mjs",
   action: "chrome://remote/content/shared/webdriver/Actions.sys.mjs",
   atom: "chrome://remote/content/marionette/atom.sys.mjs",
   dom: "chrome://remote/content/shared/DOM.sys.mjs",
@@ -233,7 +234,6 @@ export class MarionetteCommandsChild extends JSWindowActorChild {
    * @param {string} options.selector
    * @param {object} options.opts
    * @param {Element} options.opts.startNode
-   *
    */
   async findElement(options = {}) {
     const { strategy, selector, opts } = options;
@@ -253,7 +253,6 @@ export class MarionetteCommandsChild extends JSWindowActorChild {
    * @param {string} options.selector
    * @param {object} options.opts
    * @param {Element} options.opts.startNode
-   *
    */
   async findElements(options = {}) {
     const { strategy, selector, opts } = options;
@@ -282,17 +281,7 @@ export class MarionetteCommandsChild extends JSWindowActorChild {
   async getComputedLabel(options = {}) {
     const { elem } = options;
 
-    const accessible = await lazy.accessibility.getAccessible(elem);
-    if (!accessible) {
-      return null;
-    }
-
-    // If name is null (absent), expose the empty string.
-    if (accessible.name === null) {
-      return "";
-    }
-
-    return accessible.name;
+    return lazy.accessibility.getAccessibleName(elem);
   }
 
   /**
@@ -301,13 +290,7 @@ export class MarionetteCommandsChild extends JSWindowActorChild {
   async getComputedRole(options = {}) {
     const { elem } = options;
 
-    const accessible = await lazy.accessibility.getAccessible(elem);
-    if (!accessible) {
-      // If it's not in the a11y tree, it's probably presentational.
-      return "none";
-    }
-
-    return accessible.computedARIARole;
+    return lazy.accessibility.getComputedRole(elem);
   }
 
   /**

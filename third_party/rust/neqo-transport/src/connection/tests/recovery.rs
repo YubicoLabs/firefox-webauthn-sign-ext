@@ -20,11 +20,11 @@ use super::{
     super::{Connection, ConnectionParameters, Output, State},
     assert_full_cwnd, connect, connect_force_idle, connect_rtt_idle, connect_with_rtt, cwnd,
     default_client, default_server, fill_cwnd, maybe_authenticate, new_client, send_and_receive,
-    send_something, AT_LEAST_PTO, DEFAULT_RTT, DEFAULT_STREAM_DATA, POST_HANDSHAKE_CWND,
+    send_something, AT_LEAST_PTO, DEFAULT_ADDR, DEFAULT_RTT, DEFAULT_STREAM_DATA,
+    POST_HANDSHAKE_CWND,
 };
 use crate::{
-    cc::CWND_MIN,
-    path::PATH_MTU_V6,
+    connection::tests::cwnd_min,
     recovery::{
         FAST_PTO_SCALE, MAX_OUTSTANDING_UNACK, MAX_PTO_PACKET_COUNT, MIN_OUTSTANDING_UNACK,
     },
@@ -32,7 +32,7 @@ use crate::{
     stats::MAX_PTO_COUNTS,
     tparams::TransportParameter,
     tracking::DEFAULT_ACK_DELAY,
-    StreamType,
+    Pmtud, StreamType,
 };
 
 #[test]
@@ -82,14 +82,14 @@ fn pto_works_full_cwnd() {
     // Send lots of data.
     let stream_id = client.stream_create(StreamType::UniDi).unwrap();
     let (dgrams, now) = fill_cwnd(&mut client, stream_id, now);
-    assert_full_cwnd(&dgrams, POST_HANDSHAKE_CWND);
+    assert_full_cwnd(&dgrams, POST_HANDSHAKE_CWND, client.plpmtu());
 
     // Fill the CWND after waiting for a PTO.
     let (dgrams, now) = fill_cwnd(&mut client, stream_id, now + AT_LEAST_PTO);
     // Two packets in the PTO.
     // The first should be full sized; the second might be small.
     assert_eq!(dgrams.len(), 2);
-    assert_eq!(dgrams[0].len(), PATH_MTU_V6);
+    assert_eq!(dgrams[0].len(), client.plpmtu());
 
     // Both datagrams contain one or more STREAM frames.
     for d in dgrams {
@@ -168,7 +168,7 @@ fn pto_initial() {
     let mut client = default_client();
     let pkt1 = client.process(None, now).dgram();
     assert!(pkt1.is_some());
-    assert_eq!(pkt1.clone().unwrap().len(), PATH_MTU_V6);
+    assert_eq!(pkt1.clone().unwrap().len(), client.plpmtu());
 
     let delay = client.process(None, now).callback();
     assert_eq!(delay, INITIAL_PTO);
@@ -177,7 +177,7 @@ fn pto_initial() {
     now += delay;
     let pkt2 = client.process(None, now).dgram();
     assert!(pkt2.is_some());
-    assert_eq!(pkt2.unwrap().len(), PATH_MTU_V6);
+    assert_eq!(pkt2.unwrap().len(), client.plpmtu());
 
     let delay = client.process(None, now).callback();
     // PTO has doubled.
@@ -264,6 +264,7 @@ fn pto_handshake_complete() {
     // We'll use that packet to force the server to acknowledge 1-RTT.
     let stream_id = client.stream_create(StreamType::UniDi).unwrap();
     client.stream_close_send(stream_id).unwrap();
+    now += HALF_RTT * 6;
     let pkt3 = client.process(None, now).dgram();
     assert_handshake(pkt3.as_ref().unwrap());
     let (pkt3_hs, pkt3_1rtt) = split_datagram(&pkt3.unwrap());
@@ -382,7 +383,7 @@ fn handshake_ack_pto() {
     let mut server = default_server();
     // This is a greasing transport parameter, and large enough that the
     // server needs to send two Handshake packets.
-    let big = TransportParameter::Bytes(vec![0; PATH_MTU_V6]);
+    let big = TransportParameter::Bytes(vec![0; Pmtud::default_plpmtu(DEFAULT_ADDR.ip())]);
     server.set_local_tparam(0xce16, big).unwrap();
 
     let c1 = client.process(None, now).dgram();
@@ -581,8 +582,15 @@ fn loss_time_past_largest_acked() {
     assert!(s_pto < RTT);
     let s_hs2 = server.process(None, now + s_pto).dgram();
     assert!(s_hs2.is_some());
+    let s_pto = server.process(None, now).callback();
+    assert_ne!(s_pto, Duration::from_secs(0));
+    assert!(s_pto < RTT);
     let s_hs3 = server.process(None, now + s_pto).dgram();
     assert!(s_hs3.is_some());
+
+    // We are blocked by the amplification limit now.
+    let cb = server.process_output(now).callback();
+    assert_eq!(cb, server.conn_params.get_idle_timeout());
 
     // Get some Handshake packets from the client.
     // We need one to be left unacknowledged before one that is acknowledged.
@@ -619,7 +627,9 @@ fn loss_time_past_largest_acked() {
 
     // Now the client should start its loss recovery timer based on the ACK.
     now += RTT / 2;
-    let c_ack = client.process(Some(&s_hs_ack), now).dgram();
+    let _c_ack = client.process(Some(&s_hs_ack), now).dgram();
+    // This ACK triggers an immediate ACK, due to an ACK loss during handshake.
+    let c_ack = client.process(None, now).dgram();
     assert!(c_ack.is_none());
     // The client should now have the loss recovery timer active.
     let lr_time = client.process(None, now).callback();
@@ -800,5 +810,5 @@ fn fast_pto_persistent_congestion() {
     let ack = server.process(Some(&dgram), now).dgram();
     now += DEFAULT_RTT / 2;
     client.process_input(&ack.unwrap(), now);
-    assert_eq!(cwnd(&client), CWND_MIN);
+    assert_eq!(cwnd(&client), cwnd_min(&client));
 }

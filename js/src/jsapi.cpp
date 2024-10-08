@@ -40,6 +40,7 @@
 #include "gc/Marking.h"
 #include "gc/PublicIterators.h"
 #include "jit/JitSpewer.h"
+#include "jit/TrampolineNatives.h"
 #include "js/CallAndConstruct.h"  // JS::IsCallable
 #include "js/CharacterEncoding.h"
 #include "js/ColumnNumber.h"  // JS::TaggedColumnNumberOneOrigin, JS::ColumnNumberOneOrigin
@@ -49,6 +50,7 @@
 #include "js/Date.h"  // JS::GetReduceMicrosecondTimePrecisionCallback
 #include "js/ErrorInterceptor.h"
 #include "js/ErrorReport.h"           // JSErrorBase
+#include "js/experimental/JitInfo.h"  // JSJitInfo
 #include "js/friend/ErrorMessages.h"  // js::GetErrorMessage, JSMSG_*
 #include "js/friend/StackLimits.h"    // js::AutoCheckRecursionLimit
 #include "js/GlobalObject.h"
@@ -75,7 +77,7 @@
 #include "js/WrapperCallbacks.h"
 #include "proxy/DOMProxy.h"
 #include "util/Identifier.h"  // IsIdentifier
-#include "util/StringBuffer.h"
+#include "util/StringBuilder.h"
 #include "util/Text.h"
 #include "vm/BoundFunctionObject.h"
 #include "vm/EnvironmentObject.h"
@@ -89,6 +91,7 @@
 #include "vm/JSFunction.h"
 #include "vm/JSObject.h"
 #include "vm/JSScript.h"
+#include "vm/Logging.h"
 #include "vm/PlainObject.h"    // js::PlainObject
 #include "vm/PromiseObject.h"  // js::PromiseObject
 #include "vm/Runtime.h"
@@ -116,13 +119,10 @@
 using namespace js;
 
 using mozilla::Maybe;
-using mozilla::PodCopy;
-using mozilla::Some;
 
 using JS::AutoStableStringChars;
 using JS::CompileOptions;
 using JS::ReadOnlyCompileOptions;
-using JS::SourceText;
 
 // See preprocessor definition of JS_BITS_PER_WORD in jstypes.h; make sure
 // JS_64BIT (used internally) agrees with it
@@ -814,12 +814,12 @@ JS_PUBLIC_API bool JS_RefreshCrossCompartmentWrappers(JSContext* cx,
   return RemapAllWrappersForObject(cx, obj, obj);
 }
 
-typedef struct JSStdName {
+struct JSStdName {
   size_t atomOffset; /* offset of atom pointer in JSAtomState */
   JSProtoKey key;
   bool isDummy() const { return key == JSProto_Null; }
   bool isSentinel() const { return key == JSProto_LIMIT; }
-} JSStdName;
+};
 
 static const JSStdName* LookupStdName(const JSAtomState& names, JSAtom* name,
                                       const JSStdName* table) {
@@ -1289,7 +1289,7 @@ JS_PUBLIC_API void JS_RemoveExtraGCRootsTracer(JSContext* cx,
 }
 
 JS_PUBLIC_API JS::GCReason JS::WantEagerMinorGC(JSRuntime* rt) {
-  if (rt->gc.nursery().shouldCollect()) {
+  if (rt->gc.nursery().wantEagerCollection()) {
     return JS::GCReason::EAGER_NURSERY_COLLECTION;
   }
   return JS::GCReason::NO_REASON;
@@ -1302,7 +1302,7 @@ JS_PUBLIC_API JS::GCReason JS::WantEagerMajorGC(JSRuntime* rt) {
 JS_PUBLIC_API void JS::MaybeRunNurseryCollection(JSRuntime* rt,
                                                  JS::GCReason reason) {
   gc::GCRuntime& gc = rt->gc;
-  if (gc.nursery().shouldCollect()) {
+  if (gc.nursery().wantEagerCollection()) {
     gc.minorGC(reason);
   }
 }
@@ -1602,7 +1602,8 @@ JS_PUBLIC_API bool JS::ToPrimitive(JSContext* cx, HandleObject obj, JSType hint,
   return ToPrimitiveSlow(cx, hint, vp);
 }
 
-JS_PUBLIC_API bool JS::GetFirstArgumentAsTypeHint(JSContext* cx, CallArgs args,
+JS_PUBLIC_API bool JS::GetFirstArgumentAsTypeHint(JSContext* cx,
+                                                  const CallArgs& args,
                                                   JSType* result) {
   if (!args.get(0).isString()) {
     JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
@@ -1973,6 +1974,12 @@ JS_PUBLIC_API void JS::SetHostEnsureCanAddPrivateElementHook(
   cx->runtime()->canAddPrivateElement = op;
 }
 
+JS_PUBLIC_API bool JS::SetBrittleMode(JSContext* cx, bool setting) {
+  bool wasBrittle = cx->brittleMode;
+  cx->brittleMode = setting;
+  return wasBrittle;
+}
+
 /*** Standard internal methods **********************************************/
 
 JS_PUBLIC_API bool JS_GetPrototype(JSContext* cx, HandleObject obj,
@@ -2335,8 +2342,12 @@ JS_PUBLIC_API JSFunction* JS::NewFunctionFromSpec(JSContext* cx,
     return nullptr;
   }
 
-  if (fs->call.info) {
-    fun->setJitInfo(fs->call.info);
+  if (auto* jitInfo = fs->call.info) {
+    if (jitInfo->type() == JSJitInfo::OpType::TrampolineNative) {
+      jit::SetTrampolineNativeJitEntry(cx, fun, jitInfo->trampolineNative);
+    } else {
+      fun->setJitInfo(jitInfo);
+    }
   }
   return fun;
 }
@@ -3574,7 +3585,7 @@ JS_PUBLIC_API JS::PropertyKey JS::GetWellKnownSymbolKey(JSContext* cx,
 static bool AddPrefix(JSContext* cx, JS::Handle<JS::PropertyKey> id,
                       FunctionPrefixKind prefixKind,
                       JS::MutableHandle<JS::PropertyKey> out) {
-  JS::Rooted<JSAtom*> atom(cx, js::IdToFunctionName(cx, id, prefixKind));
+  JSAtom* atom = js::IdToFunctionName(cx, id, prefixKind);
   if (!atom) {
     return false;
   }
@@ -3627,7 +3638,7 @@ JS_PUBLIC_API bool JS_Stringify(JSContext* cx, MutableHandleValue vp,
   AssertHeapIsIdle();
   CHECK_THREAD(cx);
   cx->check(replacer, space);
-  StringBuffer sb(cx);
+  StringBuilder sb(cx);
   if (!sb.ensureTwoByteChars()) {
     return false;
   }
@@ -3646,7 +3657,7 @@ JS_PUBLIC_API bool JS::ToJSON(JSContext* cx, HandleValue value,
   AssertHeapIsIdle();
   CHECK_THREAD(cx);
   cx->check(replacer, space);
-  StringBuffer sb(cx);
+  StringBuilder sb(cx);
   if (!sb.ensureTwoByteChars()) {
     return false;
   }
@@ -3667,7 +3678,7 @@ JS_PUBLIC_API bool JS::ToJSONMaybeSafely(JSContext* cx, JS::HandleObject input,
   CHECK_THREAD(cx);
   cx->check(input);
 
-  StringBuffer sb(cx);
+  StringBuilder sb(cx);
   if (!sb.ensureTwoByteChars()) {
     return false;
   }
@@ -4209,27 +4220,6 @@ extern MOZ_NEVER_INLINE JS_PUBLIC_API void JS_AbortIfWrongThread(
   }
 }
 
-#ifdef JS_GC_ZEAL
-JS_PUBLIC_API void JS_GetGCZealBits(JSContext* cx, uint32_t* zealBits,
-                                    uint32_t* frequency,
-                                    uint32_t* nextScheduled) {
-  cx->runtime()->gc.getZealBits(zealBits, frequency, nextScheduled);
-}
-
-JS_PUBLIC_API void JS_SetGCZeal(JSContext* cx, uint8_t zeal,
-                                uint32_t frequency) {
-  cx->runtime()->gc.setZeal(zeal, frequency);
-}
-
-JS_PUBLIC_API void JS_UnsetGCZeal(JSContext* cx, uint8_t zeal) {
-  cx->runtime()->gc.unsetZeal(zeal);
-}
-
-JS_PUBLIC_API void JS_ScheduleGC(JSContext* cx, uint32_t count) {
-  cx->runtime()->gc.setNextScheduled(count);
-}
-#endif
-
 JS_PUBLIC_API void JS_SetParallelParsingEnabled(JSContext* cx, bool enabled) {
   cx->runtime()->setParallelParsingEnabled(enabled);
 }
@@ -4430,6 +4420,15 @@ JS_PUBLIC_API void JS_SetGlobalJitCompilerOption(JSContext* cx,
     case JSJITCOMPILER_WASM_JIT_OPTIMIZING:
       JS::ContextOptionsRef(cx).setWasmIon(!!value);
       break;
+    case JSJITCOMPILER_REGEXP_DUPLICATE_NAMED_GROUPS:
+      jit::JitOptions.js_regexp_duplicate_named_groups = !!value;
+      break;
+
+#ifdef NIGHTLY_BUILD
+    case JSJITCOMPILER_REGEXP_MODIFIERS:
+      jit::JitOptions.js_regexp_modifiers = !!value;
+      break;
+#endif
 
 #ifdef DEBUG
     case JSJITCOMPILER_FULL_DEBUG_CHECKS:
@@ -4855,6 +4854,18 @@ JS_PUBLIC_API bool JS::FinishIncrementalEncoding(JSContext* cx,
 }
 
 JS_PUBLIC_API bool JS::FinishIncrementalEncoding(JSContext* cx,
+                                                 JS::HandleScript script,
+                                                 JS::Stencil** stencilOut) {
+  if (!script) {
+    return false;
+  }
+  if (!script->scriptSource()->xdrFinalizeEncoder(cx, stencilOut)) {
+    return false;
+  }
+  return true;
+}
+
+JS_PUBLIC_API bool JS::FinishIncrementalEncoding(JSContext* cx,
                                                  JS::Handle<JSObject*> module,
                                                  TranscodeBuffer& buffer) {
   if (!module->as<ModuleObject>()
@@ -4912,6 +4923,10 @@ JS_PUBLIC_API void JS::SetShadowRealmGlobalCreationCallback(
   cx->runtime()->shadowRealmGlobalCreationCallback = callback;
 }
 
+JS_PUBLIC_API bool JS::SetLoggingInterface(LoggingInterface& iface) {
+  return js::LogModule::initializeAll(iface);
+}
+
 JS::FirstSubsumedFrame::FirstSubsumedFrame(
     JSContext* cx, bool ignoreSelfHostedFrames /* = true */)
     : JS::FirstSubsumedFrame(cx, cx->realm()->principals(),
@@ -4966,7 +4981,25 @@ JS_PUBLIC_API bool JS::CopyAsyncStack(JSContext* cx,
   return true;
 }
 
-JS_PUBLIC_API Zone* JS::GetObjectZone(JSObject* obj) { return obj->zone(); }
+JS_PUBLIC_API Zone* JS::GetObjectZone(JSObject* obj) {
+  Zone* zone = obj->zone();
+
+  // Check zone pointer is valid and not a poison value. See bug 1878421.
+  MOZ_RELEASE_ASSERT(zone->runtimeFromMainThread());
+
+  return zone;
+}
+
+JS_PUBLIC_API Zone* JS::GetTenuredGCThingZone(GCCellPtr thing) {
+  js::gc::Cell* cell = thing.asCell();
+  MOZ_ASSERT(!js::gc::IsInsideNursery(cell));
+  Zone* zone = js::gc::detail::GetTenuredGCThingZone(cell);
+
+  // Check zone pointer is valid and not a poison value. See bug 1878421.
+  MOZ_RELEASE_ASSERT(zone->runtimeFromMainThread());
+
+  return zone;
+}
 
 JS_PUBLIC_API Zone* JS::GetNurseryCellZone(gc::Cell* cell) {
   return cell->nurseryZone();

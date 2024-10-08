@@ -82,9 +82,11 @@ class DhParamHolder : public PqgParamHolder {
   SECKEYDHParams params_;
 };
 
+/* Also used for EdDSA. */
 class EcParamHolder : public ParamHolder {
  public:
   EcParamHolder(SECOidTag curve_oid) {
+    /* For the case of ED curve_oid contains a EdDSA OID. */
     SECOidData* curve = SECOID_FindOIDByTag(curve_oid);
     EXPECT_NE(nullptr, curve);
 
@@ -142,6 +144,15 @@ std::unique_ptr<ParamHolder> Pkcs11KeyPairGenerator::MakeParams() const {
       return std::unique_ptr<ParamHolder>(new DhParamHolder(pqg_params));
     }
 
+    case CKM_EC_EDWARDS_KEY_PAIR_GEN:
+      std::cerr << "Generate ED pair on " << curve_ << std::endl;
+      return std::unique_ptr<ParamHolder>(
+          new EcParamHolder(SEC_OID_ED25519_PUBLIC_KEY));
+
+    case CKM_EC_MONTGOMERY_KEY_PAIR_GEN:
+      std::cerr << "Generate X25519 pair on " << curve_ << std::endl;
+      return std::unique_ptr<ParamHolder>(new EcParamHolder(SEC_OID_X25519));
+
     case CKM_EC_KEY_PAIR_GEN:
       std::cerr << "Generate EC pair on " << curve_ << std::endl;
       return std::unique_ptr<ParamHolder>(new EcParamHolder(curve_));
@@ -150,6 +161,11 @@ std::unique_ptr<ParamHolder> Pkcs11KeyPairGenerator::MakeParams() const {
       std::cerr << "Generate Kyber768 pair" << std::endl;
       return std::unique_ptr<ParamHolder>(
           new KyberParamHolder(CKP_NSS_KYBER_768_ROUND3));
+
+    case CKM_NSS_ML_KEM_KEY_PAIR_GEN:
+      std::cerr << "Generate ML-KEM768 pair" << std::endl;
+      return std::unique_ptr<ParamHolder>(
+          new KyberParamHolder(CKP_NSS_ML_KEM_768));
 
     default:
       ADD_FAILURE() << "unknown OID " << mech_;

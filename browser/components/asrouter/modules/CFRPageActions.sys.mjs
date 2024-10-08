@@ -315,7 +315,7 @@ export class PageAction {
   maybeLoadCustomElement(win) {
     if (!win.customElements.get("remote-text")) {
       Services.scriptloader.loadSubScript(
-        "resource://activity-stream/data/custom-elements/paragraph.js",
+        "chrome://browser/content/asrouter/components/remote-text.js",
         win
       );
     }
@@ -792,7 +792,7 @@ export class PageAction {
    * Respond to a user click on the recommendation by showing a doorhanger/
    * popup notification or running the action defined in the message
    */
-  async _cfrUrlbarButtonClick(event) {
+  async _cfrUrlbarButtonClick() {
     const browser = this.window.gBrowser.selectedBrowser;
     if (!RecommendationMap.has(browser)) {
       // There's no recommendation for this browser, so the user shouldn't have

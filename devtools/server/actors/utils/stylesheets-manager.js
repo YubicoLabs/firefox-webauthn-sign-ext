@@ -446,10 +446,12 @@ class StyleSheetsManager extends EventEmitter {
     InspectorUtils.parseStyleSheet(styleSheet, text);
     modifiedStyleSheets.set(styleSheet, text);
 
-    const { atRules, ruleCount } =
-      this.getStyleSheetRuleCountAndAtRules(styleSheet);
-
+    // getStyleSheetRuleCountAndAtRules can be costly, so only call it when needed,
+    // i.e. when the whole stylesheet is modified, not when a rule body is.
+    let atRules, ruleCount;
     if (kind !== UPDATE_PRESERVING_RULES) {
+      ({ atRules, ruleCount } =
+        this.getStyleSheetRuleCountAndAtRules(styleSheet));
       this.#notifyPropertyChanged(resourceId, "ruleCount", ruleCount);
     }
 
@@ -465,13 +467,15 @@ class StyleSheetsManager extends EventEmitter {
       });
     }
 
-    this.#onStyleSheetUpdated({
-      resourceId,
-      updateKind: "at-rules-changed",
-      updates: {
-        resourceUpdates: { atRules },
-      },
-    });
+    if (kind !== UPDATE_PRESERVING_RULES) {
+      this.#onStyleSheetUpdated({
+        resourceId,
+        updateKind: "at-rules-changed",
+        updates: {
+          resourceUpdates: { atRules },
+        },
+      });
+    }
   }
 
   /**
@@ -640,10 +644,14 @@ class StyleSheetsManager extends EventEmitter {
       return win;
     };
 
-    const styleSheetRules =
-      InspectorUtils.getAllStyleSheetCSSStyleRules(styleSheet);
-    const ruleCount = styleSheetRules.length;
-    // We need to go through nested rules to extract all the rules we're interested in
+    // This returns the following type of at-rules:
+    // - CSSMediaRule
+    // - CSSContainerRule
+    // - CSSSupportsRule
+    // - CSSLayerBlockRule
+    // New types can be added from InpsectorUtils.cpp `CollectAtRules`
+    const { atRules: styleSheetRules, ruleCount } =
+      InspectorUtils.getStyleSheetRuleCountAndAtRules(styleSheet);
     const atRules = [];
     for (const rule of styleSheetRules) {
       const className = ChromeUtils.getClassName(rule);
@@ -701,9 +709,19 @@ class StyleSheetsManager extends EventEmitter {
           line: InspectorUtils.getRelativeRuleLine(rule),
           column: InspectorUtils.getRuleColumn(rule),
         });
+      } else if (className === "CSSPropertyRule") {
+        atRules.push({
+          type: "property",
+          propertyName: rule.name,
+          line: InspectorUtils.getRelativeRuleLine(rule),
+          column: InspectorUtils.getRuleColumn(rule),
+        });
       }
     }
-    return { ruleCount, atRules };
+    return {
+      ruleCount,
+      atRules,
+    };
   }
 
   /**

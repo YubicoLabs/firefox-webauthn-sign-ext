@@ -42,6 +42,8 @@ const installType = addon => {
     return "sideload";
   } else if (addon.isSystem) {
     return "other";
+  } else if (addon.isInstalledByEnterprisePolicy) {
+    return "admin";
   }
   return "normal";
 };
@@ -188,7 +190,7 @@ this.management = class extends ExtensionAPIPersistent {
         unregister: () => {
           this.addonListener.off(eventName, listener);
         },
-        convert(_fire, context) {
+        convert(_fire) {
           fire = _fire;
         },
       };

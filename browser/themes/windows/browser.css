@@ -4,7 +4,6 @@
 
 @import url("chrome://browser/skin/browser-shared.css");
 @import url("chrome://browser/skin/contextmenu.css");
-@import url("chrome://browser/skin/browser-custom-colors.css");
 
 #menubar-items {
   flex-direction: column; /* for flex hack */
@@ -30,12 +29,7 @@
   :root[tabsintitlebar] {
     /* stylelint-disable-next-line media-query-no-invalid */
     @media (-moz-bool-pref: "browser.theme.windows.accent-color-in-tabs.enabled") {
-      --toolbox-non-lwt-bgcolor: ActiveCaption;
-      --toolbox-non-lwt-textcolor: CaptionText;
-      --toolbox-non-lwt-bgcolor-inactive: InactiveCaption;
-      --toolbox-non-lwt-textcolor-inactive: InactiveCaptionText;
-
-      #TabsToolbar:not(:-moz-lwtheme) {
+      &:not([lwtheme]) #TabsToolbar {
         /* These colors match the Linux/HCM default button colors. We need to
          * override these on the tabs toolbar because the accent color is
          * arbitrary, so the hardcoded colors from browser-custom-colors might
@@ -58,12 +52,7 @@
 /* When temporarily showing the menu bar, make it at least as tall as the
  * tab bar such that the window controls don't appear to move up. */
 :root[tabsintitlebar] #toolbar-menubar[autohide="true"] {
-  height: calc(var(--tab-min-height) - var(--tabs-navbar-shadow-size));
-}
-
-#print-preview-toolbar:not(:-moz-lwtheme) {
-  appearance: auto;
-  -moz-default-appearance: toolbox;
+  height: var(--tab-min-height);
 }
 
 /* Titlebar */
@@ -81,12 +70,6 @@
 
 .titlebar-buttonbox-container {
   align-items: stretch;
-
-  /* Prevent window controls from overlapping the nav bar's shadow on the tab
-   * bar. */
-  #TabsToolbar > & {
-    margin-bottom: var(--tabs-navbar-shadow-size);
-  }
 }
 
 /* Window control buttons */
@@ -314,10 +297,12 @@
     --urlbar-box-hover-text-color: SelectedItemText;
   }
 
-  #urlbar:not(:-moz-lwtheme, [focused="true"]) > #urlbar-background,
-  #searchbar:not(:-moz-lwtheme, :focus-within),
-  .findbar-textbox:not(:-moz-lwtheme, :focus) {
-    border-color: ThreeDShadow;
+  :root:not([lwtheme]) {
+    #urlbar:not([focused]) > #urlbar-background,
+    #searchbar:not(:focus-within),
+    .findbar-textbox:not(:focus) {
+      border-color: ThreeDShadow;
+    }
   }
 }
 

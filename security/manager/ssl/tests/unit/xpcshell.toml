@@ -9,6 +9,7 @@ support-files = [
   "ocsp_certs/**",
   "test_baseline_requirements/**",
   "test_broken_fips/**",
+  "test_builtins/**",
   "test_cert_eku/**",
   "test_cert_embedded_null/**",
   "test_cert_keyUsage/**",
@@ -70,6 +71,8 @@ skip-if = [
   "os == 'android'",
   "os == 'linux'"
 ]
+
+["test_builtins.js"]
 
 ["test_certDB_export_pkcs12.js"]
 
@@ -161,6 +164,11 @@ tags = "remote-settings psm"
 ["test_crlite_stash_corrupted.js"]
 
 ["test_ct.js"]
+# Requires hard-coded debug-only data
+skip-if = ["!debug"]
+run-sequentially = "hardcoded ports"
+
+["test_ct_stapled.js"]
 # Requires hard-coded debug-only data
 skip-if = ["!debug"]
 run-sequentially = "hardcoded ports"
@@ -334,9 +342,20 @@ skip-if = ["condprof"]  # Bug 1769154 - as designed
 ["test_sss_resetState.js"]
 
 ["test_sss_sanitizeOnShutdown.js"]
+prefs = ["privacy.sanitize.useOldClearHistoryDialog=true"]
 firefox-appdir = "browser"
 # Sanitization works differently on Android - this doesn't apply.
-# browser/modules/Sanitizer.jsm used by the test isn't available in Thunderbird.
+# browser/modules/Sanitizer.sys.mjs used by the test isn't available in Thunderbird.
+skip-if = [
+  "os == 'android'",
+  "appname == 'thunderbird'"
+]
+
+["test_sss_sanitizeOnShutdown_v2.js"]
+prefs = ["privacy.sanitize.useOldClearHistoryDialog=false"]
+firefox-appdir = "browser"
+# Sanitization works differently on Android - this doesn't apply.
+# browser/modules/Sanitizer.sys.mjs used by the test isn't available in Thunderbird.
 skip-if = [
   "os == 'android'",
   "appname == 'thunderbird'"

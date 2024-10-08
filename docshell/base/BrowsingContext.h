@@ -135,6 +135,10 @@ struct EmbedderColorSchemes {
   FIELD(EmbedderInnerWindowId, uint64_t)                                      \
   FIELD(CurrentInnerWindowId, uint64_t)                                       \
   FIELD(HadOriginalOpener, bool)                                              \
+  /* Was this window created by a webpage through window.open or an anchor    \
+   * link? In general, windows created this way may be manipulated (e.g.      \
+   * closed, resized or moved) by content JS. */                              \
+  FIELD(TopLevelCreatedByWebContent, bool)                                    \
   FIELD(IsPopupSpam, bool)                                                    \
   /* Hold the audio muted state and should be used on top level browsing      \
    * contexts only */                                                         \
@@ -236,6 +240,8 @@ struct EmbedderColorSchemes {
   FIELD(MediumOverride, nsString)                                             \
   /* DevTools override for prefers-color-scheme */                            \
   FIELD(PrefersColorSchemeOverride, dom::PrefersColorSchemeOverride)          \
+  /* DevTools override for forced-colors */                                   \
+  FIELD(ForcedColorsOverride, dom::ForcedColorsOverride)                      \
   /* prefers-color-scheme override based on the color-scheme style of our     \
    * <browser> embedder element. */                                           \
   FIELD(EmbedderColorSchemes, EmbedderColorSchemes)                           \
@@ -268,7 +274,10 @@ struct EmbedderColorSchemes {
   /* If true, this browsing context is within a hidden embedded document. */  \
   FIELD(IsUnderHiddenEmbedderElement, bool)                                   \
   /* If true, this browsing context is offline */                             \
-  FIELD(ForceOffline, bool)
+  FIELD(ForceOffline, bool)                                                   \
+  /* Used to propagate window.top's inner size for RFPTarget::Window*         \
+   * protections */                                                           \
+  FIELD(TopInnerSizeForRFP, CSSIntSize)
 
 // BrowsingContext, in this context, is the cross process replicated
 // environment in which information about documents is stored. In
@@ -331,6 +340,13 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
   // it.
   static already_AddRefed<BrowsingContext> CreateIndependent(Type aType);
 
+  // Options which can be passed to CreateDetached.
+  struct CreateDetachedOptions {
+    bool isPopupRequested = false;
+    bool createdDynamically = false;
+    bool topLevelCreatedByWebContent = false;
+  };
+
   // Create a brand-new BrowsingContext object, but does not immediately attach
   // it. State such as OriginAttributes and PrivateBrowsingId may be customized
   // to configure the BrowsingContext before it is attached.
@@ -340,7 +356,7 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
   static already_AddRefed<BrowsingContext> CreateDetached(
       nsGlobalWindowInner* aParent, BrowsingContext* aOpener,
       BrowsingContextGroup* aSpecificGroup, const nsAString& aName, Type aType,
-      bool aIsPopupRequested, bool aCreatedDynamically = false);
+      CreateDetachedOptions aOptions);
 
   void EnsureAttached();
 
@@ -884,13 +900,13 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
 
   // Checks if we reached the rate limit for calls to Location and History API.
   // The rate limit is controlled by the
-  // "dom.navigation.locationChangeRateLimit" prefs.
+  // "dom.navigation.navigationRateLimit" prefs.
   // Rate limit applies per BrowsingContext.
   // Returns NS_OK if we are below the rate limit and increments the counter.
   // Returns NS_ERROR_DOM_SECURITY_ERR if limit is reached.
-  nsresult CheckLocationChangeRateLimit(CallerType aCallerType);
+  nsresult CheckNavigationRateLimit(CallerType aCallerType);
 
-  void ResetLocationChangeRateLimit();
+  void ResetNavigationRateLimit();
 
   mozilla::dom::DisplayMode DisplayMode() { return Top()->GetDisplayMode(); }
 
@@ -924,6 +940,10 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
 
   dom::PrefersColorSchemeOverride PrefersColorSchemeOverride() const {
     return GetPrefersColorSchemeOverride();
+  }
+
+  dom::ForcedColorsOverride ForcedColorsOverride() const {
+    return GetForcedColorsOverride();
   }
 
   bool IsInBFCache() const;
@@ -970,7 +990,18 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
                                        bool aHasPostData);
 
  private:
-  mozilla::ipc::IPCResult Attach(bool aFromIPC, ContentParent* aOriginProcess);
+  // Assert that this BrowsingContext is coherent relative to related
+  // BrowsingContexts. This will be run before the BrowsingContext is attached.
+  //
+  // A non-null string return value indicates that there was a coherency check
+  // failure, which will be handled with either a crash or IPC failure.
+  //
+  // If provided, `aOriginProcess` is the process which is responsible for the
+  // creation of this BrowsingContext.
+  [[nodiscard]] const char* BrowsingContextCoherencyChecks(
+      ContentParent* aOriginProcess);
+
+  void Attach(bool aFromIPC, ContentParent* aOriginProcess);
 
   // Recomputes whether we can execute scripts in this BrowsingContext based on
   // the value of AllowJavascript() and whether scripts are allowed in the
@@ -983,10 +1014,6 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
   bool CanSetOriginAttributes();
 
   void AssertOriginAttributesMatchPrivateBrowsing();
-
-  // Assert that the BrowsingContext's LoadContext flags appear coherent
-  // relative to related BrowsingContexts.
-  void AssertCoherentLoadContext();
 
   friend class ::nsOuterWindowProxy;
   friend class ::nsGlobalWindowOuter;
@@ -1078,6 +1105,11 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
     return IsTop();
   }
 
+  bool CanSet(FieldIndex<IDX_ForcedColorsOverride>, dom::ForcedColorsOverride,
+              ContentParent*) {
+    return IsTop();
+  }
+
   void DidSet(FieldIndex<IDX_InRDMPane>, bool aOldValue);
 
   void DidSet(FieldIndex<IDX_EmbedderColorSchemes>,
@@ -1085,6 +1117,9 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
 
   void DidSet(FieldIndex<IDX_PrefersColorSchemeOverride>,
               dom::PrefersColorSchemeOverride aOldValue);
+
+  void DidSet(FieldIndex<IDX_ForcedColorsOverride>,
+              dom::ForcedColorsOverride aOldValue);
 
   template <typename Callback>
   void WalkPresContexts(Callback&&);
@@ -1211,6 +1246,9 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
   bool CanSet(FieldIndex<IDX_PendingInitialization>, bool aNewValue,
               ContentParent* aSource);
 
+  bool CanSet(FieldIndex<IDX_TopLevelCreatedByWebContent>,
+              const bool& aNewValue, ContentParent* aSource);
+
   bool CanSet(FieldIndex<IDX_PageAwakeRequestCount>, uint32_t aNewValue,
               ContentParent* aSource);
   void DidSet(FieldIndex<IDX_PageAwakeRequestCount>, uint32_t aOldValue);
@@ -1238,6 +1276,10 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
 
   bool CanSet(FieldIndex<IDX_ForceOffline>, bool aNewValue,
               ContentParent* aSource);
+
+  bool CanSet(FieldIndex<IDX_TopInnerSizeForRFP>, bool, ContentParent*) {
+    return IsTop();
+  }
 
   bool CanSet(FieldIndex<IDX_EmbeddedInContentDocument>, bool,
               ContentParent* aSource) {
@@ -1411,9 +1453,9 @@ class BrowsingContext : public nsILoadContext, public nsWrapperCache {
   nsTArray<std::function<void(uint64_t)>> mDiscardListeners;
 
   // Counter and time span for rate limiting Location and History API calls.
-  // Used by CheckLocationChangeRateLimit. Do not apply cross-process.
-  uint32_t mLocationChangeRateLimitCount;
-  mozilla::TimeStamp mLocationChangeRateLimitSpanStart;
+  // Used by CheckNavigationRateLimit. Do not apply cross-process.
+  uint32_t mNavigationRateLimitCount;
+  mozilla::TimeStamp mNavigationRateLimitSpanStart;
 
   mozilla::LinkedList<dom::Location> mLocations;
 };

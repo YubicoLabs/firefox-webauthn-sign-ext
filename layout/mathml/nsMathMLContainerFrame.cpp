@@ -33,45 +33,6 @@ NS_QUERYFRAME_HEAD(nsMathMLContainerFrame)
   NS_QUERYFRAME_ENTRY(nsMathMLContainerFrame)
 NS_QUERYFRAME_TAIL_INHERITING(nsContainerFrame)
 
-// =============================================================================
-
-namespace mozilla {
-
-class nsDisplayMathMLError : public nsPaintedDisplayItem {
- public:
-  nsDisplayMathMLError(nsDisplayListBuilder* aBuilder, nsIFrame* aFrame)
-      : nsPaintedDisplayItem(aBuilder, aFrame) {
-    MOZ_COUNT_CTOR(nsDisplayMathMLError);
-  }
-  MOZ_COUNTED_DTOR_OVERRIDE(nsDisplayMathMLError)
-
-  virtual void Paint(nsDisplayListBuilder* aBuilder, gfxContext* aCtx) override;
-  NS_DISPLAY_DECL_NAME("MathMLError", TYPE_MATHML_ERROR)
-};
-
-void nsDisplayMathMLError::Paint(nsDisplayListBuilder* aBuilder,
-                                 gfxContext* aCtx) {
-  // Set color and font ...
-  RefPtr<nsFontMetrics> fm =
-      nsLayoutUtils::GetFontMetricsForFrame(mFrame, 1.0f);
-
-  nsPoint pt = ToReferenceFrame();
-  int32_t appUnitsPerDevPixel = mFrame->PresContext()->AppUnitsPerDevPixel();
-  DrawTarget* drawTarget = aCtx->GetDrawTarget();
-  Rect rect = NSRectToSnappedRect(nsRect(pt, mFrame->GetSize()),
-                                  appUnitsPerDevPixel, *drawTarget);
-  ColorPattern red(ToDeviceColor(sRGBColor(1.f, 0.f, 0.f, 1.f)));
-  drawTarget->FillRect(rect, red);
-
-  aCtx->SetColor(sRGBColor::OpaqueWhite());
-  nscoord ascent = fm->MaxAscent();
-  constexpr auto errorMsg = u"invalid-markup"_ns;
-  nsLayoutUtils::DrawUniDirString(errorMsg.get(), uint32_t(errorMsg.Length()),
-                                  nsPoint(pt.x, pt.y + ascent), *fm, *aCtx);
-}
-
-}  // namespace mozilla
-
 /* /////////////
  * nsIMathMLFrame - support methods for stretchy elements
  * =============================================================================
@@ -132,6 +93,46 @@ void nsMathMLContainerFrame::ClearSavedChildMetrics() {
   }
 }
 
+nsMargin nsMathMLContainerFrame::GetBorderPaddingForPlace(
+    const PlaceFlags& aFlags) {
+  if (aFlags.contains(PlaceFlag::IgnoreBorderPadding)) {
+    return nsMargin();
+  }
+
+  if (aFlags.contains(PlaceFlag::IntrinsicSize)) {
+    // Bug 1910859: Should we provide separate left and right border/padding?
+    return nsMargin(0, IntrinsicISizeOffsets().BorderPadding(), 0, 0);
+  }
+
+  return GetUsedBorderAndPadding();
+}
+
+/* static */
+nsMargin nsMathMLContainerFrame::GetMarginForPlace(const PlaceFlags& aFlags,
+                                                   nsIFrame* aChild) {
+  if (aFlags.contains(PlaceFlag::IntrinsicSize)) {
+    // Bug 1910859: Should we provide separate left and right margin?
+    return nsMargin(0, aChild->IntrinsicISizeOffsets().margin, 0, 0);
+  }
+
+  return aChild->GetUsedMargin();
+}
+
+void nsMathMLContainerFrame::InflateReflowAndBoundingMetrics(
+    const nsMargin& aBorderPadding, ReflowOutput& aReflowOutput,
+    nsBoundingMetrics& aBoundingMetrics) {
+  // Bug 1910858: It is not really clear what is the right way to update the
+  // ink bounding box when adding border or padding. Below, we assume that
+  // border/padding inflate it.
+  aBoundingMetrics.rightBearing += aBorderPadding.LeftRight();
+  aBoundingMetrics.width += aBorderPadding.LeftRight();
+  aReflowOutput.mBoundingMetrics = aBoundingMetrics;
+  aReflowOutput.Width() += aBorderPadding.LeftRight();
+  aReflowOutput.SetBlockStartAscent(aReflowOutput.BlockStartAscent() +
+                                    aBorderPadding.top);
+  aReflowOutput.Height() += aBorderPadding.TopBottom();
+}
+
 // helper to get the preferred size that a container frame should use to fire
 // the stretch on its stretchy child frames.
 void nsMathMLContainerFrame::GetPreferredStretchSize(
@@ -142,9 +143,10 @@ void nsMathMLContainerFrame::GetPreferredStretchSize(
     // when our actual size is ok, just use it
     aPreferredStretchSize = mBoundingMetrics;
   } else if (aOptions & STRETCH_CONSIDER_EMBELLISHMENTS) {
-    // compute our up-to-date size using Place()
+    // compute our up-to-date size using Place(), without border/padding.
     ReflowOutput reflowOutput(GetWritingMode());
-    Place(aDrawTarget, false, reflowOutput);
+    PlaceFlags flags(PlaceFlag::MeasureOnly, PlaceFlag::IgnoreBorderPadding);
+    Place(aDrawTarget, flags, reflowOutput);
     aPreferredStretchSize = reflowOutput.mBoundingMetrics;
   } else {
     // compute a size that includes embellishments iff the container stretches
@@ -244,11 +246,6 @@ nsMathMLContainerFrame::Stretch(DrawTarget* aDrawTarget,
     }
     mPresentationData.flags |= NS_MATHML_STRETCH_DONE;
 
-    if (NS_MATHML_HAS_ERROR(mPresentationData.flags)) {
-      NS_WARNING("it is wrong to fire stretch on a erroneous frame");
-      return NS_OK;
-    }
-
     // Pass the stretch to the base child ...
 
     nsIFrame* baseFrame = mPresentationData.baseFrame;
@@ -340,8 +337,9 @@ nsMathMLContainerFrame::Stretch(DrawTarget* aDrawTarget,
         }
 
         // re-position all our children
-        nsresult rv = Place(aDrawTarget, true, aDesiredStretchSize);
-        if (NS_MATHML_HAS_ERROR(mPresentationData.flags) || NS_FAILED(rv)) {
+        PlaceFlags flags;
+        nsresult rv = Place(aDrawTarget, flags, aDesiredStretchSize);
+        if (NS_FAILED(rv)) {
           // Make sure the child frames get their DidReflow() calls.
           DidReflowChildren(mFrames.FirstChild());
         }
@@ -422,15 +420,19 @@ nsresult nsMathMLContainerFrame::FinalizeReflow(DrawTarget* aDrawTarget,
       !NS_MATHML_IS_EMBELLISH_OPERATOR(mEmbellishData.flags) ||
       (mEmbellishData.coreFrame != this && !mPresentationData.baseFrame &&
        mEmbellishData.direction == NS_STRETCH_DIRECTION_UNSUPPORTED);
-  nsresult rv = Place(aDrawTarget, placeOrigin, aDesiredSize);
+  PlaceFlags flags;
+  if (!placeOrigin) {
+    flags += PlaceFlag::MeasureOnly;
+  }
+  nsresult rv = Place(aDrawTarget, flags, aDesiredSize);
 
   // Place() will call FinishReflowChild() when placeOrigin is true but if
   // it returns before reaching FinishReflowChild() due to errors we need
   // to fulfill the reflow protocol by calling DidReflow for the child frames
   // that still needs it here (or we may crash - bug 366012).
-  // If placeOrigin is false we should reach Place() with aPlaceOrigin == true
-  // through Stretch() eventually.
-  if (NS_MATHML_HAS_ERROR(mPresentationData.flags) || NS_FAILED(rv)) {
+  // If placeOrigin is false we should reach Place() with
+  // PlaceFlag::MeasureOnly unset through Stretch() eventually.
+  if (NS_FAILED(rv)) {
     GatherAndStoreOverflow(&aDesiredSize);
     DidReflowChildren(PrincipalChildList().FirstChild());
     return rv;
@@ -566,25 +568,7 @@ void nsMathMLContainerFrame::PropagatePresentationDataFromChildAt(
 
 void nsMathMLContainerFrame::BuildDisplayList(nsDisplayListBuilder* aBuilder,
                                               const nsDisplayListSet& aLists) {
-  // report an error if something wrong was found in this frame
-  if (NS_MATHML_HAS_ERROR(mPresentationData.flags)) {
-    if (!IsVisibleForPainting()) return;
-
-    aLists.Content()->AppendNewToTop<nsDisplayMathMLError>(aBuilder, this);
-    return;
-  }
-
   BuildDisplayListForInline(aBuilder, aLists);
-
-#if defined(DEBUG) && defined(SHOW_BOUNDING_BOX)
-  // for visual debug
-  // ----------------
-  // if you want to see your bounding box, make sure to properly fill
-  // your mBoundingMetrics and mReference point, and set
-  // mPresentationData.flags |= NS_MATHML_SHOW_BOUNDING_METRICS
-  // in the Init() of your sub-class
-  DisplayBoundingMetrics(aBuilder, this, mReference, mBoundingMetrics, aLists);
-#endif
 }
 
 // Note that this method re-builds the automatic data in the children -- not
@@ -690,18 +674,6 @@ void nsMathMLContainerFrame::RemoveFrame(DestroyContext& aContext,
   ChildListChanged(dom::MutationEvent_Binding::REMOVAL);
 }
 
-nsresult nsMathMLContainerFrame::AttributeChanged(int32_t aNameSpaceID,
-                                                  nsAtom* aAttribute,
-                                                  int32_t aModType) {
-  // XXX Since they are numerous MathML attributes that affect layout, and
-  // we can't check all of them here, play safe by requesting a reflow.
-  // XXXldb This should only do work for attributes that cause changes!
-  PresShell()->FrameNeedsReflow(
-      this, IntrinsicDirty::FrameAncestorsAndDescendants, NS_FRAME_IS_DIRTY);
-
-  return NS_OK;
-}
-
 void nsMathMLContainerFrame::GatherAndStoreOverflow(ReflowOutput* aMetrics) {
   mBlockStartAscent = aMetrics->BlockStartAscent();
 
@@ -798,7 +770,6 @@ void nsMathMLContainerFrame::Reflow(nsPresContext* aPresContext,
   MarkInReflow();
   MOZ_ASSERT(aStatus.IsEmpty(), "Caller should pass a fresh reflow status!");
 
-  mPresentationData.flags &= ~NS_MATHML_ERROR;
   aDesiredSize.Width() = aDesiredSize.Height() = 0;
   aDesiredSize.SetBlockStartAscent(0);
   aDesiredSize.mBoundingMetrics = nsBoundingMetrics();
@@ -882,39 +853,31 @@ static nscoord AddInterFrameSpacingToSize(ReflowOutput& aDesiredSize,
 
 /* virtual */
 void nsMathMLContainerFrame::MarkIntrinsicISizesDirty() {
-  mIntrinsicWidth = NS_INTRINSIC_ISIZE_UNKNOWN;
+  mIntrinsicISize = NS_INTRINSIC_ISIZE_UNKNOWN;
   nsContainerFrame::MarkIntrinsicISizesDirty();
 }
 
-void nsMathMLContainerFrame::UpdateIntrinsicWidth(
+void nsMathMLContainerFrame::UpdateIntrinsicISize(
     gfxContext* aRenderingContext) {
-  if (mIntrinsicWidth == NS_INTRINSIC_ISIZE_UNKNOWN) {
+  if (mIntrinsicISize == NS_INTRINSIC_ISIZE_UNKNOWN) {
     ReflowOutput desiredSize(GetWritingMode());
     GetIntrinsicISizeMetrics(aRenderingContext, desiredSize);
 
     // Include the additional width added by FixInterFrameSpacing to ensure
     // consistent width calculations.
     AddInterFrameSpacingToSize(desiredSize, this);
-    mIntrinsicWidth = desiredSize.ISize(GetWritingMode());
+
+    // ReflowOuput::mSize corresponds to the border box, but callers
+    // expect padding/border are not included.
+    mIntrinsicISize = desiredSize.ISize(GetWritingMode()) -
+                      IntrinsicISizeOffsets().BorderPadding();
   }
 }
 
-/* virtual */
-nscoord nsMathMLContainerFrame::GetMinISize(gfxContext* aRenderingContext) {
-  nscoord result;
-  DISPLAY_MIN_INLINE_SIZE(this, result);
-  UpdateIntrinsicWidth(aRenderingContext);
-  result = mIntrinsicWidth;
-  return result;
-}
-
-/* virtual */
-nscoord nsMathMLContainerFrame::GetPrefISize(gfxContext* aRenderingContext) {
-  nscoord result;
-  DISPLAY_PREF_INLINE_SIZE(this, result);
-  UpdateIntrinsicWidth(aRenderingContext);
-  result = mIntrinsicWidth;
-  return result;
+nscoord nsMathMLContainerFrame::IntrinsicISize(const IntrinsicSizeInput& aInput,
+                                               IntrinsicISizeType aType) {
+  UpdateIntrinsicISize(aInput.mContext);
+  return mIntrinsicISize;
 }
 
 /* virtual */
@@ -930,9 +893,6 @@ void nsMathMLContainerFrame::GetIntrinsicISizeMetrics(
       containerFrame->GetIntrinsicISizeMetrics(aRenderingContext,
                                                childDesiredSize);
     } else {
-      // XXX This includes margin while Reflow currently doesn't consider
-      // margin, so we may end up with too much space, but, with stretchy
-      // characters, this is an approximation anyway.
       nscoord width = nsLayoutUtils::IntrinsicForContainer(
           aRenderingContext, childFrame, IntrinsicISizeType::PrefISize);
 
@@ -956,19 +916,13 @@ void nsMathMLContainerFrame::GetIntrinsicISizeMetrics(
   }
 
   // Measure
-  nsresult rv =
-      MeasureForWidth(aRenderingContext->GetDrawTarget(), aDesiredSize);
+  PlaceFlags flags(PlaceFlag::IntrinsicSize, PlaceFlag::MeasureOnly);
+  nsresult rv = Place(aRenderingContext->GetDrawTarget(), flags, aDesiredSize);
   if (NS_FAILED(rv)) {
-    PlaceAsMrow(aRenderingContext->GetDrawTarget(), false, aDesiredSize);
+    PlaceAsMrow(aRenderingContext->GetDrawTarget(), flags, aDesiredSize);
   }
 
   ClearSavedChildMetrics();
-}
-
-/* virtual */
-nsresult nsMathMLContainerFrame::MeasureForWidth(DrawTarget* aDrawTarget,
-                                                 ReflowOutput& aDesiredSize) {
-  return Place(aDrawTarget, false, aDesiredSize);
 }
 
 // see spacing table in Chapter 18, TeXBook (p.170)
@@ -1078,10 +1032,12 @@ static nscoord GetThinSpace(const nsStyleFont* aStyleFont) {
 
 class nsMathMLContainerFrame::RowChildFrameIterator {
  public:
-  explicit RowChildFrameIterator(nsMathMLContainerFrame* aParentFrame)
+  explicit RowChildFrameIterator(nsMathMLContainerFrame* aParentFrame,
+                                 const PlaceFlags& aFlags)
       : mParentFrame(aParentFrame),
         mReflowOutput(aParentFrame->GetWritingMode()),
         mX(0),
+        mFlags(aFlags),
         mChildFrameType(eMathMLFrameType_UNKNOWN),
         mCarrySpace(0),
         mFromFrameType(eMathMLFrameType_UNKNOWN),
@@ -1101,6 +1057,7 @@ class nsMathMLContainerFrame::RowChildFrameIterator {
   RowChildFrameIterator& operator++() {
     // add child size + italic correction
     mX += mReflowOutput.mBoundingMetrics.width + mItalicCorrection;
+    mX += mMargin.LeftRight();
 
     if (!mRTL) {
       mChildFrame = mChildFrame->GetNextSibling();
@@ -1129,6 +1086,7 @@ class nsMathMLContainerFrame::RowChildFrameIterator {
   nscoord Descent() const {
     return mReflowOutput.Height() - mReflowOutput.BlockStartAscent();
   }
+  const nsMargin& Margin() const { return mMargin; }
   const nsBoundingMetrics& BoundingMetrics() const {
     return mReflowOutput.mBoundingMetrics;
   }
@@ -1138,6 +1096,8 @@ class nsMathMLContainerFrame::RowChildFrameIterator {
   nsIFrame* mChildFrame;
   ReflowOutput mReflowOutput;
   nscoord mX;
+  const PlaceFlags mFlags;
+  nsMargin mMargin;
 
   nscoord mItalicCorrection;
   eMathMLFrameType mChildFrameType;
@@ -1150,6 +1110,7 @@ class nsMathMLContainerFrame::RowChildFrameIterator {
     GetReflowAndBoundingMetricsFor(mChildFrame, mReflowOutput,
                                    mReflowOutput.mBoundingMetrics,
                                    &mChildFrameType);
+    mMargin = GetMarginForPlace(mFlags, mChildFrame);
     nscoord leftCorrection, rightCorrection;
     GetItalicCorrection(mReflowOutput.mBoundingMetrics, leftCorrection,
                         rightCorrection);
@@ -1172,21 +1133,31 @@ class nsMathMLContainerFrame::RowChildFrameIterator {
 
 /* virtual */
 nsresult nsMathMLContainerFrame::Place(DrawTarget* aDrawTarget,
-                                       bool aPlaceOrigin,
+                                       const PlaceFlags& aFlags,
                                        ReflowOutput& aDesiredSize) {
   // This is needed in case this frame is empty (i.e., no child frames)
   mBoundingMetrics = nsBoundingMetrics();
 
-  RowChildFrameIterator child(this);
+  RowChildFrameIterator child(this, aFlags);
   nscoord ascent = 0, descent = 0;
   while (child.Frame()) {
-    if (descent < child.Descent()) descent = child.Descent();
-    if (ascent < child.Ascent()) ascent = child.Ascent();
+    nscoord topMargin = child.Margin().top;
+    nscoord bottomMargin = child.Margin().bottom;
+    ascent = std::max(ascent, child.Ascent() + topMargin);
+    descent = std::max(descent, child.Descent() + bottomMargin);
+
     // add the child size
     mBoundingMetrics.width = child.X();
-    mBoundingMetrics += child.BoundingMetrics();
+    nsBoundingMetrics childBm = child.BoundingMetrics();
+    childBm.ascent += topMargin;
+    childBm.descent += bottomMargin;
+    childBm.rightBearing += child.Margin().LeftRight();
+    childBm.width += child.Margin().LeftRight();
+    mBoundingMetrics += childBm;
+
     ++child;
   }
+
   // Add the italic correction at the end (including the last child).
   // This gives a nice gap between math and non-math frames, and still
   // gives the same math inter-spacing in case this frame connects to
@@ -1198,30 +1169,35 @@ nsresult nsMathMLContainerFrame::Place(DrawTarget* aDrawTarget,
   aDesiredSize.SetBlockStartAscent(ascent);
   aDesiredSize.mBoundingMetrics = mBoundingMetrics;
 
+  // Add padding+border.
+  auto borderPadding = GetBorderPaddingForPlace(aFlags);
+  InflateReflowAndBoundingMetrics(borderPadding, aDesiredSize,
+                                  mBoundingMetrics);
+
   mReference.x = 0;
   mReference.y = aDesiredSize.BlockStartAscent();
 
   //////////////////
   // Place Children
-
-  if (aPlaceOrigin) {
-    PositionRowChildFrames(0, aDesiredSize.BlockStartAscent());
+  if (!aFlags.contains(PlaceFlag::MeasureOnly)) {
+    PositionRowChildFrames(borderPadding.left, aDesiredSize.BlockStartAscent());
   }
 
   return NS_OK;
 }
 
 nsresult nsMathMLContainerFrame::PlaceAsMrow(DrawTarget* aDrawTarget,
-                                             bool aPlaceOrigin,
+                                             const PlaceFlags& aFlags,
                                              ReflowOutput& aDesiredSize) {
-  return nsMathMLContainerFrame::Place(aDrawTarget, aPlaceOrigin, aDesiredSize);
+  return nsMathMLContainerFrame::Place(aDrawTarget, aFlags, aDesiredSize);
 }
 
 void nsMathMLContainerFrame::PositionRowChildFrames(nscoord aOffsetX,
                                                     nscoord aBaseline) {
-  RowChildFrameIterator child(this);
+  PlaceFlags flags;
+  RowChildFrameIterator child(this, flags);
   while (child.Frame()) {
-    nscoord dx = aOffsetX + child.X();
+    nscoord dx = aOffsetX + child.X() + child.Margin().left;
     nscoord dy = aBaseline - child.Ascent();
     FinishReflowChild(child.Frame(), PresContext(), child.GetReflowOutput(),
                       nullptr, dx, dy, ReflowChildFlags::Default);

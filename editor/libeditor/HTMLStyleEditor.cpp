@@ -1914,8 +1914,8 @@ HTMLEditor::AutoInlineStyleSetter::ExtendOrShrinkRangeToApplyTheStyle(
   // range to contain the <br> element.
   EditorDOMRange range(aRange);
   if (range.EndRef().IsInContentNode()) {
-    WSScanResult nextContentData =
-        WSRunScanner::ScanNextVisibleNodeOrBlockBoundary(
+    const WSScanResult nextContentData =
+        WSRunScanner::ScanInclusiveNextVisibleNodeOrBlockBoundary(
             &aEditingHost, range.EndRef(),
             BlockInlineCheck::UseComputedDisplayOutsideStyle);
     if (nextContentData.ReachedInvisibleBRElement() &&
@@ -2076,7 +2076,7 @@ HTMLEditor::SplitAncestorStyledInlineElementsAtRangeEdges(
       return result;
     }
     tracker.FlushAndStopTracking();
-    if (NS_WARN_IF(result.inspect().Handled())) {
+    if (result.inspect().Handled()) {
       auto endOfRange = result.inspect().AtSplitPoint<EditorDOMPoint>();
       if (!endOfRange.IsSet()) {
         result.inspect().IgnoreCaretPointSuggestion();
@@ -2218,15 +2218,17 @@ HTMLEditor::SplitAncestorStyledInlineElementsAt(
               element->GetParsedAttr(aStyle.mAttribute);
           if (attrValue) {
             if (aStyle.mAttribute == nsGkAtoms::size) {
-              if (nsContentUtils::ParseLegacyFontSize(
+              if (attrValue->Type() == nsAttrValue::eInteger &&
+                  nsContentUtils::ParseLegacyFontSize(
                       aStyle.AsInlineStyleAndValue().mAttributeValue) ==
-                  attrValue->GetIntegerValue()) {
+                      attrValue->GetIntegerValue()) {
                 continue;
               }
             } else if (aStyle.mAttribute == nsGkAtoms::color) {
               nsAttrValue newValue;
               nscolor oldColor, newColor;
-              if (attrValue->GetColorValue(oldColor) &&
+              if (attrValue->Type() == nsAttrValue::eColor &&
+                  attrValue->GetColorValue(oldColor) &&
                   newValue.ParseColor(
                       aStyle.AsInlineStyleAndValue().mAttributeValue) &&
                   newValue.GetColorValue(newColor) && oldColor == newColor) {
@@ -3698,7 +3700,7 @@ nsresult HTMLEditor::RemoveInlinePropertiesAsSubAction(
       // cases.
       FlushAndStopTrackingAndShrinkSelectionRange();
     }  // for-loop of selectionRanges
-  }    // for-loop of styles
+  }  // for-loop of styles
 
   MOZ_ASSERT(!selectionRanges.HasSavedRanges());
   nsresult rv = selectionRanges.ApplyTo(SelectionRef());

@@ -1,7 +1,6 @@
 <html>
   <head>
     <title>WebMIDI Listener Test</title>
-    <script type="text/javascript" src="/MochiKit/MochiKit.js"></script>
     <script src="/tests/SimpleTest/SimpleTest.js"></script>
     <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css" />
     <script type="application/javascript" src="MIDITestUtils.js"></script>
@@ -25,8 +24,8 @@
        let portPromise;
 
        function resetPromises() {
-         accessPromise = new Promise((res, rej) => { accessRes = res; });
-         portPromise = new Promise((res, rej) => { portRes = res; });
+         accessPromise = new Promise((res) => { accessRes = res; });
+         portPromise = new Promise((res) => { portRes = res; });
        }
 
        function accessStateChangeHandler(event) {

@@ -9,6 +9,13 @@
 
 #include <stdint.h>  // For uint16_t
 
+#ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT
+#  define INLINABLE_EXPLICIT_RESOURCE_MANAGEMENENT_LIST(_) \
+    _(IntrinsicGuardToAsyncDisposableStack)
+#else
+#  define INLINABLE_EXPLICIT_RESOURCE_MANAGEMENENT_LIST(_)
+#endif
+
 #ifdef FUZZING_JS_FUZZILLI
 #  define INLINABLE_NATIVE_FUZZILLI_LIST(_) _(FuzzilliHash)
 #else
@@ -35,6 +42,7 @@
   _(AtomicsXor)                                    \
   _(AtomicsIsLockFree)                             \
                                                    \
+  _(BigInt)                                        \
   _(BigIntAsIntN)                                  \
   _(BigIntAsUintN)                                 \
                                                    \
@@ -46,6 +54,7 @@
   _(DataViewGetUint16)                             \
   _(DataViewGetInt32)                              \
   _(DataViewGetUint32)                             \
+  _(DataViewGetFloat16)                            \
   _(DataViewGetFloat32)                            \
   _(DataViewGetFloat64)                            \
   _(DataViewGetBigInt64)                           \
@@ -56,6 +65,7 @@
   _(DataViewSetUint16)                             \
   _(DataViewSetInt32)                              \
   _(DataViewSetUint32)                             \
+  _(DataViewSetFloat16)                            \
   _(DataViewSetFloat32)                            \
   _(DataViewSetFloat64)                            \
   _(DataViewSetBigInt64)                           \
@@ -91,6 +101,7 @@
   _(MathRandom)                                    \
   _(MathImul)                                      \
   _(MathFRound)                                    \
+  _(MathF16Round)                                  \
   _(MathSin)                                       \
   _(MathTan)                                       \
   _(MathCos)                                       \
@@ -226,6 +237,7 @@
   _(IntrinsicTypedArrayByteOffset)                 \
   _(IntrinsicTypedArrayElementSize)                \
                                                    \
+  INLINABLE_EXPLICIT_RESOURCE_MANAGEMENENT_LIST(_) \
   INLINABLE_NATIVE_FUZZILLI_LIST(_)
 
 struct JSClass;

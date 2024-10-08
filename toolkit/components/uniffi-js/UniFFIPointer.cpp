@@ -5,6 +5,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "nsPrintfCString.h"
+#include "js/GCAPI.h"
 #include "mozilla/EndianUtils.h"
 #include "mozilla/dom/UniFFIPointer.h"
 #include "mozilla/dom/UniFFIBinding.h"
@@ -40,12 +41,12 @@ already_AddRefed<UniFFIPointer> UniFFIPointer::Read(
   MOZ_LOG(sUniFFIPointerLogger, LogLevel::Info,
           ("[UniFFI] Reading Pointer from buffer"));
 
+  CheckedUint32 end = CheckedUint32(aPosition) + 8;
   uint8_t data_ptr[8];
-  if (!aArrayBuff.CopyDataTo(
-          data_ptr,
-          [aPosition](size_t aLength) -> Maybe<std::pair<size_t, size_t>> {
-            CheckedUint32 end = aPosition + 8;
-            if (!end.isValid() || end.value() > aLength) {
+  if (!end.isValid() ||
+      !aArrayBuff.CopyDataTo(
+          data_ptr, [&](size_t aLength) -> Maybe<std::pair<size_t, size_t>> {
+            if (end.value() > aLength) {
               return Nothing();
             }
             return Some(std::make_pair(aPosition, 8));
@@ -72,18 +73,31 @@ void UniFFIPointer::Write(const ArrayBuffer& aArrayBuff, uint32_t aPosition,
   MOZ_LOG(sUniFFIPointerLogger, LogLevel::Info,
           ("[UniFFI] Writing Pointer to buffer"));
 
-  aArrayBuff.ProcessData([&](const Span<uint8_t>& aData,
-                             JS::AutoCheckCannotGC&&) {
-    CheckedUint32 end = aPosition + 8;
-    if (!end.isValid() || end.value() > aData.Length()) {
-      aError.ThrowRangeError("position is out of range");
-      return;
-    }
-    // in Rust and Read(), a u64 is read as BigEndian and then converted to
-    // a pointer we do the reverse here
-    const auto& data_ptr = aData.Subspan(aPosition, 8);
-    mozilla::BigEndian::writeUint64(data_ptr.Elements(), (uint64_t)GetPtr());
-  });
+  // Clone the pointer outside of ProcessData, since the JS hazard checker
+  // assumes the call could result in a GC pass.
+  //
+  // This means that if the code below fails, we will leak a reference to the
+  // pointer.  This is acceptable because the code should will only fail if
+  // UniFFI incorrectly sizes the array buffers which should be caught by our
+  // unit tests.  Also, there's no way to protect against this in general since
+  // if anything fails after writing a pointer to the array then the reference
+  // will leak.
+  void* clone = ClonePtr();
+  CheckedUint32 end = CheckedUint32(aPosition) + 8;
+  if (!end.isValid() || !aArrayBuff.ProcessData([&](const Span<uint8_t>& aData,
+                                                    JS::AutoCheckCannotGC&&) {
+        if (end.value() > aData.Length()) {
+          return false;
+        }
+        // in Rust and Read(), a u64 is read as BigEndian and then converted to
+        // a pointer we do the reverse here
+        const auto& data_ptr = aData.Subspan(aPosition, 8);
+        mozilla::BigEndian::writeUint64(data_ptr.Elements(), (uint64_t)clone);
+        return true;
+      })) {
+    aError.ThrowRangeError("position is out of range");
+    return;
+  }
 }
 
 UniFFIPointer::UniFFIPointer(void* aPtr, const UniFFIPointerType* aType) {
@@ -96,10 +110,14 @@ JSObject* UniFFIPointer::WrapObject(JSContext* aCx,
   return dom::UniFFIPointer_Binding::Wrap(aCx, this, aGivenProto);
 }
 
-void* UniFFIPointer::GetPtr() const {
+void* UniFFIPointer::ClonePtr() const {
   MOZ_LOG(sUniFFIPointerLogger, LogLevel::Info,
-          ("[UniFFI] Getting raw pointer"));
-  return this->mPtr;
+          ("[UniFFI] Cloning raw pointer"));
+  RustCallStatus status{};
+  auto cloned = this->mType->clone(this->mPtr, &status);
+  MOZ_DIAGNOSTIC_ASSERT(status.code == RUST_CALL_SUCCESS,
+                        "UniFFI clone call returned a non-success result");
+  return cloned;
 }
 
 bool UniFFIPointer::IsSamePtrType(const UniFFIPointerType* aType) const {

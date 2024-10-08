@@ -1,11 +1,105 @@
+use crate::component::Component;
 use crate::core::*;
 use crate::encode::Encode;
 use crate::token::*;
+use crate::Wat;
+use std::marker;
+#[cfg(feature = "dwarf")]
+use std::path::Path;
 
-pub fn encode(
+/// Options that can be specified when encoding a component or a module to
+/// customize what the final binary looks like.
+///
+/// Methods such as [`Module::encode`], [`Wat::encode`], and
+/// [`Component::encode`] will use the default options.
+#[derive(Default)]
+pub struct EncodeOptions<'a> {
+    #[cfg(feature = "dwarf")]
+    dwarf_info: Option<(&'a Path, &'a str, GenerateDwarf)>,
+
+    _marker: marker::PhantomData<&'a str>,
+}
+
+#[cfg(feature = "dwarf")]
+mod dwarf;
+
+#[cfg(not(feature = "dwarf"))]
+mod dwarf_disabled;
+#[cfg(not(feature = "dwarf"))]
+use self::dwarf_disabled as dwarf;
+
+/// Configuration of how DWARF debugging information may be generated.
+#[derive(Copy, Clone, Debug)]
+#[non_exhaustive]
+pub enum GenerateDwarf {
+    /// Only generate line tables to map binary offsets back to source
+    /// locations.
+    Lines,
+
+    /// Generate full debugging information for both line numbers and
+    /// variables/locals/operands.
+    Full,
+}
+
+impl<'a> EncodeOptions<'a> {
+    /// Creates a new set of default encoding options.
+    pub fn new() -> EncodeOptions<'a> {
+        EncodeOptions::default()
+    }
+
+    /// Enables emission of DWARF debugging information in the final binary.
+    ///
+    /// This method will use the `file` specified as the source file for the
+    /// `*.wat` file whose `contents` must also be supplied here. These are
+    /// used to calculate filenames/line numbers and are referenced from the
+    /// generated DWARF.
+    #[cfg(feature = "dwarf")]
+    pub fn dwarf(&mut self, file: &'a Path, contents: &'a str, style: GenerateDwarf) -> &mut Self {
+        self.dwarf_info = Some((file, contents, style));
+        self
+    }
+
+    /// Encodes the given [`Module`] with these options.
+    ///
+    /// For more information see [`Module::encode`].
+    pub fn encode_module(
+        &self,
+        module: &mut Module<'_>,
+    ) -> std::result::Result<Vec<u8>, crate::Error> {
+        module.resolve()?;
+        Ok(match &module.kind {
+            ModuleKind::Text(fields) => encode(&module.id, &module.name, fields, self),
+            ModuleKind::Binary(blobs) => blobs.iter().flat_map(|b| b.iter().cloned()).collect(),
+        })
+    }
+
+    /// Encodes the given [`Component`] with these options.
+    ///
+    /// For more information see [`Component::encode`].
+    pub fn encode_component(
+        &self,
+        component: &mut Component<'_>,
+    ) -> std::result::Result<Vec<u8>, crate::Error> {
+        component.resolve()?;
+        Ok(crate::component::binary::encode(component, self))
+    }
+
+    /// Encodes the given [`Wat`] with these options.
+    ///
+    /// For more information see [`Wat::encode`].
+    pub fn encode_wat(&self, wat: &mut Wat<'_>) -> std::result::Result<Vec<u8>, crate::Error> {
+        match wat {
+            Wat::Module(m) => self.encode_module(m),
+            Wat::Component(c) => self.encode_component(c),
+        }
+    }
+}
+
+pub(crate) fn encode(
     module_id: &Option<Id<'_>>,
     module_name: &Option<NameAnnotation<'_>>,
     fields: &[ModuleField<'_>],
+    opts: &EncodeOptions,
 ) -> Vec<u8> {
     use CustomPlace::*;
     use CustomPlaceAnchor::*;
@@ -69,14 +163,27 @@ pub fn encode(
     if needs_data_count(&funcs) {
         e.section(12, &data.len());
     }
-    e.section_list(10, Code, &funcs);
+
+    // Prepare to and emit the code section. This is where DWARF may optionally
+    // be emitted depending on configuration settings. Note that `code_section`
+    // will internally emit the branch hints section if necessary.
+    let names = find_names(module_id, module_name, fields);
+    let num_import_funcs = imports
+        .iter()
+        .filter(|i| matches!(i.item.kind, ItemKind::Func(..)))
+        .count() as u32;
+    let mut dwarf = dwarf::Dwarf::new(num_import_funcs, opts, &names, &types);
+    e.code_section(&funcs, num_import_funcs, dwarf.as_mut());
+
     e.section_list(11, Data, &data);
 
-    let names = find_names(module_id, module_name, fields);
     if !names.is_empty() {
         e.section(0, &("name", names));
     }
     e.custom_sections(AfterLast);
+    if let Some(dwarf) = &mut dwarf {
+        dwarf.emit(&mut e);
+    }
 
     return e.wasm;
 
@@ -109,9 +216,19 @@ impl Encoder<'_> {
     fn custom_sections(&mut self, place: CustomPlace) {
         for entry in self.customs.iter() {
             if entry.place() == place {
-                self.section(0, &(entry.name(), entry));
+                let mut data = Vec::new();
+                entry.encode(&mut data);
+                self.custom_section(entry.name(), &data);
             }
         }
+    }
+
+    fn custom_section(&mut self, name: &str, data: &[u8]) {
+        self.tmp.truncate(0);
+        name.encode(&mut self.tmp);
+        self.tmp.extend_from_slice(data);
+        self.wasm.push(0);
+        self.tmp.encode(&mut self.wasm);
     }
 
     fn section_list(&mut self, id: u8, anchor: CustomPlaceAnchor, list: &[impl Encode]) {
@@ -120,6 +237,57 @@ impl Encoder<'_> {
             self.section(id, &list)
         }
         self.custom_sections(CustomPlace::After(anchor));
+    }
+
+    /// Encodes the code section of a wasm module module while additionally
+    /// handling the branch hinting proposal.
+    ///
+    /// The branch hinting proposal requires to encode the offsets of the
+    /// instructions relative from the beginning of the function. Here we encode
+    /// each instruction and we save its offset. If needed, we use this
+    /// information to build the branch hint section and insert it before the
+    /// code section.
+    ///
+    /// The `list` provided is the list of functions that are emitted into the
+    /// code section. The `func_index` provided is the initial index of defined
+    /// functions, so it's the count of imported functions. The `dwarf` field is
+    /// optionally used to track debugging information.
+    fn code_section<'a>(
+        &'a mut self,
+        list: &[&'a Func<'_>],
+        mut func_index: u32,
+        mut dwarf: Option<&mut dwarf::Dwarf>,
+    ) {
+        self.custom_sections(CustomPlace::Before(CustomPlaceAnchor::Code));
+
+        if !list.is_empty() {
+            let mut branch_hints = Vec::new();
+            let mut code_section = Vec::new();
+
+            list.len().encode(&mut code_section);
+            for func in list.iter() {
+                let hints = func.encode(&mut code_section, dwarf.as_deref_mut());
+                if !hints.is_empty() {
+                    branch_hints.push(FunctionBranchHints { func_index, hints });
+                }
+                func_index += 1;
+            }
+
+            // Branch hints section has to be inserted before the Code section
+            // Insert the section only if we have some hints
+            if !branch_hints.is_empty() {
+                self.section(0, &("metadata.code.branch_hint", branch_hints));
+            }
+
+            // Finally, insert the Code section from the tmp buffer
+            self.wasm.push(10);
+            code_section.encode(&mut self.wasm);
+
+            if let Some(dwarf) = &mut dwarf {
+                dwarf.set_code_section_size(code_section.len());
+            }
+        }
+        self.custom_sections(CustomPlace::After(CustomPlaceAnchor::Code));
     }
 }
 
@@ -193,16 +361,19 @@ impl Encode for Type<'_> {
             }
             (None, _) => {} // No supertype, sub wasn't used
         }
-        match &self.def {
-            TypeDef::Func(func) => {
+        if self.def.shared {
+            e.push(0x65);
+        }
+        match &self.def.kind {
+            InnerTypeKind::Func(func) => {
                 e.push(0x60);
                 func.encode(e)
             }
-            TypeDef::Struct(r#struct) => {
+            InnerTypeKind::Struct(r#struct) => {
                 e.push(0x5f);
                 r#struct.encode(e)
             }
-            TypeDef::Array(array) => {
+            InnerTypeKind::Array(array) => {
                 e.push(0x5e);
                 array.encode(e)
             }
@@ -244,17 +415,12 @@ impl<'a> Encode for ValType<'a> {
 impl<'a> Encode for HeapType<'a> {
     fn encode(&self, e: &mut Vec<u8>) {
         match self {
-            HeapType::Func => e.push(0x70),
-            HeapType::Extern => e.push(0x6f),
-            HeapType::Exn => e.push(0x69),
-            HeapType::Any => e.push(0x6e),
-            HeapType::Eq => e.push(0x6d),
-            HeapType::Struct => e.push(0x6b),
-            HeapType::Array => e.push(0x6a),
-            HeapType::I31 => e.push(0x6c),
-            HeapType::NoFunc => e.push(0x73),
-            HeapType::NoExtern => e.push(0x72),
-            HeapType::None => e.push(0x71),
+            HeapType::Abstract { shared, ty } => {
+                if *shared {
+                    e.push(0x65);
+                }
+                ty.encode(e)
+            }
             // Note that this is encoded as a signed leb128 so be sure to cast
             // to an i64 first
             HeapType::Concrete(Index::Num(n, _)) => i64::from(*n).encode(e),
@@ -265,56 +431,42 @@ impl<'a> Encode for HeapType<'a> {
     }
 }
 
+impl<'a> Encode for AbstractHeapType {
+    fn encode(&self, e: &mut Vec<u8>) {
+        use AbstractHeapType::*;
+        match self {
+            Func => e.push(0x70),
+            Extern => e.push(0x6f),
+            Exn => e.push(0x69),
+            Any => e.push(0x6e),
+            Eq => e.push(0x6d),
+            Struct => e.push(0x6b),
+            Array => e.push(0x6a),
+            I31 => e.push(0x6c),
+            NoFunc => e.push(0x73),
+            NoExtern => e.push(0x72),
+            NoExn => e.push(0x74),
+            None => e.push(0x71),
+        }
+    }
+}
+
 impl<'a> Encode for RefType<'a> {
     fn encode(&self, e: &mut Vec<u8>) {
         match self {
-            // The 'funcref' binary abbreviation
+            // Binary abbreviations (i.e., short form), for when the ref is
+            // nullable.
             RefType {
                 nullable: true,
-                heap: HeapType::Func,
-            } => e.push(0x70),
-            // The 'externref' binary abbreviation
-            RefType {
-                nullable: true,
-                heap: HeapType::Extern,
-            } => e.push(0x6f),
-            // The 'exnref' binary abbreviation
-            RefType {
-                nullable: true,
-                heap: HeapType::Exn,
-            } => e.push(0x69),
-            // The 'eqref' binary abbreviation
-            RefType {
-                nullable: true,
-                heap: HeapType::Eq,
-            } => e.push(0x6d),
-            // The 'structref' binary abbreviation
-            RefType {
-                nullable: true,
-                heap: HeapType::Struct,
-            } => e.push(0x6b),
-            // The 'i31ref' binary abbreviation
-            RefType {
-                nullable: true,
-                heap: HeapType::I31,
-            } => e.push(0x6c),
-            // The 'nullfuncref' binary abbreviation
-            RefType {
-                nullable: true,
-                heap: HeapType::NoFunc,
-            } => e.push(0x73),
-            // The 'nullexternref' binary abbreviation
-            RefType {
-                nullable: true,
-                heap: HeapType::NoExtern,
-            } => e.push(0x72),
-            // The 'nullref' binary abbreviation
-            RefType {
-                nullable: true,
-                heap: HeapType::None,
-            } => e.push(0x71),
+                heap: HeapType::Abstract { shared, ty },
+            } => {
+                if *shared {
+                    e.push(0x65);
+                }
+                ty.encode(e);
+            }
 
-            // Generic 'ref null <heaptype>' encoding
+            // Generic 'ref null <heaptype>' encoding (i.e., long form).
             RefType {
                 nullable: true,
                 heap,
@@ -322,7 +474,8 @@ impl<'a> Encode for RefType<'a> {
                 e.push(0x63);
                 heap.encode(e);
             }
-            // Generic 'ref <heaptype>' encoding
+
+            // Generic 'ref <heaptype>' encoding.
             RefType {
                 nullable: false,
                 heap,
@@ -402,49 +555,47 @@ impl Encode for Index<'_> {
 impl<'a> Encode for TableType<'a> {
     fn encode(&self, e: &mut Vec<u8>) {
         self.elem.encode(e);
-        self.limits.encode(e);
-    }
-}
 
-impl Encode for Limits {
-    fn encode(&self, e: &mut Vec<u8>) {
-        match self.max {
-            Some(max) => {
-                e.push(0x01);
-                self.min.encode(e);
-                max.encode(e);
-            }
-            None => {
-                e.push(0x00);
-                self.min.encode(e);
-            }
+        let mut flags = 0;
+        if self.limits.max.is_some() {
+            flags |= 1 << 0;
+        }
+        if self.shared {
+            flags |= 1 << 1;
+        }
+        if self.limits.is64 {
+            flags |= 1 << 2;
+        }
+        e.push(flags);
+        self.limits.min.encode(e);
+        if let Some(max) = self.limits.max {
+            max.encode(e);
         }
     }
 }
 
 impl Encode for MemoryType {
     fn encode(&self, e: &mut Vec<u8>) {
-        match self {
-            MemoryType::B32 { limits, shared } => {
-                let flag_max = limits.max.is_some() as u8;
-                let flag_shared = *shared as u8;
-                let flags = flag_max | (flag_shared << 1);
-                e.push(flags);
-                limits.min.encode(e);
-                if let Some(max) = limits.max {
-                    max.encode(e);
-                }
-            }
-            MemoryType::B64 { limits, shared } => {
-                let flag_max = limits.max.is_some() as u8;
-                let flag_shared = *shared as u8;
-                let flags = flag_max | (flag_shared << 1) | 0x04;
-                e.push(flags);
-                limits.min.encode(e);
-                if let Some(max) = limits.max {
-                    max.encode(e);
-                }
-            }
+        let mut flags = 0;
+        if self.limits.max.is_some() {
+            flags |= 1 << 0;
+        }
+        if self.shared {
+            flags |= 1 << 1;
+        }
+        if self.limits.is64 {
+            flags |= 1 << 2;
+        }
+        if self.page_size_log2.is_some() {
+            flags |= 1 << 3;
+        }
+        e.push(flags);
+        self.limits.min.encode(e);
+        if let Some(max) = self.limits.max {
+            max.encode(e);
+        }
+        if let Some(p) = self.page_size_log2 {
+            p.encode(e);
         }
     }
 }
@@ -452,11 +603,14 @@ impl Encode for MemoryType {
 impl<'a> Encode for GlobalType<'a> {
     fn encode(&self, e: &mut Vec<u8>) {
         self.ty.encode(e);
+        let mut flags = 0;
         if self.mutable {
-            e.push(0x01);
-        } else {
-            e.push(0x00);
+            flags |= 0b01;
         }
+        if self.shared {
+            flags |= 0b10;
+        }
+        e.push(flags);
     }
 }
 
@@ -475,7 +629,7 @@ impl Encode for Table<'_> {
                 e.push(0x40);
                 e.push(0x00);
                 ty.encode(e);
-                init_expr.encode(e);
+                init_expr.encode(e, None);
             }
             _ => panic!("TableKind should be normal during encoding"),
         }
@@ -497,7 +651,9 @@ impl Encode for Global<'_> {
         assert!(self.exports.names.is_empty());
         self.ty.encode(e);
         match &self.kind {
-            GlobalKind::Inline(expr) => expr.encode(e),
+            GlobalKind::Inline(expr) => {
+                let _hints = expr.encode(e, None);
+            }
             _ => panic!("GlobalKind should be inline during encoding"),
         }
     }
@@ -534,7 +690,7 @@ impl Encode for Elem<'_> {
                 ElemPayload::Indices(_),
             ) => {
                 e.push(0x00);
-                offset.encode(e);
+                offset.encode(e, None);
             }
             (ElemKind::Passive, ElemPayload::Indices(_)) => {
                 e.push(0x01); // flags
@@ -543,7 +699,7 @@ impl Encode for Elem<'_> {
             (ElemKind::Active { table, offset }, ElemPayload::Indices(_)) => {
                 e.push(0x02); // flags
                 table.encode(e);
-                offset.encode(e);
+                offset.encode(e, None);
                 e.push(0x00); // extern_kind
             }
             (ElemKind::Declared, ElemPayload::Indices(_)) => {
@@ -559,13 +715,17 @@ impl Encode for Elem<'_> {
                     ty:
                         RefType {
                             nullable: true,
-                            heap: HeapType::Func,
+                            heap:
+                                HeapType::Abstract {
+                                    shared: false,
+                                    ty: AbstractHeapType::Func,
+                                },
                         },
                     ..
                 },
             ) => {
                 e.push(0x04);
-                offset.encode(e);
+                offset.encode(e, None);
             }
             (ElemKind::Passive, ElemPayload::Exprs { ty, .. }) => {
                 e.push(0x05);
@@ -574,7 +734,7 @@ impl Encode for Elem<'_> {
             (ElemKind::Active { table, offset }, ElemPayload::Exprs { ty, .. }) => {
                 e.push(0x06);
                 table.encode(e);
-                offset.encode(e);
+                offset.encode(e, None);
                 ty.encode(e);
             }
             (ElemKind::Declared, ElemPayload::Exprs { ty, .. }) => {
@@ -594,7 +754,7 @@ impl Encode for ElemPayload<'_> {
             ElemPayload::Exprs { exprs, ty: _ } => {
                 exprs.len().encode(e);
                 for expr in exprs {
-                    expr.encode(e);
+                    expr.encode(e, None);
                 }
             }
         }
@@ -610,12 +770,12 @@ impl Encode for Data<'_> {
                 offset,
             } => {
                 e.push(0x00);
-                offset.encode(e);
+                offset.encode(e, None);
             }
             DataKind::Active { memory, offset } => {
                 e.push(0x02);
                 memory.encode(e);
-                offset.encode(e);
+                offset.encode(e, None);
             }
         }
         self.data.iter().map(|l| l.len()).sum::<usize>().encode(e);
@@ -625,20 +785,40 @@ impl Encode for Data<'_> {
     }
 }
 
-impl Encode for Func<'_> {
-    fn encode(&self, e: &mut Vec<u8>) {
+impl Func<'_> {
+    /// Encodes the function into `e` while returning all branch hints with
+    /// known relative offsets after encoding.
+    ///
+    /// The `dwarf` field is optional and used to track debugging information
+    /// for each instruction.
+    fn encode(&self, e: &mut Vec<u8>, mut dwarf: Option<&mut dwarf::Dwarf>) -> Vec<BranchHint> {
         assert!(self.exports.names.is_empty());
-        let mut tmp = Vec::new();
         let (expr, locals) = match &self.kind {
             FuncKind::Inline { expression, locals } => (expression, locals),
             _ => panic!("should only have inline functions in emission"),
         };
 
-        locals.encode(&mut tmp);
-        expr.encode(&mut tmp);
+        if let Some(dwarf) = &mut dwarf {
+            let index = match self.ty.index.as_ref().unwrap() {
+                Index::Num(n, _) => *n,
+                _ => unreachable!(),
+            };
+            dwarf.start_func(self.span, index, locals);
+        }
 
-        tmp.len().encode(e);
-        e.extend_from_slice(&tmp);
+        // Encode the function into a temporary vector because functions are
+        // prefixed with their length. The temporary vector, when encoded,
+        // encodes its length first then the body.
+        let mut tmp = Vec::new();
+        locals.encode(&mut tmp);
+        let branch_hints = expr.encode(&mut tmp, dwarf.as_deref_mut());
+        tmp.encode(e);
+
+        if let Some(dwarf) = &mut dwarf {
+            dwarf.end_func(tmp.len(), e.len());
+        }
+
+        branch_hints
     }
 }
 
@@ -658,12 +838,40 @@ impl Encode for Box<[Local<'_>]> {
     }
 }
 
-impl Encode for Expression<'_> {
-    fn encode(&self, e: &mut Vec<u8>) {
-        for instr in self.instrs.iter() {
+impl Expression<'_> {
+    /// Encodes this expression into `e` and optionally tracks debugging
+    /// information for each instruction in `dwarf`.
+    ///
+    /// Returns all branch hints, if any, found while parsing this function.
+    fn encode(&self, e: &mut Vec<u8>, mut dwarf: Option<&mut dwarf::Dwarf>) -> Vec<BranchHint> {
+        let mut hints = Vec::with_capacity(self.branch_hints.len());
+        let mut next_hint = self.branch_hints.iter().peekable();
+
+        for (i, instr) in self.instrs.iter().enumerate() {
+            // Branch hints are stored in order of increasing `instr_index` so
+            // check to see if the next branch hint matches this instruction's
+            // index.
+            if let Some(hint) = next_hint.next_if(|h| h.instr_index == i) {
+                hints.push(BranchHint {
+                    branch_func_offset: u32::try_from(e.len()).unwrap(),
+                    branch_hint_value: hint.value,
+                });
+            }
+
+            // If DWARF is enabled then track this instruction's binary offset
+            // and source location.
+            if let Some(dwarf) = &mut dwarf {
+                if let Some(span) = self.instr_spans.as_ref().map(|s| s[i]) {
+                    dwarf.instr(e.len(), span);
+                }
+            }
+
+            // Finally emit the instruction and move to the next.
             instr.encode(e);
         }
         e.push(0x0b);
+
+        hints
     }
 }
 
@@ -688,19 +896,6 @@ impl Encode for BlockType<'_> {
     }
 }
 
-impl Encode for FuncBindType<'_> {
-    fn encode(&self, e: &mut Vec<u8>) {
-        self.ty.encode(e);
-    }
-}
-
-impl Encode for LetType<'_> {
-    fn encode(&self, e: &mut Vec<u8>) {
-        self.block.encode(e);
-        self.locals.encode(e);
-    }
-}
-
 impl Encode for LaneArg {
     fn encode(&self, e: &mut Vec<u8>) {
         self.lane.encode(e);
@@ -720,6 +915,26 @@ impl Encode for MemArg<'_> {
                 self.offset.encode(e);
             }
         }
+    }
+}
+
+impl Encode for Ordering {
+    fn encode(&self, buf: &mut Vec<u8>) {
+        let flag: u8 = match self {
+            Ordering::SeqCst => 0,
+            Ordering::AcqRel => 1,
+        };
+        flag.encode(buf);
+    }
+}
+
+impl<T> Encode for Ordered<T>
+where
+    T: Encode,
+{
+    fn encode(&self, buf: &mut Vec<u8>) {
+        self.ordering.encode(buf);
+        self.inner.encode(buf);
     }
 }
 
@@ -784,13 +999,13 @@ impl Encode for BrTableIndices<'_> {
     }
 }
 
-impl Encode for Float32 {
+impl Encode for F32 {
     fn encode(&self, e: &mut Vec<u8>) {
         e.extend_from_slice(&self.bits.to_le_bytes());
     }
 }
 
-impl Encode for Float64 {
+impl Encode for F64 {
     fn encode(&self, e: &mut Vec<u8>) {
         e.extend_from_slice(&self.bits.to_le_bytes());
     }
@@ -817,6 +1032,7 @@ struct Names<'a> {
     data_idx: u32,
     elems: Vec<(u32, &'a str)>,
     elem_idx: u32,
+    fields: Vec<(u32, Vec<(u32, &'a str)>)>,
 }
 
 fn find_names<'a>(
@@ -933,8 +1149,7 @@ fn find_names<'a>(
                         | Instruction::Block(block)
                         | Instruction::Loop(block)
                         | Instruction::Try(block)
-                        | Instruction::TryTable(TryTable { block, .. })
-                        | Instruction::Let(LetType { block, .. }) => {
+                        | Instruction::TryTable(TryTable { block, .. }) => {
                             if let Some(name) = get_name(&block.label, &block.label_name) {
                                 label_names.push((label_idx, name));
                             }
@@ -949,6 +1164,24 @@ fn find_names<'a>(
             }
             if label_names.len() > 0 {
                 ret.labels.push((*idx, label_names));
+            }
+        }
+
+        // Handle struct fields separately from above
+        if let ModuleField::Type(ty) = field {
+            let mut field_names = vec![];
+            match &ty.def.kind {
+                InnerTypeKind::Func(_) | InnerTypeKind::Array(_) => {}
+                InnerTypeKind::Struct(ty_struct) => {
+                    for (idx, field) in ty_struct.fields.iter().enumerate() {
+                        if let Some(name) = get_name(&field.id, &None) {
+                            field_names.push((idx as u32, name))
+                        }
+                    }
+                }
+            }
+            if field_names.len() > 0 {
+                ret.fields.push((*idx, field_names))
             }
         }
 
@@ -968,8 +1201,9 @@ impl Names<'_> {
             && self.memories.is_empty()
             && self.tables.is_empty()
             && self.types.is_empty()
-            && self.data.is_empty()
             && self.elems.is_empty()
+            && self.data.is_empty()
+            && self.fields.is_empty()
             && self.tags.is_empty()
         // NB: specifically don't check modules/instances since they're
         // not encoded for now.
@@ -1025,6 +1259,10 @@ impl Encode for Names<'_> {
         if self.data.len() > 0 {
             self.data.encode(&mut tmp);
             subsec(9, &mut tmp);
+        }
+        if self.fields.len() > 0 {
+            self.fields.encode(&mut tmp);
+            subsec(10, &mut tmp);
         }
         if self.tags.len() > 0 {
             self.tags.encode(&mut tmp);
@@ -1143,6 +1381,31 @@ impl Encode for Dylink0Subsection<'_> {
             Dylink0Subsection::ExportInfo(list) => list.encode(e),
             Dylink0Subsection::ImportInfo(list) => list.encode(e),
         }
+    }
+}
+
+struct FunctionBranchHints {
+    func_index: u32,
+    hints: Vec<BranchHint>,
+}
+
+struct BranchHint {
+    branch_func_offset: u32,
+    branch_hint_value: u32,
+}
+
+impl Encode for FunctionBranchHints {
+    fn encode(&self, e: &mut Vec<u8>) {
+        self.func_index.encode(e);
+        self.hints.encode(e);
+    }
+}
+
+impl Encode for BranchHint {
+    fn encode(&self, e: &mut Vec<u8>) {
+        self.branch_func_offset.encode(e);
+        1u32.encode(e);
+        self.branch_hint_value.encode(e);
     }
 }
 

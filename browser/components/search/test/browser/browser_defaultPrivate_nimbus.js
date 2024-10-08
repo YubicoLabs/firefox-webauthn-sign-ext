@@ -13,32 +13,50 @@ ChromeUtils.defineESModuleGetters(this, {
   SearchTestUtils: "resource://testing-common/SearchTestUtils.sys.mjs",
 });
 
-const CONFIG_DEFAULT = [
+const CONFIG_V2 = [
   {
-    webExtension: { id: "basic@search.mozilla.org" },
-    appliesTo: [{ included: { everywhere: true } }],
-    default: "yes",
+    recordType: "engine",
+    identifier: "basic",
+    base: {
+      name: "basic",
+      urls: {
+        search: {
+          base: "https://example.com",
+          searchTermParamName: "q",
+        },
+      },
+    },
+    variants: [{ environment: { allRegionsAndLocales: true } }],
   },
   {
-    webExtension: { id: "private@search.mozilla.org" },
-    appliesTo: [
-      {
-        experiment: "testing",
-        included: { everywhere: true },
+    recordType: "engine",
+    identifier: "private",
+    base: {
+      name: "private",
+      urls: {
+        search: {
+          base: "https://example.com",
+          searchTermParamName: "q",
+        },
       },
-    ],
-    defaultPrivate: "yes",
+    },
+    variants: [{ environment: { allRegionsAndLocales: true } }],
+  },
+  {
+    recordType: "defaultEngines",
+    globalDefault: "basic",
+    globalDefaultPrivate: "private",
+    specificDefaults: [],
+  },
+  {
+    recordType: "engineOrders",
+    orders: [],
   },
 ];
 
 SearchTestUtils.init(this);
 
 add_setup(async () => {
-  // Use engines in test directory
-  let searchExtensions = getChromeDir(getResolvedURI(gTestPath));
-  searchExtensions.append("search-engines");
-  await SearchTestUtils.useMochitestEngines(searchExtensions);
-
   // Current default values.
   await SpecialPowers.pushPrefEnv({
     set: [
@@ -49,16 +67,7 @@ add_setup(async () => {
     ],
   });
 
-  SearchTestUtils.useMockIdleService();
-  await SearchTestUtils.updateRemoteSettingsConfig(CONFIG_DEFAULT);
-
-  registerCleanupFunction(async () => {
-    let settingsWritten = SearchTestUtils.promiseSearchNotification(
-      "write-settings-to-disk-complete"
-    );
-    await SearchTestUtils.updateRemoteSettingsConfig();
-    await settingsWritten;
-  });
+  await SearchTestUtils.updateRemoteSettingsConfig(CONFIG_V2);
 });
 
 add_task(async function test_nimbus_experiment() {
@@ -88,7 +97,7 @@ add_task(async function test_nimbus_experiment() {
   );
   reloadObserved =
     SearchTestUtils.promiseSearchNotification("engines-reloaded");
-  await doExperimentCleanup();
+  doExperimentCleanup();
   await reloadObserved;
   Assert.equal(
     Services.search.defaultPrivateEngine.name,
@@ -124,7 +133,7 @@ add_task(async function test_nimbus_experiment_urlbar_result_enabled() {
   );
   reloadObserved =
     SearchTestUtils.promiseSearchNotification("engines-reloaded");
-  await doExperimentCleanup();
+  doExperimentCleanup();
   await reloadObserved;
   Assert.equal(
     Services.search.defaultPrivateEngine.name,
@@ -150,6 +159,6 @@ add_task(async function test_non_experiment_prefs() {
     },
   });
   Assert.equal(uiPref(), false, "Pref did not change without experiment");
-  await doExperimentCleanup();
+  doExperimentCleanup();
   await SpecialPowers.popPrefEnv();
 });

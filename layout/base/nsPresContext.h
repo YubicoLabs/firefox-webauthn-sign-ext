@@ -85,6 +85,7 @@ class TimelineManager;
 struct MediaFeatureChange;
 enum class MediaFeatureChangePropagation : uint8_t;
 enum class ColorScheme : uint8_t;
+enum class StyleForcedColors : uint8_t;
 namespace layers {
 class ContainerLayer;
 class LayerManager;
@@ -377,10 +378,7 @@ class nsPresContext : public nsISupports, public mozilla::SupportsWeakPtr {
     return mozilla::PreferenceSheet::PrefsFor(*mDocument);
   }
 
-  bool ForcingColors() const {
-    return mozilla::PreferenceSheet::MayForceColors() &&
-           !PrefSheetPrefs().mUseDocumentColors;
-  }
+  bool ForcingColors() const;
 
   mozilla::ColorScheme DefaultBackgroundColorScheme() const;
   nscolor DefaultBackgroundColor() const;
@@ -401,7 +399,14 @@ class nsPresContext : public nsISupports, public mozilla::SupportsWeakPtr {
    * Set the currently visible area. The units for r are standard
    * nscoord units (as scaled by the device context).
    */
-  void SetVisibleArea(const nsRect& r);
+  void SetVisibleArea(const nsRect& aRect);
+
+  /**
+   * Set the initial visible area. This should be called only from
+   * nsDocumentViewer when initializing this pres context visible area with
+   * the document viewer bounds.
+   */
+  void SetInitialVisibleArea(const nsRect& aRect);
 
   nsSize GetSizeForViewportUnits() const { return mSizeForViewportUnits; }
 
@@ -411,27 +416,39 @@ class nsPresContext : public nsISupports, public mozilla::SupportsWeakPtr {
   MOZ_CAN_RUN_SCRIPT
   void SetDynamicToolbarMaxHeight(mozilla::ScreenIntCoord aHeight);
 
-  mozilla::ScreenIntCoord GetDynamicToolbarMaxHeight() const {
-    MOZ_ASSERT(IsRootContentDocumentCrossProcess());
-    return mDynamicToolbarMaxHeight;
-  }
-
   /**
    * Returns true if we are using the dynamic toolbar.
    */
-  bool HasDynamicToolbar() const {
-    MOZ_ASSERT(IsRootContentDocumentCrossProcess());
-    return mDynamicToolbarMaxHeight > 0;
-  }
+  bool HasDynamicToolbar() const { return GetDynamicToolbarMaxHeight() > 0; }
 
   /*
    * |aOffset| must be offset from the bottom edge of the ICB and it's negative.
    */
   void UpdateDynamicToolbarOffset(mozilla::ScreenIntCoord aOffset);
+
+  mozilla::ScreenIntCoord GetDynamicToolbarMaxHeight() const {
+    MOZ_ASSERT_IF(mDynamicToolbarMaxHeight > 0,
+                  IsRootContentDocumentCrossProcess());
+    return mDynamicToolbarMaxHeight;
+  }
+
+  nscoord GetDynamicToolbarMaxHeightInAppUnits() const;
+
   mozilla::ScreenIntCoord GetDynamicToolbarHeight() const {
-    MOZ_ASSERT(IsRootContentDocumentCrossProcess());
+    MOZ_ASSERT_IF(mDynamicToolbarHeight > 0,
+                  IsRootContentDocumentCrossProcess());
     return mDynamicToolbarHeight;
   }
+
+  void UpdateKeyboardHeight(mozilla::ScreenIntCoord aHeight);
+
+  mozilla::ScreenIntCoord GetKeyboardHeight() const { return mKeyboardHeight; }
+
+  /**
+   * Returns the maximum height of the dynamic toolbar if the toolbar state is
+   * `DynamicToolbarState::Collapsed`, otherwise returns zero.
+   */
+  nscoord GetBimodalDynamicToolbarHeightInAppUnits() const;
 
   /**
    * Returns the state of the dynamic toolbar.
@@ -540,6 +557,8 @@ class nsPresContext : public nsISupports, public mozilla::SupportsWeakPtr {
   void SetFullZoom(float aZoom);
   void SetOverrideDPPX(float);
   void SetInRDMPane(bool aInRDMPane);
+  void UpdateTopInnerSizeForRFP();
+  void UpdateForcedColors(bool aNotify = true);
 
  public:
   float GetFullZoom() { return mFullZoom; }
@@ -942,11 +961,6 @@ class nsPresContext : public nsISupports, public mozilla::SupportsWeakPtr {
   uint64_t GetUndisplayedRestyleGeneration() const;
 
   /**
-   * Returns whether there are any pending restyles or reflows.
-   */
-  bool HasPendingRestyleOrReflow();
-
-  /**
    * Notify the prescontext that the presshell is about to reflow a reflow root.
    * The single argument indicates whether this reflow should be interruptible.
    * If aInterruptible is false then CheckForInterrupt and HasPendingInterrupt
@@ -1037,7 +1051,6 @@ class nsPresContext : public nsISupports, public mozilla::SupportsWeakPtr {
   void NotifyNonBlankPaint();
   void NotifyContentfulPaint();
   void NotifyPaintStatusReset();
-  void NotifyDOMContentFlushed();
 
   bool HasEverBuiltInvisibleText() const { return mHasEverBuiltInvisibleText; }
   void SetBuiltInvisibleText() { mHasEverBuiltInvisibleText = true; }
@@ -1224,6 +1237,8 @@ class nsPresContext : public nsISupports, public mozilla::SupportsWeakPtr {
   // The maximum height of the dynamic toolbar on mobile.
   mozilla::ScreenIntCoord mDynamicToolbarMaxHeight;
   mozilla::ScreenIntCoord mDynamicToolbarHeight;
+  // The software keyboard height.
+  mozilla::ScreenIntCoord mKeyboardHeight;
   // Safe area insets support
   mozilla::ScreenIntMargin mSafeAreaInsets;
   nsSize mPageSize;
@@ -1386,6 +1401,7 @@ class nsPresContext : public nsISupports, public mozilla::SupportsWeakPtr {
   // that breaks bindgen in win32.
   FontVisibility mFontVisibility = FontVisibility::Unknown;
   mozilla::dom::PrefersColorSchemeOverride mOverriddenOrEmbedderColorScheme;
+  mozilla::StyleForcedColors mForcedColors;
 
  protected:
   virtual ~nsPresContext();
@@ -1397,7 +1413,8 @@ class nsPresContext : public nsISupports, public mozilla::SupportsWeakPtr {
 #ifdef DEBUG
  private:
   friend struct nsAutoLayoutPhase;
-  mozilla::EnumeratedArray<nsLayoutPhase, nsLayoutPhase::COUNT, uint32_t>
+  mozilla::EnumeratedArray<nsLayoutPhase, uint32_t,
+                           size_t(nsLayoutPhase::COUNT)>
       mLayoutPhaseCount;
 
  public:

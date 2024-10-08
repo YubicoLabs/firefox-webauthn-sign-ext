@@ -21,6 +21,7 @@
 #include "mozilla/PointerLockManager.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/PresShell.h"
+#include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/TextEvents.h"
 #include "mozilla/TouchEvents.h"
 #include "mozilla/ViewportUtils.h"
@@ -29,6 +30,7 @@
 #include "mozilla/dom/Event.h"
 #include "mozilla/dom/ShadowRoot.h"
 #include "mozilla/dom/WorkerScope.h"
+#include "mozilla/ScrollContainerFrame.h"
 #include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/SVGUtils.h"
 #include "mozilla/SVGOuterSVGFrame.h"
@@ -40,7 +42,6 @@
 #include "nsIFrame.h"
 #include "nsIContent.h"
 #include "nsIContentInlines.h"
-#include "nsIScrollableFrame.h"
 #include "nsJSEnvironment.h"
 #include "nsLayoutUtils.h"
 #include "nsPIWindowRoot.h"
@@ -131,7 +132,7 @@ NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(Event)
 NS_INTERFACE_MAP_END
 
 NS_IMPL_CYCLE_COLLECTING_ADDREF(Event)
-NS_IMPL_CYCLE_COLLECTING_RELEASE(Event)
+NS_IMPL_CYCLE_COLLECTING_RELEASE_WITH_LAST_RELEASE(Event, LastRelease())
 
 NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE_CLASS(Event)
 
@@ -216,6 +217,15 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(Event)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mExplicitOriginalTarget)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mOwner)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
+
+void Event::LastRelease() {
+  nsISupports* supports = nullptr;
+  QueryInterface(NS_GET_IID(nsCycleCollectionISupports),
+                 reinterpret_cast<void**>(&supports));
+  nsXPCOMCycleCollectionParticipant* p = nullptr;
+  CallQueryInterface(this, &p);
+  p->Unlink(supports);
+}
 
 JSObject* Event::WrapObject(JSContext* aCx, JS::Handle<JSObject*> aGivenProto) {
   return WrapObjectInternal(aCx, aGivenProto);
@@ -479,8 +489,19 @@ void Event::UpdateDefaultPreventedOnContentForDragEvent() {
 void Event::SetEventType(const nsAString& aEventTypeArg) {
   mEvent->mSpecifiedEventTypeString.Truncate();
   if (mIsMainThreadEvent) {
+    EventClassID classID = mEvent->mClass;
+    if (classID == eMouseEventClass) {
+      // Some pointer event types were changed from MouseEvent.  For backward
+      // compatibility, we need to handle untrusted events of them created with
+      // MouseEvent instance in some places.
+      if (aEventTypeArg.EqualsLiteral(u"click") ||
+          aEventTypeArg.EqualsLiteral(u"auxclick") ||
+          aEventTypeArg.EqualsLiteral(u"contextmenu")) {
+        classID = ePointerEventClass;
+      }
+    }
     mEvent->mSpecifiedEventType = nsContentUtils::GetEventMessageAndAtom(
-        aEventTypeArg, mEvent->mClass, &(mEvent->mMessage));
+        aEventTypeArg, classID, &(mEvent->mMessage));
     mEvent->SetDefaultComposed();
   } else {
     mEvent->mSpecifiedEventType = NS_Atomize(u"on"_ns + aEventTypeArg);
@@ -617,11 +638,8 @@ CSSIntPoint Event::GetPageCoords(nsPresContext* aPresContext,
   // If there is some scrolling, add scroll info to client point.
   if (aPresContext && aPresContext->GetPresShell()) {
     PresShell* presShell = aPresContext->PresShell();
-    nsIScrollableFrame* scrollframe =
-        presShell->GetRootScrollFrameAsScrollable();
-    if (scrollframe) {
-      pagePoint +=
-          CSSIntPoint::FromAppUnitsRounded(scrollframe->GetScrollPosition());
+    if (ScrollContainerFrame* sf = presShell->GetRootScrollContainerFrame()) {
+      pagePoint += CSSIntPoint::FromAppUnitsRounded(sf->GetScrollPosition());
     }
   }
 

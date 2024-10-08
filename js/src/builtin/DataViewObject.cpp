@@ -27,6 +27,7 @@
 #include "util/DifferentialTesting.h"
 #include "vm/ArrayBufferObject.h"
 #include "vm/Compartment.h"
+#include "vm/Float16.h"
 #include "vm/GlobalObject.h"
 #include "vm/Interpreter.h"
 #include "vm/JSContext.h"
@@ -42,7 +43,6 @@ using namespace js;
 
 using JS::CanonicalizeNaN;
 using JS::ToInt32;
-using mozilla::AssertedCast;
 using mozilla::WrapToSigned;
 
 static bool IsDataView(HandleValue v) {
@@ -65,150 +65,27 @@ DataViewObject* DataViewObject::create(
 }
 
 ResizableDataViewObject* ResizableDataViewObject::create(
-    JSContext* cx, size_t byteOffset, size_t byteLength, bool autoLength,
+    JSContext* cx, size_t byteOffset, size_t byteLength, AutoLength autoLength,
     Handle<ArrayBufferObjectMaybeShared*> arrayBuffer, HandleObject proto) {
   MOZ_ASSERT(arrayBuffer->isResizable());
   MOZ_ASSERT(!arrayBuffer->isDetached());
-  MOZ_ASSERT(!autoLength || byteLength == 0,
+  MOZ_ASSERT(autoLength == AutoLength::No || byteLength == 0,
              "byte length is zero for 'auto' length views");
 
   auto* obj = NewObjectWithClassProto<ResizableDataViewObject>(cx, proto);
-  if (!obj || !obj->init(cx, arrayBuffer, byteOffset, byteLength,
-                         /* bytesPerElement = */ 1)) {
+  if (!obj || !obj->initResizable(cx, arrayBuffer, byteOffset, byteLength,
+                                  /* bytesPerElement = */ 1, autoLength)) {
     return nullptr;
   }
 
-  obj->setFixedSlot(AUTO_LENGTH_SLOT, BooleanValue(autoLength));
-
   return obj;
-}
-
-/**
- * GetViewByteLength ( viewRecord )
- *
- * GetViewByteLength can be rewritten into the following spec steps when
- * inlining the calls to MakeDataViewWithBufferWitnessRecord and
- * IsViewOutOfBounds.
- *
- * 1. Let buffer be view.[[ViewedArrayBuffer]].
- * 2. If IsDetachedBuffer(buffer) is true, then
- *   a. Return out-of-bounds.
- * 3. If IsFixedLengthArrayBuffer(buffer) is true,
- *   a. Return view.[[ByteLength]].
- * 4. Let bufferByteLength be ArrayBufferByteLength(buffer, order).
- * 5. Let byteOffsetStart be view.[[ByteOffset]].
- * 6. If byteOffsetStart > bufferByteLength, then
- *   a. Return out-of-bounds.
- * 7. If view.[[ByteLength]] is auto, then
- *   a. Return bufferByteLength - byteOffsetStart.
- * 8. Let viewByteLength be view.[[ByteLength]].
- * 9. Let byteOffsetEnd be byteOffsetStart + viewByteLength.
- * 10. If byteOffsetEnd > bufferByteLength, then
- *   a. Return out-of-bounds.
- * 11. Return viewByteLength.
- *
- * The additional call to IsFixedLengthArrayBuffer is an optimization to skip
- * unnecessary validation which doesn't apply for fixed length data-views.
- *
- * https://tc39.es/ecma262/#sec-getviewbytelength
- * https://tc39.es/ecma262/#sec-makedataviewwithbufferwitnessrecord
- * https://tc39.es/ecma262/#sec-isviewoutofbounds
- */
-mozilla::Maybe<size_t> DataViewObject::byteLength() {
-  if (MOZ_UNLIKELY(hasDetachedBuffer())) {
-    return mozilla::Nothing{};
-  }
-
-  if (MOZ_LIKELY(is<FixedLengthDataViewObject>())) {
-    size_t viewByteLength = rawByteLength();
-    return mozilla::Some(viewByteLength);
-  }
-
-  auto* buffer = bufferEither();
-  MOZ_ASSERT(buffer->isResizable());
-
-  size_t bufferByteLength = buffer->byteLength();
-  size_t byteOffsetStart = ArrayBufferViewObject::byteOffset();
-  if (byteOffsetStart > bufferByteLength) {
-    return mozilla::Nothing{};
-  }
-
-  if (as<ResizableDataViewObject>().isAutoLength()) {
-    return mozilla::Some(bufferByteLength - byteOffsetStart);
-  }
-
-  size_t viewByteLength = rawByteLength();
-  size_t byteOffsetEnd = byteOffsetStart + viewByteLength;
-  if (byteOffsetEnd > bufferByteLength) {
-    return mozilla::Nothing{};
-  }
-  return mozilla::Some(viewByteLength);
-}
-
-/**
- * IsViewOutOfBounds ( viewRecord )
- *
- * IsViewOutOfBounds can be rewritten into the following spec steps when
- * inlining the call to MakeDataViewWithBufferWitnessRecord.
- *
- * 1. Let buffer be obj.[[ViewedArrayBuffer]].
- * 2. If IsDetachedBuffer(buffer) is true, then
- *   a. Return true.
- * 3. If IsFixedLengthArrayBuffer(buffer) is true, then
- *   a. Return false.
- * 4. Let byteLength be ArrayBufferByteLength(buffer, order).
- * 5. Let byteOffsetStart be view.[[ByteOffset]].
- * 6. If byteOffsetStart > bufferByteLength, then
- *   a. Return true.
- * 7. If view.[[ByteLength]] is auto, then
- *   a. Return false.
- * 8. Let byteOffsetEnd be byteOffsetStart + view.[[ByteLength]].
- * 9. If byteOffsetEnd > bufferByteLength, then
- *   a. Return true.
- * 10. Return false.
- *
- * The additional call to IsFixedLengthArrayBuffer is an optimization to skip
- * unnecessary validation which doesn't apply for fixed length data-views.
- *
- * https://tc39.es/ecma262/#sec-makedataviewwithbufferwitnessrecord
- * https://tc39.es/ecma262/#sec-isviewoutofbounds
- */
-mozilla::Maybe<size_t> DataViewObject::byteOffset() {
-  if (MOZ_UNLIKELY(hasDetachedBuffer())) {
-    return mozilla::Nothing{};
-  }
-
-  size_t byteOffsetStart = ArrayBufferViewObject::byteOffset();
-
-  if (MOZ_LIKELY(is<FixedLengthDataViewObject>())) {
-    return mozilla::Some(byteOffsetStart);
-  }
-
-  auto* buffer = bufferEither();
-  MOZ_ASSERT(buffer->isResizable());
-
-  size_t bufferByteLength = buffer->byteLength();
-  if (byteOffsetStart > bufferByteLength) {
-    return mozilla::Nothing{};
-  }
-
-  if (as<ResizableDataViewObject>().isAutoLength()) {
-    return mozilla::Some(byteOffsetStart);
-  }
-
-  size_t viewByteLength = rawByteLength();
-  size_t byteOffsetEnd = byteOffsetStart + viewByteLength;
-  if (byteOffsetEnd > bufferByteLength) {
-    return mozilla::Nothing{};
-  }
-  return mozilla::Some(byteOffsetStart);
 }
 
 // ES2017 draft rev 931261ecef9b047b14daacf82884134da48dfe0f
 // 24.3.2.1 DataView (extracted part of the main algorithm)
 bool DataViewObject::getAndCheckConstructorArgs(
     JSContext* cx, HandleObject bufobj, const CallArgs& args,
-    size_t* byteOffsetPtr, size_t* byteLengthPtr, bool* autoLengthPtr) {
+    size_t* byteOffsetPtr, size_t* byteLengthPtr, AutoLength* autoLengthPtr) {
   // Step 3.
   if (!bufobj->is<ArrayBufferObjectMaybeShared>()) {
     JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
@@ -243,10 +120,10 @@ bool DataViewObject::getAndCheckConstructorArgs(
   MOZ_ASSERT(offset <= ArrayBufferObject::ByteLengthLimit);
 
   uint64_t viewByteLength = 0;
-  bool autoLength = false;
+  auto autoLength = AutoLength::No;
   if (!args.hasDefined(2)) {
     if (buffer->isResizable()) {
-      autoLength = true;
+      autoLength = AutoLength::Yes;
     } else {
       // Step 8.a
       viewByteLength = bufferByteLength - offset;
@@ -305,7 +182,7 @@ bool DataViewObject::constructSameCompartment(JSContext* cx,
 
   size_t byteOffset = 0;
   size_t byteLength = 0;
-  bool autoLength = false;
+  auto autoLength = AutoLength::No;
   if (!getAndCheckConstructorArgs(cx, bufobj, args, &byteOffset, &byteLength,
                                   &autoLength)) {
     return false;
@@ -365,7 +242,7 @@ bool DataViewObject::constructWrapped(JSContext* cx, HandleObject bufobj,
   // NB: This entails the IsArrayBuffer check
   size_t byteOffset = 0;
   size_t byteLength = 0;
-  bool autoLength = false;
+  auto autoLength = AutoLength::No;
   if (!getAndCheckConstructorArgs(cx, unwrapped, args, &byteOffset, &byteLength,
                                   &autoLength)) {
     return false;
@@ -527,7 +404,7 @@ NativeType DataViewObject::read(uint64_t offset, size_t length,
       getDataPointer<NativeType>(offset, length, &isSharedMemory);
   MOZ_ASSERT(data);
 
-  NativeType val = 0;
+  NativeType val{};
   if (isSharedMemory) {
     DataViewIO<NativeType, SharedMem<uint8_t*>>::fromBuffer(&val, data,
                                                             isLittleEndian);
@@ -623,6 +500,17 @@ inline bool WebIDLCast<uint64_t>(JSContext* cx, HandleValue value,
 }
 
 template <>
+inline bool WebIDLCast<float16>(JSContext* cx, HandleValue value,
+                                float16* out) {
+  double temp;
+  if (!ToNumber(cx, value, &temp)) {
+    return false;
+  }
+  *out = float16(temp);
+  return true;
+}
+
+template <>
 inline bool WebIDLCast<float>(JSContext* cx, HandleValue value, float* out) {
   double temp;
   if (!ToNumber(cx, value, &temp)) {
@@ -659,8 +547,10 @@ bool DataViewObject::write(JSContext* cx, Handle<DataViewObject*> obj,
   }
 
   // See the comment in ElementSpecific::doubleToNative.
-  if (js::SupportDifferentialTesting() && TypeIsFloatingPoint<NativeType>()) {
-    value = JS::CanonicalizeNaN(value);
+  if constexpr (!std::numeric_limits<NativeType>::is_integer) {
+    if (js::SupportDifferentialTesting()) {
+      value = JS::CanonicalizeNaN(static_cast<double>(value));
+    }
   }
 
   // Step 6.
@@ -862,6 +752,26 @@ bool DataViewObject::fun_getBigUint64(JSContext* cx, unsigned argc, Value* vp) {
   return CallNonGenericMethod<IsDataView, getBigUint64Impl>(cx, args);
 }
 
+bool DataViewObject::getFloat16Impl(JSContext* cx, const CallArgs& args) {
+  MOZ_ASSERT(IsDataView(args.thisv()));
+
+  Rooted<DataViewObject*> thisView(
+      cx, &args.thisv().toObject().as<DataViewObject>());
+
+  float16 val{};
+  if (!read(cx, thisView, args, &val)) {
+    return false;
+  }
+
+  args.rval().setDouble(CanonicalizeNaN(static_cast<double>(val)));
+  return true;
+}
+
+bool DataViewObject::fun_getFloat16(JSContext* cx, unsigned argc, Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+  return CallNonGenericMethod<IsDataView, getFloat16Impl>(cx, args);
+}
+
 bool DataViewObject::getFloat32Impl(JSContext* cx, const CallArgs& args) {
   MOZ_ASSERT(IsDataView(args.thisv()));
 
@@ -1050,6 +960,24 @@ bool DataViewObject::fun_setBigUint64(JSContext* cx, unsigned argc, Value* vp) {
   return CallNonGenericMethod<IsDataView, setBigUint64Impl>(cx, args);
 }
 
+bool DataViewObject::setFloat16Impl(JSContext* cx, const CallArgs& args) {
+  MOZ_ASSERT(IsDataView(args.thisv()));
+
+  Rooted<DataViewObject*> thisView(
+      cx, &args.thisv().toObject().as<DataViewObject>());
+
+  if (!write<float16>(cx, thisView, args)) {
+    return false;
+  }
+  args.rval().setUndefined();
+  return true;
+}
+
+bool DataViewObject::fun_setFloat16(JSContext* cx, unsigned argc, Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+  return CallNonGenericMethod<IsDataView, setFloat16Impl>(cx, args);
+}
+
 bool DataViewObject::setFloat32Impl(JSContext* cx, const CallArgs& args) {
   MOZ_ASSERT(IsDataView(args.thisv()));
 
@@ -1206,6 +1134,8 @@ const JSFunctionSpec DataViewObject::methods[] = {
                     DataViewGetInt32),
     JS_INLINABLE_FN("getUint32", DataViewObject::fun_getUint32, 1, 0,
                     DataViewGetUint32),
+    JS_INLINABLE_FN("getFloat16", DataViewObject::fun_getFloat16, 1, 0,
+                    DataViewGetFloat16),
     JS_INLINABLE_FN("getFloat32", DataViewObject::fun_getFloat32, 1, 0,
                     DataViewGetFloat32),
     JS_INLINABLE_FN("getFloat64", DataViewObject::fun_getFloat64, 1, 0,
@@ -1226,6 +1156,8 @@ const JSFunctionSpec DataViewObject::methods[] = {
                     DataViewSetInt32),
     JS_INLINABLE_FN("setUint32", DataViewObject::fun_setUint32, 2, 0,
                     DataViewSetUint32),
+    JS_INLINABLE_FN("setFloat16", DataViewObject::fun_setFloat16, 2, 0,
+                    DataViewSetFloat16),
     JS_INLINABLE_FN("setFloat32", DataViewObject::fun_setFloat32, 2, 0,
                     DataViewSetFloat32),
     JS_INLINABLE_FN("setFloat64", DataViewObject::fun_setFloat64, 2, 0,
@@ -1234,13 +1166,16 @@ const JSFunctionSpec DataViewObject::methods[] = {
                     DataViewSetBigInt64),
     JS_INLINABLE_FN("setBigUint64", DataViewObject::fun_setBigUint64, 2, 0,
                     DataViewSetBigUint64),
-    JS_FS_END};
+    JS_FS_END,
+};
 
 const JSPropertySpec DataViewObject::properties[] = {
     JS_PSG("buffer", DataViewObject::bufferGetter, 0),
     JS_PSG("byteLength", DataViewObject::byteLengthGetter, 0),
     JS_PSG("byteOffset", DataViewObject::byteOffsetGetter, 0),
-    JS_STRING_SYM_PS(toStringTag, "DataView", JSPROP_READONLY), JS_PS_END};
+    JS_STRING_SYM_PS(toStringTag, "DataView", JSPROP_READONLY),
+    JS_PS_END,
+};
 
 JS_PUBLIC_API JSObject* JS_NewDataView(JSContext* cx, HandleObject buffer,
                                        size_t byteOffset, size_t byteLength) {

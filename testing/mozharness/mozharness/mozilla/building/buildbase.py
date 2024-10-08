@@ -1,13 +1,10 @@
 #!/usr/bin/env python
-# ***** BEGIN LICENSE BLOCK *****
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this file,
 # You can obtain one at http://mozilla.org/MPL/2.0/.
-# ***** END LICENSE BLOCK *****
 """ buildbase.py.
 
 provides a base class for fx desktop builds
-author: Jordan Lund
 
 """
 import copy
@@ -302,7 +299,6 @@ class BuildOptionParser(object):
         "arm-debug": path_base + "%s_arm_debug.py",
         "arm-lite-debug": path_base + "%s_arm_debug_lite.py",
         "arm-debug-ccov": path_base + "%s_arm_debug_ccov.py",
-        "arm-debug-searchfox": path_base + "%s_arm_debug_searchfox.py",
         "arm-gradle": path_base + "%s_arm_gradle.py",
         "rusttests": path_base + "%s_rusttests.py",
         "rusttests-debug": path_base + "%s_rusttests_debug.py",
@@ -330,6 +326,7 @@ class BuildOptionParser(object):
         "aarch64-pgo": path_base + "%s_aarch64_pgo.py",
         "aarch64-debug": path_base + "%s_aarch64_debug.py",
         "aarch64-lite-debug": path_base + "%s_aarch64_debug_lite.py",
+        "aarch64-debug-searchfox": path_base + "%s_aarch64_debug_searchfox.py",
         "aarch64-profile-generate": path_base + "%s_aarch64_profile_generate.py",
         "android-geckoview-docs": path_base + "%s_geckoview_docs.py",
         "valgrind": path_base + "%s_valgrind.py",
@@ -875,6 +872,8 @@ items from that key's value."
             work_dir,
             "--config-file",
             "multi_locale/android-mozharness-build.json",
+            "--config-file",
+            "multi_locale/tc_common.py",
             "--pull-locale-source",
             "--package-multi",
             "--summary",
@@ -1486,8 +1485,10 @@ items from that key's value."
             if build_platform == "android-geckoview-docs":
                 return
             main_platform = "android"
+        elif build_platform.startswith("ios"):
+            return
         else:
-            err = "Build platform {} didn't start with 'mac', 'linux', 'win', or 'android'".format(
+            err = "Build platform {} didn't start with 'mac', 'linux', 'win', 'android' or 'ios'".format(
                 build_platform
             )
             self.fatal(err)

@@ -210,7 +210,7 @@ export var ProcessHangMonitor = {
     return func(report);
   },
 
-  observe(subject, topic, data) {
+  observe(subject, topic) {
     switch (topic) {
       case "xpcom-shutdown": {
         Services.obs.removeObserver(this, "xpcom-shutdown");
@@ -240,7 +240,7 @@ export var ProcessHangMonitor = {
         // Install event listeners on the new window in case one of
         // its tabs is already hung.
         let win = subject;
-        let listener = ev => {
+        let listener = () => {
           win.removeEventListener("load", listener, true);
           this.updateWindows();
         };
@@ -385,20 +385,14 @@ export var ProcessHangMonitor = {
       // use. :-(
       let hangDuration =
         report.hangDuration + Cu.now() - info.lastReportFromChild;
-      Services.telemetry.recordEvent(
-        "slow_script_warning",
-        "shown",
-        "content",
-        null,
-        {
-          end_reason: endReason,
-          hang_duration: "" + hangDuration,
-          n_tab_deselect: "" + info.deselectCount,
-          uri_type,
-          uptime,
-          wait_count: "" + info.waitCount,
-        }
-      );
+      Glean.slowScriptWarning.shownContent.record({
+        end_reason: endReason,
+        hang_duration: hangDuration,
+        n_tab_deselect: info.deselectCount,
+        uri_type,
+        uptime,
+        wait_count: info.waitCount,
+      });
     } catch (ex) {
       console.error(ex);
     }
@@ -548,10 +542,11 @@ export var ProcessHangMonitor = {
       return;
     }
 
-    // Show the "debug script" button unconditionally if we are in Developer edition,
-    // or, if DevTools are opened on the slow tab.
+    // Show the "debug script" button unconditionally if we are in Developer or Nightly
+    // editions, or if DevTools are opened on the slow tab.
     if (
       AppConstants.MOZ_DEV_EDITION ||
+      AppConstants.NIGHTLY_BUILD ||
       report.scriptBrowser.browsingContext.watchedByDevTools
     ) {
       buttons.push({

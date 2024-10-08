@@ -183,9 +183,6 @@ nsresult nsLayoutStatics::Initialize() {
 
   nsMathMLOperators::AddRefTable();
 
-#ifdef DEBUG
-  nsIFrame::DisplayReflowStartup();
-#endif
   Attr::Initialize();
 
   PopupBlocker::Initialize();
@@ -256,7 +253,7 @@ nsresult nsLayoutStatics::Initialize() {
   if (XRE_IsParentProcess()) {
     // On content process we initialize these components when PContentChild is
     // fully initialized.
-    mozilla::dom::RemoteWorkerService::Initialize();
+    mozilla::dom::RemoteWorkerService::InitializeParent();
   }
 
   ClearSiteData::Initialize();
@@ -320,9 +317,6 @@ void nsLayoutStatics::Shutdown() {
   HTMLDNSPrefetch::Shutdown();
   nsCSSRendering::Shutdown();
   StaticPresData::Shutdown();
-#ifdef DEBUG
-  nsIFrame::DisplayReflowShutdown();
-#endif
   nsCellMap::Shutdown();
   ActiveLayerTracker::Shutdown();
 

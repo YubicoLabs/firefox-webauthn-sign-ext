@@ -148,7 +148,7 @@ void UtilityProcessParent::ActorDestroy(ActorDestroyReason aWhy) {
             actorsName += ", "_ns + GetUtilityActorName(actor);
           }
         }
-        mCrashReporter->AddAnnotation(
+        mCrashReporter->AddAnnotationNSCString(
             CrashReporter::Annotation::UtilityActorsName, actorsName);
       }
 #endif
@@ -177,7 +177,7 @@ void UtilityProcessParent::ActorDestroy(ActorDestroyReason aWhy) {
     NS_WARNING("Could not get a nsIObserverService, ipc:utility-shutdown skip");
   }
 
-  mHost->OnChannelClosed();
+  mHost->OnChannelClosed(aWhy);
 }
 
 // To ensure that IPDL is finished before UtilityParent gets deleted.

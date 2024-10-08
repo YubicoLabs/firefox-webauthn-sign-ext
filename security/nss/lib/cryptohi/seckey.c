@@ -235,6 +235,33 @@ SECKEY_CreateECPrivateKey(SECKEYECParams *param, SECKEYPublicKey **pubk, void *c
     return (privk);
 }
 
+SECKEYPrivateKey *
+SECKEY_CreateEDPrivateKey(SECKEYECParams *param, SECKEYPublicKey **pubk, void *cx)
+{
+    SECKEYPrivateKey *privk;
+    PK11SlotInfo *slot = PK11_GetBestSlot(CKM_EC_EDWARDS_KEY_PAIR_GEN, cx);
+    if (!slot) {
+        return NULL;
+    }
+
+    privk = PK11_GenerateKeyPairWithOpFlags(slot, CKM_EC_EDWARDS_KEY_PAIR_GEN,
+                                            param, pubk,
+                                            PK11_ATTR_SESSION |
+                                                PK11_ATTR_INSENSITIVE |
+                                                PK11_ATTR_PUBLIC,
+                                            CKF_SIGN, CKF_SIGN, cx);
+    if (!privk)
+        privk = PK11_GenerateKeyPairWithOpFlags(slot, CKM_EC_EDWARDS_KEY_PAIR_GEN,
+                                                param, pubk,
+                                                PK11_ATTR_SESSION |
+                                                    PK11_ATTR_SENSITIVE |
+                                                    PK11_ATTR_PRIVATE,
+                                                CKF_SIGN, CKF_SIGN, cx);
+
+    PK11_FreeSlot(slot);
+    return (privk);
+}
+
 void
 SECKEY_DestroyPrivateKey(SECKEYPrivateKey *privk)
 {
@@ -329,7 +356,7 @@ seckey_UpdateCertPQGChain(CERTCertificate *subjectCert, int count)
          *
          * Question: do we really need to do this for EC keys. They don't have
          * PQG parameters, but they do have parameters. The question is does
-         * the child cert inherit thost parameters for EC from the parent, or
+         * the child cert inherit those parameters for EC from the parent, or
          * do we always include those parameters in each cert.
          */
 
@@ -339,6 +366,7 @@ seckey_UpdateCertPQGChain(CERTCertificate *subjectCert, int count)
             (tag != SEC_OID_NIST_DSA_SIGNATURE_WITH_SHA256_DIGEST) &&
             (tag != SEC_OID_BOGUS_DSA_SIGNATURE_WITH_SHA1_DIGEST) &&
             (tag != SEC_OID_SDN702_DSA_SIGNATURE) &&
+            (tag != SEC_OID_ED25519_PUBLIC_KEY) &&
             (tag != SEC_OID_ANSIX962_EC_PUBLIC_KEY)) {
 
             return SECSuccess;
@@ -383,6 +411,7 @@ seckey_UpdateCertPQGChain(CERTCertificate *subjectCert, int count)
             (tag != SEC_OID_NIST_DSA_SIGNATURE_WITH_SHA256_DIGEST) &&
             (tag != SEC_OID_BOGUS_DSA_SIGNATURE_WITH_SHA1_DIGEST) &&
             (tag != SEC_OID_SDN702_DSA_SIGNATURE) &&
+            (tag != SEC_OID_ED25519_PUBLIC_KEY) &&
             (tag != SEC_OID_ANSIX962_EC_PUBLIC_KEY)) {
             rv = SECFailure;
             goto loser;
@@ -521,6 +550,9 @@ seckey_GetKeyType(SECOidTag tag)
         case SEC_OID_ANSIX962_EC_PUBLIC_KEY:
             keyType = ecKey;
             break;
+        case SEC_OID_ED25519_PUBLIC_KEY:
+            keyType = edKey;
+            break;
         /* accommodate applications that hand us a signature type when they
          * should be handing us a cipher type */
         case SEC_OID_PKCS1_MD5_WITH_RSA_ENCRYPTION:
@@ -637,6 +669,49 @@ seckey_ExtractPublicKey(const CERTSubjectPublicKeyInfo *spki)
                 if (rv == SECSuccess)
                     return pubk;
                 break;
+            case SEC_OID_X25519:
+            case SEC_OID_ED25519_PUBLIC_KEY:
+                /* A basic consistency check on inputs. */
+                if (newOs.len == 0) {
+                    PORT_SetError(SEC_ERROR_INPUT_LEN);
+                    break;
+                }
+
+                /* Currently supporting only (Pure)Ed25519 .*/
+                if (spki->algorithm.parameters.len != 0) {
+                    PORT_SetError(SEC_ERROR_UNSUPPORTED_KEYALG);
+                    break;
+                }
+
+                /* edKey corresponds to Ed25519 mechanism.
+                 * ecMontKey corresponds to X25519 mechanism.
+                 * The other options are not supported. */
+                if (tag == SEC_OID_X25519) {
+                    pubk->keyType = ecMontKey;
+                } else {
+                    /* tag == SEC_OID_ED25519_PUBLIC_KEY */
+                    pubk->keyType = edKey;
+                }
+
+                pubk->u.ec.size = 0;
+
+                SECOidData *oid25519 = SECOID_FindOIDByTag(tag);
+                if (!oid25519) {
+                    break;
+                }
+
+                if (!SECITEM_AllocItem(arena, &pubk->u.ec.DEREncodedParams, oid25519->oid.len + 2)) {
+                    break;
+                }
+                pubk->u.ec.DEREncodedParams.data[0] = SEC_ASN1_OBJECT_ID;
+                pubk->u.ec.DEREncodedParams.data[1] = oid25519->oid.len;
+                PORT_Memcpy(pubk->u.ec.DEREncodedParams.data + 2, oid25519->oid.data, oid25519->oid.len);
+
+                rv = SECITEM_CopyItem(arena, &pubk->u.ec.publicValue, &newOs);
+                if (rv != SECSuccess) {
+                    break;
+                }
+                return pubk;
             case SEC_OID_ANSIX962_EC_PUBLIC_KEY:
                 /* A basic sanity check on inputs. */
                 if (spki->algorithm.parameters.len == 0 || newOs.len == 0) {
@@ -810,7 +885,9 @@ SECKEY_ECParamsToKeySize(const SECItem *encodedParams)
         case SEC_OID_SECG_EC_SECT571R1:
             return 571;
 
+        case SEC_OID_X25519:
         case SEC_OID_CURVE25519:
+        case SEC_OID_ED25519_PUBLIC_KEY:
             return 255;
 
         default:
@@ -960,7 +1037,9 @@ SECKEY_ECParamsToBasePointOrderLen(const SECItem *encodedParams)
         case SEC_OID_SECG_EC_SECT571R1:
             return 570;
 
+        case SEC_OID_X25519:
         case SEC_OID_CURVE25519:
+        case SEC_OID_ED25519_PUBLIC_KEY:
             return 255;
 
         default:
@@ -1032,6 +1111,8 @@ SECKEY_PublicKeyStrengthInBits(const SECKEYPublicKey *pubk)
             bitSize = SECKEY_BigIntegerBitLength(&pubk->u.dh.prime);
             break;
         case ecKey:
+        case edKey:
+        case ecMontKey:
             bitSize = SECKEY_ECParamsToKeySize(&pubk->u.ec.DEREncodedParams);
             break;
         default:
@@ -1113,6 +1194,8 @@ SECKEY_SignatureLen(const SECKEYPublicKey *pubk)
         case dsaKey:
             return pubk->u.dsa.params.subPrime.len * 2;
         case ecKey:
+        case edKey:
+        case ecMontKey:
             /* Get the base point order length in bits and adjust */
             size = SECKEY_ECParamsToBasePointOrderLen(
                 &pubk->u.ec.DEREncodedParams);
@@ -1239,6 +1322,8 @@ SECKEY_CopyPublicKey(const SECKEYPublicKey *pubk)
                                   &pubk->u.dh.publicValue);
             break;
         case ecKey:
+        case edKey:
+        case ecMontKey:
             copyk->u.ec.size = pubk->u.ec.size;
             rv = seckey_HasCurveOID(pubk);
             if (rv != SECSuccess) {
@@ -1277,7 +1362,7 @@ SECKEY_CopyPublicKey(const SECKEYPublicKey *pubk)
  * size.
  */
 SECStatus
-seckey_EnforceKeySize(KeyType keyType, unsigned keyLength, SECErrorCodes error)
+SECKEY_EnforceKeySize(KeyType keyType, unsigned keyLength, SECErrorCodes error)
 {
     PRInt32 opt = -1;
     PRInt32 optVal;
@@ -1341,7 +1426,7 @@ seckey_FindPublicKeyHandle(SECKEYPrivateKey *privk, SECKEYPublicKey *pubk)
     pubk->pkcs11ID = PK11_DerivePubKeyFromPrivKey(privk);
     if (pubk->pkcs11ID == CK_INVALID_HANDLE) {
         /* end of the road. Token doesn't have matching public key, nor can
-          * token regenerate a new public key from and existing private key. */
+         * token regenerate a new public key from and existing private key. */
         return CK_INVALID_HANDLE;
     }
     pubk->pkcs11Slot = PK11_ReferenceSlot(privk->pkcs11Slot);
@@ -1465,6 +1550,29 @@ SECKEY_ConvertToPublicKey(SECKEYPrivateKey *privk)
                  * overwrite  the old value */
                 pubk->u.ec.publicValue = decodedPoint;
             }
+
+            pubk->u.ec.encoding = ECPoint_Undefined;
+            return pubk;
+        case edKey:
+        case ecMontKey:
+            rv = PK11_ReadAttribute(privk->pkcs11Slot, privk->pkcs11ID,
+                                    CKA_EC_PARAMS, arena, &pubk->u.ec.DEREncodedParams);
+            if (rv != SECSuccess) {
+                break;
+            }
+            rv = PK11_ReadAttribute(privk->pkcs11Slot, privk->pkcs11ID,
+                                    CKA_EC_POINT, arena, &pubk->u.ec.publicValue);
+            if (rv != SECSuccess || pubk->u.ec.publicValue.len == 0) {
+                pubKeyHandle = seckey_FindPublicKeyHandle(privk, pubk);
+                if (pubKeyHandle == CK_INVALID_HANDLE) {
+                    break;
+                }
+                rv = PK11_ReadAttribute(privk->pkcs11Slot, pubKeyHandle,
+                                        CKA_EC_POINT, arena, &pubk->u.ec.publicValue);
+                if (rv != SECSuccess) {
+                    break;
+                }
+            }
             pubk->u.ec.encoding = ECPoint_Undefined;
             return pubk;
         default:
@@ -1483,6 +1591,7 @@ seckey_CreateSubjectPublicKeyInfo_helper(SECKEYPublicKey *pubk)
     CERTSubjectPublicKeyInfo *spki;
     PLArenaPool *arena;
     SECItem params = { siBuffer, NULL, 0 };
+    SECOidTag tag;
 
     arena = PORT_NewArena(DER_DEFAULT_CHUNKSIZE);
     if (arena == NULL) {
@@ -1555,14 +1664,42 @@ seckey_CreateSubjectPublicKeyInfo_helper(SECKEYPublicKey *pubk)
             case ecKey:
                 rv = SECITEM_CopyItem(arena, &params,
                                       &pubk->u.ec.DEREncodedParams);
-                if (rv != SECSuccess)
+                if (rv != SECSuccess) {
                     break;
+                }
 
+                tag = SEC_OID_ANSIX962_EC_PUBLIC_KEY;
                 rv = SECOID_SetAlgorithmID(arena, &spki->algorithm,
-                                           SEC_OID_ANSIX962_EC_PUBLIC_KEY,
+                                           tag,
                                            &params);
-                if (rv != SECSuccess)
+                if (rv != SECSuccess) {
                     break;
+                }
+
+                rv = SECITEM_CopyItem(arena, &spki->subjectPublicKey,
+                                      &pubk->u.ec.publicValue);
+
+                if (rv == SECSuccess) {
+                    /*
+                     * The stored value is supposed to be a BIT_STRING,
+                     * so convert the length.
+                     */
+                    spki->subjectPublicKey.len <<= 3;
+                    /*
+                     * We got a good one; return it.
+                     */
+                    return spki;
+                }
+                break;
+            case edKey:
+            case ecMontKey:
+                tag = SECKEY_GetECCOid(&pubk->u.ec.DEREncodedParams);
+                rv = SECOID_SetAlgorithmID(arena, &spki->algorithm,
+                                           tag,
+                                           &params);
+                if (rv != SECSuccess) {
+                    break;
+                }
 
                 rv = SECITEM_CopyItem(arena, &spki->subjectPublicKey,
                                       &pubk->u.ec.publicValue);
@@ -1669,8 +1806,9 @@ SECKEY_DecodeDERSubjectPublicKeyInfo(const SECItem *spkider)
             rv = SEC_QuickDERDecodeItem(arena, spki,
                                         CERT_SubjectPublicKeyInfoTemplate, &newSpkider);
         }
-        if (rv == SECSuccess)
+        if (rv == SECSuccess) {
             return spki;
+        }
     } else {
         PORT_SetError(SEC_ERROR_NO_MEMORY);
     }
@@ -2191,10 +2329,18 @@ sec_GetHashMechanismByOidTag(SECOidTag tag)
     }
 }
 
-static CK_RSA_PKCS_MGF_TYPE
-sec_GetMgfTypeByOidTag(SECOidTag tag)
+CK_RSA_PKCS_MGF_TYPE
+SEC_GetMgfTypeByOidTag(SECOidTag tag)
 {
     switch (tag) {
+        case SEC_OID_SHA3_512:
+            return CKG_MGF1_SHA3_512;
+        case SEC_OID_SHA3_384:
+            return CKG_MGF1_SHA3_384;
+        case SEC_OID_SHA3_256:
+            return CKG_MGF1_SHA3_256;
+        case SEC_OID_SHA3_224:
+            return CKG_MGF1_SHA3_224;
         case SEC_OID_SHA512:
             return CKG_MGF1_SHA512;
         case SEC_OID_SHA384:
@@ -2296,7 +2442,8 @@ sec_DecodeRSAPSSParams(PLArenaPool *arena,
 SECStatus
 sec_DecodeRSAPSSParamsToMechanism(PLArenaPool *arena,
                                   const SECItem *params,
-                                  CK_RSA_PKCS_PSS_PARAMS *mech)
+                                  CK_RSA_PKCS_PSS_PARAMS *mech,
+                                  SECOidTag *hashAlgp)
 {
     SECOidTag hashAlg;
     SECOidTag maskHashAlg;
@@ -2308,13 +2455,14 @@ sec_DecodeRSAPSSParamsToMechanism(PLArenaPool *arena,
     if (rv != SECSuccess) {
         return SECFailure;
     }
+    *hashAlgp = hashAlg;
 
     mech->hashAlg = sec_GetHashMechanismByOidTag(hashAlg);
     if (mech->hashAlg == CKM_INVALID_MECHANISM) {
         return SECFailure;
     }
 
-    mech->mgf = sec_GetMgfTypeByOidTag(maskHashAlg);
+    mech->mgf = SEC_GetMgfTypeByOidTag(maskHashAlg);
     if (mech->mgf == 0) {
         return SECFailure;
     }

@@ -1,9 +1,7 @@
 #!/usr/bin/env python
-# ***** BEGIN LICENSE BLOCK *****
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this file,
 # You can obtain one at http://mozilla.org/MPL/2.0/.
-# ***** END LICENSE BLOCK *****
 import glob
 import os
 import re
@@ -363,7 +361,7 @@ class OpenH264Build(TransferMixin, VCSScript, TooltoolMixin):
         to_package = []
         for f in glob.glob(os.path.join(srcdir, "*gmpopenh264*")):
             if not re.search(
-                "(?:lib)?gmpopenh264(?!\.\d)\.(?:dylib|so|dll|info)(?!\.\d)", f
+                r"(?:lib)?gmpopenh264(?!\.\d)\.(?:dylib|so|dll|info)(?!\.\d)", f
             ):
                 # Don't package unnecessary zip bloat
                 # Blocks things like libgmpopenh264.2.dylib and libgmpopenh264.so.1

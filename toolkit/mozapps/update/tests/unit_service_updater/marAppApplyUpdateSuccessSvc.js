@@ -21,12 +21,12 @@ async function run_test() {
   );
   await runUpdateUsingApp(STATE_SUCCEEDED);
   checkAppBundleModTime();
-  standardInit();
+  await testPostUpdateProcessing();
   checkPostUpdateRunningFile(false);
   checkFilesAfterUpdateSuccess(getApplyDirFile);
   checkUpdateLogContents(LOG_COMPLETE_SUCCESS);
   await waitForUpdateXMLFiles();
-  checkUpdateManager(STATE_NONE, false, STATE_SUCCEEDED, 0, 1);
+  await checkUpdateManager(STATE_NONE, false, STATE_SUCCEEDED, 0, 1);
 
   let updatesDir = getUpdateDirFile(DIR_PATCH);
   Assert.ok(
@@ -43,5 +43,5 @@ async function run_test() {
   log = getUpdateDirFile(FILE_BACKUP_UPDATE_LOG);
   Assert.ok(!log.exists(), MSG_SHOULD_NOT_EXIST + getMsgPath(log.path));
 
-  waitForFilesInUse();
+  await waitForFilesInUse();
 }

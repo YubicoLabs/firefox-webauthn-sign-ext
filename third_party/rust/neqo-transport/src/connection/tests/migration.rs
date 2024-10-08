@@ -6,14 +6,14 @@
 
 use std::{
     cell::RefCell,
+    mem,
     net::{IpAddr, Ipv6Addr, SocketAddr},
     rc::Rc,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use neqo_common::{Datagram, Decoder};
 use test_fixture::{
-    self,
     assertions::{assert_v4_path, assert_v6_path},
     fixture_init, new_neqo_qlog, now, DEFAULT_ADDR, DEFAULT_ADDR_V4,
 };
@@ -28,9 +28,10 @@ use crate::{
     connection::tests::send_something_paced,
     frame::FRAME_TYPE_NEW_CONNECTION_ID,
     packet::PacketBuilder,
-    path::{PATH_MTU_V4, PATH_MTU_V6},
+    path::MAX_PATH_PROBES,
+    pmtud::Pmtud,
     tparams::{self, PreferredAddress, TransportParameter},
-    ConnectionError, ConnectionId, ConnectionIdDecoder, ConnectionIdGenerator, ConnectionIdRef,
+    CloseReason, ConnectionId, ConnectionIdDecoder, ConnectionIdGenerator, ConnectionIdRef,
     ConnectionParameters, EmptyConnectionIdGenerator, Error,
 };
 
@@ -53,30 +54,16 @@ fn loopback() -> SocketAddr {
 }
 
 fn change_path(d: &Datagram, a: SocketAddr) -> Datagram {
-    Datagram::new(a, a, d.tos(), d.ttl(), &d[..])
+    Datagram::new(a, a, d.tos(), &d[..])
 }
 
-fn new_port(a: SocketAddr) -> SocketAddr {
+const fn new_port(a: SocketAddr) -> SocketAddr {
     let (port, _) = a.port().overflowing_add(410);
     SocketAddr::new(a.ip(), port)
 }
 
 fn change_source_port(d: &Datagram) -> Datagram {
-    Datagram::new(
-        new_port(d.source()),
-        d.destination(),
-        d.tos(),
-        d.ttl(),
-        &d[..],
-    )
-}
-
-/// As these tests use a new path, that path often has a non-zero RTT.
-/// Pacing can be a problem when testing that path.  This skips time forward.
-fn skip_pacing(c: &mut Connection, now: Instant) -> Instant {
-    let pacing = c.process_output(now).callback();
-    assert_ne!(pacing, Duration::new(0, 0));
-    now + pacing
+    Datagram::new(new_port(d.source()), d.destination(), d.tos(), &d[..])
 }
 
 #[test]
@@ -106,7 +93,7 @@ fn path_forwarding_attack() {
     let mut client = default_client();
     let mut server = default_server();
     connect_force_idle(&mut client, &mut server);
-    let mut now = now();
+    let now = now();
 
     let dgram = send_something(&mut client, now);
     let dgram = change_path(&dgram, DEFAULT_ADDR_V4);
@@ -166,16 +153,15 @@ fn path_forwarding_attack() {
     assert_v6_path(&client_data2, false);
 
     // The server keeps sending on the new path.
-    now = skip_pacing(&mut server, now);
     let server_data2 = send_something(&mut server, now);
     assert_v4_path(&server_data2, false);
 
     // Until new data is received from the client on the old path.
     server.process_input(&client_data2, now);
-    // The server sends a probe on the "old" path.
+    // The server sends a probe on the new path.
     let server_data3 = send_something(&mut server, now);
     assert_v4_path(&server_data3, true);
-    // But switches data transmission to the "new" path.
+    // But switches data transmission to the old path.
     let server_data4 = server.process_output(now).dgram().unwrap();
     assert_v6_path(&server_data4, false);
 }
@@ -251,7 +237,8 @@ fn migrate_immediate_fail() {
     let probe = client.process_output(now).dgram().unwrap();
     assert_v4_path(&probe, true); // Contains PATH_CHALLENGE.
 
-    for _ in 0..2 {
+    // -1 because first PATH_CHALLENGE already sent above
+    for _ in 0..MAX_PATH_PROBES * 2 - 1 {
         let cb = client.process_output(now).callback();
         assert_ne!(cb, Duration::new(0, 0));
         now += cb;
@@ -326,7 +313,8 @@ fn migrate_same_fail() {
     let probe = client.process_output(now).dgram().unwrap();
     assert_v6_path(&probe, true); // Contains PATH_CHALLENGE.
 
-    for _ in 0..2 {
+    // -1 because first PATH_CHALLENGE already sent above
+    for _ in 0..MAX_PATH_PROBES * 2 - 1 {
         let cb = client.process_output(now).callback();
         assert_ne!(cb, Duration::new(0, 0));
         now += cb;
@@ -357,13 +345,13 @@ fn migrate_same_fail() {
     assert!(matches!(res, Output::None));
     assert!(matches!(
         client.state(),
-        State::Closed(ConnectionError::Transport(Error::NoAvailablePath))
+        State::Closed(CloseReason::Transport(Error::NoAvailablePath))
     ));
 }
 
 /// This gets the connection ID from a datagram using the default
 /// connection ID generator/decoder.
-fn get_cid(d: &Datagram) -> ConnectionIdRef {
+pub fn get_cid(d: &Datagram) -> ConnectionIdRef {
     let gen = CountingConnectionIdGenerator::default();
     assert_eq!(d[0] & 0x80, 0); // Only support short packets for now.
     gen.decode_cid(&mut Decoder::from(&d[1..])).unwrap()
@@ -470,10 +458,7 @@ fn fast_handshake(client: &mut Connection, server: &mut Connection) -> Option<Da
 }
 
 fn preferred_address(hs_client: SocketAddr, hs_server: SocketAddr, preferred: SocketAddr) {
-    let mtu = match hs_client.ip() {
-        IpAddr::V4(_) => PATH_MTU_V4,
-        IpAddr::V6(_) => PATH_MTU_V6,
-    };
+    let mtu = Pmtud::default_plpmtu(hs_client.ip());
     let assert_orig_path = |d: &Datagram, full_mtu: bool| {
         assert_eq!(
             d.destination(),
@@ -894,7 +879,7 @@ fn retire_prior_to_migration_failure() {
     assert!(matches!(
         client.state(),
         State::Closing {
-            error: ConnectionError::Transport(Error::InvalidMigration),
+            error: CloseReason::Transport(Error::InvalidMigration),
             ..
         }
     ));
@@ -950,4 +935,57 @@ fn retire_prior_to_migration_success() {
     assert_v4_path(&dgram, false);
     assert_ne!(get_cid(&dgram), original_cid);
     assert_ne!(get_cid(&dgram), probe_cid);
+}
+
+struct GarbageWriter {}
+
+impl crate::connection::test_internal::FrameWriter for GarbageWriter {
+    fn write_frames(&mut self, builder: &mut PacketBuilder) {
+        // Not a valid frame type.
+        builder.encode_varint(u32::MAX);
+    }
+}
+
+/// Test the case that we run out of connection ID and receive an invalid frame
+/// from a new path.
+#[test]
+fn error_on_new_path_with_no_connection_id() {
+    let mut client = default_client();
+    let mut server = default_server();
+    connect_force_idle(&mut client, &mut server);
+
+    let cid_gen: Rc<RefCell<dyn ConnectionIdGenerator>> =
+        Rc::new(RefCell::new(CountingConnectionIdGenerator::default()));
+    server.test_frame_writer = Some(Box::new(RetireAll { cid_gen }));
+    let retire_all = send_something(&mut server, now());
+
+    client.process_input(&retire_all, now());
+
+    server.test_frame_writer = Some(Box::new(GarbageWriter {}));
+    let garbage = send_something(&mut server, now());
+
+    let dgram = change_path(&garbage, DEFAULT_ADDR_V4);
+    client.process_input(&dgram, now());
+
+    // See issue #1697. We had a crash when the client had a temporary path and
+    // process_output is called.
+    let closing_frames = client.stats().frame_tx.connection_close;
+    mem::drop(client.process_output(now()));
+    assert!(matches!(
+        client.state(),
+        State::Closing {
+            error: CloseReason::Transport(Error::UnknownFrameType),
+            ..
+        }
+    ));
+    // Wait until the connection is closed.
+    let mut now = now();
+    now += client.process(None, now).callback();
+    _ = client.process_output(now);
+    // No closing frames should be sent, and the connection should be closed.
+    assert_eq!(client.stats().frame_tx.connection_close, closing_frames);
+    assert!(matches!(
+        client.state(),
+        State::Closed(CloseReason::Transport(Error::UnknownFrameType))
+    ));
 }

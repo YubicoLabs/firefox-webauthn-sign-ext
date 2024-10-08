@@ -1005,11 +1005,40 @@ void nsCSSGradientRenderer::Paint(gfxContext& aContext, const nsRect& aDest,
   // CreateGradientStops (also the implied backend type) Note that GradientStop
   // is a simple struct with a stop value (while GradientStops has the surface).
   nsTArray<gfx::GradientStop> rawStops(mStops.Length());
-  rawStops.SetLength(mStops.Length());
-  for (uint32_t i = 0; i < mStops.Length(); i++) {
-    rawStops[i].color = ToDeviceColor(mStops[i].mColor);
-    rawStops[i].color.a *= aOpacity;
-    rawStops[i].offset = stopScale * (mStops[i].mPosition - stopOrigin);
+  StyleColorInterpolationMethod styleColorInterpolationMethod =
+      mGradient->ColorInterpolationMethod();
+  if (styleColorInterpolationMethod.space != StyleColorSpace::Srgb ||
+      gfxPlatform::GetCMSMode() == CMSMode::All) {
+    class MOZ_STACK_CLASS GradientStopInterpolator final
+        : public ColorStopInterpolator<GradientStopInterpolator> {
+     public:
+      GradientStopInterpolator(
+          const nsTArray<ColorStop>& aStops,
+          const StyleColorInterpolationMethod& aStyleColorInterpolationMethod,
+          bool aExtendLastStop, nsTArray<gfx::GradientStop>& aResult)
+          : ColorStopInterpolator(aStops, aStyleColorInterpolationMethod,
+                                  aExtendLastStop),
+            mStops(aResult) {}
+      void CreateStop(float aPosition, gfx::DeviceColor aColor) {
+        mStops.AppendElement(gfx::GradientStop{aPosition, aColor});
+      }
+
+     private:
+      nsTArray<gfx::GradientStop>& mStops;
+    };
+
+    bool extendLastStop = !isRepeat && styleColorInterpolationMethod.hue ==
+                                           StyleHueInterpolationMethod::Longer;
+    GradientStopInterpolator interpolator(mStops, styleColorInterpolationMethod,
+                                          extendLastStop, rawStops);
+    interpolator.CreateStops();
+  } else {
+    rawStops.SetLength(mStops.Length());
+    for (uint32_t i = 0; i < mStops.Length(); i++) {
+      rawStops[i].color = ToDeviceColor(mStops[i].mColor);
+      rawStops[i].color.a *= aOpacity;
+      rawStops[i].offset = stopScale * (mStops[i].mPosition - stopOrigin);
+    }
   }
   RefPtr<mozilla::gfx::GradientStops> gs =
       gfxGradientCache::GetOrCreateGradientStops(
@@ -1195,15 +1224,16 @@ class MOZ_STACK_CLASS WrColorStopInterpolator
   WrColorStopInterpolator(
       const nsTArray<ColorStop>& aStops,
       const StyleColorInterpolationMethod& aStyleColorInterpolationMethod,
-      float aOpacity, nsTArray<wr::GradientStop>& aResult)
-      : ColorStopInterpolator(aStops, aStyleColorInterpolationMethod),
+      float aOpacity, nsTArray<wr::GradientStop>& aResult, bool aExtendLastStop)
+      : ColorStopInterpolator(aStops, aStyleColorInterpolationMethod,
+                              aExtendLastStop),
         mResult(aResult),
         mOpacity(aOpacity),
         mOutputStop(0) {}
 
   void CreateStops() {
     mResult.SetLengthAndRetainStorage(0);
-    // we always emit at least two stops (start and end) for each input stop,
+    // We always emit at least two stops (start and end) for each input stop,
     // which avoids ambiguity with incomplete oklch/lch/hsv/hsb color stops for
     // the last stop pair, where the last color stop can't be interpreted on its
     // own because it actually depends on the previous stop.
@@ -1257,11 +1287,26 @@ void nsCSSGradientRenderer::BuildWebRenderParameters(
   // * https://bugzilla.mozilla.org/show_bug.cgi?id=1248178
   StyleColorInterpolationMethod styleColorInterpolationMethod =
       mGradient->ColorInterpolationMethod();
-  if (mStops.Length() >= 2 &&
-      (styleColorInterpolationMethod.space != StyleColorSpace::Srgb ||
-       gfxPlatform::GetCMSMode() == CMSMode::All)) {
+  // For colorspaces supported by WebRender (Srgb, Hsl, Hwb) we technically do
+  // not need to add extra stops, but the only one of those colorspaces that
+  // appears frequently is Srgb, and Srgb still needs extra stops if CMS is
+  // enabled.  Hsl/Hwb need extra stops if StyleHueInterpolationMethod is not
+  // Shorter, or if CMS is enabled.
+  //
+  // It's probably best to keep this logic as simple as possible, see
+  // https://bugzilla.mozilla.org/show_bug.cgi?id=1885716 for an example of
+  // what can happen if we try to be clever here.
+  if (styleColorInterpolationMethod.space != StyleColorSpace::Srgb ||
+      gfxPlatform::GetCMSMode() == CMSMode::All) {
+    // For the specific case of longer hue interpolation on a CSS non-repeating
+    // gradient, we have to pretend there is another stop at position=1.0 that
+    // duplicates the last stop, this is probably only used for things like a
+    // color wheel.  No such problem for SVG as it doesn't have that complexity.
+    bool extendLastStop = aMode == wr::ExtendMode::Clamp &&
+                          styleColorInterpolationMethod.hue ==
+                              StyleHueInterpolationMethod::Longer;
     WrColorStopInterpolator interpolator(mStops, styleColorInterpolationMethod,
-                                         aOpacity, aStops);
+                                         aOpacity, aStops, extendLastStop);
     interpolator.CreateStops();
   } else {
     aStops.SetLength(mStops.Length());

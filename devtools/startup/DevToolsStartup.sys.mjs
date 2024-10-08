@@ -515,7 +515,7 @@ DevToolsStartup.prototype = {
       };
     }
 
-    const console = cmdLine.handleFlag("jsconsole", false);
+    const jsConsole = cmdLine.handleFlag("jsconsole", false);
     const devtools = cmdLine.handleFlag("devtools", false);
 
     let devToolsServer;
@@ -539,7 +539,12 @@ DevToolsStartup.prototype = {
       debuggerFlag = cmdLine.handleFlag("jsdebugger", false);
     }
 
-    return { console, debugger: debuggerFlag, devtools, devToolsServer };
+    return {
+      console: jsConsole,
+      debugger: debuggerFlag,
+      devtools,
+      devToolsServer,
+    };
   },
 
   /**
@@ -1010,7 +1015,7 @@ DevToolsStartup.prototype = {
     let devtoolsThreadResumed = false;
     const pauseOnStartup = cmdLine.handleFlag("wait-for-jsdebugger", false);
     if (pauseOnStartup) {
-      const observe = function (subject, topic, data) {
+      const observe = function () {
         devtoolsThreadResumed = true;
         Services.obs.removeObserver(observe, "devtools-thread-ready");
       };
@@ -1091,7 +1096,8 @@ DevToolsStartup.prototype = {
       useDistinctSystemPrincipalLoader,
       releaseDistinctSystemPrincipalLoader,
     } = ChromeUtils.importESModule(
-      "resource://devtools/shared/loader/DistinctSystemPrincipalLoader.sys.mjs"
+      "resource://devtools/shared/loader/DistinctSystemPrincipalLoader.sys.mjs",
+      { global: "shared" }
     );
 
     try {
@@ -1399,7 +1405,7 @@ const JsonView = {
             Services.scriptSecurityManager.getSystemPrincipal()
           );
         },
-        onError(status) {
+        onError() {
           throw new Error("JSON Viewer's onSave failed in startPersistence");
         },
       });

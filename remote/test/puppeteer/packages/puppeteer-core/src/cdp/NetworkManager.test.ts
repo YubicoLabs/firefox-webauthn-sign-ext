@@ -37,7 +37,7 @@ class MockCDPSession extends EventEmitter<CDPSessionEvents> {
 describe('NetworkManager', () => {
   it('should process extra info on multiple redirects', async () => {
     const mockCDPSession = new MockCDPSession();
-    const manager = new NetworkManager(true, {
+    const manager = new NetworkManager({
       frame(): CdpFrame | null {
         return null;
       },
@@ -128,6 +128,7 @@ describe('NetworkManager', () => {
         url: 'http://localhost:8907/redirect/1.html',
         status: 302,
         statusText: 'Found',
+        charset: 'utf-8',
         headers: {
           location: '/redirect/2.html',
           Date: 'Fri, 19 Nov 2021 09:53:58 GMT',
@@ -217,6 +218,7 @@ describe('NetworkManager', () => {
         url: 'http://localhost:8907/redirect/2.html',
         status: 302,
         statusText: 'Found',
+        charset: 'utf-8',
         headers: {
           location: '/redirect/3.html',
           Date: 'Fri, 19 Nov 2021 09:53:58 GMT',
@@ -321,6 +323,7 @@ describe('NetworkManager', () => {
         url: 'http://localhost:8907/redirect/3.html',
         status: 302,
         statusText: 'Found',
+        charset: 'utf-8',
         headers: {
           location: 'http://localhost:8907/empty.html',
           Date: 'Fri, 19 Nov 2021 09:53:58 GMT',
@@ -433,6 +436,7 @@ describe('NetworkManager', () => {
           'Keep-Alive': 'timeout=5',
           'Content-Length': '0',
         },
+        charset: 'utf-8',
         mimeType: 'text/html',
         connectionReused: true,
         connectionId: 322,
@@ -473,7 +477,7 @@ describe('NetworkManager', () => {
   });
   it(`should handle "double pause" (crbug.com/1196004) Fetch.requestPaused events for the same Network.requestWillBeSent event`, async () => {
     const mockCDPSession = new MockCDPSession();
-    const manager = new NetworkManager(true, {
+    const manager = new NetworkManager({
       frame(): CdpFrame | null {
         return null;
       },
@@ -557,7 +561,7 @@ describe('NetworkManager', () => {
   });
   it(`should handle Network.responseReceivedExtraInfo event after Network.responseReceived event (github.com/puppeteer/puppeteer/issues/8234)`, async () => {
     const mockCDPSession = new MockCDPSession();
-    const manager = new NetworkManager(true, {
+    const manager = new NetworkManager({
       frame(): CdpFrame | null {
         return null;
       },
@@ -613,6 +617,7 @@ describe('NetworkManager', () => {
           connection: 'keep-alive',
           'content-length': '85862',
         },
+        charset: 'utf-8',
         mimeType: 'text/plain',
         connectionReused: false,
         connectionId: 119,
@@ -673,7 +678,7 @@ describe('NetworkManager', () => {
 
   it(`should resolve the response once the late responseReceivedExtraInfo event arrives`, async () => {
     const mockCDPSession = new MockCDPSession();
-    const manager = new NetworkManager(true, {
+    const manager = new NetworkManager({
       frame(): CdpFrame | null {
         return null;
       },
@@ -725,6 +730,7 @@ describe('NetworkManager', () => {
         url: 'http://10.1.0.39:42915/empty.html',
         status: 200,
         statusText: 'OK',
+        charset: 'utf-8',
         headers: {
           'Cache-Control': 'no-cache, no-store',
           Connection: 'keep-alive',
@@ -823,7 +829,7 @@ describe('NetworkManager', () => {
 
   it(`should send responses for iframe that don't receive loadingFinished event`, async () => {
     const mockCDPSession = new MockCDPSession();
-    const manager = new NetworkManager(true, {
+    const manager = new NetworkManager({
       frame(): CdpFrame | null {
         return null;
       },
@@ -932,6 +938,7 @@ describe('NetworkManager', () => {
         url: 'http://127.0.0.1:54590/empty.html',
         status: 200,
         statusText: 'OK',
+        charset: 'utf-8',
         headers: {
           'Cache-Control': 'no-cache, no-store',
           Connection: 'keep-alive',
@@ -985,7 +992,7 @@ describe('NetworkManager', () => {
 
   it(`should send responses for iframe that don't receive loadingFinished event`, async () => {
     const mockCDPSession = new MockCDPSession();
-    const manager = new NetworkManager(true, {
+    const manager = new NetworkManager({
       frame(): CdpFrame | null {
         return null;
       },
@@ -1036,6 +1043,7 @@ describe('NetworkManager', () => {
         url: 'http://localhost:56295/empty.html',
         status: 200,
         statusText: 'OK',
+        charset: 'utf-8',
         headers: {
           'Cache-Control': 'no-cache, no-store',
           Connection: 'keep-alive',
@@ -1129,7 +1137,7 @@ describe('NetworkManager', () => {
 
   it(`should handle cached redirects`, async () => {
     const mockCDPSession = new MockCDPSession();
-    const manager = new NetworkManager(true, {
+    const manager = new NetworkManager({
       frame(): CdpFrame | null {
         return null;
       },
@@ -1208,7 +1216,10 @@ describe('NetworkManager', () => {
       statusCode: 200,
       headersText:
         'HTTP/1.1 200 OK\\r\\nContent-Type: text/html; charset=utf-8\\r\\nCache-Control: max-age=5\\r\\nDate: Wed, 05 Apr 2023 12:39:13 GMT\\r\\nConnection: keep-alive\\r\\nKeep-Alive: timeout=5\\r\\nTransfer-Encoding: chunked\\r\\n\\r\\n',
-      cookiePartitionKey: 'http://localhost',
+      cookiePartitionKey: {
+        topLevelSite: 'http://localhost',
+        hasCrossSiteAncestor: false,
+      },
       cookiePartitionKeyOpaque: false,
     });
 
@@ -1221,6 +1232,7 @@ describe('NetworkManager', () => {
         url: 'http://localhost:3000/',
         status: 200,
         statusText: 'OK',
+        charset: 'utf-8',
         headers: {
           'Cache-Control': 'max-age=5',
           Connection: 'keep-alive',
@@ -1350,7 +1362,10 @@ describe('NetworkManager', () => {
       statusCode: 302,
       headersText:
         'HTTP/1.1 302 Found\\r\\nLocation: http://localhost:3000/#from-redirect\\r\\nDate: Wed, 05 Apr 2023 12:39:13 GMT\\r\\nConnection: keep-alive\\r\\nKeep-Alive: timeout=5\\r\\nTransfer-Encoding: chunked\\r\\n\\r\\n',
-      cookiePartitionKey: 'http://localhost',
+      cookiePartitionKey: {
+        topLevelSite: 'http://localhost',
+        hasCrossSiteAncestor: false,
+      },
       cookiePartitionKeyOpaque: false,
     });
     mockCDPSession.emit('Network.requestWillBeSent', {
@@ -1394,6 +1409,7 @@ describe('NetworkManager', () => {
         url: 'http://localhost:3000/redirect',
         status: 302,
         statusText: 'Found',
+        charset: 'utf-8',
         headers: {
           Connection: 'keep-alive',
           Date: 'Wed, 05 Apr 2023 12:39:13 GMT',
@@ -1457,6 +1473,7 @@ describe('NetworkManager', () => {
         url: 'http://localhost:3000/',
         status: 200,
         statusText: 'OK',
+        charset: 'utf-8',
         headers: {
           'Cache-Control': 'max-age=5',
           'Content-Type': 'text/html; charset=utf-8',
@@ -1514,7 +1531,10 @@ describe('NetworkManager', () => {
       statusCode: 302,
       headersText:
         'HTTP/1.1 302 Found\\r\\nLocation: http://localhost:3000/#from-redirect\\r\\nDate: Wed, 05 Apr 2023 12:39:13 GMT\\r\\nConnection: keep-alive\\r\\nKeep-Alive: timeout=5\\r\\nTransfer-Encoding: chunked\\r\\n\\r\\n',
-      cookiePartitionKey: 'http://localhost',
+      cookiePartitionKey: {
+        topLevelSite: 'http://localhost',
+        hasCrossSiteAncestor: false,
+      },
       cookiePartitionKeyOpaque: false,
     });
     mockCDPSession.emit('Network.loadingFinished', {

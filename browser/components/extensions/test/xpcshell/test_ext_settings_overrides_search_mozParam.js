@@ -47,27 +47,85 @@ const params = [
   { name: "simple", value: "5" },
   { name: "term", value: "{searchTerms}" },
   { name: "lang", value: "{language}" },
-  { name: "locale", value: "{moz:locale}" },
   { name: "prefval", condition: "pref", pref: "code" },
+];
+
+const CONFIG = [
+  {
+    identifier: "MozParamsTest",
+    base: {
+      name: "MozParamsTest",
+      urls: {
+        search: {
+          base: "https://example.com/",
+          params: [
+            {
+              name: "test-0",
+              searchAccessPoint: {
+                contextmenu: "0",
+              },
+            },
+            {
+              name: "test-1",
+              searchAccessPoint: {
+                searchbar: "1",
+              },
+            },
+            {
+              name: "test-2",
+              searchAccessPoint: {
+                homepage: "2",
+              },
+            },
+            {
+              name: "test-3",
+              searchAccessPoint: {
+                addressbar: "3",
+              },
+            },
+            {
+              name: "test-4",
+              searchAccessPoint: {
+                newtab: "4",
+              },
+            },
+            {
+              name: "simple",
+              value: "5",
+            },
+            {
+              name: "term",
+              value: "{searchTerms}",
+            },
+            {
+              name: "lang",
+              value: "{language}",
+            },
+            {
+              name: "prefval",
+              experimentConfig: "code",
+            },
+            {
+              name: "experimenter-1",
+              experimentConfig: "nimbus-key-1",
+            },
+            {
+              name: "experimenter-2",
+              experimentConfig: "nimbus-key-2",
+            },
+          ],
+          searchTermParamName: "q",
+        },
+      },
+    },
+  },
 ];
 
 add_task(async function setup() {
   let readyStub = sinon.stub(NimbusFeatures.search, "ready").resolves();
   let updateStub = sinon.stub(NimbusFeatures.search, "onUpdate");
   await promiseStartupManager();
-  await SearchTestUtils.useTestEngines("data", null, [
-    {
-      webExtension: {
-        id: "test@search.mozilla.org",
-      },
-      appliesTo: [
-        {
-          included: { everywhere: true },
-          default: "yes",
-        },
-      ],
-    },
-  ]);
+  await SearchTestUtils.setRemoteSettingsConfig(CONFIG);
   await Services.search.init();
   registerCleanupFunction(async () => {
     await promiseShutdownManager();
@@ -91,8 +149,6 @@ add_task(async function test_extension_setting_moz_params() {
       extraParams.push(`${p.name}=test`);
     } else if (p.value == "{language}") {
       extraParams.push(`${p.name}=${Services.locale.requestedLocale || "*"}`);
-    } else if (p.value == "{moz:locale}") {
-      extraParams.push(`${p.name}=${Services.locale.requestedLocale}`);
     } else {
       extraParams.push(`${p.name}=${p.value}`);
     }
@@ -107,7 +163,7 @@ add_task(async function test_extension_setting_moz_params() {
     ).uri.spec;
     equal(
       expectedURL,
-      `https://example.com/?q=test&${p.name}=${p.value}&${paramStr}`,
+      `https://example.com/?${p.name}=${p.value}&${paramStr}&q=test`,
       "search url is expected"
     );
   }
@@ -159,8 +215,6 @@ add_task(async function test_nimbus_params() {
       extraParams.push(`${p.name}=test`);
     } else if (p.value == "{language}") {
       extraParams.push(`${p.name}=${Services.locale.requestedLocale || "*"}`);
-    } else if (p.value == "{moz:locale}") {
-      extraParams.push(`${p.name}=${Services.locale.requestedLocale}`);
     } else if (p.condition !== "pref") {
       // Ignoring pref parameters
       extraParams.push(`${p.name}=${p.value}`);
@@ -180,7 +234,7 @@ add_task(async function test_nimbus_params() {
     ).uri.spec;
     equal(
       expectedURL,
-      `https://example.com/?q=test&${p.name}=${p.value}&${paramStr}`,
+      `https://example.com/?${p.name}=${p.value}&${paramStr}&q=test`,
       "search url is expected"
     );
   }

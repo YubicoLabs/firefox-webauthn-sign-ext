@@ -42,9 +42,7 @@ class ABIArgIterBase;
 
 namespace wasm {
 
-using mozilla::EnumeratedArray;
-
-struct ModuleEnvironment;
+struct CodeMetadata;
 struct TableDesc;
 struct V128;
 
@@ -273,7 +271,7 @@ WASM_DECLARE_CACHEABLE_POD(TrapSite);
 WASM_DECLARE_POD_VECTOR(TrapSite, TrapSiteVector)
 
 struct TrapSiteVectorArray
-    : EnumeratedArray<Trap, Trap::Limit, TrapSiteVector> {
+    : mozilla::EnumeratedArray<Trap, TrapSiteVector, size_t(Trap::Limit)> {
   bool empty() const;
   void clear();
   void swap(TrapSiteVectorArray& rhs);
@@ -282,6 +280,43 @@ struct TrapSiteVectorArray
   size_t sumOfLengths() const;
   size_t sizeOfExcludingThis(mozilla::MallocSizeOf mallocSizeOf) const;
 };
+
+struct CallFarJump {
+  uint32_t targetFuncIndex;
+  uint32_t jumpOffset;
+  WASM_CHECK_CACHEABLE_POD(targetFuncIndex, jumpOffset);
+
+  CallFarJump(uint32_t targetFuncIndex, uint32_t jumpOffset)
+      : targetFuncIndex(targetFuncIndex), jumpOffset(jumpOffset) {}
+};
+WASM_DECLARE_CACHEABLE_POD(CallFarJump);
+
+using CallFarJumpVector = Vector<CallFarJump, 0, SystemAllocPolicy>;
+
+class CallRefMetricsPatch {
+ private:
+  // The offset of where to patch in the offset of the CallRefMetrics.
+  uint32_t offsetOfOffsetPatch_;
+  static constexpr uint32_t NO_OFFSET = UINT32_MAX;
+
+  WASM_CHECK_CACHEABLE_POD(offsetOfOffsetPatch_);
+
+ public:
+  explicit CallRefMetricsPatch() : offsetOfOffsetPatch_(NO_OFFSET) {}
+
+  bool hasOffsetOfOffsetPatch() const {
+    return offsetOfOffsetPatch_ != NO_OFFSET;
+  }
+  uint32_t offsetOfOffsetPatch() const { return offsetOfOffsetPatch_; }
+  void setOffset(uint32_t indexOffset) {
+    MOZ_ASSERT(!hasOffsetOfOffsetPatch());
+    MOZ_ASSERT(indexOffset != NO_OFFSET);
+    offsetOfOffsetPatch_ = indexOffset;
+  }
+};
+
+using CallRefMetricsPatchVector =
+    Vector<CallRefMetricsPatch, 0, SystemAllocPolicy>;
 
 // On trap, the bytecode offset to be reported in callstacks is saved.
 
@@ -334,6 +369,17 @@ struct CallableOffsets : Offsets {
 
 WASM_DECLARE_CACHEABLE_POD(CallableOffsets);
 
+struct ImportOffsets : CallableOffsets {
+  MOZ_IMPLICIT ImportOffsets() : afterFallbackCheck(0) {}
+
+  // The entry point after initial prologue check.
+  uint32_t afterFallbackCheck;
+
+  WASM_CHECK_CACHEABLE_POD_WITH_PARENT(CallableOffsets, afterFallbackCheck);
+};
+
+WASM_DECLARE_CACHEABLE_POD(ImportOffsets);
+
 struct FuncOffsets : CallableOffsets {
   MOZ_IMPLICIT FuncOffsets() : uncheckedCallEntry(0), tierEntry(0) {}
 
@@ -368,16 +414,17 @@ using FuncOffsetsVector = Vector<FuncOffsets, 0, SystemAllocPolicy>;
 class CodeRange {
  public:
   enum Kind {
-    Function,          // function definition
-    InterpEntry,       // calls into wasm from C++
-    JitEntry,          // calls into wasm from jit code
-    ImportInterpExit,  // slow-path calling from wasm into C++ interp
-    ImportJitExit,     // fast-path calling from wasm into jit code
-    BuiltinThunk,      // fast-path calling from wasm into a C++ native
-    TrapExit,          // calls C++ to report and jumps to throw stub
-    DebugTrap,         // calls C++ to handle debug event
-    FarJumpIsland,     // inserted to connect otherwise out-of-range insns
-    Throw              // special stack-unwinding stub jumped to by other stubs
+    Function,           // function definition
+    InterpEntry,        // calls into wasm from C++
+    JitEntry,           // calls into wasm from jit code
+    ImportInterpExit,   // slow-path calling from wasm into C++ interp
+    ImportJitExit,      // fast-path calling from wasm into jit code
+    BuiltinThunk,       // fast-path calling from wasm into a C++ native
+    TrapExit,           // calls C++ to report and jumps to throw stub
+    DebugStub,          // calls C++ to handle debug event
+    RequestTierUpStub,  // calls C++ to request tier-2 compilation
+    FarJumpIsland,      // inserted to connect otherwise out-of-range insns
+    Throw               // special stack-unwinding stub jumped to by other stubs
   };
 
  private:
@@ -390,11 +437,11 @@ class CodeRange {
       uint32_t funcIndex_;
       union {
         struct {
-          uint32_t lineOrBytecode_;
           uint16_t beginToUncheckedCallEntry_;
           uint16_t beginToTierEntry_;
           bool hasUnwindInfo_;
         } func;
+        uint16_t jitExitEntry_;
       };
     };
     Trap trap_;
@@ -402,7 +449,6 @@ class CodeRange {
   Kind kind_ : 8;
 
   WASM_CHECK_CACHEABLE_POD(begin_, ret_, end_, u.funcIndex_,
-                           u.func.lineOrBytecode_,
                            u.func.beginToUncheckedCallEntry_,
                            u.func.beginToTierEntry_, u.func.hasUnwindInfo_,
                            u.trap_, kind_);
@@ -413,8 +459,8 @@ class CodeRange {
   CodeRange(Kind kind, uint32_t funcIndex, Offsets offsets);
   CodeRange(Kind kind, CallableOffsets offsets);
   CodeRange(Kind kind, uint32_t funcIndex, CallableOffsets);
-  CodeRange(uint32_t funcIndex, uint32_t lineOrBytecode, FuncOffsets offsets,
-            bool hasUnwindInfo);
+  CodeRange(Kind kind, uint32_t funcIndex, ImportOffsets offsets);
+  CodeRange(uint32_t funcIndex, FuncOffsets offsets, bool hasUnwindInfo);
 
   void offsetBy(uint32_t offset) {
     begin_ += offset;
@@ -441,15 +487,17 @@ class CodeRange {
   bool isImportInterpExit() const { return kind() == ImportInterpExit; }
   bool isImportJitExit() const { return kind() == ImportJitExit; }
   bool isTrapExit() const { return kind() == TrapExit; }
-  bool isDebugTrap() const { return kind() == DebugTrap; }
+  bool isDebugStub() const { return kind() == DebugStub; }
+  bool isRequestTierUpStub() const { return kind() == RequestTierUpStub; }
   bool isThunk() const { return kind() == FarJumpIsland; }
 
-  // Functions, import exits, trap exits and JitEntry stubs have standard
+  // Functions, import exits, debug stubs and JitEntry stubs have standard
   // callable prologues and epilogues. Asynchronous frame iteration needs to
   // know the offset of the return instruction to calculate the frame pointer.
 
   bool hasReturn() const {
-    return isFunction() || isImportExit() || isDebugTrap() || isJitEntry();
+    return isFunction() || isImportExit() || isDebugStub() ||
+           isRequestTierUpStub() || isJitEntry();
   }
   uint32_t ret() const {
     MOZ_ASSERT(hasReturn());
@@ -496,13 +544,13 @@ class CodeRange {
     MOZ_ASSERT(isFunction());
     return begin_ + u.func.beginToTierEntry_;
   }
-  uint32_t funcLineOrBytecode() const {
-    MOZ_ASSERT(isFunction());
-    return u.func.lineOrBytecode_;
-  }
   bool funcHasUnwindInfo() const {
     MOZ_ASSERT(isFunction());
     return u.func.hasUnwindInfo_;
+  }
+  uint32_t importJitExitEntry() const {
+    MOZ_ASSERT(isImportJitExit());
+    return begin_ + u.jitExitEntry_;
   }
 
   // A sorted array of CodeRanges can be looked up via BinarySearch and
@@ -554,7 +602,9 @@ class CallSiteDesc {
     EnterFrame,     // call to a enter frame handler
     LeaveFrame,     // call to a leave frame handler
     CollapseFrame,  // call to a leave frame handler during tail call
-    Breakpoint      // call to instruction breakpoint
+    StackSwitch,    // stack switch point
+    Breakpoint,     // call to instruction breakpoint
+    RequestTierUp   // call to request tier-2 compilation of this function
   };
   CallSiteDesc() : lineOrBytecode_(0), kind_(0) {}
   explicit CallSiteDesc(Kind kind) : lineOrBytecode_(0), kind_(kind) {
@@ -576,9 +626,10 @@ class CallSiteDesc {
   bool isIndirectCall() const { return kind() == CallSiteDesc::Indirect; }
   bool isFuncRefCall() const { return kind() == CallSiteDesc::FuncRef; }
   bool isReturnStub() const { return kind() == CallSiteDesc::ReturnStub; }
+  bool isStackSwitch() const { return kind() == CallSiteDesc::StackSwitch; }
   bool mightBeCrossInstance() const {
     return isImportCall() || isIndirectCall() || isFuncRefCall() ||
-           isReturnStub();
+           isReturnStub() || isStackSwitch();
   }
 };
 
@@ -671,20 +722,30 @@ struct TryNote {
   // Sentinel value to detect a try note that has not been given a try body.
   static const uint32_t BEGIN_NONE = UINT32_MAX;
 
+  // Sentinel value used in `entryPointOrIsDelegate_`.
+  static const uint32_t IS_DELEGATE = UINT32_MAX;
+
   // Begin code offset of the try body.
   uint32_t begin_;
   // Exclusive end code offset of the try body.
   uint32_t end_;
-  // The code offset of the landing pad.
-  uint32_t entryPoint_;
-  // Track offset from frame of stack pointer.
-  uint32_t framePushed_;
+  // Either a marker that this is a 'delegate' or else the code offset of the
+  // landing pad to jump to.
+  uint32_t entryPointOrIsDelegate_;
+  // If this is a delegate, then this is the code offset to delegate to,
+  // otherwise this is the offset from the frame pointer of the stack pointer
+  // to use when jumping to the landing pad.
+  uint32_t framePushedOrDelegateOffset_;
 
-  WASM_CHECK_CACHEABLE_POD(begin_, end_, entryPoint_, framePushed_);
+  WASM_CHECK_CACHEABLE_POD(begin_, end_, entryPointOrIsDelegate_,
+                           framePushedOrDelegateOffset_);
 
  public:
   explicit TryNote()
-      : begin_(BEGIN_NONE), end_(0), entryPoint_(0), framePushed_(0) {}
+      : begin_(BEGIN_NONE),
+        end_(0),
+        entryPointOrIsDelegate_(0),
+        framePushedOrDelegateOffset_(0) {}
 
   // Returns whether a try note has been assigned a range for the try body.
   bool hasTryBody() const { return begin_ != BEGIN_NONE; }
@@ -700,11 +761,27 @@ struct TryNote {
     return offset > begin_ && offset <= end_;
   }
 
+  // Check if the unwinder should delegate the handling of this try note to the
+  // try note given at the delegate offset.
+  bool isDelegate() const { return entryPointOrIsDelegate_ == IS_DELEGATE; }
+
+  // The code offset to delegate the handling of this try note to.
+  uint32_t delegateOffset() const {
+    MOZ_ASSERT(isDelegate());
+    return framePushedOrDelegateOffset_;
+  }
+
   // The code offset of the entry to the landing pad.
-  uint32_t landingPadEntryPoint() const { return entryPoint_; }
+  uint32_t landingPadEntryPoint() const {
+    MOZ_ASSERT(!isDelegate());
+    return entryPointOrIsDelegate_;
+  }
 
   // The stack frame pushed amount at the entry to the landing pad.
-  uint32_t landingPadFramePushed() const { return framePushed_; }
+  uint32_t landingPadFramePushed() const {
+    MOZ_ASSERT(!isDelegate());
+    return framePushedOrDelegateOffset_;
+  }
 
   // Set the beginning of the try body.
   void setTryBodyBegin(uint32_t begin) {
@@ -722,17 +799,29 @@ struct TryNote {
     MOZ_ASSERT(end_ > begin_);
   }
 
+  // Mark this try note as a delegate, requesting the unwinder to use the try
+  // note found at the delegate offset.
+  void setDelegate(uint32_t delegateOffset) {
+    entryPointOrIsDelegate_ = IS_DELEGATE;
+    framePushedOrDelegateOffset_ = delegateOffset;
+  }
+
   // Set the entry point and frame pushed of the landing pad.
   void setLandingPad(uint32_t entryPoint, uint32_t framePushed) {
-    entryPoint_ = entryPoint;
-    framePushed_ = framePushed;
+    MOZ_ASSERT(!isDelegate());
+    entryPointOrIsDelegate_ = entryPoint;
+    framePushedOrDelegateOffset_ = framePushed;
   }
 
   // Adjust all code offsets in this try note by a delta.
   void offsetBy(uint32_t offset) {
     begin_ += offset;
     end_ += offset;
-    entryPoint_ += offset;
+    if (isDelegate()) {
+      framePushedOrDelegateOffset_ += offset;
+    } else {
+      entryPointOrIsDelegate_ += offset;
+    }
   }
 
   bool operator<(const TryNote& other) const {
@@ -824,11 +913,11 @@ class CallIndirectId {
   static CallIndirectId forAsmJSFunc();
 
   // Get the CallIndirectId for a function in a specific module.
-  static CallIndirectId forFunc(const ModuleEnvironment& moduleEnv,
+  static CallIndirectId forFunc(const CodeMetadata& codeMeta,
                                 uint32_t funcIndex);
 
   // Get the CallIndirectId for a function type in a specific module.
-  static CallIndirectId forFuncType(const ModuleEnvironment& moduleEnv,
+  static CallIndirectId forFuncType(const CodeMetadata& codeMeta,
                                     uint32_t funcTypeIndex);
 
   CallIndirectIdKind kind() const { return kind_; }
@@ -896,8 +985,8 @@ class CalleeDesc {
     } import;
     struct {
       uint32_t instanceDataOffset_;
-      uint32_t minLength_;
-      Maybe<uint32_t> maxLength_;
+      uint64_t minLength_;
+      mozilla::Maybe<uint64_t> maxLength_;
       CallIndirectId callIndirectId_;
     } table;
     SymbolicAddress builtin_;
@@ -907,10 +996,10 @@ class CalleeDesc {
   CalleeDesc() = default;
   static CalleeDesc function(uint32_t funcIndex);
   static CalleeDesc import(uint32_t instanceDataOffset);
-  static CalleeDesc wasmTable(const ModuleEnvironment& moduleEnv,
+  static CalleeDesc wasmTable(const CodeMetadata& codeMeta,
                               const TableDesc& desc, uint32_t tableIndex,
                               CallIndirectId callIndirectId);
-  static CalleeDesc asmJSTable(const ModuleEnvironment& moduleEnv,
+  static CalleeDesc asmJSTable(const CodeMetadata& codeMeta,
                                uint32_t tableIndex);
   static CalleeDesc builtin(SymbolicAddress callee);
   static CalleeDesc builtinInstanceMethod(SymbolicAddress callee);
@@ -941,7 +1030,7 @@ class CalleeDesc {
     MOZ_ASSERT(which_ == WasmTable);
     return u.table.minLength_;
   }
-  Maybe<uint32_t> wasmTableMaxLength() const {
+  mozilla::Maybe<uint32_t> wasmTableMaxLength() const {
     MOZ_ASSERT(which_ == WasmTable);
     return u.table.maxLength_;
   }

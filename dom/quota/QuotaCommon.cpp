@@ -14,12 +14,10 @@
 #include "mozilla/ErrorNames.h"
 #include "mozilla/MozPromise.h"
 #include "mozilla/Logging.h"
-#include "mozilla/Telemetry.h"
-#include "mozilla/TelemetryComms.h"
-#include "mozilla/TelemetryEventEnums.h"
 #include "mozilla/TextUtils.h"
 #include "mozilla/dom/quota/ResultExtensions.h"
 #include "mozilla/dom/quota/ScopedLogExtraInfo.h"
+#include "mozilla/glean/GleanMetrics.h"
 #include "nsIConsoleService.h"
 #include "nsIFile.h"
 #include "nsServiceManagerUtils.h"
@@ -38,24 +36,22 @@
 
 namespace mozilla {
 
-RefPtr<BoolPromise> CreateAndRejectBoolPromise(const char* aFunc,
+RefPtr<BoolPromise> CreateAndRejectBoolPromise(StaticString aFunc,
                                                nsresult aRv) {
   return CreateAndRejectMozPromise<BoolPromise>(aFunc, aRv);
 }
 
-RefPtr<Int64Promise> CreateAndRejectInt64Promise(const char* aFunc,
+RefPtr<Int64Promise> CreateAndRejectInt64Promise(StaticString aFunc,
                                                  nsresult aRv) {
   return CreateAndRejectMozPromise<Int64Promise>(aFunc, aRv);
 }
 
 RefPtr<BoolPromise> CreateAndRejectBoolPromiseFromQMResult(
-    const char* aFunc, const QMResult& aRv) {
+    StaticString aFunc, const QMResult& aRv) {
   return CreateAndRejectMozPromise<BoolPromise>(aFunc, aRv);
 }
 
 namespace dom::quota {
-
-using namespace mozilla::Telemetry;
 
 namespace {
 
@@ -374,14 +370,15 @@ void LogError(const nsACString& aExpr, const Maybe<nsresult> aMaybeRv,
     return;
   }
 
-  nsAutoCString context;
+  const Tainted<nsCString>* contextTaintedPtr = nullptr;
 
 #  ifdef QM_SCOPED_LOG_EXTRA_INFO_ENABLED
   const auto& extraInfoMap = ScopedLogExtraInfo::GetExtraInfoMap();
 
-  if (const auto contextIt = extraInfoMap.find(ScopedLogExtraInfo::kTagContext);
+  if (const auto contextIt =
+          extraInfoMap.find(ScopedLogExtraInfo::kTagContextTainted);
       contextIt != extraInfoMap.cend()) {
-    context = *contextIt->second;
+    contextTaintedPtr = contextIt->second;
   }
 #  endif
 
@@ -444,36 +441,45 @@ void LogError(const nsACString& aExpr, const Maybe<nsresult> aMaybeRv,
   }
 #  endif
 
-  nsAutoCString extraInfosString;
+  auto extraInfosStringTainted = Tainted<nsAutoCString>([&] {
+    nsAutoCString extraInfosString;
 
-  if (!rvCode.IsEmpty()) {
-    extraInfosString.Append(" failed with resultCode "_ns + rvCode);
-  }
+    if (!rvCode.IsEmpty()) {
+      extraInfosString.Append(" failed with resultCode "_ns + rvCode);
+    }
 
-  if (!rvName.IsEmpty()) {
-    extraInfosString.Append(", resultName "_ns + rvName);
-  }
+    if (!rvName.IsEmpty()) {
+      extraInfosString.Append(", resultName "_ns + rvName);
+    }
 
 #  ifdef QM_ERROR_STACKS_ENABLED
-  if (!frameIdString.IsEmpty()) {
-    extraInfosString.Append(", frameId "_ns + frameIdString);
-  }
+    if (!frameIdString.IsEmpty()) {
+      extraInfosString.Append(", frameId "_ns + frameIdString);
+    }
 
-  if (!stackIdString.IsEmpty()) {
-    extraInfosString.Append(", stackId "_ns + stackIdString);
-  }
+    if (!stackIdString.IsEmpty()) {
+      extraInfosString.Append(", stackId "_ns + stackIdString);
+    }
 
-  if (!processIdString.IsEmpty()) {
-    extraInfosString.Append(", processId "_ns + processIdString);
-  }
+    if (!processIdString.IsEmpty()) {
+      extraInfosString.Append(", processId "_ns + processIdString);
+    }
 #  endif
 
 #  ifdef QM_SCOPED_LOG_EXTRA_INFO_ENABLED
-  for (const auto& item : extraInfoMap) {
-    extraInfosString.Append(", "_ns + nsDependentCString(item.first) + " "_ns +
-                            *item.second);
-  }
+    for (const auto& item : extraInfoMap) {
+      const auto& valueTainted = *item.second;
+
+      extraInfosString.Append(
+          ", "_ns + nsDependentCString(item.first) + " "_ns +
+          MOZ_NO_VALIDATE(valueTainted,
+                          "It's okay to append any `extraInfoMap` value to "
+                          "`extraInfosString`."));
+    }
 #  endif
+
+    return extraInfosString;
+  }());
 
   const auto sourceFileRelativePath =
       detail::MakeSourceFileRelativePath(aSourceFilePath);
@@ -482,9 +488,14 @@ void LogError(const nsACString& aExpr, const Maybe<nsresult> aMaybeRv,
   NS_DebugBreak(
       NS_DEBUG_WARNING,
       nsAutoCString("QM_TRY failure ("_ns + severityString + ")"_ns).get(),
-      (extraInfosString.IsEmpty() ? nsPromiseFlatCString(aExpr)
-                                  : static_cast<const nsCString&>(nsAutoCString(
-                                        aExpr + extraInfosString)))
+      (MOZ_NO_VALIDATE(extraInfosStringTainted,
+                       "It's okay to check if `extraInfosString` is empty.")
+               .IsEmpty()
+           ? nsPromiseFlatCString(aExpr)
+           : static_cast<const nsCString&>(nsAutoCString(
+                 aExpr + MOZ_NO_VALIDATE(extraInfosStringTainted,
+                                         "It's okay to log `extraInfosString` "
+                                         "to stdout/console."))))
           .get(),
       nsPromiseFlatCString(sourceFileRelativePath).get(), aSourceFileLine);
 #  endif
@@ -496,13 +507,16 @@ void LogError(const nsACString& aExpr, const Maybe<nsresult> aMaybeRv,
   // reporting (instead of the browsing console).
   // Another option is to keep the current check and rely on MOZ_LOG reporting
   // in future once that's available.
-  if (!context.IsEmpty()) {
+  if (contextTaintedPtr) {
     nsCOMPtr<nsIConsoleService> console =
         do_GetService(NS_CONSOLESERVICE_CONTRACTID);
     if (console) {
       NS_ConvertUTF8toUTF16 message(
           "QM_TRY failure ("_ns + severityString + ")"_ns + ": '"_ns + aExpr +
-          extraInfosString + "', file "_ns + sourceFileRelativePath + ":"_ns +
+          MOZ_NO_VALIDATE(
+              extraInfosStringTainted,
+              "It's okay to log `extraInfosString` to the browser console.") +
+          "', file "_ns + sourceFileRelativePath + ":"_ns +
           IntToCString(aSourceFileLine));
 
       // The concatenation above results in a message like:
@@ -517,74 +531,78 @@ void LogError(const nsACString& aExpr, const Maybe<nsresult> aMaybeRv,
 #  endif
 
 #  ifdef QM_LOG_ERROR_TO_TELEMETRY_ENABLED
-  if (!context.IsEmpty()) {
+  // The context tag is special because it's used to enable logging to
+  // telemetry (besides carrying information). Other tags (like query) don't
+  // enable logging to telemetry.
+
+  if (contextTaintedPtr) {
+    const auto& contextTainted = *contextTaintedPtr;
+
+    // Do NOT CHANGE this if you don't know what you're doing.
+
+    // `extraInfoString` is not included in the telemetry event on purpose
+    // since it can contain sensitive information.
+
     // For now, we don't include aExpr in the telemetry event. It might help to
     // match locations across versions, but they might be large.
-    auto extra = Some([&] {
-      auto res = CopyableTArray<EventExtraEntry>{};
-      res.SetCapacity(9);
 
-      res.AppendElement(EventExtraEntry{"context"_ns, nsCString{context}});
+    // New extra entries (with potentially sensitive content) can't be easily
+    // (accidentally) added because they would have to be added to Events.yaml
+    // under "dom.quota.try" which would require a data review.
 
-#    ifdef QM_ERROR_STACKS_ENABLED
-      if (!frameIdString.IsEmpty()) {
-        res.AppendElement(
-            EventExtraEntry{"frame_id"_ns, nsCString{frameIdString}});
-      }
-
-      if (!processIdString.IsEmpty()) {
-        res.AppendElement(
-            EventExtraEntry{"process_id"_ns, nsCString{processIdString}});
-      }
-#    endif
-
-      if (!rvName.IsEmpty()) {
-        res.AppendElement(EventExtraEntry{"result"_ns, nsCString{rvName}});
-      }
-
-      // Here, we are generating thread local sequence number and thread Id
-      // information which could be useful for summarizing and categorizing
-      // log statistics in QM_TRY stack propagation scripts. Since, this is
-      // a thread local object, we do not need to worry about data races.
-      static MOZ_THREAD_LOCAL(uint32_t) sSequenceNumber;
-
-      // This would be initialized once, all subsequent calls would be a no-op.
-      MOZ_ALWAYS_TRUE(sSequenceNumber.init());
-
-      // sequence number should always starts at number 1.
-      // `sSequenceNumber` gets initialized to 0; so we have to increment here.
-      const auto newSeqNum = sSequenceNumber.get() + 1;
-      const auto threadId =
-          mozilla::baseprofiler::profiler_current_thread_id().ToNumber();
-
-      const auto threadIdAndSequence =
-          (static_cast<uint64_t>(threadId) << 32) | (newSeqNum & 0xFFFFFFFF);
-
-      res.AppendElement(
-          EventExtraEntry{"seq"_ns, IntToCString(threadIdAndSequence)});
-
-      sSequenceNumber.set(newSeqNum);
-
-      res.AppendElement(EventExtraEntry{"severity"_ns, severityString});
-
-      res.AppendElement(
-          EventExtraEntry{"source_file"_ns, nsCString(sourceFileRelativePath)});
-
-      res.AppendElement(
-          EventExtraEntry{"source_line"_ns, IntToCString(aSourceFileLine)});
+    mozilla::glean::dom_quota_try::ErrorStepExtra extra;
+    extra.context = Some(MOZ_NO_VALIDATE(
+        contextTainted,
+        "Context has been data-reviewed for telemetry transmission."));
 
 #    ifdef QM_ERROR_STACKS_ENABLED
-      if (!stackIdString.IsEmpty()) {
-        res.AppendElement(
-            EventExtraEntry{"stack_id"_ns, nsCString{stackIdString}});
-      }
+    if (!frameIdString.IsEmpty()) {
+      extra.frameId = Some(frameIdString);
+    }
+
+    if (!processIdString.IsEmpty()) {
+      extra.processId = Some(processIdString);
+    }
 #    endif
 
-      return res;
-    }());
+    if (!rvName.IsEmpty()) {
+      extra.result = Some(rvName);
+    }
 
-    Telemetry::RecordEvent(Telemetry::EventID::DomQuotaTry_Error_Step,
-                           Nothing(), extra);
+    // Here, we are generating thread local sequence number and thread Id
+    // information which could be useful for summarizing and categorizing
+    // log statistics in QM_TRY stack propagation scripts. Since, this is
+    // a thread local object, we do not need to worry about data races.
+    static MOZ_THREAD_LOCAL(uint32_t) sSequenceNumber;
+
+    // This would be initialized once, all subsequent calls would be a no-op.
+    MOZ_ALWAYS_TRUE(sSequenceNumber.init());
+
+    // sequence number should always starts at number 1.
+    // `sSequenceNumber` gets initialized to 0; so we have to increment here.
+    const auto newSeqNum = sSequenceNumber.get() + 1;
+    const auto threadId = baseprofiler::profiler_current_thread_id().ToNumber();
+
+    const auto threadIdAndSequence =
+        (static_cast<uint64_t>(threadId) << 32) | (newSeqNum & 0xFFFFFFFF);
+
+    extra.seq = Some(threadIdAndSequence);
+
+    sSequenceNumber.set(newSeqNum);
+
+    extra.severity = Some(severityString);
+
+    extra.sourceFile = Some(sourceFileRelativePath);
+
+    extra.sourceLine = Some(aSourceFileLine);
+
+#    ifdef QM_ERROR_STACKS_ENABLED
+    if (!stackIdString.IsEmpty()) {
+      extra.stackId = Some(stackIdString);
+    }
+#    endif
+
+    glean::dom_quota_try::error_step.Record(Some(extra));
   }
 #  endif
 }

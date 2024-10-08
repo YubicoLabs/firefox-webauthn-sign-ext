@@ -37,17 +37,6 @@ let gExceptionsList = [
   },
   {
     file: "dom.properties",
-    key: "PatternAttributeCompileFailure",
-    type: "single-quote",
-  },
-  // dom.properties is packaged twice so we need to have two exceptions for this string.
-  {
-    file: "dom.properties",
-    key: "PatternAttributeCompileFailure",
-    type: "single-quote",
-  },
-  {
-    file: "dom.properties",
     key: "ImportMapExternalNotSupported",
     type: "single-quote",
   },
@@ -66,6 +55,28 @@ let gExceptionsList = [
   {
     file: "dom.properties",
     key: "MathML_DeprecatedMathVariantWarning",
+    type: "single-quote",
+  },
+  // These error messages contain references to the CSP keywords 'unsafe-eval'/'wasm-unsafe-eval',
+  // and those keywords contain actual single-quotes: https://w3c.github.io/webappsec-csp/#grammardef-keyword-source
+  {
+    file: "csp.properties",
+    key: "CSPEvalScriptViolation",
+    type: "single-quote",
+  },
+  {
+    file: "csp.properties",
+    key: "CSPROEvalScriptViolation",
+    type: "single-quote",
+  },
+  {
+    file: "csp.properties",
+    key: "CSPWasmEvalScriptViolation",
+    type: "single-quote",
+  },
+  {
+    file: "csp.properties",
+    key: "CSPROWasmEvalScriptViolation",
     type: "single-quote",
   },
 ];

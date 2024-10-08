@@ -89,7 +89,10 @@ export let RemotePageAccessManager = {
         "OpenTRRPreferences",
       ],
       RPMCheckAlternateHostAvailable: ["*"],
-      RPMRecordTelemetryEvent: ["security.doh.neterror"],
+      RPMRecordTelemetryEvent: [
+        "security.doh.neterror",
+        "security.ui.tlserror",
+      ],
       RPMAddMessageListener: ["*"],
       RPMRemoveMessageListener: ["*"],
       RPMGetFormatURLPref: [
@@ -100,6 +103,7 @@ export let RemotePageAccessManager = {
         "security.certerror.hideAddException",
         "security.xfocsp.errorReporting.automatic",
         "security.xfocsp.errorReporting.enabled",
+        "security.xfocsp.hideOpenInNewWindow",
         "network.trr.display_fallback_warning",
       ],
       RPMSetPref: [
@@ -167,6 +171,17 @@ export let RemotePageAccessManager = {
       ],
       RPMIsWindowPrivate: ["*"],
       RPMGetBoolPref: ["browser.privatebrowsing.felt-privacy-v1"],
+    },
+    "about:deleteprofile": {
+      RPMSendQuery: ["Profiles:GetDeleteProfileContent"],
+      RPMSendAsyncMessage: ["Profiles:CancelDelete", "Profiles:DeleteProfile"],
+    },
+    "about:editprofile": {
+      RPMSendQuery: ["Profiles:GetEditProfileContent"],
+      RPMSendAsyncMessage: [
+        "Profiles:UpdateProfileName",
+        "Profiles:OpenDeletePage",
+      ],
     },
     "about:protections": {
       RPMSendAsyncMessage: [

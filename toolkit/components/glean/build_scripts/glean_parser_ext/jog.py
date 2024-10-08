@@ -55,6 +55,9 @@ known_ping_args = [
     "include_client_id",
     "send_if_empty",
     "precise_timestamps",
+    "include_info_sections",
+    "enabled",
+    "schedules_pings",
     "reason_codes",
 ]
 

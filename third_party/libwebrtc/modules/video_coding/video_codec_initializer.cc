@@ -16,6 +16,8 @@
 #include <algorithm>
 
 #include "absl/types/optional.h"
+#include "api/array_view.h"
+#include "api/field_trials_view.h"
 #include "api/scoped_refptr.h"
 #include "api/units/data_rate.h"
 #include "api/video_codecs/video_encoder.h"
@@ -31,26 +33,9 @@
 
 namespace webrtc {
 
-bool VideoCodecInitializer::SetupCodec(const VideoEncoderConfig& config,
-                                       const std::vector<VideoStream>& streams,
-                                       VideoCodec* codec) {
-  if (config.codec_type == kVideoCodecMultiplex) {
-    VideoEncoderConfig associated_config = config.Copy();
-    associated_config.codec_type = kVideoCodecVP9;
-    if (!SetupCodec(associated_config, streams, codec)) {
-      RTC_LOG(LS_ERROR) << "Failed to create stereo encoder configuration.";
-      return false;
-    }
-    codec->codecType = kVideoCodecMultiplex;
-    return true;
-  }
-
-  *codec = VideoEncoderConfigToVideoCodec(config, streams);
-  return true;
-}
-
 // TODO(sprang): Split this up and separate the codec specific parts.
-VideoCodec VideoCodecInitializer::VideoEncoderConfigToVideoCodec(
+VideoCodec VideoCodecInitializer::SetupCodec(
+    const FieldTrialsView& field_trials,
     const VideoEncoderConfig& config,
     const std::vector<VideoStream>& streams) {
   static const int kEncoderMinBitrateKbps = 30;
@@ -316,6 +301,14 @@ VideoCodec VideoCodecInitializer::VideoEncoderConfigToVideoCodec(
                           streams.back().num_temporal_layers.value_or(1),
                           /*num_spatial_layers=*/
                           std::max<int>(config.spatial_layers.size(), 1))) {
+        // If min bitrate is set via RtpEncodingParameters, use this value on
+        // lowest spatial layer.
+        if (!config.simulcast_layers.empty() &&
+            config.simulcast_layers[0].min_bitrate_bps > 0) {
+          video_codec.spatialLayers[0].minBitrate = std::min(
+              config.simulcast_layers[0].min_bitrate_bps / 1000,
+              static_cast<int>(video_codec.spatialLayers[0].targetBitrate));
+        }
         for (size_t i = 0; i < config.spatial_layers.size(); ++i) {
           video_codec.spatialLayers[i].active = config.spatial_layers[i].active;
         }
@@ -346,13 +339,14 @@ VideoCodec VideoCodecInitializer::VideoEncoderConfigToVideoCodec(
   }
 
   const absl::optional<DataRate> experimental_min_bitrate =
-      GetExperimentalMinVideoBitrate(video_codec.codecType);
+      GetExperimentalMinVideoBitrate(field_trials, video_codec.codecType);
   if (experimental_min_bitrate) {
     const int experimental_min_bitrate_kbps =
         rtc::saturated_cast<int>(experimental_min_bitrate->kbps());
     video_codec.minBitrate = experimental_min_bitrate_kbps;
     video_codec.simulcastStream[0].minBitrate = experimental_min_bitrate_kbps;
-    if (video_codec.codecType == kVideoCodecVP9) {
+    if (video_codec.codecType == kVideoCodecVP9 ||
+        video_codec.codecType == kVideoCodecAV1) {
       video_codec.spatialLayers[0].minBitrate = experimental_min_bitrate_kbps;
     }
   }

@@ -314,7 +314,7 @@ TalosPowersService.prototype = {
     // keys off of that notification.
     let topWin = BrowserWindowTracker.getTopWindow();
     if (topWin && topWin.gBrowserInit) {
-      await topWin.gBrowserInit.idleTasksFinishedPromise;
+      await topWin.gBrowserInit.idleTasksFinished.promise;
     }
 
     for (let domWindow of Services.wm.getEnumerator(null)) {
@@ -332,9 +332,9 @@ TalosPowersService.prototype = {
     let mm = message.target.messageManager;
     let startupInfo = Services.startup.getStartupInfo();
 
-    if (!startupInfo.firstPaint) {
+    if (!startupInfo.firstPaint2) {
       // It's possible that we were called early enough that
-      // the firstPaint measurement hasn't been set yet. In
+      // the firstPaint2 measurement hasn't been set yet. In
       // that case, we set up an observer for the next time
       // a window is painted and re-retrieve the startup info.
       let obs = function (subject, topic) {
@@ -371,7 +371,7 @@ TalosPowersService.prototype = {
     },
   */
   ParentExecServices: {
-    ping(arg, callback, win) {
+    ping(arg, callback) {
       callback();
     },
 
@@ -387,15 +387,15 @@ TalosPowersService.prototype = {
       callback(rv);
     },
 
-    requestDumpCoverageCounters(arg, callback, win) {
+    requestDumpCoverageCounters(arg, callback) {
       PerTestCoverageUtils.afterTest().then(callback);
     },
 
-    requestResetCoverageCounters(arg, callback, win) {
+    requestResetCoverageCounters(arg, callback) {
       PerTestCoverageUtils.beforeTest().then(callback);
     },
 
-    dumpAboutSupport(arg, callback, win) {
+    dumpAboutSupport(arg, callback) {
       const { Troubleshoot } = ChromeUtils.importESModule(
         "resource://gre/modules/Troubleshoot.sys.mjs"
       );

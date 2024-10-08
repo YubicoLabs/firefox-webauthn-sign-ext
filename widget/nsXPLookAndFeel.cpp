@@ -57,7 +57,7 @@ using FontID = mozilla::LookAndFeel::FontID;
 
 template <typename Index, typename Value, Index kEnd>
 class EnumeratedCache {
-  mozilla::EnumeratedArray<Index, kEnd, Value> mEntries;
+  mozilla::EnumeratedArray<Index, Value, size_t(kEnd)> mEntries;
   std::bitset<size_t(kEnd)> mValidity;
 
  public:
@@ -128,7 +128,6 @@ static const char sIntPrefs[][45] = {
     "ui.caretBlinkTime",
     "ui.caretBlinkCount",
     "ui.caretWidth",
-    "ui.caretVisibleWithSelection",
     "ui.selectTextfieldsOnKeyFocus",
     "ui.submenuDelay",
     "ui.menusCanOverlapOSBar",
@@ -147,11 +146,11 @@ static const char sIntPrefs[][45] = {
     "ui.treeLazyScrollDelay",
     "ui.treeScrollDelay",
     "ui.treeScrollLinesMax",
-    "accessibility.tabfocus",  // Weird one...
     "ui.chosenMenuItemsShouldBlink",
     "ui.windowsAccentColorInTitlebar",
     "ui.macBigSurTheme",
     "ui.macRTL",
+    "ui.macTitlebarHeight",
     "ui.alertNotificationOrigin",
     "ui.scrollToClick",
     "ui.IMERawInputUnderlineStyle",
@@ -161,14 +160,15 @@ static const char sIntPrefs[][45] = {
     "ui.SpellCheckerUnderlineStyle",
     "ui.menuBarDrag",
     "ui.scrollbarButtonAutoRepeatBehavior",
-    "ui.tooltipDelay",
     "ui.swipeAnimationEnabled",
     "ui.scrollbarDisplayOnMouseMove",
     "ui.scrollbarFadeBeginDelay",
     "ui.scrollbarFadeDuration",
     "ui.contextMenuOffsetVertical",
     "ui.contextMenuOffsetHorizontal",
+    "ui.tooltipOffsetVertical",
     "ui.GtkCSDAvailable",
+    "ui.GtkCSDTransparencyAvailable",
     "ui.GtkCSDMinimizeButton",
     "ui.GtkCSDMaximizeButton",
     "ui.GtkCSDCloseButton",
@@ -185,11 +185,12 @@ static const char sIntPrefs[][45] = {
     "ui.systemScrollbarSize",
     "ui.touchDeviceSupportPresent",
     "ui.titlebarRadius",
+    "ui.titlebarButtonSpacing",
     "ui.dynamicRange",
-    "ui.videoDynamicRange",
     "ui.panelAnimations",
     "ui.hideCursorWhileTyping",
     "ui.gtkThemeFamily",
+    "ui.fullKeyboardAccess",
 };
 
 static_assert(ArrayLength(sIntPrefs) == size_t(LookAndFeel::IntID::End),
@@ -297,6 +298,8 @@ static const char sColorPrefs[][41] = {
     "ui.textSelectAttentionForeground",
     "ui.textHighlightBackground",
     "ui.textHighlightForeground",
+    "ui.targetTextBackground",
+    "ui.targetTextForeground",
     "ui.IMERawInputBackground",
     "ui.IMERawInputForeground",
     "ui.IMERawInputUnderline",
@@ -527,9 +530,6 @@ void nsXPLookAndFeel::Init() {
   //     for each types.  Then, we could reduce the unnecessary loop from
   //     nsXPLookAndFeel::OnPrefChanged().
   Preferences::RegisterPrefixCallback(OnPrefChanged, "ui.");
-  // We really do just want the accessibility.tabfocus pref, not other prefs
-  // that start with that string.
-  Preferences::RegisterCallback(OnPrefChanged, "accessibility.tabfocus");
 
   for (const auto& pref : kMediaQueryPrefs) {
     Preferences::RegisterCallback(
@@ -711,6 +711,9 @@ nscolor nsXPLookAndFeel::GetStandinForNativeColor(ColorID aID,
       // Seems to be the default color (hardcoded because of bug 1065998)
       COLOR(MozNativehyperlinktext, 0x00, 0x66, 0xCC)
       COLOR(MozNativevisitedhyperlinktext, 0x55, 0x1A, 0x8B)
+      COLOR(MozAutofillBackground, 0xff, 0xfc, 0xc8)
+      COLOR(TargetTextBackground, 0xff, 0xeb, 0xcd)
+      COLOR(TargetTextForeground, 0x00, 0x00, 0x00)
     default:
       break;
   }
@@ -854,6 +857,11 @@ Maybe<nscolor> nsXPLookAndFeel::GenericDarkColor(ColorID aID) {
     case ColorID::Activecaption:
     case ColorID::Inactivecaption:
       color = NS_RGB(28, 27, 34);
+      break;
+    case ColorID::MozAutofillBackground:
+      // This is the light version of this color, but darkened to have good
+      // contrast with our white-ish FieldText.
+      color = NS_RGB(0x72, 0x6c, 0x00);
       break;
     default:
       return Nothing();
@@ -1231,8 +1239,7 @@ void LookAndFeel::DoHandleGlobalThemeChange() {
   //
   // We can use the *DoNotUseDirectly functions directly here, because we want
   // to notify all possible themes in a given process (but just once).
-  if (XRE_IsParentProcess() ||
-      !StaticPrefs::widget_non_native_theme_enabled()) {
+  if (XRE_IsParentProcess()) {
     if (nsCOMPtr<nsITheme> theme = do_GetNativeThemeDoNotUseDirectly()) {
       theme->ThemeChanged();
     }
@@ -1542,6 +1549,11 @@ void LookAndFeel::NativeInit() { nsLookAndFeel::GetInstance()->NativeInit(); }
 // static
 void LookAndFeel::SetData(widget::FullLookAndFeel&& aTables) {
   nsLookAndFeel::GetInstance()->SetDataImpl(std::move(aTables));
+}
+
+// static
+nsresult LookAndFeel::GetKeyboardLayout(nsACString& aLayout) {
+  return nsLookAndFeel::GetInstance()->GetKeyboardLayoutImpl(aLayout);
 }
 
 }  // namespace mozilla

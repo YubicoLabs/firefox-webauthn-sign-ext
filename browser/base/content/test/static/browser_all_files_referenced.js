@@ -32,6 +32,7 @@ var gExceptionPaths = [
   "chrome://activity-stream/content/data/content/assets/remote/",
   "chrome://activity-stream/content/data/content/assets/mobile-download-qr-new-user-cn.svg",
   "chrome://activity-stream/content/data/content/assets/mobile-download-qr-existing-user-cn.svg",
+  "chrome://activity-stream/content/data/content/assets/mr-amo-collection.svg",
   "chrome://activity-stream/content/data/content/assets/person-typing.svg",
   "chrome://browser/content/assets/moz-vpn.svg",
   "chrome://browser/content/assets/vpn-logo.svg",
@@ -76,8 +77,20 @@ var gExceptionPaths = [
   // Localization file added programatically in FeatureCallout.sys.mjs
   "resource://app/localization/en-US/browser/featureCallout.ftl",
 
+  // Localization file added programatically in ContentAnalysis.sys.mjs
+  "resource://gre/localization/en-US/toolkit/contentanalysis/",
+
   // CSS files are referenced inside JS in an html template
   "chrome://browser/content/aboutlogins/components/",
+
+  // Strip on Share parameter lists
+  "chrome://global/content/antitracking/",
+
+  // CSS file is referenced inside JS in login-form.mjs
+  "chrome://global/content/megalist/LoginFormComponent/",
+
+  // The ONNX runtime picks files to run programmaticaly
+  "chrome://global/content/ml/",
 ];
 
 // These are not part of the omni.ja file, so we find them only when running
@@ -94,13 +107,6 @@ if (AppConstants.MOZ_BACKGROUNDTASKS) {
   // `BackgroundTask_*.sys.mjs` are loaded at runtime by `app --backgroundtask id ...`.
   gExceptionPaths.push("resource://gre/modules/backgroundtasks/");
   gExceptionPaths.push("resource://app/modules/backgroundtasks/");
-}
-
-if (AppConstants.NIGHTLY_BUILD) {
-  // This is nightly-only debug tool.
-  gExceptionPaths.push(
-    "chrome://browser/content/places/interactionsViewer.html"
-  );
 }
 
 // Each allowlist entry should have a comment indicating which file is
@@ -162,6 +168,9 @@ var allowlist = [
 
   // toolkit/mozapps/extensions/AddonContentPolicy.cpp
   { file: "resource://gre/localization/en-US/toolkit/global/cspErrors.ftl" },
+
+  // toolkit/components/antitracking/bouncetrackingprotection/BounceTrackingProtection.cpp
+  { file: "resource://gre/localization/en-US/toolkit/global/antiTracking.ftl" },
 
   // The l10n build system can't package string files only for some platforms.
   {
@@ -277,9 +286,6 @@ var allowlist = [
   // find the references)
   { file: "chrome://browser/content/screenshots/copied-notification.svg" },
 
-  // Bug 1875361
-  { file: "chrome://global/content/ml/SummarizerModel.sys.mjs" },
-
   // toolkit/xre/MacRunFromDmgUtils.mm
   { file: "resource://gre/localization/en-US/toolkit/global/run-from-dmg.ftl" },
 
@@ -288,7 +294,24 @@ var allowlist = [
   { file: "chrome://browser/content/screenshots/copy.svg" },
   { file: "chrome://browser/content/screenshots/download.svg" },
   { file: "chrome://browser/content/screenshots/download-white.svg" },
+
+  // Referenced programmatically
+  { file: "chrome://browser/content/backup/BackupManifest.1.schema.json" },
+  { file: "chrome://browser/content/backup/ArchiveJSONBlock.1.schema.json" },
 ];
+
+if (AppConstants.NIGHTLY_BUILD) {
+  allowlist.push(
+    ...[
+      // This is nightly-only debug tool.
+      { file: "chrome://browser/content/places/interactionsViewer.html" },
+
+      // A debug tool that is only available in Nightly builds, and is accessed
+      // directly by developers via the chrome URI (bug 1888491)
+      { file: "chrome://browser/content/backup/debug.html" },
+    ]
+  );
+}
 
 if (AppConstants.platform != "win") {
   // toolkit/mozapps/defaultagent/Notification.cpp
@@ -343,9 +366,6 @@ const ignorableAllowlist = new Set([
 
   // dom/media/gmp/GMPParent.cpp
   "resource://gre/gmp-clearkey/0.1/manifest.json",
-
-  // Bug 1351669 - obsolete test file
-  "resource://gre/res/test.properties",
 ]);
 for (let entry of ignorableAllowlist) {
   allowlist.add(entry);
@@ -874,9 +894,6 @@ add_task(async function checkAllTheFiles() {
   // Wait for all manifest to be parsed
   await PerfTestHelpers.throttledMapPromises(manifestURIs, parseManifest);
 
-  for (let jsm of Components.manager.getComponentJSMs()) {
-    gReferencesFromCode.set(jsm, null);
-  }
   for (let esModule of Components.manager.getComponentESModules()) {
     gReferencesFromCode.set(esModule, null);
   }

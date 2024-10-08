@@ -36,6 +36,7 @@ const PK11DefaultArrayEntry PK11_DefaultArray[] = {
     { "RSA", SECMOD_RSA_FLAG, CKM_RSA_PKCS },
     { "DSA", SECMOD_DSA_FLAG, CKM_DSA },
     { "ECC", SECMOD_ECC_FLAG, CKM_ECDSA },
+    { "EDDSA", SECMOD_ECC_FLAG, CKM_EDDSA },
     { "DH", SECMOD_DH_FLAG, CKM_DH_PKCS_DERIVE },
     { "RC2", SECMOD_RC2_FLAG, CKM_RC2_CBC },
     { "RC4", SECMOD_RC4_FLAG, CKM_RC4 },
@@ -93,8 +94,7 @@ static PK11SlotList
     pk11_tlsSlotList,
     pk11_randomSlotList,
     pk11_sha256SlotList,
-    pk11_sha512SlotList, /* slots do SHA512 and SHA384 */
-    pk11_kyberSlotList;
+    pk11_sha512SlotList; /* slots do SHA512 and SHA384 */
 
 /************************************************************
  * Generic Slot List and Slot List element manipulations
@@ -849,7 +849,6 @@ PK11_InitSlotLists(void)
     pk11_InitSlotListStatic(&pk11_randomSlotList);
     pk11_InitSlotListStatic(&pk11_sha256SlotList);
     pk11_InitSlotListStatic(&pk11_sha512SlotList);
-    pk11_InitSlotListStatic(&pk11_kyberSlotList);
     return SECSuccess;
 }
 
@@ -876,7 +875,6 @@ PK11_DestroySlotLists(void)
     pk11_FreeSlotListStatic(&pk11_randomSlotList);
     pk11_FreeSlotListStatic(&pk11_sha256SlotList);
     pk11_FreeSlotListStatic(&pk11_sha512SlotList);
-    pk11_FreeSlotListStatic(&pk11_kyberSlotList);
     return;
 }
 
@@ -940,10 +938,17 @@ PK11_GetSlotList(CK_MECHANISM_TYPE type)
         case CKM_DH_PKCS_KEY_PAIR_GEN:
         case CKM_DH_PKCS_DERIVE:
             return &pk11_dhSlotList;
+        case CKM_EDDSA:
+        case CKM_EC_EDWARDS_KEY_PAIR_GEN:
         case CKM_ECDSA:
         case CKM_ECDSA_SHA1:
         case CKM_EC_KEY_PAIR_GEN: /* aka CKM_ECDSA_KEY_PAIR_GEN */
+        case CKM_NSS_ECDHE_NO_PAIRWISE_CHECK_KEY_PAIR_GEN:
         case CKM_ECDH1_DERIVE:
+        case CKM_NSS_KYBER_KEY_PAIR_GEN: /* Bug 1893029 */
+        case CKM_NSS_KYBER:
+        case CKM_NSS_ML_KEM_KEY_PAIR_GEN: /* Bug 1893029 */
+        case CKM_NSS_ML_KEM:
             return &pk11_ecSlotList;
         case CKM_SSL3_PRE_MASTER_KEY_GEN:
         case CKM_SSL3_MASTER_KEY_DERIVE:
@@ -959,8 +964,6 @@ PK11_GetSlotList(CK_MECHANISM_TYPE type)
             return &pk11_ideaSlotList;
         case CKM_FAKE_RANDOM:
             return &pk11_randomSlotList;
-        case CKM_NSS_KYBER_KEY_PAIR_GEN:
-            return &pk11_kyberSlotList;
     }
     return NULL;
 }

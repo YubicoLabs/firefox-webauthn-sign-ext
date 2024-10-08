@@ -15,11 +15,8 @@
 #include "MediaData.h"
 #include "VideoUtils.h"
 #include "mozilla/Assertions.h"
-#include "mozilla/CheckedInt.h"
-#include "mozilla/DebugOnly.h"
 #include "mozilla/Logging.h"
 #include "mozilla/Maybe.h"
-#include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/Try.h"
 #include "mozilla/Unused.h"
 #include "mozilla/dom/EncodedVideoChunk.h"
@@ -31,7 +28,6 @@
 #include "mozilla/dom/WebCodecsUtils.h"
 #include "nsPrintfCString.h"
 #include "nsReadableUtils.h"
-#include "nsThreadUtils.h"
 
 #ifdef XP_MACOSX
 #  include "MacIOSurfaceImage.h"
@@ -97,13 +93,10 @@ VideoColorSpaceInit VideoColorSpaceInternal::ToColorSpaceInit() const {
   return init;
 };
 
-static Result<RefPtr<MediaByteBuffer>, nsresult> GetExtraData(
-    const OwningMaybeSharedArrayBufferViewOrMaybeSharedArrayBuffer& aBuffer);
-
 VideoDecoderConfigInternal::VideoDecoderConfigInternal(
     const nsAString& aCodec, Maybe<uint32_t>&& aCodedHeight,
     Maybe<uint32_t>&& aCodedWidth, Maybe<VideoColorSpaceInternal>&& aColorSpace,
-    Maybe<RefPtr<MediaByteBuffer>>&& aDescription,
+    already_AddRefed<MediaByteBuffer> aDescription,
     Maybe<uint32_t>&& aDisplayAspectHeight,
     Maybe<uint32_t>&& aDisplayAspectWidth,
     const HardwareAcceleration& aHardwareAcceleration,
@@ -112,14 +105,14 @@ VideoDecoderConfigInternal::VideoDecoderConfigInternal(
       mCodedHeight(std::move(aCodedHeight)),
       mCodedWidth(std::move(aCodedWidth)),
       mColorSpace(std::move(aColorSpace)),
-      mDescription(std::move(aDescription)),
+      mDescription(aDescription),
       mDisplayAspectHeight(std::move(aDisplayAspectHeight)),
       mDisplayAspectWidth(std::move(aDisplayAspectWidth)),
       mHardwareAcceleration(aHardwareAcceleration),
-      mOptimizeForLatency(std::move(aOptimizeForLatency)){};
+      mOptimizeForLatency(std::move(aOptimizeForLatency)) {};
 
 /*static*/
-UniquePtr<VideoDecoderConfigInternal> VideoDecoderConfigInternal::Create(
+RefPtr<VideoDecoderConfigInternal> VideoDecoderConfigInternal::Create(
     const VideoDecoderConfig& aConfig) {
   nsCString errorMessage;
   if (!VideoDecoderTraits::Validate(aConfig, errorMessage)) {
@@ -127,9 +120,9 @@ UniquePtr<VideoDecoderConfigInternal> VideoDecoderConfigInternal::Create(
     return nullptr;
   }
 
-  Maybe<RefPtr<MediaByteBuffer>> description;
+  RefPtr<MediaByteBuffer> description;
   if (aConfig.mDescription.WasPassed()) {
-    auto rv = GetExtraData(aConfig.mDescription.Value());
+    auto rv = GetExtraDataFromArrayBuffer(aConfig.mDescription.Value());
     if (rv.isErr()) {  // Invalid description data.
       LOGE(
           "Failed to create VideoDecoderConfigInternal due to invalid "
@@ -137,27 +130,23 @@ UniquePtr<VideoDecoderConfigInternal> VideoDecoderConfigInternal::Create(
           static_cast<uint32_t>(rv.unwrapErr()));
       return nullptr;
     }
-    description.emplace(rv.unwrap());
+    description = rv.unwrap();
   }
 
-  Maybe<VideoColorSpaceInternal> colorSpace;
-  if (aConfig.mColorSpace.WasPassed()) {
-    colorSpace.emplace(VideoColorSpaceInternal(aConfig.mColorSpace.Value()));
-  }
-
-  return UniquePtr<VideoDecoderConfigInternal>(new VideoDecoderConfigInternal(
+  return MakeRefPtr<VideoDecoderConfigInternal>(
       aConfig.mCodec, OptionalToMaybe(aConfig.mCodedHeight),
-      OptionalToMaybe(aConfig.mCodedWidth), std::move(colorSpace),
-      std::move(description), OptionalToMaybe(aConfig.mDisplayAspectHeight),
+      OptionalToMaybe(aConfig.mCodedWidth),
+      OptionalToMaybe(aConfig.mColorSpace), description.forget(),
+      OptionalToMaybe(aConfig.mDisplayAspectHeight),
       OptionalToMaybe(aConfig.mDisplayAspectWidth),
       aConfig.mHardwareAcceleration,
-      OptionalToMaybe(aConfig.mOptimizeForLatency)));
+      OptionalToMaybe(aConfig.mOptimizeForLatency));
 }
 
-nsString VideoDecoderConfigInternal::ToString() const {
-  nsString rv;
+nsCString VideoDecoderConfigInternal::ToString() const {
+  nsCString rv;
 
-  rv.Append(mCodec);
+  rv.Append(NS_ConvertUTF16toUTF8(mCodec));
   if (mCodedWidth.isSome()) {
     rv.AppendPrintf("coded: %dx%d", mCodedWidth.value(), mCodedHeight.value());
   }
@@ -168,12 +157,10 @@ nsString VideoDecoderConfigInternal::ToString() const {
   if (mColorSpace.isSome()) {
     rv.AppendPrintf("colorspace %s", "todo");
   }
-  if (mDescription.isSome()) {
-    rv.AppendPrintf("extradata: %zu bytes", mDescription.value()->Length());
+  if (mDescription) {
+    rv.AppendPrintf("extradata: %zu bytes", mDescription->Length());
   }
-  rv.AppendPrintf(
-      "hw accel: %s",
-      HardwareAccelerationValues::GetString(mHardwareAcceleration).data());
+  rv.AppendPrintf("hw accel: %s", GetEnumString(mHardwareAcceleration).get());
   if (mOptimizeForLatency.isSome()) {
     rv.AppendPrintf("optimize for latency: %s",
                     mOptimizeForLatency.value() ? "true" : "false");
@@ -217,24 +204,6 @@ static nsTArray<nsCString> GuessMIMETypes(const MIMECreateParam& aParam) {
   return types;
 }
 
-static bool IsSupportedCodec(const nsAString& aCodec) {
-  // H265 is unsupported.
-  if (!IsAV1CodecString(aCodec) && !IsVP9CodecString(aCodec) &&
-      !IsVP8CodecString(aCodec) && !IsH264CodecString(aCodec)) {
-    return false;
-  }
-
-  // Gecko allows codec string starts with vp9 or av1 but Webcodecs requires to
-  // starts with av01 and vp09.
-  // https://www.w3.org/TR/webcodecs-codec-registry/#video-codec-registry
-  if (StringBeginsWith(aCodec, u"vp9"_ns) ||
-      StringBeginsWith(aCodec, u"av1"_ns)) {
-    return false;
-  }
-
-  return true;
-}
-
 // https://w3c.github.io/webcodecs/#check-configuration-support
 template <typename Config>
 static bool CanDecode(const Config& aConfig) {
@@ -243,16 +212,27 @@ static bool CanDecode(const Config& aConfig) {
   if (IsOnAndroid()) {
     return false;
   }
-  if (!IsSupportedCodec(param.mParsedCodec)) {
+  if (!IsSupportedVideoCodec(param.mParsedCodec)) {
     return false;
   }
-  if (IsOnMacOS() && IsH264CodecString(param.mParsedCodec) &&
-      !StaticPrefs::dom_media_webcodecs_force_osx_h264_enabled()) {
-    // This will be fixed in Bug 1846796.
-    return false;
+
+  // TODO (1880326): code below is wrongly using the logic of HTMLMediaElement
+  // for determining if a codec can be played, and incorrect codec string for
+  // h264 are accepted for HTMLMediaElement for compat reasons. Perform stricter
+  // check here until we fix it for real.
+  if (IsH264CodecString(param.mParsedCodec)) {
+    uint8_t profile, constraint;
+    H264_LEVEL level;
+    bool supported =
+        ExtractH264CodecDetails(aConfig.mCodec, profile, constraint, level,
+                                H264CodecStringStrictness::Strict);
+    if (!supported) {
+      return false;
+    }
   }
-  // TODO: Instead of calling CanHandleContainerType with the guessed the
-  // containers, DecoderTraits should provide an API to tell if a codec is
+
+  // TODO (1880326): Instead of calling CanHandleContainerType with the guessed
+  // the containers, DecoderTraits should provide an API to tell if a codec is
   // decodable or not.
   for (const nsCString& mime : GuessMIMETypes(param)) {
     if (Maybe<MediaContainerType> containerType =
@@ -284,18 +264,9 @@ static nsTArray<UniquePtr<TrackInfo>> GetTracksInfo(
   return {};
 }
 
-static Result<RefPtr<MediaByteBuffer>, nsresult> GetExtraData(
-    const OwningMaybeSharedArrayBufferViewOrMaybeSharedArrayBuffer& aBuffer) {
-  RefPtr<MediaByteBuffer> data = MakeRefPtr<MediaByteBuffer>();
-  if (!AppendTypedArrayDataTo(aBuffer, *data)) {
-    return Err(NS_ERROR_OUT_OF_MEMORY);
-  }
-  return data->Length() > 0 ? data : nullptr;
-}
-
 static Result<Ok, nsresult> CloneConfiguration(
     RootedDictionary<VideoDecoderConfig>& aDest, JSContext* aCx,
-    const VideoDecoderConfig& aConfig) {
+    const VideoDecoderConfig& aConfig, ErrorResult& aRv) {
   DebugOnly<nsCString> str;
   MOZ_ASSERT(VideoDecoderTraits::Validate(aConfig, str));
 
@@ -312,7 +283,7 @@ static Result<Ok, nsresult> CloneConfiguration(
   if (aConfig.mDescription.WasPassed()) {
     aDest.mDescription.Construct();
     MOZ_TRY(CloneBuffer(aCx, aDest.mDescription.Value(),
-                        aConfig.mDescription.Value()));
+                        aConfig.mDescription.Value(), aRv));
   }
   if (aConfig.mDisplayAspectHeight.WasPassed()) {
     aDest.mDisplayAspectHeight.Construct(aConfig.mDisplayAspectHeight.Value());
@@ -334,8 +305,10 @@ static Maybe<VideoPixelFormat> GuessPixelFormat(layers::Image* aImage) {
     // DMABUFSurfaceImage?
     if (aImage->AsPlanarYCbCrImage() || aImage->AsNVImage()) {
       const ImageUtils imageUtils(aImage);
+      Maybe<dom::ImageBitmapFormat> format = imageUtils.GetFormat();
       Maybe<VideoPixelFormat> f =
-          ImageBitmapFormatToVideoPixelFormat(imageUtils.GetFormat());
+          format.isSome() ? ImageBitmapFormatToVideoPixelFormat(format.value())
+                          : Nothing();
 
       // ImageBitmapFormat cannot distinguish YUV420 or YUV420A.
       bool hasAlpha = aImage->AsPlanarYCbCrImage() &&
@@ -391,8 +364,6 @@ static VideoColorSpaceInternal GuessColorSpace(
     // Make an educated guess based on the coefficients.
     colorSpace.mPrimaries = colorSpace.mMatrix.map([](const auto& aMatrix) {
       switch (aMatrix) {
-        case VideoMatrixCoefficients::EndGuard_:
-          MOZ_CRASH("This should not happen");
         case VideoMatrixCoefficients::Bt2020_ncl:
           return VideoColorPrimaries::Bt2020;
         case VideoMatrixCoefficients::Rgb:
@@ -529,9 +500,6 @@ static VideoColorSpaceInternal GuessColorSpace(layers::Image* aImage) {
             case VideoMatrixCoefficients::Bt2020_ncl:
               colorSpace.mPrimaries = Some(VideoColorPrimaries::Bt2020);
               break;
-            case VideoMatrixCoefficients::EndGuard_:
-              MOZ_ASSERT_UNREACHABLE("bad enum value");
-              break;
           };
         }
       }
@@ -623,8 +591,7 @@ bool VideoDecoderTraits::IsSupported(
 /* static */
 Result<UniquePtr<TrackInfo>, nsresult> VideoDecoderTraits::CreateTrackInfo(
     const VideoDecoderConfigInternal& aConfig) {
-  LOG("Create a VideoInfo from %s config",
-      NS_ConvertUTF16toUTF8(aConfig.ToString()).get());
+  LOG("Create a VideoInfo from %s config", aConfig.ToString().get());
 
   nsTArray<UniquePtr<TrackInfo>> tracks = GetTracksInfo(aConfig);
   if (tracks.Length() != 1 || tracks[0]->GetType() != TrackInfo::kVideoTrack) {
@@ -712,15 +679,14 @@ Result<UniquePtr<TrackInfo>, nsresult> VideoDecoderTraits::CreateTrackInfo(
     }
   }
 
-  if (aConfig.mDescription.isSome()) {
-    RefPtr<MediaByteBuffer> buf;
-    buf = aConfig.mDescription.value();
-    if (buf) {
-      LOG("The given config has %zu bytes of description data", buf->Length());
+  if (aConfig.mDescription) {
+    if (!aConfig.mDescription->IsEmpty()) {
+      LOG("The given config has %zu bytes of description data",
+          aConfig.mDescription->Length());
       if (vi->mExtraData) {
         LOGW("The default extra data is overwritten");
       }
-      vi->mExtraData = buf;
+      vi->mExtraData = aConfig.mDescription;
     }
 
     // TODO: Make this utility and replace the similar one in MP4Demuxer.cpp.
@@ -766,31 +732,55 @@ bool VideoDecoderTraits::Validate(const VideoDecoderConfig& aConfig,
                                   nsCString& aErrorMessage) {
   Maybe<nsString> codec = ParseCodecString(aConfig.mCodec);
   if (!codec || codec->IsEmpty()) {
-    LOGE("Invalid codec string");
+    aErrorMessage.AssignLiteral("Invalid codec string");
+    LOGE("%s", aErrorMessage.get());
     return false;
   }
 
   if (aConfig.mCodedWidth.WasPassed() != aConfig.mCodedHeight.WasPassed()) {
-    LOGE("Missing coded %s",
-         aConfig.mCodedWidth.WasPassed() ? "height" : "width");
+    aErrorMessage.AppendPrintf(
+        "Missing coded %s",
+        aConfig.mCodedWidth.WasPassed() ? "height" : "width");
+    LOGE("%s", aErrorMessage.get());
     return false;
   }
   if (aConfig.mCodedWidth.WasPassed() &&
       (aConfig.mCodedWidth.Value() == 0 || aConfig.mCodedHeight.Value() == 0)) {
-    LOGE("codedWidth and/or codedHeight can't be zero");
+    aErrorMessage.AssignLiteral("codedWidth and/or codedHeight can't be zero");
+    LOGE("%s", aErrorMessage.get());
     return false;
   }
 
   if (aConfig.mDisplayAspectWidth.WasPassed() !=
       aConfig.mDisplayAspectHeight.WasPassed()) {
-    LOGE("Missing display aspect %s",
-         aConfig.mDisplayAspectWidth.WasPassed() ? "height" : "width");
+    aErrorMessage.AppendPrintf(
+        "Missing display aspect %s",
+        aConfig.mDisplayAspectWidth.WasPassed() ? "height" : "width");
+    LOGE("%s", aErrorMessage.get());
     return false;
   }
   if (aConfig.mDisplayAspectWidth.WasPassed() &&
       (aConfig.mDisplayAspectWidth.Value() == 0 ||
        aConfig.mDisplayAspectHeight.Value() == 0)) {
-    LOGE("display aspect width and height cannot be zero");
+    aErrorMessage.AssignLiteral(
+        "display aspect width and height cannot be zero");
+    LOGE("%s", aErrorMessage.get());
+    return false;
+  }
+
+  bool detached =
+      aConfig.mDescription.WasPassed() &&
+      (aConfig.mDescription.Value().IsArrayBuffer()
+           ? JS::ArrayBuffer::fromObject(
+                 aConfig.mDescription.Value().GetAsArrayBuffer().Obj())
+                 .isDetached()
+           : JS::ArrayBufferView::fromObject(
+                 aConfig.mDescription.Value().GetAsArrayBufferView().Obj())
+                 .isDetached());
+
+  if (detached) {
+    aErrorMessage.AssignLiteral("description is detached.");
+    LOGE("%s", aErrorMessage.get());
     return false;
   }
 
@@ -798,7 +788,7 @@ bool VideoDecoderTraits::Validate(const VideoDecoderConfig& aConfig,
 }
 
 /* static */
-UniquePtr<VideoDecoderConfigInternal> VideoDecoderTraits::CreateConfigInternal(
+RefPtr<VideoDecoderConfigInternal> VideoDecoderTraits::CreateConfigInternal(
     const VideoDecoderConfig& aConfig) {
   return VideoDecoderConfigInternal::Create(aConfig);
 }
@@ -828,9 +818,7 @@ VideoDecoder::VideoDecoder(nsIGlobalObject* aParent,
   LOG("VideoDecoder %p ctor", this);
 }
 
-VideoDecoder::~VideoDecoder() {
-  LOG("VideoDecoder %p dtor", this);
-}
+VideoDecoder::~VideoDecoder() { LOG("VideoDecoder %p dtor", this); }
 
 JSObject* VideoDecoder::WrapObject(JSContext* aCx,
                                    JS::Handle<JSObject*> aGivenProto) {
@@ -877,21 +865,17 @@ already_AddRefed<Promise> VideoDecoder::IsConfigSupported(
   nsCString errorMessage;
   if (!VideoDecoderTraits::Validate(aConfig, errorMessage)) {
     p->MaybeRejectWithTypeError(nsPrintfCString(
-        "VideoDecoderConfig is invalid: %s", errorMessage.get()));
+        "IsConfigSupported: config is invalid: %s", errorMessage.get()));
     return p.forget();
   }
 
-  // TODO: Move the following works to another thread to unblock the current
-  // thread, as what spec suggests.
-
   RootedDictionary<VideoDecoderConfig> config(aGlobal.Context());
-  auto r = CloneConfiguration(config, aGlobal.Context(), aConfig);
+  auto r = CloneConfiguration(config, aGlobal.Context(), aConfig, aRv);
   if (r.isErr()) {
-    nsresult e = r.unwrapErr();
-    LOGE("Failed to clone VideoDecoderConfig. Error: 0x%08" PRIx32,
-         static_cast<uint32_t>(e));
-    p->MaybeRejectWithTypeError("Failed to clone VideoDecoderConfig");
-    aRv.Throw(e);
+    // This can only be an OOM: all members to clone are known to be valid
+    // because this is check by ::Validate above.
+    MOZ_ASSERT(r.inspectErr() == NS_ERROR_OUT_OF_MEMORY &&
+               aRv.ErrorCodeIs(NS_ERROR_OUT_OF_MEMORY));
     return p.forget();
   }
 
@@ -941,7 +925,7 @@ already_AddRefed<MediaRawData> VideoDecoder::InputDataToMediaRawData(
 
 nsTArray<RefPtr<VideoFrame>> VideoDecoder::DecodedDataToOutputType(
     nsIGlobalObject* aGlobalObject, const nsTArray<RefPtr<MediaData>>&& aData,
-    VideoDecoderConfigInternal& aConfig) {
+    const VideoDecoderConfigInternal& aConfig) {
   AssertIsOnOwningThread();
 
   nsTArray<RefPtr<VideoFrame>> frames;

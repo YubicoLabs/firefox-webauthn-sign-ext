@@ -13,16 +13,65 @@
   font: message-box;
   font-size: var(--theme-body-font-size);
 
-  /* TODO(bug 1022557): Perhaps we want to allow forced colors in devtools */
-  forced-color-adjust: none;
-
   --tab-line-hover-color: rgba(0,0,0,.2);
   --tab-line-selected-color: var(--blue-50);
-  --toggle-thumb-color: white;
+  --toggle-thumb-color: light-dark(white, var(--grey-40));
+  --toggle-thumb-color-pressed: white;
   --toggle-track-color: var(--grey-50);
+  --toggle-track-color-pressed: var(--blue-55);
+  --toggle-track-border-color: transparent;
+  /* In regular themes, the disabled style is handled by the lowered opacity,
+     the colors fall back to their "default" values */
+  --toggle-disabled-track-border-color: var(--toggle-track-border-color);
+  --toggle-disabled-track-color-pressed: var(--toggle-track-color-pressed);
+  --toggle-disabled-thumb-color: var(--toggle-disabled-thumb-color);
+  --toggle-track-disabled-opacity: 0.5;
+  /* We don't have distinct :hover style in regular themes, the colors fall back to their
+     "default" values */
+  --toggle-hover-track-color: var(--toggle-track-color);
+  --toggle-hover-track-border-color: var(--toggle-track-border-color);
+  --toggle-hover-track-color-pressed: var(--toggle-track-color-pressed);
+  --toggle-hover-thumb-color: var(--toggle-thumb-color);
 
   --searchbox-no-match-background-color: #ffe5e5;
   --searchbox-no-match-stroke-color: var(--red-60);
+  --searchbox-background-color: transparent;
+  --searchbox-border-color: transparent;
+
+  --devtools-searchinput-clear-cross-color: transparent;
+  --devtools-searchinput-clear-hover-cross-color: transparent;
+  --devtools-searchinput-clear-opacity: 0.8;
+
+  /* Don't allow forced colors in DevTools if they're not supported */
+  &:not([forced-colors-active]) {
+    forced-color-adjust: none;
+  }
+
+  /* Forced Colors / High Contrast Mode specifics */
+  &[forced-colors-active] {
+    --toggle-track-color: ButtonFace;
+    --toggle-track-color-pressed: ButtonText;
+    --toggle-thumb-color: ButtonText;
+    --toggle-thumb-color-pressed: ButtonFace;
+    --toggle-track-border-color: ButtonText;
+    --toggle-hover-track-color: SelectedItemText;
+    --toggle-hover-track-border-color: SelectedItem;
+    --toggle-hover-track-color-pressed: SelectedItem;
+    --toggle-hover-thumb-color: SelectedItem;
+    /* In High Contrast Mode, the opacity is not lowered, so the disabled style is
+       handled by modifiying the colors */
+    --toggle-disabled-track-border-color: GrayText;
+    --toggle-disabled-track-color-pressed: GrayText;
+    --toggle-disabled-thumb-color: GrayText;
+    --toggle-track-disabled-opacity: 1;
+
+    --searchbox-background-color: ButtonFace;
+    --searchbox-border-color: ButtonText;
+
+    --devtools-searchinput-clear-opacity: 1;
+    --devtools-searchinput-clear-cross-color: ButtonFace;
+    --devtools-searchinput-clear-hover-cross-color: SelectedItemText;
+  }
 }
 
 :root.theme-light {
@@ -33,8 +82,6 @@
   color-scheme: dark;
 
   --tab-line-hover-color: rgba(255,255,255,.2);
-  --toggle-thumb-color: var(--grey-40);
-
   --searchbox-no-match-background-color: #402325;
   --searchbox-no-match-stroke-color: var(--red-50);
 }
@@ -251,6 +298,10 @@ iframe {
   :is(input[type="radio"], input[type="checkbox"], checkbox)& {
     outline-offset: 2px;
   }
+
+  :is(input[type="text"], input[type="search"], input:not([type]))& {
+    outline-color: var(--theme-focus-textinput-outline-color);
+  }
 }
 
 /* Toolbar buttons */
@@ -273,7 +324,8 @@ iframe {
 
 .devtools-togglebutton {
   padding: 1px 6px;
-  /* Separate the outline from the button as it might have a similar background color (after Bug 1590432) */
+  border-block: 2px solid transparent;
+  /* Separate the outline from the button as it might have a similar background color */
   outline-offset: 2px;
 }
 
@@ -382,6 +434,7 @@ iframe {
 .devtools-togglebutton[aria-pressed="true"] {
   background-color: var(--theme-toolbarbutton-checked-background);
   color: var(--theme-toolbarbutton-checked-color);
+  border-block-end-color: currentColor;
 }
 
 .devtools-togglebutton[aria-pressed="true"]:hover:not(:active) {
@@ -391,7 +444,6 @@ iframe {
 
 .devtools-togglebutton:active {
   background: var(--theme-toolbarbutton-active-background);
-  color: var(--theme-toolbarbutton-active-color);
 }
 
 .devtools-togglebutton::-moz-focus-inner {
@@ -474,8 +526,11 @@ iframe {
 .devtools-searchbox {
   display: inline-flex;
   flex-grow: 1;
+  gap: 4px;
+  padding-inline-end: 4px;
   position: relative;
-  border: 1px solid transparent;
+  border: 1px solid var(--searchbox-border-color);
+  background-color: var(--searchbox-background-color);
   height: 100%;
   box-sizing: border-box;
 }
@@ -498,6 +553,7 @@ iframe {
    is focused (e.g. a button), we only want the outline on that element */
 .devtools-searchbox:focus-within:has(input:focus-visible) {
   outline: var(--theme-focus-outline);
+  outline-color: var(--theme-focus-textinput-outline-color);
   outline-offset: -2px;
 
   &.devtools-searchbox-no-match {
@@ -514,24 +570,27 @@ iframe {
 .devtools-searchinput-clear {
   flex: 0 0 auto;
   align-self: center;
-  margin: 0 4px;
+  margin: 0;
   padding: 0;
   border: 0;
   width: 16px;
   height: 16px;
   background-color: transparent;
   background-image: url("chrome://devtools/skin/images/search-clear.svg");
-  -moz-context-properties: fill, fill-opacity;
+  -moz-context-properties: fill, fill-opacity, stroke;
   fill: var(--theme-icon-color);
-  fill-opacity: 0.8;
+  fill-opacity: var(--devtools-searchinput-clear-opacity);
+  stroke: var(--devtools-searchinput-clear-cross-color);
+
+  &:hover {
+    fill-opacity: 1;
+    fill: var(--theme-icon-hover-color);
+    stroke: var(--devtools-searchinput-clear-hover-cross-color);
+  }
 }
 
 .devtools-searchbox-no-match > .devtools-searchinput-clear {
   fill: var(--searchbox-no-match-stroke-color);
-}
-
-.devtools-searchinput-clear:hover {
-  fill-opacity: 1;
 }
 
 /* MDN link within the searchbox */
@@ -574,7 +633,9 @@ iframe {
   background-repeat: no-repeat;
   background-size: 10px;
   -moz-context-properties: fill;
-  fill: var(--theme-icon-dimmed-color);
+  /* Set color and use currentColor in fill so we adapt in High Contrast Mode */
+  color: var(--theme-icon-dimmed-color);
+  fill: currentColor;
   transform: rotate(-90deg);
 }
 
@@ -585,7 +646,7 @@ iframe {
 }
 
 .theme-selected ~ .theme-twisty {
-  fill: var(--theme-selection-color);
+  color: var(--theme-selection-color);
 }
 
 .theme-twisty:is(
@@ -675,7 +736,8 @@ iframe {
 }
 
 .devtools-tab.selected .devtools-tab-line,
-.tabs-menu-item.is-active .devtools-tab-line {
+/* don't show the line when focus is visible to prevent overlapping with the outline */
+.tabs-menu-item.is-active .devtools-tab-line:not(:has(+ [role="tab"]:focus-visible)) {
   background: var(--tab-line-selected-color);
   opacity: 1;
   transform: scaleX(1);
@@ -716,24 +778,41 @@ iframe {
   width: 2em;
   height: 1em;
   border-radius: 1em;
-  border: 1px solid transparent;
+  border: 1px solid var(--toggle-track-border-color);
   box-sizing: content-box;
-  /* Animate the thumb position between states of the checkbox. */
+  /* Animate the background color between states of the checkbox. */
   transition: background-color .1s ease-out;
+
+  &:checked {
+    --x-pos: 1.15em;
+    background-color: var(--toggle-track-color-pressed);
+  }
+
+  &:hover:not(:active, [disabled]) {
+    background-color: var(--toggle-hover-track-color);
+    border-color: var(--toggle-hover-track-border-color);
+
+    &:checked {
+      background-color: var(--toggle-hover-track-color-pressed);
+    }
+
+    &:not(:checked)::before {
+      background-color: var(--toggle-hover-thumb-color);
+    }
+  }
+
+  &[disabled] {
+    opacity: var(--toggle-track-disabled-opacity);
+    --toggle-track-border-color: var(--toggle-disabled-track-border-color);
+    --toggle-track-color-pressed: var(--toggle-disabled-track-color-pressed);
+    --toggle-thumb-color: var(--toggle-disabled-thumb-color);
+  }
 }
 
-.devtools-checkbox-toggle[disabled]{
-  opacity: 0.5;
-}
 
 /* For right-to-left layout, the toggle thumb goes in the opposite direction. */
 html[dir="rtl"] .devtools-checkbox-toggle {
   --x-pos: -.15em;
-}
-
-.devtools-checkbox-toggle:checked {
-  --x-pos: 1.15em;
-  background-color: var(--blue-55);
 }
 
 html[dir="rtl"] .devtools-checkbox-toggle:checked {
@@ -753,5 +832,13 @@ html[dir="rtl"] .devtools-checkbox-toggle:checked {
 }
 
 .devtools-checkbox-toggle:checked::before {
-  background-color: white;
+  background-color: var(--toggle-thumb-color-pressed);
+}
+
+/* Remove transition on toggle when prefers reduced motion is enabled */
+@media (prefers-reduced-motion) {
+  .devtools-checkbox-toggle,
+  .devtools-checkbox-toggle::before {
+    transition: none;
+  }
 }

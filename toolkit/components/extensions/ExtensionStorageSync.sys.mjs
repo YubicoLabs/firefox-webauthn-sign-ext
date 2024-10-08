@@ -10,6 +10,7 @@ import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 
 const NS_ERROR_DOM_QUOTA_EXCEEDED_ERR = 0x80530016;
 
+/** @type {Lazy} */
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
@@ -55,6 +56,7 @@ ExtensionStorageApiCallback.prototype = {
   },
 
   handleError(code, message) {
+    /** @type {Error & { code?: number }} */
     let e = new Error(message);
     e.code = code;
     Cu.reportError(e);
@@ -174,7 +176,7 @@ export class ExtensionStorageSync {
     return this._promisify("getBytesInUse", extension, context, keys);
   }
 
-  addOnChangedListener(extension, listener, context) {
+  addOnChangedListener(extension, listener) {
     let listeners = this.listeners.get(extension.id) || new Set();
     listeners.add(listener);
     this.listeners.set(extension.id, listeners);

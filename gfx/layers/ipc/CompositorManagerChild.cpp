@@ -10,6 +10,7 @@
 #include "mozilla/layers/CompositorBridgeChild.h"
 #include "mozilla/layers/CompositorManagerParent.h"
 #include "mozilla/layers/CompositorThread.h"
+#include "mozilla/gfx/CanvasShutdownManager.h"
 #include "mozilla/gfx/gfxVars.h"
 #include "mozilla/gfx/GPUProcessManager.h"
 #include "mozilla/dom/ContentChild.h"  // for ContentChild
@@ -23,7 +24,21 @@ namespace layers {
 using gfx::GPUProcessManager;
 
 StaticRefPtr<CompositorManagerChild> CompositorManagerChild::sInstance;
-Atomic<base::ProcessId> CompositorManagerChild::sOtherPid(0);
+
+static StaticMutex sCompositorProcInfoMutex;
+static ipc::EndpointProcInfo sCompositorProcInfo
+    MOZ_GUARDED_BY(sCompositorProcInfoMutex);
+
+static void SetCompositorProcInfo(ipc::EndpointProcInfo aInfo) {
+  StaticMutexAutoLock lock(sCompositorProcInfoMutex);
+  sCompositorProcInfo = aInfo;
+}
+
+/* static */
+ipc::EndpointProcInfo CompositorManagerChild::GetCompositorProcInfo() {
+  StaticMutexAutoLock lock(sCompositorProcInfoMutex);
+  return sCompositorProcInfo;
+}
 
 /* static */
 bool CompositorManagerChild::IsInitialized(uint64_t aProcessToken) {
@@ -43,16 +58,19 @@ void CompositorManagerChild::InitSameProcess(uint32_t aNamespace,
 
   RefPtr<CompositorManagerParent> parent =
       CompositorManagerParent::CreateSameProcess(aNamespace);
-  RefPtr<CompositorManagerChild> child =
-      new CompositorManagerChild(parent, aProcessToken, aNamespace);
-  if (NS_WARN_IF(!child->CanSend())) {
+  RefPtr<CompositorManagerChild> child = new CompositorManagerChild(
+      aProcessToken, aNamespace, /* aSameProcess */ true);
+  child->SetOtherEndpointProcInfo(ipc::EndpointProcInfo::Current());
+  if (NS_WARN_IF(!child->Open(parent, CompositorThread(), ipc::ChildSide))) {
     MOZ_DIAGNOSTIC_ASSERT(false, "Failed to open same process protocol");
     return;
   }
+  child->mCanSend = true;
+  child->SetReplyTimeout();
 
   parent->BindComplete(/* aIsRoot */ true);
   sInstance = std::move(child);
-  sOtherPid = sInstance->OtherPid();
+  SetCompositorProcInfo(sInstance->OtherEndpointProcInfo());
 }
 
 /* static */
@@ -64,10 +82,23 @@ bool CompositorManagerChild::Init(Endpoint<PCompositorManagerChild>&& aEndpoint,
     MOZ_ASSERT(sInstance->mNamespace != aNamespace);
   }
 
-  sInstance = new CompositorManagerChild(std::move(aEndpoint), aProcessToken,
-                                         aNamespace);
-  sOtherPid = sInstance->OtherPid();
-  return sInstance->CanSend();
+  RefPtr<CompositorManagerChild> child =
+      new CompositorManagerChild(aProcessToken, aNamespace,
+                                 /* aSameProcess */ false);
+  if (NS_WARN_IF(!aEndpoint.Bind(child))) {
+    return false;
+  }
+  child->mCanSend = true;
+  child->SetReplyTimeout();
+
+  sInstance = std::move(child);
+  SetCompositorProcInfo(sInstance->OtherEndpointProcInfo());
+
+  // If there are any canvases waiting on the recreation of the GPUProcess or
+  // CompositorManagerChild, then we need to notify them so that they can
+  // restore their contexts.
+  gfx::CanvasShutdownManager::OnCompositorManagerRestored();
+  return true;
 }
 
 /* static */
@@ -81,7 +112,7 @@ void CompositorManagerChild::Shutdown() {
 
   sInstance->Close();
   sInstance = nullptr;
-  sOtherPid = 0;
+  SetCompositorProcInfo(ipc::EndpointProcInfo::Invalid());
 }
 
 /* static */
@@ -93,7 +124,7 @@ void CompositorManagerChild::OnGPUProcessLost(uint64_t aProcessToken) {
   // yet to be. As such, we want to pre-emptively set mCanSend to false.
   if (sInstance && sInstance->mProcessToken == aProcessToken) {
     sInstance->mCanSend = false;
-    sOtherPid = 0;
+    SetCompositorProcInfo(ipc::EndpointProcInfo::Invalid());
   }
 }
 
@@ -169,42 +200,15 @@ CompositorManagerChild::CreateSameProcessWidgetCompositorBridge(
   return bridge.forget();
 }
 
-CompositorManagerChild::CompositorManagerChild(CompositorManagerParent* aParent,
-                                               uint64_t aProcessToken,
-                                               uint32_t aNamespace)
+CompositorManagerChild::CompositorManagerChild(uint64_t aProcessToken,
+                                               uint32_t aNamespace,
+                                               bool aSameProcess)
     : mProcessToken(aProcessToken),
       mNamespace(aNamespace),
       mResourceId(0),
       mCanSend(false),
-      mSameProcess(true),
-      mFwdTransactionCounter(this) {
-  MOZ_ASSERT(aParent);
-
-  SetOtherProcessId(base::GetCurrentProcId());
-  if (NS_WARN_IF(!Open(aParent, CompositorThread(), ipc::ChildSide))) {
-    return;
-  }
-
-  mCanSend = true;
-  SetReplyTimeout();
-}
-
-CompositorManagerChild::CompositorManagerChild(
-    Endpoint<PCompositorManagerChild>&& aEndpoint, uint64_t aProcessToken,
-    uint32_t aNamespace)
-    : mProcessToken(aProcessToken),
-      mNamespace(aNamespace),
-      mResourceId(0),
-      mCanSend(false),
-      mSameProcess(false),
-      mFwdTransactionCounter(this) {
-  if (NS_WARN_IF(!aEndpoint.Bind(this))) {
-    return;
-  }
-
-  mCanSend = true;
-  SetReplyTimeout();
-}
+      mSameProcess(aSameProcess),
+      mFwdTransactionCounter(this) {}
 
 void CompositorManagerChild::ActorDestroy(ActorDestroyReason aReason) {
   mCanSend = false;
@@ -214,7 +218,7 @@ void CompositorManagerChild::ActorDestroy(ActorDestroyReason aReason) {
 }
 
 void CompositorManagerChild::HandleFatalError(const char* aMsg) {
-  dom::ContentChild::FatalErrorIfNotUsingGPUProcess(aMsg, OtherPid());
+  dom::ContentChild::FatalErrorIfNotUsingGPUProcess(aMsg, OtherChildID());
 }
 
 void CompositorManagerChild::ProcessingError(Result aCode,
@@ -240,7 +244,7 @@ bool CompositorManagerChild::ShouldContinueFromReplyTimeout() {
   if (XRE_IsParentProcess()) {
     gfxCriticalNote << "Killing GPU process due to IPC reply timeout";
     MOZ_DIAGNOSTIC_ASSERT(GPUProcessManager::Get()->GetGPUChild());
-    GPUProcessManager::Get()->KillProcess();
+    GPUProcessManager::Get()->KillProcess(/* aGenerateMinidump */ true);
   }
   return false;
 }

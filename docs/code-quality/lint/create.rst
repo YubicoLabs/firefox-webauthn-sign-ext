@@ -80,10 +80,14 @@ Each ``.yml`` file must have at least one linter defined in it. Here are the sup
 * include - A list of file paths that will be considered (optional)
 * exclude - A list of file paths or glob patterns that must not be matched (optional)
 * extensions - A list of file extensions to be considered (optional)
+* exclude_extensions - A list of file extensions to be excluded (optional)
 * setup - A function that sets up external dependencies (optional)
 * support-files - A list of glob patterns matching configuration files (optional)
 * find-dotfiles - If set to ``true``, run on dot files (.*) (optional)
 * ignore-case - If set to ``true`` and ``type`` is regex, ignore the case (optional)
+
+Note that a linter may not have both ``extensions`` and ``exclude_extensions`` specified at the
+same time.
 
 In addition to the above, some ``.yml`` files correspond to a single lint rule. For these, the
 following additional keys may be specified:
@@ -343,7 +347,7 @@ Adding the linter to the CI
 
 First, the job will have to be declared in Taskcluster.
 
-This should be done in the `mozlint Taskcluster configuration <https://searchfox.org/mozilla-central/source/taskcluster/ci/source-test/mozlint.yml>`_.
+This should be done in the `mozlint Taskcluster configuration <https://searchfox.org/mozilla-central/source/taskcluster/kinds/source-test/mozlint.yml>`_.
 You will need to define a symbol, how it is executed and on what kind of change.
 
 For example, for ruff, the configuration is the following:

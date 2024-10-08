@@ -85,6 +85,9 @@ export class ShoppingSidebarChild extends RemotePageChild {
   #product = null;
 
   receiveMessage(message) {
+    if (this.browsingContext.usePrivateBrowsing) {
+      throw new Error("We should never be invoked in PBM.");
+    }
     switch (message.name) {
       case "ShoppingSidebar:UpdateProductURL":
         let { url, isReload } = message.data;
@@ -144,7 +147,7 @@ export class ShoppingSidebarChild extends RemotePageChild {
   }
 
   handleEvent(event) {
-    let aid;
+    let aid, sponsored;
     switch (event.type) {
       case "ContentReady":
         this.updateContent();
@@ -157,13 +160,15 @@ export class ShoppingSidebarChild extends RemotePageChild {
         break;
       case "AdClicked":
         aid = event.detail.aid;
+        sponsored = event.detail.sponsored;
         ShoppingProduct.sendAttributionEvent("click", aid);
-        Glean.shopping.surfaceAdsClicked.record();
+        Glean.shopping.surfaceAdsClicked.record({ sponsored });
         break;
       case "AdImpression":
         aid = event.detail.aid;
+        sponsored = event.detail.sponsored;
         ShoppingProduct.sendAttributionEvent("impression", aid);
-        Glean.shopping.surfaceAdsImpression.record();
+        Glean.shopping.surfaceAdsImpression.record({ sponsored });
         break;
       case "DisableShopping":
         this.sendAsyncMessage("DisableShopping");
@@ -250,7 +255,6 @@ export class ShoppingSidebarChild extends RemotePageChild {
    *        fetching the URI from the parent, and assume `this.#productURI`
    *        is current. Defaults to false.
    * @param {bool} options.isPolledRequest = false
-   *
    */
   async updateContent({
     haveUpdatedURI = false,
@@ -481,11 +485,16 @@ export class ShoppingSidebarChild extends RemotePageChild {
       // We tried to fetch an ad, but didn't get one.
       Glean.shopping.surfaceNoAdsAvailable.record();
     } else {
+      let sponsored = recommendationData[0].sponsored;
+
       ShoppingProduct.sendAttributionEvent(
         "placement",
         recommendationData[0].aid
       );
-      Glean.shopping.surfaceAdsPlacement.record();
+
+      Glean.shopping.surfaceAdsPlacement.record({
+        sponsored,
+      });
     }
 
     this.sendToContent("UpdateRecommendations", {

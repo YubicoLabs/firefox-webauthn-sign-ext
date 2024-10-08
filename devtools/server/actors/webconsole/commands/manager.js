@@ -20,6 +20,16 @@ loader.lazyGetter(this, "l10n", () => {
     true
   );
 });
+
+const lazy = {};
+ChromeUtils.defineESModuleGetters(
+  lazy,
+  {
+    JSTracer: "resource://devtools/server/tracer/tracer.sys.mjs",
+  },
+  { global: "contextual" }
+);
+
 const USAGE_STRING_MAPPING = {
   block: "webconsole-commands-usage-block",
   trace: "webconsole-commands-usage-trace3",
@@ -88,7 +98,7 @@ const WebConsoleCommandsManager = {
    *     }
    *   });
    */
-  register({ name, isSideEffectFree, command, validArguments, usage }) {
+  register({ name, isSideEffectFree, command, validArguments }) {
     if (
       typeof command != "function" &&
       !(typeof command == "object" && typeof command.get == "function")
@@ -684,7 +694,7 @@ WebConsoleCommandsManager.register({
 WebConsoleCommandsManager.register({
   name: "help",
   isSideEffectFree: false,
-  command(owner, args) {
+  command(owner) {
     owner.helperResult = { type: "help" };
   },
 });
@@ -856,16 +866,12 @@ WebConsoleCommandsManager.register({
   name: "trace",
   isSideEffectFree: false,
   command(owner, args) {
+    // Disable :trace command on worker until this feature is enabled by default
     if (isWorker) {
       throw new Error(":trace command isn't supported in workers");
     }
-    // Disable :trace command on worker until this feature is enabled by default
-    if (
-      !Services.prefs.getBoolPref(
-        "devtools.debugger.features.javascript-tracing",
-        false
-      )
-    ) {
+
+    if (!owner.consoleActor.parentActor.isTracerFeatureEnabled) {
       throw new Error(
         ":trace requires 'devtools.debugger.features.javascript-tracing' preference to be true"
       );
@@ -873,13 +879,35 @@ WebConsoleCommandsManager.register({
     const tracerActor =
       owner.consoleActor.parentActor.getTargetScopedActor("tracer");
     const logMethod = args.logMethod || "console";
+    let traceDOMMutations = null;
+    if ("dom-mutations" in args) {
+      // When no value is passed, track all types of mutations
+      if (args["dom-mutations"] === true) {
+        traceDOMMutations = ["add", "attributes", "remove"];
+      } else if (typeof args["dom-mutations"] == "string") {
+        // Otherwise consider the value as coma seperated list and remove any white space.
+        traceDOMMutations = args["dom-mutations"].split(",").map(e => e.trim());
+        const acceptedValues = Object.values(lazy.JSTracer.DOM_MUTATIONS);
+        if (!traceDOMMutations.every(e => acceptedValues.includes(e))) {
+          throw new Error(
+            `:trace --dom-mutations only accept a list of strings whose values can be: ${acceptedValues}`
+          );
+        }
+      } else {
+        throw new Error(
+          ":trace --dom-mutations accept only no arguments, or a list mutation type strings (add,attributes,remove)"
+        );
+      }
+    }
     // Note that toggleTracing does some sanity checks and will throw meaningful error
     // when the arguments are wrong.
     const enabled = tracerActor.toggleTracing({
       logMethod,
       prefix: args.prefix || null,
+      traceFunctionReturn: !!args.returns,
       traceValues: !!args.values,
       traceOnNextInteraction: args["on-next-interaction"] || null,
+      traceDOMMutations,
       maxDepth: args["max-depth"] || null,
       maxRecords: args["max-records"] || null,
     });
@@ -895,7 +923,9 @@ WebConsoleCommandsManager.register({
     "max-depth",
     "max-records",
     "on-next-interaction",
+    "dom-mutations",
     "prefix",
+    "returns",
     "values",
   ],
 });

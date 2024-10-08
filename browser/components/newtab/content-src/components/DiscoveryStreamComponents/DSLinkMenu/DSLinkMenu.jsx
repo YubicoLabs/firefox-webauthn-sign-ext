@@ -4,7 +4,7 @@
 
 import { LinkMenu } from "content-src/components/LinkMenu/LinkMenu";
 import { ContextMenuButton } from "content-src/components/ContextMenu/ContextMenuButton";
-import { actionCreators as ac } from "common/Actions.sys.mjs";
+import { actionCreators as ac } from "common/Actions.mjs";
 import React from "react";
 
 export class DSLinkMenu extends React.PureComponent {
@@ -58,9 +58,15 @@ export class DSLinkMenu extends React.PureComponent {
               url: this.props.url,
               guid: this.props.id,
               pocket_id: this.props.pocket_id,
+              card_type: this.props.card_type,
               shim: this.props.shim,
               bookmarkGuid: this.props.bookmarkGuid,
               flight_id: this.props.flightId,
+              tile_id: this.props.tile_id,
+              recommendation_id: this.props.recommendation_id,
+              scheduled_corpus_item_id: this.props.scheduled_corpus_item_id,
+              recommended_at: this.props.recommended_at,
+              received_rank: this.props.received_rank,
             }}
           />
         </ContextMenuButton>

@@ -20,6 +20,15 @@ ChromeUtils.defineLazyGetter(lazy, "log", () => {
   return new Logger("AboutWelcomeChild");
 });
 
+const DID_SEE_FINAL_SCREEN_PREF = "browser.aboutwelcome.didSeeFinalScreen";
+
+XPCOMUtils.defineLazyPreferenceGetter(
+  lazy,
+  "toolbarEntrypoint",
+  "browser.aboutwelcome.entrypoint",
+  ""
+);
+
 export class AboutWelcomeChild extends JSWindowActorChild {
   // Can be used to avoid accesses to the document/contentWindow after it's
   // destroyed, which may throw unhandled exceptions.
@@ -91,6 +100,10 @@ export class AboutWelcomeChild extends JSWindowActorChild {
 
     Cu.exportFunction(this.AWFinish.bind(this), window, {
       defineAs: "AWFinish",
+    });
+
+    Cu.exportFunction(this.AWGetInstalledAddons.bind(this), window, {
+      defineAs: "AWGetInstalledAddons",
     });
 
     Cu.exportFunction(this.AWEnsureAddonInstalled.bind(this), window, {
@@ -233,6 +246,9 @@ export class AboutWelcomeChild extends JSWindowActorChild {
    * @param {object} eventData
    */
   AWSendEventTelemetry(eventData) {
+    if (lazy.toolbarEntrypoint) {
+      eventData.event_context.entrypoint = lazy.toolbarEntrypoint;
+    }
     this.AWSendToParent("TELEMETRY_EVENT", {
       ...eventData,
       event_context: {
@@ -242,7 +258,7 @@ export class AboutWelcomeChild extends JSWindowActorChild {
   }
 
   /**
-   * Send message that can be handled by AboutWelcomeParent.jsm
+   * Send message that can be handled by AboutWelcomeParent.sys.mjs
    *
    * @param {string} type
    * @param {any=} data
@@ -256,21 +272,40 @@ export class AboutWelcomeChild extends JSWindowActorChild {
     return this.wrapPromise(this.sendQuery("AWPage:WAIT_FOR_MIGRATION_CLOSE"));
   }
 
+  setDidSeeFinalScreen() {
+    this.AWSendToParent("SPECIAL_ACTION", {
+      type: "SET_PREF",
+      data: {
+        pref: {
+          name: DID_SEE_FINAL_SCREEN_PREF,
+          value: true,
+        },
+      },
+    });
+  }
+
+  focusUrlBar() {
+    this.AWSendToParent("SPECIAL_ACTION", {
+      type: "FOCUS_URLBAR",
+    });
+  }
+
   AWFinish() {
-    const shouldFocusNewtabUrlBar =
-      lazy.NimbusFeatures.aboutwelcome.getVariable("newtabUrlBarFocus");
+    this.setDidSeeFinalScreen();
 
     this.contentWindow.location.href = "about:home";
-    if (shouldFocusNewtabUrlBar) {
-      this.AWSendToParent("SPECIAL_ACTION", {
-        type: "FOCUS_URLBAR",
-      });
-    }
+    this.focusUrlBar();
   }
 
   AWEnsureAddonInstalled(addonId) {
     return this.wrapPromise(
       this.sendQuery("AWPage:ENSURE_ADDON_INSTALLED", addonId)
+    );
+  }
+
+  AWGetInstalledAddons() {
+    return this.wrapPromise(
+      this.sendQueryAndCloneForContent("AWPage:GET_INSTALLED_ADDONS")
     );
   }
 
@@ -352,6 +387,90 @@ export class AboutWelcomeChild extends JSWindowActorChild {
     lazy.log.debug(`Received page event ${event.type}`);
   }
 }
+
+const OPTIN_SIDEBAR_VARIANT = {
+  id: "FAKESPOT_OPTIN_SIDEBAR_VARIANT",
+  template: "multistage",
+  backdrop: "transparent",
+  aria_role: "alert",
+  UTMTerm: "opt-in",
+  screens: [
+    {
+      id: "FS_OPT_IN_SIDEBAR_VARIANT",
+      content: {
+        position: "split",
+        title: { string_id: "shopping-opt-in-integrated-headline" },
+        logo: {
+          type: "image",
+          imageURL: "chrome://browser/content/shopping/assets/optInLight.avif",
+          darkModeImageURL:
+            "chrome://browser/content/shopping/assets/optInDark.avif",
+          marginInline: "24px",
+          marginBlock: "50% 0",
+        },
+        above_button_content: [
+          {
+            type: "text",
+            text: {
+              string_id: "",
+            },
+            link_keys: ["learn_more"],
+            args: {},
+          },
+          {
+            type: "text",
+            text: {
+              string_id:
+                "shopping-opt-in-integrated-privacy-policy-and-terms-of-use",
+            },
+            link_keys: ["privacy_policy", "terms_of_use"],
+            font_styles: "legal",
+          },
+        ],
+        learn_more: {
+          action: {
+            type: "OPEN_URL",
+            data: {
+              args: "https://support.mozilla.org/1/firefox/%VERSION%/%OS%/%LOCALE%/review-checker-review-quality?utm_source=review-checker&utm_campaign=learn-more&utm_medium=in-product",
+              where: "tab",
+            },
+          },
+        },
+        privacy_policy: {
+          action: {
+            type: "OPEN_URL",
+            data: {
+              args: "https://www.mozilla.org/privacy/firefox?utm_source=review-checker&utm_campaign=privacy-policy&utm_medium=in-product&utm_term=opt-in-screen",
+              where: "tab",
+            },
+          },
+        },
+        terms_of_use: {
+          action: {
+            type: "OPEN_URL",
+            data: {
+              args: "https://www.fakespot.com/terms?utm_source=review-checker&utm_campaign=terms-of-use&utm_medium=in-product",
+              where: "tab",
+            },
+          },
+        },
+        primary_button: {
+          should_focus_button: true,
+          label: { string_id: "shopping-opt-in-integrated-button" },
+          action: {
+            type: "SET_PREF",
+            data: {
+              pref: {
+                name: "browser.shopping.experience2023.optedIn",
+                value: 1,
+              },
+            },
+          },
+        },
+      },
+    },
+  ],
+};
 
 const OPTIN_DEFAULT = {
   id: "FAKESPOT_OPTIN_DEFAULT",
@@ -473,9 +592,6 @@ const SHOPPING_MICROSURVEY = {
         title: {
           string_id: "shopping-survey-headline",
         },
-        subtitle: {
-          string_id: "shopping-survey-question-one",
-        },
         primary_button: {
           label: {
             string_id: "shopping-survey-next-button-label",
@@ -519,6 +635,9 @@ const SHOPPING_MICROSURVEY = {
           style: {
             flexDirection: "column",
             alignItems: "flex-start",
+          },
+          label: {
+            string_id: "shopping-survey-question-one",
           },
           data: [
             {
@@ -572,9 +691,6 @@ const SHOPPING_MICROSURVEY = {
         title: {
           string_id: "shopping-survey-headline",
         },
-        subtitle: {
-          string_id: "shopping-survey-question-two",
-        },
         primary_button: {
           label: {
             string_id: "shopping-survey-submit-button-label",
@@ -619,6 +735,9 @@ const SHOPPING_MICROSURVEY = {
             flexDirection: "column",
             alignItems: "flex-start",
           },
+          label: {
+            string_id: "shopping-survey-question-two",
+          },
           data: [
             {
               id: "radio-1",
@@ -649,6 +768,13 @@ const SHOPPING_MICROSURVEY = {
 };
 
 const OPTED_IN_TIME_PREF = "browser.shopping.experience2023.survey.optedInTime";
+
+XPCOMUtils.defineLazyPreferenceGetter(
+  lazy,
+  "isIntegratedSidebar",
+  "browser.shopping.experience2023.integratedSidebar",
+  false
+);
 
 XPCOMUtils.defineLazyPreferenceGetter(
   lazy,
@@ -729,7 +855,7 @@ export class AboutWelcomeShoppingChild extends AboutWelcomeChild {
       lazy.pdpVisits >= MIN_VISITS_TO_SHOW_SURVEY &&
       hasBeen24HrsSinceOptin;
 
-    if (this.showMicroSurvey) {
+    if (this.showMicroSurvey && !this.showOnboarding) {
       this.renderMessage();
     }
   }
@@ -750,6 +876,7 @@ export class AboutWelcomeShoppingChild extends AboutWelcomeChild {
   handleEvent(event) {
     // Decide when to show/hide onboarding and survey message
     const { productUrl, showOnboarding, data } = event.detail;
+    this.showOnboarding = showOnboarding;
 
     // Display onboarding if a user hasn't opted-in
     const optInReady = showOnboarding && productUrl;
@@ -794,18 +921,24 @@ export class AboutWelcomeShoppingChild extends AboutWelcomeChild {
   }
 
   renderMessage() {
+    this.contentWindow.clearTimeout(this.thankYouFadeTimeout);
     this.document.getElementById("multi-stage-message-root").hidden = false;
     this.document.dispatchEvent(
-      new this.contentWindow.CustomEvent("RenderWelcome", {
-        bubbles: true,
-      })
+      new this.contentWindow.CustomEvent("RenderWelcome", { bubbles: true })
     );
+  }
+
+  resetOnboardingContainer(root) {
+    root.innerHTML = "";
+    let newRoot = root.cloneNode(false);
+    root.replaceWith(newRoot);
+    return newRoot;
   }
 
   // TODO - Move messages into an ASRouter message provider. See bug 1848251.
   AWGetFeatureConfig() {
     let messageContent = optInDynamicContent;
-    if (this.showMicroSurvey) {
+    if (this.showMicroSurvey && !this.showOnboarding) {
       messageContent = SHOPPING_MICROSURVEY;
       this.setShoppingSurveySeen();
     }
@@ -830,19 +963,80 @@ export class AboutWelcomeShoppingChild extends AboutWelcomeChild {
     if (this._destroyed) {
       return;
     }
-    const root = this.document.getElementById("multi-stage-message-root");
+    let root = this.document.getElementById("multi-stage-message-root");
     if (root) {
-      root.innerHTML = "";
+      root = this.resetOnboardingContainer(root);
       root
         .appendChild(this.document.createElement("shopping-message-bar"))
         .setAttribute("type", "thank-you-for-feedback");
-      this.contentWindow.setTimeout(() => {
+      this.contentWindow.clearTimeout(this.thankYouFadeTimeout);
+      this.thankYouFadeTimeout = this.contentWindow.setTimeout(() => {
+        root = this.resetOnboardingContainer(root);
         root.hidden = true;
       }, 5000);
     }
   }
 
   AWSetProductURL(productUrl) {
+    let content = lazy.isIntegratedSidebar
+      ? this._AWGetOptInSidebarVariantContent(productUrl)
+      : this._AWGetOptInDefaultContent(productUrl);
+    optInDynamicContent = content;
+  }
+
+  _AWGetOptInSidebarVariantContent(productUrl) {
+    let content = JSON.parse(JSON.stringify(OPTIN_SIDEBAR_VARIANT));
+    const [optInScreen] = content.screens;
+
+    if (productUrl) {
+      optInScreen.content.above_button_content[0].text.string_id =
+        "shopping-opt-in-integrated-subtitle-all-sites";
+
+      switch (
+        productUrl // Insert the productUrl into content
+      ) {
+        case "www.amazon.fr":
+        case "www.amazon.de":
+          optInScreen.content.above_button_content[0].text.string_id =
+            "shopping-opt-in-integrated-subtitle-single-site";
+          optInScreen.content.above_button_content[0].text.args = {
+            currentSite: "Amazon",
+          };
+          break;
+        case "www.amazon.com":
+          optInScreen.content.above_button_content[0].text.args = {
+            currentSite: "Amazon",
+            secondSite: "Walmart",
+            thirdSite: "Best Buy",
+          };
+          break;
+        case "www.walmart.com":
+          optInScreen.content.above_button_content[0].text.args = {
+            currentSite: "Walmart",
+            secondSite: "Amazon",
+            thirdSite: "Best Buy",
+          };
+          break;
+        case "www.bestbuy.com":
+          optInScreen.content.above_button_content[0].text.args = {
+            currentSite: "Best Buy",
+            secondSite: "Amazon",
+            thirdSite: "Walmart",
+          };
+          break;
+        default:
+          optInScreen.content.above_button_content[0].text.args = {
+            currentSite: "Amazon",
+            secondSite: "Walmart",
+            thirdSite: "Best Buy",
+          };
+      }
+    }
+
+    return content;
+  }
+
+  _AWGetOptInDefaultContent(productUrl) {
     let content = JSON.parse(JSON.stringify(OPTIN_DEFAULT));
     const [optInScreen] = content.screens;
 
@@ -891,7 +1085,7 @@ export class AboutWelcomeShoppingChild extends AboutWelcomeChild {
       }
     }
 
-    optInDynamicContent = content;
+    return content;
   }
 
   AWEnsureLangPackInstalled() {}

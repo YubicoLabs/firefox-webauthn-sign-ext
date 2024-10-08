@@ -21,7 +21,7 @@ ChromeUtils.defineLazyGetter(lazy, "log", () => {
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 if (Services.appinfo.processType !== Services.appinfo.PROCESS_TYPE_DEFAULT) {
-  throw new Error("LoginManager.jsm should only run in the parent process");
+  throw new Error("LoginManager.sys.mjs should only run in the parent process");
 }
 
 export function LoginManager() {
@@ -375,15 +375,7 @@ LoginManager.prototype = {
       this._storage.recordPasswordUse(login);
     }
 
-    Services.telemetry.recordEvent(
-      "pwmgr",
-      "saved_login_used",
-      loginType,
-      null,
-      {
-        filled: "" + filled,
-      }
-    );
+    Glean.pwmgr["savedLoginUsed" + loginType].record({ filled });
   },
 
   /**

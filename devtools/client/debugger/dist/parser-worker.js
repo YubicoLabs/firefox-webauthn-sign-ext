@@ -39279,6 +39279,9 @@ Please specify the "importAttributesKeyword" generator option, whose value can b
       }
 
       if (libExports$2.isThisExpression(node)) {
+        if (expression.startsWith("[")) {
+          return `this${expression}`;
+        }
         return `this.${expression}`;
       }
 
@@ -41012,7 +41015,7 @@ Please specify the "importAttributesKeyword" generator option, whose value can b
     function hasTopLevelAwait(ast) {
       const hasAwait = hasNode(
         ast,
-        (node, ancestors, b) => libExports$2.isAwaitExpression(node) && isTopLevel(ancestors)
+        (node, ancestors) => libExports$2.isAwaitExpression(node) && isTopLevel(ancestors)
       );
 
       return hasAwait;

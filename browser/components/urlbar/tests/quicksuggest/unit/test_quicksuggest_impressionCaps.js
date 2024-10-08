@@ -3884,7 +3884,10 @@ async function checkSearch({ name, searchString, expectedResults }) {
       removeResult() {},
     },
   });
-  UrlbarProviderQuickSuggest.onEngagement(
+
+  // If this test is ever re-enabled, this line will need to be updated for the
+  // new engagement API (onEngagement())
+  UrlbarProviderQuickSuggest.onLegacyEngagement(
     "engagement",
     context,
     {

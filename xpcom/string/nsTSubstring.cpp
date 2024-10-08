@@ -17,12 +17,6 @@
 #include "nsString.h"
 #include "nsTArray.h"
 
-#ifdef DEBUG
-#  include "nsStringStats.h"
-#else
-#  define STRING_STAT_INCREMENT(_s)
-#endif
-
 // It's not worthwhile to reallocate the buffer and memcpy the
 // contents over when the size difference isn't large. With
 // power-of-two allocation buckets and 64 as the typical inline
@@ -56,14 +50,13 @@ char16_t* const nsCharTraits<char16_t>::sEmptyBuffer =
 
 static void ReleaseData(void* aData, nsAString::DataFlags aFlags) {
   if (aFlags & nsAString::DataFlags::REFCOUNTED) {
-    nsStringBuffer::FromData(aData)->Release();
+    mozilla::StringBuffer::FromData(aData)->Release();
   } else if (aFlags & nsAString::DataFlags::OWNED) {
     // Treat this as destruction of a "StringAdopt" object for leak
     // tracking purposes.
     MOZ_LOG_DTOR(aData, "StringAdopt", 1);
 
     free(aData);
-    STRING_STAT_INCREMENT(AdoptFree);
   }
   // otherwise, nothing to do.
 }
@@ -79,7 +72,6 @@ nsTSubstring<T>::nsTSubstring(char_type* aData, size_type aLength,
   AssertValid();
 
   if (aDataFlags & DataFlags::OWNED) {
-    STRING_STAT_INCREMENT(Adopt);
     MOZ_LOG_CTOR(this->mData, "StringAdopt", 1);
   }
 }
@@ -105,13 +97,10 @@ nsTSubstring<T>::BulkWrite(size_type aCapacity, size_type aPrefixToPreserve,
 }
 
 template <typename T>
-auto nsTSubstring<T>::StartBulkWriteImpl(size_type aCapacity,
-                                         size_type aPrefixToPreserve,
-                                         bool aAllowShrinking,
-                                         size_type aSuffixLength,
-                                         size_type aOldSuffixStart,
-                                         size_type aNewSuffixStart)
-    -> mozilla::Result<size_type, nsresult> {
+auto nsTSubstring<T>::StartBulkWriteImpl(
+    size_type aCapacity, size_type aPrefixToPreserve, bool aAllowShrinking,
+    size_type aSuffixLength, size_type aOldSuffixStart,
+    size_type aNewSuffixStart) -> mozilla::Result<size_type, nsresult> {
   // Note! Capacity does not include room for the terminating null char.
 
   MOZ_ASSERT(aPrefixToPreserve <= aCapacity,
@@ -180,8 +169,8 @@ auto nsTSubstring<T>::StartBulkWriteImpl(size_type aCapacity,
     // If |aCapacity > kMaxCapacity|, then our doubling algorithm may not be
     // able to allocate it.  Just bail out in cases like that.  We don't want
     // to be allocating 2GB+ strings anyway.
-    static_assert((sizeof(nsStringBuffer) & 0x1) == 0,
-                  "bad size for nsStringBuffer");
+    static_assert((sizeof(mozilla::StringBuffer) & 0x1) == 0,
+                  "bad size for mozilla::StringBuffer");
     if (MOZ_UNLIKELY(!this->CheckCapacity(aCapacity))) {
       return mozilla::Err(NS_ERROR_OUT_OF_MEMORY);
     }
@@ -192,10 +181,10 @@ auto nsTSubstring<T>::StartBulkWriteImpl(size_type aCapacity,
     // least 1.125, rounding up to the nearest MiB.
     const size_type slowGrowthThreshold = 8 * 1024 * 1024;
 
-    // nsStringBuffer allocates sizeof(nsStringBuffer) + passed size, and
-    // storageSize below wants extra 1 * sizeof(char_type).
+    // mozilla::StringBuffer allocates sizeof(mozilla::StringBuffer) + passed
+    // size, and storageSize below wants extra 1 * sizeof(char_type).
     const size_type neededExtraSpace =
-        sizeof(nsStringBuffer) / sizeof(char_type) + 1;
+        sizeof(mozilla::StringBuffer) / sizeof(char_type) + 1;
 
     size_type temp;
     if (aCapacity >= slowGrowthThreshold) {
@@ -204,8 +193,8 @@ auto nsTSubstring<T>::StartBulkWriteImpl(size_type aCapacity,
       temp = XPCOM_MAX(aCapacity, minNewCapacity) + neededExtraSpace;
 
       // Round up to the next multiple of MiB, but ensure the expected
-      // capacity doesn't include the extra space required by nsStringBuffer
-      // and null-termination.
+      // capacity doesn't include the extra space required by
+      // mozilla::StringBuffer and null-termination.
       const size_t MiB = 1 << 20;
       temp = (MiB * ((temp + MiB - 1) / MiB)) - neededExtraSpace;
     } else {
@@ -230,7 +219,8 @@ auto nsTSubstring<T>::StartBulkWriteImpl(size_type aCapacity,
       // Since we allocate only by powers of 2 we always fit into a full
       // mozjemalloc bucket, it's not useful to use realloc, which may spend
       // time uselessly copying too much.
-      nsStringBuffer* newHdr = nsStringBuffer::Alloc(storageSize).take();
+      mozilla::StringBuffer* newHdr =
+          mozilla::StringBuffer::Alloc(storageSize).take();
       if (newHdr) {
         newData = (char_type*)newHdr->Data();
       } else if (shrinking) {
@@ -344,7 +334,7 @@ typename nsTSubstring<T>::size_type nsTSubstring<T>::Capacity() const {
   size_type capacity;
   if (this->mDataFlags & DataFlags::REFCOUNTED) {
     // if the string is readonly, then we pretend that it has no capacity.
-    nsStringBuffer* hdr = nsStringBuffer::FromData(this->mData);
+    mozilla::StringBuffer* hdr = mozilla::StringBuffer::FromData(this->mData);
     if (hdr->IsReadonly()) {
       capacity = 0;
     } else {
@@ -373,7 +363,7 @@ bool nsTSubstring<T>::EnsureMutable(size_type aNewLen) {
       return true;
     }
     if ((this->mDataFlags & DataFlags::REFCOUNTED) &&
-        !nsStringBuffer::FromData(this->mData)->IsReadonly()) {
+        !mozilla::StringBuffer::FromData(this->mData)->IsReadonly()) {
       return true;
     }
 
@@ -450,6 +440,11 @@ void nsTSubstring<T>::AssignASCII(const char* aData, size_type aLength) {
 }
 
 template <typename T>
+void nsTSubstring<T>::AssignASCII(const nsLiteralCString& aData) {
+  AssignASCII(aData.get(), aData.Length());
+}
+
+template <typename T>
 bool nsTSubstring<T>::AssignASCII(const char* aData, size_type aLength,
                                   const fallible_t& aFallible) {
   MOZ_ASSERT(aLength != size_type(-1));
@@ -514,7 +509,7 @@ bool nsTSubstring<T>::Assign(const self_type& aStr,
             DataFlags::TERMINATED | DataFlags::REFCOUNTED);
 
     // get an owning reference to the this->mData
-    nsStringBuffer::FromData(this->mData)->AddRef();
+    mozilla::StringBuffer::FromData(this->mData)->AddRef();
     return true;
   }
   if (aStr.mDataFlags & DataFlags::LITERAL) {
@@ -631,7 +626,6 @@ void nsTSubstring<T>::Adopt(char_type* aData, size_type aLength) {
 
     SetData(aData, aLength, DataFlags::TERMINATED | DataFlags::OWNED);
 
-    STRING_STAT_INCREMENT(Adopt);
     // Treat this as construction of a "StringAdopt" object for leak
     // tracking purposes.
     MOZ_LOG_CTOR(this->mData, "StringAdopt", 1);
@@ -809,6 +803,11 @@ void nsTSubstring<T>::AppendASCII(const char* aData, size_type aLength) {
     AllocFailed(this->mLength +
                 (aLength == size_type(-1) ? strlen(aData) : aLength));
   }
+}
+
+template <typename T>
+void nsTSubstring<T>::AppendASCII(const nsLiteralCString& aData) {
+  AppendASCII(aData.get(), aData.Length());
 }
 
 template <typename T>
@@ -1032,8 +1031,7 @@ void nsTSubstring<T>::StripChars(const char_type* aChars) {
     char_type theChar = *from++;
     const char_type* test = aChars;
 
-    for (; *test && *test != theChar; ++test)
-      ;
+    for (; *test && *test != theChar; ++test);
 
     if (!*test) {
       // Not stripped, copy this char.
@@ -1234,7 +1232,7 @@ template <typename T>
 size_t nsTSubstring<T>::SizeOfExcludingThisIfUnshared(
     mozilla::MallocSizeOf aMallocSizeOf) const {
   if (this->mDataFlags & DataFlags::REFCOUNTED) {
-    return nsStringBuffer::FromData(this->mData)
+    return mozilla::StringBuffer::FromData(this->mData)
         ->SizeOfIncludingThisIfUnshared(aMallocSizeOf);
   }
   if (this->mDataFlags & DataFlags::OWNED) {
@@ -1258,7 +1256,7 @@ size_t nsTSubstring<T>::SizeOfExcludingThisEvenIfShared(
   // This is identical to SizeOfExcludingThisIfUnshared except for the
   // DataFlags::REFCOUNTED case.
   if (this->mDataFlags & DataFlags::REFCOUNTED) {
-    return nsStringBuffer::FromData(this->mData)
+    return mozilla::StringBuffer::FromData(this->mData)
         ->SizeOfIncludingThisEvenIfShared(aMallocSizeOf);
   }
   if (this->mDataFlags & DataFlags::OWNED) {
@@ -1322,6 +1320,9 @@ int_type ToIntegerCommon(const nsTSubstring<T>& aSrc, nsresult* aErrorCode,
         break;
       // clang-format on
       case '-':
+        if constexpr (!std::is_signed_v<int_type>) {
+          return 0;
+        }
         negate = true;
         break;
       default:
@@ -1387,6 +1388,12 @@ template <typename T>
 int32_t nsTSubstring<T>::ToInteger(nsresult* aErrorCode,
                                    uint32_t aRadix) const {
   return ToIntegerCommon<T, int32_t>(*this, aErrorCode, aRadix);
+}
+
+template <typename T>
+uint32_t nsTSubstring<T>::ToUnsignedInteger(nsresult* aErrorCode,
+                                            uint32_t aRadix) const {
+  return ToIntegerCommon<T, uint32_t>(*this, aErrorCode, aRadix);
 }
 
 /**

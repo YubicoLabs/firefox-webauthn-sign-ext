@@ -20,6 +20,8 @@ prefs = [
   # The Screenshots extension is disabled by default in Mochitests. We re-enable
   # it here, since it's a more realistic configuration.
   "extensions.screenshots.disabled=false",
+  # Need to keep the revamped sidebar off until Bug 1905212 is done
+  "sidebar.revamp=false",
 ]
 support-files = ["head.js"]
 
@@ -33,13 +35,15 @@ skip-if = [
 
 ["browser_hidden_browser_vsync.js"]
 
+["browser_hiddenwindow_existence.js"]
+
 ["browser_panel_vsync.js"]
 support-files = ["!/browser/components/downloads/test/browser/head.js"]
 
 ["browser_preferences_usage.js"]
 https_first_disabled = true
+run-if = ["debug"]
 skip-if = [
-  "!debug",
   "apple_catalina",  # platform migration
   "socketprocess_networking",
 ]
@@ -50,7 +54,7 @@ skip-if = [
 support-files = ["file_empty.html"]
 
 ["browser_startup_content_subframe.js"]
-skip-if = ["!fission"]
+run-if = ["fission"]
 support-files = [
   "file_empty.html",
   "StartupContentSubframe.sys.mjs",
@@ -61,9 +65,6 @@ run-if = [
   "debug",
   "nightly_build", # Requires StartupRecorder.sys.mjs, which isn't shipped everywhere by default
 ]
-
-["browser_startup_hiddenwindow.js"]
-skip-if = ["os == 'mac'"]
 
 ["browser_tabclose.js"]
 skip-if = [

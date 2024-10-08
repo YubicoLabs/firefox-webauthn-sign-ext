@@ -6,7 +6,10 @@
 
 #include "SandboxBroker.h"
 #include "SandboxInfo.h"
+
+#include "SandboxProfilerParent.h"
 #include "SandboxLogging.h"
+
 #include "SandboxBrokerUtils.h"
 
 #include <dirent.h>
@@ -38,8 +41,11 @@
 
 namespace mozilla {
 
-// Default/fallback temporary directory
-static const nsLiteralCString tempDirPrefix("/tmp");
+// kernel level limit defined at
+// https://elixir.bootlin.com/linux/latest/source/include/linux/sched.h#L301
+// used at
+// https://elixir.bootlin.com/linux/latest/source/include/linux/sched.h#L1087
+static const int kThreadNameMaxSize = 16;
 
 // This constructor signals failure by setting mFileDesc and aClientFd to -1.
 SandboxBroker::SandboxBroker(UniquePtr<const Policy> aPolicy, int aChildPid,
@@ -62,17 +68,6 @@ SandboxBroker::SandboxBroker(UniquePtr<const Policy> aPolicy, int aChildPid,
     mFileDesc = -1;
     aClientFd = -1;
   }
-#if defined(MOZ_CONTENT_TEMP_DIR)
-  nsCOMPtr<nsIFile> tmpDir;
-  nsresult rv = NS_GetSpecialDirectory(NS_APP_CONTENT_PROCESS_TEMP_DIR,
-                                       getter_AddRefs(tmpDir));
-  if (NS_SUCCEEDED(rv)) {
-    rv = tmpDir->GetNativePath(mContentTempPath);
-    if (NS_FAILED(rv)) {
-      mContentTempPath.Truncate();
-    }
-  }
-#endif
 }
 
 UniquePtr<SandboxBroker> SandboxBroker::Create(
@@ -563,36 +558,6 @@ size_t SandboxBroker::ConvertRelativePath(char* aPath, size_t aBufSize,
   return aPathLen;
 }
 
-#if defined(MOZ_CONTENT_TEMP_DIR)
-size_t SandboxBroker::RemapTempDirs(char* aPath, size_t aBufSize,
-                                    size_t aPathLen) {
-  nsAutoCString path(aPath);
-
-  size_t prefixLen = 0;
-  if (!mTempPath.IsEmpty() && StringBeginsWith(path, mTempPath)) {
-    prefixLen = mTempPath.Length();
-  } else if (StringBeginsWith(path, tempDirPrefix)) {
-    prefixLen = tempDirPrefix.Length();
-  }
-
-  if (prefixLen) {
-    const nsDependentCSubstring cutPath =
-        Substring(path, prefixLen, path.Length() - prefixLen);
-
-    // Only now try to get the content process temp dir
-    if (!mContentTempPath.IsEmpty()) {
-      nsAutoCString tmpPath;
-      tmpPath.Assign(mContentTempPath);
-      tmpPath.Append(cutPath);
-      base::strlcpy(aPath, tmpPath.get(), aBufSize);
-      return strlen(aPath);
-    }
-  }
-
-  return aPathLen;
-}
-#endif
-
 nsCString SandboxBroker::ReverseSymlinks(const nsACString& aPath) {
   // Revert any symlinks we previously resolved.
   int32_t cutLength = aPath.Length();
@@ -656,7 +621,10 @@ void SandboxBroker::ThreadMain(void) {
   // with the thread manager.
   (void)NS_GetCurrentThread();
 
-  char threadName[16];
+  char threadName[kThreadNameMaxSize];
+  // mChildPid can be max 7 digits because of the previous string size,
+  // and 'FSBroker' is 8 bytes. The maximum thread size is 16 with the null byte
+  // included. That leaves us 7 digits.
   SprintfLiteral(threadName, "FSBroker%d", mChildPid);
   PlatformThread::SetName(threadName);
 
@@ -666,38 +634,6 @@ void SandboxBroker::ThreadMain(void) {
   // therefore it is sufficient to fetch the value once
   // before the main thread loop starts
   bool permissive = SandboxInfo::Get().Test(SandboxInfo::kPermissive);
-
-#if defined(MOZ_CONTENT_TEMP_DIR)
-  // Find the current temporary directory
-  nsCOMPtr<nsIFile> tmpDir;
-  nsresult rv =
-      GetSpecialSystemDirectory(OS_TemporaryDirectory, getter_AddRefs(tmpDir));
-  if (NS_SUCCEEDED(rv)) {
-    rv = tmpDir->GetNativePath(mTempPath);
-    if (NS_SUCCEEDED(rv)) {
-      // Make sure there's no terminating /
-      if (mTempPath.Last() == '/') {
-        mTempPath.Truncate(mTempPath.Length() - 1);
-      }
-    }
-  }
-  // If we can't find it, we aren't bothered much: we will
-  // always try /tmp anyway in the substitution code
-  if (NS_FAILED(rv) || mTempPath.IsEmpty()) {
-    if (SandboxInfo::Get().Test(SandboxInfo::kVerbose)) {
-      SANDBOX_LOG("Tempdir: /tmp");
-    }
-  } else {
-    if (SandboxInfo::Get().Test(SandboxInfo::kVerbose)) {
-      SANDBOX_LOG("Tempdir: %s", mTempPath.get());
-    }
-    // If it's /tmp, clear it here so we don't compare against
-    // it twice. Just let the fallback code do the work.
-    if (mTempPath.Equals(tempDirPrefix)) {
-      mTempPath.Truncate();
-    }
-  }
-#endif
 
   while (true) {
     struct iovec ios[2];
@@ -790,14 +726,6 @@ void SandboxBroker::ThreadMain(void) {
       pathLen = ConvertRelativePath(pathBuf, sizeof(pathBuf), pathLen);
       perms = mPolicy->Lookup(nsDependentCString(pathBuf, pathLen));
 
-      // We don't have permissions on the requested dir.
-#if defined(MOZ_CONTENT_TEMP_DIR)
-      if (!perms) {
-        // Was it a tempdir that we can remap?
-        pathLen = RemapTempDirs(pathBuf, sizeof(pathBuf), pathLen);
-        perms = mPolicy->Lookup(nsDependentCString(pathBuf, pathLen));
-      }
-#endif
       if (!perms) {
         // Did we arrive from a symlink in a path that is not writable?
         // Then try to figure out the original path and see if that is
@@ -844,7 +772,7 @@ void SandboxBroker::ThreadMain(void) {
     } else if (permissive || perms & MAY_ACCESS) {
       // If the operation was only allowed because of permissive mode, log it.
       if (permissive && !(perms & MAY_ACCESS)) {
-        AuditPermissive(req.mOp, req.mFlags, perms, pathBuf);
+        AuditPermissive(req.mOp, req.mFlags, req.mId, perms, pathBuf);
       }
 
       switch (req.mOp) {
@@ -861,7 +789,7 @@ void SandboxBroker::ThreadMain(void) {
               resp.mError = -errno;
             }
           } else {
-            AuditDenial(req.mOp, req.mFlags, perms, pathBuf);
+            AuditDenial(req.mOp, req.mFlags, req.mId, perms, pathBuf);
           }
           break;
 
@@ -873,7 +801,7 @@ void SandboxBroker::ThreadMain(void) {
               resp.mError = -errno;
             }
           } else {
-            AuditDenial(req.mOp, req.mFlags, perms, pathBuf);
+            AuditDenial(req.mOp, req.mFlags, req.mId, perms, pathBuf);
           }
           break;
 
@@ -896,7 +824,7 @@ void SandboxBroker::ThreadMain(void) {
               resp.mError = -errno;
             }
           } else {
-            AuditDenial(req.mOp, req.mFlags, perms, pathBuf);
+            AuditDenial(req.mOp, req.mFlags, req.mId, perms, pathBuf);
           }
           break;
 
@@ -909,7 +837,7 @@ void SandboxBroker::ThreadMain(void) {
               resp.mError = -errno;
             }
           } else {
-            AuditDenial(req.mOp, req.mFlags, perms, pathBuf);
+            AuditDenial(req.mOp, req.mFlags, req.mId, perms, pathBuf);
           }
           break;
 
@@ -921,7 +849,7 @@ void SandboxBroker::ThreadMain(void) {
               resp.mError = -errno;
             }
           } else {
-            AuditDenial(req.mOp, req.mFlags, perms, pathBuf);
+            AuditDenial(req.mOp, req.mFlags, req.mId, perms, pathBuf);
           }
           break;
 
@@ -939,7 +867,7 @@ void SandboxBroker::ThreadMain(void) {
             if (lstat(pathBuf, &sb) == 0) {
               resp.mError = -EEXIST;
             } else {
-              AuditDenial(req.mOp, req.mFlags, perms, pathBuf);
+              AuditDenial(req.mOp, req.mFlags, req.mId, perms, pathBuf);
             }
           }
           break;
@@ -952,7 +880,7 @@ void SandboxBroker::ThreadMain(void) {
               resp.mError = -errno;
             }
           } else {
-            AuditDenial(req.mOp, req.mFlags, perms, pathBuf);
+            AuditDenial(req.mOp, req.mFlags, req.mId, perms, pathBuf);
           }
           break;
 
@@ -964,7 +892,7 @@ void SandboxBroker::ThreadMain(void) {
               resp.mError = -errno;
             }
           } else {
-            AuditDenial(req.mOp, req.mFlags, perms, pathBuf);
+            AuditDenial(req.mOp, req.mFlags, req.mId, perms, pathBuf);
           }
           break;
 
@@ -1016,7 +944,7 @@ void SandboxBroker::ThreadMain(void) {
               resp.mError = -errno;
             }
           } else {
-            AuditDenial(req.mOp, req.mFlags, perms, pathBuf);
+            AuditDenial(req.mOp, req.mFlags, req.mId, perms, pathBuf);
           }
           break;
 
@@ -1031,13 +959,13 @@ void SandboxBroker::ThreadMain(void) {
               resp.mError = -errno;
             }
           } else {
-            AuditDenial(req.mOp, req.mFlags, perms, pathBuf);
+            AuditDenial(req.mOp, req.mFlags, req.mId, perms, pathBuf);
           }
           break;
       }
     } else {
       MOZ_ASSERT(perms == 0);
-      AuditDenial(req.mOp, req.mFlags, perms, pathBuf);
+      AuditDenial(req.mOp, req.mFlags, req.mId, perms, pathBuf);
     }
 
     const size_t numIO = ios[1].iov_len > 0 ? 2 : 1;
@@ -1075,8 +1003,8 @@ void SandboxBroker::ThreadMain(void) {
   }
 }
 
-void SandboxBroker::AuditPermissive(int aOp, int aFlags, int aPerms,
-                                    const char* aPath) {
+void SandboxBroker::AuditPermissive(int aOp, int aFlags, uint64_t aId,
+                                    int aPerms, const char* aPath) {
   MOZ_RELEASE_ASSERT(SandboxInfo::Get().Test(SandboxInfo::kPermissive));
 
   struct stat statBuf;
@@ -1090,15 +1018,21 @@ void SandboxBroker::AuditPermissive(int aOp, int aFlags, int aPerms,
       "SandboxBroker: would have denied op=%s rflags=%o perms=%d path=%s for "
       "pid=%d permissive=1; real status",
       OperationDescription[aOp], aFlags, aPerms, aPath, mChildPid);
+  SandboxProfiler::ReportAudit("SandboxBroker::AuditPermissive",
+                               OperationDescription[aOp], aFlags, aId, aPerms,
+                               aPath, mChildPid);
 }
 
-void SandboxBroker::AuditDenial(int aOp, int aFlags, int aPerms,
+void SandboxBroker::AuditDenial(int aOp, int aFlags, uint64_t aId, int aPerms,
                                 const char* aPath) {
   if (SandboxInfo::Get().Test(SandboxInfo::kVerbose)) {
     SANDBOX_LOG(
         "SandboxBroker: denied op=%s rflags=%o perms=%d path=%s for pid=%d",
         OperationDescription[aOp], aFlags, aPerms, aPath, mChildPid);
   }
+  SandboxProfiler::ReportAudit("SandboxBroker::AuditDenial",
+                               OperationDescription[aOp], aFlags, aId, aPerms,
+                               aPath, mChildPid);
 }
 
 }  // namespace mozilla

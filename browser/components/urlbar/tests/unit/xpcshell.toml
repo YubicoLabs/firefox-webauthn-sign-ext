@@ -128,10 +128,6 @@ prefs = [
 ["test_providerOmnibox.js"]
 
 ["test_providerOpenTabs.js"]
-skip-if = [
-  "os == 'mac' && debug", # Bug 1781972
-  "os == 'win' && debug", # Bug 1781972
-]
 
 ["test_providerPlaces.js"]
 
@@ -144,6 +140,8 @@ skip-if = [
 ["test_providerTabToSearch.js"]
 
 ["test_providerTabToSearch_partialHost.js"]
+
+["test_provider_notification.js"]
 
 ["test_providersManager.js"]
 
@@ -196,6 +194,17 @@ skip-if = ["!sync"]
 
 ["test_trimming.js"]
 
+["test_ui_schemas_valid.js"]
+support-files = [
+  "../../schema/urlbar-persisted-search-terms-schema.json",
+  "../../schema/urlbar-persisted-search-terms-ui-schema.json",
+]
+
 ["test_unitConversion.js"]
+
+["test_urlbar_persisted_search_terms_validation.js"]
+support-files = ["../../schema/urlbar-persisted-search-terms-schema.json"]
+
+["test_urlbar_search_terms_persistence.js"]
 
 ["test_word_boundary_search.js"]
