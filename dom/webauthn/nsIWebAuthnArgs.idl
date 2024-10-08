@@ -51,9 +51,8 @@ interface nsIWebAuthnRegisterArgs : nsISupports {
     [must_use] readonly attribute Array<boolean> prfEvalByCredentialEvalSecondMaybe;
     [must_use] readonly attribute Array<Array<octet> > prfEvalByCredentialEvalSecond;
     [must_use] readonly attribute boolean signExtension;
-    [must_use] readonly attribute Array<octet> signExtensionGenerateKeyTbs;
-    [must_use] readonly attribute Array<int32_t> signExtensionGenerateKeyAlgorithmsAlg;
-    [must_use] readonly attribute Array<uint32_t> signExtensionGenerateKeyAlgorithmsNumKeys;
+    [must_use] readonly attribute Array<octet> signExtensionGenerateKeyPhData;
+    [must_use] readonly attribute Array<int32_t> signExtensionGenerateKeyAlgorithms;
 
     // Options.
     readonly attribute AString residentKey;
@@ -104,11 +103,9 @@ interface nsIWebAuthnSignArgs : nsISupports {
     [must_use] readonly attribute Array<boolean> prfEvalByCredentialEvalSecondMaybe;
     [must_use] readonly attribute Array<Array<octet> > prfEvalByCredentialEvalSecond;
     [must_use] readonly attribute boolean signExtension;
-    [must_use] readonly attribute Array<octet> signExtensionSignTbs;
+    [must_use] readonly attribute Array<octet> signExtensionSignPhData;
     [must_use] readonly attribute Array<ACString> signExtensionSignKeyHandleByCredentialCredentialIdBase64url;
-    [must_use] readonly attribute Array<Array<octet> > signExtensionSignKeyHandleByCredentialKeyHandleKid;
-    [must_use] readonly attribute Array<boolean > signExtensionSignKeyHandleByCredentialKeyHandleArgsMaybe;
-    [must_use] readonly attribute Array<Array<octet> > signExtensionSignKeyHandleByCredentialKeyHandleArgs;
+    [must_use] readonly attribute Array<Array<octet> > signExtensionSignKeyHandleByCredentialKeyHandle;
 
     // Options
     [must_use] readonly attribute AString userVerification;

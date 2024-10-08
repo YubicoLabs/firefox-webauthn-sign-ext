@@ -14,9 +14,9 @@ use crate::ctap2::commands::get_next_assertion::GetNextAssertion;
 use crate::ctap2::commands::make_credentials::UserVerification;
 use crate::ctap2::server::{
     AuthenticationExtensionsClientInputs, AuthenticationExtensionsClientOutputs,
-    AuthenticationExtensionsPRFInputs, AuthenticationExtensionsPRFOutputs,
-    AuthenticationExtensionsPRFValues, AuthenticatorAttachment, PublicKeyCredentialDescriptor,
-    PublicKeyCredentialUserEntity, RelyingParty, RpIdHash, UserVerificationRequirement,
+    AuthenticationExtensionsPRFInputs, AuthenticationExtensionsPRFOutputs, AuthenticatorAttachment,
+    PublicKeyCredentialDescriptor, PublicKeyCredentialUserEntity, RelyingParty, RpIdHash,
+    UserVerificationRequirement,
 };
 use crate::ctap2::utils::{read_be_u32, read_byte};
 use crate::errors::AuthenticatorError;
@@ -244,36 +244,37 @@ impl Serialize for HmacSecretExtension {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug)]
 pub struct GetAssertionSignExtensionInput {
-    #[serde(rename = "kid", with = "crate::ctap2::utils::serde_values_bytes")]
-    pub key_handle_kid_by_credential: Vec<(Vec<u8>, Vec<u8>)>,
+    pub key_handle_by_credential: Vec<(serde_bytes::ByteBuf, serde_bytes::ByteBuf)>,
+    pub ph_data: serde_bytes::ByteBuf,
+}
 
-    #[serde(rename = "tbs", with = "serde_bytes")]
-    pub data_tbs: Vec<u8>,
-
-    #[serde(
-        rename = "args",
-        with = "crate::ctap2::utils::serde_values_bytes_option"
-    )]
-    pub key_handle_args_by_credential: Vec<(Vec<u8>, Option<Vec<u8>>)>,
+impl Serialize for GetAssertionSignExtensionInput {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        const PH_DATA: u8 = 0;
+        const KEY_REFS: u8 = 5;
+        serialize_map!(
+            serializer,
+            &PH_DATA => &self.ph_data,
+            &KEY_REFS => &self.key_handle_by_credential.iter().map(|(_, kh)| kh).collect::<Vec<_>>(),
+        )
+    }
 }
 
 impl GetAssertionSignExtensionInput {
     pub fn filter_and_order_key_handles(&mut self, allow_list: &[PublicKeyCredentialDescriptor]) {
-        self.key_handle_kid_by_credential
-            .retain(|(id, _)| allow_list.iter().any(|pkcd| &pkcd.id == id));
-        self.key_handle_kid_by_credential
-            .sort_by_cached_key(|(id, _)| {
-                allow_list.iter().take_while(|pkcd| pkcd.id == *id).count()
-            });
-
-        self.key_handle_args_by_credential
-            .retain(|(id, _)| allow_list.iter().any(|pkcd| &pkcd.id == id));
-        self.key_handle_args_by_credential
-            .sort_by_cached_key(|(id, _)| {
-                allow_list.iter().take_while(|pkcd| pkcd.id == *id).count()
-            });
+        self.key_handle_by_credential
+            .retain(|(id, _)| allow_list.iter().any(|pkcd| &pkcd.id == id.as_slice()));
+        self.key_handle_by_credential.sort_by_cached_key(|(id, _)| {
+            allow_list
+                .iter()
+                .take_while(|pkcd| pkcd.id == id.as_slice())
+                .count()
+        });
     }
 }
 
@@ -299,17 +300,17 @@ impl From<AuthenticationExtensionsClientInputs> for GetAssertionExtensions {
                 .sign
                 .and_then(|sign_input| sign_input.sign)
                 .map(|sign_input| GetAssertionSignExtensionInput {
-                    key_handle_kid_by_credential: sign_input
-                        .key_handle_by_credential
-                        .iter()
-                        .map(|(id, kh)| (id.clone(), kh.kid.clone()))
-                        .collect(),
-                    key_handle_args_by_credential: sign_input
+                    key_handle_by_credential: sign_input
                         .key_handle_by_credential
                         .into_iter()
-                        .map(|(id, kh)| (id, kh.args))
+                        .map(|(id, kh)| {
+                            (
+                                serde_bytes::ByteBuf::from(id),
+                                serde_bytes::ByteBuf::from(kh),
+                            )
+                        })
                         .collect(),
-                    data_tbs: sign_input.tbs,
+                    ph_data: serde_bytes::ByteBuf::from(sign_input.ph_data),
                 }),
             hmac_secret: input
                 .hmac_get_secret

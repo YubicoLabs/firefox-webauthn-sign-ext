@@ -15,9 +15,9 @@ use crate::ctap2::attestation::{
 use crate::ctap2::client_data::ClientDataHash;
 use crate::ctap2::server::{
     AuthenticationExtensionsClientInputs, AuthenticationExtensionsClientOutputs,
-    AuthenticationExtensionsPRFOutputs, AuthenticationExtensionsPRFValues, AuthenticatorAttachment,
-    CredentialProtectionPolicy, PublicKeyCredentialDescriptor, PublicKeyCredentialParameters,
-    PublicKeyCredentialUserEntity, RelyingParty, RpIdHash, UserVerificationRequirement,
+    AuthenticationExtensionsPRFOutputs, AuthenticatorAttachment, CredentialProtectionPolicy,
+    PublicKeyCredentialDescriptor, PublicKeyCredentialParameters, PublicKeyCredentialUserEntity,
+    RelyingParty, RpIdHash, UserVerificationRequirement,
 };
 use crate::ctap2::utils::{read_byte, serde_parse_err};
 use crate::errors::AuthenticatorError;
@@ -29,7 +29,6 @@ use serde::{
     Deserialize, Deserializer, Serialize, Serializer,
 };
 use serde_cbor::{self, de::from_slice, ser, Value};
-use std::collections::HashMap;
 use std::fmt;
 use std::io::{Cursor, Read};
 
@@ -274,8 +273,11 @@ impl MakeCredentialsExtensions {
     }
 }
 
-impl From<AuthenticationExtensionsClientInputs> for MakeCredentialsExtensions {
-    fn from(input: AuthenticationExtensionsClientInputs) -> Self {
+impl MakeCredentialsExtensions {
+    pub fn from(
+        input: AuthenticationExtensionsClientInputs,
+        uv_req: UserVerificationRequirement,
+    ) -> Self {
         Self {
             cred_props: input.cred_props,
             cred_protect: input.credential_protection_policy,
@@ -291,41 +293,67 @@ impl From<AuthenticationExtensionsClientInputs> for MakeCredentialsExtensions {
                 .sign
                 .and_then(|sign| sign.generate_key)
                 .map(|generate_key| MakeCredentialsSignExtensionInput {
-                    algorithms: generate_key.algorithms.iter().map(|a| a.alg).collect(),
-                    num_keys: Some(
-                        generate_key
-                            .algorithms
-                            .into_iter()
-                            .flat_map(|a| {
-                                if a.num_keys != 1 {
-                                    Some((a.alg, a.num_keys))
-                                } else {
-                                    None
-                                }
-                            })
-                            .collect(),
-                    )
-                    .filter(|nk: &HashMap<i32, u32>| !nk.is_empty()),
-                    data_tbs: generate_key.tbs,
+                    ph_data: generate_key.ph_data.map(serde_bytes::ByteBuf::from),
+                    algorithms: generate_key.algorithms,
+                    flags: uv_req.into(),
                 }),
         }
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug)]
 pub struct MakeCredentialsSignExtensionInput {
-    #[serde(rename = "alg")]
+    pub ph_data: Option<serde_bytes::ByteBuf>,
     pub algorithms: Vec<i32>,
+    pub flags: Option<MakeCredentialsSignExtensionGenerateKeyFlags>,
+}
 
-    #[serde(rename = "num", skip_serializing_if = "Option::is_none")]
-    pub num_keys: Option<HashMap<i32, u32>>,
+#[derive(Clone, Copy, Debug)]
+#[repr(u8)]
+pub enum MakeCredentialsSignExtensionGenerateKeyFlags {
+    Unattended = 0b000,
+    RequireUp = 0b001,
+    RequireUv = 0b101,
+}
 
-    #[serde(
-        rename = "tbs",
-        with = "serde_bytes",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub data_tbs: Option<Vec<u8>>,
+impl MakeCredentialsSignExtensionGenerateKeyFlags {
+    fn filter_default(self) -> Option<Self> {
+        match self {
+            Self::RequireUp => None,
+            other => Some(other),
+        }
+    }
+}
+
+impl From<UserVerificationRequirement> for Option<MakeCredentialsSignExtensionGenerateKeyFlags> {
+    fn from(v: UserVerificationRequirement) -> Self {
+        if v == UserVerificationRequirement::Required {
+            Some(MakeCredentialsSignExtensionGenerateKeyFlags::RequireUv)
+        } else {
+            None
+        }
+    }
+}
+
+impl Serialize for MakeCredentialsSignExtensionInput {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        const PH_DATA: u8 = 0;
+        const ALG: u8 = 3;
+        const FLAGS: u8 = 4;
+        let flags = self
+            .flags
+            .and_then(MakeCredentialsSignExtensionGenerateKeyFlags::filter_default)
+            .map(|f| f as u8);
+        serialize_map_optional!(
+            serializer,
+            &PH_DATA => &self.ph_data,
+            &ALG => Some(&self.algorithms),
+            &FLAGS => flags,
+        )
+    }
 }
 
 #[derive(Debug, Clone)]

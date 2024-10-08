@@ -232,14 +232,12 @@ WebAuthnRegisterArgs::GetSignExtension(bool* aSignExtension) {
 }
 
 NS_IMETHODIMP
-WebAuthnRegisterArgs::GetSignExtensionGenerateKeyAlgorithmsAlg(nsTArray<int32_t>& algorithmsAlg) {
+WebAuthnRegisterArgs::GetSignExtensionGenerateKeyAlgorithms(nsTArray<int32_t>& algorithms) {
   for (const WebAuthnExtension& ext : mInfo.Extensions()) {
     if (ext.type() == WebAuthnExtension::TWebAuthnExtensionSign) {
       Maybe<WebAuthnExtensionSignGenerateKeyInputs> generateKey = ext.get_WebAuthnExtensionSign().generateKey();
       if (generateKey.isSome()) {
-        for (const WebAuthnExtensionSignGenerateKeyAlgorithmsEntry& algorithm : generateKey->algorithms()) {
-          algorithmsAlg.AppendElement(algorithm.alg());
-        }
+        algorithms.Assign(generateKey->algorithms());
         return NS_OK;
       }
       break;
@@ -250,30 +248,12 @@ WebAuthnRegisterArgs::GetSignExtensionGenerateKeyAlgorithmsAlg(nsTArray<int32_t>
 }
 
 NS_IMETHODIMP
-WebAuthnRegisterArgs::GetSignExtensionGenerateKeyAlgorithmsNumKeys(nsTArray<uint32_t>& algorithmsNumKeys) {
+WebAuthnRegisterArgs::GetSignExtensionGenerateKeyPhData(nsTArray<uint8_t>& aPhData) {
   for (const WebAuthnExtension& ext : mInfo.Extensions()) {
     if (ext.type() == WebAuthnExtension::TWebAuthnExtensionSign) {
       Maybe<WebAuthnExtensionSignGenerateKeyInputs> generateKey = ext.get_WebAuthnExtensionSign().generateKey();
-      if (generateKey.isSome()) {
-        for (const WebAuthnExtensionSignGenerateKeyAlgorithmsEntry& algorithm : generateKey->algorithms()) {
-          algorithmsNumKeys.AppendElement(algorithm.numKeys());
-        }
-        return NS_OK;
-      }
-      break;
-    }
-  }
-
-  return NS_ERROR_NOT_AVAILABLE;
-}
-
-NS_IMETHODIMP
-WebAuthnRegisterArgs::GetSignExtensionGenerateKeyTbs(nsTArray<uint8_t>& aTbs) {
-  for (const WebAuthnExtension& ext : mInfo.Extensions()) {
-    if (ext.type() == WebAuthnExtension::TWebAuthnExtensionSign) {
-      Maybe<WebAuthnExtensionSignGenerateKeyInputs> generateKey = ext.get_WebAuthnExtensionSign().generateKey();
-      if (generateKey.isSome() && generateKey->tbsMaybe()) {
-        aTbs.Assign(generateKey->tbs());
+      if (generateKey.isSome() && generateKey->phDataMaybe()) {
+        aPhData.Assign(generateKey->phData());
         return NS_OK;
       }
       break;
@@ -534,12 +514,12 @@ WebAuthnSignArgs::GetSignExtension(bool* aSignExtension) {
 }
 
 NS_IMETHODIMP
-WebAuthnSignArgs::GetSignExtensionSignTbs(nsTArray<uint8_t>& aTbs) {
+WebAuthnSignArgs::GetSignExtensionSignPhData(nsTArray<uint8_t>& aPhData) {
   for (const WebAuthnExtension& ext : mInfo.Extensions()) {
     if (ext.type() == WebAuthnExtension::TWebAuthnExtensionSign) {
       Maybe<WebAuthnExtensionSignSignInputs> sign = ext.get_WebAuthnExtensionSign().sign();
       if (sign.isSome()) {
-        aTbs.Assign(sign->tbs());
+        aPhData.Assign(sign->phData());
         return NS_OK;
       }
       break;
@@ -568,53 +548,13 @@ WebAuthnSignArgs::GetSignExtensionSignKeyHandleByCredentialCredentialIdBase64url
 }
 
 NS_IMETHODIMP
-WebAuthnSignArgs::GetSignExtensionSignKeyHandleByCredentialKeyHandleKid(nsTArray<nsTArray<uint8_t>>& aKeyHandleKids) {
+WebAuthnSignArgs::GetSignExtensionSignKeyHandleByCredentialKeyHandle(nsTArray<nsTArray<uint8_t>>& aKeyHandles) {
   for (const WebAuthnExtension& ext : mInfo.Extensions()) {
     if (ext.type() == WebAuthnExtension::TWebAuthnExtensionSign) {
       Maybe<WebAuthnExtensionSignSignInputs> sign = ext.get_WebAuthnExtensionSign().sign();
       if (sign.isSome()) {
         for (const WebAuthnExtensionSignSignInputsKeyHandleByCredentialEntry& entry : sign->keyHandleByCredential()) {
-          aKeyHandleKids.AppendElement(entry.kid().Clone());
-        }
-        return NS_OK;
-      }
-      break;
-    }
-  }
-
-  return NS_ERROR_NOT_AVAILABLE;
-}
-
-NS_IMETHODIMP
-WebAuthnSignArgs::GetSignExtensionSignKeyHandleByCredentialKeyHandleArgsMaybe(nsTArray<bool>& aKeyHandleArgsMaybe) {
-  for (const WebAuthnExtension& ext : mInfo.Extensions()) {
-    if (ext.type() == WebAuthnExtension::TWebAuthnExtensionSign) {
-      Maybe<WebAuthnExtensionSignSignInputs> sign = ext.get_WebAuthnExtensionSign().sign();
-      if (sign.isSome()) {
-        for (const WebAuthnExtensionSignSignInputsKeyHandleByCredentialEntry& entry : sign->keyHandleByCredential()) {
-          aKeyHandleArgsMaybe.AppendElement(entry.argsMaybe());
-        }
-        return NS_OK;
-      }
-      break;
-    }
-  }
-
-  return NS_ERROR_NOT_AVAILABLE;
-}
-
-NS_IMETHODIMP
-WebAuthnSignArgs::GetSignExtensionSignKeyHandleByCredentialKeyHandleArgs(nsTArray<nsTArray<uint8_t>>& aKeyHandleArgs) {
-  for (const WebAuthnExtension& ext : mInfo.Extensions()) {
-    if (ext.type() == WebAuthnExtension::TWebAuthnExtensionSign) {
-      Maybe<WebAuthnExtensionSignSignInputs> sign = ext.get_WebAuthnExtensionSign().sign();
-      if (sign.isSome()) {
-        for (const WebAuthnExtensionSignSignInputsKeyHandleByCredentialEntry& entry : sign->keyHandleByCredential()) {
-          if (entry.argsMaybe()) {
-            aKeyHandleArgs.AppendElement(entry.args().Clone());
-          } else {
-            aKeyHandleArgs.AppendElement(nsTArray<uint8_t>());
-          }
+          aKeyHandles.AppendElement(entry.keyHandle().Clone());
         }
         return NS_OK;
       }

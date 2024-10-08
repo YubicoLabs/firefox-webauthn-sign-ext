@@ -456,17 +456,16 @@ already_AddRefed<Promise> WebAuthnManager::MakeCredential(
     if (sign.mGenerateKey.WasPassed()) {
       const AuthenticationExtensionsSignGenerateKeyInputs& gk = sign.mGenerateKey.Value();
       CryptoBuffer tbs;
-      if (gk.mTbs.WasPassed()) {
-        tbs.Assign(gk.mTbs.Value());
+      if (gk.mPhData.WasPassed()) {
+        tbs.Assign(gk.mPhData.Value());
       }
 
-      nsTArray<WebAuthnExtensionSignGenerateKeyAlgorithmsEntry> algorithms;
-      for (const AuthenticationExtensionsSignGenerateKeyInputsAlgorithmEntry& algorithm : gk.mAlgorithms) {
-        algorithms.AppendElement(
-            WebAuthnExtensionSignGenerateKeyAlgorithmsEntry(algorithm.mAlg, algorithm.mNumKeys));
+      nsTArray<COSEAlgorithmIdentifier> algorithms;
+      for (const COSEAlgorithmIdentifier& algorithm : gk.mAlgorithms) {
+        algorithms.AppendElement(algorithm);
       }
 
-      generateKey = Some(WebAuthnExtensionSignGenerateKeyInputs(algorithms, gk.mTbs.WasPassed(), tbs));
+      generateKey = Some(WebAuthnExtensionSignGenerateKeyInputs(algorithms, gk.mPhData.WasPassed(), tbs));
     }
 
     WebAuthnExtensionSign el(generateKey, Nothing());
@@ -754,23 +753,15 @@ already_AddRefed<Promise> WebAuthnManager::GetAssertion(
     if (sign.mSign.WasPassed()) {
       const AuthenticationExtensionsSignSignInputs& si = sign.mSign.Value();
       CryptoBuffer tbs;
-      tbs.Assign(si.mTbs);
+      tbs.Assign(si.mPhData);
       nsTArray<WebAuthnExtensionSignSignInputsKeyHandleByCredentialEntry> keyHandleByCredential;
       for (const auto& entry : si.mKeyHandleByCredential.Entries()) {
         CryptoBuffer keyHandle;
-        keyHandle.Assign(entry.mValue.mKid);
-        CryptoBuffer args;
-        if (entry.mValue.mArgs.WasPassed()) {
-          args.Assign(entry.mValue.mArgs.Value());
-        } else {
-          args.Clear();
-        }
+        keyHandle.Assign(entry.mValue);
         keyHandleByCredential.AppendElement(
           WebAuthnExtensionSignSignInputsKeyHandleByCredentialEntry(
             NS_ConvertUTF16toUTF8(entry.mKey),
-            keyHandle,
-            entry.mValue.mArgs.WasPassed(),
-            args
+            keyHandle
         ));
       }
 

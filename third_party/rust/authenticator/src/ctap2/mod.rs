@@ -48,6 +48,7 @@ use std::thread;
 use std::time::Duration;
 
 use self::commands::get_info::AuthenticatorVersion;
+use self::commands::make_credentials::MakeCredentialsExtensions;
 
 macro_rules! unwrap_option {
     ($item: expr, $callback: expr) => {
@@ -474,7 +475,7 @@ pub fn register<Dev: FidoDevice>(
         args.pub_cred_params,
         args.exclude_list,
         options,
-        args.extensions.into(),
+        MakeCredentialsExtensions::from(args.extensions, args.user_verification_req),
     );
 
     let mut skip_uv = false;

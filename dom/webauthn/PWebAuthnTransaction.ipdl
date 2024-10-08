@@ -71,26 +71,19 @@ struct WebAuthnExtensionSign {
 };
 
 struct WebAuthnExtensionSignGenerateKeyInputs {
-    WebAuthnExtensionSignGenerateKeyAlgorithmsEntry[] algorithms;
-    bool tbsMaybe;
-    uint8_t[] tbs;
-};
-
-struct WebAuthnExtensionSignGenerateKeyAlgorithmsEntry {
-    int32_t alg;
-    uint32_t numKeys;
+    int32_t[] algorithms;
+    bool phDataMaybe;
+    uint8_t[] phData;
 };
 
 struct WebAuthnExtensionSignSignInputs {
-    uint8_t[] tbs;
+    uint8_t[] phData;
     WebAuthnExtensionSignSignInputsKeyHandleByCredentialEntry[] keyHandleByCredential;
 };
 
 struct WebAuthnExtensionSignSignInputsKeyHandleByCredentialEntry {
     nsCString credentialId;
-    uint8_t[] kid;
-    bool argsMaybe;
-    uint8_t[] args;
+    uint8_t[] keyHandle;
 };
 
 union WebAuthnExtension {

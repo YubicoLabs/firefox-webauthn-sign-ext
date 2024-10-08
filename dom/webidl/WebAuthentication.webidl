@@ -355,24 +355,15 @@ dictionary AuthenticationExtensionsSignInputs {
 };
 
 dictionary AuthenticationExtensionsSignGenerateKeyInputs {
-    required sequence<AuthenticationExtensionsSignGenerateKeyInputsAlgorithmEntry> algorithms;
-    BufferSource tbs;
-};
-
-dictionary AuthenticationExtensionsSignGenerateKeyInputsAlgorithmEntry {
-    required long alg;
-    unsigned long numKeys = 1;
+    required sequence<COSEAlgorithmIdentifier> algorithms;
+    BufferSource phData;
 };
 
 dictionary AuthenticationExtensionsSignSignInputs {
-    required BufferSource tbs;
-    required record<USVString, AuthenticationExtensionsSignSignInputsKeyHandle> keyHandleByCredential;
+    required BufferSource phData;
+    required record<USVString, COSEKeyRef> keyHandleByCredential;
 };
-
-dictionary AuthenticationExtensionsSignSignInputsKeyHandle {
-    required BufferSource kid;
-    BufferSource args;
-};
+typedef BufferSource COSEKeyRef;
 
 // partial dictionary AuthenticationExtensionsClientOutputs {
 //     AuthenticationExtensionsSignOutputs sign;

@@ -14,10 +14,8 @@ use authenticator::{
     ctap2::server::{
         AuthenticationExtensionsClientInputs, AuthenticationExtensionsPRFInputs,
         AuthenticationExtensionsPRFOutputs, AuthenticationExtensionsPRFValues,
-        AuthenticationExtensionsSignGenerateKeyInputsAlgorithmsEntry,
         AuthenticationExtensionsSignInputs, AuthenticationExtensionsSignSignInputs,
-        AuthenticationExtensionsSignSignInputsKeyHandle, AuthenticatorAttachment,
-        PublicKeyCredentialDescriptor, PublicKeyCredentialParameters,
+        AuthenticatorAttachment, PublicKeyCredentialDescriptor, PublicKeyCredentialParameters,
         PublicKeyCredentialUserEntity, RelyingParty, ResidentKeyRequirement,
         UserVerificationRequirement,
     },
@@ -939,47 +937,30 @@ impl AuthrsService {
                 debug!("sign_extension: {sign_extension}");
                 if sign_extension {
                     let mut sign_extension_input = AuthenticationExtensionsSignGenerateKeyInputs {
+                        ph_data: None,
                         algorithms: Vec::new(),
-                        tbs: None,
                     };
 
-                    let mut sign_extension_algorithms_alg: ThinVec<i32> = ThinVec::new();
-                    let mut sign_extension_algorithms_num_keys: ThinVec<u32> = ThinVec::new();
-                    match (
-                        unsafe {
-                            args.GetSignExtensionGenerateKeyAlgorithmsAlg(
-                                &mut sign_extension_algorithms_alg,
-                            )
-                        }
-                        .to_result(),
-                        unsafe {
-                            args.GetSignExtensionGenerateKeyAlgorithmsNumKeys(
-                                &mut sign_extension_algorithms_num_keys,
-                            )
-                        }
-                        .to_result(),
-                    ) {
-                        (Ok(_), Ok(_)) => {
-                            sign_extension_input.algorithms = sign_extension_algorithms_alg
-                                .into_iter()
-                                .zip(sign_extension_algorithms_num_keys)
-                                .map(|(alg, num_keys)| {
-                                    AuthenticationExtensionsSignGenerateKeyInputsAlgorithmsEntry {
-                                        alg,
-                                        num_keys,
-                                    }
-                                })
-                                .collect();
+                    let mut sign_extension_algorithms: ThinVec<i32> = ThinVec::new();
+                    match unsafe {
+                        args.GetSignExtensionGenerateKeyAlgorithms(&mut sign_extension_algorithms)
+                    }
+                    .to_result()
+                    {
+                        Ok(_) => {
+                            sign_extension_input.algorithms = sign_extension_algorithms.into();
                         }
                         _ => {}
                     }
 
-                    let mut sign_extension_tbs: ThinVec<u8> = ThinVec::new();
-                    match unsafe { args.GetSignExtensionGenerateKeyTbs(&mut sign_extension_tbs) }
-                        .to_result()
+                    let mut sign_extension_ph_data: ThinVec<u8> = ThinVec::new();
+                    match unsafe {
+                        args.GetSignExtensionGenerateKeyPhData(&mut sign_extension_ph_data)
+                    }
+                    .to_result()
                     {
                         Ok(_) => {
-                            sign_extension_input.tbs = Some(sign_extension_tbs.to_vec());
+                            sign_extension_input.ph_data = Some(sign_extension_ph_data.to_vec());
                         }
                         _ => {}
                     }
@@ -1283,99 +1264,65 @@ impl AuthrsService {
             };
 
         let mut sign_extension: bool = false;
-        let sign_extension_input: Option<AuthenticationExtensionsSignInputs> = match unsafe {
-            args.GetSignExtension(&mut sign_extension)
-        }
-        .to_result()
-        {
-            Ok(_) => {
-                debug!("sign_extension: {sign_extension}");
-                if sign_extension {
-                    let mut sign_extension_tbs: ThinVec<u8> = ThinVec::new();
-                    let tbs: Vec<u8> =
-                        match unsafe { args.GetSignExtensionSignTbs(&mut sign_extension_tbs) }
-                            .to_result()
+        let sign_extension_input: Option<AuthenticationExtensionsSignInputs> =
+            match unsafe { args.GetSignExtension(&mut sign_extension) }.to_result() {
+                Ok(_) => {
+                    debug!("sign_extension: {sign_extension}");
+                    if sign_extension {
+                        let mut sign_extension_ph_data: ThinVec<u8> = ThinVec::new();
+                        let ph_data: Vec<u8> = match unsafe {
+                            args.GetSignExtensionSignPhData(&mut sign_extension_ph_data)
+                        }
+                        .to_result()
                         {
-                            Ok(_) => Ok(sign_extension_tbs.to_vec()),
+                            Ok(_) => Ok(sign_extension_ph_data.to_vec()),
                             _ => Err(NS_ERROR_DOM_NOT_SUPPORTED_ERR),
                         }?;
 
-                    let mut sign_extension_credential_ids: ThinVec<nsCString> = ThinVec::new();
-                    let mut sign_extension_key_handles_kid: ThinVec<ThinVec<u8>> = ThinVec::new();
-                    let mut sign_extension_key_handles_args_maybe: ThinVec<bool> = ThinVec::new();
-                    let mut sign_extension_key_handles_args: ThinVec<ThinVec<u8>> = ThinVec::new();
-                    let key_handle_by_credential = match (
-                        unsafe {
-                            args.GetSignExtensionSignKeyHandleByCredentialCredentialIdBase64url(
-                                &mut sign_extension_credential_ids,
-                            )
-                        }
-                        .to_result(),
-                        unsafe {
-                            args.GetSignExtensionSignKeyHandleByCredentialKeyHandleKid(
-                                &mut sign_extension_key_handles_kid,
-                            )
-                        }
-                        .to_result(),
-                        unsafe {
-                            args.GetSignExtensionSignKeyHandleByCredentialKeyHandleArgsMaybe(
-                                &mut sign_extension_key_handles_args_maybe,
-                            )
-                        }
-                        .to_result(),
-                        unsafe {
-                            args.GetSignExtensionSignKeyHandleByCredentialKeyHandleArgs(
-                                &mut sign_extension_key_handles_args,
-                            )
-                        }
-                        .to_result(),
-                    ) {
-                        (Ok(_), Ok(_), Ok(_), Ok(_)) => sign_extension_credential_ids
-                            .into_iter()
-                            .zip(
-                                sign_extension_key_handles_kid
-                                    .into_iter()
-                                    .map(|v| v.to_vec()),
-                            )
-                            .zip(sign_extension_key_handles_args_maybe.into_iter())
-                            .zip(
-                                sign_extension_key_handles_args
-                                    .into_iter()
-                                    .map(|v| v.to_vec()),
-                            )
-                            .map(|(((credential_id, kid), args_maybe), args)| {
-                                base64::engine::general_purpose::URL_SAFE_NO_PAD
-                                    .decode(credential_id)
-                                    .map(|credential_id| {
-                                        (
-                                            credential_id,
-                                            AuthenticationExtensionsSignSignInputsKeyHandle {
-                                                kid,
-                                                args: if args_maybe { Some(args) } else { None },
-                                            },
-                                        )
-                                    })
-                                    .or(Err(NS_ERROR_INVALID_ARG))
-                            })
-                            .collect(),
-                        _ => Err(NS_ERROR_DOM_NOT_SUPPORTED_ERR),
-                    }?;
-                    //TODO: Validate keyHandleByCredential against allowCredentials
+                        let mut sign_extension_credential_ids: ThinVec<nsCString> = ThinVec::new();
+                        let mut sign_extension_key_handles: ThinVec<ThinVec<u8>> = ThinVec::new();
+                        let key_handle_by_credential = match (
+                            unsafe {
+                                args.GetSignExtensionSignKeyHandleByCredentialCredentialIdBase64url(
+                                    &mut sign_extension_credential_ids,
+                                )
+                            }
+                            .to_result(),
+                            unsafe {
+                                args.GetSignExtensionSignKeyHandleByCredentialKeyHandle(
+                                    &mut sign_extension_key_handles,
+                                )
+                            }
+                            .to_result(),
+                        ) {
+                            (Ok(_), Ok(_)) => sign_extension_credential_ids
+                                .into_iter()
+                                .zip(sign_extension_key_handles.into_iter().map(|v| v.to_vec()))
+                                .map(|(credential_id, key_handle)| {
+                                    base64::engine::general_purpose::URL_SAFE_NO_PAD
+                                        .decode(credential_id)
+                                        .map(|credential_id| (credential_id, key_handle))
+                                        .or(Err(NS_ERROR_INVALID_ARG))
+                                })
+                                .collect(),
+                            _ => Err(NS_ERROR_DOM_NOT_SUPPORTED_ERR),
+                        }?;
+                        //TODO: Validate keyHandleByCredential against allowCredentials
 
-                    let sign_extension_input = AuthenticationExtensionsSignInputs {
-                        generate_key: None,
-                        sign: Some(AuthenticationExtensionsSignSignInputs {
-                            tbs,
-                            key_handle_by_credential,
-                        }),
-                    };
-                    Some(sign_extension_input)
-                } else {
-                    None
+                        let sign_extension_input = AuthenticationExtensionsSignInputs {
+                            generate_key: None,
+                            sign: Some(AuthenticationExtensionsSignSignInputs {
+                                ph_data,
+                                key_handle_by_credential,
+                            }),
+                        };
+                        Some(sign_extension_input)
+                    } else {
+                        None
+                    }
                 }
-            }
-            _ => None,
-        };
+                _ => None,
+            };
         debug!("Parsed sign extension: {sign_extension_input:?}");
 
         let mut conditionally_mediated = false;

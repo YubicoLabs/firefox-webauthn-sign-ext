@@ -111,29 +111,65 @@ impl<'de> Deserialize<'de> for HmacSecretResponse {
     }
 }
 
-#[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct SignExtensionOutput {
-    #[serde(
-        rename = "kh",
-        with = "serde_bytes",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
-    /// Key handle for public key
-    key_handle: Option<Vec<u8>>,
+    /// Attestation object for generated signing public key
+    att_obj: Option<serde_bytes::ByteBuf>,
 
-    #[serde(rename = "pk", default, skip_serializing_if = "Option::is_none")]
-    /// Generated signing public key
-    public_key: Option<COSEKey>,
-
-    #[serde(
-        rename = "sig",
-        with = "serde_bytes",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
     /// Signature over tbs input (if requested)
-    signature: Option<Vec<u8>>,
+    sig: Option<serde_bytes::ByteBuf>,
+}
+
+impl Serialize for SignExtensionOutput {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serialize_map_optional!(
+            serializer,
+            &6 => &self.sig,
+            &7 => &self.att_obj,
+        )
+    }
+}
+
+impl<'de> Deserialize<'de> for SignExtensionOutput {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct SignExtensionOutputVisitor;
+
+        impl<'de> Visitor<'de> for SignExtensionOutputVisitor {
+            type Value = SignExtensionOutput;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a map")
+            }
+
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<Self::Value, A::Error> {
+                let mut att_obj = None;
+                let mut sig = None;
+
+                while let Some((key, bytes)) = map.next_entry::<u64, _>()? {
+                    match key {
+                        6 => {
+                            sig = Some(bytes);
+                        }
+                        7 => {
+                            att_obj = Some(bytes);
+                        }
+                        _ => {
+                            return Err(serde::de::Error::unknown_field(
+                                &key.to_string(),
+                                &["sig (6)", "att_obj (7)"],
+                            ));
+                        }
+                    };
+                }
+
+                Ok(SignExtensionOutput { att_obj, sig })
+            }
+        }
+        deserializer.deserialize_map(SignExtensionOutputVisitor)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
