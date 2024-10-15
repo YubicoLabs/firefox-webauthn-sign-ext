@@ -72,6 +72,7 @@ impl MakeCredentialsResult {
             })?;
 
         let credential_public_key = COSEKey {
+            kid: None,
             alg: COSEAlgorithm::ES256,
             key: COSEKeyType::EC2(credential_ec2_key),
         };
