@@ -14,15 +14,16 @@ use crate::ctap2::commands::get_next_assertion::GetNextAssertion;
 use crate::ctap2::commands::make_credentials::UserVerification;
 use crate::ctap2::server::{
     AuthenticationExtensionsClientInputs, AuthenticationExtensionsClientOutputs,
-    AuthenticationExtensionsPRFInputs, AuthenticationExtensionsPRFOutputs, AuthenticatorAttachment,
-    PublicKeyCredentialDescriptor, PublicKeyCredentialUserEntity, RelyingParty, RpIdHash,
-    UserVerificationRequirement,
+    AuthenticationExtensionsPRFInputs, AuthenticationExtensionsPRFOutputs,
+    AuthenticationExtensionsSignOutputs, AuthenticatorAttachment, PublicKeyCredentialDescriptor,
+    PublicKeyCredentialUserEntity, RelyingParty, RpIdHash, UserVerificationRequirement,
 };
 use crate::ctap2::utils::{read_be_u32, read_byte};
 use crate::errors::AuthenticatorError;
 use crate::transport::errors::{ApduErrorStatus, HIDError};
 use crate::transport::{FidoDevice, VirtualFidoDevice};
 use crate::u2ftypes::CTAP1RequestAPDU;
+use crate::{AttestationObject, MakeCredentialsResult};
 use serde::{
     de::{Error as DesError, MapAccess, Visitor},
     ser::Error as SerError,
@@ -483,6 +484,13 @@ impl GetAssertion {
                 });
             }
             None => {}
+        }
+
+        if let Some(sign_output) = &result.assertion.auth_data.extensions.sign {
+            result.extensions.sign = Some(AuthenticationExtensionsSignOutputs {
+                signature: sign_output.sig.as_ref().map(|v| v.to_vec()),
+                generated_key: None,
+            });
         }
     }
 }

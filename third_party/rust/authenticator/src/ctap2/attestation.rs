@@ -114,10 +114,10 @@ impl<'de> Deserialize<'de> for HmacSecretResponse {
 #[derive(Debug, Eq, PartialEq)]
 pub struct SignExtensionOutput {
     /// Attestation object for generated signing public key
-    att_obj: Option<serde_bytes::ByteBuf>,
+    pub att_obj: Option<serde_bytes::ByteBuf>,
 
     /// Signature over tbs input (if requested)
-    sig: Option<serde_bytes::ByteBuf>,
+    pub sig: Option<serde_bytes::ByteBuf>,
 }
 
 impl Serialize for SignExtensionOutput {

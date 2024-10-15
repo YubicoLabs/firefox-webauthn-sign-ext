@@ -15,7 +15,8 @@ use crate::ctap2::attestation::{
 use crate::ctap2::client_data::ClientDataHash;
 use crate::ctap2::server::{
     AuthenticationExtensionsClientInputs, AuthenticationExtensionsClientOutputs,
-    AuthenticationExtensionsPRFOutputs, AuthenticatorAttachment, CredentialProtectionPolicy,
+    AuthenticationExtensionsPRFOutputs, AuthenticationExtensionsSignGeneratedKey,
+    AuthenticationExtensionsSignOutputs, AuthenticatorAttachment, CredentialProtectionPolicy,
     PublicKeyCredentialDescriptor, PublicKeyCredentialParameters, PublicKeyCredentialUserEntity,
     RelyingParty, RpIdHash, UserVerificationRequirement,
 };
@@ -480,6 +481,46 @@ impl MakeCredentials {
                     })
             }
             None | Some(HmacCreateSecretOrPrf::HmacCreateSecret(false)) => {}
+        }
+
+        if let Some(sign_output) = &result.att_obj.auth_data.extensions.sign {
+            result.extensions.sign = (|| -> Option<AuthenticationExtensionsSignOutputs> {
+                Some(AuthenticationExtensionsSignOutputs {
+                    signature: sign_output.sig.as_ref().map(|v| v.to_vec()),
+                    generated_key: sign_output.att_obj.as_ref().and_then(|att_obj| {
+                        let att_obj = serde_cbor::from_slice::<MakeCredentialsResult>(&att_obj)
+                            .ok()?
+                            .att_obj;
+                        let public_key = att_obj
+                            .auth_data
+                            .credential_data
+                            .unwrap()
+                            .credential_public_key;
+                        let serde_cbor::Value::Map(key_handle) =
+                            serde_cbor::from_slice::<serde_cbor::Value>(
+                                &serde_cbor::to_vec(&public_key).ok()?,
+                            )
+                            .ok()?
+                        else {
+                            return None;
+                        };
+                        let key_handle = serde_cbor::to_vec(&serde_cbor::Value::Map(
+                            key_handle
+                                .into_iter()
+                                .filter(|(k, _)| match k {
+                                    serde_cbor::Value::Integer(1 | 2 | 3) => true,
+                                    _ => false,
+                                })
+                                .collect(),
+                        ))
+                        .ok()?;
+                        Some(AuthenticationExtensionsSignGeneratedKey {
+                            public_key: serde_cbor::to_vec(&public_key).ok()?,
+                            key_handle,
+                        })
+                    }),
+                })
+            })();
         }
     }
 }

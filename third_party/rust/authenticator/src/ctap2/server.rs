@@ -508,12 +508,25 @@ pub struct AuthenticationExtensionsSignSignInputs {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct AuthenticationExtensionsSignOutputs {
+    pub generated_key: Option<AuthenticationExtensionsSignGeneratedKey>,
+    pub signature: Option<Vec<u8>>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct AuthenticationExtensionsSignGeneratedKey {
+    pub public_key: Vec<u8>,
+    pub key_handle: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct AuthenticationExtensionsClientOutputs {
     pub app_id: Option<bool>,
     pub cred_props: Option<CredentialProperties>,
     pub hmac_create_secret: Option<bool>,
     pub hmac_get_secret: Option<HMACGetSecretOutput>,
     pub prf: Option<AuthenticationExtensionsPRFOutputs>,
+    pub sign: Option<AuthenticationExtensionsSignOutputs>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
