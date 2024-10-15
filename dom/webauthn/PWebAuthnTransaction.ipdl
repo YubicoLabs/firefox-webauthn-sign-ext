@@ -112,11 +112,23 @@ struct WebAuthnExtensionResultPrf {
   WebAuthnExtensionPrfValues? results;
 };
 
+struct WebAuthnExtensionResultSign {
+  WebAuthnExtensionResultSignGeneratedKey? generatedKey;
+  bool signatureMaybe;
+  uint8_t[] signature;
+};
+
+struct WebAuthnExtensionResultSignGeneratedKey {
+  uint8_t[] publicKey;
+  uint8_t[] keyHandle;
+};
+
 union WebAuthnExtensionResult {
   WebAuthnExtensionResultAppId;
   WebAuthnExtensionResultCredProps;
   WebAuthnExtensionResultHmacSecret;
   WebAuthnExtensionResultPrf;
+  WebAuthnExtensionResultSign;
 };
 
 struct WebAuthnMakeCredentialRpInfo {

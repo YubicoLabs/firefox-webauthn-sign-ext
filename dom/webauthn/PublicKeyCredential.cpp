@@ -183,6 +183,32 @@ void PublicKeyCredential::GetClientExtensionResults(
       }
     }
   }
+
+  if (mClientExtensionOutputs.mSign.WasPassed() || mSignGeneratedKeyPublicKey.isSome() || mSignGeneratedKeyKeyHandle.isSome() || mSignSignature.isSome()) {
+    if (!mClientExtensionOutputs.mSign.WasPassed()) {
+      mClientExtensionOutputs.mSign.Construct();
+    }
+    aResult.mSign.Construct();
+    AuthenticationExtensionsSignOutputs& dest = aResult.mSign.Value();
+
+    if (mSignGeneratedKeyPublicKey.isSome() || mSignGeneratedKeyKeyHandle.isSome()) {
+      if (!dest.mGeneratedKey.WasPassed()) {
+        dest.mGeneratedKey.Construct();
+      }
+      AuthenticationExtensionsSignGeneratedKey& destGeneratedKey = dest.mGeneratedKey.Value();
+      if (mSignGeneratedKeyPublicKey.isSome()) {
+        destGeneratedKey.mPublicKey.Init(TypedArrayCreator<ArrayBuffer>(mSignGeneratedKeyPublicKey.ref()).Create(cx));
+      }
+      if (mSignGeneratedKeyKeyHandle.isSome()) {
+        destGeneratedKey.mKeyHandle.Init(TypedArrayCreator<ArrayBuffer>(mSignGeneratedKeyKeyHandle.ref()).Create(cx));
+      }
+    }
+
+    if (mSignSignature.isSome()) {
+      dest.mSignature.Construct();
+      dest.mSignature.Value().Init(TypedArrayCreator<ArrayBuffer>(mSignSignature.ref()).Create(cx));
+    }
+  }
 }
 
 void PublicKeyCredential::ToJSON(JSContext* aCx,
@@ -279,6 +305,21 @@ void PublicKeyCredential::SetClientExtensionResultPrfResultsFirst(const nsTArray
 void PublicKeyCredential::SetClientExtensionResultPrfResultsSecond(const nsTArray<uint8_t>& aPrfResultsSecond) {
   mPrfResultsSecond.emplace(32);
   mPrfResultsSecond->Assign(aPrfResultsSecond);
+}
+
+void PublicKeyCredential::SetClientExtensionResultSignGeneratedKeyPublicKey(const nsTArray<uint8_t>& aSignGeneratedKeyPublicKey) {
+  mSignGeneratedKeyPublicKey.emplace(aSignGeneratedKeyPublicKey.Length());
+  mSignGeneratedKeyPublicKey->Assign(aSignGeneratedKeyPublicKey);
+}
+
+void PublicKeyCredential::SetClientExtensionResultSignGeneratedKeyKeyHandle(const nsTArray<uint8_t>& aSignGeneratedKeyKeyHandle) {
+  mSignGeneratedKeyKeyHandle.emplace(aSignGeneratedKeyKeyHandle.Length());
+  mSignGeneratedKeyKeyHandle->Assign(aSignGeneratedKeyKeyHandle);
+}
+
+void PublicKeyCredential::SetClientExtensionResultSignSignature(const nsTArray<uint8_t>& aSignSignature) {
+  mSignSignature.emplace(aSignSignature.Length());
+  mSignSignature->Assign(aSignSignature);
 }
 
 bool Base64DecodeToArrayBuffer(GlobalObject& aGlobal, const nsAString& aString,

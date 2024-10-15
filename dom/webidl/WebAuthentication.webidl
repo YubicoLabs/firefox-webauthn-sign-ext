@@ -365,20 +365,16 @@ dictionary AuthenticationExtensionsSignSignInputs {
 };
 typedef BufferSource COSEKeyRef;
 
-// partial dictionary AuthenticationExtensionsClientOutputs {
-//     AuthenticationExtensionsSignOutputs sign;
-// };
+partial dictionary AuthenticationExtensionsClientOutputs {
+    AuthenticationExtensionsSignOutputs sign;
+};
 
-// dictionary AuthenticationExtensionsSignOutputs {
-//     sequence<AuthenticationExtensionsSignGenerateKeyOutputs> generatedKeys;
-//     ArrayBuffer signature;
-// };
+dictionary AuthenticationExtensionsSignOutputs {
+    AuthenticationExtensionsSignGeneratedKey generatedKey;
+    ArrayBuffer                              signature;
+};
 
-// dictionary AuthenticationExtensionsSignGenerateKeyOutputs {
-//     required ArrayBuffer attestationObject;
-//     required ArrayBuffer clientDataJSON;
-
-//     required ArrayBuffer publicKey;
-//     required ArrayBuffer keyHandle;
-//     ArrayBuffer signature;
-// };
+dictionary AuthenticationExtensionsSignGeneratedKey {
+    required ArrayBuffer publicKey;
+    required ArrayBuffer keyHandle;
+};

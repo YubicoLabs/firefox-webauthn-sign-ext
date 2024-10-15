@@ -71,6 +71,9 @@ class PublicKeyCredential final : public Credential {
   void SetClientExtensionResultPrfEnabled(bool aPrfEnabled);
   void SetClientExtensionResultPrfResultsFirst(const nsTArray<uint8_t>& aPrfResultsFirst);
   void SetClientExtensionResultPrfResultsSecond(const nsTArray<uint8_t>& aPrfResultsSecond);
+  void SetClientExtensionResultSignGeneratedKeyPublicKey(const nsTArray<uint8_t>& aSignGeneratedKeyPublicKey);
+  void SetClientExtensionResultSignGeneratedKeyKeyHandle(const nsTArray<uint8_t>& aSignGeneratedKeyKeyHandle);
+  void SetClientExtensionResultSignSignature(const nsTArray<uint8_t>& aSignSignature);
 
   static void ParseCreationOptionsFromJSON(
       GlobalObject& aGlobal,
@@ -91,6 +94,9 @@ class PublicKeyCredential final : public Credential {
   AuthenticationExtensionsClientOutputs mClientExtensionOutputs;
   Maybe<nsTArray<uint8_t>> mPrfResultsFirst;
   Maybe<nsTArray<uint8_t>> mPrfResultsSecond;
+  Maybe<nsTArray<uint8_t>> mSignGeneratedKeyPublicKey;
+  Maybe<nsTArray<uint8_t>> mSignGeneratedKeyKeyHandle;
+  Maybe<nsTArray<uint8_t>> mSignSignature;
 };
 
 }  // namespace mozilla::dom

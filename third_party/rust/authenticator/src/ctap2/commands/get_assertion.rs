@@ -8,7 +8,9 @@ use crate::consts::{
     U2F_REQUEST_USER_PRESENCE,
 };
 use crate::crypto::{COSEKey, CryptoError, PinUvAuthParam, PinUvAuthToken, SharedSecret};
-use crate::ctap2::attestation::{AuthenticatorData, AuthenticatorDataFlags, HmacSecretResponse};
+use crate::ctap2::attestation::{
+    AuthenticatorData, AuthenticatorDataFlags, HmacSecretResponse, SignExtensionOutput,
+};
 use crate::ctap2::client_data::ClientDataHash;
 use crate::ctap2::commands::get_next_assertion::GetNextAssertion;
 use crate::ctap2::commands::make_credentials::UserVerification;
@@ -23,7 +25,6 @@ use crate::errors::AuthenticatorError;
 use crate::transport::errors::{ApduErrorStatus, HIDError};
 use crate::transport::{FidoDevice, VirtualFidoDevice};
 use crate::u2ftypes::CTAP1RequestAPDU;
-use crate::{AttestationObject, MakeCredentialsResult};
 use serde::{
     de::{Error as DesError, MapAccess, Visitor},
     ser::Error as SerError,
@@ -486,9 +487,11 @@ impl GetAssertion {
             None => {}
         }
 
-        if let Some(sign_output) = &result.assertion.auth_data.extensions.sign {
+        if let Some(SignExtensionOutput::Outer { att_obj: _, sig }) =
+            &result.assertion.auth_data.extensions.sign
+        {
             result.extensions.sign = Some(AuthenticationExtensionsSignOutputs {
-                signature: sign_output.sig.as_ref().map(|v| v.to_vec()),
+                signature: sig.as_ref().map(|v| v.to_vec()),
                 generated_key: None,
             });
         }

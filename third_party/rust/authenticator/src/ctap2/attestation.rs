@@ -112,21 +112,33 @@ impl<'de> Deserialize<'de> for HmacSecretResponse {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-pub struct SignExtensionOutput {
-    /// Attestation object for generated signing public key
-    pub att_obj: Option<serde_bytes::ByteBuf>,
+pub enum SignExtensionOutput {
+    /// The top-level extension output.
+    Outer {
+        /// Attestation object for generated signing public key
+        att_obj: Option<serde_bytes::ByteBuf>,
 
-    /// Signature over tbs input (if requested)
-    pub sig: Option<serde_bytes::ByteBuf>,
+        /// Signature over tbs input (if requested)
+        sig: Option<serde_bytes::ByteBuf>,
+    },
+
+    /// The extension output in the attestation object embedded inside the top-level extension output.
+    Inner {
+        /// Flags byte for the generated signing key
+        flags: u8,
+    },
 }
 
 impl Serialize for SignExtensionOutput {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serialize_map_optional!(
-            serializer,
-            &6 => &self.sig,
-            &7 => &self.att_obj,
-        )
+        match self {
+            Self::Outer { att_obj, sig } => serialize_map_optional!(
+                serializer,
+                &6 => sig,
+                &7 => att_obj,
+            ),
+            Self::Inner { flags } => serializer.serialize_u8(*flags),
+        }
     }
 }
 
@@ -138,13 +150,16 @@ impl<'de> Deserialize<'de> for SignExtensionOutput {
             type Value = SignExtensionOutput;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("a map")
+                formatter.write_str(
+                    "a map (outer extension output) or an integer (in nested attestation object)",
+                )
             }
 
             fn visit_map<A: serde::de::MapAccess<'de>>(
                 self,
                 mut map: A,
             ) -> Result<Self::Value, A::Error> {
+                // Outer extension output case
                 let mut att_obj = None;
                 let mut sig = None;
 
@@ -165,10 +180,17 @@ impl<'de> Deserialize<'de> for SignExtensionOutput {
                     };
                 }
 
-                Ok(SignExtensionOutput { att_obj, sig })
+                Ok(SignExtensionOutput::Outer { att_obj, sig })
+            }
+
+            fn visit_u8<E>(self, v: u8) -> Result<Self::Value, E>
+            where
+                E: SerdeError,
+            {
+                Ok(SignExtensionOutput::Inner { flags: v })
             }
         }
-        deserializer.deserialize_map(SignExtensionOutputVisitor)
+        deserializer.deserialize_any(SignExtensionOutputVisitor)
     }
 }
 

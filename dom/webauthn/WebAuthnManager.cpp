@@ -930,6 +930,17 @@ void WebAuthnManager::FinishMakeCredential(
         credential->SetClientExtensionResultPrfEnabled(prfEnabled.value());
       }
     }
+    if (ext.type() == WebAuthnExtensionResult::TWebAuthnExtensionResultSign) {
+      const WebAuthnExtensionResultSign& sign = ext.get_WebAuthnExtensionResultSign();
+      const Maybe<WebAuthnExtensionResultSignGeneratedKey>& generatedKey = sign.generatedKey();
+      if (generatedKey.isSome()) {
+        credential->SetClientExtensionResultSignGeneratedKeyPublicKey(generatedKey.value().publicKey());
+        credential->SetClientExtensionResultSignGeneratedKeyKeyHandle(generatedKey.value().keyHandle());
+      }
+      if (sign.signatureMaybe()) {
+        credential->SetClientExtensionResultSignSignature(sign.signature());
+      }
+    }
   }
 
   ResolveTransaction(credential);
@@ -994,6 +1005,12 @@ void WebAuthnManager::FinishGetAssertion(
         if (prfResults.value().secondMaybe()) {
           credential->SetClientExtensionResultPrfResultsSecond(prfResults.value().second());
         }
+      }
+    }
+    if (ext.type() == WebAuthnExtensionResult::TWebAuthnExtensionResultSign) {
+      const WebAuthnExtensionResultSign& sign = ext.get_WebAuthnExtensionResultSign();
+      if (sign.signatureMaybe()) {
+        credential->SetClientExtensionResultSignSignature(sign.signature());
       }
     }
   }

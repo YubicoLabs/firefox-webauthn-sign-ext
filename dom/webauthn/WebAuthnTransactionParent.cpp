@@ -187,6 +187,47 @@ mozilla::ipc::IPCResult WebAuthnTransactionParent::RecvRequestRegister(
               }
             }
 
+            {
+              Maybe<WebAuthnExtensionResultSignGeneratedKey> signGeneratedKey = Nothing();
+              bool signSignatureMaybe = false;
+
+              nsTArray<uint8_t> signGeneratedKeyPublicKey;
+              rv = aValue->GetSignGeneratedKeyPublicKey(signGeneratedKeyPublicKey);
+              if (rv != NS_ERROR_NOT_AVAILABLE) {
+                if (NS_WARN_IF(NS_FAILED(rv))) {
+                  Unused << parent->SendAbort(aTransactionId,
+                                              NS_ERROR_DOM_NOT_ALLOWED_ERR);
+                  return;
+                }
+
+                nsTArray<uint8_t> signGeneratedKeyKeyHandle;
+                rv = aValue->GetSignGeneratedKeyKeyHandle(signGeneratedKeyKeyHandle);
+                if (rv != NS_ERROR_NOT_AVAILABLE) {
+                  if (NS_WARN_IF(NS_FAILED(rv))) {
+                    Unused << parent->SendAbort(aTransactionId,
+                                                NS_ERROR_DOM_NOT_ALLOWED_ERR);
+                    return;
+                  }
+                  signGeneratedKey = Some(WebAuthnExtensionResultSignGeneratedKey(signGeneratedKeyPublicKey, signGeneratedKeyKeyHandle));
+                }
+              }
+
+              nsTArray<uint8_t> signSignature;
+              rv = aValue->GetSignSignature(signSignature);
+              if (rv != NS_ERROR_NOT_AVAILABLE) {
+                if (NS_WARN_IF(NS_FAILED(rv))) {
+                  Unused << parent->SendAbort(aTransactionId,
+                                              NS_ERROR_DOM_NOT_ALLOWED_ERR);
+                  return;
+                }
+                signSignatureMaybe = true;
+              }
+
+              if (signGeneratedKey.isSome() || signSignatureMaybe) {
+                extensions.AppendElement(WebAuthnExtensionResultSign(signGeneratedKey, signSignatureMaybe, signSignature));
+              }
+            }
+
             WebAuthnMakeCredentialResult result(
                 clientData, attObj, credentialId, transports, extensions,
                 authenticatorAttachment);
@@ -334,6 +375,25 @@ mozilla::ipc::IPCResult WebAuthnTransactionParent::RecvRequestSign(
                       prfResultsFirst,
                       prfResultsSecondMaybe,
                       prfResultsSecond))));
+              }
+            }
+
+            {
+              bool signSignatureMaybe = false;
+
+              nsTArray<uint8_t> signSignature;
+              rv = aValue->GetSignSignature(signSignature);
+              if (rv != NS_ERROR_NOT_AVAILABLE) {
+                if (NS_WARN_IF(NS_FAILED(rv))) {
+                  Unused << parent->SendAbort(aTransactionId,
+                                              NS_ERROR_DOM_NOT_ALLOWED_ERR);
+                  return;
+                }
+                signSignatureMaybe = true;
+              }
+
+              if (signSignatureMaybe) {
+                extensions.AppendElement(WebAuthnExtensionResultSign(Nothing(), signSignatureMaybe, signSignature));
               }
             }
 

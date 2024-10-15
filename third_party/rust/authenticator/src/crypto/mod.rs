@@ -577,7 +577,7 @@ pub enum COSEAlgorithm {
     AES_CCM_64_128_256 = 33,           //  AES-CCM mode 256-bit key, 128-bit tag, 7-byte nonce
     IV_GENERATION = 34,                //  For doing IV generation for symmetric algorithms.
 
-    ARKG_P256_ECDH_P256_HMAC_SHA256_HKDF_SHA256 = -65538,
+    ESP256_ARKG = -65539,
 }
 
 impl Serialize for COSEAlgorithm {
@@ -716,9 +716,7 @@ impl TryFrom<i64> for COSEAlgorithm {
             }
             i if i == COSEAlgorithm::IV_GENERATION as i64 => Ok(COSEAlgorithm::IV_GENERATION),
             i if i == COSEAlgorithm::INSECURE_RS1 as i64 => Ok(COSEAlgorithm::INSECURE_RS1),
-            i if i == COSEAlgorithm::ARKG_P256_ECDH_P256_HMAC_SHA256_HKDF_SHA256 as i64 => {
-                Ok(COSEAlgorithm::ARKG_P256_ECDH_P256_HMAC_SHA256_HKDF_SHA256)
-            }
+            i if i == COSEAlgorithm::ESP256_ARKG as i64 => Ok(COSEAlgorithm::ESP256_ARKG),
             _ => Err(CryptoError::UnknownAlgorithm),
         }
     }
