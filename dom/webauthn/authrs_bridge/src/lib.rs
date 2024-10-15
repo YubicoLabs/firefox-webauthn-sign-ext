@@ -264,6 +264,54 @@ impl WebAuthnRegisterResult {
         Ok(second)
     }
 
+    xpcom_method!(get_sign_generated_key_public_key => GetSignGeneratedKeyPublicKey() -> ThinVec<u8>);
+    fn get_sign_generated_key_public_key(&self) -> Result<ThinVec<u8>, nsresult> {
+        self.result
+            .try_borrow()
+            .ok()
+            .and_then(|result| {
+                result
+                    .extensions
+                    .sign
+                    .as_ref()
+                    .and_then(|sign| sign.generated_key.as_ref())
+                    .map(|generated_key| generated_key.public_key.as_slice().into())
+            })
+            .ok_or(NS_ERROR_NOT_AVAILABLE)
+    }
+
+    xpcom_method!(get_sign_generated_key_key_handle => GetSignGeneratedKeyKeyHandle() -> ThinVec<u8>);
+    fn get_sign_generated_key_key_handle(&self) -> Result<ThinVec<u8>, nsresult> {
+        self.result
+            .try_borrow()
+            .ok()
+            .and_then(|result| {
+                result
+                    .extensions
+                    .sign
+                    .as_ref()
+                    .and_then(|sign| sign.generated_key.as_ref())
+                    .map(|generated_key| generated_key.key_handle.as_slice().into())
+            })
+            .ok_or(NS_ERROR_NOT_AVAILABLE)
+    }
+
+    xpcom_method!(get_sign_signature => GetSignSignature() -> ThinVec<u8>);
+    fn get_sign_signature(&self) -> Result<ThinVec<u8>, nsresult> {
+        self.result
+            .try_borrow()
+            .ok()
+            .and_then(|result| {
+                result
+                    .extensions
+                    .sign
+                    .as_ref()
+                    .and_then(|sign| sign.signature.as_ref())
+                    .map(|signature| signature.as_slice().into())
+            })
+            .ok_or(NS_ERROR_NOT_AVAILABLE)
+    }
+
     xpcom_method!(get_cred_props_rk => GetCredPropsRk() -> bool);
     fn get_cred_props_rk(&self) -> Result<bool, nsresult> {
         let Some(cred_props) = &self.result.borrow().extensions.cred_props else {
@@ -449,6 +497,17 @@ impl WebAuthnSignResult {
             return Err(NS_ERROR_NOT_AVAILABLE);
         };
         Ok(second.as_slice().into())
+    }
+
+    xpcom_method!(get_sign_signature => GetSignSignature() -> ThinVec<u8>);
+    fn get_sign_signature(&self) -> Result<ThinVec<u8>, nsresult> {
+        self.result
+            .extensions
+            .sign
+            .as_ref()
+            .and_then(|sign| sign.signature.as_ref())
+            .map(|signature| signature.as_slice().into())
+            .ok_or(NS_ERROR_NOT_AVAILABLE)
     }
 }
 

@@ -106,6 +106,24 @@ WebAuthnRegisterResult::GetPrfResultsSecond(nsTArray<uint8_t>& aPrfResultsSecond
 }
 
 NS_IMETHODIMP
+WebAuthnRegisterResult::GetSignGeneratedKeyPublicKey(nsTArray<uint8_t>& aSignGeneratedKeyPublicKey) {
+  // Implemented in authrs_bridge
+  return NS_ERROR_NOT_IMPLEMENTED;
+}
+
+NS_IMETHODIMP
+WebAuthnRegisterResult::GetSignGeneratedKeyKeyHandle(nsTArray<uint8_t>& aSignGeneratedKeyKeyHandle) {
+  // Implemented in authrs_bridge
+  return NS_ERROR_NOT_IMPLEMENTED;
+}
+
+NS_IMETHODIMP
+WebAuthnRegisterResult::GetSignSignature(nsTArray<uint8_t>& aSignSignature) {
+  // Implemented in authrs_bridge
+  return NS_ERROR_NOT_IMPLEMENTED;
+}
+
+NS_IMETHODIMP
 WebAuthnRegisterResult::GetAuthenticatorAttachment(
     nsAString& aAuthenticatorAttachment) {
   if (mAuthenticatorAttachment.isSome()) {
@@ -219,6 +237,12 @@ WebAuthnSignResult::GetPrfResultsFirst(nsTArray<uint8_t>& aPrfResultsFirst) {
 
 NS_IMETHODIMP
 WebAuthnSignResult::GetPrfResultsSecond(nsTArray<uint8_t>& aPrfResultsSecond) {
+  return NS_ERROR_NOT_IMPLEMENTED;
+}
+
+NS_IMETHODIMP
+WebAuthnSignResult::GetSignSignature(nsTArray<uint8_t>& aSignSignature) {
+  // Implemented in authrs_bridge
   return NS_ERROR_NOT_IMPLEMENTED;
 }
 
