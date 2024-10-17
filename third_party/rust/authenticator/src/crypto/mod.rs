@@ -1106,13 +1106,15 @@ impl Serialize for COSEKey {
     where
         S: Serializer,
     {
+        let kid = self.kid.as_ref().map(|kid| serde_bytes::Bytes::new(kid));
+        let alg = Some(&self.alg);
         match &self.key {
             COSEKeyType::OKP(key) => {
                 serialize_map_optional!(
                     serializer,
                     &1 => Some(&COSEKeyTypeId::OKP),
-                    &2 => &self.kid,
-                    &3 => Some(&self.alg),
+                    &2 => kid,
+                    &3 => alg,
                     &-1 => Some(&key.curve),
                     &-2 => Some(serde_bytes::Bytes::new(&key.x)),
                 )
@@ -1121,8 +1123,8 @@ impl Serialize for COSEKey {
                 serialize_map_optional!(
                     serializer,
                     &1 => Some(&COSEKeyTypeId::EC2),
-                    &2 => &self.kid,
-                    &3 => Some(&self.alg),
+                    &2 => kid,
+                    &3 => alg,
                     &-1 => Some(&key.curve),
                     &-2 => Some(serde_bytes::Bytes::new(&key.x)),
                     &-3 => Some(serde_bytes::Bytes::new(&key.y)),
@@ -1132,8 +1134,8 @@ impl Serialize for COSEKey {
                 serialize_map_optional!(
                     serializer,
                     &1 => Some(&COSEKeyTypeId::RSA),
-                    &2 => &self.kid,
-                    &3 => Some(&self.alg),
+                    &2 => kid,
+                    &3 => alg,
                     &-1 => Some(serde_bytes::Bytes::new(&key.n)),
                     &-2 => Some(serde_bytes::Bytes::new(&key.e)),
                 )
@@ -1145,8 +1147,8 @@ impl Serialize for COSEKey {
                 serialize_map_optional!(
                     serializer,
                     &1 => Some(&COSEKeyTypeId::ARKG),
-                    &2 => &self.kid,
-                    &3 => Some(&self.alg),
+                    &2 => kid,
+                    &3 => alg,
                     &-1 => Some(blinding_pk),
                     &-2 => Some(kem_pk),
                 )
