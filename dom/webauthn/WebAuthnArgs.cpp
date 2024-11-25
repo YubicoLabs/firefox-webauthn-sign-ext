@@ -115,6 +115,155 @@ WebAuthnRegisterArgs::GetHmacCreateSecret(bool* aHmacCreateSecret) {
 }
 
 NS_IMETHODIMP
+WebAuthnRegisterArgs::GetPrf(bool* aPrf) {
+  *aPrf = mPrf;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+WebAuthnRegisterArgs::GetPrfEvalFirst(nsTArray<uint8_t>& aEvalFirst) {
+  for (const WebAuthnExtension& ext : mInfo.Extensions()) {
+    if (ext.type() == WebAuthnExtension::TWebAuthnExtensionPrf) {
+      Maybe<WebAuthnExtensionPrfValues> eval = ext.get_WebAuthnExtensionPrf().eval();
+      if (eval.isSome()) {
+        aEvalFirst.Assign(eval->first());
+        return NS_OK;
+      }
+      break;
+    }
+  }
+
+  return NS_ERROR_NOT_AVAILABLE;
+}
+
+NS_IMETHODIMP
+WebAuthnRegisterArgs::GetPrfEvalSecond(nsTArray<uint8_t>& aEvalSecond) {
+  for (const WebAuthnExtension& ext : mInfo.Extensions()) {
+    if (ext.type() == WebAuthnExtension::TWebAuthnExtensionPrf) {
+      Maybe<WebAuthnExtensionPrfValues> eval = ext.get_WebAuthnExtensionPrf().eval();
+      if (eval.isSome() && eval->secondMaybe()) {
+        aEvalSecond.Assign(eval->second());
+        return NS_OK;
+      }
+      break;
+    }
+  }
+
+  return NS_ERROR_NOT_AVAILABLE;
+}
+
+NS_IMETHODIMP
+WebAuthnRegisterArgs::GetPrfEvalByCredentialCredentialIdBase64url(nsTArray<nsCString>& aCredentialIds) {
+  for (const WebAuthnExtension& ext : mInfo.Extensions()) {
+    if (ext.type() == WebAuthnExtension::TWebAuthnExtensionPrf) {
+      if (ext.get_WebAuthnExtensionPrf().evalByCredentialMaybe()) {
+        for (const WebAuthnExtensionPrfEvalByCredentialEntry& entry : ext.get_WebAuthnExtensionPrf().evalByCredential()) {
+          aCredentialIds.AppendElement(entry.credentialId());
+        }
+        return NS_OK;
+      }
+      break;
+    }
+  }
+
+  return NS_ERROR_NOT_AVAILABLE;
+}
+
+NS_IMETHODIMP
+WebAuthnRegisterArgs::GetPrfEvalByCredentialEvalFirst(nsTArray<nsTArray<uint8_t>>& aEvalFirsts) {
+  for (const WebAuthnExtension& ext : mInfo.Extensions()) {
+    if (ext.type() == WebAuthnExtension::TWebAuthnExtensionPrf) {
+      if (ext.get_WebAuthnExtensionPrf().evalByCredentialMaybe()) {
+        for (const WebAuthnExtensionPrfEvalByCredentialEntry& entry : ext.get_WebAuthnExtensionPrf().evalByCredential()) {
+          aEvalFirsts.AppendElement(entry.eval().first().Clone());
+        }
+        return NS_OK;
+      }
+      break;
+    }
+  }
+
+  return NS_ERROR_NOT_AVAILABLE;
+}
+
+NS_IMETHODIMP
+WebAuthnRegisterArgs::GetPrfEvalByCredentialEvalSecondMaybe(nsTArray<bool>& aEvalSecondMaybes) {
+  for (const WebAuthnExtension& ext : mInfo.Extensions()) {
+    if (ext.type() == WebAuthnExtension::TWebAuthnExtensionPrf) {
+      if (ext.get_WebAuthnExtensionPrf().evalByCredentialMaybe()) {
+        for (const WebAuthnExtensionPrfEvalByCredentialEntry& entry : ext.get_WebAuthnExtensionPrf().evalByCredential()) {
+          aEvalSecondMaybes.AppendElement(entry.eval().secondMaybe());
+        }
+        return NS_OK;
+      }
+      break;
+    }
+  }
+
+  return NS_ERROR_NOT_AVAILABLE;
+}
+
+NS_IMETHODIMP
+WebAuthnRegisterArgs::GetPrfEvalByCredentialEvalSecond(nsTArray<nsTArray<uint8_t>>& aEvalSeconds) {
+  for (const WebAuthnExtension& ext : mInfo.Extensions()) {
+    if (ext.type() == WebAuthnExtension::TWebAuthnExtensionPrf) {
+      if (ext.get_WebAuthnExtensionPrf().evalByCredentialMaybe()) {
+        for (const WebAuthnExtensionPrfEvalByCredentialEntry& entry : ext.get_WebAuthnExtensionPrf().evalByCredential()) {
+          if (entry.eval().secondMaybe()) {
+            aEvalSeconds.AppendElement(entry.eval().second().Clone());
+          } else {
+            aEvalSeconds.AppendElement(nsTArray<uint8_t>());
+          }
+        }
+        return NS_OK;
+      }
+      break;
+    }
+  }
+
+  return NS_ERROR_NOT_AVAILABLE;
+}
+
+NS_IMETHODIMP
+WebAuthnRegisterArgs::GetSignExtension(bool* aSignExtension) {
+  *aSignExtension = mSignExtension;
+
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+WebAuthnRegisterArgs::GetSignExtensionGenerateKeyAlgorithms(nsTArray<int32_t>& algorithms) {
+  for (const WebAuthnExtension& ext : mInfo.Extensions()) {
+    if (ext.type() == WebAuthnExtension::TWebAuthnExtensionSign) {
+      Maybe<WebAuthnExtensionSignGenerateKeyInputs> generateKey = ext.get_WebAuthnExtensionSign().generateKey();
+      if (generateKey.isSome()) {
+        algorithms.Assign(generateKey->algorithms());
+        return NS_OK;
+      }
+      break;
+    }
+  }
+
+  return NS_ERROR_NOT_AVAILABLE;
+}
+
+NS_IMETHODIMP
+WebAuthnRegisterArgs::GetSignExtensionGenerateKeyPhData(nsTArray<uint8_t>& aPhData) {
+  for (const WebAuthnExtension& ext : mInfo.Extensions()) {
+    if (ext.type() == WebAuthnExtension::TWebAuthnExtensionSign) {
+      Maybe<WebAuthnExtensionSignGenerateKeyInputs> generateKey = ext.get_WebAuthnExtensionSign().generateKey();
+      if (generateKey.isSome() && generateKey->phDataMaybe()) {
+        aPhData.Assign(generateKey->phData());
+        return NS_OK;
+      }
+      break;
+    }
+  }
+
+  return NS_ERROR_NOT_AVAILABLE;
+}
+
+NS_IMETHODIMP
 WebAuthnRegisterArgs::GetMinPinLength(bool* aMinPinLength) {
   *aMinPinLength = mMinPinLength;
 
@@ -245,6 +394,175 @@ WebAuthnSignArgs::GetAppId(nsAString& aAppId) {
   }
   aAppId = mAppId.ref();
   return NS_OK;
+}
+
+NS_IMETHODIMP
+WebAuthnSignArgs::GetPrf(bool* aPrf) {
+  *aPrf = mPrf;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+WebAuthnSignArgs::GetPrfEvalFirst(nsTArray<uint8_t>& aEvalFirst) {
+  for (const WebAuthnExtension& ext : mInfo.Extensions()) {
+    if (ext.type() == WebAuthnExtension::TWebAuthnExtensionPrf) {
+      Maybe<WebAuthnExtensionPrfValues> eval = ext.get_WebAuthnExtensionPrf().eval();
+      if (eval.isSome()) {
+        aEvalFirst.Assign(eval->first());
+        return NS_OK;
+      }
+      break;
+    }
+  }
+
+  return NS_ERROR_NOT_AVAILABLE;
+}
+
+NS_IMETHODIMP
+WebAuthnSignArgs::GetPrfEvalSecond(nsTArray<uint8_t>& aEvalSecond) {
+  for (const WebAuthnExtension& ext : mInfo.Extensions()) {
+    if (ext.type() == WebAuthnExtension::TWebAuthnExtensionPrf) {
+      Maybe<WebAuthnExtensionPrfValues> eval = ext.get_WebAuthnExtensionPrf().eval();
+      if (eval.isSome() && eval->secondMaybe()) {
+        aEvalSecond.Assign(eval->second());
+        return NS_OK;
+      }
+      break;
+    }
+  }
+
+  return NS_ERROR_NOT_AVAILABLE;
+}
+
+NS_IMETHODIMP
+WebAuthnSignArgs::GetPrfEvalByCredentialCredentialIdBase64url(nsTArray<nsCString>& aCredentialIds) {
+  for (const WebAuthnExtension& ext : mInfo.Extensions()) {
+    if (ext.type() == WebAuthnExtension::TWebAuthnExtensionPrf) {
+      if (ext.get_WebAuthnExtensionPrf().evalByCredentialMaybe()) {
+        for (const WebAuthnExtensionPrfEvalByCredentialEntry& entry : ext.get_WebAuthnExtensionPrf().evalByCredential()) {
+          aCredentialIds.AppendElement(entry.credentialId());
+        }
+        return NS_OK;
+      }
+      break;
+    }
+  }
+
+  return NS_ERROR_NOT_AVAILABLE;
+}
+
+NS_IMETHODIMP
+WebAuthnSignArgs::GetPrfEvalByCredentialEvalFirst(nsTArray<nsTArray<uint8_t>>& aEvalFirsts) {
+  for (const WebAuthnExtension& ext : mInfo.Extensions()) {
+    if (ext.type() == WebAuthnExtension::TWebAuthnExtensionPrf) {
+      if (ext.get_WebAuthnExtensionPrf().evalByCredentialMaybe()) {
+        for (const WebAuthnExtensionPrfEvalByCredentialEntry& entry : ext.get_WebAuthnExtensionPrf().evalByCredential()) {
+          aEvalFirsts.AppendElement(entry.eval().first().Clone());
+        }
+        return NS_OK;
+      }
+      break;
+    }
+  }
+
+  return NS_ERROR_NOT_AVAILABLE;
+}
+
+NS_IMETHODIMP
+WebAuthnSignArgs::GetPrfEvalByCredentialEvalSecondMaybe(nsTArray<bool>& aEvalSecondMaybes) {
+  for (const WebAuthnExtension& ext : mInfo.Extensions()) {
+    if (ext.type() == WebAuthnExtension::TWebAuthnExtensionPrf) {
+      if (ext.get_WebAuthnExtensionPrf().evalByCredentialMaybe()) {
+        for (const WebAuthnExtensionPrfEvalByCredentialEntry& entry : ext.get_WebAuthnExtensionPrf().evalByCredential()) {
+          aEvalSecondMaybes.AppendElement(entry.eval().secondMaybe());
+        }
+        return NS_OK;
+      }
+      break;
+    }
+  }
+
+  return NS_ERROR_NOT_AVAILABLE;
+}
+
+NS_IMETHODIMP
+WebAuthnSignArgs::GetPrfEvalByCredentialEvalSecond(nsTArray<nsTArray<uint8_t>>& aEvalSeconds) {
+  for (const WebAuthnExtension& ext : mInfo.Extensions()) {
+    if (ext.type() == WebAuthnExtension::TWebAuthnExtensionPrf) {
+      if (ext.get_WebAuthnExtensionPrf().evalByCredentialMaybe()) {
+        for (const WebAuthnExtensionPrfEvalByCredentialEntry& entry : ext.get_WebAuthnExtensionPrf().evalByCredential()) {
+          if (entry.eval().secondMaybe()) {
+            aEvalSeconds.AppendElement(entry.eval().second().Clone());
+          } else {
+            aEvalSeconds.AppendElement(nsTArray<uint8_t>());
+          }
+        }
+        return NS_OK;
+      }
+      break;
+    }
+  }
+
+  return NS_ERROR_NOT_AVAILABLE;
+}
+
+NS_IMETHODIMP
+WebAuthnSignArgs::GetSignExtension(bool* aSignExtension) {
+  *aSignExtension = mSignExtension;
+
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+WebAuthnSignArgs::GetSignExtensionSignPhData(nsTArray<uint8_t>& aPhData) {
+  for (const WebAuthnExtension& ext : mInfo.Extensions()) {
+    if (ext.type() == WebAuthnExtension::TWebAuthnExtensionSign) {
+      Maybe<WebAuthnExtensionSignSignInputs> sign = ext.get_WebAuthnExtensionSign().sign();
+      if (sign.isSome()) {
+        aPhData.Assign(sign->phData());
+        return NS_OK;
+      }
+      break;
+    }
+  }
+
+  return NS_ERROR_NOT_AVAILABLE;
+}
+
+NS_IMETHODIMP
+WebAuthnSignArgs::GetSignExtensionSignKeyHandleByCredentialCredentialIdBase64url(nsTArray<nsCString>& aCredentialIds) {
+  for (const WebAuthnExtension& ext : mInfo.Extensions()) {
+    if (ext.type() == WebAuthnExtension::TWebAuthnExtensionSign) {
+      Maybe<WebAuthnExtensionSignSignInputs> sign = ext.get_WebAuthnExtensionSign().sign();
+      if (sign.isSome()) {
+        for (const WebAuthnExtensionSignSignInputsKeyHandleByCredentialEntry& entry : sign->keyHandleByCredential()) {
+          aCredentialIds.AppendElement(entry.credentialId());
+        }
+        return NS_OK;
+      }
+      break;
+    }
+  }
+
+  return NS_ERROR_NOT_AVAILABLE;
+}
+
+NS_IMETHODIMP
+WebAuthnSignArgs::GetSignExtensionSignKeyHandleByCredentialKeyHandle(nsTArray<nsTArray<uint8_t>>& aKeyHandles) {
+  for (const WebAuthnExtension& ext : mInfo.Extensions()) {
+    if (ext.type() == WebAuthnExtension::TWebAuthnExtensionSign) {
+      Maybe<WebAuthnExtensionSignSignInputs> sign = ext.get_WebAuthnExtensionSign().sign();
+      if (sign.isSome()) {
+        for (const WebAuthnExtensionSignSignInputsKeyHandleByCredentialEntry& entry : sign->keyHandleByCredential()) {
+          aKeyHandles.AppendElement(entry.keyHandle().Clone());
+        }
+        return NS_OK;
+      }
+      break;
+    }
+  }
+
+  return NS_ERROR_NOT_AVAILABLE;
 }
 
 NS_IMETHODIMP

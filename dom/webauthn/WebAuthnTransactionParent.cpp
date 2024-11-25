@@ -143,6 +143,91 @@ mozilla::ipc::IPCResult WebAuthnTransactionParent::RecvRequestRegister(
                   WebAuthnExtensionResultHmacSecret(hmacCreateSecret));
             }
 
+            {
+              Maybe<bool> prfEnabledMaybe = Nothing();
+              Maybe<WebAuthnExtensionPrfValues> prfResults = Nothing();
+
+              bool prfEnabled;
+              rv = aValue->GetPrfEnabled(&prfEnabled);
+              if (rv != NS_ERROR_NOT_AVAILABLE) {
+                if (NS_WARN_IF(NS_FAILED(rv))) {
+                  Unused << parent->SendAbort(aTransactionId,
+                                              NS_ERROR_DOM_NOT_ALLOWED_ERR);
+                  return;
+                }
+                prfEnabledMaybe = Some(prfEnabled);
+              }
+
+              nsTArray<uint8_t> prfResultsFirst;
+              rv = aValue->GetPrfResultsFirst(prfResultsFirst);
+              if (rv != NS_ERROR_NOT_AVAILABLE) {
+                if (NS_WARN_IF(NS_FAILED(rv))) {
+                  Unused << parent->SendAbort(aTransactionId,
+                                              NS_ERROR_DOM_NOT_ALLOWED_ERR);
+                  return;
+                }
+
+                bool prfResultsSecondMaybe;
+                nsTArray<uint8_t> prfResultsSecond;
+                rv = aValue->GetPrfResultsSecond(prfResultsSecond);
+                if (rv != NS_ERROR_NOT_AVAILABLE) {
+                  if (NS_WARN_IF(NS_FAILED(rv))) {
+                    Unused << parent->SendAbort(aTransactionId,
+                                                NS_ERROR_DOM_NOT_ALLOWED_ERR);
+                    return;
+                  }
+                  prfResultsSecondMaybe = true;
+                }
+
+                prfResults = Some(WebAuthnExtensionPrfValues(prfResultsFirst, prfResultsSecondMaybe, prfResultsSecond));
+              }
+
+              if (prfEnabledMaybe.isSome() || prfResults.isSome()) {
+                extensions.AppendElement(WebAuthnExtensionResultPrf(prfEnabledMaybe, prfResults));
+              }
+            }
+
+            {
+              Maybe<WebAuthnExtensionResultSignGeneratedKey> signGeneratedKey = Nothing();
+              bool signSignatureMaybe = false;
+
+              nsTArray<uint8_t> signGeneratedKeyPublicKey;
+              rv = aValue->GetSignGeneratedKeyPublicKey(signGeneratedKeyPublicKey);
+              if (rv != NS_ERROR_NOT_AVAILABLE) {
+                if (NS_WARN_IF(NS_FAILED(rv))) {
+                  Unused << parent->SendAbort(aTransactionId,
+                                              NS_ERROR_DOM_NOT_ALLOWED_ERR);
+                  return;
+                }
+
+                nsTArray<uint8_t> signGeneratedKeyKeyHandle;
+                rv = aValue->GetSignGeneratedKeyKeyHandle(signGeneratedKeyKeyHandle);
+                if (rv != NS_ERROR_NOT_AVAILABLE) {
+                  if (NS_WARN_IF(NS_FAILED(rv))) {
+                    Unused << parent->SendAbort(aTransactionId,
+                                                NS_ERROR_DOM_NOT_ALLOWED_ERR);
+                    return;
+                  }
+                  signGeneratedKey = Some(WebAuthnExtensionResultSignGeneratedKey(signGeneratedKeyPublicKey, signGeneratedKeyKeyHandle));
+                }
+              }
+
+              nsTArray<uint8_t> signSignature;
+              rv = aValue->GetSignSignature(signSignature);
+              if (rv != NS_ERROR_NOT_AVAILABLE) {
+                if (NS_WARN_IF(NS_FAILED(rv))) {
+                  Unused << parent->SendAbort(aTransactionId,
+                                              NS_ERROR_DOM_NOT_ALLOWED_ERR);
+                  return;
+                }
+                signSignatureMaybe = true;
+              }
+
+              if (signGeneratedKey.isSome() || signSignatureMaybe) {
+                extensions.AppendElement(WebAuthnExtensionResultSign(signGeneratedKey, signSignatureMaybe, signSignature));
+              }
+            }
+
             WebAuthnMakeCredentialResult result(
                 clientData, attObj, credentialId, transports, extensions,
                 authenticatorAttachment);
@@ -259,6 +344,57 @@ mozilla::ipc::IPCResult WebAuthnTransactionParent::RecvRequestSign(
                 return;
               }
               extensions.AppendElement(WebAuthnExtensionResultAppId(usedAppId));
+            }
+
+            {
+              nsTArray<uint8_t> prfResultsFirst;
+              rv = aValue->GetPrfResultsFirst(prfResultsFirst);
+              if (rv != NS_ERROR_NOT_AVAILABLE) {
+                if (NS_WARN_IF(NS_FAILED(rv))) {
+                  Unused << parent->SendAbort(aTransactionId,
+                                              NS_ERROR_DOM_NOT_ALLOWED_ERR);
+                  return;
+                }
+
+                bool prfResultsSecondMaybe;
+                nsTArray<uint8_t> prfResultsSecond;
+                rv = aValue->GetPrfResultsSecond(prfResultsSecond);
+                if (rv != NS_ERROR_NOT_AVAILABLE) {
+                  if (NS_WARN_IF(NS_FAILED(rv))) {
+                    Unused << parent->SendAbort(aTransactionId,
+                                                NS_ERROR_DOM_NOT_ALLOWED_ERR);
+                    return;
+                  }
+                  prfResultsSecondMaybe = true;
+                }
+
+                extensions.AppendElement(
+                  WebAuthnExtensionResultPrf(
+                    Nothing(),
+                    Some(WebAuthnExtensionPrfValues(
+                      prfResultsFirst,
+                      prfResultsSecondMaybe,
+                      prfResultsSecond))));
+              }
+            }
+
+            {
+              bool signSignatureMaybe = false;
+
+              nsTArray<uint8_t> signSignature;
+              rv = aValue->GetSignSignature(signSignature);
+              if (rv != NS_ERROR_NOT_AVAILABLE) {
+                if (NS_WARN_IF(NS_FAILED(rv))) {
+                  Unused << parent->SendAbort(aTransactionId,
+                                              NS_ERROR_DOM_NOT_ALLOWED_ERR);
+                  return;
+                }
+                signSignatureMaybe = true;
+              }
+
+              if (signSignatureMaybe) {
+                extensions.AppendElement(WebAuthnExtensionResultSign(Nothing(), signSignatureMaybe, signSignature));
+              }
             }
 
             WebAuthnGetAssertionResult result(

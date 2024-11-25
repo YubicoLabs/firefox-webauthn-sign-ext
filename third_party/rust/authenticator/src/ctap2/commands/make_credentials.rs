@@ -11,11 +11,13 @@ use crate::crypto::{
 use crate::ctap2::attestation::{
     AAGuid, AttestationObject, AttestationStatement, AttestationStatementFidoU2F,
     AttestedCredentialData, AuthenticatorData, AuthenticatorDataFlags, HmacSecretResponse,
+    SignExtensionOutput,
 };
 use crate::ctap2::client_data::ClientDataHash;
 use crate::ctap2::server::{
     AuthenticationExtensionsClientInputs, AuthenticationExtensionsClientOutputs,
-    AuthenticationExtensionsPRFOutputs, AuthenticatorAttachment, CredentialProtectionPolicy,
+    AuthenticationExtensionsPRFOutputs, AuthenticationExtensionsSignGeneratedKey,
+    AuthenticationExtensionsSignOutputs, AuthenticatorAttachment, CredentialProtectionPolicy,
     PublicKeyCredentialDescriptor, PublicKeyCredentialParameters, PublicKeyCredentialUserEntity,
     RelyingParty, RpIdHash, UserVerificationRequirement,
 };
@@ -72,6 +74,7 @@ impl MakeCredentialsResult {
             })?;
 
         let credential_public_key = COSEKey {
+            kid: None,
             alg: COSEAlgorithm::ES256,
             key: COSEKeyType::EC2(credential_ec2_key),
         };
@@ -236,6 +239,8 @@ impl UserVerification for MakeCredentialsOptions {
 pub struct MakeCredentialsExtensions {
     #[serde(skip_serializing)]
     pub cred_props: Option<bool>,
+    #[serde(rename = "sign", skip_serializing_if = "Option::is_none")]
+    pub sign: Option<MakeCredentialsSignExtensionInput>,
     #[serde(rename = "credProtect", skip_serializing_if = "Option::is_none")]
     pub cred_protect: Option<CredentialProtectionPolicy>,
     #[serde(rename = "hmac-secret", skip_serializing_if = "Option::is_none")]
@@ -264,12 +269,18 @@ impl Serialize for HmacCreateSecretOrPrf {
 
 impl MakeCredentialsExtensions {
     fn has_content(&self) -> bool {
-        self.cred_protect.is_some() || self.hmac_secret.is_some() || self.min_pin_length.is_some()
+        self.cred_protect.is_some()
+            || self.hmac_secret.is_some()
+            || self.min_pin_length.is_some()
+            || self.sign.is_some()
     }
 }
 
-impl From<AuthenticationExtensionsClientInputs> for MakeCredentialsExtensions {
-    fn from(input: AuthenticationExtensionsClientInputs) -> Self {
+impl MakeCredentialsExtensions {
+    pub fn from(
+        input: AuthenticationExtensionsClientInputs,
+        uv_req: UserVerificationRequirement,
+    ) -> Self {
         Self {
             cred_props: input.cred_props,
             cred_protect: input.credential_protection_policy,
@@ -281,7 +292,70 @@ impl From<AuthenticationExtensionsClientInputs> for MakeCredentialsExtensions {
                 }
             },
             min_pin_length: input.min_pin_length,
+            sign: input
+                .sign
+                .and_then(|sign| sign.generate_key)
+                .map(|generate_key| MakeCredentialsSignExtensionInput {
+                    ph_data: generate_key.ph_data.map(serde_bytes::ByteBuf::from),
+                    algorithms: generate_key.algorithms,
+                    flags: uv_req.into(),
+                }),
         }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct MakeCredentialsSignExtensionInput {
+    pub ph_data: Option<serde_bytes::ByteBuf>,
+    pub algorithms: Vec<i32>,
+    pub flags: Option<MakeCredentialsSignExtensionGenerateKeyFlags>,
+}
+
+#[derive(Clone, Copy, Debug)]
+#[repr(u8)]
+pub enum MakeCredentialsSignExtensionGenerateKeyFlags {
+    Unattended = 0b000,
+    RequireUp = 0b001,
+    RequireUv = 0b101,
+}
+
+impl MakeCredentialsSignExtensionGenerateKeyFlags {
+    fn filter_default(self) -> Option<Self> {
+        match self {
+            Self::RequireUp => None,
+            other => Some(other),
+        }
+    }
+}
+
+impl From<UserVerificationRequirement> for Option<MakeCredentialsSignExtensionGenerateKeyFlags> {
+    fn from(v: UserVerificationRequirement) -> Self {
+        if v == UserVerificationRequirement::Required {
+            Some(MakeCredentialsSignExtensionGenerateKeyFlags::RequireUv)
+        } else {
+            None
+        }
+    }
+}
+
+impl Serialize for MakeCredentialsSignExtensionInput {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        const PH_DATA: u8 = 0;
+        const ALG: u8 = 3;
+        const FLAGS: u8 = 4;
+        let flags = self
+            .flags
+            .and_then(MakeCredentialsSignExtensionGenerateKeyFlags::filter_default)
+            .map(|f| f as u8);
+        serialize_map_optional!(
+            serializer,
+            &PH_DATA => &self.ph_data,
+            &ALG => Some(&self.algorithms),
+            &FLAGS => flags,
+        )
     }
 }
 
@@ -408,6 +482,46 @@ impl MakeCredentials {
                     })
             }
             None | Some(HmacCreateSecretOrPrf::HmacCreateSecret(false)) => {}
+        }
+
+        if let Some(SignExtensionOutput::Outer { att_obj, sig }) =
+            &result.att_obj.auth_data.extensions.sign
+        {
+            result.extensions.sign = (|| -> Option<AuthenticationExtensionsSignOutputs> {
+                Some(AuthenticationExtensionsSignOutputs {
+                    signature: sig.as_ref().map(|v| v.to_vec()),
+                    generated_key: att_obj.as_ref().and_then(|att_obj| {
+                        let att_obj = serde_cbor::from_slice::<MakeCredentialsResult>(
+                            &att_obj
+                        )
+                        .ok()?
+                        .att_obj;
+                        let public_key = att_obj.auth_data.credential_data?.credential_public_key;
+                        let serde_cbor::Value::Map(key_handle) =
+                            serde_cbor::from_slice::<serde_cbor::Value>(
+                                &serde_cbor::to_vec(&public_key).ok()?,
+                            )
+                            .ok()?
+                        else {
+                            return None;
+                        };
+                        let key_handle = serde_cbor::to_vec(&serde_cbor::Value::Map(
+                            key_handle
+                                .into_iter()
+                                .filter(|(k, _)| match k {
+                                    serde_cbor::Value::Integer(1 | 2 | 3) => true,
+                                    _ => false,
+                                })
+                                .collect(),
+                        ))
+                        .ok()?;
+                        Some(AuthenticationExtensionsSignGeneratedKey {
+                            public_key: serde_cbor::to_vec(&public_key).ok()?,
+                            key_handle,
+                        })
+                    }),
+                })
+            })();
         }
     }
 }

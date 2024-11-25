@@ -95,6 +95,8 @@ opt-level = 2
 opt-level = 2
 
 [patch.crates-io]
+authenticator = { path = "third_party/rust/authenticator" }
+
 # The build system doesn't want those to be used, but they are pulled anyways (because
 # dependencies can't be disabled based on features), but remain unused. We ensure they
 # stay unused by overriding them with crates that contain enough to build the current

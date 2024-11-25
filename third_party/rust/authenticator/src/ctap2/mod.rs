@@ -48,6 +48,7 @@ use std::thread;
 use std::time::Duration;
 
 use self::commands::get_info::AuthenticatorVersion;
+use self::commands::make_credentials::MakeCredentialsExtensions;
 
 macro_rules! unwrap_option {
     ($item: expr, $callback: expr) => {
@@ -474,7 +475,7 @@ pub fn register<Dev: FidoDevice>(
         args.pub_cred_params,
         args.exclude_list,
         options,
-        args.extensions.into(),
+        MakeCredentialsExtensions::from(args.extensions, args.user_verification_req),
     );
 
     let mut skip_uv = false;
@@ -670,6 +671,10 @@ pub fn sign<Dev: FidoDevice>(
                 return false;
             }
         };
+
+        if let Some(sign_extension_input) = get_assertion.extensions.sign.as_mut() {
+            sign_extension_input.filter_and_order_key_handles(&get_assertion.allow_list)
+        }
 
         debug!("------------------------------------------------------------------");
         debug!("{get_assertion:?} using {pin_uv_auth_result:?}");

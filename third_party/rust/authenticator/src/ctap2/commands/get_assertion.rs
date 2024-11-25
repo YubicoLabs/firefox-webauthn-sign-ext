@@ -8,15 +8,17 @@ use crate::consts::{
     U2F_REQUEST_USER_PRESENCE,
 };
 use crate::crypto::{COSEKey, CryptoError, PinUvAuthParam, PinUvAuthToken, SharedSecret};
-use crate::ctap2::attestation::{AuthenticatorData, AuthenticatorDataFlags, HmacSecretResponse};
+use crate::ctap2::attestation::{
+    AuthenticatorData, AuthenticatorDataFlags, HmacSecretResponse, SignExtensionOutput,
+};
 use crate::ctap2::client_data::ClientDataHash;
 use crate::ctap2::commands::get_next_assertion::GetNextAssertion;
 use crate::ctap2::commands::make_credentials::UserVerification;
 use crate::ctap2::server::{
     AuthenticationExtensionsClientInputs, AuthenticationExtensionsClientOutputs,
-    AuthenticationExtensionsPRFInputs, AuthenticationExtensionsPRFOutputs, AuthenticatorAttachment,
-    PublicKeyCredentialDescriptor, PublicKeyCredentialUserEntity, RelyingParty, RpIdHash,
-    UserVerificationRequirement,
+    AuthenticationExtensionsPRFInputs, AuthenticationExtensionsPRFOutputs,
+    AuthenticationExtensionsSignOutputs, AuthenticatorAttachment, PublicKeyCredentialDescriptor,
+    PublicKeyCredentialUserEntity, RelyingParty, RpIdHash, UserVerificationRequirement,
 };
 use crate::ctap2::utils::{read_be_u32, read_byte};
 use crate::errors::AuthenticatorError;
@@ -244,10 +246,46 @@ impl Serialize for HmacSecretExtension {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct GetAssertionSignExtensionInput {
+    pub key_handle_by_credential: Vec<(serde_bytes::ByteBuf, serde_bytes::ByteBuf)>,
+    pub ph_data: serde_bytes::ByteBuf,
+}
+
+impl Serialize for GetAssertionSignExtensionInput {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        const PH_DATA: u8 = 0;
+        const KEY_REFS: u8 = 5;
+        serialize_map!(
+            serializer,
+            &PH_DATA => &self.ph_data,
+            &KEY_REFS => &self.key_handle_by_credential.iter().map(|(_, kh)| kh).collect::<Vec<_>>(),
+        )
+    }
+}
+
+impl GetAssertionSignExtensionInput {
+    pub fn filter_and_order_key_handles(&mut self, allow_list: &[PublicKeyCredentialDescriptor]) {
+        self.key_handle_by_credential
+            .retain(|(id, _)| allow_list.iter().any(|pkcd| &pkcd.id == id.as_slice()));
+        self.key_handle_by_credential.sort_by_cached_key(|(id, _)| {
+            allow_list
+                .iter()
+                .take_while(|pkcd| pkcd.id == id.as_slice())
+                .count()
+        });
+    }
+}
+
 #[derive(Debug, Default, Clone, Serialize)]
 pub struct GetAssertionExtensions {
     #[serde(skip_serializing)]
     pub app_id: Option<String>,
+    #[serde(rename = "sign", skip_serializing_if = "Option::is_none")]
+    pub sign: Option<GetAssertionSignExtensionInput>,
     #[serde(
         rename = "hmac-secret",
         skip_serializing_if = "HmacGetSecretOrPrf::skip_serializing"
@@ -260,6 +298,22 @@ impl From<AuthenticationExtensionsClientInputs> for GetAssertionExtensions {
         let prf = input.prf;
         Self {
             app_id: input.app_id,
+            sign: input
+                .sign
+                .and_then(|sign_input| sign_input.sign)
+                .map(|sign_input| GetAssertionSignExtensionInput {
+                    key_handle_by_credential: sign_input
+                        .key_handle_by_credential
+                        .into_iter()
+                        .map(|(id, kh)| {
+                            (
+                                serde_bytes::ByteBuf::from(id),
+                                serde_bytes::ByteBuf::from(kh),
+                            )
+                        })
+                        .collect(),
+                    ph_data: serde_bytes::ByteBuf::from(sign_input.ph_data),
+                }),
             hmac_secret: input
                 .hmac_get_secret
                 .map(|hmac_secret| {
@@ -277,7 +331,7 @@ impl From<AuthenticationExtensionsClientInputs> for GetAssertionExtensions {
 
 impl GetAssertionExtensions {
     fn has_content(&self) -> bool {
-        self.hmac_secret.is_some()
+        self.hmac_secret.is_some() || self.sign.is_some()
     }
 }
 
@@ -431,6 +485,15 @@ impl GetAssertion {
                 });
             }
             None => {}
+        }
+
+        if let Some(SignExtensionOutput::Outer { att_obj: _, sig }) =
+            &result.assertion.auth_data.extensions.sign
+        {
+            result.extensions.sign = Some(AuthenticationExtensionsSignOutputs {
+                signature: sig.as_ref().map(|v| v.to_vec()),
+                generated_key: None,
+            });
         }
     }
 }

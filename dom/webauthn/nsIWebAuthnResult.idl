@@ -27,6 +27,14 @@ interface nsIWebAuthnRegisterResult : nsISupports {
 
     [must_use] attribute boolean credPropsRk;
 
+    readonly attribute boolean prfEnabled;
+    readonly attribute Array<octet> prfResultsFirst;
+    readonly attribute Array<octet> prfResultsSecond;
+
+    readonly attribute Array<octet> signGeneratedKeyPublicKey;
+    readonly attribute Array<octet> signGeneratedKeyKeyHandle;
+    readonly attribute Array<octet> signSignature;
+
     [must_use] readonly attribute AString authenticatorAttachment;
 
     boolean hasIdentifyingAttestation();
@@ -60,6 +68,10 @@ interface nsIWebAuthnSignResult : nsISupports {
 
     // appId field of AuthenticationExtensionsClientOutputs (Optional)
     [must_use] attribute boolean usedAppId;
+
+    readonly attribute Array<octet> prfResultsFirst;
+    readonly attribute Array<octet> prfResultsSecond;
+    readonly attribute Array<octet> signSignature;
 
     [must_use] readonly attribute AString authenticatorAttachment;
 };

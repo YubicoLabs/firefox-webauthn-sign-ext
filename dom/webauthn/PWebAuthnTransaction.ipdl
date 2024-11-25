@@ -48,11 +48,51 @@ struct WebAuthnExtensionMinPinLength {
   bool minPinLength;
 };
 
+struct WebAuthnExtensionPrf {
+  WebAuthnExtensionPrfValues? eval;
+  bool evalByCredentialMaybe;
+  WebAuthnExtensionPrfEvalByCredentialEntry[] evalByCredential;
+};
+
+struct WebAuthnExtensionPrfValues {
+    uint8_t[] first;
+    bool secondMaybe;
+    uint8_t[] second;
+};
+
+struct WebAuthnExtensionPrfEvalByCredentialEntry {
+    nsCString credentialId;
+    WebAuthnExtensionPrfValues eval;
+};
+
+struct WebAuthnExtensionSign {
+  WebAuthnExtensionSignGenerateKeyInputs? generateKey;
+  WebAuthnExtensionSignSignInputs? sign;
+};
+
+struct WebAuthnExtensionSignGenerateKeyInputs {
+    int32_t[] algorithms;
+    bool phDataMaybe;
+    uint8_t[] phData;
+};
+
+struct WebAuthnExtensionSignSignInputs {
+    uint8_t[] phData;
+    WebAuthnExtensionSignSignInputsKeyHandleByCredentialEntry[] keyHandleByCredential;
+};
+
+struct WebAuthnExtensionSignSignInputsKeyHandleByCredentialEntry {
+    nsCString credentialId;
+    uint8_t[] keyHandle;
+};
+
 union WebAuthnExtension {
   WebAuthnExtensionAppId;
   WebAuthnExtensionCredProps;
   WebAuthnExtensionHmacSecret;
   WebAuthnExtensionMinPinLength;
+  WebAuthnExtensionPrf;
+  WebAuthnExtensionSign;
 };
 
 struct WebAuthnExtensionResultAppId {
@@ -67,10 +107,28 @@ struct WebAuthnExtensionResultHmacSecret {
   bool hmacCreateSecret;
 };
 
+struct WebAuthnExtensionResultPrf {
+  bool? enabled;
+  WebAuthnExtensionPrfValues? results;
+};
+
+struct WebAuthnExtensionResultSign {
+  WebAuthnExtensionResultSignGeneratedKey? generatedKey;
+  bool signatureMaybe;
+  uint8_t[] signature;
+};
+
+struct WebAuthnExtensionResultSignGeneratedKey {
+  uint8_t[] publicKey;
+  uint8_t[] keyHandle;
+};
+
 union WebAuthnExtensionResult {
   WebAuthnExtensionResultAppId;
   WebAuthnExtensionResultCredProps;
   WebAuthnExtensionResultHmacSecret;
+  WebAuthnExtensionResultPrf;
+  WebAuthnExtensionResultSign;
 };
 
 struct WebAuthnMakeCredentialRpInfo {

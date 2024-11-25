@@ -111,8 +111,95 @@ impl<'de> Deserialize<'de> for HmacSecretResponse {
     }
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub enum SignExtensionOutput {
+    /// The top-level extension output.
+    Outer {
+        /// Attestation object for generated signing public key
+        att_obj: Option<serde_bytes::ByteBuf>,
+
+        /// Signature over tbs input (if requested)
+        sig: Option<serde_bytes::ByteBuf>,
+    },
+
+    /// The extension output in the attestation object embedded inside the top-level extension output.
+    Inner {
+        /// Flags byte for the generated signing key
+        flags: u8,
+    },
+}
+
+impl Serialize for SignExtensionOutput {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Outer { att_obj, sig } => serialize_map_optional!(
+                serializer,
+                &6 => sig,
+                &7 => att_obj,
+            ),
+            Self::Inner { flags } => serializer.serialize_u8(*flags),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for SignExtensionOutput {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct SignExtensionOutputVisitor;
+
+        impl<'de> Visitor<'de> for SignExtensionOutputVisitor {
+            type Value = SignExtensionOutput;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str(
+                    "a map (outer extension output) or an integer (in nested attestation object)",
+                )
+            }
+
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<Self::Value, A::Error> {
+                // Outer extension output case
+                let mut att_obj = None;
+                let mut sig = None;
+
+                while let Some((key, bytes)) = map.next_entry::<u64, _>()? {
+                    match key {
+                        6 => {
+                            sig = Some(bytes);
+                        }
+                        7 => {
+                            att_obj = Some(bytes);
+                        }
+                        _ => {
+                            return Err(serde::de::Error::unknown_field(
+                                &key.to_string(),
+                                &["sig (6)", "att_obj (7)"],
+                            ));
+                        }
+                    };
+                }
+
+                Ok(SignExtensionOutput::Outer { att_obj, sig })
+            }
+
+            fn visit_u8<E>(self, v: u8) -> Result<Self::Value, E>
+            where
+                E: SerdeError,
+            {
+                Ok(SignExtensionOutput::Inner { flags: v })
+            }
+        }
+        deserializer.deserialize_any(SignExtensionOutputVisitor)
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct Extension {
+    // These fields MUST be ordered in CTAP2 canonical CBOR order (ordering
+    // first by length, then content) in order to maintain signature validity
+    #[serde(rename = "sign", skip_serializing_if = "Option::is_none")]
+    pub sign: Option<SignExtensionOutput>,
     #[serde(rename = "credProtect", skip_serializing_if = "Option::is_none")]
     pub cred_protect: Option<CredentialProtectionPolicy>,
     #[serde(rename = "hmac-secret", skip_serializing_if = "Option::is_none")]
@@ -123,7 +210,10 @@ pub struct Extension {
 
 impl Extension {
     pub fn has_some(&self) -> bool {
-        self.min_pin_length.is_some() || self.hmac_secret.is_some() || self.cred_protect.is_some()
+        self.min_pin_length.is_some()
+            || self.hmac_secret.is_some()
+            || self.cred_protect.is_some()
+            || self.sign.is_some()
     }
 }
 

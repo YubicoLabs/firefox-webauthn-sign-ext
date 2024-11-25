@@ -364,6 +364,7 @@ pub struct AuthenticationExtensionsClientInputs {
     pub hmac_get_secret: Option<HMACGetSecretInput>,
     pub min_pin_length: Option<bool>,
     pub prf: Option<AuthenticationExtensionsPRFInputs>,
+    pub sign: Option<AuthenticationExtensionsSignInputs>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -488,6 +489,36 @@ pub struct AuthenticationExtensionsPRFOutputs {
     pub results: Option<AuthenticationExtensionsPRFValues>,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct AuthenticationExtensionsSignInputs {
+    pub generate_key: Option<AuthenticationExtensionsSignGenerateKeyInputs>,
+    pub sign: Option<AuthenticationExtensionsSignSignInputs>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct AuthenticationExtensionsSignGenerateKeyInputs {
+    pub ph_data: Option<Vec<u8>>,
+    pub algorithms: Vec<i32>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct AuthenticationExtensionsSignSignInputs {
+    pub ph_data: Vec<u8>,
+    pub key_handle_by_credential: HashMap<Vec<u8>, Vec<u8>>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct AuthenticationExtensionsSignOutputs {
+    pub generated_key: Option<AuthenticationExtensionsSignGeneratedKey>,
+    pub signature: Option<Vec<u8>>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct AuthenticationExtensionsSignGeneratedKey {
+    pub public_key: Vec<u8>,
+    pub key_handle: Vec<u8>,
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct AuthenticationExtensionsClientOutputs {
     pub app_id: Option<bool>,
@@ -495,6 +526,7 @@ pub struct AuthenticationExtensionsClientOutputs {
     pub hmac_create_secret: Option<bool>,
     pub hmac_get_secret: Option<HMACGetSecretOutput>,
     pub prf: Option<AuthenticationExtensionsPRFOutputs>,
+    pub sign: Option<AuthenticationExtensionsSignOutputs>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

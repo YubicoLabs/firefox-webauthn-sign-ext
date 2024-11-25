@@ -116,6 +116,7 @@ trait PinProtocolImpl: ClonablePinProtocolImpl {
 
         let client_cose_key = COSEKey {
             alg: COSEAlgorithm::ECDH_ES_HKDF256,
+            kid: None,
             key: COSEKeyType::EC2(client_cose_ec2_key),
         };
 
@@ -575,6 +576,8 @@ pub enum COSEAlgorithm {
     AES_CCM_64_128_128 = 32,           //  AES-CCM mode 128-bit key, 128-bit tag, 7-byte nonce
     AES_CCM_64_128_256 = 33,           //  AES-CCM mode 256-bit key, 128-bit tag, 7-byte nonce
     IV_GENERATION = 34,                //  For doing IV generation for symmetric algorithms.
+
+    ESP256_ARKG = -65539,
 }
 
 impl Serialize for COSEAlgorithm {
@@ -713,6 +716,7 @@ impl TryFrom<i64> for COSEAlgorithm {
             }
             i if i == COSEAlgorithm::IV_GENERATION as i64 => Ok(COSEAlgorithm::IV_GENERATION),
             i if i == COSEAlgorithm::INSECURE_RS1 as i64 => Ok(COSEAlgorithm::INSECURE_RS1),
+            i if i == COSEAlgorithm::ESP256_ARKG as i64 => Ok(COSEAlgorithm::ESP256_ARKG),
             _ => Err(CryptoError::UnknownAlgorithm),
         }
     }
@@ -848,6 +852,8 @@ pub enum COSEKeyTypeId {
     EC2 = 2,
     /// RSA
     RSA = 3,
+    /// PLACEHOLDER VALUE: ARKG
+    ARKG = -65537,
 }
 
 impl Serialize for COSEKeyTypeId {
@@ -866,6 +872,7 @@ impl TryFrom<i64> for COSEKeyTypeId {
             i if i == COSEKeyTypeId::OKP as i64 => Ok(COSEKeyTypeId::OKP),
             i if i == COSEKeyTypeId::EC2 as i64 => Ok(COSEKeyTypeId::EC2),
             i if i == COSEKeyTypeId::RSA as i64 => Ok(COSEKeyTypeId::RSA),
+            i if i == COSEKeyTypeId::ARKG as i64 => Ok(COSEKeyTypeId::ARKG),
             _ => Err(CryptoError::UnknownKeyType),
         }
     }
@@ -882,6 +889,10 @@ pub enum COSEKeyType {
     OKP(COSEOKPKey),
     /// Identifies this as an RSA key
     RSA(COSERSAKey),
+    ARKG {
+        blinding_pk: Box<COSEKey>,
+        kem_pk: Box<COSEKey>,
+    },
 }
 
 /// A COSE Key as provided by the Authenticator. You should never need
@@ -891,6 +902,8 @@ pub struct COSEKey {
     /// COSE signature algorithm, indicating the type of key and hash type
     /// that should be used.
     pub alg: COSEAlgorithm,
+    /// An optional opaque identifier for the key
+    pub kid: Option<Vec<u8>>,
     /// The public key
     pub key: COSEKeyType,
 }
@@ -906,6 +919,7 @@ impl COSEKey {
         let cose_ec2_key = COSEEC2Key::from_sec1_uncompressed(Curve::SECP256R1, &public)?;
         let public = COSEKey {
             alg,
+            kid: None,
             key: COSEKeyType::EC2(cose_ec2_key),
         };
         Ok((private, public))
@@ -916,6 +930,7 @@ impl COSEKey {
             COSEKeyType::EC2(ec2_key) => ec2_key.der_spki(),
             COSEKeyType::OKP(okp_key) => okp_key.der_spki(),
             COSEKeyType::RSA(rsa_key) => rsa_key.der_spki(),
+            COSEKeyType::ARKG { .. } => Err(CryptoError::UnsupportedKeyType),
         }
     }
 }
@@ -939,6 +954,7 @@ impl<'de> Deserialize<'de> for COSEKey {
                 M: MapAccess<'de>,
             {
                 let mut key_type: Option<COSEKeyTypeId> = None;
+                let mut kid: Option<Vec<u8>> = None;
                 let mut alg: Option<COSEAlgorithm> = None;
                 // OKP / EC2
                 let mut curve: Option<Curve> = None;
@@ -948,6 +964,10 @@ impl<'de> Deserialize<'de> for COSEKey {
                 // RSA specific
                 let mut n: Option<Vec<u8>> = None;
                 let mut e: Option<Vec<u8>> = None;
+
+                // ARKG specific
+                let mut arkg_blinding_pk: Option<COSEKey> = None;
+                let mut arkg_kem_pk: Option<COSEKey> = None;
 
                 while let Some(key) = map.next_key()? {
                     // See https://www.iana.org/assignments/cose/cose.xhtml#key-type-parameters
@@ -961,6 +981,13 @@ impl<'de> Deserialize<'de> for COSEKey {
                                 SerdeError::custom(format!("unsupported key_type {value}"))
                             })?;
                             key_type = Some(val);
+                        }
+                        2 => {
+                            if kid.is_some() {
+                                return Err(SerdeError::duplicate_field("kid"));
+                            }
+                            let value: ByteBuf = map.next_value()?;
+                            kid = Some(value.to_vec());
                         }
                         3 => {
                             if alg.is_some() {
@@ -991,6 +1018,12 @@ impl<'de> Deserialize<'de> for COSEKey {
                                 let value: ByteBuf = map.next_value()?;
                                 n = Some(value.to_vec());
                             }
+                            Some(COSEKeyTypeId::ARKG) => {
+                                if arkg_blinding_pk.is_some() {
+                                    return Err(SerdeError::duplicate_field("arkg_blinding_pk"));
+                                }
+                                arkg_blinding_pk = Some(map.next_value()?);
+                            }
                         },
                         -2 => match key_type {
                             None => return Err(SerdeError::missing_field("key_type")),
@@ -1007,6 +1040,12 @@ impl<'de> Deserialize<'de> for COSEKey {
                                 }
                                 let value: ByteBuf = map.next_value()?;
                                 e = Some(value.to_vec());
+                            }
+                            Some(COSEKeyTypeId::ARKG) => {
+                                if arkg_kem_pk.is_some() {
+                                    return Err(SerdeError::duplicate_field("arkg_kem_pk"));
+                                }
+                                arkg_kem_pk = Some(map.next_value()?);
                             }
                         },
                         -3 if key_type == Some(COSEKeyTypeId::EC2) => {
@@ -1042,8 +1081,19 @@ impl<'de> Deserialize<'de> for COSEKey {
                         let e = e.ok_or_else(|| SerdeError::missing_field("e (-2)"))?;
                         COSEKeyType::RSA(COSERSAKey { e, n })
                     }
+                    COSEKeyTypeId::ARKG => {
+                        COSEKeyType::ARKG {
+                            blinding_pk: Box::new(arkg_blinding_pk.ok_or_else(|| {
+                                SerdeError::missing_field("arkg_blinding_pk (-1)")
+                            })?),
+                            kem_pk: Box::new(
+                                arkg_kem_pk
+                                    .ok_or_else(|| SerdeError::missing_field("arkg_kem_pk (-2)"))?,
+                            ),
+                        }
+                    }
                 };
-                Ok(COSEKey { alg, key: res })
+                Ok(COSEKey { kid, alg, key: res })
             }
         }
 
@@ -1056,33 +1106,51 @@ impl Serialize for COSEKey {
     where
         S: Serializer,
     {
+        let kid = self.kid.as_ref().map(|kid| serde_bytes::Bytes::new(kid));
+        let alg = Some(&self.alg);
         match &self.key {
             COSEKeyType::OKP(key) => {
-                serialize_map!(
+                serialize_map_optional!(
                     serializer,
-                    &1 => &COSEKeyTypeId::OKP,
-                    &3 => &self.alg,
-                    &-1 => &key.curve,
-                    &-2 => &serde_bytes::Bytes::new(&key.x),
+                    &1 => Some(&COSEKeyTypeId::OKP),
+                    &2 => kid,
+                    &3 => alg,
+                    &-1 => Some(&key.curve),
+                    &-2 => Some(serde_bytes::Bytes::new(&key.x)),
                 )
             }
             COSEKeyType::EC2(key) => {
-                serialize_map!(
+                serialize_map_optional!(
                     serializer,
-                    &1 => &COSEKeyTypeId::EC2,
-                    &3 => &self.alg,
-                    &-1 => &key.curve,
-                    &-2 => &serde_bytes::Bytes::new(&key.x),
-                    &-3 => &serde_bytes::Bytes::new(&key.y),
+                    &1 => Some(&COSEKeyTypeId::EC2),
+                    &2 => kid,
+                    &3 => alg,
+                    &-1 => Some(&key.curve),
+                    &-2 => Some(serde_bytes::Bytes::new(&key.x)),
+                    &-3 => Some(serde_bytes::Bytes::new(&key.y)),
                 )
             }
             COSEKeyType::RSA(key) => {
-                serialize_map!(
+                serialize_map_optional!(
                     serializer,
-                    &1 => &COSEKeyTypeId::RSA,
-                    &3 => &self.alg,
-                    &-1 => &serde_bytes::Bytes::new(&key.n),
-                    &-2 => &serde_bytes::Bytes::new(&key.e),
+                    &1 => Some(&COSEKeyTypeId::RSA),
+                    &2 => kid,
+                    &3 => alg,
+                    &-1 => Some(serde_bytes::Bytes::new(&key.n)),
+                    &-2 => Some(serde_bytes::Bytes::new(&key.e)),
+                )
+            }
+            COSEKeyType::ARKG {
+                blinding_pk,
+                kem_pk,
+            } => {
+                serialize_map_optional!(
+                    serializer,
+                    &1 => Some(&COSEKeyTypeId::ARKG),
+                    &2 => kid,
+                    &3 => alg,
+                    &-1 => Some(blinding_pk),
+                    &-2 => Some(kem_pk),
                 )
             }
         }

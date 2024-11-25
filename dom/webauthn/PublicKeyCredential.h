@@ -57,8 +57,8 @@ class PublicKeyCredential final : public Credential {
   static already_AddRefed<Promise> IsConditionalMediationAvailable(
       GlobalObject& aGlobal, ErrorResult& aError);
 
-  void GetClientExtensionResults(
-      AuthenticationExtensionsClientOutputs& aResult);
+  void GetClientExtensionResults(JSContext* cx,
+                                 AuthenticationExtensionsClientOutputs& aResult);
 
   void ToJSON(JSContext* aCx, JS::MutableHandle<JSObject*> aRetval,
               ErrorResult& aError);
@@ -67,7 +67,13 @@ class PublicKeyCredential final : public Credential {
 
   void SetClientExtensionResultCredPropsRk(bool aResult);
 
-  void SetClientExtensionResultHmacSecret(bool aHmacCreateSecret);
+  void SetClientExtensionResultHmacCreateSecret(bool aHmacCreateSecret);
+  void SetClientExtensionResultPrfEnabled(bool aPrfEnabled);
+  void SetClientExtensionResultPrfResultsFirst(const nsTArray<uint8_t>& aPrfResultsFirst);
+  void SetClientExtensionResultPrfResultsSecond(const nsTArray<uint8_t>& aPrfResultsSecond);
+  void SetClientExtensionResultSignGeneratedKeyPublicKey(const nsTArray<uint8_t>& aSignGeneratedKeyPublicKey);
+  void SetClientExtensionResultSignGeneratedKeyKeyHandle(const nsTArray<uint8_t>& aSignGeneratedKeyKeyHandle);
+  void SetClientExtensionResultSignSignature(const nsTArray<uint8_t>& aSignSignature);
 
   static void ParseCreationOptionsFromJSON(
       GlobalObject& aGlobal,
@@ -86,6 +92,11 @@ class PublicKeyCredential final : public Credential {
   RefPtr<AuthenticatorAttestationResponse> mAttestationResponse;
   RefPtr<AuthenticatorAssertionResponse> mAssertionResponse;
   AuthenticationExtensionsClientOutputs mClientExtensionOutputs;
+  Maybe<nsTArray<uint8_t>> mPrfResultsFirst;
+  Maybe<nsTArray<uint8_t>> mPrfResultsSecond;
+  Maybe<nsTArray<uint8_t>> mSignGeneratedKeyPublicKey;
+  Maybe<nsTArray<uint8_t>> mSignGeneratedKeyKeyHandle;
+  Maybe<nsTArray<uint8_t>> mSignSignature;
 };
 
 }  // namespace mozilla::dom
