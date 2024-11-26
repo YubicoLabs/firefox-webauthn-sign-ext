@@ -11,3 +11,4 @@ pulling the same changes into two Git clones independently will make the Git clo
 Therefore, **sync with any other collaborators working with this repo** before pulling changes from upstream.
 
 This `main` branch is empty. The upstream main branch is `bookmarks/central`.
+The branch with the prototype FIDO `sign` extension is [`fido-sign-ext`](https://github.com/YubicoLabs/firefox-webauthn-sign-ext/tree/fido-sign-ext).
