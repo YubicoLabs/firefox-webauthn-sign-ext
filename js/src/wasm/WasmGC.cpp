@@ -169,7 +169,7 @@ template <class Addr>
 void wasm::EmitWasmPreBarrierGuard(MacroAssembler& masm, Register instance,
                                    Register scratch, Addr addr,
                                    Label* skipBarrier,
-                                   BytecodeOffset* trapOffset) {
+                                   MaybeTrapSiteDesc trapSiteDesc) {
   // If no incremental GC has started, we don't need the barrier.
   masm.loadPtr(
       Address(instance, Instance::offsetOfAddressOfNeedsIncrementalBarrier()),
@@ -182,18 +182,19 @@ void wasm::EmitWasmPreBarrierGuard(MacroAssembler& masm, Register instance,
   masm.branchWasmAnyRefIsGCThing(false, scratch, skipBarrier);
 
   // Emit metadata for a potential null access when reading the previous value.
-  if (trapOffset) {
-    masm.append(wasm::Trap::NullPointerDereference,
-                wasm::TrapSite(TrapMachineInsnForLoadWord(), fco, *trapOffset));
+  if (trapSiteDesc) {
+    masm.append(
+        wasm::Trap::NullPointerDereference,
+        wasm::TrapSite(TrapMachineInsnForLoadWord(), fco, *trapSiteDesc));
   }
 }
 
 template void wasm::EmitWasmPreBarrierGuard<Address>(
     MacroAssembler& masm, Register instance, Register scratch, Address addr,
-    Label* skipBarrier, BytecodeOffset* trapOffset);
+    Label* skipBarrier, MaybeTrapSiteDesc trapSiteDesc);
 template void wasm::EmitWasmPreBarrierGuard<BaseIndex>(
     MacroAssembler& masm, Register instance, Register scratch, BaseIndex addr,
-    Label* skipBarrier, BytecodeOffset* trapOffset);
+    Label* skipBarrier, MaybeTrapSiteDesc trapSiteDesc);
 
 void wasm::EmitWasmPreBarrierCallImmediate(MacroAssembler& masm,
                                            Register instance, Register scratch,
@@ -314,3 +315,14 @@ bool wasm::IsPlausibleStackMapKey(const uint8_t* nextPC) {
 #  endif
 }
 #endif
+
+void StackMaps::checkInvariants(const uint8_t* base) const {
+#ifdef DEBUG
+  // Chech that each entry points from the stackmap structure points
+  // to a plausible instruction.
+  for (auto iter = mapping_.iter(); !iter.done(); iter.next()) {
+    MOZ_ASSERT(IsPlausibleStackMapKey(base + iter.get().key()),
+               "wasm stackmap does not reference a valid insn");
+  }
+#endif
+}

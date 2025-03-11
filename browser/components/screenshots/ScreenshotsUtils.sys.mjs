@@ -176,7 +176,6 @@ export var ScreenshotsUtils = {
         return;
       }
       this.resetMethodsUsed();
-      Services.telemetry.setEventRecordingEnabled("screenshots", true);
       Services.obs.addObserver(this, "menuitem-screenshot");
       this.initialized = true;
       if (Cu.isInAutomation) {
@@ -189,6 +188,12 @@ export var ScreenshotsUtils = {
     if (this.initialized) {
       Services.obs.removeObserver(this, "menuitem-screenshot");
       this.initialized = false;
+      if (Cu.isInAutomation) {
+        Services.obs.notifyObservers(
+          null,
+          "screenshots-component-uninitialized"
+        );
+      }
     }
   },
 
@@ -750,9 +755,7 @@ export var ScreenshotsUtils = {
       let fragmentClone = template.content.cloneNode(true);
       buttonsPanel = fragmentClone.firstElementChild;
       template.replaceWith(buttonsPanel);
-
-      let anchor = browser.ownerDocument.querySelector("#navigator-toolbox");
-      anchor.appendChild(buttonsPanel);
+      browser.closest("#tabbrowser-tabbox").prepend(buttonsPanel);
     }
 
     return (

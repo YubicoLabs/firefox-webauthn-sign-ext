@@ -129,6 +129,7 @@ const PREF_XPI_SIGNATURES_DEV_ROOT = "xpinstall.signatures.dev-root";
 const TOOLKIT_ID = "toolkit@mozilla.org";
 
 const KEY_APP_SYSTEM_ADDONS = "app-system-addons";
+const KEY_APP_SYSTEM_BUILTINS = "app-builtin-addons";
 const KEY_APP_SYSTEM_DEFAULTS = "app-system-defaults";
 const KEY_APP_SYSTEM_PROFILE = "app-system-profile";
 const KEY_APP_BUILTINS = "app-builtin";
@@ -200,6 +201,7 @@ const PROP_JSON_FIELDS = [
   "requestedPermissions",
   "icons",
   "iconURL",
+  "blocklistAttentionDismissed",
   "blocklistState",
   "blocklistURL",
   "startupData",
@@ -321,7 +323,8 @@ export class AddonInternal {
     this.appDisabled = false;
     this.softDisabled = false;
     this.embedderDisabled = false;
-    this.blocklistState = Ci.nsIBlocklistService.STATE_NOT_BLOCKED;
+    this.blocklistAttentionDismissed = false;
+    this.blocklistState = nsIBlocklistService.STATE_NOT_BLOCKED;
     this.blocklistURL = null;
     this.sourceURI = null;
     this.releaseNotesURI = null;
@@ -428,7 +431,7 @@ export class AddonInternal {
     }
 
     for (const [name, uri] of Object.entries({ installFrom, source })) {
-      if (!installOrigins.includes(new URL(uri.spec).origin)) {
+      if (!installOrigins.includes(URL.fromURI(uri).origin)) {
         logger.warn(
           `Addon ${this.id} Installation not allowed, ${name} "${uri.spec}" is not included in the Addon install_origins`
         );
@@ -515,6 +518,7 @@ export class AddonInternal {
         // System add-ons must be signed by the system key.
         return this.signedState == lazy.AddonManager.SIGNEDSTATE_SYSTEM;
 
+      case KEY_APP_SYSTEM_BUILTINS:
       case KEY_APP_SYSTEM_DEFAULTS:
       case KEY_APP_BUILTINS:
       case KEY_APP_TEMPORARY:
@@ -672,6 +676,15 @@ export class AddonInternal {
     return app;
   }
 
+  updateBlocklistAttentionDismissed(val) {
+    if (!this.inDatabase || this.blocklistAttentionDismissed === val) {
+      return;
+    }
+    this.blocklistAttentionDismissed = val;
+    XPIDatabase.maybeUpdateBlocklistAttentionAddonIdsSet(this);
+    XPIDatabase.saveChanges();
+  }
+
   async findBlocklistEntry() {
     return lazy.Blocklist.getAddonBlocklistEntry(this.wrapper);
   }
@@ -687,6 +700,12 @@ export class AddonInternal {
 
     let entry = await this.findBlocklistEntry();
     let newState = entry ? entry.state : Services.blocklist.STATE_NOT_BLOCKED;
+
+    // Clear the blocklistAttentionDismissed flag if the blocklist state
+    // is changing.
+    if (this.blocklistState !== newState) {
+      this.updateBlocklistAttentionDismissed(false);
+    }
 
     this.blocklistState = newState;
     this.blocklistURL = entry && entry.url;
@@ -720,6 +739,19 @@ export class AddonInternal {
       }
       if (softDisabled !== undefined) {
         this.softDisabled = softDisabled;
+      }
+    }
+
+    if (oldState != newState) {
+      lazy.AddonManagerPrivate.callAddonListeners(
+        "onPropertyChanged",
+        this.wrapper,
+        ["blocklistState"]
+      );
+      if (this.active) {
+        // Make sure to sync the XPIState with the blocklistState
+        // set in the AddonDB if the addon is active.
+        XPIDatabase.updateXPIStates(this);
       }
     }
   }
@@ -809,15 +841,19 @@ export class AddonInternal {
   permissions() {
     let permissions = 0;
 
+    let settings = Services.policies?.getExtensionSettings(this.id) || {};
     // The permission to "toggle the private browsing access" is locked down
     // when the extension has opted out or it gets the permission automatically
-    // on every extension startup (as system, privileged and builtin addons).
+    // on every extension startup (as system, privileged and builtin addons) or
+    // when private browsing access as been set and locke dthrough enterprise
+    // policy settings.
     if (
       this.type === "extension" &&
       this.incognito !== "not_allowed" &&
       this.signedState !== lazy.AddonManager.SIGNEDSTATE_PRIVILEGED &&
       this.signedState !== lazy.AddonManager.SIGNEDSTATE_SYSTEM &&
-      !this.location.isBuiltin
+      !this.location.isBuiltin &&
+      !("private_browsing" in settings)
     ) {
       // NOTE: This permission is computed even for addons not in the database because
       // it is being used in the first dialog part of the install flow, when the addon
@@ -954,6 +990,13 @@ AddonWrapper = class {
       this.type === "extension" &&
       !this.quarantineIgnoredByApp
     );
+  }
+
+  get previousActiveThemeID() {
+    if (this.type === "theme") {
+      return addonFor(this).previousActiveThemeID;
+    }
+    return null;
   }
 
   get seen() {
@@ -1196,6 +1239,11 @@ AddonWrapper = class {
     return lazy.AddonManager.SCOPE_PROFILE;
   }
 
+  get locationName() {
+    let addon = addonFor(this);
+    return addon.location.name;
+  }
+
   get pendingOperations() {
     let addon = addonFor(this);
     let pending = 0;
@@ -1264,6 +1312,16 @@ AddonWrapper = class {
       return activeAddon.startupPromise || null;
     }
     return null;
+  }
+
+  get blocklistAttentionDismissed() {
+    let addon = addonFor(this);
+    return addon.blocklistAttentionDismissed;
+  }
+
+  set blocklistAttentionDismissed(val) {
+    let addon = addonFor(this);
+    addon.updateBlocklistAttentionDismissed(val);
   }
 
   updateBlocklistState(applySoftBlock = true) {
@@ -1814,6 +1872,13 @@ export const XPIDatabase = {
   // supported.
   orphanedAddons: [],
 
+  // Set of the add-on ids for all the add-ons of type extension that are appDisabled or softDisabled
+  // through the blocklist, excluding the ones that the user has already explicitly dismissed before
+  // (used for the blocklist attention dot and messagebar to be shown in the extensions button/panel).
+  //
+  // Set<addonId: string>
+  blocklistAttentionAddonIdsSet: new Set(),
+
   _saveTask: null,
 
   // Saved error object if we fail to read an existing database
@@ -1991,6 +2056,8 @@ export const XPIDatabase = {
 
       let forEach = this.syncLoadingDB ? arrayForEach : idleForEach;
 
+      this.clearBlocklistAttentionAddonIdsSet();
+
       // If we got here, we probably have good data
       // Make AddonInternal instances from the loaded data and save them
       let addonDB = new Map();
@@ -2014,6 +2081,7 @@ export const XPIDatabase = {
         let newAddon = new AddonInternal(loadedAddon);
         if (loadedAddon.location) {
           addonDB.set(newAddon._key, newAddon);
+          this.maybeUpdateBlocklistAttentionAddonIdsSet(newAddon);
         } else {
           this.orphanedAddons.push(newAddon);
         }
@@ -2228,12 +2296,22 @@ export const XPIDatabase = {
           addon.signedState === lazy.AddonManager.SIGNEDSTATE_SIGNED &&
           Services.policies
         ) {
-          const addonDetailsFromFile =
-            await XPIExports.XPIInstall.loadManifestFromFile(
-              addon._sourceBundle,
-              addon.location
-            );
-          addon.adminInstallOnly = addonDetailsFromFile.adminInstallOnly;
+          // Manifest file for an installed extension can still become
+          // invalid (e.g. due to backward incompatible changes between
+          // Firefox versions).
+          try {
+            const addonDetailsFromFile =
+              await XPIExports.XPIInstall.loadManifestFromFile(
+                addon._sourceBundle,
+                addon.location
+              );
+            addon.adminInstallOnly = addonDetailsFromFile.adminInstallOnly;
+          } catch (err) {
+            // Simply log the error as a warning to be able to check
+            // the signature and potentially update the disabled state
+            // accordingly.
+            logger.warn(`XPI_verifySignature Warning on '${addon.id}': ${err}`);
+          }
         }
 
         if (
@@ -2400,7 +2478,20 @@ export const XPIDatabase = {
    * @returns {Promise<Array<AddonInternal>>}
    */
   getAddonsInLocation(aLocation) {
-    return this.getAddonList(aAddon => aAddon.location.name == aLocation);
+    return this.getAddonsInLocations([aLocation]);
+  },
+
+  /**
+   * Asynchronously get all the add-ons in an array of install locations.
+   *
+   * @param {Array<string>} aLocations
+   *        The name of the install location
+   * @returns {Promise<Array<AddonInternal>>}
+   */
+  getAddonsInLocations(aLocations) {
+    return this.getAddonList(aAddon =>
+      aLocations.includes(aAddon.location.name)
+    );
   },
 
   /**
@@ -2464,6 +2555,95 @@ export const XPIDatabase = {
         aAddon.pendingUninstall &&
         (!aTypes || aTypes.has(aAddon.type))
     );
+  },
+
+  shouldShowBlocklistAttention() {
+    return !!this.blocklistAttentionAddonIdsSet.size;
+  },
+
+  shouldShowBlocklistAttentionForAddon(addonInternal) {
+    return (
+      !addonInternal.hidden &&
+      !addonInternal.blocklistAttentionDismissed &&
+      (addonInternal.appDisabled || addonInternal.softDisabled) &&
+      addonInternal.blocklistState > nsIBlocklistService.STATE_NOT_BLOCKED &&
+      // We currently only draw the attention of the users when new add-ons of
+      // type "extension" are being disabled by the blocklist.
+      addonInternal.type === "extension"
+    );
+  },
+
+  clearBlocklistAttentionAddonIdsSet() {
+    this.blocklistAttentionAddonIdsSet.clear();
+  },
+
+  maybeUpdateBlocklistAttentionAddonIdsSet(addonInternal) {
+    const blocklistAttentionSet = this.blocklistAttentionAddonIdsSet;
+    if (!this.shouldShowBlocklistAttentionForAddon(addonInternal)) {
+      blocklistAttentionSet.delete(addonInternal.id);
+      Services.obs.notifyObservers(
+        null,
+        "xpi-provider:blocklist-attention-updated"
+      );
+      return;
+    }
+
+    blocklistAttentionSet.add(addonInternal.id);
+    Services.obs.notifyObservers(
+      null,
+      "xpi-provider:blocklist-attention-updated"
+    );
+  },
+
+  removeFromBlocklistAttentionAddonIdsSet(addonInternal) {
+    this.blocklistAttentionAddonIdsSet.delete(addonInternal.id);
+    Services.obs.notifyObservers(
+      null,
+      "xpi-provider:blocklist-attention-updated"
+    );
+  },
+
+  async getBlocklistAttentionInfo() {
+    const attentionAddonIdsSet = this.blocklistAttentionAddonIdsSet;
+    const addonFilter = addonInternal =>
+      attentionAddonIdsSet.has(addonInternal.id) &&
+      this.shouldShowBlocklistAttentionForAddon(addonInternal);
+    let addons = attentionAddonIdsSet.size
+      ? await this.getAddonList(addonFilter)
+      : [];
+    // Filter the add-ons list once more synchronously in case any change may have happened
+    // while we were retrieving the add-ons list asynchronously and we may not need to include
+    // some in the blocklist attention message anymore (e.g. because they have been already
+    // dismissed, or changed blocklistState or soft-blocked addon being already re-enabled).
+    addons = addons.filter(addonFilter);
+
+    return {
+      get shouldShow() {
+        return addons.some(addonFilter);
+      },
+      get hasSoftBlocked() {
+        return addons.some(
+          addonInternal =>
+            addonInternal.blocklistState ===
+            nsIBlocklistService.STATE_SOFTBLOCKED
+        );
+      },
+      get hasHardBlocked() {
+        return addons.some(
+          addonInternal =>
+            addonInternal.blocklistState === nsIBlocklistService.STATE_BLOCKED
+        );
+      },
+      get extensionsCount() {
+        return addons.length;
+      },
+      get addons() {
+        return addons.map(addonInternal => addonInternal.wrapper);
+      },
+      dismiss() {
+        addons.forEach(addon => addon.updateBlocklistAttentionDismissed(true));
+      },
+    };
   },
 
   /**
@@ -2721,6 +2901,7 @@ export const XPIDatabase = {
   removeAddonMetadata(aAddon) {
     this.addonDB.delete(aAddon._key);
     this.saveChanges();
+    this.removeFromBlocklistAttentionAddonIdsSet(aAddon);
   },
 
   updateXPIStates(addon) {
@@ -2999,6 +3180,7 @@ export const XPIDatabase = {
       }
 
       this.updateAddonActive(aAddon, !isDisabled);
+      this.maybeUpdateBlocklistAttentionAddonIdsSet(aAddon);
 
       let bootstrap = XPIExports.XPIInternal.BootstrapScope.get(aAddon);
       if (isDisabled) {
@@ -3213,7 +3395,21 @@ export const XPIDatabaseReconcile = {
 
       // Remove the invalid add-on from the install location if the install
       // location isn't locked
-      if (aLocation.isLinkedAddon(aId)) {
+      if (
+        aLocation.name === KEY_APP_BUILTINS ||
+        aLocation.name === KEY_APP_SYSTEM_BUILTINS
+      ) {
+        // If a builtin has been removed from the build, we need to remove it from our
+        // data sets.  We cannot use location.isBuiltin since the system addon locations
+        // mix it up.
+        // NOTE: for the add-ons installed in KEY_APP_SYSTEM_BUILTINS, this logic ensures
+        // that we don't keep them as userDisabled in the add-on DB  when loading the
+        // manifest fails. Otherwise, they would stay userDisabled even when the application
+        // is updated and an updated manifest loads successfully for the new system built-in
+        // add-on version (test_system_reset.js covers this corner case).
+        XPIDatabase.removeAddonMetadata(aAddonState);
+        aLocation.removeAddon(aId);
+      } else if (aLocation.isLinkedAddon(aId)) {
         logger.warn("Not uninstalling invalid item because it is a proxy file");
       } else if (aLocation.locked) {
         logger.warn(
@@ -3221,12 +3417,6 @@ export const XPIDatabaseReconcile = {
         );
       } else if (unsigned && !isNewInstall) {
         logger.warn("Not uninstalling existing unsigned add-on");
-      } else if (aLocation.name == KEY_APP_BUILTINS) {
-        // If a builtin has been removed from the build, we need to remove it from our
-        // data sets.  We cannot use location.isBuiltin since the system addon locations
-        // mix it up.
-        XPIDatabase.removeAddonMetadata(aAddonState);
-        aLocation.removeAddon(aId);
       } else {
         aLocation.installer.uninstallAddon(aId);
       }
@@ -3501,7 +3691,8 @@ export const XPIDatabaseReconcile = {
     return (
       location.name == KEY_APP_GLOBAL ||
       location.name == KEY_APP_SYSTEM_DEFAULTS ||
-      location.name == KEY_APP_BUILTINS
+      location.name == KEY_APP_BUILTINS ||
+      location.name == KEY_APP_SYSTEM_BUILTINS
     );
   },
 
@@ -3516,7 +3707,8 @@ export const XPIDatabaseReconcile = {
   isSystemAddonLocation(location) {
     return (
       location.name === KEY_APP_SYSTEM_DEFAULTS ||
-      location.name === KEY_APP_SYSTEM_ADDONS
+      location.name === KEY_APP_SYSTEM_ADDONS ||
+      location.name === KEY_APP_SYSTEM_BUILTINS
     );
   },
 
@@ -3561,7 +3753,13 @@ export const XPIDatabaseReconcile = {
     if (
       newAddon ||
       oldAddon.updateDate != xpiState.mtime ||
-      (aUpdateCompatibility && this.isAppBundledLocation(installLocation))
+      (aUpdateCompatibility && this.isAppBundledLocation(installLocation)) ||
+      // update addon metadata if the addon in bundled into
+      // the omni jar and version or the resource URI pointing
+      // to the extension assets has changed.
+      (installLocation.name === KEY_APP_SYSTEM_BUILTINS &&
+        (oldAddon.version != xpiState.version ||
+          oldAddon.rootURI != xpiState.rootURI))
     ) {
       newAddon = this.updateMetadata(
         installLocation,
@@ -3745,7 +3943,10 @@ export const XPIDatabaseReconcile = {
 
     for (let [id, addon] of previousVisible) {
       if (addon.location) {
-        if (addon.location.name == KEY_APP_BUILTINS) {
+        if (
+          addon.location.name === KEY_APP_BUILTINS ||
+          addon.location.name === KEY_APP_SYSTEM_BUILTINS
+        ) {
           continue;
         }
         XPIExports.XPIInternal.BootstrapScope.get(addon).uninstall();

@@ -316,6 +316,7 @@ class NetworkModule extends RootBiDiModule {
   #decodedBodySizeMap;
   #interceptMap;
   #networkListener;
+  #redirectedRequests;
   #subscribedEvents;
 
   constructor(messageHandler) {
@@ -326,6 +327,11 @@ class NetworkModule extends RootBiDiModule {
 
     // Map of intercept id to InterceptProperties
     this.#interceptMap = new Map();
+
+    // Set of request ids which are being redirected using continueRequest with
+    // a url parameter. Those requests will lead to an additional beforeRequestSent
+    // event which needs to be filtered out.
+    this.#redirectedRequests = new Set();
 
     // Set of event names which have active subscriptions
     this.#subscribedEvents = new Set();
@@ -400,16 +406,10 @@ class NetworkModule extends RootBiDiModule {
     const { contexts = null, phases, urlPatterns = [] } = options;
 
     if (contexts !== null) {
-      lazy.assert.array(
+      lazy.assert.isNonEmptyArray(
         contexts,
-        `Expected "contexts" to be an array, got ${contexts}`
+        `Expected "contexts" to be a non-empty array, got ${contexts}`
       );
-
-      if (!options.contexts.length) {
-        throw new lazy.error.InvalidArgumentError(
-          `Expected "contexts" to contain at least one item, got an empty array`
-        );
-      }
 
       for (const contextId of contexts) {
         lazy.assert.string(
@@ -418,24 +418,17 @@ class NetworkModule extends RootBiDiModule {
         );
         const context = this.#getBrowsingContext(contextId);
 
-        if (context.parent) {
-          throw new lazy.error.InvalidArgumentError(
-            `Context with id ${contextId} is not a top-level browsing context`
-          );
-        }
+        lazy.assert.topLevel(
+          context,
+          lazy.pprint`Browsing context with id ${contextId} is not top-level`
+        );
       }
     }
 
-    lazy.assert.array(
+    lazy.assert.isNonEmptyArray(
       phases,
-      `Expected "phases" to be an array, got ${phases}`
+      `Expected "phases" to be a non-empty array, got ${phases}`
     );
-
-    if (!options.phases.length) {
-      throw new lazy.error.InvalidArgumentError(
-        `Expected "phases" to contain at least one phase, got an empty array`
-      );
-    }
 
     const supportedInterceptPhases = Object.values(InterceptPhase);
     for (const phase of phases) {
@@ -484,10 +477,9 @@ class NetworkModule extends RootBiDiModule {
    *     request.
    * @param {string=} options.method
    *     Optional string to replace the method of the request.
-   * @param {string=} options.url [unsupported]
+   * @param {string=} options.url
    *     Optional string to replace the url of the request. If the provided url
    *     is not a valid URL, an InvalidArgumentError will be thrown.
-   *     Support will be added in https://bugzilla.mozilla.org/show_bug.cgi?id=1898158
    *
    * @throws {InvalidArgumentError}
    *     Raised if an argument is of an invalid type or value.
@@ -550,9 +542,11 @@ class NetworkModule extends RootBiDiModule {
     if (url !== null) {
       lazy.assert.string(url, `Expected "url" to be a string, got ${url}`);
 
-      throw new lazy.error.UnsupportedOperationError(
-        `"url" not supported yet in network.continueRequest`
-      );
+      if (!URL.canParse(url)) {
+        throw new lazy.error.InvalidArgumentError(
+          `Expected "url" to be a valid URL, got ${url}`
+        );
+      }
     }
 
     if (!this.#blockedRequests.has(requestId)) {
@@ -614,6 +608,13 @@ class NetworkModule extends RootBiDiModule {
     if (body !== null) {
       const value = deserializeBytesValue(body);
       request.setRequestBody(value);
+    }
+
+    if (url !== null) {
+      // Store the requestId in the redirectedRequests set to skip the extra
+      // beforeRequestSent event.
+      this.#redirectedRequests.add(requestId);
+      request.redirectTo(url);
     }
 
     request.wrappedChannel.resume();
@@ -1134,16 +1135,10 @@ class NetworkModule extends RootBiDiModule {
       return;
     }
 
-    lazy.assert.array(
+    lazy.assert.isNonEmptyArray(
       contextIds,
-      lazy.pprint`Expected "contexts" to be an array, got ${contextIds}`
+      lazy.pprint`Expected "contexts" to be a non-empty array, got ${contextIds}`
     );
-
-    if (!contextIds.length) {
-      throw new lazy.error.InvalidArgumentError(
-        'Expected "contexts" to contain at least one item, got an empty array'
-      );
-    }
 
     const contexts = new Set();
     for (const contextId of contextIds) {
@@ -1153,11 +1148,10 @@ class NetworkModule extends RootBiDiModule {
       );
       const context = this.#getBrowsingContext(contextId);
 
-      if (context.parent) {
-        throw new lazy.error.InvalidArgumentError(
-          lazy.pprint`Context with id ${contextId} is not a top-level browsing context`
-        );
-      }
+      lazy.assert.topLevel(
+        context,
+        lazy.pprint`Browsing context with id ${contextId} is not top-level`
+      );
 
       contexts.add(context);
     }
@@ -1472,6 +1466,8 @@ class NetworkModule extends RootBiDiModule {
       }
     }
 
+    const destination = request.destination;
+    const initiatorType = request.initiatorType;
     const timings = request.timings;
 
     return {
@@ -1482,6 +1478,8 @@ class NetworkModule extends RootBiDiModule {
       headersSize,
       headers,
       cookies,
+      destination,
+      initiatorType,
       timings,
     };
   }
@@ -1665,6 +1663,14 @@ class NetworkModule extends RootBiDiModule {
 
   #onBeforeRequestSent = (name, data) => {
     const { request } = data;
+
+    if (this.#redirectedRequests.has(request.requestId)) {
+      // If this beforeRequestSent event corresponds to a request that has
+      // just been redirected using continueRequest, skip the event and remove
+      // it from the redirectedRequests set.
+      this.#redirectedRequests.delete(request.requestId);
+      return;
+    }
 
     const browsingContext = lazy.TabManager.getBrowsingContextById(
       request.contextId

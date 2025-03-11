@@ -81,11 +81,6 @@ fn find_components(
 ) -> Result<Vec<Component>> {
     let mut components = uniffi_bindgen::find_components(library_path, config_supplier)?
         .into_iter()
-        // FIXME(Bug 1913982): Need to filter out components that use callback interfaces for now
-        .filter(|component| {
-            let namespace = component.ci.namespace();
-            namespace != "errorsupport" && namespace != "fixture_callbacks"
-        })
         .map(|component| {
             Ok(Component {
                 config: toml::Value::Table(component.config).try_into()?,
@@ -146,7 +141,7 @@ impl<'a> FunctionIds<'a> {
         Self {
             map: cis
                 .iter_cis()
-                .flat_map(|ci| exposed_functions(ci).map(move |f| (ci.namespace(), f.name())))
+                .flat_map(|ci| exposed_functions(ci).map(move |(_, f)| (ci.namespace(), f.name())))
                 .enumerate()
                 .map(|(i, (namespace, name))| ((namespace, name), i))
                 // Sort using BTreeSet to guarantee the IDs remain stable across runs

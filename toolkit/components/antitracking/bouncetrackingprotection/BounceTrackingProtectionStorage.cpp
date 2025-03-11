@@ -38,21 +38,33 @@ namespace mozilla {
 NS_IMPL_ISUPPORTS(BounceTrackingProtectionStorage, nsIAsyncShutdownBlocker,
                   nsIObserver);
 
-BounceTrackingStateGlobal*
+RefPtr<BounceTrackingStateGlobal>
+BounceTrackingProtectionStorage::GetStateGlobal(nsIPrincipal* aPrincipal) {
+  MOZ_ASSERT(aPrincipal);
+  return GetStateGlobal(aPrincipal->OriginAttributesRef());
+}
+
+RefPtr<BounceTrackingStateGlobal>
+BounceTrackingProtectionStorage::GetStateGlobal(
+    const OriginAttributes& aOriginAttributes) {
+  return mStateGlobal.Get(aOriginAttributes);
+}
+
+RefPtr<BounceTrackingStateGlobal>
 BounceTrackingProtectionStorage::GetOrCreateStateGlobal(
     nsIPrincipal* aPrincipal) {
   MOZ_ASSERT(aPrincipal);
   return GetOrCreateStateGlobal(aPrincipal->OriginAttributesRef());
 }
 
-BounceTrackingStateGlobal*
+RefPtr<BounceTrackingStateGlobal>
 BounceTrackingProtectionStorage::GetOrCreateStateGlobal(
     BounceTrackingState* aBounceTrackingState) {
   MOZ_ASSERT(aBounceTrackingState);
   return GetOrCreateStateGlobal(aBounceTrackingState->OriginAttributesRef());
 }
 
-BounceTrackingStateGlobal*
+RefPtr<BounceTrackingStateGlobal>
 BounceTrackingProtectionStorage::GetOrCreateStateGlobal(
     const OriginAttributes& aOriginAttributes) {
   return mStateGlobal.GetOrInsertNew(aOriginAttributes, this,
@@ -384,9 +396,6 @@ NS_IMETHODIMP BounceTrackingProtectionStorage::BlockShutdown(
               self->mDatabaseConnection = nullptr;
             }
 
-            self->mFinalized.Flip();
-            self->mMonitor.NotifyAll();
-
             nsresult rv = NS_DispatchToMainThread(NS_NewRunnableFunction(
                 "BounceTrackingProtectionStorage::BlockShutdown "
                 "- mainthread callback",
@@ -475,6 +484,16 @@ NS_IMETHODIMP BounceTrackingProtectionStorage::GetName(nsAString& aName) {
 }
 
 nsresult BounceTrackingProtectionStorage::Init() {
+  nsresult rv = InitInternal();
+  if (NS_FAILED(rv)) {
+    MonitorAutoLock lock(mMonitor);
+    mErrored.Flip();
+    mMonitor.NotifyAll();
+  }
+  return rv;
+}
+
+nsresult BounceTrackingProtectionStorage::InitInternal() {
   MOZ_LOG(gBounceTrackingProtectionLog, LogLevel::Debug, ("%s", __FUNCTION__));
 
   // Init shouldn't be called if the feature is disabled.
@@ -491,12 +510,8 @@ nsresult BounceTrackingProtectionStorage::Init() {
 
   bool closed;
   nsresult rv = shutdownBarrier->GetIsClosed(&closed);
-  if (closed || NS_WARN_IF(NS_FAILED(rv))) {
-    MonitorAutoLock lock(mMonitor);
-    mShuttingDown.Flip();
-    mMonitor.NotifyAll();
-    return NS_ERROR_ILLEGAL_DURING_SHUTDOWN;
-  }
+  NS_ENSURE_TRUE(!closed, NS_ERROR_ILLEGAL_DURING_SHUTDOWN);
+  NS_ENSURE_SUCCESS(rv, rv);
 
   rv = shutdownBarrier->AddBlocker(
       this, NS_LITERAL_STRING_FROM_CSTRING(__FILE__), __LINE__, u""_ns);
@@ -526,7 +541,7 @@ nsresult BounceTrackingProtectionStorage::Init() {
 
   RefPtr<BounceTrackingProtectionStorage> self = this;
 
-  mBackgroundThread->Dispatch(
+  return mBackgroundThread->Dispatch(
       NS_NewRunnableFunction("BounceTrackingProtectionStorage::Init",
                              [self]() {
                                MonitorAutoLock lock(self->mMonitor);
@@ -548,11 +563,10 @@ nsresult BounceTrackingProtectionStorage::Init() {
                                self->mMonitor.NotifyAll();
                              }),
       NS_DISPATCH_EVENT_MAY_BLOCK);
-
-  return NS_OK;
 }
 
-nsresult BounceTrackingProtectionStorage::CreateDatabaseConnection() {
+nsresult BounceTrackingProtectionStorage::CreateDatabaseConnection(
+    bool aShouldRetry) {
   MOZ_ASSERT(!NS_IsMainThread());
   NS_ENSURE_TRUE(mDatabaseFile, NS_ERROR_NULL_POINTER);
 
@@ -563,18 +577,31 @@ nsresult BounceTrackingProtectionStorage::CreateDatabaseConnection() {
   nsresult rv = storage->OpenDatabase(mDatabaseFile,
                                       mozIStorageService::CONNECTION_DEFAULT,
                                       getter_AddRefs(mDatabaseConnection));
-  if (rv == NS_ERROR_FILE_CORRUPTED) {
+  if (rv == NS_ERROR_FILE_CORRUPTED && aShouldRetry) {
+    MOZ_LOG(gBounceTrackingProtectionLog, LogLevel::Debug,
+            ("%s: Database file is corrupted, removing it and retrying",
+             __FUNCTION__));
+
     rv = mDatabaseFile->Remove(false);
     NS_ENSURE_SUCCESS(rv, rv);
-    rv = storage->OpenDatabase(mDatabaseFile,
-                               mozIStorageService::CONNECTION_DEFAULT,
-                               getter_AddRefs(mDatabaseConnection));
+    return CreateDatabaseConnection(false);
   }
   NS_ENSURE_SUCCESS(rv, rv);
 
   NS_ENSURE_TRUE(mDatabaseConnection, NS_ERROR_UNEXPECTED);
   bool ready = false;
   mDatabaseConnection->GetConnectionReady(&ready);
+  // If it fails once remove the db file and try again.
+  if (!ready && aShouldRetry) {
+    MOZ_LOG(gBounceTrackingProtectionLog, LogLevel::Debug,
+            ("%s: Database connection failed (not ready after open), removing "
+             "it and retrying",
+             __FUNCTION__));
+
+    rv = mDatabaseFile->Remove(false);
+    NS_ENSURE_SUCCESS(rv, rv);
+    return CreateDatabaseConnection(false);
+  }
   NS_ENSURE_TRUE(ready, NS_ERROR_UNEXPECTED);
 
   return EnsureTable();

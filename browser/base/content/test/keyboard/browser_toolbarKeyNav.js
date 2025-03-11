@@ -120,6 +120,8 @@ const BOOKMARKS_COUNT = 100;
 add_setup(async function () {
   await SpecialPowers.pushPrefEnv({
     set: [
+      // TODO: Reenable in https://bugzilla.mozilla.org/show_bug.cgi?id=1923388
+      ["browser.urlbar.scotchBonnet.enableOverride", false],
       ["browser.toolbars.keyboard_navigation", true],
       ["accessibility.tabfocus", 7],
     ],
@@ -146,6 +148,11 @@ add_setup(async function () {
   // The page actions button is not normally visible, so we must
   // unhide it.
   BrowserPageActions.mainButtonNode.style.visibility = "visible";
+
+  // Make sure the sidebar launcher is visible (when sidebar.revamp is true);
+  // previous tests might have hidden it.
+  await SidebarController.initializeUIState({ launcherVisible: true });
+
   registerCleanupFunction(() => {
     BrowserPageActions.mainButtonNode.style.removeProperty("visibility");
   });
@@ -156,11 +163,21 @@ add_task(async function testTabStopsNoPageWithHomeButton() {
   AddHomeBesideReload();
   await withNewBlankTab(async function () {
     startFromUrlBar();
-    await expectFocusAfterKey("Shift+Tab", "home-button");
+    if (sidebarRevampEnabled) {
+      await expectFocusAfterKey("Shift+Tab", "sidebar-button");
+      await expectFocusAfterKey("ArrowRight", "home-button");
+    } else {
+      await expectFocusAfterKey("Shift+Tab", "home-button");
+    }
     await expectFocusAfterKey("Shift+Tab", "tabs-newtab-button");
     await expectFocusAfterKey("Shift+Tab", gBrowser.selectedTab);
     await expectFocusAfterKey("Tab", "tabs-newtab-button");
-    await expectFocusAfterKey("Tab", "home-button");
+    if (sidebarRevampEnabled) {
+      await expectFocusAfterKey("Tab", "sidebar-button");
+      await expectFocusAfterKey("ArrowRight", "home-button");
+    } else {
+      await expectFocusAfterKey("Tab", "home-button");
+    }
     await expectFocusAfterKey("Tab", gURLBar.inputField);
     await expectFocusAfterKey("Tab", afterUrlBarButton);
     if (sidebarRevampEnabled) {
@@ -187,11 +204,21 @@ async function doTestTabStopsPageLoaded(aPageActionsVisible) {
       "Shift+Tab",
       "tracking-protection-icon-container"
     );
-    await expectFocusAfterKey("Shift+Tab", "reload-button");
+    if (sidebarRevampEnabled) {
+      await expectFocusAfterKey("Shift+Tab", "sidebar-button");
+      await expectFocusAfterKey("ArrowRight", "reload-button");
+    } else {
+      await expectFocusAfterKey("Shift+Tab", "reload-button");
+    }
     await expectFocusAfterKey("Shift+Tab", "tabs-newtab-button");
     await expectFocusAfterKey("Shift+Tab", gBrowser.selectedTab);
     await expectFocusAfterKey("Tab", "tabs-newtab-button");
-    await expectFocusAfterKey("Tab", "reload-button");
+    if (sidebarRevampEnabled) {
+      await expectFocusAfterKey("Tab", "sidebar-button");
+      await expectFocusAfterKey("ArrowRight", "reload-button");
+    } else {
+      await expectFocusAfterKey("Tab", "reload-button");
+    }
     await expectFocusAfterKey("Tab", "tracking-protection-icon-container");
     await expectFocusAfterKey("Tab", gURLBar.inputField);
     await expectFocusAfterKey(
@@ -299,14 +326,11 @@ add_task(async function testTabStopNoButtons() {
     resetToolbarWithoutDevEditionButtons();
     AddHomeBesideReload();
     if (!sidebarRevampEnabled) {
-      CustomizableUI.addWidgetToArea(
-        "sidebar-button",
-        "nav-bar",
-        CustomizableUI.getPlacementOfWidget("home-button").position + 1
-      );
+      CustomizableUI.addWidgetToArea("sidebar-button", "nav-bar", 0);
     }
     // Make sure the button is reachable now that it has been re-added.
-    await expectFocusAfterKey("Shift+Tab", "home-button", true);
+    await expectFocusAfterKey("Shift+Tab", "sidebar-button", true);
+    await expectFocusAfterKey("ArrowRight", "home-button");
     RemoveHomeButton();
   });
 });
@@ -375,13 +399,26 @@ add_task(async function testArrowsDisabledButtons() {
         "tracking-protection-icon-container"
       );
       // Back and Forward buttons are disabled.
-      await expectFocusAfterKey("Shift+Tab", "reload-button");
+      if (sidebarRevampEnabled) {
+        await expectFocusAfterKey("Shift+Tab", "sidebar-button");
+        await expectFocusAfterKey("ArrowRight", "reload-button");
+      } else {
+        await expectFocusAfterKey("Shift+Tab", "reload-button");
+      }
       EventUtils.synthesizeKey("KEY_ArrowLeft");
-      is(
-        document.activeElement.id,
-        "reload-button",
-        "ArrowLeft on Reload button when prior buttons disabled does nothing"
-      );
+      if (sidebarRevampEnabled) {
+        is(
+          document.activeElement.id,
+          "sidebar-button",
+          "ArrowLeft on Reload button when prior buttons disabled navigates to sidebar-button"
+        );
+      } else {
+        is(
+          document.activeElement.id,
+          "reload-button",
+          "ArrowLeft on Reload button when prior buttons disabled does nothing"
+        );
+      }
 
       BrowserTestUtils.startLoadingURIString(aBrowser, "https://example.com/2");
       await BrowserTestUtils.browserLoaded(aBrowser);
@@ -391,7 +428,12 @@ add_task(async function testArrowsDisabledButtons() {
         "Shift+Tab",
         "tracking-protection-icon-container"
       );
-      await expectFocusAfterKey("Shift+Tab", "back-button");
+      if (sidebarRevampEnabled) {
+        await expectFocusAfterKey("Shift+Tab", "sidebar-button");
+        await expectFocusAfterKey("ArrowRight", "back-button");
+      } else {
+        await expectFocusAfterKey("Shift+Tab", "back-button");
+      }
       // Forward button is still disabled.
       await expectFocusAfterKey("ArrowRight", "reload-button");
     }

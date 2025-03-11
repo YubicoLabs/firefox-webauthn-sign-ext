@@ -53,18 +53,20 @@
 #include "nsDebug.h"
 #include "nsISupports.h"
 #include "nsXPCOM.h"
-#include "shared-libraries.h"
+#include "SharedLibraries.h"
 #include "VTuneProfiler.h"
 #include "ETWTools.h"
 
 #include "js/ProfilingFrameIterator.h"
+#include "memory_counter.h"
 #include "memory_hooks.h"
 #include "mozilla/ArrayUtils.h"
 #include "mozilla/AutoProfilerLabel.h"
 #include "mozilla/BaseAndGeckoProfilerDetail.h"
+#include "mozilla/CycleCollectedJSContext.h"
 #include "mozilla/ExtensionPolicyService.h"
 #include "mozilla/extensions/WebExtensionPolicy.h"
-#include "mozilla/glean/GleanMetrics.h"
+#include "mozilla/glean/ProcesstoolsMetrics.h"
 #include "mozilla/Monitor.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/Printf.h"
@@ -419,8 +421,10 @@ static uint32_t AvailableFeatures() {
   }
 #else
   // The memory hooks are not available.
-  ProfilerFeature::ClearMemory(features);
   ProfilerFeature::ClearNativeAllocations(features);
+#endif
+#if !defined(MOZ_MEMORY) or !defined(MOZ_PROFILER_MEMORY)
+  ProfilerFeature::ClearMemory(features);
 #endif
 
 #if !defined(GP_OS_windows)
@@ -461,9 +465,9 @@ Json::String ToCompactString(const Json::Value& aJsonValue) {
   return Json::writeString(builder, aJsonValue);
 }
 
-/* static */ mozilla::baseprofiler::detail::BaseProfilerMutex
+MOZ_RUNINIT /* static */ mozilla::baseprofiler::detail::BaseProfilerMutex
     ProfilingLog::gMutex;
-/* static */ mozilla::UniquePtr<Json::Value> ProfilingLog::gLog;
+MOZ_RUNINIT /* static */ mozilla::UniquePtr<Json::Value> ProfilingLog::gLog;
 
 /* static */ void ProfilingLog::Init() {
   mozilla::baseprofiler::detail::BaseProfilerAutoLock lock{gMutex};
@@ -515,7 +519,7 @@ class MOZ_RAII PSAutoLock {
   mozilla::baseprofiler::detail::BaseProfilerAutoLock mLock;
 };
 
-/* static */ mozilla::baseprofiler::detail::BaseProfilerMutex
+MOZ_RUNINIT /* static */ mozilla::baseprofiler::detail::BaseProfilerMutex
     PSAutoLock::gPSMutex{"Gecko Profiler mutex"};
 
 // Only functions that take a PSLockRef arg can access CorePS's and ActivePS's
@@ -1083,6 +1087,13 @@ class ActivePS {
       aFeatures |= ProfilerFeature::CPUUtilization;
     }
 
+    if (aFeatures & ProfilerFeature::Tracing) {
+      aFeatures &= ~ProfilerFeature::CPUUtilization;
+      aFeatures &= ~ProfilerFeature::Memory;
+      aFeatures |= ProfilerFeature::NoStackSampling;
+      aFeatures |= ProfilerFeature::JS;
+    }
+
     return aFeatures;
   }
 
@@ -1191,6 +1202,10 @@ class ActivePS {
         "mMaybePowerCounters should have been deleted before ~ActivePS()");
     MOZ_ASSERT(!mMaybeCPUFreq,
                "mMaybeCPUFreq should have been deleted before ~ActivePS()");
+#if defined(MOZ_MEMORY) && defined(MOZ_PROFILER_MEMORY)
+    MOZ_ASSERT(!mMemoryCounter,
+               "mMemoryCounter should have been deleted before ~ActivePS()");
+#endif
 
 #if !defined(RELEASE_OR_BETA)
     if (ShouldInterposeIOs()) {
@@ -1279,6 +1294,14 @@ class ActivePS {
       delete sInstance->mMaybeCPUFreq;
       sInstance->mMaybeCPUFreq = nullptr;
     }
+
+#if defined(MOZ_MEMORY) && defined(MOZ_PROFILER_MEMORY)
+    if (sInstance->mMemoryCounter) {
+      locked_profiler_remove_sampled_counter(aLock,
+                                             sInstance->mMemoryCounter.get());
+      sInstance->mMemoryCounter = nullptr;
+    }
+#endif
 
     ProfilerBandwidthCounter* counter = CorePS::GetBandwidthCounter();
     if (counter && counter->IsRegistered()) {
@@ -1586,11 +1609,11 @@ class ActivePS {
   // This is a counter to collect process CPU utilization during profiling.
   // It cannot be a raw `ProfilerCounter` because we need to manually add/remove
   // it while the profiler lock is already held.
-  class ProcessCPUCounter final : public BaseProfilerCount {
+  class ProcessCPUCounter final : public AtomicProfilerCount {
    public:
     explicit ProcessCPUCounter(PSLockRef aLock)
-        : BaseProfilerCount("processCPU", &mCounter, nullptr, "CPU",
-                            "Process CPU utilization") {
+        : AtomicProfilerCount("processCPU", &mCounter, nullptr, "CPU",
+                              "Process CPU utilization") {
       // Adding on construction, so it's ready before the sampler starts.
       locked_profiler_add_sampled_counter(aLock, this);
       // Note: Removed from ActivePS::Destroy, because a lock is needed.
@@ -1751,17 +1774,19 @@ class ActivePS {
     return profiles;
   }
 
-#if defined(MOZ_REPLACE_MALLOC) && defined(MOZ_PROFILER_MEMORY)
-  static void SetMemoryCounter(const BaseProfilerCount* aMemoryCounter) {
+#if defined(MOZ_MEMORY) && defined(MOZ_PROFILER_MEMORY)
+  static void SetMemoryCounter(UniquePtr<BaseProfilerCount> aMemoryCounter,
+                               PSLockRef aLock) {
     MOZ_ASSERT(sInstance);
 
-    sInstance->mMemoryCounter = aMemoryCounter;
+    sInstance->mMemoryCounter = std::move(aMemoryCounter);
   }
 
-  static bool IsMemoryCounter(const BaseProfilerCount* aMemoryCounter) {
+  static bool IsMemoryCounter(const BaseProfilerCount* aMemoryCounter,
+                              PSLockRef aLock) {
     MOZ_ASSERT(sInstance);
 
-    return sInstance->mMemoryCounter == aMemoryCounter;
+    return sInstance->mMemoryCounter.get() == aMemoryCounter;
   }
 #endif
 
@@ -1863,8 +1888,8 @@ class ActivePS {
   };
   Vector<ExitProfile> mExitProfiles;
 
-#if defined(MOZ_REPLACE_MALLOC) && defined(MOZ_PROFILER_MEMORY)
-  Atomic<const BaseProfilerCount*> mMemoryCounter;
+#if defined(MOZ_MEMORY) && defined(MOZ_PROFILER_MEMORY)
+  UniquePtr<BaseProfilerCount> mMemoryCounter;
 #endif
 };
 
@@ -1879,7 +1904,7 @@ using ProfilerStateChangeMutex =
     mozilla::baseprofiler::detail::BaseProfilerMutex;
 using ProfilerStateChangeLock =
     mozilla::baseprofiler::detail::BaseProfilerAutoLock;
-static ProfilerStateChangeMutex gProfilerStateChangeMutex;
+MOZ_RUNINIT static ProfilerStateChangeMutex gProfilerStateChangeMutex;
 
 struct IdentifiedProfilingStateChangeCallback {
   ProfilingStateSet mProfilingStateSet;
@@ -1897,7 +1922,7 @@ struct IdentifiedProfilingStateChangeCallback {
 using IdentifiedProfilingStateChangeCallbackUPtr =
     UniquePtr<IdentifiedProfilingStateChangeCallback>;
 
-static Vector<IdentifiedProfilingStateChangeCallbackUPtr>
+MOZ_RUNINIT static Vector<IdentifiedProfilingStateChangeCallbackUPtr>
     mIdentifiedProfilingStateChangeCallbacks;
 
 void profiler_add_state_change_callback(
@@ -3053,12 +3078,10 @@ static void AddSharedLibraryInfoToStream(JSONWriter& aWriter,
   aWriter.IntProperty("start", SafeJSInteger(aLib.GetStart()));
   aWriter.IntProperty("end", SafeJSInteger(aLib.GetEnd()));
   aWriter.IntProperty("offset", SafeJSInteger(aLib.GetOffset()));
-  aWriter.StringProperty("name", NS_ConvertUTF16toUTF8(aLib.GetModuleName()));
-  aWriter.StringProperty("path", NS_ConvertUTF16toUTF8(aLib.GetModulePath()));
-  aWriter.StringProperty("debugName",
-                         NS_ConvertUTF16toUTF8(aLib.GetDebugName()));
-  aWriter.StringProperty("debugPath",
-                         NS_ConvertUTF16toUTF8(aLib.GetDebugPath()));
+  aWriter.StringProperty("name", aLib.GetModuleName());
+  aWriter.StringProperty("path", aLib.GetModulePath());
+  aWriter.StringProperty("debugName", aLib.GetDebugName());
+  aWriter.StringProperty("debugPath", aLib.GetDebugPath());
   aWriter.StringProperty("breakpadId", aLib.GetBreakpadId());
   aWriter.StringProperty("codeId", aLib.GetCodeId());
   aWriter.StringProperty("arch", aLib.GetArch());
@@ -3091,25 +3114,18 @@ static void StreamCategories(SpliceableJSONWriter& aWriter) {
   //   },
   //   ...
   // ]
-
-#define CATEGORY_JSON_BEGIN_CATEGORY(name, labelAsString, color) \
-  aWriter.Start();                                               \
-  aWriter.StringProperty("name", labelAsString);                 \
-  aWriter.StringProperty("color", color);                        \
-  aWriter.StartArrayProperty("subcategories");
-#define CATEGORY_JSON_SUBCATEGORY(supercategory, name, labelAsString) \
-  aWriter.StringElement(labelAsString);
-#define CATEGORY_JSON_END_CATEGORY \
-  aWriter.EndArray();              \
-  aWriter.EndObject();
-
-  MOZ_PROFILING_CATEGORY_LIST(CATEGORY_JSON_BEGIN_CATEGORY,
-                              CATEGORY_JSON_SUBCATEGORY,
-                              CATEGORY_JSON_END_CATEGORY)
-
-#undef CATEGORY_JSON_BEGIN_CATEGORY
-#undef CATEGORY_JSON_SUBCATEGORY
-#undef CATEGORY_JSON_END_CATEGORY
+  for (const auto& categoryInfo :
+       mozilla::baseprofiler::GetProfilingCategoryList()) {
+    aWriter.Start();
+    aWriter.StringProperty("name", MakeStringSpan(categoryInfo.mName));
+    aWriter.StringProperty("color", MakeStringSpan(categoryInfo.mColor));
+    aWriter.StartArrayProperty("subcategories");
+    for (const auto& subcategoryName : categoryInfo.mSubcategoryNames) {
+      aWriter.StringElement(MakeStringSpan(subcategoryName));
+    }
+    aWriter.EndArray();
+    aWriter.EndObject();
+  }
 }
 
 static void StreamMarkerSchema(SpliceableJSONWriter& aWriter) {
@@ -3741,7 +3757,9 @@ locked_profiler_stream_json_for_this_process(
 
   // Put page data
   aWriter.StartArrayProperty("pages");
-  { StreamPages(aLock, aWriter); }
+  {
+    StreamPages(aLock, aWriter);
+  }
   aWriter.EndArray();
   aProgressLogger.SetLocalProgress(6_pc, "Wrote pages");
 
@@ -4649,8 +4667,8 @@ void SamplerThread::Run() {
             buffer.AddEntry(ProfileBufferEntry::CounterId(counter));
             buffer.AddEntry(
                 ProfileBufferEntry::Time(counterSampleStartDeltaMs));
-#if defined(MOZ_REPLACE_MALLOC) && defined(MOZ_PROFILER_MEMORY)
-            if (ActivePS::IsMemoryCounter(counter)) {
+#if defined(MOZ_MEMORY) && defined(MOZ_PROFILER_MEMORY)
+            if (ActivePS::IsMemoryCounter(counter, lock)) {
               // For the memory counter, substract the size of our buffer to
               // avoid giving the misleading impression that the memory use
               // keeps on growing when it's just the profiler session that's
@@ -5494,6 +5512,11 @@ static ProfilingStack* locked_register_thread(
         if (lockedRWFromAnyThread->GetJSContext()) {
           profiledThreadData->NotifyReceivedJSContext(
               ActivePS::Buffer(aLock).BufferRangeEnd());
+          if (ActivePS::FeatureTracing(aLock)) {
+            CycleCollectedJSContext* ctx =
+                lockedRWFromAnyThread->GetCycleCollectedJSContext();
+            ctx->BeginExecutionTracingAsync();
+          }
         }
       }
     }
@@ -5733,7 +5756,7 @@ void profiler_start_from_signal() {
       // start the profiler in content/child processes.
       profiler_start(PROFILER_DEFAULT_SIGHANDLE_ENTRIES,
                      PROFILER_DEFAULT_INTERVAL, features, filters,
-                     MOZ_ARRAY_LENGTH(filters), 0);
+                     std::size(filters), 0);
     } else {
       // Directly start the profiler on this thread. We know we're not the main
       // thread here, so this will not start the profiler in child processes,
@@ -5741,16 +5764,15 @@ void profiler_start_from_signal() {
       // stuck.
       profiler_start(PROFILER_DEFAULT_SIGHANDLE_ENTRIES,
                      PROFILER_DEFAULT_INTERVAL, features, filters,
-                     MOZ_ARRAY_LENGTH(filters), 0);
+                     std::size(filters), 0);
       // Now also try and start the profiler from the main thread, so that the
       // ParentProfiler will start child threads.
       NS_DispatchToMainThread(
           NS_NewRunnableFunction("StartProfilerInChildProcesses", [=] {
-            Unused << NotifyProfilerStarted(PROFILER_DEFAULT_SIGHANDLE_ENTRIES,
-                                            Nothing(),
-                                            PROFILER_DEFAULT_INTERVAL, features,
-                                            const_cast<const char**>(filters),
-                                            MOZ_ARRAY_LENGTH(filters), 0);
+            Unused << NotifyProfilerStarted(
+                PROFILER_DEFAULT_SIGHANDLE_ENTRIES, Nothing(),
+                PROFILER_DEFAULT_INTERVAL, features,
+                const_cast<const char**>(filters), std::size(filters), 0);
           }));
     }
   }
@@ -5827,7 +5849,7 @@ void profiler_dump_and_stop() {
 #if defined(GECKO_PROFILER_ASYNC_POSIX_SIGNAL_CONTROL)
 void profiler_init_signal_handlers() {
   // Set a handler to start the profiler
-  struct sigaction prof_start_sa {};
+  struct sigaction prof_start_sa{};
   memset(&prof_start_sa, 0, sizeof(struct sigaction));
   prof_start_sa.sa_sigaction = profiler_start_signal_handler;
   prof_start_sa.sa_flags = SA_RESTART | SA_SIGINFO;
@@ -5836,7 +5858,7 @@ void profiler_init_signal_handlers() {
   MOZ_ASSERT(rstart == 0, "Failed to install Profiler SIGUSR1 handler");
 
   // Set a handler to stop the profiler
-  struct sigaction prof_stop_sa {};
+  struct sigaction prof_stop_sa{};
   memset(&prof_stop_sa, 0, sizeof(struct sigaction));
   prof_stop_sa.sa_sigaction = profiler_stop_signal_handler;
   prof_stop_sa.sa_flags = SA_RESTART | SA_SIGINFO;
@@ -5880,6 +5902,10 @@ void profiler_init(void* aStackTop) {
   }
 
   SharedLibraryInfo::Initialize();
+
+  // We initialize here as well as in baseprofiler because
+  // baseprofiler init doesn't happen in child processes.
+  Flow::Init();
 
   uint32_t features = DefaultFeatures() & AvailableFeatures();
 
@@ -6090,19 +6116,6 @@ void profiler_init(void* aStackTop) {
   // so let's record it again now.
   profiler_mark_thread_awake();
 
-#if defined(MOZ_REPLACE_MALLOC) && defined(MOZ_PROFILER_MEMORY)
-  if (ProfilerFeature::ShouldInstallMemoryHooks(features)) {
-    // Start counting memory allocations (outside of lock because this may call
-    // profiler_add_sampled_counter which would attempt to take the lock.)
-    ActivePS::SetMemoryCounter(mozilla::profiler::install_memory_hooks());
-  } else {
-    // Unregister the memory counter in case it was registered before. This will
-    // make sure that the empty memory counter from the previous profiler run is
-    // removed completely and we don't serialize the memory counters.
-    mozilla::profiler::unregister_memory_counter();
-  }
-#endif
-
   invoke_profiler_state_change_callbacks(ProfilingState::Started);
 
   // We do this with gPSMutex unlocked. The comment in profiler_stop() explains
@@ -6132,8 +6145,13 @@ void profiler_shutdown(IsFastShutdown aIsFastShutdown) {
   }
   invoke_profiler_state_change_callbacks(ProfilingState::ShuttingDown);
 
-  const auto preRecordedMetaInformation =
-      PreRecordMetaInformation(/* aShutdown = */ true);
+  // We collect information here to be used below so it can be done outside of
+  // the lock. We only need it if MOZ_PROFILER_SHUTDOWN is set and not empty.
+  const char* filename = getenv("MOZ_PROFILER_SHUTDOWN");
+  PreRecordedMetaInformation preRecordedMetaInformation = {};
+  if (filename && filename[0] != '\0') {
+    preRecordedMetaInformation = PreRecordMetaInformation(/* aShutdown */ true);
+  }
 
   ProfilerParent::ProfilerWillStopIfStarted();
 
@@ -6145,7 +6163,6 @@ void profiler_shutdown(IsFastShutdown aIsFastShutdown) {
 
     // Save the profile on shutdown if requested.
     if (ActivePS::Exists(lock)) {
-      const char* filename = getenv("MOZ_PROFILER_SHUTDOWN");
       if (filename && filename[0] != '\0') {
         locked_profiler_save_profile_to_file(lock, filename,
                                              preRecordedMetaInformation,
@@ -6622,6 +6639,11 @@ static void locked_profiler_start(PSLockRef aLock, PowerOfTwo32 aCapacity,
       lockedThreadData->ReinitializeOnResume();
       if (ActivePS::FeatureJS(aLock) && lockedThreadData->GetJSContext()) {
         profiledThreadData->NotifyReceivedJSContext(0);
+        if (ActivePS::FeatureTracing(aLock)) {
+          CycleCollectedJSContext* ctx =
+              lockedThreadData->GetCycleCollectedJSContext();
+          ctx->BeginExecutionTracingAsync();
+        }
       }
     }
   }
@@ -6652,6 +6674,14 @@ static void locked_profiler_start(PSLockRef aLock, PowerOfTwo32 aCapacity,
         javaFilters, javaInterval,
         std::round((double)(capacity.Value()) * interval /
                    (double)(javaInterval)));
+  }
+#endif
+
+#if defined(MOZ_MEMORY) && defined(MOZ_PROFILER_MEMORY)
+  if (ActivePS::FeatureMemory(aLock)) {
+    auto counter = mozilla::profiler::create_memory_counter();
+    locked_profiler_add_sampled_counter(aLock, counter.get());
+    ActivePS::SetMemoryCounter(std::move(counter), aLock);
   }
 #endif
 
@@ -6713,19 +6743,6 @@ RefPtr<GenericPromise> profiler_start(PowerOfTwo32 aCapacity, double aInterval,
   }
 
   PollJSSamplingForCurrentThread();
-
-#if defined(MOZ_REPLACE_MALLOC) && defined(MOZ_PROFILER_MEMORY)
-  if (ProfilerFeature::ShouldInstallMemoryHooks(aFeatures)) {
-    // Start counting memory allocations (outside of lock because this may call
-    // profiler_add_sampled_counter which would attempt to take the lock.)
-    ActivePS::SetMemoryCounter(mozilla::profiler::install_memory_hooks());
-  } else {
-    // Unregister the memory counter in case it was registered before. This will
-    // make sure that the empty memory counter from the previous profiler run is
-    // removed completely and we don't serialize the memory counters.
-    mozilla::profiler::unregister_memory_counter();
-  }
-#endif
 
   invoke_profiler_state_change_callbacks(ProfilingState::Started);
 
@@ -6833,6 +6850,14 @@ void profiler_ensure_started(PowerOfTwo32 aCapacity, double aInterval,
     lockedThreadData->ClearProfilingFeaturesAndData(aLock);
 
     if (ActivePS::FeatureJS(aLock)) {
+      if (ActivePS::FeatureTracing(aLock)) {
+        CycleCollectedJSContext* ctx =
+            lockedThreadData->GetCycleCollectedJSContext();
+        if (ctx) {
+          ctx->EndExecutionTracingAsync();
+        }
+      }
+
       lockedThreadData->StopJSSampling();
       if (!lockedThreadData.GetLockedRWOnThread() &&
           lockedThreadData->Info().IsMainThread()) {
@@ -6972,17 +6997,9 @@ void profiler_lookup_async_signal_dump_directory() {
     LOG("Found MOZ_UPLOAD_DIR at: %s", mozUploadDir);
     // We want to do the right thing, and turn this into an nsIFile. Go through
     // the motions here:
-    nsCOMPtr<nsIFile> mozUploadDirFile =
-        do_CreateInstance("@mozilla.org/file/local;1", &rv);
-
-    if (NS_FAILED(rv)) {
-      LOG("Failed to create nsIFile for MOZ_UPLOAD_DIR: %s, Error: %s",
-          mozUploadDir, GetStaticErrorName(rv));
-      return;
-    }
-
-    rv = mozUploadDirFile->InitWithNativePath(nsDependentCString(mozUploadDir));
-
+    nsCOMPtr<nsIFile> mozUploadDirFile;
+    rv = NS_NewNativeLocalFile(nsDependentCString(mozUploadDir),
+                               getter_AddRefs(mozUploadDirFile));
     if (NS_FAILED(rv)) {
       LOG("Failed to assign a filepath while creating MOZ_UPLOAD_DIR file "
           "%s, Error %s ",
@@ -7781,7 +7798,7 @@ bool profiler_is_locked_on_current_thread() {
          ProfilerChild::IsLockedOnCurrentThread();
 }
 
-void profiler_set_js_context(JSContext* aCx) {
+void profiler_set_js_context(CycleCollectedJSContext* aCx) {
   MOZ_ASSERT(aCx);
   ThreadRegistration::WithOnThreadRef(
       [&](ThreadRegistration::OnThreadRef aOnThreadRef) {
@@ -7789,7 +7806,7 @@ void profiler_set_js_context(JSContext* aCx) {
         PSAutoLock lock;
         aOnThreadRef.WithLockedRWOnThread(
             [&](ThreadRegistration::LockedRWOnThread& aThreadData) {
-              aThreadData.SetJSContext(aCx);
+              aThreadData.SetCycleCollectedJSContext(aCx);
 
               if (!ActivePS::Exists(lock) || !ActivePS::FeatureJS(lock)) {
                 return;
@@ -7800,6 +7817,9 @@ void profiler_set_js_context(JSContext* aCx) {
                   profiledThreadData) {
                 profiledThreadData->NotifyReceivedJSContext(
                     ActivePS::Buffer(lock).BufferRangeEnd());
+                if (ActivePS::FeatureTracing(lock)) {
+                  aCx->BeginExecutionTracingAsync();
+                }
               }
             });
       });
@@ -7814,11 +7834,14 @@ void profiler_clear_js_context() {
 
   ThreadRegistration::WithOnThreadRef(
       [](ThreadRegistration::OnThreadRef aOnThreadRef) {
-        JSContext* cx =
-            aOnThreadRef.UnlockedReaderAndAtomicRWOnThreadCRef().GetJSContext();
-        if (!cx) {
+        CycleCollectedJSContext* cccx =
+            aOnThreadRef.UnlockedReaderAndAtomicRWOnThreadCRef()
+                .GetCycleCollectedJSContext();
+        if (!cccx) {
           return;
         }
+
+        JSContext* cx = cccx->Context();
 
         // The profiler mutex must be locked before the ThreadRegistration's.
         {
@@ -7832,12 +7855,16 @@ void profiler_clear_js_context() {
                 ActivePS::FeatureJS(lock))) {
             // This thread is not being profiled or JS profiling is off, we only
             // need to clear the context pointer.
-            lockedThreadData->ClearJSContext();
+            lockedThreadData->ClearCycleCollectedJSContext();
             return;
           }
 
           profiledThreadData->NotifyAboutToLoseJSContext(
               cx, CorePS::ProcessStartTime(), ActivePS::Buffer(lock));
+
+          if (ActivePS::FeatureTracing(lock)) {
+            cccx->EndExecutionTracingAsync();
+          }
 
           // Notify the JS context that profiling for this context has
           // stopped. Do this by calling StopJSSampling and PollJSSampling
@@ -7846,7 +7873,7 @@ void profiler_clear_js_context() {
         }
 
         // Drop profiler mutex for call into JS engine. This must happen before
-        // ClearJSContext below.
+        // ClearCycleCollectedJSContext below.
         PollJSSamplingForCurrentThread();
 
         {
@@ -7854,7 +7881,7 @@ void profiler_clear_js_context() {
           ThreadRegistration::OnThreadRef::RWOnThreadWithLock lockedThreadData =
               aOnThreadRef.GetLockedRWOnThread();
 
-          lockedThreadData->ClearJSContext();
+          lockedThreadData->ClearCycleCollectedJSContext();
 
           // Tell the thread that we'd like to have JS sampling on this
           // thread again, once it gets a new JSContext (if ever).

@@ -35,6 +35,11 @@ namespace xsimd
     {
     };
 
+    template <class T, class A>
+    struct has_simd_register<std::complex<T>, A> : has_simd_register<T, A>
+    {
+    };
+
     namespace detail
     {
         template <class T, bool>
@@ -70,6 +75,11 @@ namespace xsimd
                           "usage of batch type with unsupported architecture");
             static_assert(!A::supported() || xsimd::has_simd_register<T, A>::value,
                           "usage of batch type with unsupported type");
+        };
+
+        template <class A>
+        struct static_check_supported_config_emitter<bool, A> : static_check_supported_config_emitter<xsimd::as_unsigned_integer_t<bool>, A>
+        {
         };
 
         template <class T, class A>

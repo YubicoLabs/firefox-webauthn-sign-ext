@@ -18,8 +18,14 @@ class WebAuthnRegisterArgs final : public nsIWebAuthnRegisterArgs {
   NS_DECL_THREADSAFE_ISUPPORTS
   NS_DECL_NSIWEBAUTHNREGISTERARGS
 
-  explicit WebAuthnRegisterArgs(const WebAuthnMakeCredentialInfo& aInfo)
-      : mInfo(aInfo),
+  explicit WebAuthnRegisterArgs(const nsCString& aOrigin,
+                                const nsCString& aClientDataJSON,
+                                const bool aPrivateBrowsing,
+                                const WebAuthnMakeCredentialInfo& aInfo)
+      : mOrigin(aOrigin),
+        mClientDataJSON(aClientDataJSON),
+        mPrivateBrowsing(aPrivateBrowsing),
+        mInfo(aInfo),
         mCredProps(false),
         mHmacCreateSecret(false),
         mMinPinLength(false),
@@ -38,13 +44,9 @@ class WebAuthnRegisterArgs final : public nsIWebAuthnRegisterArgs {
           mMinPinLength =
               ext.get_WebAuthnExtensionMinPinLength().minPinLength();
           break;
-        case WebAuthnExtension::TWebAuthnExtensionAppId:
-          break;
-
         case WebAuthnExtension::TWebAuthnExtensionPrf:
           mPrf = true;
           break;
-
         case WebAuthnExtension::TWebAuthnExtensionSign:
           mSignExtension =
               ext.get_WebAuthnExtensionSign().generateKey().isSome();
@@ -59,6 +61,9 @@ class WebAuthnRegisterArgs final : public nsIWebAuthnRegisterArgs {
  private:
   ~WebAuthnRegisterArgs() = default;
 
+  const nsCString mOrigin;
+  const nsCString mClientDataJSON;
+  const bool mPrivateBrowsing;
   const WebAuthnMakeCredentialInfo mInfo;
 
   // Flags to indicate whether an extension is being requested.
@@ -74,16 +79,18 @@ class WebAuthnSignArgs final : public nsIWebAuthnSignArgs {
   NS_DECL_THREADSAFE_ISUPPORTS
   NS_DECL_NSIWEBAUTHNSIGNARGS
 
-  explicit WebAuthnSignArgs(const WebAuthnGetAssertionInfo& aInfo)
-      : mInfo(aInfo),
+  explicit WebAuthnSignArgs(const nsCString& aOrigin,
+                            const nsCString& aClientDataJSON,
+                            const bool aPrivateBrowsing,
+                            const WebAuthnGetAssertionInfo& aInfo)
+      : mOrigin(aOrigin),
+        mClientDataJSON(aClientDataJSON),
+        mPrivateBrowsing(aPrivateBrowsing),
+        mInfo(aInfo),
         mPrf(false),
         mSignExtension(false) {
-
     for (const WebAuthnExtension& ext : mInfo.Extensions()) {
       switch (ext.type()) {
-        case WebAuthnExtension::TWebAuthnExtensionAppId:
-          mAppId = Some(ext.get_WebAuthnExtensionAppId().appIdentifier());
-          break;
         case WebAuthnExtension::TWebAuthnExtensionCredProps:
           break;
         case WebAuthnExtension::TWebAuthnExtensionHmacSecret:
@@ -91,8 +98,8 @@ class WebAuthnSignArgs final : public nsIWebAuthnSignArgs {
         case WebAuthnExtension::TWebAuthnExtensionMinPinLength:
           break;
         case WebAuthnExtension::TWebAuthnExtensionPrf:
-          mPrf = ext.get_WebAuthnExtensionPrf().eval().isSome()
-            || ext.get_WebAuthnExtensionPrf().evalByCredentialMaybe();
+          mPrf = ext.get_WebAuthnExtensionPrf().eval().isSome() ||
+                 ext.get_WebAuthnExtensionPrf().evalByCredentialMaybe();
           break;
         case WebAuthnExtension::TWebAuthnExtensionSign:
           mSignExtension = ext.get_WebAuthnExtensionSign().sign().isSome();
@@ -106,8 +113,10 @@ class WebAuthnSignArgs final : public nsIWebAuthnSignArgs {
  private:
   ~WebAuthnSignArgs() = default;
 
+  const nsCString mOrigin;
+  const nsCString mClientDataJSON;
+  const bool mPrivateBrowsing;
   const WebAuthnGetAssertionInfo mInfo;
-  Maybe<nsString> mAppId;
   bool mPrf;
   bool mSignExtension;
 };

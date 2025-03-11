@@ -22,6 +22,7 @@
 #include "SurfaceCacheUtils.h"
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/dom/ContentChild.h"
+#include "mozilla/glean/WidgetMetrics.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/Services.h"
 #include "mozilla/ServoStyleSet.h"
@@ -37,7 +38,7 @@
 #include "mozilla/widget/WidgetMessageUtils.h"
 #include "mozilla/dom/KeyboardEventBinding.h"
 #include "mozilla/RelativeLuminanceUtils.h"
-#include "mozilla/Telemetry.h"
+#include "mozilla/glean/GleanMetrics.h"
 #include "mozilla/TelemetryScalarEnums.h"
 #include "mozilla/Try.h"
 
@@ -114,7 +115,8 @@ static ColorCaches sColorCaches;
 
 static EnumeratedCache<FloatID, Maybe<float>, FloatID::End> sFloatCache;
 static EnumeratedCache<IntID, Maybe<int32_t>, IntID::End> sIntCache;
-static EnumeratedCache<FontID, widget::LookAndFeelFont, FontID::End> sFontCache;
+MOZ_RUNINIT static EnumeratedCache<FontID, widget::LookAndFeelFont, FontID::End>
+    sFontCache;
 
 // To make one of these prefs toggleable from a reftest add a user
 // pref in testing/profiles/reftest/user.js. For example, to make
@@ -148,6 +150,8 @@ static const char sIntPrefs[][45] = {
     "ui.treeScrollLinesMax",
     "ui.chosenMenuItemsShouldBlink",
     "ui.windowsAccentColorInTitlebar",
+    "ui.windowsMica",
+    "ui.windowsMicaPopups",
     "ui.macBigSurTheme",
     "ui.macRTL",
     "ui.macTitlebarHeight",
@@ -191,9 +195,10 @@ static const char sIntPrefs[][45] = {
     "ui.hideCursorWhileTyping",
     "ui.gtkThemeFamily",
     "ui.fullKeyboardAccess",
+    "ui.pointingDeviceKinds",
 };
 
-static_assert(ArrayLength(sIntPrefs) == size_t(LookAndFeel::IntID::End),
+static_assert(std::size(sIntPrefs) == size_t(LookAndFeel::IntID::End),
               "Should have a pref for each int value");
 
 // This array MUST be kept in the same order as the float id list in
@@ -208,7 +213,7 @@ static const char sFloatPrefs[][37] = {
 };
 // clang-format on
 
-static_assert(ArrayLength(sFloatPrefs) == size_t(LookAndFeel::FloatID::End),
+static_assert(std::size(sFloatPrefs) == size_t(LookAndFeel::FloatID::End),
               "Should have a pref for each float value");
 
 // This array MUST be kept in the same order as the color list in
@@ -282,8 +287,6 @@ static const char sColorPrefs[][41] = {
     "ui.accentcolor",
     "ui.accentcolortext",
     "ui.-moz-autofill-background",
-    "ui.-moz-nativehyperlinktext",
-    "ui.-moz-nativevisitedhyperlinktext",
     "ui.-moz-hyperlinktext",
     "ui.-moz-activehyperlinktext",
     "ui.-moz-visitedhyperlinktext",
@@ -321,7 +324,7 @@ static const char sColorPrefs[][41] = {
     "ui.themedScrollbarThumbInactive",
 };
 
-static_assert(ArrayLength(sColorPrefs) == size_t(LookAndFeel::ColorID::End),
+static_assert(std::size(sColorPrefs) == size_t(LookAndFeel::ColorID::End),
               "Should have a pref for each color value");
 
 // This array MUST be kept in the same order as the SystemFont enum.
@@ -338,7 +341,7 @@ static const char sFontPrefs[][41] = {
     "ui.font.-moz-field",
 };
 
-static_assert(ArrayLength(sFontPrefs) == size_t(LookAndFeel::FontID::End),
+static_assert(std::size(sFontPrefs) == size_t(LookAndFeel::FontID::End),
               "Should have a pref for each font value");
 
 const char* nsXPLookAndFeel::GetColorPrefName(ColorID aId) {
@@ -548,38 +551,6 @@ nsXPLookAndFeel::~nsXPLookAndFeel() {
   sInstance = nullptr;
 }
 
-static bool IsSpecialColor(LookAndFeel::ColorID aID, nscolor aColor) {
-  using ColorID = LookAndFeel::ColorID;
-
-  if (aColor == NS_SAME_AS_FOREGROUND_COLOR) {
-    return true;
-  }
-
-  switch (aID) {
-    case ColorID::IMESelectedRawTextBackground:
-    case ColorID::IMESelectedConvertedTextBackground:
-    case ColorID::IMERawInputBackground:
-    case ColorID::IMEConvertedTextBackground:
-    case ColorID::IMESelectedRawTextForeground:
-    case ColorID::IMESelectedConvertedTextForeground:
-    case ColorID::IMERawInputForeground:
-    case ColorID::IMEConvertedTextForeground:
-    case ColorID::IMERawInputUnderline:
-    case ColorID::IMEConvertedTextUnderline:
-    case ColorID::IMESelectedRawTextUnderline:
-    case ColorID::IMESelectedConvertedTextUnderline:
-    case ColorID::SpellCheckerUnderline:
-      return NS_IS_SELECTION_SPECIAL_COLOR(aColor);
-    default:
-      break;
-  }
-  /*
-   * In GetColor(), every color that is not a special color is color
-   * corrected. Use false to make other colors color corrected.
-   */
-  return false;
-}
-
 nscolor nsXPLookAndFeel::GetStandinForNativeColor(ColorID aID,
                                                   ColorScheme aScheme) {
   if (aScheme == ColorScheme::Dark) {
@@ -709,8 +680,9 @@ nscolor nsXPLookAndFeel::GetStandinForNativeColor(ColorID aID,
       COLOR(MozMacFocusring, 0x60, 0x9D, 0xD7)
       COLOR(MozMacDisabledtoolbartext, 0x3F, 0x3F, 0x3F)
       // Seems to be the default color (hardcoded because of bug 1065998)
-      COLOR(MozNativehyperlinktext, 0x00, 0x66, 0xCC)
-      COLOR(MozNativevisitedhyperlinktext, 0x55, 0x1A, 0x8B)
+      COLOR(Linktext, 0x00, 0x66, 0xCC)
+      COLOR(Activetext, 0xee, 0x00, 0x00)
+      COLOR(Visitedtext, 0x55, 0x1A, 0x8B)
       COLOR(MozAutofillBackground, 0xff, 0xfc, 0xc8)
       COLOR(TargetTextBackground, 0xff, 0xeb, 0xcd)
       COLOR(TargetTextForeground, 0x00, 0x00, 0x00)
@@ -757,7 +729,7 @@ Maybe<nscolor> nsXPLookAndFeel::GenericDarkColor(ColorID aID) {
 
     case ColorID::MozEventreerow:
     case ColorID::MozOddtreerow:
-    case ColorID::MozDialog:  // --in-content-box-background
+    case ColorID::MozDialog:  // --background-color-box
       color = NS_RGB(35, 34, 43);
       break;
     case ColorID::Windowtext:  // --in-content-page-color
@@ -832,21 +804,22 @@ Maybe<nscolor> nsXPLookAndFeel::GenericDarkColor(ColorID aID) {
     case ColorID::Highlighttext:
       color = NS_SAME_AS_FOREGROUND_COLOR;
       break;
-    case ColorID::MozNativehyperlinktext:
+    case ColorID::Linktext:
       // If you change this color, you probably also want to change the default
       // value of browser.anchor_color.dark.
       color = NS_RGB(0x8c, 0x8c, 0xff);
       break;
-    case ColorID::MozNativevisitedhyperlinktext:
-      // If you change this color, you probably also want to change the default
-      // value of browser.visited_color.dark.
-      color = NS_RGB(0xff, 0xad, 0xff);
-      break;
+    case ColorID::Activetext:
     case ColorID::SpellCheckerUnderline:
       // This is the default for active links in dark mode as well
       // (browser.active_color.dark). See bug 1755564 for some analysis and
       // other options too.
       color = NS_RGB(0xff, 0x66, 0x66);
+      break;
+    case ColorID::Visitedtext:
+      // If you change this color, you probably also want to change the default
+      // value of browser.visited_color.dark.
+      color = NS_RGB(0xff, 0xad, 0xff);
       break;
     case ColorID::Activeborder:
     case ColorID::Inactiveborder:
@@ -1023,19 +996,6 @@ Maybe<nscolor> nsXPLookAndFeel::GetUncachedColor(ColorID aID,
     return Some(r);
   }
   if (NS_SUCCEEDED(NativeGetColor(aID, aScheme, r))) {
-    if (gfxPlatform::GetCMSMode() == CMSMode::All && !IsSpecialColor(aID, r)) {
-      qcms_transform* transform = gfxPlatform::GetCMSInverseRGBTransform();
-      if (transform) {
-        uint8_t color[4];
-        color[0] = NS_GET_R(r);
-        color[1] = NS_GET_G(r);
-        color[2] = NS_GET_B(r);
-        color[3] = NS_GET_A(r);
-        qcms_transform_data(transform, color, color, 1);
-        r = NS_RGBA(color[0], color[1], color[2], color[3]);
-      }
-    }
-
     return Some(r);
   }
   return Nothing();
@@ -1207,9 +1167,21 @@ void nsXPLookAndFeel::RecordTelemetry() {
   sRecordedLookAndFeelTelemetry = true;
 
   int32_t i;
-  Telemetry::ScalarSet(
-      Telemetry::ScalarID::WIDGET_DARK_MODE,
+  glean::widget::dark_mode.Set(
       NS_SUCCEEDED(GetIntValue(IntID::SystemUsesDarkTheme, i)) && i != 0);
+
+  auto devices =
+      static_cast<PointingDeviceKinds>(GetInt(IntID::PointingDeviceKinds, 0));
+
+  glean::widget::pointing_devices
+      .EnumGet(glean::widget::PointingDevicesLabel::eMouse)
+      .Set(!!(devices & PointingDeviceKinds::Mouse));
+  glean::widget::pointing_devices
+      .EnumGet(glean::widget::PointingDevicesLabel::eTouch)
+      .Set(!!(devices & PointingDeviceKinds::Touch));
+  glean::widget::pointing_devices
+      .EnumGet(glean::widget::PointingDevicesLabel::ePen)
+      .Set(!!(devices & PointingDeviceKinds::Pen));
 
   RecordLookAndFeelSpecificTelemetry();
 }

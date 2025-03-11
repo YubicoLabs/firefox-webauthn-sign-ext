@@ -15,7 +15,8 @@ ChromeUtils.defineESModuleGetters(lazy, {
   BrowserWindowTracker: "resource:///modules/BrowserWindowTracker.sys.mjs",
   CustomizableUI: "resource:///modules/CustomizableUI.sys.mjs",
   MigrationUtils: "resource:///modules/MigrationUtils.sys.mjs",
-  OpenInTabsUtils: "resource:///modules/OpenInTabsUtils.sys.mjs",
+  OpenInTabsUtils:
+    "moz-src:///browser/components/tabbrowser/OpenInTabsUtils.sys.mjs",
   PlacesTransactions: "resource://gre/modules/PlacesTransactions.sys.mjs",
   PlacesUtils: "resource://gre/modules/PlacesUtils.sys.mjs",
   PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.sys.mjs",
@@ -1392,7 +1393,7 @@ export var PlacesUIUtils = {
     let menupopup = event.target;
     if (menupopup.id != "placesContext") {
       // Ignore any popupshowing events from submenus
-      return true;
+      return;
     }
 
     PlacesUIUtils.lastContextMenuTriggerNode = menupopup.triggerNode;
@@ -1417,21 +1418,23 @@ export var PlacesUIUtils = {
     let isManaged = !!menupopup.triggerNode.closest("#managed-bookmarks");
     if (isManaged) {
       this.managedPlacesContextShowing(event);
-      return true;
+      return;
     }
     menupopup._view = this.getViewForNode(menupopup.triggerNode);
     if (!menupopup._view) {
       // This can happen if we try to invoke the context menu on
       // an uninitialized places toolbar. Just bail out:
       event.preventDefault();
-      return false;
+      return;
     }
     if (!this.openInTabClosesMenu) {
       menupopup.ownerDocument
         .getElementById("placesContext_open:newtab")
         .setAttribute("closemenu", "single");
     }
-    return menupopup._view.buildContextMenu(menupopup);
+    if (!menupopup._view.buildContextMenu(menupopup)) {
+      event.preventDefault();
+    }
   },
 
   placesContextHiding(event) {

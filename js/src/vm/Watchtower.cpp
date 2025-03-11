@@ -71,14 +71,25 @@ static bool ReshapeForShadowedProp(JSContext* cx, Handle<NativeObject*> obj,
     return true;
   }
 
+  bool useDictionaryTeleporting =
+      cx->zone()->shapeZone().useDictionaryModeTeleportation();
+
   RootedObject proto(cx, obj->staticPrototype());
   while (proto) {
     // Lookups will not be cached through non-native protos.
     if (!proto->is<NativeObject>()) {
       break;
     }
-
     if (proto->as<NativeObject>().contains(cx, id)) {
+      if (useDictionaryTeleporting) {
+        JS_LOG(teleporting, Debug,
+               "Shadowed Prop: Dictionary Reshape for Teleporting");
+
+        return JSObject::reshapeForTeleporting(cx, proto);
+      }
+
+      JS_LOG(teleporting, Info,
+             "Shadowed Prop: Invalidating Reshape for Teleporting");
       return JSObject::setInvalidatedTeleporting(cx, proto);
     }
 
@@ -188,8 +199,24 @@ static bool ReshapeForProtoMutation(JSContext* cx, HandleObject obj) {
 
   RootedObject pobj(cx, obj);
 
+  bool useDictionaryTeleporting =
+      cx->zone()->shapeZone().useDictionaryModeTeleportation();
+
   while (pobj && pobj->is<NativeObject>()) {
-    if (!pobj->hasInvalidatedTeleporting()) {
+    if (useDictionaryTeleporting) {
+      MOZ_ASSERT(!pobj->hasInvalidatedTeleporting(),
+                 "Once we start using invalidation shouldn't do any more "
+                 "dictionary mode teleportation");
+      JS_LOG(teleporting, Debug,
+             "Proto Mutation: Dictionary Reshape for Teleporting");
+
+      if (!JSObject::reshapeForTeleporting(cx, pobj)) {
+        return false;
+      }
+    } else if (!pobj->hasInvalidatedTeleporting()) {
+      JS_LOG(teleporting, Info,
+             "Proto Mutation: Invalidating Reshape for Teleporting");
+
       if (!JSObject::setInvalidatedTeleporting(cx, pobj)) {
         return false;
       }
@@ -243,51 +270,50 @@ bool Watchtower::watchProtoChangeSlow(JSContext* cx, HandleObject obj) {
   return true;
 }
 
-static void MaybePopArrayIteratorFuse(JSContext* cx, NativeObject* obj,
-                                      jsid id) {
-  if (!id.isWellKnownSymbol(JS::SymbolCode::iterator)) {
+static void MaybePopArrayConstructorFuses(JSContext* cx, NativeObject* obj,
+                                          jsid id) {
+  if (obj != obj->global().maybeGetConstructor(JSProto_Array)) {
     return;
   }
-
-  JSObject* originalArrayPrototype = obj->global().maybeGetArrayPrototype();
-  if (!originalArrayPrototype) {
-    return;
+  if (id.isWellKnownSymbol(JS::SymbolCode::species)) {
+    obj->realm()->realmFuses.optimizeArraySpeciesFuse.popFuse(
+        cx, obj->realm()->realmFuses);
   }
-
-  if (obj != originalArrayPrototype) {
-    return;
-  }
-
-  obj->realm()->realmFuses.arrayPrototypeIteratorFuse.popFuse(
-      cx, obj->realm()->realmFuses);
 }
 
-static void MaybePopArrayIteratorPrototypeNextFuse(JSContext* cx,
-                                                   NativeObject* obj, jsid id) {
-  JSObject* originalArrayIteratorPrototoype =
-      obj->global().maybeGetArrayIteratorPrototype();
-  if (!originalArrayIteratorPrototoype) {
+static void MaybePopArrayPrototypeFuses(JSContext* cx, NativeObject* obj,
+                                        jsid id) {
+  if (obj != obj->global().maybeGetArrayPrototype()) {
     return;
   }
+  if (id.isWellKnownSymbol(JS::SymbolCode::iterator)) {
+    obj->realm()->realmFuses.arrayPrototypeIteratorFuse.popFuse(
+        cx, obj->realm()->realmFuses);
+  }
+  if (id.isAtom(cx->names().constructor)) {
+    obj->realm()->realmFuses.optimizeArraySpeciesFuse.popFuse(
+        cx, obj->realm()->realmFuses);
+  }
+}
 
-  if (obj != originalArrayIteratorPrototoype) {
+static void MaybePopArrayIteratorPrototypeFuses(JSContext* cx,
+                                                NativeObject* obj, jsid id) {
+  if (obj != obj->global().maybeGetArrayIteratorPrototype()) {
     return;
   }
-
-  PropertyKey nextId = NameToId(cx->names().next);
-  if (id != nextId) {
-    return;
+  if (id.isAtom(cx->names().next)) {
+    obj->realm()->realmFuses.arrayPrototypeIteratorNextFuse.popFuse(
+        cx, obj->realm()->realmFuses);
   }
-
-  obj->realm()->realmFuses.arrayPrototypeIteratorNextFuse.popFuse(
-      cx, obj->realm()->realmFuses);
 }
 
 static void MaybePopFuses(JSContext* cx, NativeObject* obj, jsid id) {
-  // Handle a write to Array.prototype[@@iterator]
-  MaybePopArrayIteratorFuse(cx, obj, id);
-  // Handle a write to Array.prototype[@@iterator].next
-  MaybePopArrayIteratorPrototypeNextFuse(cx, obj, id);
+  // Handle writes to Array constructor fuse properties.
+  MaybePopArrayConstructorFuses(cx, obj, id);
+  // Handle writes to Array.prototype fuse properties.
+  MaybePopArrayPrototypeFuses(cx, obj, id);
+  // Handle writes to %ArrayIteratorPrototype% fuse properties.
+  MaybePopArrayIteratorPrototypeFuses(cx, obj, id);
 }
 
 // static
@@ -319,10 +345,14 @@ bool Watchtower::watchPropertyRemoveSlow(JSContext* cx,
 }
 
 // static
-bool Watchtower::watchPropertyChangeSlow(JSContext* cx,
-                                         Handle<NativeObject*> obj, HandleId id,
-                                         PropertyFlags flags) {
-  MOZ_ASSERT(watchesPropertyChange(obj));
+bool Watchtower::watchPropertyFlagsChangeSlow(JSContext* cx,
+                                              Handle<NativeObject*> obj,
+                                              HandleId id,
+                                              PropertyInfo propInfo,
+                                              PropertyFlags newFlags) {
+  MOZ_ASSERT(watchesPropertyFlagsChange(obj));
+  MOZ_ASSERT(obj->lookupPure(id).ref() == propInfo);
+  MOZ_ASSERT(propInfo.flags() != newFlags);
 
   if (obj->isUsedAsPrototype() && !id.isInt()) {
     InvalidateMegamorphicCache(cx, obj);
@@ -332,26 +362,16 @@ bool Watchtower::watchPropertyChangeSlow(JSContext* cx,
     // The global generation counter only cares whether a property
     // changes from data property to accessor or vice-versa. Changing
     // the flags on a property doesn't matter.
-    uint32_t propIndex;
-    Rooted<PropMap*> map(cx, obj->shape()->lookup(cx, id, &propIndex));
-    MOZ_ASSERT(map);
-    PropertyInfo prop = map->getPropertyInfo(propIndex);
-    bool wasAccessor = prop.isAccessorProperty();
-    bool isAccessor = flags.isAccessorProperty();
+    bool wasAccessor = propInfo.isAccessorProperty();
+    bool isAccessor = newFlags.isAccessorProperty();
     if (wasAccessor != isAccessor) {
       obj->as<GlobalObject>().bumpGenerationCount();
     }
   }
 
-  // Property fuses should also be popped on property changes, as value can
-  // change via this path.
-  if (MOZ_UNLIKELY(obj->hasFuseProperty())) {
-    MaybePopFuses(cx, obj, id);
-  }
-
   if (MOZ_UNLIKELY(obj->useWatchtowerTestingLog())) {
     RootedValue val(cx, IdToValue(id));
-    if (!AddToWatchtowerLog(cx, "change-prop", obj, val)) {
+    if (!AddToWatchtowerLog(cx, "change-prop-flags", obj, val)) {
       return false;
     }
   }
@@ -361,10 +381,21 @@ bool Watchtower::watchPropertyChangeSlow(JSContext* cx,
 
 // static
 template <AllowGC allowGC>
-bool Watchtower::watchPropertyModificationSlow(
+void Watchtower::watchPropertyValueChangeSlow(
     JSContext* cx, typename MaybeRooted<NativeObject*, allowGC>::HandleType obj,
-    typename MaybeRooted<PropertyKey, allowGC>::HandleType id) {
-  MOZ_ASSERT(watchesPropertyModification(obj));
+    typename MaybeRooted<PropertyKey, allowGC>::HandleType id,
+    typename MaybeRooted<Value, allowGC>::HandleType value,
+    PropertyInfo propInfo) {
+  MOZ_ASSERT(watchesPropertyValueChange(obj));
+
+  // Note: this is also called when changing the GetterSetter value of an
+  // accessor property or when redefining a data property as an accessor
+  // property and vice versa.
+
+  if (propInfo.hasSlot() && obj->getSlot(propInfo.slot()) == value) {
+    // We're not actually changing the property's value.
+    return;
+  }
 
   if (MOZ_UNLIKELY(obj->hasFuseProperty())) {
     MaybePopFuses(cx, obj, id);
@@ -375,23 +406,27 @@ bool Watchtower::watchPropertyModificationSlow(
   if constexpr (allowGC == AllowGC::CanGC) {
     if (MOZ_UNLIKELY(obj->useWatchtowerTestingLog())) {
       RootedValue val(cx, IdToValue(id));
-      if (!AddToWatchtowerLog(cx, "modify-prop", obj, val)) {
-        return false;
+      if (!AddToWatchtowerLog(cx, "change-prop-value", obj, val)) {
+        // Ignore OOM because this is just a testing feature and infallible
+        // watchPropertyValueChange simplifies the callers.
+        cx->clearPendingException();
       }
     }
   }
-
-  return true;
 }
 
-template bool Watchtower::watchPropertyModificationSlow<AllowGC::CanGC>(
+template void Watchtower::watchPropertyValueChangeSlow<AllowGC::CanGC>(
     JSContext* cx,
     typename MaybeRooted<NativeObject*, AllowGC::CanGC>::HandleType obj,
-    typename MaybeRooted<PropertyKey, AllowGC::CanGC>::HandleType id);
-template bool Watchtower::watchPropertyModificationSlow<AllowGC::NoGC>(
+    typename MaybeRooted<PropertyKey, AllowGC::CanGC>::HandleType id,
+    typename MaybeRooted<Value, AllowGC::CanGC>::HandleType value,
+    PropertyInfo propInfo);
+template void Watchtower::watchPropertyValueChangeSlow<AllowGC::NoGC>(
     JSContext* cx,
     typename MaybeRooted<NativeObject*, AllowGC::NoGC>::HandleType obj,
-    typename MaybeRooted<PropertyKey, AllowGC::NoGC>::HandleType id);
+    typename MaybeRooted<PropertyKey, AllowGC::NoGC>::HandleType id,
+    typename MaybeRooted<Value, AllowGC::NoGC>::HandleType value,
+    PropertyInfo propInfo);
 
 // static
 bool Watchtower::watchFreezeOrSealSlow(JSContext* cx, Handle<NativeObject*> obj,

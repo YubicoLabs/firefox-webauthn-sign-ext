@@ -1,6 +1,1140 @@
 {
   "data": [
     {
+      "name": "lex.50.50.enko.s2t.bin",
+      "schema": 1740602104436,
+      "toLang": "ko",
+      "version": "2.0",
+      "fileType": "lex",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "7734265822ce315c72334ad538e698ab3900ab8e8f04bd43768d0aecad6b6df7",
+        "size": 6676356,
+        "filename": "lex.50.50.enko.s2t.bin",
+        "location": "main-workspace/translations-models/f8a94a6b-264c-4c06-8016-2b57364fbd90.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "env.appinfo.OS != 'Android' || env.channel != 'release'",
+      "id": "5afd7b25-e57e-45f9-9555-fecd7cd34b6e",
+      "last_modified": 1740604458734
+    },
+    {
+      "name": "vocab.enko.spm",
+      "schema": 1740602200372,
+      "toLang": "ko",
+      "version": "2.0",
+      "fileType": "vocab",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "709bf0e425345e0e92ce41ed84348a1296a2107c92bdb6624404450ffecbd1f9",
+        "size": 1406926,
+        "filename": "vocab.enko.spm",
+        "location": "main-workspace/translations-models/2143a895-2f68-4f00-8ebc-40c9563f304d.spm",
+        "mimetype": "text/plain"
+      },
+      "filter_expression": "env.appinfo.OS != 'Android' || env.channel != 'release'",
+      "id": "c8a3c1e6-4618-4cb9-a2e9-527496ec1de9",
+      "last_modified": 1740604458730
+    },
+    {
+      "name": "model.enko.intgemm.alphas.bin",
+      "schema": 1740602196106,
+      "toLang": "ko",
+      "version": "2.0",
+      "fileType": "model",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "1c310a79b61b8824b2eb26b045db043d92722f3e66ea06998f7c89f48da9f6bc",
+        "size": 59504955,
+        "filename": "model.enko.intgemm.alphas.bin",
+        "location": "main-workspace/translations-models/4041be52-9e75-41f1-9d4f-04801f112553.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "env.appinfo.OS != 'Android' || env.channel != 'release'",
+      "id": "84c9d745-3c01-41e5-8262-244efd47be74",
+      "last_modified": 1740604458726
+    },
+    {
+      "name": "model.enzh.intgemm.alphas.bin",
+      "schema": 1739301907813,
+      "toLang": "zh-Hans",
+      "version": "2.0a1",
+      "fileType": "model",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "31ba296821cfffcf4713176ed6f331eb1faf3f8fe433f454a37e722b5f8c4b17",
+        "size": 59504955,
+        "filename": "model.enzh.intgemm.alphas.bin",
+        "location": "main-workspace/translations-models/1ea0586c-b6db-4236-b6d8-831665ae3c32.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly'",
+      "id": "65d68434-8452-4644-b29b-077bedd7b0d0",
+      "last_modified": 1739313213072
+    },
+    {
+      "name": "model.enko.intgemm.alphas.bin",
+      "schema": 1739301872732,
+      "toLang": "ko",
+      "version": "2.0a1",
+      "fileType": "model",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "1c310a79b61b8824b2eb26b045db043d92722f3e66ea06998f7c89f48da9f6bc",
+        "size": 59504955,
+        "filename": "model.enko.intgemm.alphas.bin",
+        "location": "main-workspace/translations-models/26c0c14b-619a-4e5a-8554-484f99ecdf80.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly'",
+      "id": "01d9ab8b-ab69-42c3-b565-1a66576954d8",
+      "last_modified": 1739313213068
+    },
+    {
+      "name": "vocab.enko.spm",
+      "schema": 1739301870735,
+      "toLang": "ko",
+      "version": "2.0a1",
+      "fileType": "vocab",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "709bf0e425345e0e92ce41ed84348a1296a2107c92bdb6624404450ffecbd1f9",
+        "size": 1406926,
+        "filename": "vocab.enko.spm",
+        "location": "main-workspace/translations-models/9a7e0199-e319-4e8e-894a-037d6b8d81a2.spm",
+        "mimetype": "text/plain"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly'",
+      "id": "c71b6546-63c3-4221-99d1-0f3929cea5f7",
+      "last_modified": 1739313213064
+    },
+    {
+      "name": "lex.50.50.enko.s2t.bin",
+      "schema": 1739301892186,
+      "toLang": "ko",
+      "version": "2.0a1",
+      "fileType": "lex",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "7734265822ce315c72334ad538e698ab3900ab8e8f04bd43768d0aecad6b6df7",
+        "size": 6676356,
+        "filename": "lex.50.50.enko.s2t.bin",
+        "location": "main-workspace/translations-models/8866f5ea-790f-4146-b60b-2412db1d67d4.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly'",
+      "id": "d03ffa4e-813c-4da9-a4bb-f828edcb74ea",
+      "last_modified": 1739313213061
+    },
+    {
+      "name": "lex.50.50.enja.s2t.bin",
+      "schema": 1739301864410,
+      "toLang": "ja",
+      "version": "2.0a1",
+      "fileType": "lex",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "cdeec1f9e70085d2071ce19e0ff294f8b9220ffed359d76ce1a5458177f4ee37",
+        "size": 6135344,
+        "filename": "lex.50.50.enja.s2t.bin",
+        "location": "main-workspace/translations-models/02f92b19-5088-491d-9e38-3c015b766669.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly'",
+      "id": "197ff060-4523-4c19-9c3d-0800ce7deb62",
+      "last_modified": 1739313213057
+    },
+    {
+      "name": "vocab.enzh.spm",
+      "schema": 1739301916248,
+      "toLang": "zh-Hans",
+      "version": "2.0a1",
+      "fileType": "vocab",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "1ffaf806d8a17446675e04c99472ea716f7519d2a53ff826a1df8fa9bbcdf941",
+        "size": 1358432,
+        "filename": "vocab.enzh.spm",
+        "location": "main-workspace/translations-models/df1abe8b-8194-4fa0-9819-c3c34c7ca704.spm",
+        "mimetype": "text/plain"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly'",
+      "id": "bb9acc5b-2fa2-4f95-823e-3f486f981ea9",
+      "last_modified": 1739313213054
+    },
+    {
+      "name": "vocab.enja.spm",
+      "schema": 1739301867551,
+      "toLang": "ja",
+      "version": "2.0a1",
+      "fileType": "vocab",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "a7bbb10948d20abe5d130f9effaea406b67869c061cdf86d0537895e1cd422a2",
+        "size": 1436145,
+        "filename": "vocab.enja.spm",
+        "location": "main-workspace/translations-models/1b488be9-b4e8-491f-83ee-1a9827aa964a.spm",
+        "mimetype": "text/plain"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly'",
+      "id": "b98f2763-7635-4f39-91a9-8b228b3787e7",
+      "last_modified": 1739313213050
+    },
+    {
+      "name": "lex.50.50.enzh.s2t.bin",
+      "schema": 1739301894545,
+      "toLang": "zh-Hans",
+      "version": "2.0a1",
+      "fileType": "lex",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "06fbe7ddd8ca547d47a68c104c5a84577e44b29de935a0e4eb5957603d746ec3",
+        "size": 6298264,
+        "filename": "lex.50.50.enzh.s2t.bin",
+        "location": "main-workspace/translations-models/9e1c4480-1eac-4023-86cb-7150a9233be7.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly'",
+      "id": "348ffc0b-5e22-4d3f-8b37-1b92f0013d16",
+      "last_modified": 1739313213047
+    },
+    {
+      "name": "model.enja.intgemm.alphas.bin",
+      "schema": 1739301850319,
+      "toLang": "ja",
+      "version": "2.0a1",
+      "fileType": "model",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "24c4008fb593333578c9c7d8fcb4573d13ac8b659620f174359c92a323584f9b",
+        "size": 59504955,
+        "filename": "model.enja.intgemm.alphas.bin",
+        "location": "main-workspace/translations-models/630ad568-2595-498c-9a19-1c7702be9c9c.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly'",
+      "id": "432863fa-b25f-4712-b22d-306252ef43ae",
+      "last_modified": 1739313213043
+    },
+    {
+      "name": "vocab.koen.spm",
+      "schema": 1738181211779,
+      "toLang": "en",
+      "version": "2.0",
+      "fileType": "vocab",
+      "fromLang": "ko",
+      "attachment": {
+        "hash": "1c72b740ab793cdc3a8f16913dd6b4e806c77421077dd2d85edeb7be38418598",
+        "size": 1410063,
+        "filename": "vocab.koen.spm",
+        "location": "main-workspace/translations-models/b82773e2-0043-4160-86de-310155d111fb.spm",
+        "mimetype": "text/plain"
+      },
+      "filter_expression": "env.appinfo.OS != 'Android' || env.channel != 'release'",
+      "id": "7cfc08a3-75cc-4072-ac9a-c8d6bfbedbd8",
+      "last_modified": 1738346627881
+    },
+    {
+      "name": "lex.50.50.jaen.s2t.bin",
+      "schema": 1738181190771,
+      "toLang": "en",
+      "version": "2.0",
+      "fileType": "lex",
+      "fromLang": "ja",
+      "attachment": {
+        "hash": "8f858a72fcbaa476c582577b04d6f5f89d645d2335b0b4a794c2706d4b1f75ff",
+        "size": 9346816,
+        "filename": "lex.50.50.jaen.s2t.bin",
+        "location": "main-workspace/translations-models/3531750e-147d-444f-b75f-dd077904aaa8.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "env.appinfo.OS != 'Android' || env.channel != 'release'",
+      "id": "3989561d-9602-4b0b-ad91-41758830d34d",
+      "last_modified": 1738346627877
+    },
+    {
+      "name": "model.enru.intgemm.alphas.bin",
+      "schema": 1738181147990,
+      "toLang": "ru",
+      "version": "2.0",
+      "fileType": "model",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "0ef9a209c5edc46692750e7505b3695655b1c7c3ec73058b641201ef18c481ce",
+        "size": 42992955,
+        "filename": "model.enru.intgemm.alphas.bin",
+        "location": "main-workspace/translations-models/a6257317-71eb-4ca0-83ce-279c77f7b613.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "env.appinfo.OS != 'Android' || env.channel != 'release'",
+      "id": "8eb9aba0-04e5-43b4-9f5a-22d5d5f148dc",
+      "last_modified": 1738346627873
+    },
+    {
+      "name": "lex.50.50.zhen.s2t.bin",
+      "schema": 1738181163251,
+      "toLang": "en",
+      "version": "2.0",
+      "fileType": "lex",
+      "fromLang": "zh-Hans",
+      "attachment": {
+        "hash": "cdcad3592dc2bc4676c34c4d37203f7649ee989195cf083cbb60f1ea011f976b",
+        "size": 9220016,
+        "filename": "lex.50.50.zhen.s2t.bin",
+        "location": "main-workspace/translations-models/645c720c-6920-470d-9bb7-3f9a6b0a9cae.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "env.appinfo.OS != 'Android' || env.channel != 'release'",
+      "id": "4fbcf096-2160-4c67-bd37-7db8045f692d",
+      "last_modified": 1738346627869
+    },
+    {
+      "name": "model.koen.intgemm.alphas.bin",
+      "schema": 1738181219968,
+      "toLang": "en",
+      "version": "2.0",
+      "fileType": "model",
+      "fromLang": "ko",
+      "attachment": {
+        "hash": "1c902d6f7a8d7e3efe6ff4f7d4960a369957bca4ce2ce4a6e8572c231d525090",
+        "size": 59504955,
+        "filename": "model.koen.intgemm.alphas.bin",
+        "location": "main-workspace/translations-models/df186f1f-866e-4a67-af59-6470c3677938.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "env.appinfo.OS != 'Android' || env.channel != 'release'",
+      "id": "24a1079c-acfc-46d0-825c-12cc75708df8",
+      "last_modified": 1738346627865
+    },
+    {
+      "name": "model.jaen.intgemm.alphas.bin",
+      "schema": 1738181204498,
+      "toLang": "en",
+      "version": "2.0",
+      "fileType": "model",
+      "fromLang": "ja",
+      "attachment": {
+        "hash": "a9bf800679bba570520e1161d7b4fbfcb957add32ca35812134add85689752ad",
+        "size": 59504955,
+        "filename": "model.jaen.intgemm.alphas.bin",
+        "location": "main-workspace/translations-models/48d2ba29-c156-44b6-be26-d7ae1192a01b.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "env.appinfo.OS != 'Android' || env.channel != 'release'",
+      "id": "43a111d0-6f86-4dd0-82a9-46260671a023",
+      "last_modified": 1738346627861
+    },
+    {
+      "name": "vocab.zhen.spm",
+      "schema": 1738181183066,
+      "toLang": "en",
+      "version": "2.0",
+      "fileType": "vocab",
+      "fromLang": "zh-Hans",
+      "attachment": {
+        "hash": "dff594318ab7d8b7b60b844ab98ebe6b932ae8045fab15235404c787715965b3",
+        "size": 1359697,
+        "filename": "vocab.zhen.spm",
+        "location": "main-workspace/translations-models/88a4925d-ff4a-4c76-8813-95e2ac600b14.spm",
+        "mimetype": "text/plain"
+      },
+      "filter_expression": "env.appinfo.OS != 'Android' || env.channel != 'release'",
+      "id": "c851d2ba-37a2-4b3c-8108-a5e71bd6084a",
+      "last_modified": 1738346627857
+    },
+    {
+      "name": "lex.50.50.koen.s2t.bin",
+      "schema": 1738181215928,
+      "toLang": "en",
+      "version": "2.0",
+      "fileType": "lex",
+      "fromLang": "ko",
+      "attachment": {
+        "hash": "471cd980c4ba08c240246f9361f64eb5d627848a135b5731d665f9efaa1e26ae",
+        "size": 8617080,
+        "filename": "lex.50.50.koen.s2t.bin",
+        "location": "main-workspace/translations-models/9256bedc-fb5d-4a9c-8a20-476fc246a7cb.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "env.appinfo.OS != 'Android' || env.channel != 'release'",
+      "id": "0307c9a5-dd5d-490c-aef0-119815bb5809",
+      "last_modified": 1738346627853
+    },
+    {
+      "name": "vocab.enru.spm",
+      "schema": 1738181156142,
+      "toLang": "ru",
+      "version": "2.0",
+      "fileType": "vocab",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "56ee63e14e8cb926c394242adc3ed7cc602644c3d33058cff2ce2959d52a6258",
+        "size": 904455,
+        "filename": "vocab.enru.spm",
+        "location": "main-workspace/translations-models/fcd0f93e-defa-4990-9592-370fb368e81d.spm",
+        "mimetype": "text/plain"
+      },
+      "filter_expression": "env.appinfo.OS != 'Android' || env.channel != 'release'",
+      "id": "6c9db2b1-92c5-4eb8-a08b-32fd73fe637f",
+      "last_modified": 1738346627850
+    },
+    {
+      "name": "vocab.jaen.spm",
+      "schema": 1738181198257,
+      "toLang": "en",
+      "version": "2.0",
+      "fileType": "vocab",
+      "fromLang": "ja",
+      "attachment": {
+        "hash": "5cb217758bae05877bb3f0c2f612e4e7c1e4cb03c10db11f4a47098d7ae62919",
+        "size": 1443222,
+        "filename": "vocab.jaen.spm",
+        "location": "main-workspace/translations-models/ca178452-791a-489e-ba83-b90b9bfe6665.spm",
+        "mimetype": "text/plain"
+      },
+      "filter_expression": "env.appinfo.OS != 'Android' || env.channel != 'release'",
+      "id": "5d62e44a-6661-4e11-9588-fef08c9c4332",
+      "last_modified": 1738346627846
+    },
+    {
+      "name": "lex.50.50.enru.s2t.bin",
+      "schema": 1738181097327,
+      "toLang": "ru",
+      "version": "2.0",
+      "fileType": "lex",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "3587f93c10c1d457f874c2ba7ff4d5e2686fdaf7f3fd179cfefeacab3c6990b9",
+        "size": 2768468,
+        "filename": "lex.50.50.enru.s2t.bin",
+        "location": "main-workspace/translations-models/bec0fc43-6cb1-4e63-a37f-7f6653fdda77.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "env.appinfo.OS != 'Android' || env.channel != 'release'",
+      "id": "fdf34b3f-dd1b-45ac-adab-22aadb768273",
+      "last_modified": 1738346627842
+    },
+    {
+      "name": "model.zhen.intgemm.alphas.bin",
+      "schema": 1738181173555,
+      "toLang": "en",
+      "version": "2.0",
+      "fileType": "model",
+      "fromLang": "zh-Hans",
+      "attachment": {
+        "hash": "3535442962ec8f4a553cc19b206befcac689ee9cddaea44fa91e21527fc30ac2",
+        "size": 59504955,
+        "filename": "model.zhen.intgemm.alphas.bin",
+        "location": "main-workspace/translations-models/052699bf-6f88-4c74-bb14-e49a943b4f59.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "env.appinfo.OS != 'Android' || env.channel != 'release'",
+      "id": "d6c8116d-3f2b-4fe5-a556-4cc8c1d5a0d9",
+      "last_modified": 1738346627838
+    },
+    {
+      "name": "model.zhen.intgemm.alphas.bin",
+      "schema": 1737062830778,
+      "toLang": "en",
+      "version": "2.0a2",
+      "fileType": "model",
+      "fromLang": "zh-Hans",
+      "attachment": {
+        "hash": "3535442962ec8f4a553cc19b206befcac689ee9cddaea44fa91e21527fc30ac2",
+        "size": 59504955,
+        "filename": "model.zhen.intgemm.alphas.bin",
+        "location": "main-workspace/translations-models/bca7961c-2e76-4102-899e-638155c71e14.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly' || env.channel == 'beta'",
+      "id": "58235f04-f80e-4f4f-806b-8f40c10d08a6",
+      "last_modified": 1737063788107
+    },
+    {
+      "name": "lex.50.50.zhen.s2t.bin",
+      "schema": 1737062853795,
+      "toLang": "en",
+      "version": "2.0a2",
+      "fileType": "lex",
+      "fromLang": "zh-Hans",
+      "attachment": {
+        "hash": "cdcad3592dc2bc4676c34c4d37203f7649ee989195cf083cbb60f1ea011f976b",
+        "size": 9220016,
+        "filename": "lex.50.50.zhen.s2t.bin",
+        "location": "main-workspace/translations-models/4fdaecf6-356f-4ebe-a23d-356b6e9ca500.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly' || env.channel == 'beta'",
+      "id": "89b94e15-8795-4b4c-b56b-865dde4c4912",
+      "last_modified": 1737063788104
+    },
+    {
+      "name": "vocab.koen.spm",
+      "schema": 1737062835263,
+      "toLang": "en",
+      "version": "2.0a1",
+      "fileType": "vocab",
+      "fromLang": "ko",
+      "attachment": {
+        "hash": "1c72b740ab793cdc3a8f16913dd6b4e806c77421077dd2d85edeb7be38418598",
+        "size": 1410063,
+        "filename": "vocab.koen.spm",
+        "location": "main-workspace/translations-models/0b22840b-f3be-4bbc-ac47-ddf02d8029d0.spm",
+        "mimetype": "text/plain"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly' || env.channel == 'beta'",
+      "id": "eb1385ab-3358-4b9c-b7a8-f862ffdb7fba",
+      "last_modified": 1737063788102
+    },
+    {
+      "name": "lex.50.50.koen.s2t.bin",
+      "schema": 1737062844972,
+      "toLang": "en",
+      "version": "2.0a1",
+      "fileType": "lex",
+      "fromLang": "ko",
+      "attachment": {
+        "hash": "471cd980c4ba08c240246f9361f64eb5d627848a135b5731d665f9efaa1e26ae",
+        "size": 8617080,
+        "filename": "lex.50.50.koen.s2t.bin",
+        "location": "main-workspace/translations-models/b02d145a-7f55-4ab1-abc8-581653df31d7.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly' || env.channel == 'beta'",
+      "id": "279db7ef-99c6-4557-b3a5-ac7dde5e5db8",
+      "last_modified": 1737063788099
+    },
+    {
+      "name": "vocab.jaen.spm",
+      "schema": 1737062848889,
+      "toLang": "en",
+      "version": "2.0a1",
+      "fileType": "vocab",
+      "fromLang": "ja",
+      "attachment": {
+        "hash": "5cb217758bae05877bb3f0c2f612e4e7c1e4cb03c10db11f4a47098d7ae62919",
+        "size": 1443222,
+        "filename": "vocab.jaen.spm",
+        "location": "main-workspace/translations-models/d3bdd059-6b08-4d9d-82bb-e90d3413925f.spm",
+        "mimetype": "text/plain"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly' || env.channel == 'beta'",
+      "id": "07cc5d66-6daf-4683-bc9a-8377870755c0",
+      "last_modified": 1737063788097
+    },
+    {
+      "name": "vocab.zhen.spm",
+      "schema": 1737062793744,
+      "toLang": "en",
+      "version": "2.0a2",
+      "fileType": "vocab",
+      "fromLang": "zh-Hans",
+      "attachment": {
+        "hash": "dff594318ab7d8b7b60b844ab98ebe6b932ae8045fab15235404c787715965b3",
+        "size": 1359697,
+        "filename": "vocab.zhen.spm",
+        "location": "main-workspace/translations-models/2de3f177-8838-47b3-b789-cc4021686116.spm",
+        "mimetype": "text/plain"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly' || env.channel == 'beta'",
+      "id": "bb4c4356-d97c-4155-b3a2-01aa574221b0",
+      "last_modified": 1737063788094
+    },
+    {
+      "name": "lex.50.50.jaen.s2t.bin",
+      "schema": 1737062864069,
+      "toLang": "en",
+      "version": "2.0a1",
+      "fileType": "lex",
+      "fromLang": "ja",
+      "attachment": {
+        "hash": "8f858a72fcbaa476c582577b04d6f5f89d645d2335b0b4a794c2706d4b1f75ff",
+        "size": 9346816,
+        "filename": "lex.50.50.jaen.s2t.bin",
+        "location": "main-workspace/translations-models/26ffe7a2-0c48-4a56-8157-6a14bce0556b.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly' || env.channel == 'beta'",
+      "id": "dd3bc51f-fb74-472c-a838-6dedd25729cd",
+      "last_modified": 1737063788091
+    },
+    {
+      "name": "model.koen.intgemm.alphas.bin",
+      "schema": 1737062840491,
+      "toLang": "en",
+      "version": "2.0a1",
+      "fileType": "model",
+      "fromLang": "ko",
+      "attachment": {
+        "hash": "1c902d6f7a8d7e3efe6ff4f7d4960a369957bca4ce2ce4a6e8572c231d525090",
+        "size": 59504955,
+        "filename": "model.koen.intgemm.alphas.bin",
+        "location": "main-workspace/translations-models/d9a92d5a-3e74-49db-abef-0fce0fe55e54.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly' || env.channel == 'beta'",
+      "id": "f662c1f9-4b51-432f-862b-fe9262e48ed3",
+      "last_modified": 1737063788089
+    },
+    {
+      "name": "model.jaen.intgemm.alphas.bin",
+      "schema": 1737062857965,
+      "toLang": "en",
+      "version": "2.0a1",
+      "fileType": "model",
+      "fromLang": "ja",
+      "attachment": {
+        "hash": "a9bf800679bba570520e1161d7b4fbfcb957add32ca35812134add85689752ad",
+        "size": 59504955,
+        "filename": "model.jaen.intgemm.alphas.bin",
+        "location": "main-workspace/translations-models/879d6529-0fcc-4268-8b22-0a3f67e1ae12.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly' || env.channel == 'beta'",
+      "id": "489bff98-ae4c-4504-9dde-956b0fa41a75",
+      "last_modified": 1737063788086
+    },
+    {
+      "name": "model.zhen.intgemm.alphas.bin",
+      "schema": 1734038186842,
+      "toLang": "en",
+      "version": "2.0a1",
+      "fileType": "model",
+      "fromLang": "zh-Hans",
+      "attachment": {
+        "hash": "4465041a02ecc3976f899bc2ca73181c5a3e3b286c672a72da37972262a08f87",
+        "size": 25461051,
+        "filename": "model.zhen.intgemm.alphas.bin",
+        "location": "main-workspace/translations-models/f669d62a-12c8-46fa-b029-0f047fe6afc6.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly'",
+      "id": "83050b32-791c-454f-9510-6dde401d60d4",
+      "last_modified": 1734046552194
+    },
+    {
+      "name": "vocab.enru.spm",
+      "schema": 1734038155949,
+      "toLang": "ru",
+      "version": "2.0a1",
+      "fileType": "vocab",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "56ee63e14e8cb926c394242adc3ed7cc602644c3d33058cff2ce2959d52a6258",
+        "size": 904455,
+        "filename": "vocab.enru.spm",
+        "location": "main-workspace/translations-models/c467206e-7dce-40f4-80b1-72bd1cb81e78.spm",
+        "mimetype": "text/plain"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly'",
+      "id": "770b7bbe-ccd9-4252-a671-093da381e50e",
+      "last_modified": 1734046552192
+    },
+    {
+      "name": "vocab.zhen.spm",
+      "schema": 1734038217113,
+      "toLang": "en",
+      "version": "2.0a1",
+      "fileType": "vocab",
+      "fromLang": "zh-Hans",
+      "attachment": {
+        "hash": "81e49ac79fd15d0cf95a0c6d190f8f77815c914598759ef9b2952048bb837506",
+        "size": 1332993,
+        "filename": "vocab.zhen.spm",
+        "location": "main-workspace/translations-models/1252ca3b-1520-4b62-891c-3652cab82637.spm",
+        "mimetype": "text/plain"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly'",
+      "id": "cee2325d-d69d-4ae1-b8fe-5f0673303ffc",
+      "last_modified": 1734046552188
+    },
+    {
+      "name": "lex.50.50.zhen.s2t.bin",
+      "schema": 1734038225724,
+      "toLang": "en",
+      "version": "2.0a1",
+      "fileType": "lex",
+      "fromLang": "zh-Hans",
+      "attachment": {
+        "hash": "37e2f2feb3382155cbb750dd17d925f28a73c9ca2cd9d246f977c2b1c1928f1b",
+        "size": 7556580,
+        "filename": "lex.50.50.zhen.s2t.bin",
+        "location": "main-workspace/translations-models/f22c4dcb-85b2-442a-bfe0-096d207c7bea.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly'",
+      "id": "33e0018e-f3ac-4330-bfcb-9234e40c1f91",
+      "last_modified": 1734046552186
+    },
+    {
+      "name": "lex.50.50.enru.s2t.bin",
+      "schema": 1734038132659,
+      "toLang": "ru",
+      "version": "2.0a1",
+      "fileType": "lex",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "3587f93c10c1d457f874c2ba7ff4d5e2686fdaf7f3fd179cfefeacab3c6990b9",
+        "size": 2768468,
+        "filename": "lex.50.50.enru.s2t.bin",
+        "location": "main-workspace/translations-models/39a1e161-2128-49e1-9316-9ad48ec5db55.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly'",
+      "id": "cb234c92-c42e-4155-ac17-5f3d62fe6673",
+      "last_modified": 1734046552183
+    },
+    {
+      "name": "model.enru.intgemm.alphas.bin",
+      "schema": 1734038135394,
+      "toLang": "ru",
+      "version": "2.0a1",
+      "fileType": "model",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "0ef9a209c5edc46692750e7505b3695655b1c7c3ec73058b641201ef18c481ce",
+        "size": 42992955,
+        "filename": "model.enru.intgemm.alphas.bin",
+        "location": "main-workspace/translations-models/c058d1e9-2e44-4ec3-9f76-b79af7907465.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly'",
+      "id": "4c0b082d-ccd0-4dd1-927c-d4d285136636",
+      "last_modified": 1734046552180
+    },
+    {
+      "name": "lex.50.50.enel.s2t.bin",
+      "schema": 1728418132946,
+      "toLang": "el",
+      "version": "1.0",
+      "fileType": "lex",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "c2acd9241eb8a1e5b13a43efa5723628839d6e3b3dc7b93e2f20990a6ab81e24",
+        "size": 2856724,
+        "filename": "lex.50.50.enel.s2t.bin",
+        "location": "main-workspace/translations-models/73568803-85e3-423a-8fb8-7f755a6ffed2.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "",
+      "id": "8944a263-7d26-4eb5-b997-0cccc22bf409",
+      "last_modified": 1728419357989
+    },
+    {
+      "name": "model.enel.intgemm.alphas.bin",
+      "schema": 1728418135876,
+      "toLang": "el",
+      "version": "1.0",
+      "fileType": "model",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "724b358d399c6b23444de36d76e9e2630c7024c29d9e617323b820a11631535a",
+        "size": 17141051,
+        "filename": "model.enel.intgemm.alphas.bin",
+        "location": "main-workspace/translations-models/26dead91-e46c-442c-85d0-a6fe13fad55a.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "",
+      "id": "136b1eae-9cef-4d03-a38f-74b0cb543b74",
+      "last_modified": 1728419357986
+    },
+    {
+      "name": "vocab.enel.spm",
+      "schema": 1728418140704,
+      "toLang": "el",
+      "version": "1.0",
+      "fileType": "vocab",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "0ffc5569d7f400f03539c5fc3e28ff35f1d0381eba0ec866c44aef0c26f3ce5e",
+        "size": 896168,
+        "filename": "vocab.enel.spm",
+        "location": "main-workspace/translations-models/79a76f88-a4c4-4b1d-b726-15c6a60bebcc.spm",
+        "mimetype": "text/plain"
+      },
+      "filter_expression": "",
+      "id": "21ba494d-0782-4792-9aa9-decb9f5dbedd",
+      "last_modified": 1728419357983
+    },
+    {
+      "name": "lex.50.50.enru.s2t.bin",
+      "schema": 1727894453838,
+      "toLang": "ru",
+      "version": "1.0a2",
+      "fileType": "lex",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "3587f93c10c1d457f874c2ba7ff4d5e2686fdaf7f3fd179cfefeacab3c6990b9",
+        "size": 2768468,
+        "filename": "lex.50.50.enru.s2t.bin",
+        "location": "main-workspace/translations-models/0a9c0bc3-19a7-4b0a-9f9c-f8494a0e59f9.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly'",
+      "id": "c9cc790c-06e9-48a1-9e5d-a480ac5a4538",
+      "last_modified": 1727894623933
+    },
+    {
+      "name": "vocab.enru.spm",
+      "schema": 1727894465083,
+      "toLang": "ru",
+      "version": "1.0a2",
+      "fileType": "vocab",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "56ee63e14e8cb926c394242adc3ed7cc602644c3d33058cff2ce2959d52a6258",
+        "size": 904455,
+        "filename": "vocab.enru.spm",
+        "location": "main-workspace/translations-models/d410fe5f-3f5d-4af6-9841-ca55beab47f7.spm",
+        "mimetype": "text/plain"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly'",
+      "id": "c1c816f2-0528-4f50-95ac-4b7bc07e7321",
+      "last_modified": 1727894623930
+    },
+    {
+      "name": "model.enru.intgemm.alphas.bin",
+      "schema": 1727894456507,
+      "toLang": "ru",
+      "version": "1.0a2",
+      "fileType": "model",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "01db60f75a54ef39c617cbdfdd78759a6a216576efa9a9088da8a6433d90af77",
+        "size": 17141051,
+        "filename": "model.enru.intgemm.alphas.bin",
+        "location": "main-workspace/translations-models/0ed2208e-01d5-4251-9fcd-5ad2167ba456.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly'",
+      "id": "8b82046e-f8a5-4c07-8985-5440a2c5f3cd",
+      "last_modified": 1727894623928
+    },
+    {
+      "name": "vocab.enro.spm",
+      "schema": 1727818367491,
+      "toLang": "ro",
+      "version": "1.0",
+      "fileType": "vocab",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "d89eedf6cbbcb30d7ed4b0b092189196ac2b010ec0c3ede33a6676b17ea1c95e",
+        "size": 801522,
+        "filename": "vocab.enro.spm",
+        "location": "main-workspace/translations-models/41f055b0-76a8-4dae-a18c-44d8c1293bf0.spm",
+        "mimetype": "text/plain"
+      },
+      "filter_expression": "",
+      "id": "fb727eb1-684a-42f9-8c70-fa2155384567",
+      "last_modified": 1727884789204
+    },
+    {
+      "name": "model.enro.intgemm.alphas.bin",
+      "schema": 1727818359730,
+      "toLang": "ro",
+      "version": "1.0",
+      "fileType": "model",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "aa98c415e5beb1c5ee2f7d2508a3bbba949be223d7d9e5e1788ad0ae8598dda5",
+        "size": 17141051,
+        "filename": "model.enro.intgemm.alphas.bin",
+        "location": "main-workspace/translations-models/f12620b2-d705-4d7a-82e0-e16f0aa29d74.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "",
+      "id": "0af213fb-c1c3-4537-875c-0e67d04cbed5",
+      "last_modified": 1727884789202
+    },
+    {
+      "name": "model.enid.intgemm.alphas.bin",
+      "schema": 1727818345956,
+      "toLang": "id",
+      "version": "1.0",
+      "fileType": "model",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "f81f13eef703a4e0650ffc3138a0f4bab7b6c8bfd173ef1b7bda68d16b8bc7e8",
+        "size": 17141051,
+        "filename": "model.enid.intgemm.alphas.bin",
+        "location": "main-workspace/translations-models/0d494914-73de-49af-804a-a4bd443f0554.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "",
+      "id": "509f37a5-7113-4aec-8ce7-a73a7513d939",
+      "last_modified": 1727884789199
+    },
+    {
+      "name": "lex.50.50.enro.s2t.bin",
+      "schema": 1727818365031,
+      "toLang": "ro",
+      "version": "1.0",
+      "fileType": "lex",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "508bce64a8bc906a99043ad2f4855b4662e06f8827c1c6a75ab83181b4f17f81",
+        "size": 3739880,
+        "filename": "lex.50.50.enro.s2t.bin",
+        "location": "main-workspace/translations-models/0b9db082-327d-4ab0-bad6-17e7631ec163.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "",
+      "id": "be02b756-7cea-4af9-b1e1-890e1a98d7c6",
+      "last_modified": 1727884789196
+    },
+    {
+      "name": "lex.50.50.enid.s2t.bin",
+      "schema": 1727818355424,
+      "toLang": "id",
+      "version": "1.0",
+      "fileType": "lex",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "d37f72bcab6e7bc52fd223350f95521b5810bb2486a97275f86077988fced3f4",
+        "size": 3515428,
+        "filename": "lex.50.50.enid.s2t.bin",
+        "location": "main-workspace/translations-models/a9610c56-2593-4513-b4ac-954276327788.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "",
+      "id": "476b9dad-c2b7-45ef-892c-614b24789ec8",
+      "last_modified": 1727884789194
+    },
+    {
+      "name": "lex.50.50.encs.s2t.bin",
+      "schema": 1727818336916,
+      "toLang": "cs",
+      "version": "1.0",
+      "fileType": "lex",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "f34042e1446f1b892b2846eff4e96ef2554067d9f8af495036254a1f64a7c058",
+        "size": 3547520,
+        "filename": "lex.50.50.encs.s2t.bin",
+        "location": "main-workspace/translations-models/153fe7cc-4068-4ceb-8f50-e4283bf178bd.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "",
+      "id": "ae0338e2-edbc-42de-bb1f-57683d5998c1",
+      "last_modified": 1727884789191
+    },
+    {
+      "name": "vocab.enid.spm",
+      "schema": 1727818343503,
+      "toLang": "id",
+      "version": "1.0",
+      "fileType": "vocab",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "61bc7db24d3b6de638a02a280580a273fe0c942ecbe8a8204b2f81978211db22",
+        "size": 773211,
+        "filename": "vocab.enid.spm",
+        "location": "main-workspace/translations-models/6c49d51b-167b-4bdc-aab8-2abe32105529.spm",
+        "mimetype": "text/plain"
+      },
+      "filter_expression": "",
+      "id": "dd0111e6-5bc4-4a07-9fec-aa1cd5a7831e",
+      "last_modified": 1727884789188
+    },
+    {
+      "name": "vocab.encs.spm",
+      "schema": 1727818339546,
+      "toLang": "cs",
+      "version": "1.0",
+      "fileType": "vocab",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "3c894bbd9e75de0966ab9fe5a427178817216d1d07aa7fe27b9cb7dbb666d5ef",
+        "size": 800256,
+        "filename": "vocab.encs.spm",
+        "location": "main-workspace/translations-models/fbdce1e6-1431-4a23-bde9-c1f59a020669.spm",
+        "mimetype": "text/plain"
+      },
+      "filter_expression": "",
+      "id": "f395c17e-d595-4b48-880a-8b447808588e",
+      "last_modified": 1727884789185
+    },
+    {
+      "name": "model.encs.intgemm.alphas.bin",
+      "schema": 1727818330480,
+      "toLang": "cs",
+      "version": "1.0",
+      "fileType": "model",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "12ad256d589abf3ec351957c1749d7915c06a28debab0370b7a47a6b4bb19633",
+        "size": 17141051,
+        "filename": "model.encs.intgemm.alphas.bin",
+        "location": "main-workspace/translations-models/c8e32704-84e6-4fc5-9870-34b55e557f58.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "",
+      "id": "ebe95ad6-b125-44db-b7ca-8f2138e5d26a",
+      "last_modified": 1727884789183
+    },
+    {
+      "name": "lex.50.50.enro.s2t.bin",
+      "schema": 1727811631247,
+      "toLang": "ro",
+      "version": "1.0a1",
+      "fileType": "lex",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "508bce64a8bc906a99043ad2f4855b4662e06f8827c1c6a75ab83181b4f17f81",
+        "size": 3739880,
+        "filename": "lex.50.50.enro.s2t.bin",
+        "location": "main-workspace/translations-models/c38a0cec-add7-4d6b-8eb7-745327b0cbf9.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly'",
+      "id": "d57e3927-148f-4084-a360-a87bd6116305",
+      "last_modified": 1727817403894
+    },
+    {
+      "name": "vocab.enro.spm",
+      "schema": 1727811633976,
+      "toLang": "ro",
+      "version": "1.0a1",
+      "fileType": "vocab",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "d89eedf6cbbcb30d7ed4b0b092189196ac2b010ec0c3ede33a6676b17ea1c95e",
+        "size": 801522,
+        "filename": "vocab.enro.spm",
+        "location": "main-workspace/translations-models/df9ec04b-3d71-48e1-ad2f-97488d6cadfc.spm",
+        "mimetype": "text/plain"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly'",
+      "id": "871c05ec-419a-4479-b1c6-37bbbcff83ff",
+      "last_modified": 1727817403891
+    },
+    {
+      "name": "model.enro.intgemm.alphas.bin",
+      "schema": 1727811627293,
+      "toLang": "ro",
+      "version": "1.0a1",
+      "fileType": "model",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "aa98c415e5beb1c5ee2f7d2508a3bbba949be223d7d9e5e1788ad0ae8598dda5",
+        "size": 17141051,
+        "filename": "model.enro.intgemm.alphas.bin",
+        "location": "main-workspace/translations-models/1265110e-c617-4f55-b188-a52fdc2a4a30.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly'",
+      "id": "bb6eb9d1-d92a-41be-8e75-268defa1f7c0",
+      "last_modified": 1727817403889
+    },
+    {
+      "name": "lex.50.50.enid.s2t.bin",
+      "schema": 1727811623043,
+      "toLang": "id",
+      "version": "1.0a1",
+      "fileType": "lex",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "d37f72bcab6e7bc52fd223350f95521b5810bb2486a97275f86077988fced3f4",
+        "size": 3515428,
+        "filename": "lex.50.50.enid.s2t.bin",
+        "location": "main-workspace/translations-models/4d9e3157-2c28-4129-b5b3-54ad61fa457f.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly'",
+      "id": "0c65cf48-65dc-4bdd-87cf-9da01e00ffb8",
+      "last_modified": 1727817403886
+    },
+    {
+      "name": "model.enid.intgemm.alphas.bin",
+      "schema": 1727811618649,
+      "toLang": "id",
+      "version": "1.0a1",
+      "fileType": "model",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "f81f13eef703a4e0650ffc3138a0f4bab7b6c8bfd173ef1b7bda68d16b8bc7e8",
+        "size": 17141051,
+        "filename": "model.enid.intgemm.alphas.bin",
+        "location": "main-workspace/translations-models/d8d04449-c0c6-48f3-b85a-a63a5f1453f3.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly'",
+      "id": "c8622efc-722f-4f14-bc1f-0adab8a378bb",
+      "last_modified": 1727817403883
+    },
+    {
+      "name": "vocab.enid.spm",
+      "schema": 1727811616643,
+      "toLang": "id",
+      "version": "1.0a1",
+      "fileType": "vocab",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "61bc7db24d3b6de638a02a280580a273fe0c942ecbe8a8204b2f81978211db22",
+        "size": 773211,
+        "filename": "vocab.enid.spm",
+        "location": "main-workspace/translations-models/a93b9a41-943b-4bc1-bb6e-591dea069906.spm",
+        "mimetype": "text/plain"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly'",
+      "id": "158f9e1d-15a7-4286-91da-48a47c599fdf",
+      "last_modified": 1727817403880
+    },
+    {
+      "name": "vocab.encs.spm",
+      "schema": 1727811613196,
+      "toLang": "cs",
+      "version": "1.0a3",
+      "fileType": "vocab",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "3c894bbd9e75de0966ab9fe5a427178817216d1d07aa7fe27b9cb7dbb666d5ef",
+        "size": 800256,
+        "filename": "vocab.encs.spm",
+        "location": "main-workspace/translations-models/de3ac607-90e6-4317-8495-a8f4af26258d.spm",
+        "mimetype": "text/plain"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly'",
+      "id": "27f3b261-df30-48b3-9a0d-4d9d8736e94f",
+      "last_modified": 1727817403878
+    },
+    {
+      "name": "lex.50.50.encs.s2t.bin",
+      "schema": 1727811610312,
+      "toLang": "cs",
+      "version": "1.0a3",
+      "fileType": "lex",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "f34042e1446f1b892b2846eff4e96ef2554067d9f8af495036254a1f64a7c058",
+        "size": 3547520,
+        "filename": "lex.50.50.encs.s2t.bin",
+        "location": "main-workspace/translations-models/4cb7643d-4cf4-4326-97bc-aa9737c6b87e.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly'",
+      "id": "c62deed6-0e9c-4edd-adb8-98650e90b058",
+      "last_modified": 1727817403875
+    },
+    {
+      "name": "model.encs.intgemm.alphas.bin",
+      "schema": 1727811604361,
+      "toLang": "cs",
+      "version": "1.0a3",
+      "fileType": "model",
+      "fromLang": "en",
+      "attachment": {
+        "hash": "12ad256d589abf3ec351957c1749d7915c06a28debab0370b7a47a6b4bb19633",
+        "size": 17141051,
+        "filename": "model.encs.intgemm.alphas.bin",
+        "location": "main-workspace/translations-models/64c41fc1-6ac7-47a6-b8aa-c64cfd86f3f4.bin",
+        "mimetype": "application/octet-stream"
+      },
+      "filter_expression": "env.channel == 'default' || env.channel == 'nightly'",
+      "id": "554077c2-59ff-415a-b128-68758c606761",
+      "last_modified": 1727817403872
+    },
+    {
       "name": "model.sven.intgemm.alphas.bin",
       "schema": 1726164430558,
       "toLang": "en",
@@ -3505,60 +4639,6 @@
       "last_modified": 1701186751741
     },
     {
-      "name": "model.encs.intgemm.alphas.bin",
-      "schema": 1700619898096,
-      "toLang": "cs",
-      "version": "1.0a1",
-      "fileType": "model",
-      "fromLang": "en",
-      "attachment": {
-        "hash": "9a2fe0588bd972accfc801e2f31c945de0557804a91666ae5ab43b94fb74ac4b",
-        "size": 17140756,
-        "filename": "model.encs.intgemm.alphas.bin",
-        "location": "main-workspace/translations-models/1e1acc3c-4a19-4a8d-808b-c17e2968c2b0.bin",
-        "mimetype": "application/octet-stream"
-      },
-      "filter_expression": "env.channel == 'default' || env.channel == 'nightly'",
-      "id": "7ef8e77f-c4a9-4505-bf4d-5374afabba3e",
-      "last_modified": 1701186751726
-    },
-    {
-      "name": "lex.50.50.encs.s2t.bin",
-      "schema": 1700619903857,
-      "toLang": "cs",
-      "version": "1.0a1",
-      "fileType": "lex",
-      "fromLang": "en",
-      "attachment": {
-        "hash": "e19c77231bf977988e31ff8db15fe79966b5170564bd3e10613f239e7f461d97",
-        "size": 3556124,
-        "filename": "lex.50.50.encs.s2t.bin",
-        "location": "main-workspace/translations-models/85f4a85c-7056-4ebf-b650-44de2cd06af7.bin",
-        "mimetype": "application/octet-stream"
-      },
-      "filter_expression": "env.channel == 'default' || env.channel == 'nightly'",
-      "id": "663f54f3-79ac-4a4e-971a-9eb17e0ca093",
-      "last_modified": 1701186751722
-    },
-    {
-      "name": "vocab.encs.spm",
-      "schema": 1700619911362,
-      "toLang": "cs",
-      "version": "1.0a1",
-      "fileType": "vocab",
-      "fromLang": "en",
-      "attachment": {
-        "hash": "f71cc5d045e479607078e079884f44032f5a0b82547fb96eefa29cd1eb47c6f3",
-        "size": 769763,
-        "filename": "vocab.encs.spm",
-        "location": "main-workspace/translations-models/9e643f44-b0b2-4ec9-866f-73b54bc0b52c.spm",
-        "mimetype": "text/plain"
-      },
-      "filter_expression": "env.channel == 'default' || env.channel == 'nightly'",
-      "id": "caf36734-993d-4648-870e-66836e8ceaa7",
-      "last_modified": 1701186751716
-    },
-    {
       "name": "vocab.enet.spm",
       "schema": 1700619936219,
       "toLang": "et",
@@ -5071,5 +6151,5 @@
       "last_modified": 1701186751412
     }
   ],
-  "timestamp": 1726841594653
+  "timestamp": 1740604458734
 }

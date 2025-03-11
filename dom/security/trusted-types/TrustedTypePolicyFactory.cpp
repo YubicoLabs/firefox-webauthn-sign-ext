@@ -17,9 +17,16 @@
 #include "mozilla/dom/TrustedTypeUtils.h"
 #include "mozilla/dom/nsCSPUtils.h"
 
+using namespace mozilla::dom::TrustedTypeUtils;
+
 namespace mozilla::dom {
 
-NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE(TrustedTypePolicyFactory, mGlobalObject)
+NS_IMPL_CYCLE_COLLECTION_WRAPPERCACHE(TrustedTypePolicyFactory, mGlobalObject,
+                                      mDefaultPolicy)
+
+TrustedTypePolicyFactory::TrustedTypePolicyFactory(
+    nsIGlobalObject* aGlobalObject)
+    : mGlobalObject{aGlobalObject} {}
 
 JSObject* TrustedTypePolicyFactory::WrapObject(
     JSContext* aCx, JS::Handle<JSObject*> aGivenProto) {
@@ -47,9 +54,13 @@ static CSPViolationData CreateCSPViolationData(JSContext* aJSContext,
           sample};
 }
 
+// Default implementation in the .cpp file required because `mDefaultPolicy`
+// requires a definition for `TrustedTypePolicy`.
+TrustedTypePolicyFactory::~TrustedTypePolicyFactory() = default;
+
 auto TrustedTypePolicyFactory::ShouldTrustedTypePolicyCreationBeBlockedByCSP(
-    JSContext* aJSContext,
-    const nsAString& aPolicyName) const -> PolicyCreation {
+    JSContext* aJSContext, const nsAString& aPolicyName) const
+    -> PolicyCreation {
   // CSP-support for Workers will be added in
   // <https://bugzilla.mozilla.org/show_bug.cgi?id=1901492>.
   // That is, currently only Windows are supported.
@@ -94,6 +105,8 @@ auto TrustedTypePolicyFactory::ShouldTrustedTypePolicyCreationBeBlockedByCSP(
   return result;
 }
 
+constexpr nsLiteralString kDefaultPolicyName = u"default"_ns;
+
 already_AddRefed<TrustedTypePolicy> TrustedTypePolicyFactory::CreatePolicy(
     JSContext* aJSContext, const nsAString& aPolicyName,
     const TrustedTypePolicyOptions& aPolicyOptions, ErrorResult& aRv) {
@@ -109,9 +122,10 @@ already_AddRefed<TrustedTypePolicy> TrustedTypePolicyFactory::CreatePolicy(
     return nullptr;
   }
 
-  // TODO: add default policy support; this requires accessing the default
-  //       policy on the C++ side, hence already now ref-counting policy
-  //       objects.
+  if (aPolicyName.Equals(kDefaultPolicyName) && mDefaultPolicy) {
+    aRv.ThrowTypeError("Tried to create a second default policy"_ns);
+    return nullptr;
+  }
 
   TrustedTypePolicy::Options options;
 
@@ -129,6 +143,10 @@ already_AddRefed<TrustedTypePolicy> TrustedTypePolicyFactory::CreatePolicy(
 
   RefPtr<TrustedTypePolicy> policy =
       MakeRefPtr<TrustedTypePolicy>(this, aPolicyName, std::move(options));
+
+  if (aPolicyName.Equals(kDefaultPolicyName)) {
+    mDefaultPolicy = policy;
+  }
 
   mCreatedPolicyNames.AppendElement(aPolicyName);
 
@@ -172,6 +190,114 @@ already_AddRefed<TrustedScript> TrustedTypePolicyFactory::EmptyScript() {
 
   RefPtr<TrustedScript> result = new TrustedScript(EmptyString());
   return result.forget();
+}
+
+// TODO(fwang): Improve this API:
+// - Rename aTagName parameter to use aLocalName instead
+//   (https://github.com/w3c/trusted-types/issues/496)
+// - Remove ASCII-case-insensitivity for aTagName and aAttribute
+//  (https://github.com/w3c/trusted-types/issues/424)
+// - Make aElementNs default to HTML namespace, so special handling for an empty
+//   string is not needed (https://github.com/w3c/trusted-types/issues/381).
+void TrustedTypePolicyFactory::GetAttributeType(const nsAString& aTagName,
+                                                const nsAString& aAttribute,
+                                                const nsAString& aElementNs,
+                                                const nsAString& aAttrNs,
+                                                DOMString& aResult) {
+  // We first determine the namespace IDs for the element and attribute.
+  // Currently, GetTrustedTypeDataForAttribute() only test a few of them so use
+  // direct string comparisons instead of relying on
+  // nsNameSpaceManager::GetNameSpaceID().
+
+  // GetTrustedTypeDataForAttribute() can only return true for empty or XLink
+  // attribute namespaces, so don't bother calling it for other namespaces.
+  int32_t attributeNamespaceID = kNameSpaceID_Unknown;
+  if (aAttrNs.IsEmpty()) {
+    attributeNamespaceID = kNameSpaceID_None;
+  } else if (nsGkAtoms::nsuri_xlink->Equals(aAttrNs)) {
+    attributeNamespaceID = kNameSpaceID_XLink;
+  } else {
+    aResult.SetNull();
+    return;
+  }
+
+  // GetTrustedTypeDataForAttribute() only return true for HTML, SVG or MathML
+  // element namespaces, so don't bother calling it for other namespaces.
+  int32_t elementNamespaceID = kNameSpaceID_Unknown;
+  if (aElementNs.IsEmpty() || nsGkAtoms::nsuri_xhtml->Equals(aElementNs)) {
+    elementNamespaceID = kNameSpaceID_XHTML;
+  } else if (nsGkAtoms::nsuri_svg->Equals(aElementNs)) {
+    elementNamespaceID = kNameSpaceID_SVG;
+  } else if (nsGkAtoms::nsuri_mathml->Equals(aElementNs)) {
+    elementNamespaceID = kNameSpaceID_MathML;
+  } else {
+    aResult.SetNull();
+    return;
+  }
+
+  nsAutoString attribute;
+  nsContentUtils::ASCIIToLower(aAttribute, attribute);
+  RefPtr<nsAtom> attributeAtom = NS_Atomize(attribute);
+
+  nsAutoString localName;
+  nsContentUtils::ASCIIToLower(aTagName, localName);
+  RefPtr<nsAtom> elementAtom = NS_Atomize(localName);
+
+  TrustedType trustedType;
+  nsAutoString unusedSink;
+  if (GetTrustedTypeDataForAttribute(elementAtom, elementNamespaceID,
+                                     attributeAtom, attributeNamespaceID,
+                                     trustedType, unusedSink)) {
+    aResult.SetKnownLiveString(GetTrustedTypeName(trustedType));
+    return;
+  }
+
+  aResult.SetNull();
+}
+
+// TODO(fwang): Improve this API:
+// - Rename aTagName parameter to use aLocalName instead
+//   (https://github.com/w3c/trusted-types/issues/496)
+// - Remove ASCII-case-insensitivity for aTagName
+//  (https://github.com/w3c/trusted-types/issues/424)
+// - Make aElementNs default to HTML namespace, so special handling for an empty
+//   string is not needed (https://github.com/w3c/trusted-types/issues/381).
+void TrustedTypePolicyFactory::GetPropertyType(const nsAString& aTagName,
+                                               const nsAString& aProperty,
+                                               const nsAString& aElementNs,
+                                               DOMString& aResult) {
+  RefPtr<nsAtom> propertyAtom = NS_Atomize(aProperty);
+  if (aElementNs.IsEmpty() || nsGkAtoms::nsuri_xhtml->Equals(aElementNs)) {
+    if (nsContentUtils::EqualsIgnoreASCIICase(
+            aTagName, nsDependentAtomString(nsGkAtoms::iframe))) {
+      // HTMLIFrameElement
+      if (propertyAtom == nsGkAtoms::srcdoc) {
+        aResult.SetKnownLiveString(GetTrustedTypeName<TrustedHTML>());
+        return;
+      }
+    } else if (nsContentUtils::EqualsIgnoreASCIICase(
+                   aTagName, nsDependentAtomString(nsGkAtoms::script))) {
+      // HTMLScriptElement
+      if (propertyAtom == nsGkAtoms::innerText ||
+          propertyAtom == nsGkAtoms::text ||
+          propertyAtom == nsGkAtoms::textContent) {
+        aResult.SetKnownLiveString(GetTrustedTypeName<TrustedScript>());
+        return;
+      }
+      if (propertyAtom == nsGkAtoms::src) {
+        aResult.SetKnownLiveString(GetTrustedTypeName<TrustedScriptURL>());
+        return;
+      }
+    }
+  }
+  // *
+  if (propertyAtom == nsGkAtoms::innerHTML ||
+      propertyAtom == nsGkAtoms::outerHTML) {
+    aResult.SetKnownLiveString(GetTrustedTypeName<TrustedHTML>());
+    return;
+  }
+
+  aResult.SetNull();
 }
 
 }  // namespace mozilla::dom

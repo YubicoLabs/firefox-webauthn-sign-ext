@@ -9,7 +9,7 @@
 }
 
 /* stylelint-disable-next-line media-query-no-invalid */
-@media (-moz-bool-pref: "browser.theme.macos.native-theme") {
+@media -moz-pref("browser.theme.native-theme") {
   @media not (prefers-contrast) {
     :root:not([lwtheme]) {
       @media (prefers-color-scheme: light) {
@@ -20,39 +20,9 @@
       }
     }
   }
-
-  /* Don't make the toolbox vibrant when in full-screen. macOS fullscreen has a
-   * native titlebar outside of the window (revealed on hover) anyways. */
-  :root[tabsintitlebar]:not([lwtheme], [macOSNativeFullscreen]) #navigator-toolbox {
-    background-color: transparent;
-
-    /* This is conceptually a background, but putting this on a
-     * pseudo-element avoids it from suppressing the chrome-content separator
-     * border, etc */
-    &::after {
-      -moz-default-appearance: -moz-window-titlebar;
-      appearance: auto;
-      content: "";
-      position: absolute;
-      inset: 0;
-      z-index: -1;
-    }
-  }
-}
-
-#browser,
-#navigator-toolbox {
-  /* #browser and #navigator-toolbox must have relative positions so that the
-     latter can slide over the former in fullscreen mode. */
-  position: relative;
 }
 
 /** Begin titlebar **/
-
-#titlebar {
-  /* Centrally align content items vertically */
-  justify-content: center;
-}
 
 .titlebar-button {
   display: none;
@@ -155,7 +125,7 @@
 }
 
 /* stylelint-disable-next-line media-query-no-invalid */
-@media (-moz-bool-pref: "browser.urlbar.experimental.expandTextOnFocus") {
+@media -moz-pref("browser.urlbar.experimental.expandTextOnFocus") {
   #urlbar[breakout-extend] {
     font-size: 1.36em;
   }
@@ -248,7 +218,6 @@ moz-input-box > menupopup .context-menu-add-engine > .menu-iconic-left {
 }
 
 .tabbrowser-tab {
-  font: message-box;
   border: none;
 
   /* FIXME: Are these styles really needed nowadays? */
@@ -267,6 +236,7 @@ moz-input-box > menupopup .context-menu-add-engine > .menu-iconic-left {
 
 #tabbrowser-tabs {
   /* overriding tabbox.css */
+  font: message-box;
   align-items: stretch;
   margin-bottom: 0;
   position: static;

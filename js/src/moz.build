@@ -136,6 +136,7 @@ EXPORTS.js += [
     "../public/Conversions.h",
     "../public/Date.h",
     "../public/Debug.h",
+    "../public/EnvironmentChain.h",
     "../public/Equality.h",
     "../public/ErrorInterceptor.h",
     "../public/ErrorReport.h",
@@ -156,7 +157,6 @@ EXPORTS.js += [
     "../public/Initialization.h",
     "../public/Interrupt.h",
     "../public/Iterator.h",
-    "../public/JitCodeAPI.h",
     "../public/JSON.h",
     "../public/LocaleSensitive.h",
     "../public/MapAndSet.h",
@@ -164,7 +164,9 @@ EXPORTS.js += [
     "../public/MemoryFunctions.h",
     "../public/MemoryMetrics.h",
     "../public/Modules.h",
+    "../public/NativeStackLimits.h",
     "../public/Object.h",
+    "../public/ObjectWithStashedPointer.h",
     "../public/Prefs.h",
     "../public/Principals.h",
     "../public/Printer.h",
@@ -238,6 +240,7 @@ EXPORTS.js += [
 # change, but they're at least plausible first passes at designing something.
 # We expose them as-is, buyer beware.
 EXPORTS.js.experimental += [
+    "../public/experimental/BindingAllocs.h",
     "../public/experimental/CodeCoverage.h",
     "../public/experimental/CompileScript.h",
     "../public/experimental/CTypes.h",
@@ -393,8 +396,8 @@ UNIFIED_SOURCES += [
     "vm/MemoryMetrics.cpp",
     "vm/Modules.cpp",
     "vm/NativeObject.cpp",
+    "vm/ObjectWithStashedPointer.cpp",
     "vm/OffThreadPromiseRuntimeState.cpp",
-    "vm/PIC.cpp",
     "vm/PlainObject.cpp",
     "vm/Prefs.cpp",
     "vm/Printer.cpp",
@@ -420,7 +423,6 @@ UNIFIED_SOURCES += [
     "vm/SourceHook.cpp",
     "vm/Stack.cpp",
     "vm/StaticStrings.cpp",
-    "vm/StencilCache.cpp",
     "vm/StencilObject.cpp",
     "vm/StringType.cpp",
     "vm/SymbolType.cpp",
@@ -459,15 +461,6 @@ if CONFIG["ENABLE_PORTABLE_BASELINE_INTERP"]:
         "vm/PortableBaselineInterpret.cpp",
     ]
 
-if CONFIG["ENABLE_RECORD_TUPLE"]:
-    UNIFIED_SOURCES += [
-        "builtin/RecordObject.cpp",
-        "builtin/TupleObject.cpp",
-        "vm/RecordTupleShared.cpp",
-        "vm/RecordType.cpp",
-        "vm/TupleType.cpp",
-    ]
-
 if CONFIG["ENABLE_EXPLICIT_RESOURCE_MANAGEMENT"]:
     UNIFIED_SOURCES += [
         "builtin/AsyncDisposableStackObject.cpp",
@@ -482,6 +475,7 @@ if CONFIG["JS_HAS_INTL_API"]:
         "builtin/intl/CommonFunctions.cpp",
         "builtin/intl/DateTimeFormat.cpp",
         "builtin/intl/DisplayNames.cpp",
+        "builtin/intl/DurationFormat.cpp",
         "builtin/intl/IntlObject.cpp",
         "builtin/intl/LanguageTag.cpp",
         "builtin/intl/ListFormat.cpp",
@@ -551,7 +545,17 @@ if CONFIG["MOZ_VTUNE"]:
         if int(CONFIG["CC_VERSION"].split(".")[0]) >= 8:
             SOURCES["vtune/ittnotify_static.c"].flags += ["-Wno-stringop-truncation"]
 
-DIRS += ["build", "debugger", "frontend", "gc", "irregexp", "jit", "util", "wasm"]
+DIRS += [
+    "build",
+    "debugger",
+    "frontend",
+    "gc",
+    "irregexp",
+    "jit",
+    "util",
+    "wasm",
+    "xsum",
+]
 
 if CONFIG["JS_HAS_TEMPORAL_API"]:
     DIRS += ["builtin/temporal"]
@@ -611,6 +615,7 @@ selfhosted_inputs = [
         "builtin/intl/CurrencyDataGenerated.js",
         "builtin/intl/DateTimeFormat.js",
         "builtin/intl/DisplayNames.js",
+        "builtin/intl/DurationFormat.js",
         "builtin/intl/IntlObject.js",
         "builtin/intl/ListFormat.js",
         "builtin/intl/NumberFormat.js",
@@ -623,11 +628,11 @@ selfhosted_inputs = [
     else []
 )
 
-if CONFIG["ENABLE_RECORD_TUPLE"]:
-    selfhosted_inputs += ["builtin/Tuple.js"]
-
 if CONFIG["ENABLE_EXPLICIT_RESOURCE_MANAGEMENT"]:
-    selfhosted_inputs += ["builtin/AsyncDisposableStack.js"]
+    selfhosted_inputs += [
+        "builtin/AsyncDisposableStack.js",
+        "builtin/DisposableStack.js",
+    ]
 
 # Prepare self-hosted JS code for embedding
 GeneratedFile(
@@ -657,3 +662,6 @@ if CONFIG["JS_HAS_INTL_API"]:
         ]
 
     USE_LIBS += ["intlcomponents"]
+
+if CONFIG["USE_LIBZ_RS"]:
+    DEFINES["USE_LIBZ_RS"] = True

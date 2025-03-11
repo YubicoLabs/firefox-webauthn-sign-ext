@@ -43,6 +43,13 @@ void nsAccUtils::SetAccGroupAttrs(AccAttributes* aAttributes, int32_t aLevel,
   }
 }
 
+void nsAccUtils::SetAccGroupAttrs(AccAttributes* aAttributes,
+                                  Accessible* aAcc) {
+  GroupPos groupPos = aAcc->GroupPosition();
+  nsAccUtils::SetAccGroupAttrs(aAttributes, groupPos.level, groupPos.setSize,
+                               groupPos.posInSet);
+}
+
 int32_t nsAccUtils::GetLevelForXULContainerItem(nsIContent* aContent) {
   nsCOMPtr<nsIDOMXULContainerItemElement> item =
       aContent->AsElement()->AsXULContainerItem();
@@ -629,4 +636,14 @@ int32_t nsAccUtils::FindARIAAttrValueIn(dom::Element* aElement,
                                       aCaseSensitive);
   }
   return index;
+}
+
+bool nsAccUtils::IsEditableARIACombobox(const LocalAccessible* aAccessible) {
+  const nsRoleMapEntry* roleMap = aAccessible->ARIARoleMap();
+  if (!roleMap || roleMap->role != roles::EDITCOMBOBOX) {
+    return false;
+  }
+
+  return aAccessible->IsTextField() ||
+         aAccessible->Elm()->State().HasState(dom::ElementState::READWRITE);
 }

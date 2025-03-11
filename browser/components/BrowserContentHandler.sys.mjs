@@ -8,6 +8,7 @@ import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
+  AsyncShutdown: "resource://gre/modules/AsyncShutdown.sys.mjs",
   BrowserWindowTracker: "resource:///modules/BrowserWindowTracker.sys.mjs",
   FirstStartup: "resource://gre/modules/FirstStartup.sys.mjs",
   HeadlessShell: "resource:///modules/HeadlessShell.sys.mjs",
@@ -15,6 +16,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   LaterRun: "resource:///modules/LaterRun.sys.mjs",
   NimbusFeatures: "resource://nimbus/ExperimentAPI.sys.mjs",
   PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.sys.mjs",
+  SearchUIUtils: "moz-src:///browser/components/search/SearchUIUtils.sys.mjs",
   SessionStartup: "resource:///modules/sessionstore/SessionStartup.sys.mjs",
   ShellService: "resource:///modules/ShellService.sys.mjs",
   SpecialMessageActions:
@@ -43,7 +45,7 @@ ChromeUtils.defineLazyGetter(lazy, "gWindowsAlertsService", () => {
 });
 
 // One-time startup homepage override configurations
-const ONCE_DOMAINS = ["mozilla.org", "firefox.com"];
+const ONCE_DOMAINS = new Set(["mozilla.org", "firefox.com"]);
 const ONCE_PREF = "browser.startup.homepage_override.once";
 
 // Index of Private Browsing icon in firefox.exe
@@ -329,9 +331,8 @@ function openBrowserWindow(
       win.document.documentElement.removeAttribute("windowtype");
 
       if (forcePrivate) {
-        win.docShell.QueryInterface(
-          Ci.nsILoadContext
-        ).usePrivateBrowsing = true;
+        win.docShell.QueryInterface(Ci.nsILoadContext).usePrivateBrowsing =
+          true;
 
         if (
           AppConstants.platform == "win" &&
@@ -419,7 +420,8 @@ async function doSearch(searchTerm, cmdLine) {
     }, "browser-delayed-startup-finished");
   });
 
-  win.BrowserSearch.loadSearchFromCommandLine(
+  lazy.SearchUIUtils.loadSearchFromCommandLine(
+    win,
     searchTerm,
     lazy.PrivateBrowsingUtils.isInTemporaryAutoStartMode ||
       lazy.PrivateBrowsingUtils.isWindowPrivate(win),
@@ -653,9 +655,8 @@ nsBrowserContentHandler.prototype = {
       if (cmdLine.state == Ci.nsICommandLine.STATE_INITIAL_LAUNCH) {
         let win = Services.wm.getMostRecentWindow("navigator:blank");
         if (win) {
-          win.docShell.QueryInterface(
-            Ci.nsILoadContext
-          ).usePrivateBrowsing = true;
+          win.docShell.QueryInterface(Ci.nsILoadContext).usePrivateBrowsing =
+            true;
         }
       }
     }
@@ -806,14 +807,18 @@ nsBrowserContentHandler.prototype = {
         "unknown"
       );
       override = needHomepageOverride();
+      // An object to measure the progress of handleUpdateSuccess
+      let progress = {
+        updateFetched: false,
+        payloadCreated: false,
+        pingFailed: false,
+      };
+
       if (override != OVERRIDE_NONE) {
         switch (override) {
           case OVERRIDE_NEW_PROFILE:
             // New profile.
             gFirstRunProfile = true;
-            if (lazy.NimbusFeatures.aboutwelcome.getVariable("showModal")) {
-              break;
-            }
             overridePage = Services.urlFormatter.formatURLPref(
               "startup.homepage_welcome_url"
             );
@@ -951,26 +956,50 @@ nsBrowserContentHandler.prototype = {
             // Only do this if the update is installed right now.
             // The following code is ran asynchronously, but we won't await on it
             // since the user may be still waiting for the browser to start up at this point.
-            lazy.UpdateManager.updateInstalledAtStartup().then(
-              async updateInstalledAtStartup => {
-                if (updateInstalledAtStartup) {
-                  await lazy.UpdatePing.handleUpdateSuccess(
-                    old_mstone,
-                    old_buildId
-                  );
+            let handleUpdateSuccessTask =
+              lazy.UpdateManager.updateInstalledAtStartup().then(
+                async updateInstalledAtStartup => {
+                  if (updateInstalledAtStartup) {
+                    await lazy.UpdatePing.handleUpdateSuccess(
+                      old_mstone,
+                      old_buildId,
+                      progress
+                    );
+                  }
                 }
-              }
+              );
+
+            // Adding a shutdown blocker to ensure the
+            // update ping will be sent before Firefox exits.
+            lazy.AsyncShutdown.profileBeforeChange.addBlocker(
+              "BrowserContentHandler: running handleUpdateSuccess",
+              handleUpdateSuccessTask,
+              { fetchState: () => ({ progress }) }
             );
 
             overridePage = overridePage.replace("%OLD_VERSION%", old_mstone);
             break;
           }
           case OVERRIDE_NEW_BUILD_ID: {
+            // We must spin the events loop because `getFirstWindowArgs` cannot be
+            // easily made asynchronous, having too many synchronous callers. Additionally
+            // we must know the value of `updateInstalledAtStartup` immediately,
+            // in order to properly enable `lazy.LaterRun`, that will be invoked shortly after this.
             let updateInstalledAtStartup = spinForUpdateInstalledAtStartup();
+
             if (updateInstalledAtStartup) {
-              // Send the update ping to signal that the update was successful.
-              // This is asynchronous, but we are just going to kick it off because we can't easily `await` on it here.
-              lazy.UpdatePing.handleUpdateSuccess(old_mstone, old_buildId);
+              let handleUpdateSuccessTask = lazy.UpdatePing.handleUpdateSuccess(
+                old_mstone,
+                old_buildId,
+                progress
+              );
+
+              lazy.AsyncShutdown.profileBeforeChange.addBlocker(
+                "BrowserContentHandler: running handleUpdateSuccess",
+                handleUpdateSuccessTask,
+                { fetchState: () => ({ progress }) }
+              );
+
               lazy.LaterRun.enable(lazy.LaterRun.ENABLE_REASON_UPDATE_APPLIED);
             }
             break;
@@ -996,20 +1025,18 @@ nsBrowserContentHandler.prototype = {
           overridePage = url
             .split("|")
             .map(val => {
-              try {
-                return new URL(val);
-              } catch (ex) {
+              let parsed = URL.parse(val);
+              if (!parsed) {
                 // Invalid URL, so filter out below
-                console.error("Invalid once url:", ex);
-                return null;
+                console.error(`Invalid once url: ${val}`);
               }
+              return parsed;
             })
             .filter(
               parsed =>
-                parsed &&
-                parsed.protocol == "https:" &&
+                parsed?.protocol == "https:" &&
                 // Only accept exact hostname or subdomain; without port
-                ONCE_DOMAINS.includes(
+                ONCE_DOMAINS.has(
                   Services.eTLD.getBaseDomainFromHost(parsed.host)
                 )
             )
@@ -1231,9 +1258,9 @@ function handURIToExistingBrowser(
  *        truth-y if Firefox was launched/started rather than running and invoked.
  */
 function maybeRecordToHandleTelemetry(uri, isLaunch) {
-  let scalar = isLaunch
-    ? "os.environment.launched_to_handle"
-    : "os.environment.invoked_to_handle";
+  let counter = isLaunch
+    ? Glean.osEnvironment.launchedToHandle
+    : Glean.osEnvironment.invokedToHandle;
 
   if (uri instanceof Ci.nsIFileURL) {
     let extension = "." + uri.fileExtension.toLowerCase();
@@ -1251,17 +1278,17 @@ function maybeRecordToHandleTelemetry(uri, isLaunch) {
       ".webp",
     ]);
     if (registeredExtensions.has(extension)) {
-      Services.telemetry.keyedScalarAdd(scalar, extension, 1);
+      counter[extension].add(1);
     } else {
-      Services.telemetry.keyedScalarAdd(scalar, ".<other extension>", 1);
+      counter[".<other extension>"].add(1);
     }
   } else if (uri) {
     let scheme = uri.scheme.toLowerCase();
     let registeredSchemes = new Set(["about", "http", "https", "mailto"]);
     if (registeredSchemes.has(scheme)) {
-      Services.telemetry.keyedScalarAdd(scalar, scheme, 1);
+      counter[scheme].add(1);
     } else {
-      Services.telemetry.keyedScalarAdd(scalar, "<other protocol>", 1);
+      counter["<other protocol>"].add(1);
     }
   }
 }
@@ -1290,6 +1317,7 @@ nsDefaultCommandLineHandler.prototype = {
     if (AppConstants.platform == "win") {
       // Windows itself does disk I/O when the notification service is
       // initialized, so make sure that is lazy.
+      // eslint-disable-next-line no-constant-condition
       while (true) {
         let tag = cmdLine.handleFlagWithParam("notification-windowsTag", false);
         if (!tag) {
@@ -1346,10 +1374,6 @@ nsDefaultCommandLineHandler.prototype = {
           }
 
           if (notificationData?.privilegedName) {
-            Services.telemetry.setEventRecordingEnabled(
-              "browser.launched_to_handle",
-              true
-            );
             Glean.browserLaunchedToHandle.systemNotification.record({
               name: notificationData.privilegedName,
             });
@@ -1587,9 +1611,11 @@ nsDefaultCommandLineHandler.prototype = {
       if (
         AppConstants.platform == "win" &&
         cmdLine.state != Ci.nsICommandLine.STATE_INITIAL_LAUNCH &&
-        lazy.WindowsUIUtils.inTabletMode
+        lazy.WindowsUIUtils.inWin10TabletMode
       ) {
-        // In windows 10 tablet mode, do not create a new window, but reuse the existing one.
+        // In Win10's tablet mode, do not create a new window, but reuse the
+        // existing one. (Win11's tablet mode is still windowed and has no need
+        // for this workaround.)
         let win = lazy.BrowserWindowTracker.getTopWindow();
         if (win) {
           win.focus();

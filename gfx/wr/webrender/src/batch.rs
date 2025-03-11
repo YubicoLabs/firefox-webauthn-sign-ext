@@ -757,6 +757,11 @@ impl BatchBuilder {
         prim_header_index: PrimitiveHeaderIndex,
         resource_address: i32,
     ) {
+        assert!(
+            !(brush_flags.contains(BrushFlags::NORMALIZED_UVS)
+                && features.contains(BatchFeatures::REPETITION)),
+            "Normalized UVs are not supported with repetition."
+        );
         let instance = BrushInstance {
             segment_index,
             edge_flags,
@@ -1423,6 +1428,12 @@ impl BatchBuilder {
             }
             PrimitiveInstanceKind::Picture { pic_index, .. } => {
                 let picture = &ctx.prim_store.pictures[pic_index.0];
+                if let Some(snapshot) = picture.snapshot {
+                    if snapshot.detached {
+                        return;
+                    }
+                }
+
                 let blend_mode = BlendMode::PremultipliedAlpha;
                 let prim_cache_address = gpu_cache.get_address(&ctx.globals.default_image_handle);
 
@@ -2569,9 +2580,13 @@ impl BatchBuilder {
                         (gpu_cache.get_address(&segment_instance.gpu_cache_handle), segments)
                     };
 
+                    let local_rect = image_instance.adjustment.map_local_rect(&prim_rect);
+                    let local_clip_rect = image_instance.tight_local_clip_rect
+                        .intersection_unchecked(&local_rect);
+
                     let prim_header = PrimitiveHeader {
-                        local_rect: prim_rect,
-                        local_clip_rect: prim_info.clip_chain.local_clip_rect,
+                        local_rect,
+                        local_clip_rect,
                         specific_prim_address: prim_cache_address,
                         transform_id,
                     };
@@ -3609,6 +3624,12 @@ impl ClipBatchList {
             fast_rectangles: memory.new_vec(),
             box_shadows: FastHashMap::default(),
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.slow_rectangles.is_empty()
+          && self.fast_rectangles.is_empty()
+          && self.box_shadows.is_empty()
     }
 }
 

@@ -24,8 +24,12 @@ import mozilla.components.concept.engine.webextension.EnableSource
 import mozilla.components.feature.addons.Addon
 import mozilla.components.feature.addons.AddonManager
 import mozilla.components.feature.addons.AddonManagerException
+import mozilla.components.feature.addons.ui.AddonsManagerAdapter
 import mozilla.components.feature.addons.ui.translateName
 import mozilla.components.support.base.log.logger.Logger
+import mozilla.components.support.ktx.android.content.appName
+import mozilla.components.support.ktx.android.content.appVersionName
+import org.mozilla.fenix.BrowserDirection
 import org.mozilla.fenix.BuildConfig
 import org.mozilla.fenix.HomeActivity
 import org.mozilla.fenix.R
@@ -102,26 +106,22 @@ class InstalledAddonDetailsFragment : Fragment() {
             // Only needed in case we are not able to find the add-on.
             var breadcrumb: Breadcrumb? = null
             try {
-                val addons = provideAddonManager().getAddons()
+                val latestAddon = provideAddonManager().getAddonByID(addon.id)
                 runIfFragmentIsAttached {
-                    addons.find { addon.id == it.id }.let {
-                        if (it == null) {
-                            val addonsStringList = addons.joinToString { item -> item.id }
-                            breadcrumb = Breadcrumb(
-                                "Addon ${addon.id} not found, isInstalled: ${addon.isInstalled()}," +
-                                    " add-ons: $addonsStringList",
-                            )
-                            throw AddonManagerException(Exception("Addon ${addon.id} not found"))
-                        } else {
-                            withContext(Dispatchers.Main) {
-                                addon = it
-                                bindUI()
-                            }
-                        }
+                    if (latestAddon == null) {
+                        breadcrumb = Breadcrumb(
+                            "Addon ${addon.id} not found, isInstalled: ${addon.isInstalled()}",
+                        )
+                        throw AddonManagerException(Exception("Addon ${addon.id} not found"))
+                    } else {
                         withContext(Dispatchers.Main) {
-                            binding.addOnProgressBar.isVisible = false
-                            binding.addonContainer.isVisible = true
+                            addon = latestAddon
+                            bindUI()
                         }
+                    }
+                    withContext(Dispatchers.Main) {
+                        binding.addOnProgressBar.isVisible = false
+                        binding.addonContainer.isVisible = true
                     }
                 }
             } catch (e: AddonManagerException) {
@@ -158,6 +158,30 @@ class InstalledAddonDetailsFragment : Fragment() {
         bindAllowInPrivateBrowsingSwitch()
         bindRemoveButton()
         bindReportButton()
+        context?.let {
+            val messageBarWarningView =
+                binding.root.findViewById<View>(mozilla.components.feature.addons.R.id.add_on_messagebar_warning)
+            val messageBarErrorView =
+                binding.root.findViewById<View>(mozilla.components.feature.addons.R.id.add_on_messagebar_error)
+
+            AddonsManagerAdapter.bindMessageBars(
+                it,
+                messageBarWarningView,
+                messageBarErrorView,
+                onLearnMoreLinkClicked = { link ->
+                    openLearnMoreLink(
+                        activity as HomeActivity,
+                        link,
+                        addon,
+                        BrowserDirection.FromAddonDetailsFragment,
+                    )
+                },
+                addon,
+                addon.translateName(it),
+                it.appName,
+                it.appVersionName,
+            )
+        }
     }
 
     @VisibleForTesting

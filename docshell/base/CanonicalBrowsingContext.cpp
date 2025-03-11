@@ -18,6 +18,7 @@
 #include "mozilla/dom/BrowsingContextGroup.h"
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/dom/EventTarget.h"
+#include "mozilla/dom/Navigation.h"
 #include "mozilla/dom/PBrowserParent.h"
 #include "mozilla/dom/PBackgroundSessionStorageCache.h"
 #include "mozilla/dom/PWindowGlobalParent.h"
@@ -39,7 +40,7 @@
 #include "mozilla/StaticPrefs_browser.h"
 #include "mozilla/StaticPrefs_docshell.h"
 #include "mozilla/StaticPrefs_fission.h"
-#include "mozilla/Telemetry.h"
+#include "mozilla/glean/DomMetrics.h"
 #include "nsILayoutHistoryState.h"
 #include "nsIPrintSettings.h"
 #include "nsIPrintSettingsService.h"
@@ -93,9 +94,7 @@ static void IncreasePrivateCount() {
   static bool sHasSeenPrivateContext = false;
   if (!sHasSeenPrivateContext) {
     sHasSeenPrivateContext = true;
-    mozilla::Telemetry::ScalarSet(
-        mozilla::Telemetry::ScalarID::DOM_PARENTPROCESS_PRIVATE_WINDOW_USED,
-        true);
+    mozilla::glean::dom_parentprocess::private_window_used.Set(true);
   }
 }
 
@@ -673,6 +672,26 @@ CanonicalBrowsingContext::ReplaceLoadingSessionHistoryEntryForLoad(
   return nullptr;
 }
 
+mozilla::Span<const SessionHistoryInfo>
+CanonicalBrowsingContext::GetContiguousSessionHistoryInfos(
+    SessionHistoryInfo& aInfo) {
+  MOZ_ASSERT(Navigation::IsAPIEnabled());
+
+  nsISHistory* history = GetSessionHistory();
+  if (!history) {
+    return {};
+  }
+
+  mActiveContiguousEntries.ClearAndRetainStorage();
+  nsSHistory::WalkContiguousEntriesInOrder(mActiveEntry, [&](auto* aEntry) {
+    if (nsCOMPtr<SessionHistoryEntry> entry = do_QueryObject(aEntry)) {
+      mActiveContiguousEntries.AppendElement(entry->Info());
+    }
+  });
+
+  return mActiveContiguousEntries;
+}
+
 using PrintPromise = CanonicalBrowsingContext::PrintPromise;
 #ifdef NS_PRINTING
 // Clients must call StaticCloneForPrintingCreated or
@@ -936,42 +955,56 @@ RefPtr<PrintPromise> CanonicalBrowsingContext::PrintWithNoContentAnalysis(
 #endif
 }
 
-void CanonicalBrowsingContext::CallOnAllTopDescendants(
+void CanonicalBrowsingContext::CallOnTopDescendants(
     const FunctionRef<CallState(CanonicalBrowsingContext*)>& aCallback,
-    bool aIncludeNestedBrowsers) {
-  MOZ_ASSERT(IsTop(), "Should only call on top BC");
-  MOZ_ASSERT(
-      !aIncludeNestedBrowsers ||
-          (IsChrome() && !GetParentCrossChromeBoundary()),
-      "If aIncludeNestedBrowsers is set, should only call on top chrome BC");
+    TopDescendantKind aKind) {
+  // Calling with All on something other than a chrome root is unlikely to be
+  // what you want, so lacking a use-case for it, we assert against it for now.
+  MOZ_ASSERT_IF(aKind == TopDescendantKind::All,
+                IsChrome() && !GetParentCrossChromeBoundary());
+  // Similarly, calling with {NonNested,All} on a non-top bc is unlikely to be
+  // what you want.
+  MOZ_ASSERT_IF(aKind != TopDescendantKind::ChildrenOnly, IsTop());
 
   if (!IsInProcess()) {
     // We rely on top levels having to be embedded in the parent process, so
-    // we can only have top level descendants if embedded here..
+    // we can only have top level descendants if embedded here...
     return;
   }
+
+  const auto* ourTop = Top();
 
   AutoTArray<RefPtr<BrowsingContextGroup>, 32> groups;
   BrowsingContextGroup::GetAllGroups(groups);
   for (auto& browsingContextGroup : groups) {
-    for (auto& bc : browsingContextGroup->Toplevels()) {
-      if (bc == this) {
-        // Cannot be a descendent of myself so skip.
+    for (auto& topLevel : browsingContextGroup->Toplevels()) {
+      if (topLevel == ourTop) {
+        // A nested toplevel can't be a descendant of our same toplevel.
         continue;
       }
 
-      if (aIncludeNestedBrowsers) {
-        if (this != bc->Canonical()->TopCrossChromeBoundary()) {
-          continue;
+      // Walk up the CanonicalBrowsingContext tree, looking for a match.
+      const bool topLevelIsRelevant = [&] {
+        auto* current = topLevel->Canonical();
+        while (auto* parent = current->GetParentCrossChromeBoundary()) {
+          if (parent == this) {
+            return true;
+          }
+          // If we've reached aKind's stop condition, break out early.
+          if (aKind == TopDescendantKind::ChildrenOnly ||
+              (aKind == TopDescendantKind::NonNested && parent->IsTop())) {
+            return false;
+          }
+          current = parent;
         }
-      } else {
-        auto* parent = bc->Canonical()->GetParentCrossChromeBoundary();
-        if (!parent || this != parent->Top()) {
-          continue;
-        }
+        return false;
+      }();
+
+      if (!topLevelIsRelevant) {
+        continue;
       }
 
-      if (aCallback(bc->Canonical()) == CallState::Stop) {
+      if (aCallback(topLevel->Canonical()) == CallState::Stop) {
         return;
       }
     }
@@ -1223,14 +1256,6 @@ void CanonicalBrowsingContext::SetActiveSessionHistoryEntry(
   mActiveEntry->AdoptBFCacheEntry(oldActiveEntry);
   if (aUpdatedCacheKey != 0) {
     mActiveEntry->SharedInfo()->mCacheKey = aUpdatedCacheKey;
-  }
-
-  if (oldActiveEntry) {
-    // aInfo comes from the entry stored in the current document's docshell,
-    // whose interaction state does not get updated. So we instead propagate
-    // state from the previous canonical entry. See bug 1917369.
-    mActiveEntry->SetHasUserInteraction(
-        oldActiveEntry->GetHasUserInteraction());
   }
 
   if (IsTop()) {
@@ -1760,7 +1785,8 @@ void CanonicalBrowsingContext::PendingRemotenessChange::ProcessLaunched() {
     auto found = mTarget->FindUnloadingHost(mContentParentKeepAlive->ChildID());
     if (found != mTarget->mUnloadingHosts.end()) {
       found->mCallbacks.AppendElement(
-          [self = RefPtr{this}]() { self->ProcessReady(); });
+          [self = RefPtr{this}]()
+              MOZ_CAN_RUN_SCRIPT_BOUNDARY_LAMBDA { self->ProcessReady(); });
       return;
     }
   }
@@ -1865,8 +1891,10 @@ nsresult CanonicalBrowsingContext::PendingRemotenessChange::FinishTopContent() {
   // The process has been created, hand off to nsFrameLoaderOwner to finish
   // the process switch.
   ErrorResult error;
-  frameLoaderOwner->ChangeRemotenessToProcess(mContentParentKeepAlive.get(),
-                                              mOptions, mSpecificGroup, error);
+  RefPtr keepAlive = mContentParentKeepAlive.get();
+  RefPtr specificGroup = mSpecificGroup;
+  frameLoaderOwner->ChangeRemotenessToProcess(keepAlive, mOptions,
+                                              specificGroup, error);
   if (error.Failed()) {
     return error.StealNSResult();
   }
@@ -1904,7 +1932,10 @@ nsresult CanonicalBrowsingContext::PendingRemotenessChange::FinishTopContent() {
     newBrowser->ResumeLoad(mPendingSwitchId);
   }
 
-  mPromise->Resolve(newBrowser, __func__);
+  mPromise->Resolve(
+      std::pair{newBrowser,
+                RefPtr{frameLoader->GetBrowsingContext()->Canonical()}},
+      __func__);
   return NS_OK;
 }
 
@@ -1979,7 +2010,7 @@ nsresult CanonicalBrowsingContext::PendingRemotenessChange::FinishSubframe() {
 
     target->SetCurrentBrowserParent(embedderBrowser);
     Unused << embedderWindow->SendMakeFrameLocal(target, mPendingSwitchId);
-    mPromise->Resolve(embedderBrowser, __func__);
+    mPromise->Resolve(std::pair{embedderBrowser, target}, __func__);
     return NS_OK;
   }
 
@@ -2049,7 +2080,7 @@ nsresult CanonicalBrowsingContext::PendingRemotenessChange::FinishSubframe() {
   }
 
   // We did it! The process switch is complete.
-  mPromise->Resolve(newBrowser, __func__);
+  mPromise->Resolve(std::pair{newBrowser, target}, __func__);
   return NS_OK;
 }
 
@@ -2218,10 +2249,11 @@ CanonicalBrowsingContext::ChangeRemoteness(
     if (blocker && blocker->State() != Promise::PromiseState::Resolved) {
       change->mWaitingForPrepareToChange = true;
       blocker->AddCallbacksWithCycleCollectedArgs(
-          [change](JSContext*, JS::Handle<JS::Value>, ErrorResult&) {
-            change->mWaitingForPrepareToChange = false;
-            change->MaybeFinish();
-          },
+          [change](JSContext*, JS::Handle<JS::Value>, ErrorResult&)
+              MOZ_CAN_RUN_SCRIPT_BOUNDARY_LAMBDA {
+                change->mWaitingForPrepareToChange = false;
+                change->MaybeFinish();
+              },
           [change](JSContext*, JS::Handle<JS::Value> aValue, ErrorResult&) {
             change->Cancel(
                 Promise::TryExtractNSResultFromRejectionValue(aValue));
@@ -2301,9 +2333,10 @@ CanonicalBrowsingContext::ChangeRemoteness(
                              /* aBrowserId */ BrowserId())
         ->Then(
             GetMainThreadSerialEventTarget(), __func__,
-            [change](UniqueContentParentKeepAlive) {
-              change->ProcessLaunched();
-            },
+            [change](UniqueContentParentKeepAlive)
+                MOZ_CAN_RUN_SCRIPT_BOUNDARY_LAMBDA {
+                  change->ProcessLaunched();
+                },
             [change]() { change->Cancel(NS_ERROR_FAILURE); });
   } else {
     change->ProcessLaunched();
@@ -2611,6 +2644,10 @@ already_AddRefed<Promise> CanonicalBrowsingContext::GetRestorePromise() {
 }
 
 void CanonicalBrowsingContext::ClearRestoreState() {
+  if (IsDiscarded()) {
+    return;
+  }
+
   if (!mRestoreState) {
     MOZ_DIAGNOSTIC_ASSERT(!GetHasRestoreData());
     return;
@@ -2619,6 +2656,7 @@ void CanonicalBrowsingContext::ClearRestoreState() {
     mRestoreState->mPromise->MaybeRejectWithUndefined();
   }
   mRestoreState = nullptr;
+
   MOZ_ALWAYS_SUCCEEDS(SetHasRestoreData(false));
 }
 
@@ -3046,6 +3084,18 @@ bool CanonicalBrowsingContext::AllowedInBFCache(
   return bfcacheCombo == 0;
 }
 
+void CanonicalBrowsingContext::SetIsActive(bool aIsActive, ErrorResult& aRv) {
+#ifdef DEBUG
+  if (MOZ_UNLIKELY(!ManuallyManagesActiveness())) {
+    xpc_DumpJSStack(true, true, false);
+    MOZ_ASSERT_UNREACHABLE(
+        "Trying to manually manage activeness of a browsing context that isn't "
+        "manually managed (see manualactiveness attribute)");
+  }
+#endif
+  SetIsActiveInternal(aIsActive, aRv);
+}
+
 void CanonicalBrowsingContext::SetTouchEventsOverride(
     dom::TouchEventsOverride aOverride, ErrorResult& aRv) {
   SetTouchEventsOverrideInternal(aOverride, aRv);
@@ -3083,10 +3133,15 @@ void CanonicalBrowsingContext::CloneDocumentTreeInto(
               GetMainThreadSerialEventTarget(), __func__,
               [source = MaybeDiscardedBrowsingContext{aSource},
                data = std::move(aPrintData)](
-                  BrowserParent* aBp) -> RefPtr<GenericNonExclusivePromise> {
+                  const std::pair<RefPtr<BrowserParent>,
+                                  RefPtr<CanonicalBrowsingContext>>& aResult)
+                  -> RefPtr<GenericNonExclusivePromise> {
+                const auto& [browserParent, browsingContext] = aResult;
+
                 RefPtr<BrowserBridgeParent> bridge =
-                    aBp->GetBrowserBridgeParent();
-                return aBp->SendCloneDocumentTreeIntoSelf(source, data)
+                    browserParent->GetBrowserBridgeParent();
+                return browserParent
+                    ->SendCloneDocumentTreeIntoSelf(source, data)
                     ->Then(
                         GetMainThreadSerialEventTarget(), __func__,
                         [bridge](
@@ -3219,6 +3274,53 @@ CanonicalBrowsingContext::GetBounceTrackingState() {
     return nullptr;
   }
   return mWebProgress->GetBounceTrackingState();
+}
+
+bool CanonicalBrowsingContext::CanOpenModalPicker() {
+  if (!mozilla::StaticPrefs::browser_disable_pickers_background_tabs()) {
+    return true;
+  }
+
+  // Alway allows to open picker from chrome.
+  if (IsChrome()) {
+    return true;
+  }
+
+  if (!IsActive()) {
+    return false;
+  }
+
+  mozilla::dom::Element* topFrameElement = GetTopFrameElement();
+  if (!mozilla::StaticPrefs::
+          browser_disable_pickers_in_hidden_extension_pages() &&
+      Windowless()) {
+    WindowGlobalParent* wgp = GetCurrentWindowGlobal();
+    if (wgp && BasePrincipal::Cast(wgp->DocumentPrincipal())->AddonPolicy()) {
+      // This may be a HiddenExtensionPage, e.g. an extension background page.
+      return true;
+    }
+  }
+
+  RefPtr<Document> chromeDoc = TopCrossChromeBoundary()->GetExtantDocument();
+  if (!chromeDoc || !chromeDoc->HasFocus(mozilla::IgnoreErrors())) {
+    return false;
+  }
+
+  // Only allow web content to open a picker when it has focus. For example, if
+  // the focus is on the URL bar, web content cannot open a picker, even if it
+  // is the foreground tab.
+  // topFrameElement may be a <browser> embedded in another <browser>. In that
+  // case, verify that the full chain of <browser> elements has focus.
+  while (topFrameElement) {
+    RefPtr<Document> doc = topFrameElement->OwnerDoc();
+    if (doc->GetActiveElement() != topFrameElement) {
+      return false;
+    }
+    topFrameElement = doc->GetBrowsingContext()->GetTopFrameElement();
+    // Eventually topFrameElement == nullptr, implying that we have reached the
+    // top browser window (and chromeDoc == doc).
+  }
+  return true;
 }
 
 NS_IMPL_CYCLE_COLLECTION_CLASS(CanonicalBrowsingContext)

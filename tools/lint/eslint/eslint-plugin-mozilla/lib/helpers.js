@@ -13,7 +13,6 @@ const estraverse = require("estraverse");
 const path = require("path");
 const fs = require("fs");
 const toml = require("toml-eslint-parser");
-const recommendedConfig = require("./configs/recommended");
 
 var gRootDir = null;
 var directoryManifests = new Map();
@@ -297,12 +296,13 @@ module.exports = {
   },
 
   /**
-   * Returns the ECMA version of the recommended config.
+   * Returns the ECMA version as the latest. It is generally assumed that we will
+   * always use the latest version in the configuration.
    *
-   * @return {Number} The ECMA version of the recommended config.
+   * @return {string} The ECMA version to use.
    */
   getECMAVersion() {
-    return recommendedConfig.parserOptions.ecmaVersion;
+    return "latest";
   },
 
   /**
@@ -648,7 +648,7 @@ module.exports = {
           let possibleFile = path.join(dirName, "package.json");
           if (fs.existsSync(possibleFile)) {
             let packageData = require(possibleFile);
-            if (packageData.name == "mozilla-central") {
+            if (packageData.nonPublishedName == "mozilla-central") {
               return dirName;
             }
           }
@@ -793,39 +793,5 @@ module.exports = {
       return node.name;
     }
     return null;
-  },
-
-  /**
-   * Gets the scope for a node taking account of where the scope function
-   * is available (supports node versions earlier than 8.37.0).
-   *
-   * @param {object} context
-   *   The context passed from ESLint.
-   * @param {object} node
-   *   The node to get the scope for.
-   * returns {function}
-   *   The getScope function object.
-   */
-  getScope(context, node) {
-    return context.sourceCode?.getScope
-      ? context.sourceCode.getScope(node)
-      : context.getScope();
-  },
-
-  /**
-   * Gets the ancestors for a node taking account of where the ancestors function
-   * is available (supports node versions earlier than 8.38.0).
-   *
-   * @param {object} context
-   *   The context passed from ESLint.
-   * @param {object} node
-   *   The node to get the scope for.
-   * returns {function}
-   *   The getScope function object.
-   */
-  getAncestors(context, node) {
-    return context.sourceCode?.getAncestors
-      ? context.sourceCode.getAncestors(node)
-      : context.getAncestors();
   },
 };

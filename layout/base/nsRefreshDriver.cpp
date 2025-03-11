@@ -767,8 +767,6 @@ class VsyncRefreshDriverTimer : public RefreshDriverTimer {
       uint32_t sample = (uint32_t)vsyncLatency.ToMilliseconds();
       Telemetry::Accumulate(Telemetry::FX_REFRESH_DRIVER_CHROME_FRAME_DELAY_MS,
                             sample);
-      Telemetry::Accumulate(
-          Telemetry::FX_REFRESH_DRIVER_SYNC_SCROLL_FRAME_DELAY_MS, sample);
     } else if (mVsyncRate != TimeDuration::Forever()) {
       TimeDuration contentDelay =
           (TimeStamp::Now() - mLastTickStart) - mVsyncRate;
@@ -781,8 +779,6 @@ class VsyncRefreshDriverTimer : public RefreshDriverTimer {
       uint32_t sample = (uint32_t)contentDelay.ToMilliseconds();
       Telemetry::Accumulate(Telemetry::FX_REFRESH_DRIVER_CONTENT_FRAME_DELAY_MS,
                             sample);
-      Telemetry::Accumulate(
-          Telemetry::FX_REFRESH_DRIVER_SYNC_SCROLL_FRAME_DELAY_MS, sample);
     } else {
       // Request the vsync rate which VsyncChild stored the last time it got a
       // vsync notification.
@@ -895,7 +891,7 @@ class VsyncRefreshDriverTimer : public RefreshDriverTimer {
       // If we're giving extra time for tasks outside a tick, try to
       // ensure the next vsync after that period is handled, so subtract
       // a grace period.
-      TimeDuration timeForOutsideTick = clamped(
+      TimeDuration timeForOutsideTick = std::clamp(
           tickStart - mLastTickEnd - gracePeriod, gracePeriod, rate * 4);
       mSuspendVsyncPriorityTicksUntil = tickEnd + timeForOutsideTick;
     } else if (ShouldGiveNonVsyncTasksMoreTime(true)) {
@@ -1240,7 +1236,9 @@ static uint32_t GetFirstFrameDelay(imgIRequest* req) {
 
   // If this image isn't animated, there isn't a first frame delay.
   int32_t delay = container->GetFirstFrameDelay();
-  if (delay < 0) return 0;
+  if (delay < 0) {
+    return 0;
+  }
 
   return static_cast<uint32_t>(delay);
 }
@@ -1744,7 +1742,9 @@ void nsRefreshDriver::EnsureTimerStarted(EnsureTimerStartedFlags aFlags) {
              "EnsureTimerStarted should be called only when we are not "
              "in servo traversal or on the main-thread");
 
-  if (mTestControllingRefreshes) return;
+  if (mTestControllingRefreshes) {
+    return;
+  }
 
   if (!mRefreshTimerStartedCause) {
     mRefreshTimerStartedCause = profiler_capture_backtrace();
@@ -1799,7 +1799,9 @@ void nsRefreshDriver::EnsureTimerStarted(EnsureTimerStartedFlags aFlags) {
   // prehaps removing it from a previously-set one.
   RefreshDriverTimer* newTimer = ChooseTimer();
   if (newTimer != mActiveTimer) {
-    if (mActiveTimer) mActiveTimer->RemoveRefreshDriver(this);
+    if (mActiveTimer) {
+      mActiveTimer->RemoveRefreshDriver(this);
+    }
     mActiveTimer = newTimer;
     mActiveTimer->AddRefreshDriver(this);
 
@@ -1865,7 +1867,9 @@ void nsRefreshDriver::EnsureTimerStarted(EnsureTimerStartedFlags aFlags) {
 }
 
 void nsRefreshDriver::StopTimer() {
-  if (!mActiveTimer) return;
+  if (!mActiveTimer) {
+    return;
+  }
 
   mActiveTimer->RemoveRefreshDriver(this);
   mActiveTimer = nullptr;
@@ -2315,8 +2319,10 @@ void nsRefreshDriver::DetermineProximityToViewportAndNotifyResizeObservers() {
 }
 
 static CallState UpdateAndReduceAnimations(Document& aDocument) {
-  for (DocumentTimeline* timeline : aDocument.Timelines()) {
-    timeline->WillRefresh();
+  for (DocumentTimeline* tl :
+       ToTArray<AutoTArray<RefPtr<DocumentTimeline>, 32>>(
+           aDocument.Timelines())) {
+    tl->WillRefresh();
   }
 
   if (nsPresContext* pc = aDocument.GetPresContext()) {
@@ -2346,7 +2352,8 @@ void nsRefreshDriver::UpdateAnimationsAndSendEvents() {
     // [1]:
     // https://drafts.csswg.org/web-animations-1/#update-animations-and-send-events
     nsAutoMicroTask mt;
-    UpdateAndReduceAnimations(*mPresContext->Document());
+    RefPtr doc = mPresContext->Document();
+    UpdateAndReduceAnimations(*doc);
   }
 
   // Hold all AnimationEventDispatcher in mAnimationEventFlushObservers as
@@ -2451,7 +2458,6 @@ void nsRefreshDriver::RunFrameRequestCallbacks(
     AUTO_PROFILER_TRACING_MARKER_INNERWINDOWID(
         "Paint", "requestAnimationFrame callbacks", GRAPHICS,
         doc->InnerWindowID());
-    const TimeStamp startTime = TimeStamp::Now();
     for (const auto& callback : callbacks) {
       if (doc->IsCanceledFrameRequestCallback(callback.mHandle)) {
         continue;
@@ -2465,14 +2471,6 @@ void nsRefreshDriver::RunFrameRequestCallbacks(
       // mutated by the call.
       LogFrameRequestCallback::Run run(callback.mCallback);
       MOZ_KnownLive(callback.mCallback)->Call(timeStamp);
-    }
-
-    if (doc->GetReadyStateEnum() == Document::READYSTATE_COMPLETE) {
-      glean::performance_responsiveness::req_anim_frame_callback
-          .AccumulateRawDuration(TimeStamp::Now() - startTime);
-    } else {
-      glean::performance_pageload::req_anim_frame_callback
-          .AccumulateRawDuration(TimeStamp::Now() - startTime);
     }
   }
 }
@@ -2565,7 +2563,7 @@ void nsRefreshDriver::CancelIdleTask(Task* aTask) {
 }
 
 bool nsRefreshDriver::TickObserverArray(uint32_t aIdx, TimeStamp aNowTime) {
-  MOZ_ASSERT(aIdx < ArrayLength(mObservers));
+  MOZ_ASSERT(aIdx < std::size(mObservers));
   for (RefPtr<nsARefreshObserver> obs : mObservers[aIdx].EndLimitedRange()) {
     obs->WillRefresh(aNowTime);
 
@@ -2668,7 +2666,11 @@ void nsRefreshDriver::Tick(VsyncId aId, TimeStamp aNowTime,
 
   if (StaticPrefs::layout_skip_ticks_while_page_suspended()) {
     Document* doc = mPresContext->Document();
-    nsPIDOMWindowInner* win = doc ? doc->GetInnerWindow() : nullptr;
+    nsGlobalWindowInner* win =
+        doc ? nsGlobalWindowInner::Cast(doc->GetInnerWindow()) : nullptr;
+    if (doc && doc->GetInnerWindow()) {
+      MOZ_ASSERT(nsGlobalWindowInner::Cast(doc->GetInnerWindow()));
+    }
     // Synchronous DOM operations mark the document being in such. Window's
     // suspend can be used also by external code. So we check here them both
     // in order to limit rAF skipping to only those synchronous DOM APIs which

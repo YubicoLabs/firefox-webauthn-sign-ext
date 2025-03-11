@@ -78,6 +78,24 @@ class InlineForwardList : protected InlineForwardListNode<T> {
     MOZ_ASSERT(!empty());
     return static_cast<T*>(tail_);
   }
+  // Move all items from |other| to the end of this list.
+  void extendBack(InlineForwardList<T>&& other) {
+    MOZ_ASSERT(this != &other);
+    if (other.empty()) {
+      return;
+    }
+#ifdef DEBUG
+    modifyCount_++;
+    other.modifyCount_++;
+#endif
+    MOZ_ASSERT(tail_->next == nullptr);
+    tail_->next = other.next;
+    tail_ = other.tail_;
+    other.tail_ = &other;
+    other.next = nullptr;
+    MOZ_ASSERT(!empty());
+    MOZ_ASSERT(other.empty());
+  }
   void insertAfter(Node* at, Node* item) {
     MOZ_ASSERT(item->next == nullptr);
 #ifdef DEBUG
@@ -204,6 +222,87 @@ class InlineForwardListIterator {
   const InlineForwardList<T>* owner_;
   int modifyCount_;
 #endif
+};
+
+// AppendOnlyList implements a subset of InlineForwardList which allow appending
+// elements to the list while it is being iterated over.
+template <typename T>
+class AppendOnlyList;
+template <typename T>
+class AppendOnlyListIterator;
+
+template <typename T>
+class AppendOnlyListNode {
+ public:
+  AppendOnlyListNode() : next(nullptr) {}
+  explicit AppendOnlyListNode(AppendOnlyListNode<T>* n) : next(n) {}
+
+  AppendOnlyListNode(const AppendOnlyListNode<T>&) = delete;
+
+ protected:
+  friend class AppendOnlyList<T>;
+  friend class AppendOnlyListIterator<T>;
+
+  AppendOnlyListNode<T>* next;
+};
+
+template <typename T>
+class AppendOnlyList : protected AppendOnlyListNode<T> {
+  friend class AppendOnlyListIterator<T>;
+
+  using Node = AppendOnlyListNode<T>;
+
+  Node* tail_;
+  AppendOnlyList<T>* thisFromConstructor() { return this; }
+
+ public:
+  AppendOnlyList() : tail_(thisFromConstructor()) {}
+
+ public:
+  using iterator = AppendOnlyListIterator<T>;
+
+ public:
+  iterator begin() const { return iterator(this); }
+  iterator end() const { return iterator(nullptr); }
+  void pushBack(Node* t) {
+    MOZ_ASSERT(t->next == nullptr);
+    tail_->next = t;
+    tail_ = t;
+  }
+};
+
+template <typename T>
+class AppendOnlyListIterator {
+ private:
+  friend class AppendOnlyList<T>;
+
+  using Node = AppendOnlyListNode<T>;
+
+  explicit AppendOnlyListIterator(const AppendOnlyList<T>* owner)
+      : iter(owner ? owner->next : nullptr) {}
+
+ public:
+  AppendOnlyListIterator<T>& operator++() {
+    iter = iter->next;
+    return *this;
+  }
+  AppendOnlyListIterator<T> operator++(int) {
+    AppendOnlyListIterator<T> old(*this);
+    operator++();
+    return old;
+  }
+  T* operator*() const { return static_cast<T*>(iter); }
+  T* operator->() const { return static_cast<T*>(iter); }
+  bool operator!=(const AppendOnlyListIterator<T>& where) const {
+    return iter != where.iter;
+  }
+  bool operator==(const AppendOnlyListIterator<T>& where) const {
+    return iter == where.iter;
+  }
+  explicit operator bool() const { return iter != nullptr; }
+
+ private:
+  Node* iter;
 };
 
 template <typename T>

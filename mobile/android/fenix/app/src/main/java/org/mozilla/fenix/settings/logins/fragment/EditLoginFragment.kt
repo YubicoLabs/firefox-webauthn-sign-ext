@@ -27,6 +27,7 @@ import com.google.android.material.textfield.TextInputLayout
 import mozilla.components.lib.state.ext.consumeFrom
 import mozilla.components.support.ktx.android.view.hideKeyboard
 import mozilla.telemetry.glean.private.NoExtras
+import org.mozilla.fenix.AuthenticationStatus
 import org.mozilla.fenix.BiometricAuthenticationManager
 import org.mozilla.fenix.GleanMetrics.Logins
 import org.mozilla.fenix.R
@@ -72,8 +73,10 @@ class EditLoginFragment : Fragment(R.layout.fragment_edit_login), MenuProvider {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         startForResult = registerForActivityResult {
-            BiometricAuthenticationManager.biometricAuthenticationNeededInfo.shouldAuthenticate =
+            BiometricAuthenticationManager.biometricAuthenticationNeededInfo.shouldShowAuthenticationPrompt =
                 false
+            BiometricAuthenticationManager.biometricAuthenticationNeededInfo.authenticationStatus =
+                AuthenticationStatus.AUTHENTICATED
             setSecureContentVisibility(true)
         }
     }
@@ -330,17 +333,32 @@ class EditLoginFragment : Fragment(R.layout.fragment_edit_login), MenuProvider {
 
     override fun onResume() {
         super.onResume()
-        if (BiometricAuthenticationManager.biometricAuthenticationNeededInfo.shouldAuthenticate) {
-            BiometricAuthenticationManager.biometricAuthenticationNeededInfo.shouldAuthenticate =
+        if (BiometricAuthenticationManager.biometricAuthenticationNeededInfo.shouldShowAuthenticationPrompt) {
+            BiometricAuthenticationManager.biometricAuthenticationNeededInfo.shouldShowAuthenticationPrompt =
                 false
+            BiometricAuthenticationManager.biometricAuthenticationNeededInfo.authenticationStatus =
+                AuthenticationStatus.AUTHENTICATION_IN_PROGRESS
             setSecureContentVisibility(false)
+
             bindBiometricsCredentialsPromptOrShowWarning(
                 view = requireView(),
                 onShowPinVerification = { intent -> startForResult.launch(intent) },
-                onAuthSuccess = { setSecureContentVisibility(true) },
+                onAuthSuccess = {
+                    BiometricAuthenticationManager.biometricAuthenticationNeededInfo.authenticationStatus =
+                        AuthenticationStatus.AUTHENTICATED
+                    setSecureContentVisibility(true)
+                },
+                onAuthFailure = {
+                    BiometricAuthenticationManager.biometricAuthenticationNeededInfo.authenticationStatus =
+                        AuthenticationStatus.NOT_AUTHENTICATED
+                    setSecureContentVisibility(false)
+                },
             )
         } else {
-            setSecureContentVisibility(true)
+            setSecureContentVisibility(
+                BiometricAuthenticationManager.biometricAuthenticationNeededInfo.authenticationStatus ==
+                    AuthenticationStatus.AUTHENTICATED,
+            )
         }
     }
 
@@ -362,7 +380,12 @@ class EditLoginFragment : Fragment(R.layout.fragment_edit_login), MenuProvider {
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null
-        BiometricAuthenticationManager.biometricAuthenticationNeededInfo.shouldAuthenticate = false
+        // If you've made it here and you're authenticated, let's reset the values so we don't
+        // prompt the user again when navigating back.
+        val authenticated = BiometricAuthenticationManager.biometricAuthenticationNeededInfo.authenticationStatus ==
+            AuthenticationStatus.AUTHENTICATED
+        BiometricAuthenticationManager.biometricAuthenticationNeededInfo.shouldShowAuthenticationPrompt =
+            !authenticated
     }
 
     private fun setSecureContentVisibility(isVisible: Boolean) {

@@ -1042,7 +1042,7 @@ static MOZ_ALWAYS_INLINE ParserBindingName* InitializeIndexedBindings(
 template <class SlotInfo, typename UnsignedInteger, typename... Step>
 static MOZ_ALWAYS_INLINE ParserBindingName* InitializeIndexedBindings(
     SlotInfo& slotInfo, ParserBindingName* start, ParserBindingName* cursor,
-    UnsignedInteger SlotInfo::*field, const ParserBindingNameVector& bindings,
+    UnsignedInteger SlotInfo::* field, const ParserBindingNameVector& bindings,
     Step&&... step) {
   slotInfo.*field =
       AssertedCast<UnsignedInteger>(PointerRangeSize(start, cursor));
@@ -1433,9 +1433,13 @@ static Maybe<VarScope::ParserData*> NewVarScopeData(FrontendContext* fc,
         return Nothing();
       }
     } else {
-      MOZ_ASSERT(
-          bi.kind() == BindingKind::Let || bi.kind() == BindingKind::Const,
-          "bad var scope BindingKind");
+      MOZ_ASSERT(bi.kind() == BindingKind::Let ||
+                     bi.kind() == BindingKind::Const
+#ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT
+                     || bi.kind() == BindingKind::Using
+#endif
+                 ,
+                 "bad var scope BindingKind");
     }
   }
 
@@ -2566,7 +2570,8 @@ bool GeneralParser<ParseHandler, Unit>::matchOrInsertSemicolon(
     }
 
 #ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT
-    if (!this->pc_->isUsingSyntaxAllowed() &&
+    if (options().explicitResourceManagement() &&
+        !this->pc_->isUsingSyntaxAllowed() &&
         anyChars.currentToken().type == TokenKind::Using) {
       error(JSMSG_USING_OUTSIDE_BLOCK_OR_MODULE);
       return false;
@@ -4325,7 +4330,7 @@ GeneralParser<ParseHandler, Unit>::bindingIdentifierOrPattern(
   }
 
   if (!TokenKindIsPossibleIdentifierName(tt)) {
-    error(JSMSG_NO_VARIABLE_NAME);
+    error(JSMSG_NO_VARIABLE_NAME, TokenKindToDesc(tt));
     return errorResult();
   }
 
@@ -4368,7 +4373,7 @@ GeneralParser<ParseHandler, Unit>::objectBindingPattern(
       }
 
       if (!TokenKindIsPossibleIdentifierName(tt)) {
-        error(JSMSG_NO_VARIABLE_NAME);
+        error(JSMSG_NO_VARIABLE_NAME, TokenKindToDesc(tt));
         return errorResult();
       }
 
@@ -4445,7 +4450,7 @@ GeneralParser<ParseHandler, Unit>::objectBindingPattern(
           return errorResult();
         }
       } else {
-        errorAt(namePos.begin, JSMSG_NO_VARIABLE_NAME);
+        errorAt(namePos.begin, JSMSG_NO_VARIABLE_NAME, TokenKindToDesc(tt));
         return errorResult();
       }
     }
@@ -4761,7 +4766,7 @@ GeneralParser<ParseHandler, Unit>::declarationName(DeclarationKind declKind,
                                                    Node* forInOrOfExpression) {
   // Anything other than possible identifier is an error.
   if (!TokenKindIsPossibleIdentifier(tt)) {
-    error(JSMSG_NO_VARIABLE_NAME);
+    error(JSMSG_NO_VARIABLE_NAME, TokenKindToDesc(tt));
     return errorResult();
   }
 
@@ -4829,6 +4834,13 @@ GeneralParser<ParseHandler, Unit>::declarationName(DeclarationKind declKind,
         errorAt(namePos.begin, JSMSG_BAD_CONST_DECL);
         return errorResult();
       }
+#ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT
+      if (declKind == DeclarationKind::Using ||
+          declKind == DeclarationKind::AwaitUsing) {
+        errorAt(namePos.begin, JSMSG_BAD_USING_DECL);
+        return errorResult();
+      }
+#endif
     }
   }
 
@@ -4995,7 +5007,7 @@ bool GeneralParser<ParseHandler, Unit>::withClause(ListNodeType attributesSet) {
              anyChars.isCurrentTokenType(TokenKind::With));
 
   if (!options().importAttributes()) {
-    error(JSMSG_IMPORT_ASSERTIONS_NOT_SUPPORTED);
+    error(JSMSG_IMPORT_ATTRIBUTES_NOT_SUPPORTED);
     return false;
   }
 
@@ -6534,7 +6546,7 @@ bool GeneralParser<ParseHandler, Unit>::forHeadStart(
     tokenStream.consumeKnownToken(tt, TokenStream::SlashIsRegExp);
   }
 #ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT
-  else if (tt == TokenKind::Await) {
+  else if (tt == TokenKind::Await && options().explicitResourceManagement()) {
     if (!pc_->isAsync()) {
       if (pc_->atModuleTopLevel()) {
         if (!options().topLevelAwait) {
@@ -6576,7 +6588,7 @@ bool GeneralParser<ParseHandler, Unit>::forHeadStart(
         anyChars.ungetToken();  // put back await token
       }
     }
-  } else if (tt == TokenKind::Using) {
+  } else if (tt == TokenKind::Using && options().explicitResourceManagement()) {
     tokenStream.consumeKnownToken(tt, TokenStream::SlashIsRegExp);
 
     // Look ahead to find either a 'of' token or if not identifier
@@ -9659,34 +9671,38 @@ GeneralParser<ParseHandler, Unit>::statementListItem(
 
       if (tt == TokenKind::Await && pc_->isAsync()) {
 #ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT
-        // Try finding evidence of a AwaitUsingDeclaration the syntax for which
-        // would be:
-        //   await [no LineTerminator here] using [no LineTerminator here]
-        //     identifier
+        if (options().explicitResourceManagement()) {
+          // Try finding evidence of a AwaitUsingDeclaration the syntax for
+          // which
+          // would be:
+          //   await [no LineTerminator here] using [no LineTerminator here]
+          //     identifier
 
-        TokenKind nextTokUsing = TokenKind::Eof;
-        // Scan with regex modifier because when its await expression, `/`
-        // should be treated as a regexp.
-        if (!tokenStream.peekTokenSameLine(&nextTokUsing,
-                                           TokenStream::SlashIsRegExp)) {
-          return errorResult();
-        }
-
-        if (nextTokUsing == TokenKind::Using &&
-            this->pc_->isUsingSyntaxAllowed()) {
-          tokenStream.consumeKnownToken(nextTokUsing,
-                                        TokenStream::SlashIsRegExp);
-          TokenKind nextTokIdentifier = TokenKind::Eof;
-          // Here we can use the Div modifier because if the next token is using
-          // then a `/` as the next token can only be considered a division.
-          if (!tokenStream.peekTokenSameLine(&nextTokIdentifier)) {
+          TokenKind nextTokUsing = TokenKind::Eof;
+          // Scan with regex modifier because when its await expression, `/`
+          // should be treated as a regexp.
+          if (!tokenStream.peekTokenSameLine(&nextTokUsing,
+                                             TokenStream::SlashIsRegExp)) {
             return errorResult();
           }
-          if (TokenKindIsPossibleIdentifier(nextTokIdentifier)) {
-            return lexicalDeclaration(yieldHandling,
-                                      DeclarationKind::AwaitUsing);
+
+          if (nextTokUsing == TokenKind::Using &&
+              this->pc_->isUsingSyntaxAllowed()) {
+            tokenStream.consumeKnownToken(nextTokUsing,
+                                          TokenStream::SlashIsRegExp);
+            TokenKind nextTokIdentifier = TokenKind::Eof;
+            // Here we can use the Div modifier because if the next token is
+            // using then a `/` as the next token can only be considered a
+            // division.
+            if (!tokenStream.peekTokenSameLine(&nextTokIdentifier)) {
+              return errorResult();
+            }
+            if (TokenKindIsPossibleIdentifier(nextTokIdentifier)) {
+              return lexicalDeclaration(yieldHandling,
+                                        DeclarationKind::AwaitUsing);
+            }
+            anyChars.ungetToken();  // put back using.
           }
-          anyChars.ungetToken();  // put back using.
         }
 #endif
         return expressionStatement(yieldHandling);
@@ -9815,7 +9831,8 @@ GeneralParser<ParseHandler, Unit>::statementListItem(
       if (!tokenStream.peekTokenSameLine(&nextTok)) {
         return errorResult();
       }
-      if (!TokenKindIsPossibleIdentifier(nextTok) ||
+      if (!options().explicitResourceManagement() ||
+          !TokenKindIsPossibleIdentifier(nextTok) ||
           !this->pc_->isUsingSyntaxAllowed()) {
         if (!tokenStream.peekToken(&nextTok)) {
           return errorResult();
@@ -12146,15 +12163,6 @@ GeneralParser<ParseHandler, Unit>::propertyOrMethodName(
   if (tt == TokenKind::LeftParen) {
     anyChars.ungetToken();
 
-#ifdef ENABLE_RECORD_TUPLE
-    if (propertyNameContext == PropertyNameInRecord) {
-      // Record & Tuple proposal, section 7.1.1:
-      // RecordPropertyDefinition doesn't cover methods
-      error(JSMSG_BAD_PROP_ID);
-      return errorResult();
-    }
-#endif
-
 #ifdef ENABLE_DECORATORS
     if (hasAccessor) {
       error(JSMSG_BAD_PROP_ID);
@@ -12473,192 +12481,6 @@ GeneralParser<ParseHandler, Unit>::objectLiteral(YieldHandling yieldHandling,
   return literal;
 }
 
-#ifdef ENABLE_RECORD_TUPLE
-template <class ParseHandler, typename Unit>
-typename ParseHandler::ListNodeResult
-GeneralParser<ParseHandler, Unit>::recordLiteral(YieldHandling yieldHandling) {
-  MOZ_ASSERT(anyChars.isCurrentTokenType(TokenKind::HashCurly));
-
-  uint32_t openedPos = pos().begin;
-
-  ListNodeType literal;
-  MOZ_TRY_VAR(literal, handler_.newRecordLiteral(pos().begin));
-
-  TaggedParserAtomIndex propAtom;
-  for (;;) {
-    TokenKind tt;
-    if (!tokenStream.peekToken(&tt)) {
-      return errorResult();
-    }
-    if (tt == TokenKind::RightCurly) {
-      break;
-    }
-
-    if (tt == TokenKind::TripleDot) {
-      tokenStream.consumeKnownToken(TokenKind::TripleDot);
-      uint32_t begin = pos().begin;
-
-      TokenPos innerPos;
-      if (!tokenStream.peekTokenPos(&innerPos, TokenStream::SlashIsRegExp)) {
-        return errorResult();
-      }
-
-      Node inner;
-      MOZ_TRY_VAR(inner,
-                  assignExpr(InAllowed, yieldHandling, TripledotProhibited));
-
-      if (!handler_.addSpreadProperty(literal, begin, inner)) {
-        return errorResult();
-      }
-    } else {
-      TokenPos namePos = anyChars.nextToken().pos;
-
-      PropertyType propType;
-      Node propName;
-      MOZ_TRY_VAR(propName,
-                  propertyOrMethodName(yieldHandling, PropertyNameInRecord,
-                                       /* maybeDecl */ Nothing(), literal,
-                                       &propType, &propAtom));
-
-      if (propType == PropertyType::Normal) {
-        TokenPos exprPos;
-        if (!tokenStream.peekTokenPos(&exprPos, TokenStream::SlashIsRegExp)) {
-          return errorResult();
-        }
-
-        Node propExpr;
-        MOZ_TRY_VAR(propExpr,
-                    assignExpr(InAllowed, yieldHandling, TripledotProhibited));
-
-        if (propAtom == TaggedParserAtomIndex::WellKnown::proto_()) {
-          errorAt(namePos.begin, JSMSG_RECORD_NO_PROTO);
-          return errorResult();
-        }
-
-        BinaryNodeType propDef;
-        MOZ_TRY_VAR(propDef,
-                    handler_.newPropertyDefinition(propName, propExpr));
-
-        handler_.addPropertyDefinition(literal, propDef);
-      } else if (propType == PropertyType::Shorthand) {
-        /*
-         * Support |var o = #{x, y}| as initializer shorthand for
-         * |var o = #{x: x, y: y}|.
-         */
-        TaggedParserAtomIndex name = identifierReference(yieldHandling);
-        if (!name) {
-          return errorResult();
-        }
-
-        NameNodeType nameExpr;
-        MOZ_TRY_VAR(nameExpr, identifierReference(name));
-
-        if (!handler_.addShorthand(literal, handler_.asNameNode(propName),
-                                   nameExpr)) {
-          return errorResult();
-        }
-      } else {
-        error(JSMSG_BAD_PROP_ID);
-        return errorResult();
-      }
-    }
-
-    bool matched;
-    if (!tokenStream.matchToken(&matched, TokenKind::Comma,
-                                TokenStream::SlashIsInvalid)) {
-      return errorResult();
-    }
-    if (!matched) {
-      break;
-    }
-  }
-
-  if (!mustMatchToken(
-          TokenKind::RightCurly, [this, openedPos](TokenKind actual) {
-            this->reportMissingClosing(JSMSG_CURLY_AFTER_LIST,
-                                       JSMSG_CURLY_OPENED, openedPos);
-          })) {
-    return errorResult();
-  }
-
-  handler_.setEndPosition(literal, pos().end);
-  return literal;
-}
-
-template <class ParseHandler, typename Unit>
-typename ParseHandler::ListNodeResult
-GeneralParser<ParseHandler, Unit>::tupleLiteral(YieldHandling yieldHandling) {
-  MOZ_ASSERT(anyChars.isCurrentTokenType(TokenKind::HashBracket));
-
-  uint32_t begin = pos().begin;
-  ListNodeType literal;
-  MOZ_TRY_VAR(literal, handler_.newTupleLiteral(begin));
-
-  for (uint32_t index = 0;; index++) {
-    if (index >= NativeObject::MAX_DENSE_ELEMENTS_COUNT) {
-      error(JSMSG_ARRAY_INIT_TOO_BIG);
-      return errorResult();
-    }
-
-    TokenKind tt;
-    if (!tokenStream.peekToken(&tt, TokenStream::SlashIsRegExp)) {
-      return errorResult();
-    }
-    if (tt == TokenKind::RightBracket) {
-      break;
-    }
-
-    if (tt == TokenKind::TripleDot) {
-      tokenStream.consumeKnownToken(TokenKind::TripleDot,
-                                    TokenStream::SlashIsRegExp);
-      uint32_t begin = pos().begin;
-
-      TokenPos innerPos;
-      if (!tokenStream.peekTokenPos(&innerPos, TokenStream::SlashIsRegExp)) {
-        return errorResult();
-      }
-
-      Node inner;
-      MOZ_TRY_VAR(inner,
-                  assignExpr(InAllowed, yieldHandling, TripledotProhibited));
-
-      if (!handler_.addSpreadElement(literal, begin, inner)) {
-        return errorResult();
-      }
-    } else {
-      TokenPos elementPos;
-      if (!tokenStream.peekTokenPos(&elementPos, TokenStream::SlashIsRegExp)) {
-        return errorResult();
-      }
-
-      Node element;
-      MOZ_TRY_VAR(element,
-                  assignExpr(InAllowed, yieldHandling, TripledotProhibited));
-      handler_.addArrayElement(literal, element);
-    }
-
-    bool matched;
-    if (!tokenStream.matchToken(&matched, TokenKind::Comma,
-                                TokenStream::SlashIsRegExp)) {
-      return errorResult();
-    }
-    if (!matched) {
-      break;
-    }
-  }
-
-  if (!mustMatchToken(TokenKind::RightBracket, [this, begin](TokenKind actual) {
-        this->reportMissingClosing(JSMSG_BRACKET_AFTER_LIST,
-                                   JSMSG_BRACKET_OPENED, begin);
-      })) {
-    return errorResult();
-  }
-
-  handler_.setEndPosition(literal, pos().end);
-  return literal;
-}
-#endif
-
 template <class ParseHandler, typename Unit>
 typename ParseHandler::FunctionNodeResult
 GeneralParser<ParseHandler, Unit>::methodDefinition(
@@ -12878,14 +12700,6 @@ GeneralParser<ParseHandler, Unit>::primaryExpr(
 
     case TokenKind::LeftCurly:
       return objectLiteral(yieldHandling, possibleError);
-
-#ifdef ENABLE_RECORD_TUPLE
-    case TokenKind::HashCurly:
-      return recordLiteral(yieldHandling);
-
-    case TokenKind::HashBracket:
-      return tupleLiteral(yieldHandling);
-#endif
 
 #ifdef ENABLE_DECORATORS
     case TokenKind::At:

@@ -61,7 +61,9 @@ export class ConditionalPanel extends PureComponent {
     if (this.input) {
       this.input.focus();
     } else if (this.breakpointPanelEditor) {
-      this.breakpointPanelEditor.focus();
+      if (!this.breakpointPanelEditor.isDestroyed()) {
+        this.breakpointPanelEditor.focus();
+      }
     }
   }
 
@@ -162,7 +164,7 @@ export class ConditionalPanel extends PureComponent {
       this.removeBreakpointPanelEditor();
       return;
     }
-    const line = toEditorLine(location.source.id, location.line || 0);
+    const line = toEditorLine(location.source, location.line || 0);
     editor.setLineContentMarker({
       id: markerTypes.CONDITIONAL_BP_MARKER,
       lines: [{ line }],
@@ -254,7 +256,7 @@ export class ConditionalPanel extends PureComponent {
       return;
     }
 
-    const editorLine = toEditorLine(location.source.id, location.line || 0);
+    const editorLine = toEditorLine(location.source, location.line || 0);
     this.cbPanel = editor.codeMirror.addLineWidget(
       editorLine,
       this.renderConditionalPanel(props, editor),

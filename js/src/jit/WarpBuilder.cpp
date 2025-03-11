@@ -3528,9 +3528,11 @@ bool WarpBuilder::buildIC(BytecodeLocation loc, CacheKind kind,
       current->push(ins);
       return resumeAfter(ins, loc);
     }
-    case CacheKind::GetIntrinsic:
+    case CacheKind::LazyConstant:
     case CacheKind::ToBool:
     case CacheKind::Call:
+    case CacheKind::Lambda:
+    case CacheKind::GetImport:
       // We're currently not using an IC or transpiling CacheIR for these kinds.
       MOZ_CRASH("Unexpected kind");
   }
@@ -3554,7 +3556,8 @@ bool WarpBuilder::buildBailoutForColdIC(BytecodeLocation loc, CacheKind kind) {
     case CacheKind::GetElem:
     case CacheKind::GetPropSuper:
     case CacheKind::GetElemSuper:
-    case CacheKind::GetIntrinsic:
+    case CacheKind::GetImport:
+    case CacheKind::LazyConstant:
     case CacheKind::Call:
     case CacheKind::ToPropertyKey:
     case CacheKind::OptimizeSpreadCall:
@@ -3564,6 +3567,7 @@ bool WarpBuilder::buildBailoutForColdIC(BytecodeLocation loc, CacheKind kind) {
     case CacheKind::GetIterator:
     case CacheKind::NewArray:
     case CacheKind::NewObject:
+    case CacheKind::Lambda:
       resultType = MIRType::Object;
       break;
     case CacheKind::TypeOf:

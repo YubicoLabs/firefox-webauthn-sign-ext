@@ -3,64 +3,163 @@
 
 "use strict";
 
+const { CustomizableUITestUtils } = ChromeUtils.importESModule(
+  "resource://testing-common/CustomizableUITestUtils.sys.mjs"
+);
+
+async function promiseFocus(win) {
+  if (!win.document.hasFocus()) {
+    await BrowserTestUtils.waitForEvent(win.document, "focus");
+  }
+}
+
 add_task(async function test_selector_window() {
-  if (!AppConstants.MOZ_SELECTABLE_PROFILES) {
-    // `mochitest-browser` suite `add_task` does not yet support
-    // `properties.skip_if`.
-    ok(true, "Skipping because !AppConstants.MOZ_SELECTABLE_PROFILES");
-    return;
+  await initGroupDatabase();
+  let profile = SelectableProfileService.currentProfile;
+
+  let cuiTestUtils = new CustomizableUITestUtils(window);
+
+  await cuiTestUtils.openMainMenu();
+
+  let profilesButton = PanelMultiView.getViewNode(
+    document,
+    "appMenu-profiles-button"
+  );
+  let subview = PanelMultiView.getViewNode(document, "PanelUI-profiles");
+
+  let viewShown = BrowserTestUtils.waitForEvent(subview, "ViewShown");
+  profilesButton.click();
+  await viewShown;
+
+  let manageButton = PanelMultiView.getViewNode(
+    document,
+    "profiles-manage-profiles-button"
+  );
+
+  let windowOpened = BrowserTestUtils.domWindowOpenedAndLoaded();
+
+  await cuiTestUtils.hidePanelMultiView(cuiTestUtils.PanelUI.panel, () =>
+    manageButton.click()
+  );
+
+  let dialog = await windowOpened;
+  await promiseFocus(dialog);
+  Assert.equal(dialog.location, "about:profilemanager");
+
+  let deactivated = BrowserTestUtils.waitForEvent(dialog, "deactivate");
+  await SimpleTest.promiseFocus(window);
+  await deactivated;
+
+  await cuiTestUtils.openMainMenu();
+  viewShown = BrowserTestUtils.waitForEvent(subview, "ViewShown");
+  profilesButton.click();
+  await viewShown;
+
+  let activated = promiseFocus(dialog);
+  await cuiTestUtils.hidePanelMultiView(cuiTestUtils.PanelUI.panel, () =>
+    manageButton.click()
+  );
+  await activated;
+
+  let closed = BrowserTestUtils.domWindowClosed(dialog);
+
+  // mock() returns an object with a fake `runw` method that, when
+  // called, records its arguments.
+  let input = [];
+  let mock = args => (input = args);
+
+  const profileSelector = dialog.document.querySelector("profile-selector");
+  await profileSelector.updateComplete;
+
+  Assert.ok(profileSelector.checkbox.checked, "Checkbox should be checked");
+
+  let asyncFlushCalled = false;
+  gProfileService.asyncFlush = () => (asyncFlushCalled = true);
+
+  await Services.fog.testFlushAllChildren();
+  Services.fog.testResetFOG();
+  Services.telemetry.clearEvents();
+  is(
+    null,
+    Glean.profilesSelectorWindow.showAtStartup.testGetValue(),
+    "We have not recorded any Glean data yet"
+  );
+
+  profileSelector.checkbox.click();
+  await BrowserTestUtils.waitForCondition(
+    () => asyncFlushCalled,
+    "Expected asyncFlush to be called"
+  );
+  asyncFlushCalled = false;
+
+  Assert.ok(
+    !profileSelector.checkbox.checked,
+    "Checkbox should not be checked"
+  );
+  Assert.ok(
+    !gProfileService.groupProfile.showProfileSelector,
+    "Profile selector should be disabled"
+  );
+
+  await assertGlean(
+    "profiles",
+    "selector_window",
+    "show_at_startup",
+    "disabled"
+  );
+
+  // Simulate matching state.
+  gProfileService.groupProfile.showProfileSelector = true;
+
+  profileSelector.checkbox.click();
+  await BrowserTestUtils.waitForCondition(
+    () => asyncFlushCalled,
+    "Expected asyncFlush to be called"
+  );
+  asyncFlushCalled = false;
+
+  Assert.ok(profileSelector.checkbox.checked, "Checkbox should not be checked");
+  Assert.ok(
+    gProfileService.groupProfile.showProfileSelector,
+    "Profile selector should be disabled"
+  );
+
+  profileSelector.selectableProfileService.execProcess = mock;
+
+  const profiles = profileSelector.profileCards;
+
+  Assert.equal(profiles.length, 1, "There is one profile card");
+  Assert.ok(
+    profileSelector.createProfileCard,
+    "The create profile card exists"
+  );
+
+  await Services.fog.testFlushAllChildren();
+  Services.fog.testResetFOG();
+  Services.telemetry.clearEvents();
+  is(
+    null,
+    Glean.profilesSelectorWindow.launch.testGetValue(),
+    "We have not recorded any Glean data yet"
+  );
+
+  profileSelector.profileCards[0].click();
+
+  let expected;
+  if (Services.appinfo.OS === "Darwin") {
+    expected = [
+      "-foreground",
+      "--profile",
+      profile.path,
+      "--profiles-activate",
+    ];
+  } else {
+    expected = ["--profile", profile.path, "--profiles-activate"];
   }
 
-  let profile = await setupMockDB();
+  Assert.deepEqual(input, expected, "Expected runw arguments");
 
-  await BrowserTestUtils.withNewTab(
-    {
-      gBrowser,
-      url: "about:profilemanager",
-    },
-    async browser => {
-      await SpecialPowers.spawn(
-        browser,
-        [{ path: profile.path }],
-        async aProfile => {
-          // mock() returns an object with a fake `runw` method that, when
-          // called, records its arguments.
-          let input = [];
-          let mock = () => {
-            return {
-              runw: (...args) => {
-                input.push(...args);
-              },
-            };
-          };
+  await assertGlean("profiles", "selector_window", "launch");
 
-          content.window.close = () => {}; // Do nothing so the window doesn't close during the test
-
-          const profileSelector =
-            content.document.querySelector("profile-selector");
-          await profileSelector.updateComplete;
-
-          profileSelector.selectableProfileService.getExecutableProcess = mock;
-
-          const profiles = profileSelector.profileCards;
-
-          Assert.equal(profiles.length, 1, "There is one profile card");
-          Assert.ok(
-            profileSelector.createProfileCard,
-            "The create profile card exists"
-          );
-          profileSelector.profileCards[0].click();
-
-          let expected;
-          if (Services.appinfo.OS === "Darwin") {
-            expected = ["-foreground", "--profile", aProfile.path];
-          } else {
-            expected = ["--profile", aProfile.path];
-          }
-
-          Assert.deepEqual(input[1], expected, "Expected runw arguments");
-        }
-      );
-    }
-  );
+  await closed;
 });

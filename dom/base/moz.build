@@ -212,7 +212,7 @@ EXPORTS.mozilla.dom += [
     "ImageTracker.h",
     "InteractiveWidget.h",
     "IntlUtils.h",
-    "JSExecutionContext.h",
+    "JSExecutionUtils.h",
     "Link.h",
     "LinkStyle.h",
     "Location.h",
@@ -282,6 +282,7 @@ EXPORTS.mozilla.dom += [
     "TestUtils.h",
     "Text.h",
     "Timeout.h",
+    "TimeoutBudgetManager.h",
     "TimeoutHandler.h",
     "TimeoutManager.h",
     "TreeIterator.h",
@@ -302,6 +303,15 @@ EXPORTS.mozilla.dom += [
 if CONFIG["FUZZING"]:
     EXPORTS.mozilla.dom += [
         "FuzzingFunctions.h",
+    ]
+
+if CONFIG["FUZZING_SNAPSHOT"]:
+    EXPORTS.mozilla.dom += [
+        "Nyx.h",
+    ]
+
+    UNIFIED_SOURCES += [
+        "Nyx.cpp",
     ]
 
 if CONFIG["COMPILE_ENVIRONMENT"]:
@@ -379,7 +389,7 @@ UNIFIED_SOURCES += [
     "ImageTracker.cpp",
     "InProcessBrowserChildMessageManager.cpp",
     "IntlUtils.cpp",
-    "JSExecutionContext.cpp",
+    "JSExecutionUtils.cpp",
     "Link.cpp",
     "LinkStyle.cpp",
     "Location.cpp",
@@ -477,6 +487,9 @@ UNIFIED_SOURCES += [
     "SubtleCrypto.cpp",
     "TestUtils.cpp",
     "Text.cpp",
+    "TextDirectiveCreator.cpp",
+    "TextDirectiveFinder.cpp",
+    "TextDirectiveUtil.cpp",
     "TextInputProcessor.cpp",
     "ThirdPartyUtil.cpp",
     "Timeout.cpp",

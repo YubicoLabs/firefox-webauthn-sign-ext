@@ -85,7 +85,7 @@ class TextLeafPoint final {
     eDefaultBoundaryFlags = 0,
     // Return point unchanged if it is at the given boundary type.
     eIncludeOrigin = 1 << 0,
-    // If current point is in editable, return point within samme editable.
+    // If current point is in editable, return point within same editable.
     eStopInEditable = 1 << 1,
     // Skip over list items in searches and don't consider them line or
     // paragraph starts.
@@ -154,9 +154,9 @@ class TextLeafPoint final {
   /**
    * Find the start of a run of text attributes in a specific direction.
    * A text attributes run is a span of text where the attributes are the same.
-   * If no boundary is found, the start/end of the container is returned
-   * (depending on the direction).
-   * If aIncludeorigin is true and this is at a boundary, this will be
+   * If no boundary is found, the function will walk out of the container and
+   * into the next/previous leaf (if it exists) until it finds a start point.
+   * If aIncludeOrigin is true and this is at a boundary, this will be
    * returned unchanged.
    */
   TextLeafPoint FindTextAttrsStart(nsDirection aDirection,
@@ -319,15 +319,27 @@ class TextLeafRange final {
    */
   static void GetSelection(Accessible* aAcc, nsTArray<TextLeafRange>& aRanges);
 
+  static const int32_t kCreateNewSelectionRange = -1;
+  static const int32_t kRemoveAllExistingSelectedRanges = -2;
+
   /**
    * Set range as DOM selection.
    * aSelectionNum is the selection index to use. If aSelectionNum is
-   * out of bounds for current selection ranges, or is -1, a new selection
-   * range is created.
+   * out of bounds for current selection ranges, or is kCreateNewSelectionRange,
+   * a new selection range is created. If aSelectionNum is
+   * kRemoveAllExistingSelectedRanges, this will be set as the only range in the
+   * selection; i.e. all existing ranges (if any) will be removed from the
+   * selection first.
    */
   MOZ_CAN_RUN_SCRIPT bool SetSelection(int32_t aSelectionNum) const;
 
   MOZ_CAN_RUN_SCRIPT void ScrollIntoView(uint32_t aScrollType) const;
+
+  /**
+   * Returns sub-ranges for all the lines in this range visible within the given
+   * container Accessible.
+   */
+  nsTArray<TextLeafRange> VisibleLines(Accessible* aContainer) const;
 
  private:
   TextLeafPoint mStart;
@@ -335,13 +347,14 @@ class TextLeafRange final {
 
   /*
    * Walk all of the lines within the TextLeafRange. This function invokes the
-   * given callback with each line-bounding rectangle. The bounds are inclusive
-   * of all characters in each line. Each rectangle is screen-relative. The
-   * function returns true if it walks any lines, and false if it could not walk
-   * any rects, which could happen if the start and end points are improperly
-   * positioned.
+   * given callback with the sub-range for each line and the line's bounding
+   * rectangle. The bounds are inclusive of all characters in each line. Each
+   * rectangle is screen-relative. The function returns true if it walks any
+   * lines, and false if it could not walk any rects, which could happen if the
+   * start and end points are improperly positioned.
    */
-  using LineRectCallback = FunctionRef<void(LayoutDeviceIntRect)>;
+  using LineRectCallback =
+      FunctionRef<void(TextLeafRange, LayoutDeviceIntRect)>;
   bool WalkLineRects(LineRectCallback aCallback) const;
 
  public:

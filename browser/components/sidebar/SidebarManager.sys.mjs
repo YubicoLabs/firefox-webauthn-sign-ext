@@ -2,7 +2,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
 import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
+
+const BACKUP_STATE_PREF = "sidebar.backupState";
+const VISIBILITY_SETTING_PREF = "sidebar.visibility";
 
 const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
@@ -11,6 +15,21 @@ ChromeUtils.defineESModuleGetters(lazy, {
   PrefUtils: "resource://normandy/lib/PrefUtils.sys.mjs",
 });
 XPCOMUtils.defineLazyPreferenceGetter(lazy, "sidebarNimbus", "sidebar.nimbus");
+XPCOMUtils.defineLazyPreferenceGetter(
+  lazy,
+  "sidebarBackupState",
+  BACKUP_STATE_PREF
+);
+
+XPCOMUtils.defineLazyPreferenceGetter(
+  lazy,
+  "verticalTabsEnabled",
+  "sidebar.verticalTabs",
+  false,
+  (pref, oldVal, newVal) => {
+    SidebarManager.handleVerticalTabsPrefChange(newVal, true);
+  }
+);
 
 export const SidebarManager = {
   /**
@@ -33,6 +52,19 @@ export const SidebarManager = {
         return;
       }
 
+      // Enforce minimum version by skipping pref changes until Firefox restarts
+      // with the appropriate version
+      if (
+        Services.vc.compare(
+          // Support betas, e.g., 132.0b1, instead of MOZ_APP_VERSION
+          AppConstants.MOZ_APP_VERSION_DISPLAY,
+          // Check configured version or compare with unset handled as 0
+          lazy.NimbusFeatures[featureId].getVariable("minVersion")
+        ) < 0
+      ) {
+        return;
+      }
+
       // Set/override user prefs to persist after experiment end
       const setPref = (pref, value) => {
         // Only set prefs with a value (so no clearing)
@@ -41,10 +73,61 @@ export const SidebarManager = {
         }
       };
       setPref("nimbus", slug);
-      ["main.tools", "revamp", "verticalTabs"].forEach(pref =>
+      ["main.tools", "revamp", "verticalTabs", "visibility"].forEach(pref =>
         setPref(pref, lazy.NimbusFeatures[featureId].getVariable(pref))
       );
     });
+
+    // if there's no user visibility pref, we may need to update it to the default value for the tab orientation
+    const shouldResetVisibility = !Services.prefs.prefHasUserValue(
+      VISIBILITY_SETTING_PREF
+    );
+    this.handleVerticalTabsPrefChange(
+      lazy.verticalTabsEnabled,
+      shouldResetVisibility
+    );
+  },
+
+  /**
+   * Adjust for a change to the verticalTabs pref.
+   */
+  handleVerticalTabsPrefChange(isEnabled, resetVisibility = true) {
+    if (!isEnabled) {
+      // horizontal tabs can only have visibility of "hide-sidebar"
+      Services.prefs.setStringPref(VISIBILITY_SETTING_PREF, "hide-sidebar");
+    } else if (resetVisibility) {
+      // only reset visibility pref when switching to vertical tabs and explictly indicated
+      Services.prefs.setStringPref(VISIBILITY_SETTING_PREF, "always-show");
+    }
+  },
+
+  /**
+   * Provide a system-level "backup" state to be stored for those using "Never
+   * remember history" or "Clear history when browser closes".
+   *
+   * If it doesn't exist or isn't parsable, return `null`.
+   *
+   * @returns {object}
+   */
+  getBackupState() {
+    try {
+      return JSON.parse(lazy.sidebarBackupState);
+    } catch (e) {
+      Services.prefs.clearUserPref(BACKUP_STATE_PREF);
+      return null;
+    }
+  },
+
+  /**
+   * Set the backup state.
+   *
+   * @param {object} state
+   */
+  setBackupState(state) {
+    if (!state) {
+      return;
+    }
+    Services.prefs.setStringPref(BACKUP_STATE_PREF, JSON.stringify(state));
   },
 };
 

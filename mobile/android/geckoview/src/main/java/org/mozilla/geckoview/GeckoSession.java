@@ -11,9 +11,7 @@ import static org.mozilla.geckoview.GeckoSession.GeckoPrintException.ERROR_NO_PR
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
-import android.content.ContentResolver;
 import android.content.Context;
-import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.Matrix;
 import android.graphics.Point;
@@ -27,6 +25,7 @@ import android.os.IInterface;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.SystemClock;
+import android.provider.DocumentsContract;
 import android.text.TextUtils;
 import android.util.Base64;
 import android.util.Log;
@@ -1046,6 +1045,8 @@ public class GeckoSession {
         }
       };
 
+  private CompositorScrollDelegate mCompositorScrollDelegate = null;
+
   private final GeckoSessionHandler<ContentBlocking.Delegate> mContentBlockingHandler =
       new GeckoSessionHandler<ContentBlocking.Delegate>(
           "GeckoViewContentBlocking", this, new String[] {"GeckoView:ContentBlockingEvent"}) {
@@ -2032,6 +2033,7 @@ public class GeckoSession {
     private @LoadFlags int mLoadFlags = LOAD_FLAGS_NONE;
     private boolean mIsDataUri;
     private @HeaderFilter int mHeaderFilter = HEADER_FILTER_CORS_SAFELISTED;
+    private @Nullable String mOriginalInput;
 
     private static @NonNull String createDataUri(
         @NonNull final byte[] bytes, @Nullable final String mimeType) {
@@ -2218,6 +2220,19 @@ public class GeckoSession {
       mLoadFlags = flags;
       return this;
     }
+
+    /**
+     * If this load originates from the address bar, sets the original user input before it got
+     * fixed up to a URI.
+     *
+     * @param originalInput original user address bar input.
+     * @return this {@link Loader} instance.
+     */
+    @NonNull
+    public Loader originalInput(final @Nullable String originalInput) {
+      mOriginalInput = originalInput;
+      return this;
+    }
   }
 
   /**
@@ -2297,6 +2312,10 @@ public class GeckoSession {
 
               if (request.mHeaders != null) {
                 msg.putBundle("headers", request.mHeaders);
+              }
+
+              if (request.mOriginalInput != null) {
+                msg.putString("originalInput", request.mOriginalInput);
               }
 
               mEventDispatcher.dispatch("GeckoView:LoadUri", msg);
@@ -2807,7 +2826,15 @@ public class GeckoSession {
       final GeckoBundle formdata = updateData.getBundle("formdata");
 
       if (history != null) {
-        mState.putBundle("history", history);
+        // when full session history update received, don't bother with partial state update ops.
+        // This is due to the suboptimal array ops in the partial update logic which regresses
+        // thread cpuTime while the legacy bundle operation performs better.
+        if (history.getInt("fromIdx") == -1) {
+          mState.putBundle("history", history);
+        } else {
+          mState.putBundle(
+              "history", getPartiallyUpdatedHistoryChange(history).getBundle("history"));
+        }
       }
 
       if (scroll != null) {
@@ -2819,6 +2846,44 @@ public class GeckoSession {
       }
 
       return;
+    }
+
+    private @NonNull GeckoBundle getPartiallyUpdatedHistoryChange(
+        final @NonNull GeckoBundle update) {
+      final int kLastIndex = Integer.MAX_VALUE - 1;
+      final GeckoBundle historyBundle = new GeckoBundle();
+      final GeckoBundle[] updateHistoryEntries = update.getBundleArray("entries");
+      final int updateFromIdx = update.getInt("fromIdx");
+
+      // start off with an empty session entries array and
+      // then populate it with the updated session entries
+      update.putBundleArray("entries", new GeckoBundle[] {});
+
+      // no need to store fromIdx in the history state bundle as it has nothing to do with it
+      update.remove("fromIdx");
+
+      historyBundle.putBundle("history", update);
+
+      if (updateFromIdx != kLastIndex) {
+        final int start = updateFromIdx + 1;
+        historyBundle
+            .getBundle("history")
+            .putBundleArray("entries", spliceSessionHistory(start, updateHistoryEntries));
+      }
+      return historyBundle;
+    }
+
+    private GeckoBundle[] spliceSessionHistory(final int startIndex, final GeckoBundle[] entries) {
+      final GeckoBundle[] historyEntries = getHistoryEntries();
+      if (historyEntries != null) {
+        // when a partial history update received, delete the session entries starting from
+        // startIndex then append the new session entries to the end.
+        final GeckoBundle[] newHistoryEntries = new GeckoBundle[startIndex + entries.length];
+        System.arraycopy(historyEntries, 0, newHistoryEntries, 0, startIndex);
+        System.arraycopy(entries, 0, newHistoryEntries, startIndex, entries.length);
+        return newHistoryEntries;
+      }
+      return new GeckoBundle[] {};
     }
 
     @Override
@@ -2968,7 +3033,9 @@ public class GeckoSession {
         throw new IllegalStateException("No history state exists.");
       }
 
-      return history.getInt("index") + history.getInt("fromIdx");
+      // The index for the array of session entries is 1-based,
+      // so we subtract 1 to get the current index
+      return history.getInt("index") - 1;
     }
 
     // Some helpers for common code.
@@ -3016,11 +3083,14 @@ public class GeckoSession {
   }
 
   /**
-   * Request analysis of product's reviews for a given product URL.
+   * This method is scheduled for deprecation, see Bug 1941470 for details. Request analysis of
+   * product's reviews for a given product URL.
    *
    * @param url The URL of the product page.
    * @return a {@link GeckoResult} result of review analysis object.
    */
+  @Deprecated
+  @DeprecationSchedule(id = "session-shopping", version = 139)
   @AnyThread
   public @NonNull GeckoResult<ReviewAnalysis> requestAnalysis(@NonNull final String url) {
     final GeckoBundle bundle = new GeckoBundle(1);
@@ -3031,11 +3101,14 @@ public class GeckoSession {
   }
 
   /**
-   * Request the creation of an analysis of product's reviews for a given product URL.
+   * This method is scheduled for deprecation, see Bug 1941470 for details. Request the creation of
+   * an analysis of product's reviews for a given product URL.
    *
    * @param url The URL of the product page.
    * @return a {@link GeckoResult} result of status of analysis.
    */
+  @Deprecated
+  @DeprecationSchedule(id = "session-shopping", version = 139)
   @AnyThread
   public @NonNull GeckoResult<String> requestCreateAnalysis(@NonNull final String url) {
     final GeckoBundle bundle = new GeckoBundle(1);
@@ -3044,11 +3117,14 @@ public class GeckoSession {
   }
 
   /**
-   * Request the status of the current analysis of product's reviews for a given product URL.
+   * This method is scheduled for deprecation, see Bug 1941470 for details. Request the status of
+   * the current analysis of product's reviews for a given product URL.
    *
    * @param url The URL of the product page.
    * @return a {@link GeckoResult} result of status of analysis.
    */
+  @Deprecated
+  @DeprecationSchedule(id = "session-shopping", version = 139)
   @AnyThread
   public @NonNull GeckoResult<AnalysisStatusResponse> requestAnalysisStatus(
       @NonNull final String url) {
@@ -3060,11 +3136,14 @@ public class GeckoSession {
   }
 
   /**
-   * Poll for the status of the current analysis of product's reviews for a given product URL.
+   * This method is scheduled for deprecation, see Bug 1941470 for details. Poll for the status of
+   * the current analysis of product's reviews for a given product URL.
    *
    * @param url The URL of the product page.
    * @return a {@link GeckoResult} result of status of analysis.
    */
+  @Deprecated
+  @DeprecationSchedule(id = "session-shopping", version = 139)
   @AnyThread
   public @NonNull GeckoResult<String> pollForAnalysisCompleted(@NonNull final String url) {
     final GeckoBundle bundle = new GeckoBundle(1);
@@ -3073,11 +3152,14 @@ public class GeckoSession {
   }
 
   /**
-   * Send a click event to the Ad Attribution API.
+   * This method is scheduled for deprecation, see Bug 1941470 for details. Send a click event to
+   * the Ad Attribution API.
    *
    * @param aid Ad id of the recommended product.
    * @return a {@link GeckoResult} result of whether or not sending the event was successful.
    */
+  @Deprecated
+  @DeprecationSchedule(id = "session-shopping", version = 139)
   @AnyThread
   public @NonNull GeckoResult<Boolean> sendClickAttributionEvent(@NonNull final String aid) {
     final GeckoBundle bundle = new GeckoBundle(1);
@@ -3086,11 +3168,14 @@ public class GeckoSession {
   }
 
   /**
-   * Send an impression event to the Ad Attribution API.
+   * This method is scheduled for deprecation, see Bug 1941470 for details. Send an impression event
+   * to the Ad Attribution API.
    *
    * @param aid Ad id of the recommended product.
    * @return a {@link GeckoResult} result of whether or not sending the event was successful.
    */
+  @Deprecated
+  @DeprecationSchedule(id = "session-shopping", version = 139)
   @AnyThread
   public @NonNull GeckoResult<Boolean> sendImpressionAttributionEvent(@NonNull final String aid) {
     final GeckoBundle bundle = new GeckoBundle(1);
@@ -3099,11 +3184,14 @@ public class GeckoSession {
   }
 
   /**
-   * Send a placement event to the Ad Attribution API.
+   * This method is scheduled for deprecation, see Bug 1941470 for details. Send a placement event
+   * to the Ad Attribution API.
    *
    * @param aid Ad id of the recommended product.
    * @return a {@link GeckoResult} result of whether or not sending the event was successful.
    */
+  @Deprecated
+  @DeprecationSchedule(id = "session-shopping", version = 139)
   @AnyThread
   public @NonNull GeckoResult<Boolean> sendPlacementAttributionEvent(@NonNull final String aid) {
     final GeckoBundle bundle = new GeckoBundle(1);
@@ -3112,11 +3200,14 @@ public class GeckoSession {
   }
 
   /**
-   * Request product recommendations given a specific product url.
+   * This method is scheduled for deprecation, see Bug 1941470 for details. Request product
+   * recommendations given a specific product url.
    *
    * @param url The URL of the product page.
    * @return a {@link GeckoResult} result of product recommendations.
    */
+  @Deprecated
+  @DeprecationSchedule(id = "session-shopping", version = 139)
   @AnyThread
   public @NonNull GeckoResult<List<Recommendation>> requestRecommendations(
       @NonNull final String url) {
@@ -3138,17 +3229,38 @@ public class GeckoSession {
   }
 
   /**
-   * Report that a product is back in stock.
+   * This method is scheduled for deprecation, see Bug 1941470 for details. Report that a product is
+   * back in stock.
    *
    * @param url The URL of the product page.
    * @return a {@link GeckoResult} result of whether reporting a product is back in stock was
    *     successful.
    */
+  @Deprecated
+  @DeprecationSchedule(id = "session-shopping", version = 139)
   @AnyThread
   public @NonNull GeckoResult<String> reportBackInStock(@NonNull final String url) {
     final GeckoBundle bundle = new GeckoBundle(1);
     bundle.putString("url", url);
     return mEventDispatcher.queryString("GeckoView:ReportBackInStock", bundle);
+  }
+
+  /**
+   * Get the web compatibility info when a site is reported as broken.
+   *
+   * @return a {@link GeckoResult} containing the WebCompatInfo as a JSONObject.
+   */
+  @AnyThread
+  public @NonNull GeckoResult<JSONObject> getWebCompatInfo() {
+    return mEventDispatcher
+        .queryString("GeckoView:GetWebCompatInfo")
+        .map(
+            value -> {
+              if (value == null) {
+                throw new IllegalStateException("Unable to get web compat info");
+              }
+              return new JSONObject(value);
+            });
   }
 
   // This is the GeckoDisplay acquired via acquireDisplay(), if any.
@@ -3309,11 +3421,37 @@ public class GeckoSession {
     mScrollHandler.setDelegate(delegate, this);
   }
 
+  /**
+   * Get the current scroll callback handler.
+   *
+   * @return An implementation of ScrollDelegate.
+   */
   @UiThread
-  @SuppressWarnings("checkstyle:javadocmethod")
   public @Nullable ScrollDelegate getScrollDelegate() {
     ThreadUtils.assertOnUiThread();
     return mScrollHandler.getDelegate();
+  }
+
+  /**
+   * Set the compositor scroll callback handler. This will replace the current handler.
+   *
+   * @param delegate An implementation of CompositorScrollDelegate.
+   */
+  @UiThread
+  public void setCompositorScrollDelegate(final @Nullable CompositorScrollDelegate delegate) {
+    ThreadUtils.assertOnUiThread();
+    mCompositorScrollDelegate = delegate;
+  }
+
+  /**
+   * Get the current compositor scroll callback handler.
+   *
+   * @return An implementation of CompositorScrollDelegate.
+   */
+  @UiThread
+  public @Nullable CompositorScrollDelegate getCompositorScrollDelegate() {
+    ThreadUtils.assertOnUiThread();
+    return mCompositorScrollDelegate;
   }
 
   /**
@@ -3678,8 +3816,13 @@ public class GeckoSession {
     }
   }
 
-  /** Contains information about the analysis of a product's reviews. */
+  /**
+   * This method is scheduled for deprecation, see Bug 1941470 for details. Contains information
+   * about the analysis of a product's reviews.
+   */
   @AnyThread
+  @Deprecated
+  @DeprecationSchedule(id = "session-shopping", version = 139)
   public static class ReviewAnalysis {
     /** Analysis URL. */
     @Nullable public final String analysisURL;
@@ -3954,8 +4097,13 @@ public class GeckoSession {
     }
   }
 
-  /** Contains information about a product recommendation. */
+  /**
+   * This method is scheduled for deprecation, see Bug 1941470 for details. Contains information
+   * about a product recommendation.
+   */
   @AnyThread
+  @Deprecated
+  @DeprecationSchedule(id = "session-shopping", version = 139)
   public static class Recommendation {
     /** Analysis URL. */
     @NonNull public final String analysisUrl;
@@ -4170,8 +4318,13 @@ public class GeckoSession {
     }
   }
 
-  /** Contains information about a product's analysis status response. */
+  /**
+   * This method is scheduled for deprecation, see Bug 1941470 for details. Contains information
+   * about a product's analysis status response.
+   */
   @AnyThread
+  @Deprecated
+  @DeprecationSchedule(id = "session-shopping", version = 139)
   public static class AnalysisStatusResponse {
     /** Status of the analysis. */
     @NonNull public final String status;
@@ -5349,6 +5502,42 @@ public class GeckoSession {
     }
 
     /**
+     * FolderUploadPrompt represents a prompt shown whenever the browser needs to upload folder data
+     */
+    class FolderUploadPrompt extends BasePrompt {
+      /** The directory name to confirm folder tries to uploading. */
+      public final @Nullable String directoryName;
+
+      /**
+       * A constructor for FolderUploadPrompt
+       *
+       * @param id The identification for this prompt.
+       * @param directoryName The directory that is confirmed.
+       * @param observer A callback to notify when the prompt has been completed.
+       */
+      protected FolderUploadPrompt(
+          @NonNull final String id,
+          @Nullable final String directoryName,
+          @NonNull final Observer observer) {
+        super(id, null, observer);
+        this.directoryName = directoryName;
+      }
+
+      /**
+       * Confirms the prompt.
+       *
+       * @param allowOrDeny whether the browser should allow resubmitting data.
+       * @return A {@link PromptResponse} which can be used to complete the {@link GeckoResult}
+       *     associated with this prompt.
+       */
+      @UiThread
+      public @NonNull PromptResponse confirm(final @Nullable AllowOrDeny allowOrDeny) {
+        ensureResult().putBoolean("allow", allowOrDeny != AllowOrDeny.DENY);
+        return super.confirm();
+      }
+    }
+
+    /**
      * RepostConfirmPrompt represents a prompt shown whenever the browser needs to resubmit POST
      * data (e.g. due to page refresh).
      */
@@ -6218,7 +6407,7 @@ public class GeckoSession {
      */
     class FilePrompt extends BasePrompt {
       @Retention(RetentionPolicy.SOURCE)
-      @IntDef({Type.SINGLE, Type.MULTIPLE})
+      @IntDef({Type.SINGLE, Type.MULTIPLE, Type.FOLDER})
       public @interface FileType {}
 
       /** Types of file prompts. */
@@ -6228,6 +6417,9 @@ public class GeckoSession {
 
         /** Prompt for multiple files. */
         public static final int MULTIPLE = 2;
+
+        /** Prompt for directory. */
+        public static final int FOLDER = 3;
 
         protected Type() {}
       }
@@ -6304,7 +6496,7 @@ public class GeckoSession {
       @UiThread
       public @NonNull PromptResponse confirm(
           @NonNull final Context context, @NonNull final Uri[] uris) {
-        if (Type.SINGLE == type && (uris == null || uris.length != 1)) {
+        if ((Type.SINGLE == type || Type.FOLDER == type) && (uris == null || uris.length != 1)) {
           throw new IllegalArgumentException();
         }
 
@@ -6312,10 +6504,28 @@ public class GeckoSession {
         for (int i = 0; i < paths.length; i++) {
           paths[i] = getFile(context, uris[i]);
           if (paths[i] == null) {
-            Log.e(LOGTAG, "Only file URIs are supported: " + uris[i]);
+            if (DEBUG) {
+              Log.e(LOGTAG, "Only file URIs are supported: " + uris[i]);
+            }
           }
         }
         ensureResult().putStringArray("files", paths);
+
+        if (Type.FOLDER == type && uris[0] != null) {
+          GeckoBundle[] filesInWebKitDirectory = filesInWebKitDirectory = new GeckoBundle[0];
+          try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N
+                && DocumentsContract.isTreeUri(uris[0])) {
+              filesInWebKitDirectory =
+                  IntentUtils.traverseTreeUri(context, uris[0]).stream()
+                      .map(f -> f.toGeckoBundle())
+                      .toArray(GeckoBundle[]::new);
+            }
+          } catch (final OutOfMemoryError e) {
+            Log.e(LOGTAG, "Cannot traverse child directories", e);
+          }
+          ensureResult().putBundleArray("filesInWebKitDirectory", filesInWebKitDirectory);
+        }
 
         return super.confirm();
       }
@@ -6327,33 +6537,14 @@ public class GeckoSession {
         if ("file".equals(uri.getScheme())) {
           return uri.getPath();
         }
-        final ContentResolver cr = context.getContentResolver();
-        final Cursor cur =
-            cr.query(
-                uri,
-                new String[] {"_data"}, /* selection */
-                null,
-                /* args */ null, /* sort */
-                null);
-        if (cur == null) {
-          return null;
-        }
-        try {
-          final int idx = cur.getColumnIndex("_data");
-          if (idx < 0 || !cur.moveToFirst()) {
-            return null;
+        if ("content".equals(uri.getScheme())) {
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && DocumentsContract.isTreeUri(uri)) {
+            return IntentUtils.resolveTreeUri(context, uri);
           }
-          do {
-            try {
-              final String path = cur.getString(idx);
-              if (path != null && !path.isEmpty()) {
-                return path;
-              }
-            } catch (final Exception e) {
-            }
-          } while (cur.moveToNext());
-        } finally {
-          cur.close();
+          if (DocumentsContract.isDocumentUri(context, uri)) {
+            return IntentUtils.resolveDocumentUri(context, uri);
+          }
+          return IntentUtils.resolveContentUri(context, uri);
         }
         return null;
       }
@@ -6550,6 +6741,20 @@ public class GeckoSession {
     @UiThread
     default @Nullable GeckoResult<PromptResponse> onButtonPrompt(
         @NonNull final GeckoSession session, @NonNull final ButtonPrompt prompt) {
+      return null;
+    }
+
+    /**
+     * Display a folder upload prompt.
+     *
+     * @param session GeckoSession that triggered the prompt.
+     * @param prompt The {@link FolderUploadPrompt} that describes the prompt.
+     * @return A {@link GeckoResult} resolving to a {@link PromptResponse} which includes all
+     *     necessary information to resolve the prompt.
+     */
+    @UiThread
+    default @Nullable GeckoResult<PromptResponse> onFolderUploadPrompt(
+        @NonNull final GeckoSession session, @NonNull final FolderUploadPrompt prompt) {
       return null;
     }
 
@@ -6842,6 +7047,55 @@ public class GeckoSession {
     @UiThread
     default void onScrollChanged(
         @NonNull final GeckoSession session, final int scrollX, final int scrollY) {}
+  }
+
+  /** Information about an update to the content's scroll position. */
+  public class ScrollPositionUpdate {
+    // The scroll position changed as a direct result of user interaction.
+    public static final int SOURCE_USER_INTERACTION = 0;
+    // The scroll position changed progammatically. This can include
+    // changes caused by script on the page, and changes caused by
+    // the browser engine such as scrolling an element into view.
+    public static final int SOURCE_OTHER = 1;
+
+    // The new horizontal scroll position in CSS pixels.
+    public float scrollX;
+    // The new vertical scroll position in CSS pixels.
+    public float scrollY;
+    // The new zoom level.
+    // This is used to relate scrollX and scrollY, which are
+    // in CSS pixels, to quantities in screen pixels.
+    // Multiply scrollX/scrollY by zoom to get screen pixels.
+    public float zoom;
+    // The source of the scroll position change. One of
+    // SOURCE_USER_INTERACTION or SOURCE_OTHER.
+    public int source;
+  }
+
+  /**
+   * GeckoSession applications implement this interface to handle scroll events.
+   *
+   * <p>Differences from ScrollDelegate:
+   *
+   * <ul>
+   *   <li>onScrollChanged() is called as soon as the scroll change is composited visually. For
+   *       scrolling triggered by user interaction, this notification can have a lower latency than
+   *       ScrollDelegate.onScrollChanged().
+   *   <li>In addition to the scroll position in pixels, the notification contains auxiliary
+   *       information such as whether the scroll change was a result of user interaction. This can
+   *       be extended over time as needed.
+   * </ul>
+   */
+  public interface CompositorScrollDelegate {
+    /**
+     * The scroll position of the content has changed.
+     *
+     * @param session GeckoSession that initiated the callback.
+     * @param update Information about the scroll position change.
+     */
+    @UiThread
+    default void onScrollChanged(
+        @NonNull final GeckoSession session, @NonNull final ScrollPositionUpdate update) {}
   }
 
   /**
@@ -7849,6 +8103,18 @@ public class GeckoSession {
     mViewportLeft = scrollX;
     mViewportTop = scrollY;
     mViewportZoom = zoom;
+
+    final ScrollPositionUpdate update = new ScrollPositionUpdate();
+    // Tbe incoming scrollX and scrollY are in screen pixels.
+    // For ScrollPositionUpdate, convert them to CSS pixels.
+    update.scrollX = scrollX / zoom;
+    update.scrollY = scrollY / zoom;
+    update.zoom = zoom;
+    // TODO(bug 1940581): Plumb in an accurate source here
+    update.source = ScrollPositionUpdate.SOURCE_USER_INTERACTION;
+    if (mCompositorScrollDelegate != null) {
+      mCompositorScrollDelegate.onScrollChanged(this, update);
+    }
   }
 
   /* protected */ void onWindowBoundsChanged() {

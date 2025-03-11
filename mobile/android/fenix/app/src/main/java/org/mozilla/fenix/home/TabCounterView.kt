@@ -81,8 +81,24 @@ class TabCounterView(
     internal fun onItemTapped(item: TabCounterMenu.Item) {
         if (item is TabCounterMenu.Item.NewTab) {
             browsingModeManager.mode = BrowsingMode.Normal
+            val directions =
+                NavGraphDirections.actionGlobalSearchDialog(
+                    sessionId = null,
+                )
+            navController.nav(
+                navController.currentDestination?.id,
+                directions,
+            )
         } else if (item is TabCounterMenu.Item.NewPrivateTab) {
             browsingModeManager.mode = BrowsingMode.Private
+            val directions =
+                NavGraphDirections.actionGlobalSearchDialog(
+                    sessionId = null,
+                )
+            navController.nav(
+                navController.currentDestination?.id,
+                directions,
+            )
         }
     }
 
@@ -106,6 +122,7 @@ class TabCounterView(
             )
 
             tabCounter.setOnLongClickListener {
+                StartOnHome.longClickTabsTray.record(NoExtras())
                 tabCounterMenu.menuController.show(anchor = it)
                 true
             }

@@ -84,6 +84,11 @@ nsresult SVGGeometryFrame::AttributeChanged(int32_t aNameSpaceID,
 /* virtual */
 void SVGGeometryFrame::DidSetComputedStyle(ComputedStyle* aOldComputedStyle) {
   nsIFrame::DidSetComputedStyle(aOldComputedStyle);
+  if (StyleSVGReset()->HasNonScalingStroke() &&
+      (!aOldComputedStyle ||
+       !aOldComputedStyle->StyleSVGReset()->HasNonScalingStroke())) {
+    SVGUtils::UpdateNonScalingStrokeStateBit(this);
+  }
   auto* element = static_cast<SVGGeometryElement*>(GetContent());
   if (!aOldComputedStyle) {
     element->ClearAnyCachedPath();
@@ -240,9 +245,7 @@ nsIFrame* SVGGeometryFrame::GetFrameForPoint(const gfxPoint& aPoint) {
       // Naturally we also need to transform the point into the same
       // coordinate system in order to hit-test against the path.
       point = ToMatrix(userToOuterSVG).TransformPoint(point);
-      RefPtr<PathBuilder> builder =
-          path->TransformedCopyToBuilder(ToMatrix(userToOuterSVG), fillRule);
-      path = builder->Finish();
+      Path::TransformAndSetFillRule(path, ToMatrix(userToOuterSVG), fillRule);
     }
     isHit = path->StrokeContainsPoint(stroke, point, {});
   }
@@ -625,9 +628,7 @@ void SVGGeometryFrame::Render(gfxContext* aContext, uint32_t aRenderComponents,
       gfxMatrix outerSVGToUser = userToOuterSVG;
       outerSVGToUser.Invert();
       aContext->Multiply(outerSVGToUser);
-      RefPtr<PathBuilder> builder =
-          path->TransformedCopyToBuilder(ToMatrix(userToOuterSVG), fillRule);
-      path = builder->Finish();
+      Path::TransformAndSetFillRule(path, ToMatrix(userToOuterSVG), fillRule);
     }
     GeneralPattern strokePattern;
     SVGUtils::MakeStrokePatternFor(this, aContext, &strokePattern, aImgParams,
@@ -701,9 +702,7 @@ bool SVGGeometryFrame::CreateWebRenderCommands(
     mozilla::layers::RenderRootStateManager* aManager,
     nsDisplayListBuilder* aDisplayListBuilder, DisplaySVGGeometry* aItem,
     bool aDryRun) {
-  if (!StyleVisibility()->IsVisible()) {
-    return true;
-  }
+  MOZ_ASSERT(StyleVisibility()->IsVisible());
 
   SVGGeometryElement* element = static_cast<SVGGeometryElement*>(GetContent());
 

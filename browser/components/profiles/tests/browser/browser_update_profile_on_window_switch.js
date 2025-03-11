@@ -3,51 +3,85 @@
 
 "use strict";
 
+const { SelectableProfile } = ChromeUtils.importESModule(
+  "resource:///modules/profiles/SelectableProfile.sys.mjs"
+);
+
 add_task(async function test_updateDefaultProfileOnWindowSwitch() {
-  if (!AppConstants.MOZ_SELECTABLE_PROFILES) {
-    // `mochitest-browser` suite `add_task` does not yet support
-    // `properties.skip_if`.
-    ok(true, "Skipping because !AppConstants.MOZ_SELECTABLE_PROFILES");
-    return;
-  }
+  await initGroupDatabase();
+  let currentProfile = SelectableProfileService.currentProfile;
+  let profileRootDir = await currentProfile.rootDir;
 
-  let profile = await setupMockDB();
-  let rootDir = await profile.rootDir;
-
-  const toolkitProfileObject = { storeID, rootDir };
-  SelectableProfileService.groupToolkitProfile = toolkitProfileObject;
-
-  // re-initialize because we updated the rootDir
-  await SelectableProfileService.uninit();
-  await SelectableProfileService.init();
-
-  toolkitProfileObject.rootDir = "some/path";
   ok(
     SelectableProfileService.currentProfile instanceof SelectableProfile,
     "The current selectable profile exists"
   );
   is(
-    SelectableProfileService.toolkitProfileRootDir,
-    toolkitProfileObject.rootDir,
-    `The SelectableProfileService rootDir is ${toolkitProfileObject.rootDir}`
+    gProfileService.currentProfile.rootDir.path,
+    profileRootDir.path,
+    `The SelectableProfileService rootDir is correct`
   );
 
-  let w = await BrowserTestUtils.openNewBrowserWindow();
-  w.focus();
-  // Focus the original window so we get an "activate" event and update the toolkitProfile rootDir
-  window.focus();
+  Services.telemetry.clearEvents();
+  Services.fog.testResetFOG();
+  is(
+    null,
+    Glean.profilesDefault.updated.testGetValue(),
+    "We have not recorded any Glean data yet"
+  );
 
-  await BrowserTestUtils.waitForCondition(() => {
-    return SelectableProfileService.toolkitProfileRootDir.path === rootDir.path;
-  }, `Waited for SelectableProfileService.toolkitProfileRootDir.path to be updated to ${rootDir.path}, instead got ${SelectableProfileService.toolkitProfileRootDir.path}`);
+  // Override
+  gProfileService.currentProfile.rootDir = "bad";
+
+  let w = await BrowserTestUtils.openNewBrowserWindow();
+  await SimpleTest.promiseFocus(w);
+
+  // Focus the original window so we get an "activate" event and update the toolkitProfile rootDir
+  let asyncFlushResolver = Promise.withResolvers();
+  gProfileService.asyncFlush = () => asyncFlushResolver.resolve();
+  await SimpleTest.promiseFocus(window);
+  await asyncFlushResolver.promise;
+
+  asyncFlushResolver = Promise.withResolvers();
+  await SimpleTest.promiseFocus(w);
+  await asyncFlushResolver.promise;
+
+  gProfileService.asyncFlush = () => {
+    throw new Error("Failed");
+  };
+
+  let asyncFlushGroupProfileResolver = Promise.withResolvers();
+  gProfileService.asyncFlushGroupProfile = () =>
+    asyncFlushGroupProfileResolver.resolve();
+
+  await SimpleTest.promiseFocus(window);
+
+  await asyncFlushGroupProfileResolver.promise;
 
   is(
-    SelectableProfileService.toolkitProfileRootDir.path,
-    rootDir.path,
-    `The SelectableProfileService rootDir is ${rootDir.path}`
+    gProfileService.currentProfile.rootDir.path,
+    profileRootDir.path,
+    `The SelectableProfileService rootDir is correct`
+  );
+
+  let testEvents = Glean.profilesDefault.updated.testGetValue();
+  Assert.equal(
+    3,
+    testEvents.length,
+    "Should have recorded the default profile updated event exactly three times"
+  );
+  TelemetryTestUtils.assertEvents(
+    [
+      ["profiles", "default", "updated"],
+      ["profiles", "default", "updated"],
+      ["profiles", "default", "updated"],
+    ],
+    {
+      category: "profiles",
+      method: "default",
+    }
   );
 
   await BrowserTestUtils.closeWindow(w);
-
   await SelectableProfileService.uninit();
 });

@@ -33,6 +33,10 @@ const { FormAutofillUtils } = ChromeUtils.importESModule(
   "resource://gre/modules/shared/FormAutofillUtils.sys.mjs"
 );
 
+const { Region } = ChromeUtils.importESModule(
+  "resource://gre/modules/Region.sys.mjs"
+);
+
 let { sinon } = ChromeUtils.importESModule(
   "resource://testing-common/Sinon.sys.mjs"
 );
@@ -80,6 +84,20 @@ const ADDRESS_FORM_WITH_PAGE_NAVIGATION_BUTTONS =
   "address/capture_address_on_page_navigation.html";
 const FORM_IFRAME_SANDBOXED_URL =
   "https://example.org" + HTTP_TEST_PATH + "autocomplete_iframe_sandboxed.html";
+const FORMS_WITH_DYNAMIC_FORM_CHANGE =
+  "https://example.org" + HTTP_TEST_PATH + "dynamic_form_changes.html";
+const FORM_WITH_USER_INITIATED_FORM_CHANGE =
+  "https://example.org" +
+  HTTP_TEST_PATH +
+  "form_change_on_user_interaction.html";
+const FORMLESS_FIELDS_WITH_DYNAMIC_FORM_CHANGE_AFTER_NODE_MUTATIONS =
+  "https://example.org" +
+  HTTP_TEST_PATH +
+  "dynamic_formless_changes_node_mutations.html";
+const FORMLESS_FIELDS_WITH_DYNAMIC_FORM_CHANGE_AFTER_VISIBILITY_STATE_CHANGE =
+  "https://example.org" +
+  HTTP_TEST_PATH +
+  "dynamic_formless_changes_element_visiblity_state.html";
 const CREDITCARD_FORM_URL =
   "https://example.org" +
   HTTP_TEST_PATH +
@@ -371,6 +389,28 @@ async function waitForStorageChangedEvents(...eventTypes) {
       )
     )
   );
+}
+
+/**
+ * Sets up a promise that resolves when the FormAutofillParent sends out a notification
+ * that the field detection processes have completed in all FormAutofill children.
+ *
+ * @returns {Promise}
+ */
+async function getFieldDetectionCompletedPromiseResolver() {
+  let fieldDetectionCompletedPromiseResolver;
+  const fieldDetectionCompletedObserver = {
+    fieldDetectionCompleted() {
+      info(`All fields detected.`);
+      fieldDetectionCompletedPromiseResolver();
+      FormAutofillParent.removeMessageObserver(fieldDetectionCompletedObserver);
+    },
+  };
+
+  return new Promise(resolve => {
+    fieldDetectionCompletedPromiseResolver = resolve;
+    FormAutofillParent.addMessageObserver(fieldDetectionCompletedObserver);
+  });
 }
 
 /**
@@ -970,7 +1010,8 @@ function verifySectionAutofillResult(section, result, expectedSection) {
 
 function getSelectorFromFieldDetail(fieldDetail) {
   // identifier is set with `${element.id}/${element.name}`;
-  return `#${fieldDetail.identifier.split("/")[0]}`;
+  const id = fieldDetail.identifier.split("/")[0];
+  return `input#${id}, select#${id}`;
 }
 
 /**
@@ -1079,12 +1120,30 @@ async function findContext(browser, selector) {
     const find = await SpecialPowers.spawn(
       context,
       [selector],
-      async selector => !!content.document.querySelector(selector)
+      async selector => {
+        // This is a workaround to address issues when there are multiple
+        // elements with the same id and name on a page. This is a common pattern
+        // when sites use multiple iframes for credit card fields. Each iframe
+        // contains all the CC-related fields, but only one of the fields is visible.
+        // TODO: replace the following with an approach that can precisely find the
+        // element we want without basing on visibility.
+        const e = content.document.querySelector(selector);
+        if (e && content.HTMLInputElement.isInstance(e)) {
+          return !!(
+            e.checkVisibility({
+              checkOpacity: true,
+              checkVisibilityCSS: true,
+            }) && e.getAttribute("aria-hidden") != "true"
+          );
+        }
+        return !!e;
+      }
     );
     if (find) {
       return context;
     }
   }
+
   return null;
 }
 
@@ -1105,6 +1164,29 @@ async function verifyCaptureRecord(guid, expectedRecord) {
   for (const field of fields) {
     Assert.equal(record[field], expectedRecord[field], `${field} is the same`);
   }
+}
+
+// Compare the saved addresses with the expected addresses.
+async function expectSavedAddresses(expectedAddresses) {
+  const addresses = await expectSavedAddressesCount(expectedAddresses.length);
+
+  for (let i = 0; i < expectedAddresses.length; i++) {
+    for (const [key, value] of Object.entries(expectedAddresses[i])) {
+      is(addresses[i][key] ?? "", value, `field ${key} should be equal`);
+    }
+  }
+  return addresses;
+}
+
+// Compare the number of saved addresses with the expected saved address count.
+async function expectSavedAddressesCount(expectedCount) {
+  const addresses = await getAddresses();
+  is(
+    addresses.length,
+    expectedCount,
+    `${addresses.length} address in the storage`
+  );
+  return addresses;
 }
 
 async function verifyPreviewResult(browser, section, expectedSection) {
@@ -1356,11 +1438,16 @@ async function triggerCapture(browser, submitButtonSelector, fillSelectors) {
  *        Array of preferences to be set before running the test.
  * @param {object} patterns.profile
  *        The profile to autofill. This is required only when running autofill test
+ * @param {Array} patterns.region
+ *        Region to assign before running the test
  * @param {Array} patterns.expectedResult
  *        The expected result of this heuristic test. See below for detailed explanation
+ * @param {Function} patterns.onTestStart
+ *        Function that is executed before the test starts. This runs after the form
+ *        field has been focused.
  * @param {Function} patterns.onTestComplete
- *        Function that is executed when the test is complete. This can be used by the test
- *        to verify the status after running the test.
+ *        Function that is executed when the test is complete, but before the tab is closed.
+ *        This can be used by the test to verify the status after running the test.
  *
  * @param {string} patterns.autofillTrigger
  *        The selector to find the element to trigger the autocomplete popup.
@@ -1465,9 +1552,18 @@ async function add_heuristic_tests(
         `/document-builder.sjs?html=${encodeURIComponent(
           testPattern.fixtureData
         )}`
-      : `${BASE_URL}../${fixturePathPrefix}${testPattern.fixturePath}`;
+      : `${TOP_LEVEL_URL}../${fixturePathPrefix}${testPattern.fixturePath}`;
 
     info(`Test "${testPattern.description}"`);
+
+    let regionInfo = null;
+    if (testPattern.region) {
+      regionInfo = { home: Region._home, current: Region._current };
+
+      const region = testPattern.region;
+      Region._setCurrentRegion(region);
+      Region._setHomeRegion(region);
+    }
 
     if (testPattern.prefs) {
       await SpecialPowers.pushPrefEnv({
@@ -1485,8 +1581,14 @@ async function add_heuristic_tests(
       info(`Focus on each field in the test document`);
       const contexts =
         browser.browsingContext.getAllBrowsingContextsInSubtree();
+
+      // This is a workaround for when we set focus on elements across iframes (in the previous step).
+      // The popup is not refreshed, and consequently, it does not receive key events needed to trigger
+      // the autocomplete popup.
+      const sleepAfterFocus = contexts.length > 1;
+
       for (const context of contexts) {
-        await SpecialPowers.spawn(context, [], async function () {
+        await SpecialPowers.spawn(context, [], async () => {
           const elements = Array.from(
             content.document.querySelectorAll("input, select")
           );
@@ -1497,14 +1599,18 @@ async function add_heuristic_tests(
           });
         });
 
-        await BrowserTestUtils.synthesizeKey("VK_ESCAPE", {}, context);
+        try {
+          await BrowserTestUtils.synthesizeKey("VK_ESCAPE", {}, context);
+          if (sleepAfterFocus) {
+            await sleep();
+          }
+        } catch (e) {
+          // Error occurs when sending a key event to an invisible iframe, ignore the error.
+        }
       }
 
-      // This is a workaround for when we set focus on elements across iframes (in the previous step).
-      // The popup is not refreshed, and consequently, it does not receive key events needed to trigger
-      // the autocomplete popup.
-      if (contexts.length > 1) {
-        await sleep();
+      if (testPattern.onTestStart) {
+        await testPattern.onTestStart();
       }
 
       info(`Waiting for expected section count`);
@@ -1524,22 +1630,19 @@ async function add_heuristic_tests(
       if (options.testAutofill) {
         info(`test preview, autofill, and clear form`);
         let section;
+        let expected;
         let autofillTrigger = testPattern.autofillTrigger;
         if (autofillTrigger) {
-          if (!autofillTrigger.startsWith("#")) {
-            Assert.ok(false, `autofillTrigger must start with #`);
-          }
-          section = sections.find(s =>
-            s.fieldDetails.some(f =>
-              f.identifier.startsWith(autofillTrigger.substr(1))
-            )
+          const idx = testPattern.expectedResult.findIndex(expectedSection =>
+            expectedSection.fields.some(field => "autofill" in field)
           );
+          section = sections[idx];
+          expected = testPattern.expectedResult[idx];
         } else {
           section = sections[0];
+          expected = testPattern.expectedResult[0];
           autofillTrigger = getSelectorFromFieldDetail(section.fieldDetails[0]);
         }
-
-        const expected = testPattern.expectedResult[sections.indexOf(section)];
 
         await triggerAutofillAndPreview(
           browser,
@@ -1560,11 +1663,11 @@ async function add_heuristic_tests(
         verifyCaptureRecord(guid, testPattern.captureExpectedRecord);
         await removeAllRecords();
       }
-    });
 
-    if (testPattern.onTestComplete) {
-      await testPattern.onTestComplete();
-    }
+      if (testPattern.onTestComplete) {
+        await testPattern.onTestComplete();
+      }
+    });
 
     if (testPattern.profile) {
       await removeAllRecords();
@@ -1572,6 +1675,11 @@ async function add_heuristic_tests(
 
     if (testPattern.prefs) {
       await SpecialPowers.popPrefEnv();
+    }
+
+    if (regionInfo) {
+      Region._setCurrentRegion(regionInfo.home);
+      Region._setHomeRegion(regionInfo.current);
     }
   }
 

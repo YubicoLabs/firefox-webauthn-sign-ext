@@ -4,6 +4,8 @@
 
 package org.mozilla.fenix.downloads.dialog
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.view.View
 import android.view.ViewGroup
@@ -12,16 +14,10 @@ import androidx.annotation.VisibleForTesting
 import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.children
-import androidx.lifecycle.findViewTreeLifecycleOwner
-import kotlinx.coroutines.MainScope
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.launch
+import androidx.core.view.isVisible
 import mozilla.components.concept.engine.EngineView
-import mozilla.components.lib.state.ext.flow
 import mozilla.components.support.ktx.android.view.findViewInHierarchy
 import org.mozilla.fenix.R
-import org.mozilla.fenix.components.AppStore
 import org.mozilla.fenix.components.toolbar.ToolbarPosition
 import org.mozilla.fenix.utils.Settings
 import kotlin.math.max
@@ -38,17 +34,18 @@ import kotlin.math.min
 
 private const val SNAP_ANIMATION_DURATION = 150L
 private val BOTTOM_TOOLBAR_ANCHOR_IDS = listOf(
+    R.id.findInPageView,
     R.id.toolbar_navbar_container,
     R.id.toolbar,
 )
 private val TOP_TOOLBAR_ANCHOR_IDS = listOf(
+    R.id.findInPageView,
     R.id.toolbar_navbar_container,
 )
 
 class DynamicDownloadDialogBehavior<V : View>(
     private val dynamicDownload: V,
     settings: Settings,
-    appStore: AppStore,
 ) : CoordinatorLayout.Behavior<V>(dynamicDownload.context, null) {
 
     @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
@@ -77,17 +74,6 @@ class DynamicDownloadDialogBehavior<V : View>(
     private val possibleAnchors = when (settings.toolbarPosition) {
         ToolbarPosition.BOTTOM -> BOTTOM_TOOLBAR_ANCHOR_IDS
         ToolbarPosition.TOP -> TOP_TOOLBAR_ANCHOR_IDS
-    }
-
-    init {
-        MainScope().launch {
-            appStore.flow(dynamicDownload.findViewTreeLifecycleOwner())
-                .map { it.orientation }
-                .distinctUntilChanged()
-                .collect {
-                    dynamicDownload.translationY = -anchorHeight.toFloat()
-                }
-        }
     }
 
     /**
@@ -179,7 +165,13 @@ class DynamicDownloadDialogBehavior<V : View>(
         dependency: View,
     ): Boolean {
         engineView = parent.findViewInHierarchy { it is EngineView } as? EngineView
-        anchor = findAnchorInParent(parent)
+        val newAnchor = findAnchorInParent(parent)
+        // The same valid anchor can report height 0 or the actual measured height
+        // so checking for anchor equality is not enough, we need to check for height differences.
+        if (anchorHeight != newAnchor?.height) {
+            anchor = newAnchor
+            dynamicDownload.translationY = -anchorHeight.toFloat()
+        }
         return super.layoutDependsOn(parent, child, dependency)
     }
 
@@ -192,13 +184,17 @@ class DynamicDownloadDialogBehavior<V : View>(
     internal fun animateSnap(child: View, direction: SnapDirection) = with(snapAnimator) {
         expanded = direction == SnapDirection.UP
         addUpdateListener { child.translationY = it.animatedValue as Float }
+        addListener(
+            object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    // Ensure the right translationY if the anchor changes during the animation
+                    child.translationY = computeTranslation(direction)
+                }
+            },
+        )
         setFloatValues(
             child.translationY,
-            if (direction == SnapDirection.UP) {
-                -anchorHeight.toFloat()
-            } else {
-                child.height.toFloat() + anchorHeight
-            },
+            computeTranslation(direction),
         )
         start()
     }
@@ -210,6 +206,12 @@ class DynamicDownloadDialogBehavior<V : View>(
     }
 
     private fun findAnchorInParent(root: ViewGroup) =
-        possibleAnchors.intersect(root.children.map { it.id }.toSet()).firstOrNull()
+        possibleAnchors
+            .intersect(root.children.filter { it.isVisible && it.height > 0 }.map { it.id }.toSet()).firstOrNull()
             ?.let { root.findViewById<View>(it) }
+
+    private fun computeTranslation(scrollDirection: SnapDirection) = when (scrollDirection) {
+        SnapDirection.UP -> -anchorHeight.toFloat()
+        SnapDirection.DOWN -> dynamicDownload.height.toFloat() + anchorHeight
+    }
 }

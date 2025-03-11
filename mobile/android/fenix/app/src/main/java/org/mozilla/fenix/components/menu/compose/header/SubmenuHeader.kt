@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.Icon
 import androidx.compose.material.IconButton
 import androidx.compose.material.Text
@@ -23,8 +25,8 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import mozilla.components.compose.base.annotation.LightDarkPreview
 import org.mozilla.fenix.R
-import org.mozilla.fenix.compose.annotation.LightDarkPreview
 import org.mozilla.fenix.theme.FirefoxTheme
 import org.mozilla.fenix.theme.Theme
 
@@ -37,7 +39,8 @@ internal fun SubmenuHeader(
     Row(
         modifier = Modifier
             .padding(start = 4.dp, end = 16.dp)
-            .defaultMinSize(minHeight = 56.dp),
+            .defaultMinSize(minHeight = 56.dp)
+            .verticalScroll(rememberScrollState()),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         IconButton(

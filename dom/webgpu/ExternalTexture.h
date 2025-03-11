@@ -9,6 +9,7 @@
 #include "mozilla/gfx/Point.h"
 #include "mozilla/layers/LayersSurfaces.h"
 #include "mozilla/webgpu/ffi/wgpu.h"
+#include "mozilla/webgpu/WebGPUTypes.h"
 
 namespace mozilla {
 
@@ -19,13 +20,15 @@ class Shmem;
 namespace webgpu {
 
 class ExternalTextureDMABuf;
+class ExternalTextureMacIOSurface;
+class WebGPUParent;
 
 // A texture that can be used by the WebGPU implementation but is created and
 // owned by Gecko
 class ExternalTexture {
  public:
   static UniquePtr<ExternalTexture> Create(
-      const ffi::WGPUGlobal* aContext, const ffi::WGPUDeviceId aDeviceId,
+      WebGPUParent* aParent, const ffi::WGPUDeviceId aDeviceId,
       const uint32_t aWidth, const uint32_t aHeight,
       const struct ffi::WGPUTextureFormat aFormat,
       const ffi::WGPUTextureUsages aUsage);
@@ -45,10 +48,24 @@ class ExternalTexture {
 
   virtual ExternalTextureDMABuf* AsExternalTextureDMABuf() { return nullptr; }
 
+  virtual ExternalTextureMacIOSurface* AsExternalTextureMacIOSurface() {
+    return nullptr;
+  }
+
   gfx::IntSize GetSize() { return gfx::IntSize(mWidth, mHeight); }
 
   void SetSubmissionIndex(uint64_t aSubmissionIndex);
   uint64_t GetSubmissionIndex() const { return mSubmissionIndex; }
+
+  void SetOwnerId(const layers::RemoteTextureOwnerId aOwnerId) {
+    mOwnerId = aOwnerId;
+  }
+  layers::RemoteTextureOwnerId GetOwnerId() const {
+    MOZ_ASSERT(mOwnerId.IsValid());
+    return mOwnerId;
+  }
+
+  virtual void onBeforeQueueSubmit(RawId aQueueId) {}
 
   const uint32_t mWidth;
   const uint32_t mHeight;
@@ -57,6 +74,26 @@ class ExternalTexture {
 
  protected:
   uint64_t mSubmissionIndex = 0;
+  layers::RemoteTextureOwnerId mOwnerId;
+};
+
+// Dummy class
+class ExternalTextureReadBackPresent final : public ExternalTexture {
+ public:
+  static UniquePtr<ExternalTextureReadBackPresent> Create(
+      const uint32_t aWidth, const uint32_t aHeight,
+      const struct ffi::WGPUTextureFormat aFormat,
+      const ffi::WGPUTextureUsages aUsage);
+
+  ExternalTextureReadBackPresent(const uint32_t aWidth, const uint32_t aHeight,
+                                 const struct ffi::WGPUTextureFormat aFormat,
+                                 const ffi::WGPUTextureUsages aUsage);
+  virtual ~ExternalTextureReadBackPresent();
+
+  Maybe<layers::SurfaceDescriptor> ToSurfaceDescriptor(
+      Maybe<gfx::FenceInfo>& aFenceInfo) override {
+    return Nothing();
+  }
 };
 
 }  // namespace webgpu

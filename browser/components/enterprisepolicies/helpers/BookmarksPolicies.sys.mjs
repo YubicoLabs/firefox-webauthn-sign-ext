@@ -190,7 +190,7 @@ async function insertBookmark(bookmark) {
   let parentGuid = await getParentGuid(bookmark.Placement, bookmark.Folder);
 
   await lazy.PlacesUtils.bookmarks.insert({
-    url: Services.io.newURI(bookmark.URL.href),
+    url: bookmark.URL.URI,
     title: bookmark.Title,
     guid: lazy.PlacesUtils.generateGuidWithPrefix(
       BookmarksPolicies.BOOKMARK_GUID_PREFIX
@@ -211,11 +211,13 @@ function setFaviconForBookmark(bookmark) {
     return;
   }
 
-  lazy.PlacesUtils.favicons.setFaviconForPage(
-    bookmark.URL.URI,
-    Services.io.newURI("fake-favicon-uri:" + bookmark.URL.href),
-    bookmark.Favicon.URI
-  );
+  lazy.PlacesUtils.favicons
+    .setFaviconForPage(
+      bookmark.URL.URI,
+      Services.io.newURI("fake-favicon-uri:" + bookmark.URL.href),
+      bookmark.Favicon.URI
+    )
+    .catch(lazy.log.error);
 }
 
 // Cache of folder names to guids to be used by the getParentGuid

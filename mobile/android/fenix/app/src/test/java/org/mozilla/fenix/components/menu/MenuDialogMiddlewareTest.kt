@@ -17,6 +17,7 @@ import mozilla.components.feature.addons.AddonManager
 import mozilla.components.feature.app.links.AppLinkRedirect
 import mozilla.components.feature.app.links.AppLinksUseCases
 import mozilla.components.feature.session.SessionUseCases
+import mozilla.components.feature.tabs.TabsUseCases
 import mozilla.components.feature.top.sites.PinnedSiteStorage
 import mozilla.components.feature.top.sites.TopSite
 import mozilla.components.feature.top.sites.TopSitesUseCases
@@ -42,6 +43,7 @@ import org.junit.runner.RunWith
 import org.mockito.Mockito.never
 import org.mockito.Mockito.spy
 import org.mockito.Mockito.verify
+import org.mockito.Mockito.`when`
 import org.mozilla.fenix.components.AppStore
 import org.mozilla.fenix.components.appstate.AppAction
 import org.mozilla.fenix.components.appstate.AppAction.BookmarkAction
@@ -56,6 +58,7 @@ import org.mozilla.fenix.components.menu.store.MenuAction
 import org.mozilla.fenix.components.menu.store.MenuState
 import org.mozilla.fenix.components.menu.store.MenuStore
 import org.mozilla.fenix.helpers.FenixRobolectricTestRunner
+import org.mozilla.fenix.utils.LastSavedFolderCache
 import org.mozilla.fenix.utils.Settings
 
 @RunWith(FenixRobolectricTestRunner::class)
@@ -78,7 +81,10 @@ class MenuDialogMiddlewareTest {
     private lateinit var removePinnedSiteUseCase: TopSitesUseCases.RemoveTopSiteUseCase
     private lateinit var appLinksUseCases: AppLinksUseCases
     private lateinit var requestDesktopSiteUseCase: SessionUseCases.RequestDesktopSiteUseCase
+    private lateinit var tabsUseCases: TabsUseCases
+    private lateinit var migratePrivateTabUseCase: TabsUseCases.MigratePrivateTabUseCase
     private lateinit var settings: Settings
+    private lateinit var lastSavedFolderCache: LastSavedFolderCache
 
     companion object {
         const val TOP_SITES_MAX_COUNT = 16
@@ -92,10 +98,14 @@ class MenuDialogMiddlewareTest {
         removePinnedSiteUseCase = mock()
         appLinksUseCases = mock()
         requestDesktopSiteUseCase = mock()
+        tabsUseCases = mock()
+        migratePrivateTabUseCase = mock()
+        lastSavedFolderCache = mock()
 
         settings = Settings(testContext)
 
         runBlocking {
+            whenever(tabsUseCases.migratePrivateTabUseCase).thenReturn(migratePrivateTabUseCase)
             whenever(pinnedSiteStorage.getPinnedSites()).thenReturn(emptyList())
             whenever(addonManager.getAddons()).thenReturn(emptyList())
         }
@@ -188,8 +198,10 @@ class MenuDialogMiddlewareTest {
         // Wait for UpdateExtensionState and middleware
         store.waitUntilIdle()
 
+        assertTrue(store.state.extensionMenuState.availableAddons.isEmpty())
         assertEquals(1, store.state.extensionMenuState.recommendedAddons.size)
         assertEquals(addon, store.state.extensionMenuState.recommendedAddons.first())
+        assertTrue(store.state.extensionMenuState.showExtensionsOnboarding)
     }
 
     @Test
@@ -201,6 +213,7 @@ class MenuDialogMiddlewareTest {
                 installedState = Addon.InstalledState(
                     id = "id",
                     version = "1.0",
+                    enabled = true,
                     optionsPageUrl = "",
                 ),
             )
@@ -217,11 +230,45 @@ class MenuDialogMiddlewareTest {
             // Wait for UpdateExtensionState and middleware
             store.waitUntilIdle()
 
+            assertEquals(1, store.state.extensionMenuState.availableAddons.size)
             assertTrue(store.state.extensionMenuState.recommendedAddons.isEmpty())
+            assertFalse(store.state.extensionMenuState.showExtensionsOnboarding)
+            assertTrue(store.state.extensionMenuState.shouldShowManageExtensionsMenuItem)
         }
 
     @Test
-    fun `WHEN add bookmark action is dispatched for a selected tab THEN bookmark is added`() = runTestOnMain {
+    fun `GIVEN at least one addon is installed and not enabled WHEN init action is dispatched THEN initial extension state is updated`() =
+        runTestOnMain {
+            val addon = Addon(
+                id = "ext",
+                installedState = Addon.InstalledState(
+                    id = "id",
+                    version = "1.0",
+                    enabled = false,
+                    optionsPageUrl = "",
+                ),
+            )
+
+            whenever(addonManager.getAddons()).thenReturn(listOf(addon))
+
+            val store = createStore()
+
+            assertEquals(0, store.state.extensionMenuState.recommendedAddons.size)
+
+            // Wait for InitAction and middleware
+            store.waitUntilIdle()
+
+            // Wait for UpdateExtensionState and middleware
+            store.waitUntilIdle()
+
+            assertTrue(store.state.extensionMenuState.availableAddons.isEmpty())
+            assertTrue(store.state.extensionMenuState.recommendedAddons.isEmpty())
+            assertFalse(store.state.extensionMenuState.showExtensionsOnboarding)
+            assertTrue(store.state.extensionMenuState.shouldShowManageExtensionsMenuItem)
+        }
+
+    @Test
+    fun `GIVEN last save folder cache is empty WHEN add bookmark action is dispatched for a selected tab THEN bookmark is added with Mobile root as the parent`() = runTestOnMain {
         val url = "https://www.mozilla.org"
         val title = "Mozilla"
         var dismissWasCalled = false
@@ -242,10 +289,13 @@ class MenuDialogMiddlewareTest {
             onDismiss = { dismissWasCalled = true },
         )
 
+        `when`(lastSavedFolderCache.getGuid()).thenReturn(null)
+
         store.dispatch(MenuAction.AddBookmark)
         store.waitUntilIdle()
 
         verify(addBookmarkUseCase).invoke(url = url, title = title, parentGuid = BookmarkRoot.Mobile.id)
+
         captureMiddleware.assertLastAction(BookmarkAction.BookmarkAdded::class) { action: BookmarkAction.BookmarkAdded ->
             assertNotNull(action.guidToEdit)
         }
@@ -253,25 +303,11 @@ class MenuDialogMiddlewareTest {
     }
 
     @Test
-    fun `GIVEN the last added bookmark belongs to a folder WHEN bookmark is added THEN bookmark is added to folder and parent title is dispatched`() = runTestOnMain {
+    fun `GIVEN last save folder cache has a value WHEN add bookmark action is dispatched for a selected tab THEN bookmark is added with the caches value as its parent`() = runTestOnMain {
         val url = "https://www.mozilla.org"
         val title = "Mozilla"
-        val parentTitle = "title"
+        var dismissWasCalled = false
 
-        // Add parent
-        val parentGuid = bookmarksStorage.addItem(
-            parentGuid = "root",
-            url = "url",
-            title = parentTitle,
-            position = 0U,
-        )
-        // Add pre-existing child
-        bookmarksStorage.addItem(
-            parentGuid = parentGuid,
-            url = "url",
-            title = parentTitle,
-            position = 1U,
-        )
         val browserMenuState = BrowserMenuState(
             selectedTab = createTab(
                 url = url,
@@ -285,17 +321,20 @@ class MenuDialogMiddlewareTest {
             menuState = MenuState(
                 browserMenuState = browserMenuState,
             ),
-            onDismiss = { },
+            onDismiss = { dismissWasCalled = true },
         )
+
+        `when`(lastSavedFolderCache.getGuid()).thenReturn("cached-value")
 
         store.dispatch(MenuAction.AddBookmark)
         store.waitUntilIdle()
 
-        verify(addBookmarkUseCase).invoke(url = url, title = title, parentGuid = parentGuid)
+        verify(addBookmarkUseCase).invoke(url = url, title = title, parentGuid = "cached-value")
+
         captureMiddleware.assertLastAction(BookmarkAction.BookmarkAdded::class) { action: BookmarkAction.BookmarkAdded ->
             assertNotNull(action.guidToEdit)
-            assertEquals(parentTitle, action.parentNode?.title)
         }
+        assertTrue(dismissWasCalled)
     }
 
     @Test
@@ -672,26 +711,6 @@ class MenuDialogMiddlewareTest {
     }
 
     @Test
-    fun `WHEN delete browsing data and quit action is dispatched THEN onDeleteAndQuit is invoked`() = runTestOnMain {
-        var dismissWasCalled = false
-
-        val appStore = spy(AppStore())
-        val store = createStore(
-            appStore = appStore,
-            menuState = MenuState(
-                browserMenuState = null,
-            ),
-            onDismiss = { dismissWasCalled = true },
-        )
-
-        store.dispatch(MenuAction.DeleteBrowsingDataAndQuit).join()
-        store.waitUntilIdle()
-
-        verify(onDeleteAndQuit).invoke()
-        assertTrue(dismissWasCalled)
-    }
-
-    @Test
     fun `GIVEN selected tab has external app WHEN open in app action is dispatched THEN the site is opened in app`() = runTestOnMain {
         val url = "https://www.mozilla.org"
         val title = "Mozilla"
@@ -975,26 +994,6 @@ class MenuDialogMiddlewareTest {
     }
 
     @Test
-    fun `WHEN CFR is dismissed THEN dismiss CFR action is dispatched`() = runTestOnMain {
-        var dismissWasCalled = false
-
-        val appStore = spy(AppStore())
-        val store = createStore(
-            appStore = appStore,
-            menuState = MenuState(
-                browserMenuState = null,
-            ),
-            onDismiss = { dismissWasCalled = true },
-        )
-
-        store.dispatch(MenuAction.DismissCFR)
-        store.waitUntilIdle()
-
-        assertFalse(settings.shouldShowMenuCFR)
-        assertFalse(dismissWasCalled)
-    }
-
-    @Test
     fun `WHEN custom menu item action is dispatched THEN pending intent is sent with url`() = runTestOnMain {
         val url = "https://www.mozilla.org"
         val mockIntent: PendingIntent = mock()
@@ -1092,33 +1091,57 @@ class MenuDialogMiddlewareTest {
     }
 
     @Test
-    fun `GIVEN menu is accessed from the home screen WHEN request desktop mode action is dispatched THEN set the next tab to be opened in desktop mode`() = runTestOnMain {
-        var dismissWasCalled = false
+    fun `WHEN CFR is shown THEN on CFR shown action is dispatched`() = runTestOnMain {
+        var shownWasCalled = false
+
+        val appStore = spy(AppStore())
         val store = createStore(
-            onDismiss = { dismissWasCalled = true },
+            appStore = appStore,
+            menuState = MenuState(
+                browserMenuState = null,
+            ),
+            onDismiss = { shownWasCalled = true },
         )
 
-        store.dispatch(MenuAction.RequestDesktopSite)
+        store.dispatch(MenuAction.OnCFRShown)
         store.waitUntilIdle()
 
-        assertTrue(settings.openNextTabInDesktopMode)
-        assertTrue(dismissWasCalled)
+        assertFalse(settings.shouldShowMenuCFR)
+        assertFalse(shownWasCalled)
     }
 
     @Test
-    fun `GIVEN menu is accessed from the home screen and desktop mode is enabled WHEN request mobile mode action is dispatched THEN set the next tab to be opened in mobile mode`() = runTestOnMain {
-        var dismissWasCalled = false
-        val store = createStore(
-            menuState = MenuState(isDesktopMode = true),
-            onDismiss = { dismissWasCalled = true },
-        )
+    fun `WHEN open in regular tab action is dispatched THEN private tab should be open in regular tab`() =
+        runTestOnMain {
+            val url = "https://www.mozilla.org"
+            val title = "Mozilla"
+            var dismissWasCalled = false
 
-        store.dispatch(MenuAction.RequestMobileSite)
-        store.waitUntilIdle()
+            val browserMenuState = BrowserMenuState(
+                selectedTab = createTab(
+                    id = "id",
+                    url = url,
+                    title = title,
+                ),
+            )
+            val store = spy(
+                createStore(
+                    menuState = MenuState(
+                        browserMenuState = browserMenuState,
+                    ),
+                    onDismiss = { dismissWasCalled = true },
+                ),
+            )
 
-        assertFalse(settings.openNextTabInDesktopMode)
-        assertTrue(dismissWasCalled)
-    }
+            store.waitUntilIdle()
+
+            store.dispatch(MenuAction.OpenInRegularTab)
+            store.waitUntilIdle()
+
+            verify(migratePrivateTabUseCase).invoke(tabId = "id", alternativeUrl = url)
+
+            assertTrue(dismissWasCalled)
+        }
 
     private fun createStore(
         appStore: AppStore = AppStore(),
@@ -1139,12 +1162,14 @@ class MenuDialogMiddlewareTest {
                 addPinnedSiteUseCase = addPinnedSiteUseCase,
                 removePinnedSitesUseCase = removePinnedSiteUseCase,
                 requestDesktopSiteUseCase = requestDesktopSiteUseCase,
+                tabsUseCases = tabsUseCases,
                 alertDialogBuilder = alertDialogBuilder,
                 topSitesMaxLimit = TOP_SITES_MAX_COUNT,
                 onDeleteAndQuit = onDeleteAndQuit,
                 onDismiss = onDismiss,
                 onSendPendingIntentWithUrl = onSendPendingIntentWithUrl,
                 scope = scope,
+                lastSavedFolderCache = lastSavedFolderCache,
             ),
         ),
     )

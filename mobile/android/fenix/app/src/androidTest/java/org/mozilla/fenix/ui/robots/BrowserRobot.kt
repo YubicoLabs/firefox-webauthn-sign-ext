@@ -12,11 +12,16 @@ import android.os.SystemClock
 import android.util.Log
 import android.widget.TimePicker
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.action.ViewActions.click
 import androidx.test.espresso.action.ViewActions.longClick
@@ -25,6 +30,7 @@ import androidx.test.espresso.contrib.PickerActions
 import androidx.test.espresso.matcher.RootMatchers.isDialog
 import androidx.test.espresso.matcher.ViewMatchers.Visibility
 import androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom
+import androidx.test.espresso.matcher.ViewMatchers.isDescendantOfA
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import androidx.test.espresso.matcher.ViewMatchers.withContentDescription
 import androidx.test.espresso.matcher.ViewMatchers.withEffectiveVisibility
@@ -34,6 +40,7 @@ import androidx.test.uiautomator.By
 import androidx.test.uiautomator.By.text
 import androidx.test.uiautomator.UiObject
 import androidx.test.uiautomator.UiObjectNotFoundException
+import androidx.test.uiautomator.UiScrollable
 import androidx.test.uiautomator.UiSelector
 import androidx.test.uiautomator.Until
 import mozilla.components.browser.state.selector.selectedTab
@@ -66,11 +73,14 @@ import org.mozilla.fenix.helpers.TestHelper.appContext
 import org.mozilla.fenix.helpers.TestHelper.appName
 import org.mozilla.fenix.helpers.TestHelper.mDevice
 import org.mozilla.fenix.helpers.TestHelper.packageName
+import org.mozilla.fenix.helpers.TestHelper.waitForAppWindowToBeUpdated
 import org.mozilla.fenix.helpers.TestHelper.waitForObjects
 import org.mozilla.fenix.helpers.click
 import org.mozilla.fenix.helpers.ext.waitNotNull
 import org.mozilla.fenix.settings.SupportUtils
 import org.mozilla.fenix.tabstray.TabsTrayTestTag
+import org.mozilla.fenix.webcompat.BrokenSiteReporterTestTags.brokenSiteReporterSendButton
+import org.mozilla.fenix.webcompat.BrokenSiteReporterTestTags.chooseReasonErrorMessage
 import java.time.LocalDate
 
 class BrowserRobot {
@@ -157,10 +167,14 @@ class BrowserRobot {
     }
 
     fun verifyETPLearnMoreURL() {
+        // Get and log the URL in case there are failures in the future
+        Log.i(TAG, "verifyETPLearnMoreURL: ETP learn more URL = ${itemWithResId("$packageName:id/mozac_browser_toolbar_url_view").text}")
         try {
+            verifyUrl("support.mozilla.org/en-US/kb/tracking-protection-firefox-android")
+        } catch (e: AssertionError) {
+            Log.i(TAG, "verifyETPLearnMoreURL: AssertionError caught, checking redirect URL")
             verifyUrl("support.mozilla.org/en-US/kb/enhanced-tracking-protection-firefox-android")
         } catch (e: AssertionError) {
-            Log.i(TAG, "verifyETPURL: AssertionError caught, checking redirect URL")
             verifyUrl(
                 SupportUtils.getSumoURLForTopic(appContext, SupportUtils.SumoTopic.TOTAL_COOKIE_PROTECTION).replace("https://", ""),
             )
@@ -191,8 +205,54 @@ class BrowserRobot {
         )
 
         registerAndCleanupIdlingResources(sessionLoadedIdlingResource) {
-            assertUIObjectExists(itemContainingText(expectedText))
+            assertTrue(
+                itemWithResId("$packageName:id/engineView")
+                    .getChild(UiSelector().textContains(expectedText)).waitForExists(waitingTimeLong),
+            )
         }
+    }
+
+    fun scrollIntoViewTheSmartBlockFixesSection() {
+        val aboutCompatView = UiScrollable(UiSelector().text("about:compat")).setAsVerticalList()
+        Log.i(TAG, "scrollIntoViewTheSmartBlockFixesSection: Trying to scroll into view the \"SmartBlock Fixes\" section")
+        aboutCompatView.scrollIntoView(itemContainingText("SmartBlock Fixes"))
+        Log.i(TAG, "scrollIntoViewTheSmartBlockFixesSection: Scrolled into view the \"SmartBlock Fixes\" section")
+    }
+
+    fun scrollToTheEndOfTheAboutCompatPage() {
+        val aboutCompatView = UiScrollable(UiSelector().text("about:compat")).setAsVerticalList()
+        Log.i(TAG, "scrollToTheEndOfTheAboutCompatPage: Trying to scroll to the end of the \"about:compat\" page")
+        aboutCompatView.scrollToEnd(3)
+        Log.i(TAG, "scrollToTheEndOfTheAboutCompatPage: Scrolled to the end of the \"about:compat\" page")
+    }
+
+    fun verifyTextFragmentsPageContent(expectedText: String) {
+        for (i in 1..RETRY_COUNT) {
+            Log.i(TAG, "verifyTextFragmentsPageContent: Started try #$i")
+            try {
+                assertUIObjectExists(
+                    itemWithResId("$packageName:id/engineView")
+                        .getChild(UiSelector().textContains(expectedText)),
+                )
+
+                break
+            } catch (e: AssertionError) {
+                Log.i(TAG, "verifyTextFragmentsPageContent: AssertionError caught, executing fallback methods")
+                navigationToolbar {
+                }.openThreeDotMenu {
+                }.refreshPage {
+                    waitForPageToLoad()
+                }
+            }
+        }
+    }
+
+    fun verifyTabCrashReporterView() {
+        assertUIObjectExists(itemWithResId("$packageName:id/crash_tab_image"))
+        assertUIObjectExists(itemWithText(getStringResource(R.string.tab_crash_title_2)))
+        assertUIObjectExists(itemWithText(getStringResource(R.string.tab_crash_send_report)))
+        assertUIObjectExists(itemWithResId("$packageName:id/restoreTabButton"))
+        assertUIObjectExists(itemWithResId("$packageName:id/closeTabButton"))
     }
 
     fun verifyPocketPageContent() {
@@ -357,6 +417,22 @@ class BrowserRobot {
             }.editBookmarkPage {
                 setParentFolder(folder!!)
                 saveEditBookmark()
+            }
+        }
+    }
+
+    fun createBookmark(composeTestRule: ComposeTestRule, url: Uri, folder: String? = null) {
+        navigationToolbar {
+        }.enterURLAndEnterToBrowser(url) {
+            // needs to wait for the right url to load before saving a bookmark
+            verifyUrl(url.toString())
+        }.openThreeDotMenu {
+        }.bookmarkPage {
+        }.takeIf { !folder.isNullOrBlank() }?.let {
+            it.openThreeDotMenu {
+            }.editBookmarkPage(composeTestRule) {
+                setParentFolder(folder!!)
+                navigateUp()
             }
         }
     }
@@ -546,17 +622,15 @@ class BrowserRobot {
         Log.i(TAG, "fillAndSaveCreditCard: Tying to set credit card number to: $cardNumber")
         itemWithResId("cardNumber").setText(cardNumber)
         Log.i(TAG, "fillAndSaveCreditCard: Credit card number was set to: $cardNumber")
-        mDevice.waitForIdle(waitingTime)
+        waitForAppWindowToBeUpdated()
         Log.i(TAG, "fillAndSaveCreditCard: Trying to set credit card name to: $cardName")
         itemWithResId("nameOnCard").setText(cardName)
         Log.i(TAG, "fillAndSaveCreditCard: Credit card name was set to: $cardName")
-        mDevice.waitForIdle(waitingTime)
+        waitForAppWindowToBeUpdated()
         Log.i(TAG, "fillAndSaveCreditCard: Trying to set credit card expiry month and year to: $expiryMonthAndYear")
         itemWithResId("expiryMonthAndYear").setText(expiryMonthAndYear)
         Log.i(TAG, "fillAndSaveCreditCard: Credit card expiry month and year were set to: $expiryMonthAndYear")
-        Log.i(TAG, "fillAndSaveCreditCard: Waiting for device to be idle for $waitingTime ms")
-        mDevice.waitForIdle(waitingTime)
-        Log.i(TAG, "fillAndSaveCreditCard: Waited for device to be idle for $waitingTime ms")
+        waitForAppWindowToBeUpdated()
         Log.i(TAG, "fillAndSaveCreditCard: Trying to click the credit card form submit button and wait for $waitingTime ms for a new window")
         itemWithResId("submit").clickAndWaitForNewWindow(waitingTime)
         Log.i(TAG, "fillAndSaveCreditCard: Clicked the credit card form submit button and waited for $waitingTime ms for a new window")
@@ -715,9 +789,8 @@ class BrowserRobot {
 
     fun verifyNoDateIsSelected() {
         val currentDate = LocalDate.now()
-        assertUIObjectExists(
-            itemContainingText("Selected date is: $currentDate"),
-            exists = false,
+        assertTrue(
+            itemContainingText("Selected date is: $currentDate").waitUntilGone(waitingTime),
         )
     }
 
@@ -803,10 +876,10 @@ class BrowserRobot {
             try {
                 // Wait for the blocker to kick-in and make the cookie banner disappear
                 Log.i(TAG, "verifyCookieBannerExists: Waiting for $waitingTime ms for cookie banner to be gone")
-                itemWithResId("CybotCookiebotDialog").waitUntilGone(waitingTime)
+                itemWithResId("cookieConsentBanner").waitUntilGone(waitingTimeLong)
                 Log.i(TAG, "verifyCookieBannerExists: Waited for $waitingTime ms for cookie banner to be gone")
                 // Assert that the blocker properly dismissed the cookie banner
-                assertUIObjectExists(itemWithResId("CybotCookiebotDialog"), exists = exists)
+                assertUIObjectExists(itemWithResId("cookieConsentBanner"), exists = exists)
 
                 break
             } catch (e: AssertionError) {
@@ -822,6 +895,7 @@ class BrowserRobot {
         assertUIObjectExists(
             itemContainingText(getStringResource(R.string.cookie_banner_cfr_message)),
             exists = exists,
+            waitingTime = waitingTimeLong,
         )
 
     fun verifyOpenLinkInAnotherAppPrompt() {
@@ -884,7 +958,7 @@ class BrowserRobot {
 
     fun verifyNoInternetConnectionErrorMessage() =
         assertUIObjectExists(
-            itemContainingText(getStringResource(R.string.mozac_browser_errorpages_no_internet_title)),
+            itemContainingText(getStringResource(R.string.mozac_browser_errorpages_no_internet_title_2)),
             itemWithResId("errorTryAgain"),
         )
 
@@ -923,18 +997,8 @@ class BrowserRobot {
         }
     }
 
-    fun verifySurveyButton() = assertUIObjectExists(itemContainingText(getStringResource(R.string.preferences_take_survey)))
-
     fun verifySurveyButtonDoesNotExist() =
         assertUIObjectIsGone(itemWithText(getStringResource(R.string.preferences_take_survey)))
-
-    fun verifySurveyNoThanksButton() =
-        assertUIObjectExists(
-            itemContainingText(getStringResource(R.string.preferences_not_take_survey)),
-        )
-
-    fun verifyHomeScreenSurveyCloseButton() =
-        assertUIObjectExists(itemWithDescription("Close"))
 
     fun clickOpenLinksInAppsDismissCFRButton() {
         Log.i(TAG, "clickOpenLinksInAppsDismissCFRButton: Trying to click the open links in apps banner \"Dismiss\" button")
@@ -1045,6 +1109,177 @@ class BrowserRobot {
         Log.i(TAG, "fillPdfForm: Clicked PDF form check box")
     }
 
+    fun refreshPageFromRedesignedToolbar() {
+        assertUIObjectExists(itemWithDescription(getStringResource(R.string.browser_menu_refresh)))
+        Log.i(TAG, "refreshPageFromRedesignedToolbar: Trying to click the \"Refresh\" button")
+        itemWithDescription(getStringResource(R.string.browser_menu_refresh)).click()
+        Log.i(TAG, "refreshPageFromRedesignedToolbar: Clicked the \"Refresh\" button")
+    }
+
+    fun goToPreviousPageFromRedesignedToolbar() {
+        Log.i(TAG, "goToPreviousPageFromRedesignedToolbar: Trying to click the \"Back\" button")
+        itemWithDescription(getStringResource(R.string.browser_menu_back)).click()
+        Log.i(TAG, "goToPreviousPageFromRedesignedToolbar: Clicked the \"Back\" button")
+    }
+
+    fun goForwardFromRedesignedToolbar() {
+        Log.i(TAG, "goForwardFromRedesignedToolbar: Trying to click the \"Forward\" button")
+        itemWithDescription(getStringResource(R.string.browser_menu_forward)).click()
+        Log.i(TAG, "goForwardFromRedesignedToolbar: Clicked the \"Forward\" button")
+    }
+
+    fun getCurrentUrl(): String {
+        val searchBar = searchBar()
+        waitForPageToLoad()
+        return searchBar.getText()
+    }
+
+    fun selectToAlwaysOpenDownloadedFileWithApp(appName: String) {
+        Log.i(TAG, "selectToAlwaysOpenDownloadedFileWithApp: Trying to click $appName from the \"Open with\" prompt")
+        itemWithResIdContainingText("android:id/text1", appName).click()
+        Log.i(TAG, "selectToAlwaysOpenDownloadedFileWithApp: Clicked $appName from the \"Open with\" prompt")
+        Log.i(TAG, "selectToAlwaysOpenDownloadedFileWithApp: Trying to click the \"Always\" button from the \"Open with\" prompt")
+        itemWithResId("android:id/button_always").click()
+        Log.i(TAG, "selectToAlwaysOpenDownloadedFileWithApp: Clicked the \"Always\" button from the \"Open with\" prompt")
+    }
+
+    fun verifyWebCompatReporterViewItems(composeTestRule: ComposeTestRule, websiteURL: String) {
+        Log.i(TAG, "verifyWebCompatReporterViewItems: Trying to verify that the report broken site description is displayed")
+        composeTestRule.onNodeWithText(
+            "Help make $appName better for everyone. Mozilla employees use the info you send to fix website problems.",
+        ).assertIsDisplayed()
+        Log.i(TAG, "verifyWebCompatReporterViewItems: Verified that the report broken site description is displayed")
+        Log.i(TAG, "verifyWebCompatReporterViewItems: Trying to verify that the \"URL\" header is displayed")
+        composeTestRule.onNodeWithText(getStringResource(R.string.webcompat_reporter_label_url)).assertIsDisplayed()
+        Log.i(TAG, "verifyWebCompatReporterViewItems: Verified that the \"What’s broken?\" header is displayed")
+        Log.i(TAG, "verifyWebCompatReporterViewItems: Trying to verify that the $websiteURL url is displayed")
+        composeTestRule.onNodeWithText(websiteURL).assertIsDisplayed()
+        Log.i(TAG, "verifyWebCompatReporterViewItems: Verified that the $websiteURL url is displayed")
+        Log.i(TAG, "verifyWebCompatReporterViewItems: Trying to verify that the \"What’s broken?\" header is displayed")
+        composeTestRule.onNodeWithText(getStringResource(R.string.webcompat_reporter_label_whats_broken_2)).assertIsDisplayed()
+        Log.i(TAG, "verifyWebCompatReporterViewItems: Verified that the \"What’s broken?\" header is displayed")
+        Log.i(TAG, "verifyWebCompatReporterViewItems: Trying to verify that the \"Choose reason\" field is displayed")
+        composeTestRule.onNodeWithText(getStringResource(R.string.webcompat_reporter_choose_reason)).assertIsDisplayed()
+        Log.i(TAG, "verifyWebCompatReporterViewItems: Verified that the \"Choose reason\" field is displayed")
+        Log.i(TAG, "verifyWebCompatReporterViewItems: Trying to verify that the \"Please choose a reason\" error message is displayed")
+        composeTestRule.onNodeWithTag(chooseReasonErrorMessage).assertIsDisplayed()
+        Log.i(TAG, "verifyWebCompatReporterViewItems: Verified that the \"Please choose a reason\" error message is displayed")
+        Log.i(TAG, "verifyWebCompatReporterViewItems: Trying to verify that the \"Describe the problem (optional)\" field is displayed")
+        composeTestRule.onNodeWithText(getStringResource(R.string.webcompat_reporter_label_description)).assertIsDisplayed()
+        Log.i(TAG, "verifyWebCompatReporterViewItems: Verified that the \"Describe the problem (optional)\" field is displayed")
+        Log.i(TAG, "verifyWebCompatReporterViewItems: Trying to verify that the \"Send more info\" link is displayed")
+        composeTestRule.onNodeWithText(getStringResource(R.string.webcompat_reporter_send_more_info)).assertIsDisplayed()
+        Log.i(TAG, "verifyWebCompatReporterViewItems: Verified that the \"Send more info\" link is displayed")
+        Log.i(TAG, "verifyWebCompatReporterViewItems: Trying to verify that the \"Cancel\" button is displayed")
+        composeTestRule.onNodeWithText(getStringResource(R.string.webcompat_reporter_cancel))
+        Log.i(TAG, "verifyWebCompatReporterViewItems: Verified that the \"Cancel \" button is displayed")
+        Log.i(TAG, "verifyWebCompatReporterViewItems: Trying to verify that the \"Send\" button is displayed")
+        composeTestRule.onNodeWithText(getStringResource(R.string.webcompat_reporter_send)).assertIsDisplayed()
+        Log.i(TAG, "verifyWebCompatReporterViewItems: Verified that the \"Send \" button is displayed")
+    }
+
+    fun verifyWhatIsBrokenField(composeTestRule: ComposeTestRule) {
+        Log.i(TAG, "verifyWhatIsBrokenField: Trying to verify that the \"What’s broken?\" header is displayed")
+        composeTestRule.onNodeWithText(getStringResource(R.string.webcompat_reporter_label_whats_broken_2)).assertIsDisplayed()
+        Log.i(TAG, "verifyWhatIsBrokenField: Verified that the \"What’s broken?\" header is displayed")
+        Log.i(TAG, "verifyWhatIsBrokenField: Trying to verify that the \"Choose reason\" field is displayed")
+        composeTestRule.onNodeWithText(getStringResource(R.string.webcompat_reporter_choose_reason)).assertIsDisplayed()
+        Log.i(TAG, "verifyWhatIsBrokenField: Verified that the \"Choose reason\" field is displayed")
+        Log.i(TAG, "verifyWhatIsBrokenField: Trying to verify that the \"Please choose a reason\" error message is displayed")
+        composeTestRule.onNodeWithTag(chooseReasonErrorMessage).assertIsDisplayed()
+        Log.i(TAG, "verifyWhatIsBrokenField: Verified that the \"Please choose a reason\" error message is displayed")
+    }
+
+    fun verifyChooseReasonErrorMessageIsNotDisplayed(composeTestRule: ComposeTestRule) {
+        Log.i(TAG, "verifyChooseReasonErrorMessageIsNotDisplayed: Trying to verify that the \"Please choose a reason\" error message is not displayed")
+        composeTestRule.onNodeWithTag(chooseReasonErrorMessage).assertIsNotDisplayed()
+        Log.i(TAG, "verifyChooseReasonErrorMessageIsNotDisplayed: Verified that the \"Please choose a reason\" error message is not displayed")
+    }
+
+    fun clickChooseReasonField(composeTestRule: ComposeTestRule) {
+        Log.i(TAG, "clickChooseReasonField: Trying to click the \"Choose reason\" field")
+        composeTestRule.onNodeWithText(getStringResource(R.string.webcompat_reporter_choose_reason))
+            .performClick()
+        Log.i(TAG, "clickChooseReasonField: Trying to clicked the \"Choose reason\" field")
+    }
+
+    fun clickSiteSlowOrNotWorkingReason(composeTestRule: ComposeTestRule) {
+        Log.i(TAG, "clickSiteSlowOrNotWorkingReason: Trying to click the \"Site slow or not working\" reason option")
+        composeTestRule.onNodeWithText(getStringResource(R.string.webcompat_reporter_reason_slow))
+            .performClick()
+        Log.i(TAG, "clickSiteSlowOrNotWorkingReason: Clicked the \"Site slow or not working\" reason option")
+    }
+
+    fun clickBrokenSiteFormCancelButton(composeTestRule: ComposeTestRule) {
+        Log.i(TAG, "clickBrokenSiteFormCancelButton: Trying to click the \"Cancel\" button")
+        composeTestRule.onNodeWithText(getStringResource(R.string.webcompat_reporter_cancel))
+            .performClick()
+        Log.i(TAG, "clickBrokenSiteFormCancelButton: Clicked the \"Cancel\" button")
+    }
+
+    fun clickBrokenSiteFormSendButton(composeTestRule: ComposeTestRule) {
+        Log.i(TAG, "clickBrokenSiteFormSendButton: Trying to click the \"Cancel\" button")
+        composeTestRule.onNodeWithText(getStringResource(R.string.webcompat_reporter_send))
+            .performClick()
+        Log.i(TAG, "clickBrokenSiteFormSendButton: Clicked the \"Cancel\" button")
+    }
+
+    fun describeBrokenSiteProblem(composeTestRule: ComposeTestRule, problemDescription: String) {
+        Log.i(TAG, "describeBrokenSiteProblem: Trying to click the \"Describe the problem (optional)\" field")
+        composeTestRule.onNodeWithText(getStringResource(R.string.webcompat_reporter_label_description)).performClick()
+        Log.i(TAG, "describeBrokenSiteProblem: Clicked the \"Describe the problem (optional)\" field")
+        Log.i(TAG, "describeBrokenSiteProblem: Trying to set the text of the \"Describe the problem (optional)\" field to $problemDescription")
+        composeTestRule.onNode(hasText(getStringResource(R.string.webcompat_reporter_label_description))).performTextInput(problemDescription)
+        Log.i(TAG, "describeBrokenSiteProblem: Set the text of the \"Describe the problem (optional)\" field to $problemDescription")
+    }
+
+    fun verifyBrokenSiteProblem(composeTestRule: ComposeTestRule, problemDescription: String, isDisplayed: Boolean) {
+        if (isDisplayed) {
+            Log.i(TAG, "verifyBrokenSiteProblem: Trying to verify that the $problemDescription broken site problem is displayed")
+            composeTestRule.onNodeWithText(problemDescription).assertIsDisplayed()
+            Log.i(TAG, "verifyBrokenSiteProblem: Verified that the $problemDescription broken site problem is displayed")
+        } else {
+            Log.i(TAG, "verifyBrokenSiteProblem: Trying to verify that the $problemDescription broken site problem is not displayed")
+            composeTestRule.onNodeWithText(problemDescription).assertIsNotDisplayed()
+            Log.i(TAG, "verifyBrokenSiteProblem: Verified that the $problemDescription broken site problem is not displayed")
+        }
+    }
+
+    fun verifySendButtonIsEnabled(composeTestRule: ComposeTestRule, isEnabled: Boolean) {
+        if (isEnabled) {
+            Log.i(TAG, "verifySendButtonIsEnabled: Trying to verify that the the \"Send\" button is enabled")
+            composeTestRule.onNodeWithTag(brokenSiteReporterSendButton).assertIsEnabled()
+            Log.i(TAG, "verifySendButtonIsEnabled: Verified that the the \"Send\" button is enabled")
+        } else {
+            Log.i(TAG, "verifySendButtonIsEnabled: Trying to verify that the the \"Send\" button is not enabled")
+            composeTestRule.onNodeWithTag(brokenSiteReporterSendButton).assertIsNotEnabled()
+            Log.i(TAG, "verifySendButtonIsEnabled: Verified that the the \"Send\" button is not enabled")
+        }
+    }
+
+    fun verifyToolsMenuDoesNotExist() {
+        assertUIObjectIsGone(itemWithDescription(getStringResource(R.string.browser_tools_menu_handlebar_content_description)))
+    }
+
+    fun verifySaveMenuDoesNotExist() {
+        assertUIObjectIsGone(itemWithDescription(getStringResource(R.string.browser_save_menu_handlebar_content_description)))
+    }
+
+    fun verifyExtensionsMenuDoesNotExist() {
+        assertUIObjectIsGone(itemWithDescription(getStringResource(R.string.browser_extensions_menu_handlebar_content_description)))
+    }
+
+    fun verifyExtensionsPromotionBannerLearnMoreLinkURL() {
+        try {
+            verifyUrl("support.mozilla.org/en-US/kb/find-and-install-add-ons-firefox-android")
+        } catch (e: AssertionError) {
+            Log.i(TAG, "verifyExtensionsPromotionBannerLearnMoreLinkURL: AssertionError caught, checking redirect URL")
+            verifyUrl(
+                SupportUtils.getSumoURLForTopic(appContext, SupportUtils.SumoTopic.FIND_INSTALL_ADDONS).replace("https://", ""),
+            )
+        }
+    }
+
     class Transition {
         fun openThreeDotMenu(interact: ThreeDotMenuMainRobot.() -> Unit): ThreeDotMenuMainRobot.Transition {
             Log.i(TAG, "openThreeDotMenu: Waiting for device to be idle for $waitingTime ms")
@@ -1058,8 +1293,20 @@ class BrowserRobot {
             return ThreeDotMenuMainRobot.Transition()
         }
 
+        fun openThreeDotMenuFromRedesignedToolbar(composeTestRule: ComposeTestRule, interact: ThreeDotMenuMainRobotCompose.() -> Unit): ThreeDotMenuMainRobotCompose.Transition {
+            Log.i(TAG, "openThreeDotMenuFromRedesignedToolbar: Trying to click main menu button")
+            itemWithDescription(getStringResource(R.string.content_description_menu)).click()
+            Log.i(TAG, "openThreeDotMenuFromRedesignedToolbar: Clicked main menu button")
+
+            ThreeDotMenuMainRobotCompose(composeTestRule).interact()
+            return ThreeDotMenuMainRobotCompose.Transition(composeTestRule)
+        }
+
         fun openNavigationToolbar(interact: NavigationToolbarRobot.() -> Unit): NavigationToolbarRobot.Transition {
-            clickPageObject(navURLBar())
+            navURLBar().waitForExists(waitingTime)
+            Log.i(TAG, "openNavigationToolbar: Trying to click the address bar.")
+            navURLBar().click()
+            Log.i(TAG, "openNavigationToolbar: Clicked the address bar.")
             Log.i(TAG, "openNavigationToolbar: Waiting for $waitingTime ms for for search bar to exist")
             searchBar().waitForExists(waitingTime)
             Log.i(TAG, "openNavigationToolbar: Waited for $waitingTime ms for for search bar to exist")
@@ -1106,6 +1353,38 @@ class BrowserRobot {
             return TabDrawerRobot.Transition(composeTestRule)
         }
 
+        fun openTabDrawerFromRedesignedToolbar(composeTestRule: HomeActivityComposeTestRule, interact: TabDrawerRobot.() -> Unit): TabDrawerRobot.Transition {
+            for (i in 1..RETRY_COUNT) {
+                try {
+                    Log.i(TAG, "openTabDrawerFromRedesignedToolbar: Started try #$i")
+                    assertUIObjectExists(tabsCounterFromRedesignedToolbar())
+                    Log.i(TAG, "openTabDrawerFromRedesignedToolbar: Trying to click the tab counter button")
+                    tabsCounter().click()
+                    Log.i(TAG, "openTabDrawerFromRedesignedToolbar: Clicked the tab counter button")
+                    Log.i(TAG, "openTabDrawerFromRedesignedToolbar: Trying to verify the tabs tray exists")
+                    composeTestRule.onNodeWithTag(TabsTrayTestTag.tabsTray).assertExists()
+                    Log.i(TAG, "openTabDrawer: Verified the tabs tray exists")
+
+                    break
+                } catch (e: AssertionError) {
+                    Log.i(TAG, "openTabDrawerFromRedesignedToolbar: AssertionError caught, executing fallback methods")
+                    if (i == RETRY_COUNT) {
+                        throw e
+                    } else {
+                        Log.i(TAG, "openTabDrawerFromRedesignedToolbar: Waiting for device to be idle")
+                        mDevice.waitForIdle()
+                        Log.i(TAG, "openTabDrawerFromRedesignedToolbar: Waited for device to be idle")
+                    }
+                }
+            }
+            Log.i(TAG, "openTabDrawerFromRedesignedToolbar: Trying to verify the tabs tray new tab FAB button exists")
+            composeTestRule.onNodeWithTag(TabsTrayTestTag.fab).assertExists()
+            Log.i(TAG, "openTabDrawerFromRedesignedToolbar: Verified the tabs tray new tab FAB button exists")
+
+            TabDrawerRobot(composeTestRule).interact()
+            return TabDrawerRobot.Transition(composeTestRule)
+        }
+
         fun openNotificationShade(interact: NotificationRobot.() -> Unit): NotificationRobot.Transition {
             Log.i(TAG, "openNotificationShade: Trying to open the notification tray")
             mDevice.openNotification()
@@ -1116,36 +1395,45 @@ class BrowserRobot {
         }
 
         fun goToHomescreen(interact: HomeScreenRobot.() -> Unit): HomeScreenRobot.Transition {
-            clickPageObject(itemWithDescription("Home screen"))
+            Log.i(TAG, "goToHomescreen: Trying to click the go to home screen button.")
+            onView(
+                allOf(
+                    withContentDescription("Home screen"),
+                    isDescendantOfA(withId(R.id.toolbar)),
+                ),
+            ).click()
             Log.i(TAG, "goToHomescreen: Waiting for $waitingTime ms for for home screen layout or jump back in contextual hint to exist")
             mDevice.findObject(UiSelector().resourceId("$packageName:id/homeLayout"))
-                .waitForExists(waitingTime) ||
-                mDevice.findObject(
-                    UiSelector().text(
-                        getStringResource(R.string.onboarding_home_screen_jump_back_contextual_hint_2),
-                    ),
-                ).waitForExists(waitingTime)
+                .waitForExists(waitingTime)
             Log.i(TAG, "goToHomescreen: Waited for $waitingTime ms for for home screen layout or jump back in contextual hint to exist")
 
             HomeScreenRobot().interact()
             return HomeScreenRobot.Transition()
         }
 
-        fun goToHomescreenWithComposeTopSites(composeTestRule: HomeActivityComposeTestRule, interact: ComposeTopSitesRobot.() -> Unit): ComposeTopSitesRobot.Transition {
+        fun goToHomescreenWithRedesignedToolbar(interact: HomeScreenRobot.() -> Unit): HomeScreenRobot.Transition {
+            itemWithResId("$packageName:id/new_tab_button").click()
+            searchScreen {
+            }.dismissSearchBar {}
+            Log.i(TAG, "goToHomescreenWithRedesignedToolbar: Waiting for $waitingTime ms for for home screen layout or jump back in contextual hint to exist")
+            mDevice.findObject(UiSelector().resourceId("$packageName:id/homeLayout"))
+                .waitForExists(waitingTime)
+            Log.i(TAG, "goToHomescreenWithRedesignedToolbar: Waited for $waitingTime ms for for home screen layout or jump back in contextual hint to exist")
+
+            HomeScreenRobot().interact()
+            return HomeScreenRobot.Transition()
+        }
+
+        fun goToHomescreenWithComposeTopSites(composeTestRule: HomeActivityComposeTestRule, interact: TopSitesRobotCompose.() -> Unit): TopSitesRobotCompose.Transition {
             clickPageObject(itemWithDescription("Home screen"))
 
             Log.i(TAG, "goToHomescreenWithComposeTopSites: Waiting for $waitingTime ms for for home screen layout or jump back in contextual hint to exist")
             mDevice.findObject(UiSelector().resourceId("$packageName:id/homeLayout"))
-                .waitForExists(waitingTime) ||
-                mDevice.findObject(
-                    UiSelector().text(
-                        getStringResource(R.string.onboarding_home_screen_jump_back_contextual_hint_2),
-                    ),
-                ).waitForExists(waitingTime)
+                .waitForExists(waitingTime)
             Log.i(TAG, "goToHomescreenWithComposeTopSites: Waited for $waitingTime ms for for home screen layout or jump back in contextual hint to exist")
 
-            ComposeTopSitesRobot(composeTestRule).interact()
-            return ComposeTopSitesRobot.Transition(composeTestRule)
+            TopSitesRobotCompose(composeTestRule).interact()
+            return TopSitesRobotCompose.Transition(composeTestRule)
         }
 
         fun goBack(interact: HomeScreenRobot.() -> Unit): HomeScreenRobot.Transition {
@@ -1223,8 +1511,24 @@ class BrowserRobot {
         }
 
         fun clickRequestStorageAccessButton(interact: SitePermissionsRobot.() -> Unit): SitePermissionsRobot.Transition {
-            // Clicks the "request storage access" button from the "cross-site-cookies.html" local asset
-            clickPageObject(itemContainingText("requestStorageAccess()"))
+            for (i in 1..RETRY_COUNT) {
+                Log.i(TAG, "clickRequestStorageAccessButton: Started try #$i")
+                try {
+                    // Clicks the "request storage access" button from the "cross-site-cookies.html" local asset
+                    clickPageObject(itemContainingText("requestStorageAccess()"))
+                    assertUIObjectExists(
+                        itemWithResId("$packageName:id/deny_button"),
+                        itemWithResId("$packageName:id/allow_button"),
+                    )
+
+                    break
+                } catch (e: AssertionError) {
+                    Log.i(TAG, "clickRequestStorageAccessButton: AssertionError caught, executing fallback methods")
+                    if (i == RETRY_COUNT) {
+                        throw e
+                    }
+                }
+            }
 
             SitePermissionsRobot().interact()
             return SitePermissionsRobot.Transition()
@@ -1248,10 +1552,10 @@ class BrowserRobot {
 
         fun openSiteSecuritySheet(interact: SiteSecurityRobot.() -> Unit): SiteSecurityRobot.Transition {
             Log.i(TAG, "openSiteSecuritySheet: Waiting for $waitingTime ms for site security toolbar button to exist")
-            siteSecurityToolbarButton().waitForExists(waitingTime)
+            siteInfoToolbarButton().waitForExists(waitingTime)
             Log.i(TAG, "openSiteSecuritySheet: Waited for $waitingTime ms for site security toolbar button to exist")
             Log.i(TAG, "openSiteSecuritySheet: Trying to click the site security toolbar button and wait for $waitingTime ms for a new window")
-            siteSecurityToolbarButton().clickAndWaitForNewWindow(waitingTime)
+            siteInfoToolbarButton().clickAndWaitForNewWindow(waitingTime)
             Log.i(TAG, "openSiteSecuritySheet: Clicked the site security toolbar button and waited for $waitingTime ms for a new window")
 
             SiteSecurityRobot().interact()
@@ -1302,28 +1606,23 @@ class BrowserRobot {
             return DownloadRobot.Transition()
         }
 
-        fun clickSurveyButton(interact: BrowserRobot.() -> Unit): BrowserRobot.Transition {
-            surveyButton().waitForExists(waitingTime)
-            surveyButton().click()
+        fun clickShareButtonFromRedesignedToolbar(interact: ShareOverlayRobot.() -> Unit): ShareOverlayRobot.Transition {
+            Log.i(TAG, "clickShareButtonFromRedesignedToolbar: Trying to click the \"Share\" button")
+            itemWithDescription(getStringResource(R.string.share_button_content_description)).click()
+            Log.i(TAG, "clickShareButtonFromRedesignedToolbar: Clicked the \"Share\" button")
+            mDevice.waitNotNull(Until.findObject(By.text("ALL ACTIONS")), waitingTime)
 
-            BrowserRobot().interact()
-            return Transition()
+            ShareOverlayRobot().interact()
+            return ShareOverlayRobot.Transition()
         }
 
-        fun clickNoThanksSurveyButton(interact: BrowserRobot.() -> Unit): BrowserRobot.Transition {
-            surveyNoThanksButton().waitForExists(waitingTime)
-            surveyNoThanksButton().click()
+        fun closeWebCompatReporter(interact: BrowserRobot.() -> Unit): BrowserRobot.Transition {
+            Log.i(TAG, "clickShareButtonFromRedesignedToolbar: Trying to click the \"Navigate back\" button")
+            itemWithDescription("Navigate back").click()
+            Log.i(TAG, "clickShareButtonFromRedesignedToolbar: Clicked the \"Navigate back\" button")
 
             BrowserRobot().interact()
-            return Transition()
-        }
-
-        fun clickHomeScreenSurveyCloseButton(interact: BrowserRobot.() -> Unit): BrowserRobot.Transition {
-            homescreenSurveyCloseButton().waitForExists(waitingTime)
-            homescreenSurveyCloseButton().click()
-
-            BrowserRobot().interact()
-            return Transition()
+            return BrowserRobot.Transition()
         }
     }
 }
@@ -1342,6 +1641,8 @@ private fun threeDotButton() = onView(withContentDescription("Menu"))
 private fun tabsCounter() =
     mDevice.findObject(By.res("$packageName:id/counter_root"))
 
+private fun tabsCounterFromRedesignedToolbar() = itemWithResId("$packageName:id/counter_box")
+
 private fun progressBar() =
     itemWithResId("$packageName:id/mozac_browser_toolbar_progress")
 
@@ -1349,8 +1650,8 @@ private fun suggestedLogins() = itemWithResId("$packageName:id/loginSelectBar")
 private fun selectAddressButton() = itemWithResId("$packageName:id/select_address_header")
 private fun selectCreditCardButton() = itemWithResId("$packageName:id/select_credit_card_header")
 
-private fun siteSecurityToolbarButton() =
-    itemWithResId("$packageName:id/mozac_browser_toolbar_security_indicator")
+private fun siteInfoToolbarButton() =
+    itemWithResId("$packageName:id/mozac_browser_toolbar_site_info_indicator")
 
 fun clickPageObject(item: UiObject) {
     for (i in 1..RETRY_COUNT) {
@@ -1409,11 +1710,14 @@ fun longClickPageObject(item: UiObject) {
 fun clickContextMenuItem(item: String) {
     mDevice.waitNotNull(
         Until.findObject(text(item)),
-        waitingTime,
+        waitingTimeShort,
     )
     Log.i(TAG, "clickContextMenuItem: Trying to click context menu item: $item")
     mDevice.findObject(text(item)).click()
     Log.i(TAG, "clickContextMenuItem: Clicked context menu item: $item")
+    Log.i(TAG, "clickContextMenuItem: Waiting for $waitingTimeShort ms for $packageName window to be updated")
+    mDevice.waitForWindowUpdate(packageName, waitingTimeShort)
+    Log.i(TAG, "clickContextMenuItem: Waiting for $waitingTimeShort ms for $packageName window to be updated")
 }
 
 fun setPageObjectText(webPageItem: UiObject, text: String) {
@@ -1485,12 +1789,3 @@ private fun contextMenuShareLink() =
 // Open in external app option
 private fun contextMenuOpenInExternalApp() =
     itemContainingText(getStringResource(R.string.mozac_feature_contextmenu_open_link_in_external_app))
-
-private fun surveyButton() =
-    itemContainingText(getStringResource(R.string.preferences_take_survey))
-
-private fun surveyNoThanksButton() =
-    itemContainingText(getStringResource(R.string.preferences_not_take_survey))
-
-private fun homescreenSurveyCloseButton() =
-    itemWithDescription("Close")

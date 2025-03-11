@@ -22,7 +22,7 @@ export class SelectableProfile {
 
   // Cached theme properties, used to allow displaying a SelectableProfile
   // without loading the AddonManager to get theme info.
-  #themeL10nId;
+  #themeId;
   #themeFg;
   #themeBg;
 
@@ -33,7 +33,7 @@ export class SelectableProfile {
     this.#path = row.getResultByName("path");
     this.#name = row.getResultByName("name");
     this.#avatar = row.getResultByName("avatar");
-    this.#themeL10nId = row.getResultByName("themeL10nId");
+    this.#themeId = row.getResultByName("themeId");
     this.#themeFg = row.getResultByName("themeFg");
     this.#themeBg = row.getResultByName("themeBg");
 
@@ -70,6 +70,8 @@ export class SelectableProfile {
     this.#name = aName;
 
     this.saveUpdatesToDB();
+
+    Services.prefs.setBoolPref("browser.profiles.profile-name.updated", true);
   }
 
   /**
@@ -79,19 +81,37 @@ export class SelectableProfile {
    */
   get path() {
     return PathUtils.joinRelative(
-      Services.dirsvc.get("UAppData", Ci.nsIFile).path,
+      this.#selectableProfileService.constructor.getDirectory("UAppData").path,
       this.#path
     );
   }
 
   /**
-   * Get the profile directory as an  nsIFile.
+   * Get the profile directory as an nsIFile.
    *
-   * @returns {Promise<nsIFile>} A promsie that resolves to an nsIFIle for
+   * @returns {Promise<nsIFile>} A promise that resolves to an nsIFile for
    * the profile directory
    */
   get rootDir() {
     return IOUtils.getDirectory(this.path);
+  }
+
+  /**
+   * Get the profile local directory as an nsIFile.
+   *
+   * @returns {Promise<nsIFile>} A promise that resolves to an nsIFile for
+   * the profile local directory
+   */
+  get localDir() {
+    return this.rootDir.then(root => {
+      let relative = root.getRelativePath(
+        this.#selectableProfileService.constructor.getDirectory("DefProfRt")
+      );
+      let local =
+        this.#selectableProfileService.constructor.getDirectory("DefProfLRt");
+      local.appendRelativePath(relative);
+      return local;
+    });
   }
 
   /**
@@ -110,9 +130,33 @@ export class SelectableProfile {
    * @param {string} aAvatar Name of the avatar
    */
   set avatar(aAvatar) {
-    this.avatar = aAvatar;
+    this.#avatar = aAvatar;
 
     this.saveUpdatesToDB();
+  }
+
+  /**
+   * Get the l10n id for the current avatar.
+   *
+   * @returns {string} L10n id for the current avatar
+   */
+  get avatarL10nId() {
+    switch (this.avatar) {
+      case "book":
+        return "book-avatar-alt";
+      case "briefcase":
+        return "briefcase-avatar-alt";
+      case "flower":
+        return "flower-avatar-alt";
+      case "heart":
+        return "heart-avatar-alt";
+      case "shopping":
+        return "shopping-avatar-alt";
+      case "star":
+        return "star-avatar-alt";
+    }
+
+    return "";
   }
 
   // Note, theme properties are set and returned as a group.
@@ -122,13 +166,22 @@ export class SelectableProfile {
    *     the theme foreground color as CSS style string, like "rgb(1,1,1)",
    *     the theme background color as CSS style string, like "rgb(0,0,0)".
    *
-   * @returns {object} an object of the form { themeL10nId, themeFg, themeBg }.
+   * @returns {object} an object of the form { themeId, themeFg, themeBg }.
    */
   get theme() {
     return {
-      themeL10nId: this.#themeL10nId,
+      themeId: this.#themeId,
       themeFg: this.#themeFg,
       themeBg: this.#themeBg,
+    };
+  }
+
+  get iconPaintContext() {
+    return {
+      fillColor: this.#themeBg,
+      strokeColor: this.#themeFg,
+      fillOpacity: 1.0,
+      strokeOpacity: 1.0,
     };
   }
 
@@ -137,12 +190,12 @@ export class SelectableProfile {
    * the profile, which will notify() other running instances.
    *
    * @param {object} param0 The theme object
-   * @param {string} param0.themeL10nId L10n id of the theme
+   * @param {string} param0.themeId L10n id of the theme
    * @param {string} param0.themeFg Foreground color of theme as CSS style string, like "rgb(1,1,1)",
    * @param {string} param0.themeBg Background color of theme as CSS style string, like "rgb(0,0,0)".
    */
-  set theme({ themeL10nId, themeFg, themeBg }) {
-    this.#themeL10nId = themeL10nId;
+  set theme({ themeId, themeFg, themeBg }) {
+    this.#themeId = themeId;
     this.#themeFg = themeFg;
     this.#themeBg = themeBg;
 
@@ -154,12 +207,15 @@ export class SelectableProfile {
   }
 
   toObject() {
-    return {
+    let profileObj = {
       id: this.id,
       path: this.#path,
       name: this.name,
       avatar: this.avatar,
+      avatarL10nId: this.avatarL10nId,
       ...this.theme,
     };
+
+    return profileObj;
   }
 }

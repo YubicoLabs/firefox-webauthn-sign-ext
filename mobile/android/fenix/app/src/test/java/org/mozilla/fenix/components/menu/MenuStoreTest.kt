@@ -54,6 +54,57 @@ class MenuStoreTest {
     }
 
     @Test
+    fun `WHEN the selected tab is an internet URL THEN the WebCompat reporter should be enabled`() {
+        val selectedTab = TabSessionState(
+            id = "tabId1",
+            content = ContentState(
+                url = "www.mozilla.com",
+            ),
+        )
+        val state = MenuState(
+            browserMenuState = BrowserMenuState(
+                selectedTab = selectedTab,
+            ),
+        )
+
+        assertTrue(state.isWebCompatEnabled)
+    }
+
+    @Test
+    fun `WHEN the selected tab is a content URL THEN the WebCompat reporter should be disabled`() {
+        val selectedTab = TabSessionState(
+            id = "tabId1",
+            content = ContentState(
+                url = "content://pdf.pdf",
+            ),
+        )
+        val state = MenuState(
+            browserMenuState = BrowserMenuState(
+                selectedTab = selectedTab,
+            ),
+        )
+
+        assertFalse(state.isWebCompatEnabled)
+    }
+
+    @Test
+    fun `WHEN the selected tab is an about URL THEN the WebCompat reporter should be disabled`() {
+        val selectedTab = TabSessionState(
+            id = "tabId1",
+            content = ContentState(
+                url = "about:about",
+            ),
+        )
+        val state = MenuState(
+            browserMenuState = BrowserMenuState(
+                selectedTab = selectedTab,
+            ),
+        )
+
+        assertFalse(state.isWebCompatEnabled)
+    }
+
+    @Test
     fun `GIVEN a browser menu state update WHEN copying the browser menu state THEN return the updated browser menu state`() {
         val selectedTab = TabSessionState(
             id = "tabId1",
@@ -299,6 +350,7 @@ class MenuStoreTest {
 
             assertEquals(null, store.state.extensionMenuState.addonInstallationInProgress)
             assertEquals(1, store.state.extensionMenuState.recommendedAddons.size)
+            assertEquals(1, store.state.extensionMenuState.availableAddons.size)
         }
 
     @Test
@@ -324,7 +376,7 @@ class MenuStoreTest {
         }
 
     @Test
-    fun `WHEN update web extension menu items is dispatched THEN extension state is updated`() =
+    fun `WHEN update browser web extension menu items is dispatched THEN extension state is updated`() =
         runTest {
             val initialState = MenuState()
             val store = MenuStore(initialState = initialState)
@@ -340,11 +392,54 @@ class MenuStoreTest {
                     },
                 ),
             )
-            store.dispatch(MenuAction.UpdateWebExtensionMenuItems(webExtensionMenuItemList)).join()
+            store.dispatch(MenuAction.UpdateWebExtensionBrowserMenuItems(webExtensionMenuItemList)).join()
 
             assertEquals(
-                store.state.extensionMenuState.webExtensionMenuItems,
+                store.state.extensionMenuState.browserWebExtensionMenuItem,
                 webExtensionMenuItemList,
             )
+        }
+
+    @Test
+    fun `WHEN update show extensions onboarding dispatched THEN extension state is updated`() =
+        runTest {
+            val initialState = MenuState()
+            val store = MenuStore(initialState = initialState)
+
+            store.dispatch(MenuAction.UpdateShowExtensionsOnboarding(true)).join()
+
+            assertTrue(store.state.extensionMenuState.showExtensionsOnboarding)
+        }
+
+    @Test
+    fun `WHEN update manage extensions menu item visibility is dispatched THEN extension state is updated`() =
+        runTest {
+            val addon = Addon(id = "ext1")
+            val addonTwo = Addon(id = "ext2")
+            val store = MenuStore(
+                initialState = MenuState(
+                    extensionMenuState = ExtensionMenuState(
+                        recommendedAddons = listOf(
+                            addon,
+                            addonTwo,
+                        ),
+                    ),
+                ),
+            )
+
+            store.dispatch(MenuAction.UpdateManageExtensionsMenuItemVisibility(true)).join()
+
+            assertTrue(store.state.extensionMenuState.shouldShowManageExtensionsMenuItem)
+        }
+
+    @Test
+    fun `WHEN update show disabled extensions onboarding dispatched THEN extension state is updated`() =
+        runTest {
+            val initialState = MenuState()
+            val store = MenuStore(initialState = initialState)
+
+            store.dispatch(MenuAction.UpdateShowDisabledExtensionsOnboarding(true)).join()
+
+            assertTrue(store.state.extensionMenuState.showDisabledExtensionsOnboarding)
         }
 }

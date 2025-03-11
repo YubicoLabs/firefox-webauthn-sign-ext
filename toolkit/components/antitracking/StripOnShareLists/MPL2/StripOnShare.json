@@ -64,14 +64,31 @@
   },
   "amazon": {
     "queryParams": [
+      "__mk_de_DE",
+      "aaxitk",
+      "content-id",
+      "crid",
+      "dib",
+      "dib_tag",
+      "hsa_cr_id",
       "keywords",
+      "lp_asins",
+      "lp_query",
+      "lp_slot",
+      "pd_rd_plhdr",
       "pd_rd_r",
       "pd_rd_w",
       "pd_rd_wg",
       "pf_rd_r",
       "pf_rd_p",
+      "psc",
+      "ref_",
+      "sbo",
+      "sprefix",
+      "s_prefix",
+      "sp_csd",
       "sr",
-      "content-id"
+      "store_ref"
     ],
     "topLevelSites": [
       "www.amazon.com",
@@ -115,5 +132,17 @@
   "tokopedia": {
     "queryParams": ["extParam"],
     "topLevelSites": ["www.tokopedia.com"]
+  },
+  "spotify": {
+    "queryParams": ["si"],
+    "topLevelSites": ["open.spotify.com"]
+  },
+  "meetup": {
+    "queryParams": ["eventOrigin", "recId", "recSource", "searchId"],
+    "topLevelSites": ["www.meetup.com"]
+  },
+  "facebook": {
+    "queryParams": ["__cft__[0]", "__cft__%5B0%5D", "__tn__"],
+    "topLevelSites": ["www.facebook.com"]
   }
 }

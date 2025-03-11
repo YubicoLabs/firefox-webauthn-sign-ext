@@ -3,11 +3,7 @@
 
 [[unpublished.allocator-api2]]
 version = "0.2.999"
-audited_as = "0.2.18"
-
-[[unpublished.servo_arc]]
-version = "0.4.0"
-audited_as = "0.3.0"
+audited_as = "0.2.20"
 
 [[publisher.aho-corasick]]
 version = "1.1.0"
@@ -52,13 +48,6 @@ user-login = "padenot"
 user-name = "Paul Adenot"
 
 [[publisher.authenticator]]
-version = "0.4.0-alpha.24"
-when = "2023-11-29"
-user-id = 175410
-user-login = "jschanck"
-user-name = "John Schanck"
-
-[[publisher.authenticator]]
 version = "0.4.1"
 when = "2024-09-25"
 user-id = 175410
@@ -71,27 +60,6 @@ when = "2023-02-23"
 user-id = 128763
 user-login = "martinthomson"
 user-name = "Martin Thomson"
-
-[[publisher.breakpad-symbols]]
-version = "0.21.1"
-when = "2024-03-01"
-user-id = 72814
-user-login = "gabrielesvelto"
-user-name = "Gabriele Svelto"
-
-[[publisher.breakpad-symbols]]
-version = "0.21.2"
-when = "2024-06-03"
-user-id = 72814
-user-login = "gabrielesvelto"
-user-name = "Gabriele Svelto"
-
-[[publisher.breakpad-symbols]]
-version = "0.22.0"
-when = "2024-07-03"
-user-id = 72814
-user-login = "gabrielesvelto"
-user-name = "Gabriele Svelto"
 
 [[publisher.breakpad-symbols]]
 version = "0.22.1"
@@ -163,6 +131,20 @@ user-id = 6743
 user-login = "epage"
 user-name = "Ed Page"
 
+[[publisher.clubcard]]
+version = "0.3.2"
+when = "2024-10-08"
+user-id = 175410
+user-login = "jschanck"
+user-name = "John Schanck"
+
+[[publisher.clubcard-crlite]]
+version = "0.3.0"
+when = "2024-10-14"
+user-id = 175410
+user-login = "jschanck"
+user-name = "John Schanck"
+
 [[publisher.core-foundation]]
 version = "0.9.3"
 when = "2022-02-07"
@@ -220,8 +202,8 @@ user-login = "dtolnay"
 user-name = "David Tolnay"
 
 [[publisher.encoding_rs]]
-version = "0.8.34"
-when = "2024-04-10"
+version = "0.8.35"
+when = "2024-10-24"
 user-id = 4484
 user-login = "hsivonen"
 user-name = "Henri Sivonen"
@@ -255,20 +237,6 @@ user-login = "joshtriplett"
 user-name = "Josh Triplett"
 
 [[publisher.framehop]]
-version = "0.9.0"
-when = "2024-02-07"
-user-id = 20227
-user-login = "mstange"
-user-name = "Markus Stange"
-
-[[publisher.framehop]]
-version = "0.11.2"
-when = "2024-05-06"
-user-id = 20227
-user-login = "mstange"
-user-name = "Markus Stange"
-
-[[publisher.framehop]]
 version = "0.12.1"
 when = "2024-06-04"
 user-id = 20227
@@ -290,15 +258,15 @@ user-login = "jrmuizel"
 user-name = "Jeff Muizelaar"
 
 [[publisher.glean]]
-version = "61.1.0"
-when = "2024-09-24"
+version = "63.1.0"
+when = "2025-01-30"
 user-id = 48
 user-login = "badboy"
 user-name = "Jan-Erik Rediger"
 
 [[publisher.glean-core]]
-version = "61.1.0"
-when = "2024-09-24"
+version = "63.1.0"
+when = "2025-01-30"
 user-id = 48
 user-login = "badboy"
 user-name = "Jan-Erik Rediger"
@@ -352,6 +320,13 @@ user-id = 3618
 user-login = "dtolnay"
 user-name = "David Tolnay"
 
+[[publisher.io-surface]]
+version = "0.15.1"
+when = "2020-06-30"
+user-id = 2396
+user-login = "jdm"
+user-name = "Josh Matthews"
+
 [[publisher.iovec]]
 version = "0.1.4"
 when = "2019-10-09"
@@ -379,13 +354,6 @@ when = "2024-04-29"
 user-id = 51017
 user-login = "JohnTitor"
 user-name = "Yuki Okushi"
-
-[[publisher.libz-rs-sys]]
-version = "0.2.1"
-when = "2024-07-08"
-user-id = 1303
-user-login = "rnijveld"
-user-name = "Ruben Nijveld"
 
 [[publisher.linux-raw-sys]]
 version = "0.4.12"
@@ -421,27 +389,6 @@ when = "2020-01-07"
 user-id = 359
 user-login = "seanmonstar"
 user-name = "Sean McArthur"
-
-[[publisher.minidump]]
-version = "0.21.1"
-when = "2024-03-01"
-user-id = 72814
-user-login = "gabrielesvelto"
-user-name = "Gabriele Svelto"
-
-[[publisher.minidump]]
-version = "0.21.2"
-when = "2024-06-03"
-user-id = 72814
-user-login = "gabrielesvelto"
-user-name = "Gabriele Svelto"
-
-[[publisher.minidump]]
-version = "0.22.0"
-when = "2024-07-03"
-user-id = 72814
-user-login = "gabrielesvelto"
-user-name = "Gabriele Svelto"
 
 [[publisher.minidump]]
 version = "0.22.1"
@@ -520,6 +467,41 @@ user-id = 106639
 user-login = "afranchuk"
 user-name = "Alex Franchuk"
 
+[[publisher.phf]]
+version = "0.11.2"
+when = "2023-06-24"
+user-id = 51017
+user-login = "JohnTitor"
+user-name = "Yuki Okushi"
+
+[[publisher.phf_codegen]]
+version = "0.11.2"
+when = "2023-06-24"
+user-id = 51017
+user-login = "JohnTitor"
+user-name = "Yuki Okushi"
+
+[[publisher.phf_generator]]
+version = "0.11.2"
+when = "2023-06-24"
+user-id = 51017
+user-login = "JohnTitor"
+user-name = "Yuki Okushi"
+
+[[publisher.phf_macros]]
+version = "0.11.2"
+when = "2023-06-24"
+user-id = 51017
+user-login = "JohnTitor"
+user-name = "Yuki Okushi"
+
+[[publisher.phf_shared]]
+version = "0.11.2"
+when = "2023-06-24"
+user-id = 51017
+user-login = "JohnTitor"
+user-name = "Yuki Okushi"
+
 [[publisher.presser]]
 version = "0.3.1"
 when = "2022-10-16"
@@ -531,13 +513,6 @@ version = "0.16.2"
 when = "2024-03-19"
 user-id = 213776
 user-login = "divviup-github-automation"
-
-[[publisher.proc-macro2]]
-version = "1.0.74"
-when = "2024-01-02"
-user-id = 3618
-user-login = "dtolnay"
-user-name = "David Tolnay"
 
 [[publisher.proc-macro2]]
 version = "1.0.84"
@@ -617,8 +592,8 @@ user-login = "Amanieu"
 user-name = "Amanieu d'Antras"
 
 [[publisher.serde]]
-version = "1.0.210"
-when = "2024-09-06"
+version = "1.0.218"
+when = "2025-02-20"
 user-id = 3618
 user-login = "dtolnay"
 user-name = "David Tolnay"
@@ -631,8 +606,8 @@ user-login = "dtolnay"
 user-name = "David Tolnay"
 
 [[publisher.serde_derive]]
-version = "1.0.210"
-when = "2024-09-06"
+version = "1.0.218"
+when = "2025-02-20"
 user-id = 3618
 user-login = "dtolnay"
 user-name = "David Tolnay"
@@ -651,13 +626,6 @@ user-id = 3618
 user-login = "dtolnay"
 user-name = "David Tolnay"
 
-[[publisher.serde_yaml]]
-version = "0.8.26"
-when = "2022-07-16"
-user-id = 3618
-user-login = "dtolnay"
-user-name = "David Tolnay"
-
 [[publisher.smallvec]]
 version = "1.13.1"
 when = "2024-01-19"
@@ -666,15 +634,8 @@ user-login = "mbrubeck"
 user-name = "Matt Brubeck"
 
 [[publisher.syn]]
-version = "2.0.46"
-when = "2024-01-02"
-user-id = 3618
-user-login = "dtolnay"
-user-name = "David Tolnay"
-
-[[publisher.syn]]
-version = "2.0.68"
-when = "2024-06-23"
+version = "2.0.87"
+when = "2024-11-02"
 user-id = 3618
 user-login = "dtolnay"
 user-name = "David Tolnay"
@@ -687,15 +648,15 @@ user-login = "BurntSushi"
 user-name = "Andrew Gallant"
 
 [[publisher.thiserror]]
-version = "1.0.63"
-when = "2024-07-17"
+version = "2.0.9"
+when = "2024-12-21"
 user-id = 3618
 user-login = "dtolnay"
 user-name = "David Tolnay"
 
 [[publisher.thiserror-impl]]
-version = "1.0.63"
-when = "2024-07-17"
+version = "2.0.9"
+when = "2024-12-21"
 user-id = 3618
 user-login = "dtolnay"
 user-name = "David Tolnay"
@@ -749,64 +710,57 @@ user-id = 1139
 user-login = "Manishearth"
 user-name = "Manish Goregaokar"
 
-[[publisher.unicode-xid]]
-version = "0.2.4"
-when = "2022-09-15"
-user-id = 1139
-user-login = "Manishearth"
-user-name = "Manish Goregaokar"
-
 [[publisher.uniffi]]
-version = "0.28.1"
-when = "2024-08-13"
+version = "0.28.2"
+when = "2024-10-08"
 user-id = 127697
 user-login = "bendk"
 
 [[publisher.uniffi_bindgen]]
-version = "0.28.1"
-when = "2024-08-13"
+version = "0.28.2"
+when = "2024-10-08"
 user-id = 127697
 user-login = "bendk"
 
 [[publisher.uniffi_build]]
-version = "0.28.1"
-when = "2024-08-13"
+version = "0.28.2"
+when = "2024-10-08"
 user-id = 127697
 user-login = "bendk"
 
 [[publisher.uniffi_checksum_derive]]
-version = "0.28.1"
-when = "2024-08-13"
+version = "0.28.2"
+when = "2024-10-08"
 user-id = 127697
 user-login = "bendk"
 
 [[publisher.uniffi_core]]
-version = "0.28.1"
-when = "2024-08-13"
+version = "0.28.2"
+when = "2024-10-08"
 user-id = 127697
 user-login = "bendk"
 
 [[publisher.uniffi_macros]]
-version = "0.28.1"
-when = "2024-08-13"
+version = "0.28.2"
+when = "2024-10-08"
 user-id = 127697
 user-login = "bendk"
 
 [[publisher.uniffi_meta]]
-version = "0.28.1"
-when = "2024-08-13"
+version = "0.28.2"
+when = "2024-10-08"
 user-id = 127697
 user-login = "bendk"
 
 [[publisher.uniffi_testing]]
-version = "0.28.1"
-when = "2024-08-13"
+version = "0.28.2"
+when = "2024-10-08"
 user-id = 127697
 user-login = "bendk"
 
 [[publisher.uniffi_udl]]
-version = "0.28.1"
-when = "2024-08-13"
+version = "0.28.2"
+when = "2024-10-08"
 user-id = 127697
 user-login = "bendk"
 
@@ -839,20 +793,26 @@ user-login = "alexcrichton"
 user-name = "Alex Crichton"
 
 [[publisher.wasm-encoder]]
-version = "0.214.0"
-when = "2024-07-16"
+version = "0.219.1"
+when = "2024-10-10"
 user-id = 73222
 user-login = "wasmtime-publish"
 
 [[publisher.wasm-smith]]
-version = "0.214.0"
-when = "2024-07-16"
+version = "0.219.1"
+when = "2024-10-10"
+user-id = 73222
+user-login = "wasmtime-publish"
+
+[[publisher.wasmparser]]
+version = "0.219.1"
+when = "2024-10-10"
 user-id = 73222
 user-login = "wasmtime-publish"
 
 [[publisher.wast]]
-version = "214.0.0"
-when = "2024-07-16"
+version = "219.0.1"
+when = "2024-10-10"
 user-id = 73222
 user-login = "wasmtime-publish"
 
@@ -925,13 +885,6 @@ user-id = 48
 user-login = "badboy"
 user-name = "Jan-Erik Rediger"
 
-[[publisher.zlib-rs]]
-version = "0.2.1"
-when = "2024-07-08"
-user-id = 1303
-user-login = "rnijveld"
-user-name = "Ruben Nijveld"
-
 [[audits.bytecode-alliance.wildcard-audits.arbitrary]]
 who = "Nick Fitzgerald <fitzgen@gmail.com>"
 criteria = "safe-to-deploy"
@@ -956,6 +909,18 @@ end = "2025-07-30"
 notes = "I am an author of this crate"
 
 [[audits.bytecode-alliance.wildcard-audits.wasm-encoder]]
+who = "Alex Crichton <alex@alexcrichton.com>"
+criteria = "safe-to-deploy"
+user-id = 73222 # wasmtime-publish
+start = "2023-01-01"
+end = "2025-05-08"
+notes = """
+The Bytecode Alliance uses the `wasmtime-publish` crates.io account to automate
+publication of this crate from CI. This repository requires all PRs are reviewed
+by a Bytecode Alliance maintainer and it owned by the Bytecode Alliance itself.
+"""
+
+[[audits.bytecode-alliance.wildcard-audits.wasmparser]]
 who = "Alex Crichton <alex@alexcrichton.com>"
 criteria = "safe-to-deploy"
 user-id = 73222 # wasmtime-publish
@@ -999,6 +964,15 @@ Shuffling of features in this update and while there are updates to `unsafe`
 code it's no different than before and the usage remains the same.
 """
 
+[[audits.bytecode-alliance.audits.allocator-api2]]
+who = "Chris Fallin <chris@cfallin.org>"
+criteria = "safe-to-deploy"
+delta = "0.2.18 -> 0.2.20"
+notes = """
+The changes appear to be reasonable updates from Rust's stdlib imported into
+`allocator-api2`'s copy of this code.
+"""
+
 [[audits.bytecode-alliance.audits.arrayref]]
 who = "Nick Fitzgerald <fitzgen@gmail.com>"
 criteria = "safe-to-deploy"
@@ -1027,6 +1001,11 @@ notes = "This crate has no dependencies, no build.rs, and contains no unsafe cod
 who = "Benjamin Bouvier <public@benj.me>"
 criteria = "safe-to-deploy"
 delta = "0.9.0 -> 0.10.2"
+
+[[audits.bytecode-alliance.audits.camino]]
+who = "Pat Hickey <phickey@fastly.com>"
+criteria = "safe-to-deploy"
+version = "1.1.4"
 
 [[audits.bytecode-alliance.audits.cargo-platform]]
 who = "Pat Hickey <phickey@fastly.com>"
@@ -1167,6 +1146,11 @@ crate is broadly used throughout the ecosystem and does not contain anything
 suspicious.
 """
 
+[[audits.bytecode-alliance.audits.jobserver]]
+who = "Alex Crichton <alex@alexcrichton.com>"
+criteria = "safe-to-deploy"
+delta = "0.1.25 -> 0.1.32"
+
 [[audits.bytecode-alliance.audits.leb128]]
 who = "Nick Fitzgerald <fitzgen@gmail.com>"
 criteria = "safe-to-deploy"
@@ -1258,6 +1242,12 @@ who = "Pat Hickey <phickey@fastly.com>"
 criteria = "safe-to-deploy"
 version = "1.0.17"
 notes = "plenty of unsafe pointer and vec tricks, but in well-structured and commented code that appears to be correct"
+
+[[audits.bytecode-alliance.audits.shlex]]
+who = "Alex Crichton <alex@alexcrichton.com>"
+criteria = "safe-to-deploy"
+version = "1.1.0"
+notes = "Only minor `unsafe` code blocks which look valid and otherwise does what it says on the tin."
 
 [[audits.bytecode-alliance.audits.slab]]
 who = "Pat Hickey <phickey@fastly.com>"
@@ -1384,6 +1374,12 @@ criteria = "safe-to-deploy"
 delta = "2.5.0 -> 2.6.0"
 notes = "The changes from the previous version are negligible and thus it retains the same properties."
 aggregated-from = "https://chromium.googlesource.com/chromium/src/+/main/third_party/rust/chromium_crates_io/supply-chain/audits.toml?format=TEXT"
+
+[[audits.google.audits.bitreader]]
+who = "George Burgess IV <gbiv@google.com>"
+criteria = "safe-to-deploy"
+version = "0.3.7"
+aggregated-from = "https://chromium.googlesource.com/chromiumos/third_party/rust_crates/+/refs/heads/main/cargo-vet/audits.toml?format=TEXT"
 
 [[audits.google.audits.clap_builder]]
 who = "Lukasz Anforowicz <lukasza@chromium.org>"
@@ -1530,6 +1526,67 @@ Config-related changes in `test_size.rs`.
 """
 aggregated-from = "https://chromium.googlesource.com/chromium/src/+/main/third_party/rust/chromium_crates_io/supply-chain/audits.toml?format=TEXT"
 
+[[audits.google.audits.rustversion]]
+who = "Lukasz Anforowicz <lukasza@chromium.org>"
+criteria = "safe-to-deploy"
+version = "1.0.14"
+notes = """
+Grepped for `-i cipher`, `-i crypto`, `'\bfs\b'``, `'\bnet\b'``, `'\bunsafe\b'``
+and there were no hits except for:
+
+* Using trivially-safe `unsafe` in test code:
+
+    ```
+    tests/test_const.rs:unsafe fn _unsafe() {}
+    tests/test_const.rs:const _UNSAFE: () = unsafe { _unsafe() };
+    ```
+
+* Using `unsafe` in a string:
+
+    ```
+    src/constfn.rs:            \"unsafe\" => Qualifiers::Unsafe,
+    ```
+
+* Using `std::fs` in `build/build.rs` to write `${OUT_DIR}/version.expr`
+  which is later read back via `include!` used in `src/lib.rs`.
+
+Version `1.0.6` of this crate has been added to Chromium in
+https://source.chromium.org/chromium/chromium/src/+/28841c33c77833cc30b286f9ae24c97e7a8f4057
+"""
+aggregated-from = "https://chromium.googlesource.com/chromium/src/+/main/third_party/rust/chromium_crates_io/supply-chain/audits.toml?format=TEXT"
+
+[[audits.google.audits.rustversion]]
+who = "Adrian Taylor <adetaylor@chromium.org>"
+criteria = "safe-to-deploy"
+delta = "1.0.14 -> 1.0.15"
+aggregated-from = "https://chromium.googlesource.com/chromium/src/+/main/third_party/rust/chromium_crates_io/supply-chain/audits.toml?format=TEXT"
+
+[[audits.google.audits.rustversion]]
+who = "danakj <danakj@chromium.org>"
+criteria = "safe-to-deploy"
+delta = "1.0.15 -> 1.0.16"
+aggregated-from = "https://chromium.googlesource.com/chromium/src/+/main/third_party/rust/chromium_crates_io/supply-chain/audits.toml?format=TEXT"
+
+[[audits.google.audits.rustversion]]
+who = "Dustin J. Mitchell <djmitche@chromium.org>"
+criteria = "safe-to-deploy"
+delta = "1.0.16 -> 1.0.17"
+notes = "Just updates windows compat"
+aggregated-from = "https://chromium.googlesource.com/chromium/src/+/main/third_party/rust/chromium_crates_io/supply-chain/audits.toml?format=TEXT"
+
+[[audits.google.audits.rustversion]]
+who = "Liza Burakova <liza@chromium.org>"
+criteria = "safe-to-deploy"
+delta = "1.0.17 -> 1.0.18"
+aggregated-from = "https://chromium.googlesource.com/chromium/src/+/main/third_party/rust/chromium_crates_io/supply-chain/audits.toml?format=TEXT"
+
+[[audits.google.audits.rustversion]]
+who = "Dustin J. Mitchell <djmitche@chromium.org>"
+criteria = "safe-to-deploy"
+delta = "1.0.18 -> 1.0.19"
+notes = "No unsafe, just doc changes"
+aggregated-from = "https://chromium.googlesource.com/chromium/src/+/main/third_party/rust/chromium_crates_io/supply-chain/audits.toml?format=TEXT"
+
 [[audits.google.audits.scoped-tls]]
 who = "George Burgess IV <gbiv@google.com>"
 criteria = "safe-to-run"
@@ -1577,6 +1634,28 @@ Previously reviewed during security review and the audit is grandparented in.
 """
 aggregated-from = "https://chromium.googlesource.com/chromium/src/+/main/third_party/rust/chromium_crates_io/supply-chain/audits.toml?format=TEXT"
 
+[[audits.google.audits.strum]]
+who = "danakj@chromium.org"
+criteria = "safe-to-deploy"
+version = "0.25.0"
+notes = """
+Reviewed in https://crrev.com/c/5171063
+
+Previously reviewed during security review and the audit is grandparented in.
+"""
+aggregated-from = "https://chromium.googlesource.com/chromium/src/+/main/third_party/rust/chromium_crates_io/supply-chain/audits.toml?format=TEXT"
+
+[[audits.google.audits.strum_macros]]
+who = "danakj@chromium.org"
+criteria = "safe-to-deploy"
+version = "0.25.3"
+notes = """
+Reviewed in https://crrev.com/c/5171063
+
+Previously reviewed during security review and the audit is grandparented in.
+"""
+aggregated-from = "https://chromium.googlesource.com/chromium/src/+/main/third_party/rust/chromium_crates_io/supply-chain/audits.toml?format=TEXT"
+
 [[audits.google.audits.tokio-stream]]
 who = "David Koloski <dkoloski@google.com>"
 criteria = "safe-to-deploy"
@@ -1613,7 +1692,7 @@ who = "David Cook <dcook@divviup.org>"
 criteria = "safe-to-deploy"
 user-id = 213776 # divviup-github-automation
 start = "2020-09-28"
-end = "2025-02-12"
+end = "2026-01-07"
 
 [[audits.isrg.audits.base64]]
 who = "Tim Geoghegan <timg@letsencrypt.org>"
@@ -1634,6 +1713,11 @@ delta = "0.21.2 -> 0.21.3"
 who = "David Cook <dcook@divviup.org>"
 criteria = "safe-to-deploy"
 version = "0.9.0"
+
+[[audits.isrg.audits.digest]]
+who = "David Cook <dcook@divviup.org>"
+criteria = "safe-to-deploy"
+delta = "0.10.6 -> 0.10.7"
 
 [[audits.isrg.audits.getrandom]]
 who = "Tim Geoghegan <timg@letsencrypt.org>"
@@ -1661,6 +1745,21 @@ who = "Brandon Pitman <bran@bran.land>"
 criteria = "safe-to-deploy"
 delta = "0.1.3 -> 0.1.4"
 
+[[audits.isrg.audits.libz-rs-sys]]
+who = "Ameer Ghani <inahga@divviup.org>"
+criteria = "safe-to-deploy"
+version = "0.4.0"
+notes = """
+This crate uses unsafe since it's for C to Rust FFI. I have reviewed and fuzzed it, and I believe it is free of any serious security problems.
+
+The only dependency is zlib-rs, which is maintained by the same maintainers as this crate.
+"""
+
+[[audits.isrg.audits.libz-rs-sys]]
+who = "Ameer Ghani <inahga@divviup.org>"
+criteria = "safe-to-deploy"
+delta = "0.4.0 -> 0.4.1"
+
 [[audits.isrg.audits.once_cell]]
 who = "Brandon Pitman <bran@bran.land>"
 criteria = "safe-to-deploy"
@@ -1676,6 +1775,11 @@ who = "Brandon Pitman <bran@bran.land>"
 criteria = "safe-to-deploy"
 delta = "1.18.0 -> 1.19.0"
 
+[[audits.isrg.audits.once_cell]]
+who = "David Cook <dcook@divviup.org>"
+criteria = "safe-to-deploy"
+delta = "1.19.0 -> 1.20.1"
+
 [[audits.isrg.audits.rand_chacha]]
 who = "David Cook <dcook@divviup.org>"
 criteria = "safe-to-deploy"
@@ -1686,15 +1790,35 @@ who = "David Cook <dcook@divviup.org>"
 criteria = "safe-to-deploy"
 version = "0.6.3"
 
-[[audits.isrg.audits.rayon-core]]
+[[audits.isrg.audits.rayon]]
 who = "Brandon Pitman <bran@bran.land>"
 criteria = "safe-to-deploy"
-delta = "1.10.2 -> 1.11.0"
+delta = "1.6.1 -> 1.7.0"
 
-[[audits.isrg.audits.rayon-core]]
+[[audits.isrg.audits.rayon]]
 who = "David Cook <dcook@divviup.org>"
 criteria = "safe-to-deploy"
-delta = "1.11.0 -> 1.12.0"
+delta = "1.7.0 -> 1.8.0"
+
+[[audits.isrg.audits.rayon]]
+who = "Ameer Ghani <inahga@divviup.org>"
+criteria = "safe-to-deploy"
+delta = "1.8.0 -> 1.8.1"
+
+[[audits.isrg.audits.rayon]]
+who = "Brandon Pitman <bran@bran.land>"
+criteria = "safe-to-deploy"
+delta = "1.8.1 -> 1.9.0"
+
+[[audits.isrg.audits.rayon]]
+who = "Brandon Pitman <bran@bran.land>"
+criteria = "safe-to-deploy"
+delta = "1.9.0 -> 1.10.0"
+
+[[audits.isrg.audits.rayon-core]]
+who = "Ameer Ghani <inahga@divviup.org>"
+criteria = "safe-to-deploy"
+version = "1.12.1"
 
 [[audits.isrg.audits.sha2]]
 who = "David Cook <dcook@divviup.org>"
@@ -1710,6 +1834,21 @@ version = "0.10.6"
 who = "Brandon Pitman <bran@bran.land>"
 criteria = "safe-to-deploy"
 delta = "0.10.7 -> 0.10.8"
+
+[[audits.isrg.audits.zlib-rs]]
+who = "Ameer Ghani <inahga@divviup.org>"
+criteria = "safe-to-deploy"
+version = "0.4.0"
+notes = """
+zlib-rs uses unsafe Rust for invoking compiler intrinsics (i.e. SIMD), eschewing bounds checks, along the FFI boundary, and for interacting with pointers sourced from C. I have extensively reviewed and fuzzed the unsafe code. All findings from that work have been resolved as of version 0.4.0. To the best of my ability, I believe it's free of any serious security problems.
+
+zlib-rs does not require any external dependencies.
+"""
+
+[[audits.isrg.audits.zlib-rs]]
+who = "Ameer Ghani <inahga@divviup.org>"
+criteria = "safe-to-deploy"
+delta = "0.4.0 -> 0.4.1"
 
 [[audits.mozilla.wildcard-audits.weedle2]]
 who = "Jan-Erik Rediger <jrediger@mozilla.com>"

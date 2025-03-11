@@ -8,8 +8,7 @@ ChromeUtils.defineESModuleGetters(
   lazy,
   {
     PromiseWorker: "resource://gre/modules/workers/PromiseWorker.mjs",
-    Pipeline: "chrome://global/content/ml/ONNXPipeline.mjs",
-    PipelineOptions: "chrome://global/content/ml/EngineProcess.sys.mjs",
+    getBackend: "chrome://global/content/ml/backends/Pipeline.mjs",
     modelToResponse: "chrome://global/content/ml/Utils.sys.mjs",
   },
   { global: "current" }
@@ -40,7 +39,7 @@ class MLEngineWorker {
    */
   async match(key) {
     // if the key starts with NO_LOCAL, we return null immediately to tell transformers.js
-    // we don't server local files, and it will do a second call with the full URL:w
+    // we don't server local files, and it will do a second call with the full URL
     if (key.startsWith("NO_LOCAL")) {
       return null;
     }
@@ -58,6 +57,14 @@ class MLEngineWorker {
     return result;
   }
 
+  async getInferenceProcessInfo(...args) {
+    let res = await self.callMainThread("getInferenceProcessInfo", args);
+    if (res.fail) {
+      return new Map();
+    }
+    return res.ok;
+  }
+
   /**
    * Placeholder for the `put` method from the Cache API for Transformers.js custom cache.
    *
@@ -72,24 +79,30 @@ class MLEngineWorker {
    * @param {object} options received as an object, converted to a PipelineOptions instance
    */
   async initializeEngine(wasm, options) {
-    this.#pipeline = await lazy.Pipeline.initialize(
-      this,
-      wasm,
-      new lazy.PipelineOptions(options)
-    );
+    this.#pipeline = await lazy.getBackend(this, wasm, options);
   }
   /**
    * Run the worker.
    *
    * @param {string} request
+   * @param {string} requestId - The identifier used to internally track this request.
+   * @param {object} engineRunOptions - Additional run options for the engine.
+   * @param {boolean} engineRunOptions.enableInferenceProgress - Whether to enable inference progress.
    */
-  async run(request) {
+  async run(request, requestId, engineRunOptions = {}) {
     if (request === "throw") {
       throw new Error(
         'Received the message "throw", so intentionally throwing an error.'
       );
     }
-    return await this.#pipeline.run(request);
+
+    return await this.#pipeline.run(
+      request,
+      requestId,
+      engineRunOptions.enableInferenceProgress
+        ? data => self.callMainThread("onInferenceProgress", [data])
+        : null
+    );
   }
 
   /**

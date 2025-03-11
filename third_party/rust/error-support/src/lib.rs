@@ -16,6 +16,18 @@ pub mod backtrace {
 
     pub struct Backtrace;
 
+    impl Backtrace {
+        pub fn new() -> Self {
+            Backtrace
+        }
+    }
+
+    impl Default for Backtrace {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
     impl fmt::Debug for Backtrace {
         #[cold]
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -32,6 +44,8 @@ pub use reporting::{
     report_breadcrumb, report_error_to_app, set_application_error_reporter,
     unset_application_error_reporter, ApplicationErrorReporter,
 };
+// These are exposed specifically for tests
+pub use reporting::{ArcReporterAdapter, TestErrorReporter};
 
 pub use error_support_macros::handle_error;
 
@@ -40,7 +54,7 @@ pub use handling::{convert_log_report_error, ErrorHandling, ErrorReporting, GetE
 
 /// XXX - Most of this is now considered deprecated - only FxA uses it, and
 /// should be replaced with the facilities in the `handling` module.
-
+///
 /// Define a wrapper around the the provided ErrorKind type.
 /// See also `define_error` which is more likely to be what you want.
 #[macro_export]
@@ -86,7 +100,7 @@ macro_rules! define_error_wrapper {
             #[cfg(feature = "backtrace")]
             #[cold]
             fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                let mut bt = self.backtrace.unwrap().lock().unwrap();
+                let mut bt = self.backtrace.as_ref().unwrap().lock().unwrap();
                 bt.resolve();
                 write!(f, "{:?}\n\n{}", bt, self.kind)
             }

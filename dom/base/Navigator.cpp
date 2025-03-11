@@ -516,7 +516,7 @@ Permissions* Navigator::GetPermissions(ErrorResult& aRv) {
   }
 
   if (!mPermissions) {
-    mPermissions = new Permissions(mWindow);
+    mPermissions = new Permissions(mWindow->AsGlobal());
   }
 
   return mPermissions;
@@ -1351,11 +1351,6 @@ void Navigator::MozGetUserMedia(const MediaStreamConstraints& aConstraints,
     return;
   }
   MOZ_ASSERT(mMediaDevices);
-  if (Document* doc = mWindow->GetExtantDoc()) {
-    if (!mWindow->IsSecureContext()) {
-      doc->SetUseCounter(eUseCounter_custom_MozGetUserMediaInsec);
-    }
-  }
   RefPtr<MediaManager::StreamPromise> sp;
   if (!MediaManager::IsOn(aConstraints.mVideo) &&
       !MediaManager::IsOn(aConstraints.mAudio)) {
@@ -1944,6 +1939,12 @@ bool Navigator::HasUserMediaSupport(JSContext* cx, JSObject* obj) {
 }
 
 /* static */
+bool Navigator::MozGetUserMediaSupport(JSContext* aCx, JSObject* aObj) {
+  return StaticPrefs::media_navigator_mozgetusermedia_enabled() &&
+         Navigator::HasUserMediaSupport(aCx, aObj);
+}
+
+/* static */
 bool Navigator::HasShareSupport(JSContext* cx, JSObject* obj) {
   if (!StaticPrefs::dom_webshare_enabled()) {
     return false;
@@ -2103,7 +2104,7 @@ nsresult Navigator::GetUserAgent(nsPIDOMWindowInner* aWindow,
   // specific OS version, etc.
   if (shouldResistFingerprinting) {
     nsAutoCString spoofedUA;
-    nsRFPService::GetSpoofedUserAgent(spoofedUA, false);
+    nsRFPService::GetSpoofedUserAgent(spoofedUA);
     CopyASCIItoUTF16(spoofedUA, aUserAgent);
     return NS_OK;
   }

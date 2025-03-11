@@ -628,7 +628,7 @@ class AbstractFetchDownloadServiceTest {
 
     @Test
     fun `broadcastReceiver handles ACTION_TRY_AGAIN`() = runTest(testsDispatcher) {
-        val download = DownloadState("https://example.com/file.txt", "file.txt")
+        val download = DownloadState("https://example.com/file.txt", "file.txt", contentLength = 1000)
         val response = Response(
             "https://example.com/file.txt",
             200,
@@ -765,6 +765,23 @@ class AbstractFetchDownloadServiceTest {
         // The additional notification is the summary one (the notification group).
         assertEquals(2, shadowNotificationService.size())
     }
+
+    @Test
+    fun `WHEN a failed download is tried again, created time is updated`() =
+        runTest(testsDispatcher) {
+            val downloadId = "cakes"
+            val downloadJobState = DownloadJobState(
+                state = DownloadState(url = "", id = downloadId),
+                status = FAILED,
+                createdTime = 0,
+            )
+            service.downloadJobs[downloadId] = downloadJobState
+            val tryAgainIntent = Intent(ACTION_TRY_AGAIN).apply {
+                putExtra(DownloadNotification.EXTRA_DOWNLOAD_ID, downloadId)
+            }
+            service.broadcastReceiver.onReceive(testContext, tryAgainIntent)
+            assertTrue(downloadJobState.createdTime > 0)
+        }
 
     @Test
     fun `onStartCommand must change status of INITIATED downloads to DOWNLOADING`() = runTest(testsDispatcher) {
@@ -1338,7 +1355,7 @@ class AbstractFetchDownloadServiceTest {
     fun `performDownload - use the download response when available`() {
         val responseFromDownloadState = mock<Response>()
         val responseFromClient = mock<Response>()
-        val download = DownloadState("https://example.com/file.txt", "file.txt", response = responseFromDownloadState)
+        val download = DownloadState("https://example.com/file.txt", "file.txt", response = responseFromDownloadState, contentLength = 1000)
         val downloadJob = DownloadJobState(state = download, status = DOWNLOADING)
 
         doReturn(404).`when`(responseFromDownloadState).status
@@ -1353,7 +1370,7 @@ class AbstractFetchDownloadServiceTest {
     @Test
     fun `performDownload - use the client response when the download response NOT available`() {
         val responseFromClient = mock<Response>()
-        val download = spy(DownloadState("https://example.com/file.txt", "file.txt", response = null))
+        val download = spy(DownloadState("https://example.com/file.txt", "file.txt", response = null, contentLength = 1000))
         val downloadJob = DownloadJobState(state = download, status = DOWNLOADING)
 
         doReturn(404).`when`(responseFromClient).status
@@ -1368,7 +1385,7 @@ class AbstractFetchDownloadServiceTest {
     fun `performDownload - use the client response when resuming a download`() {
         val responseFromDownloadState = mock<Response>()
         val responseFromClient = mock<Response>()
-        val download = spy(DownloadState("https://example.com/file.txt", "file.txt", response = responseFromDownloadState))
+        val download = spy(DownloadState("https://example.com/file.txt", "file.txt", response = responseFromDownloadState, contentLength = 1000))
         val downloadJob = DownloadJobState(currentBytesCopied = 100, state = download, status = DOWNLOADING)
 
         doReturn(404).`when`(responseFromClient).status
@@ -1378,6 +1395,17 @@ class AbstractFetchDownloadServiceTest {
 
         verify(responseFromClient, atLeastOnce()).status
         verifyNoInteractions(responseFromDownloadState)
+    }
+
+    @Test
+    fun `performDownload - don't make a client request when download is completed`() {
+        val responseFromDownloadState = mock<Response>()
+        val download = spy(DownloadState("https://example.com/file.txt", "file.txt", response = responseFromDownloadState, contentLength = 1000))
+        val downloadJob = DownloadJobState(currentBytesCopied = 1000, state = download, status = DOWNLOADING)
+
+        service.performDownload(downloadJob)
+
+        verify(service).verifyDownload(downloadJob)
     }
 
     @Test

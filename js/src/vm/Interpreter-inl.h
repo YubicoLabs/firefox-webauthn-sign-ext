@@ -21,9 +21,6 @@
 #include "vm/Realm.h"
 #include "vm/StaticStrings.h"
 #include "vm/ThrowMsgKind.h"
-#ifdef ENABLE_RECORD_TUPLE
-#  include "vm/RecordTupleShared.h"
-#endif
 
 #include "vm/GlobalObject-inl.h"
 #include "vm/JSAtomUtils-inl.h"  // PrimitiveValueToId, TypeName
@@ -97,7 +94,8 @@ inline bool FetchName(JSContext* cx, HandleObject receiver, HandleObject holder,
 
   /* Take the slow path if shape was not found in a native object. */
   if (!receiver->is<NativeObject>() || !holder->is<NativeObject>() ||
-      receiver->is<WithEnvironmentObject>()) {
+      (receiver->is<WithEnvironmentObject>() &&
+       receiver->as<WithEnvironmentObject>().supportUnscopables())) {
     Rooted<jsid> id(cx, NameToId(name));
     if (!GetProperty(cx, receiver, receiver, id, vp)) {
       return false;
@@ -108,8 +106,11 @@ inline bool FetchName(JSContext* cx, HandleObject receiver, HandleObject holder,
       /* Fast path for Object instance properties. */
       vp.set(holder->as<NativeObject>().getSlot(propInfo.slot()));
     } else {
+      // Unwrap 'with' environments for reasons given in
+      // GetNameBoundInEnvironment.
+      RootedObject normalized(cx, MaybeUnwrapWithEnvironment(receiver));
       RootedId id(cx, NameToId(name));
-      if (!NativeGetExistingProperty(cx, receiver, holder.as<NativeObject>(),
+      if (!NativeGetExistingProperty(cx, normalized, holder.as<NativeObject>(),
                                      id, propInfo, vp)) {
         return false;
       }
@@ -366,8 +367,7 @@ static MOZ_ALWAYS_INLINE bool GetObjectElementOperation(
     }
 
     if (key.isString()) {
-      JSString* str = key.toString();
-      JSAtom* name = str->isAtom() ? &str->asAtom() : AtomizeString(cx, str);
+      JSAtom* name = AtomizeString(cx, key.toString());
       if (!name) {
         return false;
       }
@@ -399,19 +399,6 @@ static MOZ_ALWAYS_INLINE bool GetObjectElementOperation(
 static MOZ_ALWAYS_INLINE bool GetPrimitiveElementOperation(
     JSContext* cx, JS::HandleValue receiver, int receiverIndex, HandleValue key,
     MutableHandleValue res) {
-#ifdef ENABLE_RECORD_TUPLE
-  if (receiver.isExtendedPrimitive()) {
-    RootedId id(cx);
-    if (!ToPropertyKey(cx, key, &id)) {
-      return false;
-    }
-    RootedObject obj(cx, &receiver.toExtendedPrimitive());
-    if (!ExtendedPrimitiveGetProperty(cx, obj, receiver, id, res)) {
-      return false;
-    }
-  }
-#endif
-
   // FIXME: Bug 1234324 We shouldn't be boxing here.
   RootedObject boxed(
       cx, ToObjectFromStackForPropertyAccess(cx, receiver, receiverIndex, key));
@@ -433,8 +420,7 @@ static MOZ_ALWAYS_INLINE bool GetPrimitiveElementOperation(
     }
 
     if (key.isString()) {
-      JSString* str = key.toString();
-      JSAtom* name = str->isAtom() ? &str->asAtom() : AtomizeString(cx, str);
+      JSAtom* name = AtomizeString(cx, key.toString());
       if (!name) {
         return false;
       }

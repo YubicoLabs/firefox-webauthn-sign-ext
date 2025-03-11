@@ -51,11 +51,12 @@ if (is_android) {
       "jni/onload.cc",
     ]
 
-    suppressed_configs += [ "//build/config/android:hide_all_but_jni_onload" ]
-    configs += [ "//build/config/android:hide_all_but_jni" ]
+    suppressed_configs += [ "//chromium/build/config/android:hide_all_but_jni_onload" ]
+    configs += [ "//chromium/build/config/android:hide_all_but_jni" ]
 
     deps = [
       ":generated_jni",
+      "../../api/audio:builtin_audio_processing_builder",
       "../../rtc_base:async_packet_socket",
       "../../rtc_base:async_udp_socket",
       "../../rtc_base:logging",
@@ -69,6 +70,7 @@ if (is_android) {
       "//api/audio_codecs:builtin_audio_decoder_factory",
       "//api/audio_codecs:builtin_audio_encoder_factory",
       "//api/task_queue:default_task_queue_factory",
+      "//api/units:time_delta",
       "//api/voip:voip_api",
       "//api/voip:voip_engine_factory",
       "//rtc_base/network:received_packet",

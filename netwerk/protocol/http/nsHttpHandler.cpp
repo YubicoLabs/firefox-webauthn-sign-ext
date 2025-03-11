@@ -30,13 +30,14 @@
 #include "mozilla/ClearOnShutdown.h"
 #include "mozilla/Components.h"
 #include "mozilla/Printf.h"
+#include "mozilla/RandomNum.h"
+#include "mozilla/SHA1.h"
 #include "mozilla/Sprintf.h"
 #include "mozilla/StaticPrefs_network.h"
 #include "mozilla/StaticPrefs_privacy.h"
 #include "mozilla/StoragePrincipalHelper.h"
 #include "nsAsyncRedirectVerifyHelper.h"
 #include "nsSocketTransportService2.h"
-#include "nsAlgorithm.h"
 #include "ASpdySession.h"
 #include "EventTokenBucket.h"
 #include "Tickler.h"
@@ -69,12 +70,14 @@
 #include "mozilla/net/SocketProcessParent.h"
 #include "mozilla/net/SocketProcessChild.h"
 #include "mozilla/ipc/URIUtils.h"
+#include "mozilla/glean/NetwerkProtocolHttpMetrics.h"
 #include "mozilla/Telemetry.h"
 #include "mozilla/Unused.h"
 #include "mozilla/AntiTrackingRedirectHeuristic.h"
 #include "mozilla/DynamicFpiRedirectHeuristic.h"
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/LazyIdleThread.h"
+#include "mozilla/OriginAttributesHashKey.h"
 #include "mozilla/StaticPrefs_image.h"
 #include "mozilla/SyncRunnable.h"
 
@@ -122,6 +125,7 @@
 #define DOM_SECURITY_PREFIX "dom.security"
 
 #define ACCEPT_HEADER_STYLE "text/css,*/*;q=0.1"
+#define ACCEPT_HEADER_JSON "application/json,*/*;q=0.5"
 #define ACCEPT_HEADER_ALL "*/*"
 
 #define UA_PREF(_pref) UA_PREF_PREFIX _pref
@@ -260,6 +264,8 @@ nsHttpHandler::nsHttpHandler()
       mImageAcceptHeader(ImageAcceptHeader()),
       mDocumentAcceptHeader(DocumentAcceptHeader()),
       mLastUniqueID(NowInSeconds()),
+      mIdempotencyKeySeed(mozilla::RandomUint64OrDie()),
+      mPrivateBrowsingIdempotencyKeySeed(mozilla::RandomUint64OrDie()),
       mDebugObservations(false),
       mEnableAltSvc(false),
       mEnableAltSvcOE(false),
@@ -329,7 +335,7 @@ nsresult nsHttpHandler::Init() {
   // xpcshell tests doing this.
   if (MOZ_UNLIKELY(AppShutdown::IsInOrBeyond(ShutdownPhase::AppShutdown) &&
                    !PR_GetEnv("XPCSHELL_TEST_PROFILE_DIR"))) {
-    MOZ_DIAGNOSTIC_ASSERT(false, "Try to init HttpHandler after shutdown");
+    MOZ_DIAGNOSTIC_CRASH("Try to init HttpHandler after shutdown");
     return NS_ERROR_ILLEGAL_DURING_SHUTDOWN;
   }
 
@@ -351,16 +357,22 @@ nsresult nsHttpHandler::Init() {
 
   InitUserAgentComponents();
 
-  // This perference is only used in parent process.
+  // This preference is only used in parent process.
   if (!IsNeckoChild()) {
     mActiveTabPriority =
         Preferences::GetBool(HTTP_PREF("active_tab_priority"), true);
-    std::bitset<3> usageOfHTTPSRRPrefs;
-    usageOfHTTPSRRPrefs[0] = StaticPrefs::network_dns_upgrade_with_https_rr();
-    usageOfHTTPSRRPrefs[1] = StaticPrefs::network_dns_use_https_rr_as_altsvc();
-    usageOfHTTPSRRPrefs[2] = StaticPrefs::network_dns_echconfig_enabled();
-    Telemetry::ScalarSet(Telemetry::ScalarID::NETWORKING_HTTPS_RR_PREFS_USAGE,
-                         static_cast<uint32_t>(usageOfHTTPSRRPrefs.to_ulong()));
+    if (XRE_IsParentProcess()) {
+      std::bitset<3> usageOfHTTPSRRPrefs;
+      usageOfHTTPSRRPrefs[0] = StaticPrefs::network_dns_upgrade_with_https_rr();
+      usageOfHTTPSRRPrefs[1] =
+          StaticPrefs::network_dns_use_https_rr_as_altsvc();
+      usageOfHTTPSRRPrefs[2] = StaticPrefs::network_dns_echconfig_enabled();
+      glean::networking::https_rr_prefs_usage.Set(
+          static_cast<uint32_t>(usageOfHTTPSRRPrefs.to_ulong()));
+      glean::networking::http3_enabled.Set(
+          StaticPrefs::network_http_http3_enable());
+    }
+
     mActivityDistributor = components::HttpActivityDistributor::Service();
 
     auto initQLogDir = [&]() {
@@ -410,9 +422,6 @@ nsresult nsHttpHandler::Init() {
                                        gCallbackPrefs, this);
   PrefsChanged(nullptr);
 
-  Telemetry::ScalarSet(Telemetry::ScalarID::NETWORKING_HTTP3_ENABLED,
-                       StaticPrefs::network_http_http3_enable());
-
   mCompatFirefox.AssignLiteral("Firefox/" MOZILLA_UAVERSION);
 
   nsCOMPtr<nsIXULAppInfo> appInfo;
@@ -434,7 +443,7 @@ nsresult nsHttpHandler::Init() {
   mMisc.AssignLiteral("rv:" MOZILLA_UAVERSION);
 
   // Generate the spoofed User Agent for fingerprinting resistance.
-  nsRFPService::GetSpoofedUserAgent(mSpoofedUserAgent, true);
+  nsRFPService::GetSpoofedUserAgent(mSpoofedUserAgent);
 
   mSessionStartTime = NowInSeconds();
   mHandlerActive = true;
@@ -446,7 +455,7 @@ nsresult nsHttpHandler::Init() {
 
   mRequestContextService = RequestContextService::GetOrCreate();
 
-#if defined(ANDROID)
+#if defined(ANDROID) || defined(XP_IOS)
   mProductSub.AssignLiteral(MOZILLA_UAVERSION);
 #else
   mProductSub.AssignLiteral(LEGACY_UA_GECKO_TRAIL);
@@ -497,6 +506,8 @@ nsresult nsHttpHandler::Init() {
     obsService->AddObserver(this, "browser-delayed-startup-finished", true);
     obsService->AddObserver(this, "network:reset-http3-excluded-list", true);
     obsService->AddObserver(this, "network:socket-process-crashed", true);
+    obsService->AddObserver(this, "network:reset_third_party_roots_check",
+                            true);
 
     if (!IsNeckoChild()) {
       obsService->AddObserver(this, "net:current-browser-id", true);
@@ -551,6 +562,31 @@ void nsHttpHandler::UpdateParentalControlsEnabled(bool waitForCompletion) {
                                std::move(getParentalControlsTask)),
         mozilla::EventQueuePriority::Idle);
   }
+}
+
+void nsHttpHandler::GenerateIdempotencyKeyForPost(const uint32_t aPostId,
+                                                  nsILoadInfo* aLoadInfo,
+                                                  nsACString& aOutKey) {
+  MOZ_ASSERT(aLoadInfo);
+  OriginAttributes attrs = aLoadInfo->GetOriginAttributes();
+
+  // Create a SHA1 string using the origin attributes, session seed and the post
+  // id.
+  nsAutoCString sha1Input;
+  attrs.CreateSuffix(sha1Input);
+  sha1Input.AppendInt(aPostId);
+  sha1Input.AppendInt(attrs.IsPrivateBrowsing()
+                          ? mPrivateBrowsingIdempotencyKeySeed
+                          : mIdempotencyKeySeed);
+  SHA1Sum sha1;
+  SHA1Sum::Hash hash;
+  sha1.update((sha1Input.get()), sha1Input.Length());
+  sha1.finish(hash);
+  uint64_t hashValue = BigEndian::readUint64(&hash);
+
+  aOutKey.Append("\"");
+  aOutKey.AppendInt(hashValue);
+  aOutKey.Append("\"");
 }
 
 const nsCString& nsHttpHandler::Http3QlogDir() {
@@ -608,12 +644,12 @@ nsresult nsHttpHandler::InitConnectionMgr() {
     mConnMgr = new nsHttpConnectionMgr();
   }
 
-  return mConnMgr->Init(
-      mMaxUrgentExcessiveConns, mMaxConnections,
-      mMaxPersistentConnectionsPerServer, mMaxPersistentConnectionsPerProxy,
-      mMaxRequestDelay, mThrottleEnabled, mThrottleVersion, mThrottleSuspendFor,
-      mThrottleResumeFor, mThrottleReadLimit, mThrottleReadInterval,
-      mThrottleHoldTime, mThrottleMaxTime, mBeConservativeForProxy);
+  return mConnMgr->Init(mMaxUrgentExcessiveConns, mMaxConnections,
+                        mMaxPersistentConnectionsPerServer,
+                        mMaxPersistentConnectionsPerProxy, mMaxRequestDelay,
+                        mThrottleEnabled, mThrottleSuspendFor,
+                        mThrottleResumeFor, mThrottleHoldTime, mThrottleMaxTime,
+                        mBeConservativeForProxy);
 }
 
 nsresult nsHttpHandler::AddStandardRequestHeaders(
@@ -640,6 +676,8 @@ nsresult nsHttpHandler::AddStandardRequestHeaders(
     accept.Assign(mImageAcceptHeader);
   } else if (aContentPolicyType == ExtContentPolicy::TYPE_STYLESHEET) {
     accept.Assign(ACCEPT_HEADER_STYLE);
+  } else if (aContentPolicyType == ExtContentPolicy::TYPE_JSON) {
+    accept.Assign(ACCEPT_HEADER_JSON);
   } else {
     accept.Assign(ACCEPT_HEADER_ALL);
   }
@@ -960,6 +998,8 @@ void nsHttpHandler::InitUserAgentComponents() {
       "Windows"
 #elif defined(XP_MACOSX)
       "Macintosh"
+#elif defined(XP_IOS)
+      "iPhone"
 #elif defined(XP_UNIX)
       // We historically have always had X11 here,
       // and there seems little a webpage can sensibly do
@@ -1019,6 +1059,12 @@ void nsHttpHandler::InitUserAgentComponents() {
   }
 #endif  // ANDROID
 
+#if defined(XP_IOS)
+  // Freeze the iOS version to 18.0, use an underscore separator to avoid
+  // detection as macOS.
+  mCompatDevice.AssignLiteral("CPU iPhone OS 18_0 like Mac OS X");
+#endif
+
   // Gather OS/CPU.
 #if defined(XP_WIN)
 
@@ -1048,6 +1094,8 @@ void nsHttpHandler::InitUserAgentComponents() {
   mOscpu.AssignLiteral("Intel Mac OS X 10.15");
 #elif defined(ANDROID)
   mOscpu.AssignLiteral("Linux armv81");
+#elif defined(XP_IOS)
+  mOscpu.AssignLiteral("iPhone");
 #else
   mOscpu.AssignLiteral("Linux x86_64");
 #endif
@@ -1179,21 +1227,21 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
   if (PREF_CHANGED(HTTP_PREF("keep-alive.timeout"))) {
     rv = Preferences::GetInt(HTTP_PREF("keep-alive.timeout"), &val);
     if (NS_SUCCEEDED(rv)) {
-      mIdleTimeout = PR_SecondsToInterval(clamped(val, 1, 0xffff));
+      mIdleTimeout = PR_SecondsToInterval(std::clamp(val, 1, 0xffff));
     }
   }
 
   if (PREF_CHANGED(HTTP_PREF("request.max-attempts"))) {
     rv = Preferences::GetInt(HTTP_PREF("request.max-attempts"), &val);
     if (NS_SUCCEEDED(rv)) {
-      mMaxRequestAttempts = (uint16_t)clamped(val, 1, 0xffff);
+      mMaxRequestAttempts = (uint16_t)std::clamp(val, 1, 0xffff);
     }
   }
 
   if (PREF_CHANGED(HTTP_PREF("request.max-start-delay"))) {
     rv = Preferences::GetInt(HTTP_PREF("request.max-start-delay"), &val);
     if (NS_SUCCEEDED(rv)) {
-      mMaxRequestDelay = (uint16_t)clamped(val, 0, 0xffff);
+      mMaxRequestDelay = (uint16_t)std::clamp(val, 0, 0xffff);
       if (mConnMgr) {
         rv = mConnMgr->UpdateParam(nsHttpConnectionMgr::MAX_REQUEST_DELAY,
                                    mMaxRequestDelay);
@@ -1210,20 +1258,22 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
   if (PREF_CHANGED(HTTP_PREF("response.timeout"))) {
     rv = Preferences::GetInt(HTTP_PREF("response.timeout"), &val);
     if (NS_SUCCEEDED(rv)) {
-      mResponseTimeout = PR_SecondsToInterval(clamped(val, 0, 0xffff));
+      mResponseTimeout = PR_SecondsToInterval(std::clamp(val, 0, 0xffff));
     }
   }
 
   if (PREF_CHANGED(HTTP_PREF("network-changed.timeout"))) {
     rv = Preferences::GetInt(HTTP_PREF("network-changed.timeout"), &val);
-    if (NS_SUCCEEDED(rv)) mNetworkChangedTimeout = clamped(val, 1, 600) * 1000;
+    if (NS_SUCCEEDED(rv)) {
+      mNetworkChangedTimeout = std::clamp(val, 1, 600) * 1000;
+    }
   }
 
   if (PREF_CHANGED(HTTP_PREF("max-connections"))) {
     rv = Preferences::GetInt(HTTP_PREF("max-connections"), &val);
     if (NS_SUCCEEDED(rv)) {
       mMaxConnections =
-          (uint16_t)clamped((uint32_t)val, (uint32_t)1, MaxSocketCount());
+          (uint16_t)std::clamp((uint32_t)val, (uint32_t)1, MaxSocketCount());
 
       if (mConnMgr) {
         rv = mConnMgr->UpdateParam(nsHttpConnectionMgr::MAX_CONNECTIONS,
@@ -1243,7 +1293,7 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
     rv = Preferences::GetInt(
         HTTP_PREF("max-urgent-start-excessive-connections-per-host"), &val);
     if (NS_SUCCEEDED(rv)) {
-      mMaxUrgentExcessiveConns = (uint8_t)clamped(val, 1, 0xff);
+      mMaxUrgentExcessiveConns = (uint8_t)std::clamp(val, 1, 0xff);
       if (mConnMgr) {
         rv = mConnMgr->UpdateParam(nsHttpConnectionMgr::MAX_URGENT_START_Q,
                                    mMaxUrgentExcessiveConns);
@@ -1262,7 +1312,7 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
     rv = Preferences::GetInt(HTTP_PREF("max-persistent-connections-per-server"),
                              &val);
     if (NS_SUCCEEDED(rv)) {
-      mMaxPersistentConnectionsPerServer = (uint8_t)clamped(val, 1, 0xff);
+      mMaxPersistentConnectionsPerServer = (uint8_t)std::clamp(val, 1, 0xff);
       if (mConnMgr) {
         rv = mConnMgr->UpdateParam(
             nsHttpConnectionMgr::MAX_PERSISTENT_CONNECTIONS_PER_HOST,
@@ -1282,7 +1332,7 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
     rv = Preferences::GetInt(HTTP_PREF("max-persistent-connections-per-proxy"),
                              &val);
     if (NS_SUCCEEDED(rv)) {
-      mMaxPersistentConnectionsPerProxy = (uint8_t)clamped(val, 1, 0xff);
+      mMaxPersistentConnectionsPerProxy = (uint8_t)std::clamp(val, 1, 0xff);
       if (mConnMgr) {
         rv = mConnMgr->UpdateParam(
             nsHttpConnectionMgr::MAX_PERSISTENT_CONNECTIONS_PER_PROXY,
@@ -1300,12 +1350,12 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
 
   if (PREF_CHANGED(HTTP_PREF("redirection-limit"))) {
     rv = Preferences::GetInt(HTTP_PREF("redirection-limit"), &val);
-    if (NS_SUCCEEDED(rv)) mRedirectionLimit = (uint8_t)clamped(val, 0, 0xff);
+    if (NS_SUCCEEDED(rv)) mRedirectionLimit = (uint8_t)std::clamp(val, 0, 0xff);
   }
 
   if (PREF_CHANGED(HTTP_PREF("connection-retry-timeout"))) {
     rv = Preferences::GetInt(HTTP_PREF("connection-retry-timeout"), &val);
-    if (NS_SUCCEEDED(rv)) mIdleSynTimeout = (uint16_t)clamped(val, 0, 3000);
+    if (NS_SUCCEEDED(rv)) mIdleSynTimeout = (uint16_t)std::clamp(val, 0, 3000);
   }
 
   if (PREF_CHANGED(HTTP_PREF("fast-fallback-to-IPv4"))) {
@@ -1316,7 +1366,7 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
   if (PREF_CHANGED(HTTP_PREF("fallback-connection-timeout"))) {
     rv = Preferences::GetInt(HTTP_PREF("fallback-connection-timeout"), &val);
     if (NS_SUCCEEDED(rv)) {
-      mFallbackSynTimeout = (uint16_t)clamped(val, 0, 10 * 60);
+      mFallbackSynTimeout = (uint16_t)std::clamp(val, 0, 10 * 60);
     }
   }
 
@@ -1362,7 +1412,7 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
 
   if (PREF_CHANGED(HTTP_PREF("qos"))) {
     rv = Preferences::GetInt(HTTP_PREF("qos"), &val);
-    if (NS_SUCCEEDED(rv)) mQoSBits = (uint8_t)clamped(val, 0, 0xff);
+    if (NS_SUCCEEDED(rv)) mQoSBits = (uint8_t)std::clamp(val, 0, 0xff);
   }
 
   if (PREF_CHANGED(HTTP_PREF("accept-encoding"))) {
@@ -1429,32 +1479,32 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
   if (PREF_CHANGED(HTTP_PREF("phishy-userpass-length"))) {
     rv = Preferences::GetInt(HTTP_PREF("phishy-userpass-length"), &val);
     if (NS_SUCCEEDED(rv)) {
-      mPhishyUserPassLength = (uint8_t)clamped(val, 0, 0xff);
+      mPhishyUserPassLength = (uint8_t)std::clamp(val, 0, 0xff);
     }
   }
 
   if (PREF_CHANGED(HTTP_PREF("http2.timeout"))) {
     mSpdyTimeout = PR_SecondsToInterval(
-        clamped(StaticPrefs::network_http_http2_timeout(), 1, 0xffff));
+        std::clamp(StaticPrefs::network_http_http2_timeout(), 1, 0xffff));
   }
 
   if (PREF_CHANGED(HTTP_PREF("http2.chunk-size"))) {
     // keep this within http/2 ranges of 1 to 2^24-1
-    mSpdySendingChunkSize = (uint32_t)clamped(
+    mSpdySendingChunkSize = (uint32_t)std::clamp(
         StaticPrefs::network_http_http2_chunk_size(), 1, 0xffffff);
   }
 
   // The amount of idle seconds on a http2 connection before initiating a
   // server ping. 0 will disable.
   if (PREF_CHANGED(HTTP_PREF("http2.ping-threshold"))) {
-    mSpdyPingThreshold = PR_SecondsToInterval((uint16_t)clamped(
+    mSpdyPingThreshold = PR_SecondsToInterval((uint16_t)std::clamp(
         StaticPrefs::network_http_http2_ping_threshold(), 0, 0x7fffffff));
   }
 
   // The amount of seconds to wait for a http2 ping response before
   // closing the session.
   if (PREF_CHANGED(HTTP_PREF("http2.ping-timeout"))) {
-    mSpdyPingTimeout = PR_SecondsToInterval((uint16_t)clamped(
+    mSpdyPingTimeout = PR_SecondsToInterval((uint16_t)std::clamp(
         StaticPrefs::network_http_http2_ping_timeout(), 0, 0x7fffffff));
   }
 
@@ -1470,12 +1520,12 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
 
   if (PREF_CHANGED(HTTP_PREF("http2.push-allowance"))) {
     mSpdyPushAllowance = static_cast<uint32_t>(
-        clamped(StaticPrefs::network_http_http2_push_allowance(), 1024,
-                static_cast<int32_t>(ASpdySession::kInitialRwin)));
+        std::clamp(StaticPrefs::network_http_http2_push_allowance(), 1024,
+                   static_cast<int32_t>(ASpdySession::kInitialRwin)));
   }
 
   if (PREF_CHANGED(HTTP_PREF("http2.pull-allowance"))) {
-    mSpdyPullAllowance = static_cast<uint32_t>(clamped(
+    mSpdyPullAllowance = static_cast<uint32_t>(std::clamp(
         StaticPrefs::network_http_http2_pull_allowance(), 1024, 0x7fffffff));
   }
 
@@ -1489,7 +1539,7 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
   // If http2.send-buffer-size is non-zero, the size to set the TCP
   //  sendbuffer to once the stream has surpassed this number of bytes uploaded
   if (PREF_CHANGED(HTTP_PREF("http2.send-buffer-size"))) {
-    mSpdySendBufferSize = (uint32_t)clamped(
+    mSpdySendBufferSize = (uint32_t)std::clamp(
         StaticPrefs::network_http_http2_send_buffer_size(), 1500, 0x7fffffff);
   }
 
@@ -1499,7 +1549,7 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
     rv = Preferences::GetInt(HTTP_PREF("connection-timeout"), &val);
     if (NS_SUCCEEDED(rv)) {
       // the pref is in seconds, but the variable is in milliseconds
-      mConnectTimeout = clamped(val, 1, 0xffff) * PR_MSEC_PER_SEC;
+      mConnectTimeout = std::clamp(val, 1, 0xffff) * PR_MSEC_PER_SEC;
     }
   }
 
@@ -1508,7 +1558,7 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
     rv = Preferences::GetInt(HTTP_PREF("tls-handshake-timeout"), &val);
     if (NS_SUCCEEDED(rv)) {
       // the pref is in seconds, but the variable is in milliseconds
-      mTLSHandshakeTimeout = clamped(val, 1, 0xffff) * PR_MSEC_PER_SEC;
+      mTLSHandshakeTimeout = std::clamp(val, 1, 0xffff) * PR_MSEC_PER_SEC;
     }
   }
 
@@ -1517,7 +1567,7 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
   if (PREF_CHANGED(HTTP_PREF("speculative-parallel-limit"))) {
     rv = Preferences::GetInt(HTTP_PREF("speculative-parallel-limit"), &val);
     if (NS_SUCCEEDED(rv)) {
-      mParallelSpeculativeConnectLimit = (uint32_t)clamped(val, 0, 1024);
+      mParallelSpeculativeConnectLimit = (uint32_t)std::clamp(val, 0, 1024);
     }
   }
 
@@ -1546,14 +1596,9 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
     }
   }
 
-  if (PREF_CHANGED(HTTP_PREF("throttle.version"))) {
-    Unused << Preferences::GetInt(HTTP_PREF("throttle.version"), &val);
-    mThrottleVersion = (uint32_t)clamped(val, 1, 2);
-  }
-
   if (PREF_CHANGED(HTTP_PREF("throttle.suspend-for"))) {
     rv = Preferences::GetInt(HTTP_PREF("throttle.suspend-for"), &val);
-    mThrottleSuspendFor = (uint32_t)clamped(val, 0, 120000);
+    mThrottleSuspendFor = (uint32_t)std::clamp(val, 0, 120000);
     if (NS_SUCCEEDED(rv) && mConnMgr) {
       Unused << mConnMgr->UpdateParam(
           nsHttpConnectionMgr::THROTTLING_SUSPEND_FOR, mThrottleSuspendFor);
@@ -1562,34 +1607,16 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
 
   if (PREF_CHANGED(HTTP_PREF("throttle.resume-for"))) {
     rv = Preferences::GetInt(HTTP_PREF("throttle.resume-for"), &val);
-    mThrottleResumeFor = (uint32_t)clamped(val, 0, 120000);
+    mThrottleResumeFor = (uint32_t)std::clamp(val, 0, 120000);
     if (NS_SUCCEEDED(rv) && mConnMgr) {
       Unused << mConnMgr->UpdateParam(
           nsHttpConnectionMgr::THROTTLING_RESUME_FOR, mThrottleResumeFor);
     }
   }
 
-  if (PREF_CHANGED(HTTP_PREF("throttle.read-limit-bytes"))) {
-    rv = Preferences::GetInt(HTTP_PREF("throttle.read-limit-bytes"), &val);
-    mThrottleReadLimit = (uint32_t)clamped(val, 0, 500000);
-    if (NS_SUCCEEDED(rv) && mConnMgr) {
-      Unused << mConnMgr->UpdateParam(
-          nsHttpConnectionMgr::THROTTLING_READ_LIMIT, mThrottleReadLimit);
-    }
-  }
-
-  if (PREF_CHANGED(HTTP_PREF("throttle.read-interval-ms"))) {
-    rv = Preferences::GetInt(HTTP_PREF("throttle.read-interval-ms"), &val);
-    mThrottleReadInterval = (uint32_t)clamped(val, 0, 120000);
-    if (NS_SUCCEEDED(rv) && mConnMgr) {
-      Unused << mConnMgr->UpdateParam(
-          nsHttpConnectionMgr::THROTTLING_READ_INTERVAL, mThrottleReadInterval);
-    }
-  }
-
   if (PREF_CHANGED(HTTP_PREF("throttle.hold-time-ms"))) {
     rv = Preferences::GetInt(HTTP_PREF("throttle.hold-time-ms"), &val);
-    mThrottleHoldTime = (uint32_t)clamped(val, 0, 120000);
+    mThrottleHoldTime = (uint32_t)std::clamp(val, 0, 120000);
     if (NS_SUCCEEDED(rv) && mConnMgr) {
       Unused << mConnMgr->UpdateParam(nsHttpConnectionMgr::THROTTLING_HOLD_TIME,
                                       mThrottleHoldTime);
@@ -1598,7 +1625,7 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
 
   if (PREF_CHANGED(HTTP_PREF("throttle.max-time-ms"))) {
     rv = Preferences::GetInt(HTTP_PREF("throttle.max-time-ms"), &val);
-    mThrottleMaxTime = (uint32_t)clamped(val, 0, 120000);
+    mThrottleMaxTime = (uint32_t)std::clamp(val, 0, 120000);
     if (NS_SUCCEEDED(rv) && mConnMgr) {
       Unused << mConnMgr->UpdateParam(nsHttpConnectionMgr::THROTTLING_MAX_TIME,
                                       mThrottleMaxTime);
@@ -1621,20 +1648,20 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
   }
   if (PREF_CHANGED(HTTP_PREF("tailing.delay-quantum"))) {
     val = StaticPrefs::network_http_tailing_delay_quantum();
-    mTailDelayQuantum = (uint32_t)clamped(val, 0, 60000);
+    mTailDelayQuantum = (uint32_t)std::clamp(val, 0, 60000);
   }
   if (PREF_CHANGED(HTTP_PREF("tailing.delay-quantum-after-domcontentloaded"))) {
     val = StaticPrefs::
         network_http_tailing_delay_quantum_after_domcontentloaded();
-    mTailDelayQuantumAfterDCL = (uint32_t)clamped(val, 0, 60000);
+    mTailDelayQuantumAfterDCL = (uint32_t)std::clamp(val, 0, 60000);
   }
   if (PREF_CHANGED(HTTP_PREF("tailing.delay-max"))) {
     val = StaticPrefs::network_http_tailing_delay_max();
-    mTailDelayMax = (uint32_t)clamped(val, 0, 60000);
+    mTailDelayMax = (uint32_t)std::clamp(val, 0, 60000);
   }
   if (PREF_CHANGED(HTTP_PREF("tailing.total-max"))) {
     val = StaticPrefs::network_http_tailing_total_max();
-    mTailTotalMax = (uint32_t)clamped(val, 0, 60000);
+    mTailTotalMax = (uint32_t)std::clamp(val, 0, 60000);
   }
 
   if (PREF_CHANGED(HTTP_PREF("focused_window_transaction_ratio"))) {
@@ -1710,14 +1737,14 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
         Preferences::GetInt(HTTP_PREF("pacing.requests.min-parallelism"), &val);
     if (NS_SUCCEEDED(rv)) {
       mRequestTokenBucketMinParallelism =
-          static_cast<uint16_t>(clamped(val, 1, 1024));
+          static_cast<uint16_t>(std::clamp(val, 1, 1024));
       requestTokenBucketUpdated = true;
     }
   }
   if (PREF_CHANGED(HTTP_PREF("pacing.requests.hz"))) {
     rv = Preferences::GetInt(HTTP_PREF("pacing.requests.hz"), &val);
     if (NS_SUCCEEDED(rv)) {
-      mRequestTokenBucketHz = static_cast<uint32_t>(clamped(val, 1, 10000));
+      mRequestTokenBucketHz = static_cast<uint32_t>(std::clamp(val, 1, 10000));
       requestTokenBucketUpdated = true;
     }
   }
@@ -1744,7 +1771,7 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
   if (PREF_CHANGED(HTTP_PREF("tcp_keepalive.short_lived_time"))) {
     rv = Preferences::GetInt(HTTP_PREF("tcp_keepalive.short_lived_time"), &val);
     if (NS_SUCCEEDED(rv) && val > 0) {
-      mTCPKeepaliveShortLivedTimeS = clamped(val, 1, 300);  // Max 5 mins.
+      mTCPKeepaliveShortLivedTimeS = std::clamp(val, 1, 300);  // Max 5 mins.
     }
   }
 
@@ -1752,7 +1779,7 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
     rv = Preferences::GetInt(HTTP_PREF("tcp_keepalive.short_lived_idle_time"),
                              &val);
     if (NS_SUCCEEDED(rv) && val > 0) {
-      mTCPKeepaliveShortLivedIdleTimeS = clamped(val, 1, kMaxTCPKeepIdle);
+      mTCPKeepaliveShortLivedIdleTimeS = std::clamp(val, 1, kMaxTCPKeepIdle);
     }
   }
 
@@ -1769,7 +1796,7 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
     rv = Preferences::GetInt(HTTP_PREF("tcp_keepalive.long_lived_idle_time"),
                              &val);
     if (NS_SUCCEEDED(rv) && val > 0) {
-      mTCPKeepaliveLongLivedIdleTimeS = clamped(val, 1, kMaxTCPKeepIdle);
+      mTCPKeepaliveLongLivedIdleTimeS = std::clamp(val, 1, kMaxTCPKeepIdle);
     }
   }
 
@@ -1811,7 +1838,7 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
     rv = Preferences::GetInt(HTTP_PREF("http3.default-max-stream-blocked"),
                              &val);
     if (NS_SUCCEEDED(rv)) {
-      mHttp3MaxBlockedStreams = clamped(val, 0, 0xffff);
+      mHttp3MaxBlockedStreams = std::clamp(val, 0, 0xffff);
     }
   }
 
@@ -1878,8 +1905,8 @@ void nsHttpHandler::PrefsChanged(const char* pref) {
     nsCOMPtr<nsIFile> qlogDir;
     if (Preferences::GetBool(HTTP_PREF("http3.enable_qlog")) &&
         !mHttp3QlogDir.IsEmpty() &&
-        NS_SUCCEEDED(NS_NewNativeLocalFile(mHttp3QlogDir, false,
-                                           getter_AddRefs(qlogDir)))) {
+        NS_SUCCEEDED(
+            NS_NewNativeLocalFile(mHttp3QlogDir, getter_AddRefs(qlogDir)))) {
       // Here we do main thread IO, but since this only happens
       // when enabling a developer feature it's not a problem for users.
       rv = qlogDir->Create(nsIFile::DIRECTORY_TYPE, 0755);
@@ -2254,6 +2281,13 @@ nsHttpHandler::Observe(nsISupports* subject, const char* topic,
       if (NS_FAILED(rv)) {
         LOG(("    VerifyTraffic failed (%08x)\n", static_cast<uint32_t>(rv)));
       }
+      // We exclude HTTP/3 for an origin when any error occurs during
+      // connection establishment. A common error is caused by UDP being blocked
+      // by the network. When the network changes, it’s likely that UDP is no
+      // longer blocked, so we should reset the exclusion list to give HTTP/3
+      // another chance.
+      MutexAutoLock lock(mHttpExclusionLock);
+      mExcludedHttp3Origins.Clear();
     }
   } else if (!strcmp(topic, "application-background")) {
     // going to the background on android means we should close
@@ -2704,16 +2738,8 @@ bool nsHttpHandler::IsHttp3Enabled() {
 }
 
 bool nsHttpHandler::IsHttp3VersionSupported(const nsACString& version) {
-  if (!StaticPrefs::network_http_http3_support_version1() &&
-      version.EqualsLiteral("h3")) {
-    return false;
-  }
-  for (const auto& Http3Version : kHttp3Versions) {
-    if (version.Equals(Http3Version)) {
-      return true;
-    }
-  }
-  return false;
+  return (StaticPrefs::network_http_http3_support_version1() &&
+          version.EqualsLiteral("h3"));
 }
 
 bool nsHttpHandler::IsHttp3SupportedByServer(
@@ -2729,15 +2755,7 @@ bool nsHttpHandler::IsHttp3SupportedByServer(
     return false;
   }
 
-  for (const auto& Http3Version : kHttp3Versions) {
-    nsAutoCString value(Http3Version);
-    value.Append("="_ns);
-    if (strstr(altSvc.get(), value.get())) {
-      return true;
-    }
-  }
-
-  return false;
+  return altSvc.Find("h3=") != -1;
 }
 
 nsresult nsHttpHandler::InitiateTransaction(HttpTransactionShell* aTrans,
@@ -2865,9 +2883,10 @@ void nsHttpHandler::MaybeAddAltSvcForTesting(
     aUri->GetPort(&originPort);
     LOG(("nsHttpHandler::MaybeAddAltSvcForTesting for %s map: %s",
          originHost.get(), PromiseFlatCString(*map).get()));
-    AltSvcMapping::ProcessHeader(
-        *map, nsCString("https"), originHost, originPort, aUsername,
-        aPrivateBrowsing, aCallbacks, nullptr, 0, aOriginAttributes, true);
+    AltSvcMapping::ProcessHeader(*map, nsCString("https"), originHost,
+                                 originPort, aUsername, aPrivateBrowsing,
+                                 aCallbacks, nullptr, 0, aOriginAttributes,
+                                 nullptr, true);
   }
 }
 

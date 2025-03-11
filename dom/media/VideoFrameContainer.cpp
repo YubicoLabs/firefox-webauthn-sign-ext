@@ -10,34 +10,12 @@
 #  include "GLImages.h"  // for SurfaceTextureImage
 #endif
 #include "MediaDecoderOwner.h"
-#include "mozilla/Telemetry.h"
 #include "mozilla/AbstractThread.h"
 
 using namespace mozilla::layers;
 
 namespace mozilla {
 #define NS_DispatchToMainThread(...) CompileError_UseAbstractMainThreadInstead
-
-namespace {
-template <Telemetry::HistogramID ID>
-class AutoTimer {
-  // Set a threshold to reduce performance overhead
-  // for we're measuring hot spots.
-  static const uint32_t sThresholdMS = 1000;
-
- public:
-  ~AutoTimer() {
-    auto end = TimeStamp::Now();
-    auto diff = uint32_t((end - mStart).ToMilliseconds());
-    if (diff > sThresholdMS) {
-      Telemetry::Accumulate(ID, diff);
-    }
-  }
-
- private:
-  const TimeStamp mStart = TimeStamp::Now();
-};
-}  // namespace
 
 VideoFrameContainer::VideoFrameContainer(
     MediaDecoderOwner* aOwner, already_AddRefed<ImageContainer> aContainer)
@@ -102,15 +80,13 @@ void VideoFrameContainer::SetCurrentFrame(
 #ifdef MOZ_WIDGET_ANDROID
   NotifySetCurrent(aImage);
 #endif
+  AutoTArray<ImageContainer::NonOwningImage, 1> imageList;
   if (aImage) {
-    MutexAutoLock lock(mMutex);
-    AutoTArray<ImageContainer::NonOwningImage, 1> imageList;
     imageList.AppendElement(ImageContainer::NonOwningImage(
         aImage, aTargetTime, ++mFrameID, 0, aProcessingDuration, aMediaTime));
-    SetCurrentFramesLocked(aIntrinsicSize, imageList);
-  } else {
-    ClearCurrentFrame(aIntrinsicSize);
   }
+  MutexAutoLock lock(mMutex);
+  SetCurrentFramesLocked(aIntrinsicSize, imageList);
 }
 
 void VideoFrameContainer::SetCurrentFrames(
@@ -154,18 +130,13 @@ void VideoFrameContainer::SetCurrentFramesLocked(
   mImageContainer->GetCurrentImages(&oldImages);
 
   PrincipalHandle principalHandle = PRINCIPAL_HANDLE_NONE;
-  ImageContainer::FrameID lastFrameIDForOldPrincipalHandle =
-      mFrameIDForPendingPrincipalHandle - 1;
   if (mPendingPrincipalHandle != PRINCIPAL_HANDLE_NONE &&
-      ((!oldImages.IsEmpty() &&
-        oldImages.LastElement().mFrameID >= lastFrameIDForOldPrincipalHandle) ||
-       (!aImages.IsEmpty() &&
-        aImages[0].mFrameID > lastFrameIDForOldPrincipalHandle))) {
-    // We are releasing the last FrameID prior to
-    // `lastFrameIDForOldPrincipalHandle` OR there are no FrameIDs prior to
-    // `lastFrameIDForOldPrincipalHandle` in the new set of images. This means
-    // that the old principal handle has been flushed out and we can notify our
-    // video element about this change.
+      (aImages.IsEmpty() ||
+       aImages[0].mFrameID >= mFrameIDForPendingPrincipalHandle)) {
+    // There are no FrameIDs prior to `mFrameIDForPendingPrincipalHandle`
+    // in the new set of images.
+    // This means that the old principal handle has been flushed out and we
+    // can notify our video element about this change.
     principalHandle = mPendingPrincipalHandle;
     mLastPrincipalHandle = mPendingPrincipalHandle;
     mPendingPrincipalHandle = PRINCIPAL_HANDLE_NONE;
@@ -173,7 +144,7 @@ void VideoFrameContainer::SetCurrentFramesLocked(
   }
 
   if (aImages.IsEmpty()) {
-    mImageContainer->ClearAllImages();
+    mImageContainer->ClearImagesInHost(layers::ClearImagesType::All);
   } else {
     mImageContainer->SetCurrentImages(aImages);
   }
@@ -223,6 +194,11 @@ void VideoFrameContainer::ClearFutureFrames(TimeStamp aNow) {
 void VideoFrameContainer::ClearCachedResources() {
   MutexAutoLock lock(mMutex);
   mImageContainer->ClearCachedResources();
+}
+
+void VideoFrameContainer::ClearImagesInHost(layers::ClearImagesType aType) {
+  MutexAutoLock lock(mMutex);
+  mImageContainer->ClearImagesInHost(aType);
 }
 
 ImageContainer* VideoFrameContainer::GetImageContainer() {

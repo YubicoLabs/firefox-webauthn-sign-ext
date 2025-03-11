@@ -516,6 +516,8 @@ void nsHtml5TreeOpExecutor::RunFlushLoop() {
 
   if (mRunFlushLoopOnStack) {
     // There's already a RunFlushLoop() on the call stack.
+    // The instance of RunFlushLoop() already on the stack is
+    // expected to ensure that we don't stall.
     return;
   }
 
@@ -544,18 +546,26 @@ void nsHtml5TreeOpExecutor::RunFlushLoop() {
 
     if (!parserKungFuDeathGrip->IsParserEnabled()) {
       // The parser is blocked.
+      // Whatever blocked the parser is responsible for ensuring that
+      // we don't stall.
       return;
     }
 
     if (mFlushState != eNotFlushing) {
-      // XXX Can this happen? In case it can, let's avoid crashing.
+      // It's not clear whether this case can ever happen. It's not
+      // supposed to, but in case this can happen, let's return
+      // early to avoid an even worse state. In case this happens,
+      // there in no obvious other mechanism to prevent stalling,
+      // so let's call `ContinueInterruptedParsingAsync()` to
+      // make sure we don't stall.
+      nsHtml5TreeOpExecutor::ContinueInterruptedParsingAsync();
       return;
     }
 
-    // If there are scripts executing, then the content sink is jumping the gun
-    // (probably due to a synchronous XMLHttpRequest) and will re-enable us
-    // later, see bug 460706.
+    // If there are scripts executing, this is probably due to a synchronous
+    // XMLHttpRequest, see bug 460706 and 1938290.
     if (IsScriptExecuting()) {
+      ContinueParsingDocumentAfterCurrentScript();
       return;
     }
 
@@ -624,6 +634,11 @@ void nsHtml5TreeOpExecutor::RunFlushLoop() {
       // SetNumberOfOpsToRemove is called first, in which case only
       // some ops from the start of the queue are cleared.
       nsHtml5AutoFlush autoFlush(this);
+      // Profiler marker deliberately not counting layout and script
+      // execution.
+      AUTO_PROFILER_MARKER_UNTYPED(
+          "HTMLParserTreeOps", DOM,
+          MarkerOptions(MarkerInnerWindowIdFromDocShell(mDocShell)));
 
       nsHtml5TreeOperation* first = mOpQueue.Elements();
       nsHtml5TreeOperation* last = first + mOpQueue.Length() - 1;
@@ -650,6 +665,10 @@ void nsHtml5TreeOpExecutor::RunFlushLoop() {
           autoFlush.SetNumberOfOpsToRemove((iter - first) + 1);
 
           nsHtml5TreeOpExecutor::ContinueInterruptedParsingAsync();
+          if (!interrupted) {
+            PROFILER_MARKER_UNTYPED("HTMLParserTreeOpsYieldedOnDeadline", DOM,
+                                    MarkerInnerWindowIdFromDocShell(mDocShell));
+          }
           return;
         }
       }
@@ -741,6 +760,12 @@ nsresult nsHtml5TreeOpExecutor::FlushDocumentWrite() {
   {
     // autoFlush clears mOpQueue in its destructor.
     nsHtml5AutoFlush autoFlush(this);
+    // Profiler marker deliberately not counting layout and script
+    // execution.
+    AUTO_PROFILER_MARKER_TEXT(
+        "HTMLParserTreeOps", DOM,
+        MarkerOptions(MarkerInnerWindowIdFromDocShell(mDocShell)),
+        "document.write"_ns);
 
     nsHtml5TreeOperation* start = mOpQueue.Elements();
     nsHtml5TreeOperation* end = start + mOpQueue.Length();

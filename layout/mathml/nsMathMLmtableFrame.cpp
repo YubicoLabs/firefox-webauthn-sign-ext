@@ -99,7 +99,9 @@ static nsTArray<int8_t>* ExtractStyleValues(const nsAString& aString,
 
     // Grab the value found and process it.
     if (count > 0) {
-      if (!styleArray) styleArray = new nsTArray<int8_t>();
+      if (!styleArray) {
+        styleArray = new nsTArray<int8_t>();
+      }
 
       // We want to return a null array if an attribute gives multiple values,
       // but multiple values aren't allowed.
@@ -145,9 +147,15 @@ NS_DECLARE_FRAME_PROPERTY_DELETABLE(ColumnLinesProperty, nsTArray<int8_t>)
 
 static const FramePropertyDescriptor<nsTArray<int8_t>>* AttributeToProperty(
     nsAtom* aAttribute) {
-  if (aAttribute == nsGkAtoms::rowalign_) return RowAlignProperty();
-  if (aAttribute == nsGkAtoms::rowlines_) return RowLinesProperty();
-  if (aAttribute == nsGkAtoms::columnalign_) return ColumnAlignProperty();
+  if (aAttribute == nsGkAtoms::rowalign_) {
+    return RowAlignProperty();
+  }
+  if (aAttribute == nsGkAtoms::rowlines_) {
+    return RowLinesProperty();
+  }
+  if (aAttribute == nsGkAtoms::columnalign_) {
+    return ColumnAlignProperty();
+  }
   NS_ASSERTION(aAttribute == nsGkAtoms::columnlines_, "Invalid attribute");
   return ColumnLinesProperty();
 }
@@ -168,10 +176,11 @@ static nsTArray<int8_t>* FindCellProperty(
     propertyData = currentFrame->GetProperty(aFrameProperty);
     bool frameIsTable = (currentFrame->IsTableFrame());
 
-    if (propertyData || frameIsTable)
+    if (propertyData || frameIsTable) {
       currentFrame = nullptr;  // A null frame pointer exits the loop
-    else
+    } else {
       currentFrame = currentFrame->GetParent();  // Go to the parent frame
+    }
   }
 
   return propertyData;
@@ -266,8 +275,7 @@ class nsDisplaymtdBorder final : public nsDisplayBorder {
   nsDisplaymtdBorder(nsDisplayListBuilder* aBuilder, nsMathMLmtdFrame* aFrame)
       : nsDisplayBorder(aBuilder, aFrame) {}
 
-  virtual nsRect GetBounds(nsDisplayListBuilder* aBuilder,
-                           bool* aSnap) const override {
+  nsRect GetBounds(nsDisplayListBuilder* aBuilder, bool* aSnap) const override {
     *aSnap = true;
     nsStyleBorder styleBorder = *mFrame->StyleBorder();
     nsMathMLmtdFrame* frame = static_cast<nsMathMLmtdFrame*>(mFrame);
@@ -278,8 +286,7 @@ class nsDisplaymtdBorder final : public nsDisplayBorder {
     return bounds;
   }
 
-  virtual void Paint(nsDisplayListBuilder* aBuilder,
-                     gfxContext* aCtx) override {
+  void Paint(nsDisplayListBuilder* aBuilder, gfxContext* aCtx) override {
     nsStyleBorder styleBorder = *mFrame->StyleBorder();
     nsMathMLmtdFrame* frame = static_cast<nsMathMLmtdFrame*>(mFrame);
     ApplyBorderToStyle(frame, styleBorder);
@@ -306,9 +313,7 @@ class nsDisplaymtdBorder final : public nsDisplayBorder {
     return false;
   }
 
-  virtual bool IsInvisibleInRect(const nsRect& aRect) const override {
-    return false;
-  }
+  bool IsInvisibleInRect(const nsRect& aRect) const override { return false; }
 };
 
 #ifdef DEBUG
@@ -545,7 +550,9 @@ static void MapAllAttributesIntoCSS(nsMathMLmtableFrame* aTableFrame) {
 
   // mtable is simple and only has one (pseudo) row-group
   nsIFrame* rgFrame = aTableFrame->PrincipalChildList().FirstChild();
-  if (!rgFrame || !rgFrame->IsTableRowGroupFrame()) return;
+  if (!rgFrame || !rgFrame->IsTableRowGroupFrame()) {
+    return;
+  }
 
   for (nsIFrame* rowFrame : rgFrame->PrincipalChildList()) {
     DEBUG_VERIFY_THAT_FRAME_IS(rowFrame, TableRow);
@@ -618,7 +625,9 @@ static void ParseAlignAttribute(nsString& aValue, eAlign& aAlign,
     nsresult error;
     aValue.Cut(0, len);  // aValue is not a const here
     aRowIndex = aValue.ToInteger(&error);
-    if (NS_FAILED(error)) aRowIndex = 0;
+    if (NS_FAILED(error)) {
+      aRowIndex = 0;
+    }
   }
 }
 
@@ -662,7 +671,9 @@ nsresult nsMathMLmtableWrapperFrame::AttributeChanged(int32_t aNameSpaceID,
   NS_ASSERTION(tableFrame && tableFrame->IsTableFrame(),
                "should always have an inner table frame");
   nsIFrame* rgFrame = tableFrame->PrincipalChildList().FirstChild();
-  if (!rgFrame || !rgFrame->IsTableRowGroupFrame()) return NS_OK;
+  if (!rgFrame || !rgFrame->IsTableRowGroupFrame()) {
+    return NS_OK;
+  }
 
   // align - just need to issue a dirty (resize) reflow command
   if (aNameSpaceID == kNameSpaceID_None && aAttribute == nsGkAtoms::align) {
@@ -723,11 +734,15 @@ nsIFrame* nsMathMLmtableWrapperFrame::GetRowFrameAt(int32_t aRowIndex) {
     NS_ASSERTION(tableFrame && tableFrame->IsTableFrame(),
                  "should always have an inner table frame");
     nsIFrame* rgFrame = tableFrame->PrincipalChildList().FirstChild();
-    if (!rgFrame || !rgFrame->IsTableRowGroupFrame()) return nullptr;
+    if (!rgFrame || !rgFrame->IsTableRowGroupFrame()) {
+      return nullptr;
+    }
     for (nsIFrame* rowFrame : rgFrame->PrincipalChildList()) {
       if (aRowIndex == 0) {
         DEBUG_VERIFY_THAT_FRAME_IS(rowFrame, TableRow);
-        if (!rowFrame->IsTableRowFrame()) return nullptr;
+        if (!rowFrame->IsTableRowFrame()) {
+          return nullptr;
+        }
 
         return rowFrame;
       }
@@ -1179,10 +1194,11 @@ const nsStyleText* nsMathMLmtdInnerFrame::StyleTextForLineLayout() {
 
     // If the column number is greater than the number of provided columalign
     // values, we simply repeat the last value.
-    if (columnIndex < alignmentList->Length())
+    if (columnIndex < alignmentList->Length()) {
       alignment = alignmentList->ElementAt(columnIndex);
-    else
+    } else {
       alignment = alignmentList->ElementAt(alignmentList->Length() - 1);
+    }
   }
 
   mUniqueStyleText->mTextAlign = StyleTextAlign(alignment);

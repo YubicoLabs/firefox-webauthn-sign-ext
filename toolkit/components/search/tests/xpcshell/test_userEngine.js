@@ -17,11 +17,12 @@ add_task(async function test_user_engine() {
     SearchUtils.MODIFIED_TYPE.ADDED,
     SearchUtils.TOPIC_ENGINE_MODIFIED
   );
-  await Services.search.addUserEngine(
-    "user",
-    "https://example.com/user?q={searchTerms}",
-    "u"
-  );
+  await Services.search.addUserEngine({
+    name: "user",
+    url: "https://example.com/user?q={searchTerms}",
+    suggestUrl: "https://example.com/suggest?q={searchTerms}",
+    alias: "u",
+  });
   await promiseEngineAdded;
 
   let engine = Services.search.getEngineByName("user");
@@ -39,7 +40,11 @@ add_task(async function test_user_engine() {
   );
 
   submission = engine.getSubmission("foo", SearchUtils.URL_TYPE.SUGGEST_JSON);
-  Assert.equal(submission, null, "Should not have a suggest url");
+  Assert.equal(
+    submission.uri.spec,
+    "https://example.com/suggest?q=foo",
+    "Should have the correct suggest url"
+  );
 
   Services.search.defaultEngine = engine;
 
@@ -49,7 +54,6 @@ add_task(async function test_user_engine() {
       displayName: "user",
       loadPath: "[user]",
       submissionUrl: "blank:",
-      verified: "verified",
     },
   });
 });

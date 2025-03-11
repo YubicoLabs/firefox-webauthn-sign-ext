@@ -1,5 +1,5 @@
 <!-- go/cmark -->
-<!--* freshness: {owner: 'danilchap' reviewed: '2021-05-12'} *-->
+<!--* freshness: {owner: 'danilchap' reviewed: '2024-09-02'} *-->
 
 # Using Abseil in WebRTC
 
@@ -22,17 +22,15 @@ The GN templates will take care of generating the proper dependency when
 used within Chromium or standalone. In that build mode, WebRTC will depend
 on a monolithic Abseil build target that will generate a shared library.
 
-Previously, `absl_deps` was used but been deprecated in May 2024.
-
 ## **Allowed**
 
 * `absl::AnyInvocable`
 * `absl::bind_front`
 * `absl::Cleanup`
+* [Hash tables, and B-tree ordered][abseil-containers] containers
 * `absl::InlinedVector`
 * `absl::Nonnull` and `absl::Nullable`
 * `absl::WrapUnique`
-* `absl::optional` and related stuff from `absl/types/optional.h`.
 * `absl::string_view`
 * The functions in `absl/strings/ascii.h`, `absl/strings/match.h`,
   and `absl/strings/str_replace.h`.
@@ -47,7 +45,11 @@ Previously, `absl_deps` was used but been deprecated in May 2024.
 * The macros in `absl/base/attributes.h`, `absl/base/config.h` and
   `absl/base/macros.h`.
 * `absl/numeric/bits.h`
+* Single argument absl::StrCat
 
+* ABSL_FLAG is allowed in tests and tools, but disallowed in in non-test code.
+
+[abseil-containers]: https://abseil.io/docs/cpp/guides/container
 
 ## **Disallowed**
 
@@ -59,23 +61,18 @@ Previously, `absl_deps` was used but been deprecated in May 2024.
 
 *Use `webrtc::Mutex` instead.*
 
-Chromium has a ban on new static initializers, and `absl::Mutex` uses
-one. To make `absl::Mutex` available, we would need to nicely ask the
-Abseil team to remove that initializer (like they already did for a
-spinlock initializer). Additionally, `absl::Mutex` handles time in a
-way that may not be compatible with the rest of WebRTC.
+### `absl::optional`
+
+*Use `std::optional` instead.*
 
 ### `absl::Span`
 
 *Use `rtc::ArrayView` instead.*
 
 `absl::Span` differs from `rtc::ArrayView` on several points, and both
-of them differ from the `std::span` that was voted into
-C++20&mdash;and `std::span` is likely to undergo further changes
-before C++20 is finalized. We should just keep using `rtc::ArrayView`
-and avoid `absl::Span` until C++20 is finalized and the Abseil team
-has decided if they will change `absl::Span` to match.
-[Bug](https://bugs.webrtc.org/9214).
+of them differ from the `std::span` introduced in C++20. We should just keep
+using `rtc::ArrayView` and avoid `absl::Span`. When WebRTC switches to C++20,
+we will consider replacing `rtc::ArrayView` with `std::span`.
 
 ### `absl::StrCat`, `absl::StrAppend`, `absl::StrJoin`, `absl::StrSplit`
 
@@ -84,3 +81,7 @@ has decided if they will change `absl::Span` to match.
 These are optimized for speed, not binary size. Even `StrCat` calls
 with a modest number of arguments can easily add several hundred bytes
 to the binary.
+
+Exception: Single-argument absl::StrCat is allowed in order to make it
+easy to use AbslStringify. See [TOTW #215](https://abseil.io/tips/215) for
+details on AbslStringify.

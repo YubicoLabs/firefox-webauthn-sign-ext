@@ -55,6 +55,13 @@ add_heuristic_tests(
           invalid: true,
           fields: [
             { fieldName: "address-line1", reason:"regex-heuristic" },
+            { fieldName: "address-line2", reason:"update-heuristic" },
+          ],
+        },
+        {
+          invalid: true,
+          fields: [
+            { fieldName: "address-level2", reason: "regex-heuristic" },
           ],
         },
         {
@@ -135,6 +142,12 @@ add_heuristic_tests(
           invalid: true,
           fields: [
             { fieldName: "address-line1", reason:"regex-heuristic" },
+          ],
+        },
+        {
+          invalid: true,
+          fields: [
+            { fieldName: "address-level2", reason: "regex-heuristic" },
           ],
         },
         {

@@ -7,6 +7,7 @@ package org.mozilla.fenix.ui
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.test.espresso.Espresso.openActionBarOverflowOrOptionsMenu
 import androidx.test.espresso.Espresso.pressBack
+import androidx.test.filters.SdkSuppress
 import org.junit.Rule
 import org.junit.Test
 import org.mozilla.fenix.R
@@ -145,7 +146,7 @@ class HistoryTest : TestSetup() {
 
         multipleSelectionToolbar {
             verifyMultiSelectionCheckmark()
-            verifyMultiSelectionCounter()
+            verifyMultiSelectionCounter(1)
             verifyShareHistoryButton()
             verifyCloseToolbarButton()
         }.closeToolbarReturnToHistory {
@@ -315,6 +316,7 @@ class HistoryTest : TestSetup() {
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/1715631
+    @SdkSuppress(minSdkVersion = 34)
     @Test
     fun verifyVoiceSearchInHistoryTest() {
         homeScreen {
@@ -343,7 +345,7 @@ class HistoryTest : TestSetup() {
         }.clickSearchButton {
             // Search for a valid term
             typeSearch(firstWebPage.title)
-            verifySearchEngineSuggestionResults(activityTestRule, firstWebPage.url.toString(), searchTerm = firstWebPage.title)
+            verifySearchSuggestionsAreDisplayed(activityTestRule, firstWebPage.url.toString())
             verifySuggestionsAreNotDisplayed(activityTestRule, secondWebPage.url.toString())
             clickClearButton()
             // Search for invalid term
@@ -383,7 +385,7 @@ class HistoryTest : TestSetup() {
             typeSearch("generic")
             verifySuggestionsAreNotDisplayed(activityTestRule, firstWebPage.url.toString())
             verifySuggestionsAreNotDisplayed(activityTestRule, secondWebPage.url.toString())
-            verifySearchEngineSuggestionResults(activityTestRule, thirdWebPage.url.toString(), searchTerm = "generic")
+            verifySponsoredSuggestionsResults(activityTestRule, thirdWebPage.url.toString(), searchTerm = "generic")
             pressBack()
         }
         historyMenu {

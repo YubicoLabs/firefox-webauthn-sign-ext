@@ -37,11 +37,12 @@
 
 - (RTCRtpSourceType)sourceType {
   return [RTC_OBJC_TYPE(RTCRtpSource)
-      rtpSourceTypeForNativeRtpSourceType:_nativeRtpSource.value().source_type()];
+      rtpSourceTypeForNativeRtpSourceType:_nativeRtpSource.value()
+                                              .source_type()];
 }
 
 - (NSNumber *)audioLevel {
-  absl::optional<uint8_t> level = _nativeRtpSource.value().audio_level();
+  std::optional<uint8_t> level = _nativeRtpSource.value().audio_level();
   if (!level.has_value()) {
     return nil;
   }
@@ -59,19 +60,23 @@
 
 - (NSString *)description {
   return [NSString
-      stringWithFormat:@"RTC_OBJC_TYPE(RTCRtpSource) {\n  sourceId: %d, sourceType: %@\n}",
-                       self.sourceId,
-                       [RTC_OBJC_TYPE(RTCRtpSource) stringForRtpSourceType:self.sourceType]];
+      stringWithFormat:
+          @"RTC_OBJC_TYPE(RTCRtpSource) {\n  sourceId: %d, sourceType: %@\n}",
+          self.sourceId,
+          [RTC_OBJC_TYPE(RTCRtpSource) stringForRtpSourceType:self.sourceType]];
 }
 
-- (instancetype)initWithNativeRtpSource:(const webrtc::RtpSource &)nativeRtpSource {
-  if (self = [super init]) {
+- (instancetype)initWithNativeRtpSource:
+    (const webrtc::RtpSource &)nativeRtpSource {
+  self = [super init];
+  if (self) {
     _nativeRtpSource = nativeRtpSource;
   }
   return self;
 }
 
-+ (RTCRtpSourceType)rtpSourceTypeForNativeRtpSourceType:(webrtc::RtpSourceType)nativeRtpSourceType {
++ (RTCRtpSourceType)rtpSourceTypeForNativeRtpSourceType:
+    (webrtc::RtpSourceType)nativeRtpSourceType {
   switch (nativeRtpSourceType) {
     case webrtc::RtpSourceType::SSRC:
       return RTCRtpSourceTypeSSRC;

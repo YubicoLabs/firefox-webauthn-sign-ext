@@ -312,10 +312,15 @@ addAccessibleTask(
  * Test caching of the editable state.
  */
 addAccessibleTask(
-  `<div id="div" contenteditable></div>`,
+  `
+<div id="div" contenteditable><p id="p">hello</p></div>
+<input id="input">
+  `,
   async function (browser, docAcc) {
     const div = findAccessibleChildByID(docAcc, "div");
+    const p = findAccessibleChildByID(docAcc, "p");
     testStates(div, 0, EXT_STATE_EDITABLE, 0, 0);
+    testStates(p, 0, EXT_STATE_EDITABLE, 0, 0);
     // Ensure that a contentEditable descendant doesn't cause editable to be
     // exposed on the document.
     testStates(docAcc, STATE_READONLY, 0, 0, EXT_STATE_EDITABLE);
@@ -349,6 +354,7 @@ addAccessibleTask(
     });
     await stateChanged;
     testStates(div, 0, 0, 0, EXT_STATE_EDITABLE);
+    testStates(p, 0, 0, 0, EXT_STATE_EDITABLE);
 
     info("Setting contentEditable on div");
     stateChanged = waitForStateChange(div, EXT_STATE_EDITABLE, true, true);
@@ -379,6 +385,20 @@ addAccessibleTask(
     });
     await stateChanged;
     testStates(docAcc, STATE_READONLY, 0, 0, EXT_STATE_EDITABLE);
+
+    const input = findAccessibleChildByID(docAcc, "input");
+    testStates(input, 0, EXT_STATE_EDITABLE, STATE_UNAVAILABLE, 0);
+    info("Setting disabled on input");
+    stateChanged = waitForEvents({
+      expected: [stateChangeEventArgs(input, STATE_UNAVAILABLE, true)],
+      unexpected: [
+        stateChangeEventArgs(input, EXT_STATE_EDITABLE, false, true),
+      ],
+    });
+    await invokeContentTask(browser, [], () => {
+      content.document.getElementById("input").disabled = true;
+    });
+    await stateChanged;
   },
   { topLevel: true, iframe: true, remoteIframe: true, chrome: true }
 );
@@ -818,4 +838,68 @@ addAccessibleTask(
     testStates(enabled, 0, 0, STATE_UNAVAILABLE);
   },
   { chrome: true, topLevel: true }
+);
+
+/**
+ * Test the protected state.
+ */
+addAccessibleTask(
+  `
+<input id="input">
+<input id="inputPassword" type="password">
+<textarea id="textareaPassword" type="password"></textarea>
+  `,
+  async function testProtected(browser, docAcc) {
+    const input = findAccessibleChildByID(docAcc, "input");
+    testStates(input, 0, 0, STATE_PROTECTED);
+    const inputPassword = findAccessibleChildByID(docAcc, "inputPassword");
+    testStates(inputPassword, STATE_PROTECTED);
+    // type="password" is not valid on textarea.
+    const textareaPassword = findAccessibleChildByID(
+      docAcc,
+      "textareaPassword"
+    );
+    testStates(textareaPassword, 0, 0, STATE_PROTECTED);
+  },
+  { chrome: true, topLevel: true }
+);
+
+/**
+ * Test the selectable text state.
+ */
+addAccessibleTask(
+  `
+<p id="selectableP">selectableP</p>
+<p id="unselectableP" style="user-select: none;">unselectableP</p>
+  `,
+  async function testSelectableText(browser, docAcc) {
+    testStates(docAcc, 0, EXT_STATE_SELECTABLE_TEXT);
+    const selectableP = findAccessibleChildByID(docAcc, "selectableP");
+    testStates(selectableP, 0, EXT_STATE_SELECTABLE_TEXT);
+    const unselectableP = findAccessibleChildByID(docAcc, "unselectableP");
+    testStates(unselectableP, 0, 0, 0, EXT_STATE_SELECTABLE_TEXT);
+  },
+  { chrome: true, topLevel: true }
+);
+
+/**
+ * Test the selectable text state on an unselectable body.
+ */
+addAccessibleTask(
+  `
+<style>
+body {
+  user-select: none;
+}
+<p id="p">p</p>
+  `,
+  async function testSelectableTextUnselectableBody(browser, docAcc) {
+    testStates(docAcc, 0, 0, 0, EXT_STATE_SELECTABLE_TEXT);
+    const p = findAccessibleChildByID(docAcc, "p");
+    testStates(p, 0, 0, 0, EXT_STATE_SELECTABLE_TEXT);
+  },
+  {
+    chrome: true,
+    topLevel: true,
+  }
 );

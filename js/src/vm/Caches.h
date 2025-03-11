@@ -20,7 +20,6 @@
 #include "js/TypeDecls.h"
 #include "vm/JSScript.h"
 #include "vm/Shape.h"
-#include "vm/StencilCache.h"  // js::DelazificationCache
 #include "vm/StringType.h"
 
 namespace js {
@@ -526,6 +525,8 @@ class StringToAtomCache {
   }
 };
 
+#ifdef MOZ_EXECUTION_TRACING
+
 // Holds a handful of caches used for tracing JS execution. These effectively
 // hold onto IDs which let the tracer know that it has already recorded the
 // entity in question. They need to be cleared on a compacting GC since they
@@ -607,6 +608,8 @@ class TracingCaches {
   }
 };
 
+#endif /* MOZ_EXECUTION_TRACING */
+
 class RuntimeCaches {
  public:
   MegamorphicCache megamorphicCache;
@@ -614,7 +617,10 @@ class RuntimeCaches {
   UncompressedSourceCache uncompressedSourceCache;
   EvalCache evalCache;
   StringToAtomCache stringToAtomCache;
+
+#ifdef MOZ_EXECUTION_TRACING
   TracingCaches tracingCaches;
+#endif
 
   // Delazification: Cache binding for runtime objects which are used during
   // delazification to quickly resolve NameLocation of bindings without linearly
@@ -637,18 +643,14 @@ class RuntimeCaches {
       megamorphicSetPropCache->bumpGeneration();
     }
     scopeCache.purge();
+#ifdef MOZ_EXECUTION_TRACING
     tracingCaches.clearOnCompaction();
-  }
-
-  void purgeStencils() {
-    DelazificationCache& cache = DelazificationCache::getSingleton();
-    cache.clearAndDisable();
+#endif
   }
 
   void purge() {
     purgeForCompaction();
     uncompressedSourceCache.purge();
-    purgeStencils();
   }
 };
 

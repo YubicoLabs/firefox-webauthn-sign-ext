@@ -109,7 +109,9 @@ void nsMathMLmrootFrame::BuildDisplayList(nsDisplayListBuilder* aBuilder,
   // paint the content we are square-rooting
   nsMathMLContainerFrame::BuildDisplayList(aBuilder, aLists);
 
-  if (ShouldUseRowFallback()) return;
+  if (ShouldUseRowFallback()) {
+    return;
+  }
 
   /////////////
   // paint the sqrt symbol
@@ -149,8 +151,12 @@ void nsMathMLmrootFrame::GetRadicalXOffsets(nscoord aIndexWidth,
 
   dxIndex = radicalKernBeforeDegree;
   dxSqr = radicalKernBeforeDegree + aIndexWidth + radicalKernAfterDegree;
-  if (aIndexOffset) *aIndexOffset = dxIndex;
-  if (aSqrOffset) *aSqrOffset = dxSqr;
+  if (aIndexOffset) {
+    *aIndexOffset = dxIndex;
+  }
+  if (aSqrOffset) {
+    *aSqrOffset = dxSqr;
+  }
 }
 
 nsresult nsMathMLmrootFrame::Place(DrawTarget* aDrawTarget,
@@ -180,8 +186,9 @@ nsresult nsMathMLmrootFrame::Place(DrawTarget* aDrawTarget,
   } else {
     // Format our content as an mrow without border/padding to obtain the
     // square root base. The metrics/frame for the index are ignored.
-    PlaceFlags flags =
-        aFlags + PlaceFlag::MeasureOnly + PlaceFlag::IgnoreBorderPadding;
+    PlaceFlags flags = aFlags + PlaceFlag::MeasureOnly +
+                       PlaceFlag::IgnoreBorderPadding +
+                       PlaceFlag::DoNotAdjustForWidthAndHeight;
     nsresult rv = nsMathMLContainerFrame::Place(aDrawTarget, flags, baseSize);
     if (NS_FAILED(rv)) {
       DidReflowChildren(PrincipalChildList().FirstChild());
@@ -219,7 +226,9 @@ nsresult nsMathMLmrootFrame::Place(DrawTarget* aDrawTarget,
   // adjust clearance psi to get an exact number of pixels -- this
   // gives a nicer & uniform look on stacked radicals (bug 130282)
   nscoord delta = psi % onePixel;
-  if (delta) psi += onePixel - delta;  // round up
+  if (delta) {
+    psi += onePixel - delta;  // round up
+  }
 
   // Stretch the radical symbol to the appropriate height if it is not big
   // enough.
@@ -317,6 +326,12 @@ nsresult nsMathMLmrootFrame::Place(DrawTarget* aDrawTarget,
 
   aDesiredSize.mBoundingMetrics = mBoundingMetrics;
 
+  // Apply width/height to math content box.
+  const PlaceFlags flags;
+  auto sizes = GetWidthAndHeightForPlaceAdjustment(flags);
+  nscoord shiftX = ApplyAdjustmentForWidthAndHeight(flags, sizes, aDesiredSize,
+                                                    mBoundingMetrics);
+
   // Add padding+border around the final layout.
   auto borderPadding = GetBorderPaddingForPlace(aFlags);
   InflateReflowAndBoundingMetrics(borderPadding, aDesiredSize,
@@ -360,7 +375,7 @@ nsresult nsMathMLmrootFrame::Place(DrawTarget* aDrawTarget,
                         MirrorIfRTL(aDesiredSize.Width(), baseSize.Width(), dx),
                         dy, ReflowChildFlags::Default);
     } else {
-      nscoord dx_left = borderPadding.left;
+      nscoord dx_left = borderPadding.left + shiftX;
       if (!isRTL) {
         dx_left += bmSqr.width;
       }

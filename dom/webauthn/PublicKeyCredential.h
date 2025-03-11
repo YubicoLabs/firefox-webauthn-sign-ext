@@ -54,11 +54,14 @@ class PublicKeyCredential final : public Credential {
   IsUserVerifyingPlatformAuthenticatorAvailable(GlobalObject& aGlobal,
                                                 ErrorResult& aError);
 
+  static already_AddRefed<Promise> GetClientCapabilities(GlobalObject& aGlobal,
+                                                         ErrorResult& aError);
+
   static already_AddRefed<Promise> IsConditionalMediationAvailable(
       GlobalObject& aGlobal, ErrorResult& aError);
 
-  void GetClientExtensionResults(JSContext* cx,
-                                 AuthenticationExtensionsClientOutputs& aResult);
+  void GetClientExtensionResults(
+      JSContext* cx, AuthenticationExtensionsClientOutputs& aResult) const;
 
   void ToJSON(JSContext* aCx, JS::MutableHandle<JSObject*> aRetval,
               ErrorResult& aError);
@@ -67,10 +70,14 @@ class PublicKeyCredential final : public Credential {
 
   void SetClientExtensionResultCredPropsRk(bool aResult);
 
-  void SetClientExtensionResultHmacCreateSecret(bool aHmacCreateSecret);
+  void SetClientExtensionResultHmacSecret(bool aHmacCreateSecret);
+  void InitClientExtensionResultPrf();
   void SetClientExtensionResultPrfEnabled(bool aPrfEnabled);
-  void SetClientExtensionResultPrfResultsFirst(const nsTArray<uint8_t>& aPrfResultsFirst);
-  void SetClientExtensionResultPrfResultsSecond(const nsTArray<uint8_t>& aPrfResultsSecond);
+  void SetClientExtensionResultPrfResultsFirst(
+      const nsTArray<uint8_t>& aPrfResultsFirst);
+  void SetClientExtensionResultPrfResultsSecond(
+      const nsTArray<uint8_t>& aPrfResultsSecond);
+
   void SetClientExtensionResultSignGeneratedKeyPublicKey(const nsTArray<uint8_t>& aSignGeneratedKeyPublicKey);
   void SetClientExtensionResultSignGeneratedKeyKeyHandle(const nsTArray<uint8_t>& aSignGeneratedKeyKeyHandle);
   void SetClientExtensionResultSignSignature(const nsTArray<uint8_t>& aSignSignature);
@@ -92,6 +99,10 @@ class PublicKeyCredential final : public Credential {
   RefPtr<AuthenticatorAttestationResponse> mAttestationResponse;
   RefPtr<AuthenticatorAssertionResponse> mAssertionResponse;
   AuthenticationExtensionsClientOutputs mClientExtensionOutputs;
+
+  // We need a reference to JSContext in order to convert nsTArray to
+  // BufferSource, so we need to store these outside mClientExtensionOutputs and
+  // defer the conversion until the GetClientExtensionResults call.
   Maybe<nsTArray<uint8_t>> mPrfResultsFirst;
   Maybe<nsTArray<uint8_t>> mPrfResultsSecond;
   Maybe<nsTArray<uint8_t>> mSignGeneratedKeyPublicKey;

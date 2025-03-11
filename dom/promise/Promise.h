@@ -409,6 +409,10 @@ class Promise : public SupportsWeakPtr {
   // Pass ePropagateUserInteraction for aPropagateUserInteraction if you want
   // the promise resolve handler to be called as if we were handling user
   // input events in case we are currently handling user input events.
+  // The error code can be:
+  // * NS_ERROR_UNEXPECTED when AutoJSAPI.Init fails
+  // * NS_ERROR_OUT_OF_MEMORY when NewPromiseObject throws OOM
+  // * NS_ERROR_NOT_INITIALIZED when NewPromiseObject fails without OOM
   void CreateWrapper(ErrorResult& aRv,
                      PropagateUserInteraction aPropagateUserInteraction =
                          eDontPropagateUserInteraction);
@@ -419,7 +423,9 @@ class Promise : public SupportsWeakPtr {
 
   template <typename T>
   void MaybeSomething(T&& aArgument, MaybeFunc aFunc) {
-    MOZ_ASSERT(PromiseObj());  // It was preserved!
+    if (NS_WARN_IF(!PromiseObj())) {
+      return;
+    }
 
     AutoAllowLegacyScriptExecution exemption;
     AutoEntryScript aes(mGlobal, "Promise resolution or rejection");

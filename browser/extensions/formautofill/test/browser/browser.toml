@@ -6,6 +6,10 @@ support-files = [
   "../fixtures/autocomplete_iframe.html",
   "../fixtures/autocomplete_iframe_sandboxed.html",
   "../fixtures/autocomplete_simple_basic.html",
+  "../fixtures/dynamic_form_changes.html",
+  "../fixtures/form_change_on_user_interaction.html",
+  "../fixtures/dynamic_formless_changes_node_mutations.html",
+  "../fixtures/dynamic_formless_changes_element_visiblity_state.html",
   "../fixtures/page_navigation.html",
   "./empty.html",
   "../fixtures/**",
@@ -22,15 +26,28 @@ skip-if = [
   "os == 'mac'",
 ]
 
+["browser_autocomplete_region.js"]
+
+["browser_autofill_address_housenumber.js"]
+
 ["browser_autofill_address_select.js"]
 
 ["browser_autofill_address_select_inexact.js"]
+
+["browser_autofill_address_select_match_isoid.js"]
 
 ["browser_autofill_creditCard_name.js"]
 
 ["browser_autofill_creditCard_type.js"]
 
 ["browser_autofill_duplicate_fields.js"]
+skip-if = [
+  "os == 'win' && os_version == '11.26100' && processor == 'x86_64' && debug", # Bug 1917060
+]
+
+["browser_autofill_invisible_fields.js"]
+
+["browser_autofill_invisible_iframe_fields.js"]
 
 ["browser_autofill_sandboxed_iframe.js"]
 
@@ -44,6 +61,8 @@ skip-if = [
 
 ["browser_dropdown_layout.js"]
 
+["browser_dynamic_form_change_detection.js"]
+
 ["browser_editAddressDialog.js"]
 skip-if = [
   "verify",
@@ -53,11 +72,19 @@ skip-if = [
 
 ["browser_fathom_cc.js"]
 
+["browser_fillclear_events.js"]
+
+["browser_fill_on_dynamic_form_change_detection.js"]
+
 ["browser_form_changes.js"]
 
 ["browser_iframe_autofill_cc_number.js"]
 
 ["browser_iframe_autofill_sandbox.js"]
+skip-if = [
+  "os == 'linux' && os_version == '18.04' && processor == 'x86_64' && asan", # Bug 1916287
+  "os == 'linux' && os_version == '18.04' && processor == 'x86_64' && debug", # Bug 1916287
+]
 
 ["browser_iframe_capture.js"]
 
@@ -73,7 +100,15 @@ skip-if = [
 
 ["browser_manageAddressesDialog.js"]
 
+["browser_ml_model.js"]
+
+["browser_nested_forms.js"]
+
 ["browser_page_navigation_in_subtree.js"]
+skip-if = [
+  "win11_2009", # Bug 1924248
+  "os == 'win' && os_version == '11.26100' && bits == 64", # Bug 1924248
+]
 
 ["browser_previewFormFields.js"]
 

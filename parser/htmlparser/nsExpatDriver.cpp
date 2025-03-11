@@ -34,8 +34,8 @@
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/IntegerTypeTraits.h"
 #include "mozilla/NullPrincipal.h"
-#include "mozilla/Telemetry.h"
-#include "mozilla/glean/GleanMetrics.h"
+#include "mozilla/RandomNum.h"
+#include "mozilla/glean/ParserHtmlparserMetrics.h"
 
 #include "nsThreadUtils.h"
 #include "mozilla/ClearOnShutdown.h"
@@ -827,8 +827,8 @@ int nsExpatDriver::HandleExternalEntityRef(const char16_t* openEntityNames,
         RLBOX_EXPAT_MCALL(MOZ_XML_ExternalEntityParserCreate, nullptr, *utf16);
     if (entParser) {
       auto baseURI = GetExpatBaseURI(absURI);
-      auto url = TransferBuffer<XML_Char>(Sandbox(), &baseURI[0],
-                                          ArrayLength(baseURI));
+      auto url =
+          TransferBuffer<XML_Char>(Sandbox(), &baseURI[0], std::size(baseURI));
       NS_ENSURE_TRUE(*url, 1);
       Sandbox()->invoke_sandbox_function(MOZ_XML_SetBase, entParser, *url);
 
@@ -1108,7 +1108,6 @@ nsresult nsExpatDriver::HandleError() {
       docShellDestroyed.Assign(destroyed ? "true"_ns : "false"_ns);
     }
 
-    mozilla::Telemetry::SetEventRecordingEnabled("ysod"_ns, true);
     mozilla::glean::ysod::ShownYsodExtra extra = {
         .destroyed = mozilla::Some(docShellDestroyed),
         .errorCode = mozilla::Some(code),
@@ -1218,7 +1217,7 @@ void nsExpatDriver::ParseChunk(const char16_t* aBuffer, uint32_t aLength,
     return parserBytesBefore;
   };
   int32_t parserBytesBefore = RLBOX_EXPAT_SAFE_MCALL(
-      XML_GetCurrentByteIndex, parserBytesBefore_verifier);
+      MOZ_XML_GetCurrentByteIndex, parserBytesBefore_verifier);
 
   if (mInternalState != NS_OK && !BlockedOrInterrupted()) {
     return;
@@ -1253,7 +1252,7 @@ void nsExpatDriver::ParseChunk(const char16_t* aBuffer, uint32_t aLength,
     return parserBytesConsumed;
   };
   int32_t parserBytesConsumed = RLBOX_EXPAT_SAFE_MCALL(
-      XML_GetCurrentByteIndex, parserBytesConsumed_verifier);
+      MOZ_XML_GetCurrentByteIndex, parserBytesConsumed_verifier);
 
   // Consumed something.
   *aConsumed += (parserBytesConsumed - parserBytesBefore) / sizeof(char16_t);
@@ -1617,9 +1616,17 @@ nsresult nsExpatDriver::Initialize(nsIURI* aURI, nsIContentSink* aSink) {
                     XML_PARAM_ENTITY_PARSING_ALWAYS);
 #endif
 
+  rlbox_sandbox_expat::convert_to_sandbox_equivalent_nonclass_t<unsigned long>
+      salt;
+  MOZ_RELEASE_ASSERT(mozilla::GenerateRandomBytesFromOS(&salt, sizeof(salt)));
+  MOZ_RELEASE_ASSERT(
+      RLBOX_EXPAT_SAFE_MCALL(MOZ_XML_SetHashSalt, safe_unverified<int>, salt));
+  MOZ_RELEASE_ASSERT(RLBOX_EXPAT_SAFE_MCALL(
+      MOZ_XML_SetReparseDeferralEnabled, safe_unverified<XML_Bool>, XML_FALSE));
+
   auto baseURI = GetExpatBaseURI(aURI);
   auto uri =
-      TransferBuffer<XML_Char>(Sandbox(), &baseURI[0], ArrayLength(baseURI));
+      TransferBuffer<XML_Char>(Sandbox(), &baseURI[0], std::size(baseURI));
   RLBOX_EXPAT_MCALL(MOZ_XML_SetBase, *uri);
 
   // Set up the callbacks

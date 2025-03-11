@@ -33,6 +33,7 @@ raptor_description_schema = Schema(
             Optional("lull-schedule"): optionally_keyed_by(
                 "subtest", "test-platform", str
             ),
+            Optional("network-conditions"): optionally_keyed_by("subtest", list),
         },
         # Configs defined in the 'test_description_schema'.
         Optional("max-run-time"): optionally_keyed_by(
@@ -167,18 +168,63 @@ def handle_keyed_by(config, tests):
         "raptor.activity",
         "raptor.binary-path",
         "raptor.lull-schedule",
+        "raptor.network-conditions",
         "limit-platforms",
         "fetches.fetch",
         "max-run-time",
         "run-on-projects",
         "target",
         "tier",
+        "mozharness.extra-options",
     ]
     for test in tests:
         for field in fields:
             resolve_keyed_by(
                 test, field, item_name=test["test-name"], defer=["variant"]
             )
+        yield test
+
+
+@transforms.add
+def handle_network_conditions(config, tests):
+    for test in tests:
+        conditions = test["raptor"].pop("network-conditions", None)
+        if not conditions:
+            yield test
+            continue
+
+        for condition in conditions:
+            new_test = deepcopy(test)
+            network_type, packet_loss_rate = condition
+
+            new_test.pop("chunk-number")
+            subtest = new_test.pop("subtest")
+            new_test["raptor"]["test"] = subtest
+
+            group, _ = split_symbol(new_test["treeherder-symbol"])
+            new_group = f"{group}-{network_type}"
+            subtest_symbol = f"{new_test['subtest-symbol']}-{packet_loss_rate}"
+            new_test["treeherder-symbol"] = join_symbol(new_group, subtest_symbol)
+
+            mozharness = new_test.setdefault("mozharness", {})
+            extra_options = mozharness.setdefault("extra-options", [])
+
+            extra_options.extend(
+                [
+                    f"--browsertime-arg=network_type={network_type}",
+                    f"--browsertime-arg=pkt_loss_rate={packet_loss_rate}",
+                ]
+            )
+
+            new_test["test-name"] += f"-{subtest}-{network_type}-{packet_loss_rate}"
+            new_test["try-name"] += f"-{subtest}-{network_type}-{packet_loss_rate}"
+            new_test["description"] += (
+                f" on {subtest} with {network_type} network type and "
+                f" {packet_loss_rate} loss rate"
+            )
+
+            yield new_test
+
         yield test
 
 
@@ -276,9 +322,7 @@ def add_extra_options(config, tests):
 
         # Adding device name if we're on android
         test_platform = test["test-platform"]
-        if test_platform.startswith("android-hw-a51"):
-            extra_options.append("--device-name=a51")
-        elif test_platform.startswith("android-hw-a55"):
+        if test_platform.startswith("android-hw-a55"):
             extra_options.append("--device-name=a55")
         elif test_platform.startswith("android-hw-p5"):
             extra_options.append("--device-name=p5_aarch64")
@@ -318,9 +362,20 @@ def add_extra_options(config, tests):
                     "--test-url-params={}".format(param.replace(" ", ""))
                 )
 
-        if "android-hw-p6" in test_platform or "android-hw-s24" in test_platform:
-            extra_options.append("--power-test")
-        elif "windows" in test_platform and "speedometer3" in test["test-name"]:
+        if (
+            ("android-hw-p6" in test_platform or "android-hw-s24" in test_platform)
+            and "speedometer-" not in test["test-name"]
+            # Bug 1943674 resolve why --power-test causes permafails on certain mobile platforms and browsers
+        ) or (
+            "android-hw-a55" in test_platform
+            and any(t in test["test-name"] for t in ("tp6", "speedometer3"))
+            # Bug 1919024 remove tp6 and sp3 restrictions once benchmark parsing is done in the support scripts
+        ):
+            if "--power-test" not in extra_options:
+                extra_options.append("--power-test")
+        elif "windows" in test_platform and any(
+            t in test["test-name"] for t in ("speedometer3", "tp6")
+        ):
             extra_options.append("--power-test")
 
         extra_options.append("--project={}".format(config.params.get("project")))
@@ -344,7 +399,7 @@ def modify_mozharness_configs(config, tests):
         elif "linux" in test_platform:
             mozharness["config"] = ["raptor/linux_external_browser_config.py"]
         elif "android" in test_platform:
-            test["target"] = "target.tar.bz2"
+            test["target"] = "target.tar.xz"
             mozharness["config"] = ["raptor/android_hw_external_browser_config.py"]
 
         yield test

@@ -27,6 +27,7 @@
 //   SheetLoadData.
 
 #include "mozilla/PrincipalHashKey.h"
+#include "mozilla/RefPtr.h"
 #include "mozilla/WeakPtr.h"
 #include "nsTHashMap.h"
 #include "nsIMemoryReporter.h"
@@ -34,11 +35,48 @@
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/StoragePrincipalHelper.h"
 #include "mozilla/dom/CacheExpirationTime.h"
+#include "mozilla/TimeStamp.h"
 #include "mozilla/dom/Document.h"
 #include "nsContentUtils.h"
+#include "nsHttpResponseHead.h"
+#include "nsISupportsImpl.h"
 #include "mozilla/StaticPtr.h"
+#include "mozilla/dom/CacheablePerformanceTimingData.h"
 
 namespace mozilla {
+
+// A struct to hold the network-related metadata associated with the cache.
+//
+// When inserting a cache, the consumer should create this from the request and
+// make it available via
+// SharedSubResourceCacheLoadingValueBase::GetNetworkMetadata.
+//
+// When using a cache, the consumer can retrieve this from
+// SharedSubResourceCache::Result::mNetworkMetadata and use it for notifying
+// the observers once the necessary data becomes ready.
+// This struct is ref-counted in order to allow this usage.
+class SubResourceNetworkMetadataHolder {
+ public:
+  SubResourceNetworkMetadataHolder() = delete;
+
+  explicit SubResourceNetworkMetadataHolder(nsIRequest* aRequest);
+
+  const dom::CacheablePerformanceTimingData* GetPerfData() const {
+    return mPerfData.ptrOr(nullptr);
+  }
+
+  const net::nsHttpResponseHead* GetResponseHead() const {
+    return mResponseHead.get();
+  }
+
+  NS_INLINE_DECL_THREADSAFE_REFCOUNTING(SubResourceNetworkMetadataHolder)
+
+ private:
+  ~SubResourceNetworkMetadataHolder() = default;
+
+  mozilla::Maybe<dom::CacheablePerformanceTimingData> mPerfData;
+  mozilla::UniquePtr<net::nsHttpResponseHead> mResponseHead;
+};
 
 enum class CachedSubResourceState {
   Miss,
@@ -56,6 +94,8 @@ struct SharedSubResourceCacheLoadingValueBase {
   virtual bool IsCancelled() const = 0;
   virtual bool IsSyncLoad() const = 0;
 
+  virtual SubResourceNetworkMetadataHolder* GetNetworkMetadata() const = 0;
+
   virtual void StartLoading() = 0;
   virtual void SetLoadCompleted() = 0;
   virtual void OnCoalescedTo(const Derived& aExistingLoad) = 0;
@@ -72,6 +112,15 @@ struct SharedSubResourceCacheLoadingValueBase {
     }
   }
 };
+
+namespace SharedSubResourceCacheUtils {
+
+void AddPerformanceEntryForCache(
+    const nsString& aEntryName, const nsString& aInitiatorType,
+    const SubResourceNetworkMetadataHolder* aNetworkMetadata,
+    TimeStamp aStartTime, TimeStamp aEndTime, dom::Document* aDocument);
+
+}  // namespace SharedSubResourceCacheUtils
 
 template <typename Traits, typename Derived>
 class SharedSubResourceCache {
@@ -110,11 +159,41 @@ class SharedSubResourceCache {
 
   static void DeleteSingleton() { sSingleton = nullptr; }
 
+ protected:
+  struct CompleteSubResource {
+    RefPtr<Value> mResource;
+    RefPtr<SubResourceNetworkMetadataHolder> mNetworkMetadata;
+    CacheExpirationTime mExpirationTime = CacheExpirationTime::Never();
+    bool mWasSyncLoad = false;
+
+    explicit CompleteSubResource(LoadingValue& aValue)
+        : mResource(aValue.ValueForCache()),
+          mNetworkMetadata(aValue.GetNetworkMetadata()),
+          mExpirationTime(aValue.ExpirationTime()),
+          mWasSyncLoad(aValue.IsSyncLoad()) {}
+
+    inline bool Expired() const;
+  };
+
  public:
   struct Result {
     Value* mCompleteValue = nullptr;
+    RefPtr<SubResourceNetworkMetadataHolder> mNetworkMetadata;
+
     LoadingValue* mLoadingOrPendingValue = nullptr;
     CachedSubResourceState mState = CachedSubResourceState::Miss;
+
+    constexpr Result() = default;
+
+    explicit constexpr Result(const CompleteSubResource& aCompleteSubResource)
+        : mCompleteValue(aCompleteSubResource.mResource.get()),
+          mNetworkMetadata(aCompleteSubResource.mNetworkMetadata),
+          mLoadingOrPendingValue(nullptr),
+          mState(CachedSubResourceState::Complete) {}
+
+    constexpr Result(LoadingValue* aLoadingOrPendingValue,
+                     CachedSubResourceState aState)
+        : mLoadingOrPendingValue(aLoadingOrPendingValue), mState(aState) {}
   };
 
   Result Lookup(Loader&, const Key&, bool aSyncLoad);
@@ -138,6 +217,9 @@ class SharedSubResourceCache {
   // Inserts a value into the cache.
   void Insert(LoadingValue&);
 
+  // Evict the specific cache.
+  void Evict(const Key&);
+
   // Puts a load into the "pending" set.
   void DeferLoad(const Key&, LoadingValue&);
 
@@ -157,20 +239,13 @@ class SharedSubResourceCache {
   // to be called when the document goes away, or when its principal changes.
   void UnregisterLoader(Loader&);
 
-  void ClearInProcess(const Maybe<nsCOMPtr<nsIPrincipal>>& aPrincipal,
+  void ClearInProcess(const Maybe<bool>& aChrome,
+                      const Maybe<nsCOMPtr<nsIPrincipal>>& aPrincipal,
                       const Maybe<nsCString>& aSchemelessSite,
                       const Maybe<OriginAttributesPattern>& aPattern);
 
  protected:
   void CancelPendingLoadsForLoader(Loader&);
-
-  struct CompleteSubResource {
-    RefPtr<Value> mResource;
-    CacheExpirationTime mExpirationTime = CacheExpirationTime::Never();
-    bool mWasSyncLoad = false;
-
-    inline bool Expired() const;
-  };
 
   void WillStartPendingLoad(LoadingValue&);
 
@@ -190,24 +265,36 @@ class SharedSubResourceCache {
  protected:
   // Lazily created in the first Get() call.
   // The singleton should be deleted by DeleteSingleton() during shutdown.
-  inline static StaticRefPtr<Derived> sSingleton;
+  inline static MOZ_GLOBINIT StaticRefPtr<Derived> sSingleton;
 };
 
 template <typename Traits, typename Derived>
 void SharedSubResourceCache<Traits, Derived>::ClearInProcess(
-    const Maybe<nsCOMPtr<nsIPrincipal>>& aPrincipal,
+    const Maybe<bool>& aChrome, const Maybe<nsCOMPtr<nsIPrincipal>>& aPrincipal,
     const Maybe<nsCString>& aSchemelessSite,
     const Maybe<OriginAttributesPattern>& aPattern) {
   MOZ_ASSERT(aSchemelessSite.isSome() == aPattern.isSome(),
              "Must pass both site and OA pattern.");
 
-  if (!aPrincipal && !aSchemelessSite) {
+  if (!aChrome && !aPrincipal && !aSchemelessSite) {
     mComplete.Clear();
     return;
   }
 
   for (auto iter = mComplete.Iter(); !iter.Done(); iter.Next()) {
     const bool shouldRemove = [&] {
+      if (aChrome.isSome()) {
+        nsIURI* uri = iter.Key().URI();
+        bool isChrome = uri->SchemeIs("chrome") || uri->SchemeIs("resource");
+        if (*aChrome != isChrome) {
+          return false;
+        }
+
+        if (!aPrincipal && !aSchemelessSite) {
+          return true;
+        }
+      }
+
       if (aPrincipal && iter.Key().Principal()->Equals(aPrincipal.ref())) {
         return true;
       }
@@ -399,10 +486,12 @@ void SharedSubResourceCache<Traits, Derived>::Insert(LoadingValue& aValue) {
   }
 #endif
 
-  // TODO(emilio): Use counters!
-  mComplete.InsertOrUpdate(
-      key, CompleteSubResource{aValue.ValueForCache(), aValue.ExpirationTime(),
-                               aValue.IsSyncLoad()});
+  mComplete.InsertOrUpdate(key, CompleteSubResource(aValue));
+}
+
+template <typename Traits, typename Derived>
+void SharedSubResourceCache<Traits, Derived>::Evict(const Key& aKey) {
+  (void)mComplete.Remove(aKey);
 }
 
 template <typename Traits, typename Derived>
@@ -459,21 +548,20 @@ auto SharedSubResourceCache<Traits, Derived>::Lookup(Loader& aLoader,
     const CompleteSubResource& completeSubResource = lookup.Data();
     if ((!aLoader.ShouldBypassCache() && !completeSubResource.Expired()) ||
         aLoader.HasLoaded(aKey)) {
-      return {completeSubResource.mResource.get(), nullptr,
-              CachedSubResourceState::Complete};
+      return Result(completeSubResource);
     }
   }
 
   if (aSyncLoad) {
-    return {};
+    return Result();
   }
 
   if (LoadingValue* data = mLoading.Get(aKey)) {
-    return {nullptr, data, CachedSubResourceState::Loading};
+    return Result(data, CachedSubResourceState::Loading);
   }
 
   if (LoadingValue* data = mPending.GetWeak(aKey)) {
-    return {nullptr, data, CachedSubResourceState::Pending};
+    return Result(data, CachedSubResourceState::Pending);
   }
 
   return {};

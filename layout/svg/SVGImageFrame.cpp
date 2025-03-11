@@ -249,7 +249,6 @@ bool SVGImageFrame::GetIntrinsicImageDimensions(
   }
 
   ImageResolution resolution = mImageContainer->GetResolution();
-
   int32_t width, height;
   if (NS_FAILED(mImageContainer->GetWidth(&width))) {
     aSize.width = -1;
@@ -265,9 +264,7 @@ bool SVGImageFrame::GetIntrinsicImageDimensions(
     resolution.ApplyYTo(aSize.height);
   }
 
-  Maybe<AspectRatio> asp = mImageContainer->GetIntrinsicRatio();
-  aAspectRatio = asp.valueOr(AspectRatio{});
-
+  aAspectRatio = mImageContainer->GetIntrinsicRatio();
   return true;
 }
 
@@ -323,12 +320,14 @@ void SVGImageFrame::PaintSVG(gfxContext& aContext, const gfxMatrix& aTransform,
     nsCOMPtr<imgIRequest> currentRequest;
     nsCOMPtr<nsIImageLoadingContent> imageLoader =
         do_QueryInterface(GetContent());
-    if (imageLoader)
+    if (imageLoader) {
       imageLoader->GetRequest(nsIImageLoadingContent::CURRENT_REQUEST,
                               getter_AddRefs(currentRequest));
+    }
 
-    if (currentRequest)
+    if (currentRequest) {
       currentRequest->GetImage(getter_AddRefs(mImageContainer));
+    }
   }
 
   if (mImageContainer) {

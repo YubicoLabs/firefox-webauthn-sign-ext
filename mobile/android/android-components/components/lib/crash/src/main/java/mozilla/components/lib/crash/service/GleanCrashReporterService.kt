@@ -22,13 +22,17 @@ import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.decodeFromStream
 import kotlinx.serialization.json.decodeToSequence
 import kotlinx.serialization.json.encodeToStream
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import mozilla.components.lib.crash.Crash
 import mozilla.components.lib.crash.GleanMetrics.Crash.AsyncShutdownTimeoutObject
 import mozilla.components.lib.crash.GleanMetrics.Crash.QuotaManagerShutdownTimeoutObject
+import mozilla.components.lib.crash.GleanMetrics.Crash.StackTracesObject
 import mozilla.components.lib.crash.GleanMetrics.CrashMetrics
 import mozilla.components.lib.crash.GleanMetrics.Pings
+import mozilla.components.lib.crash.MinidumpAnalyzer
 import mozilla.components.lib.crash.db.Breadcrumb
 import mozilla.components.lib.crash.db.toBreadcrumb
 import mozilla.components.support.base.log.logger.Logger
@@ -46,6 +50,8 @@ import java.util.Date
 import mozilla.components.lib.crash.GleanMetrics.Crash as GleanCrash
 import mozilla.components.lib.crash.GleanMetrics.Environment as GleanEnvironment
 import mozilla.components.lib.crash.GleanMetrics.Memory as GleanMemory
+
+private val logger = Logger("glean/GleanCrashReporterService")
 
 /**
  * A [CrashReporterService] implementation for recording metrics with Glean.  The purpose of this
@@ -138,8 +144,8 @@ class GleanCrashReporterService(
                     GleanCrash.quotaManagerShutdownTimeout.setQuotaManagerShutdownTimeoutIfNonNull(
                         extras["QuotaManagerShutdownTimeout"],
                     )
-
                     GleanCrash.shutdownProgress.setIfNonNull(extras["ShutdownProgress"])
+                    GleanCrash.stackTraces.setStackTracesIfNonNull(extras["StackTraces"])
                     // Overrides the original `startup` parameter to `Ping` when present
                     GleanCrash.startup.setIfNonNull(extras["StartupCrash"])
 
@@ -209,6 +215,92 @@ class GleanCrashReporterService(
                                 ),
                             ),
                         )
+                    }
+                }
+
+                private fun crashInfoEntries(crashInfo: JsonObject): List<Pair<String, JsonElement>> =
+                    crashInfo.mapNotNull { (k, v) ->
+                        when (k) {
+                            "type" -> "crashType"
+                            "address" -> "crashAddress"
+                            "crashing_thread" -> "crashThread"
+                            else -> null
+                        }?.let { it to v }
+                    }
+
+                private fun modulesEntries(modules: JsonArray): List<Pair<String, JsonElement>> =
+                    listOf(
+                        "modules" to modules.map {
+                            it.jsonObject.mapNotNull { (key, value) ->
+                                when (key) {
+                                    "base_addr" -> "baseAddress"
+                                    "end_addr" -> "endAddress"
+                                    "code_id" -> "codeId"
+                                    "debug_file" -> "debugFile"
+                                    "debug_id" -> "debugId"
+                                    "filename", "version" -> key
+                                    else -> null
+                                }?.let { it to value }
+                            }.toMap()
+                                .let(::JsonObject)
+                        }.let(::JsonArray),
+                    )
+
+                private fun threadsEntries(threads: JsonArray): List<Pair<String, JsonElement>> =
+                    listOf(
+                        "threads" to threads.map {
+                            it.jsonObject.mapNotNull { (key, value) ->
+                                when (key) {
+                                    "frames" -> "frames" to value.jsonArray.map { frame ->
+                                        frame.jsonObject.mapNotNull { (k, v) ->
+                                            when (k) {
+                                                "module_index" -> "moduleIndex"
+                                                "ip", "trust" -> k
+                                                else -> null
+                                            }?.let { it to v }
+                                        }.toMap().let(::JsonObject)
+                                    }.let(::JsonArray)
+
+                                    else -> null
+                                }
+                            }.toMap()
+                                .let(::JsonObject)
+                        }.let(::JsonArray),
+                    )
+
+                private fun ObjectMetricType<StackTracesObject>.setStackTracesIfNonNull(
+                    element: JsonElement?,
+                ) {
+                    // No matter what happens, if an exception occurs we need to catch it to prevent
+                    // it from stopping the ping from being sent. Stack traces are optional data, so
+                    // we'd rather send a ping without it than not send the ping at all.
+                    @Suppress("TooGenericExceptionCaught")
+                    try {
+                        element?.jsonObject?.let { obj ->
+                            // The Glean metric has a slightly different layout. We
+                            // explicitly set/filter to the values we support, in
+                            // case there are new values in the object.
+                            val m = obj.mapNotNull { (key, value) ->
+                                when (key) {
+                                    "status" -> if (value.jsonPrimitive.content != "OK") {
+                                        listOf("error" to value)
+                                    } else {
+                                        null
+                                    }
+
+                                    "crash_info" -> (value as? JsonObject)?.let(::crashInfoEntries)
+                                    "modules" -> (value as? JsonArray)?.let(::modulesEntries)
+                                    "threads" -> (value as? JsonArray)?.let(::threadsEntries)
+                                    "main_module" -> listOf("mainModule" to value)
+                                    else -> null
+                                }
+                            }
+                                .flatten()
+                                .toMap()
+                            set(Json.decodeFromJsonElement(JsonObject(m)))
+                        }
+                    } catch (e: Exception) {
+                        logger.error("failed to populate stackTraces field: bad JSON input", e)
                     }
                 }
             }
@@ -281,7 +373,6 @@ class GleanCrashReporterService(
         }
     }
 
-    private val logger = Logger("glean/GleanCrashReporterService")
     private val creationTime = SystemClock.elapsedRealtimeNanos()
 
     init {
@@ -536,10 +627,13 @@ class GleanCrashReporterService(
             else -> "main"
         }
 
+        if (crash.minidumpPath != null && crash.extrasPath != null) {
+            MinidumpAnalyzer.load()?.run(crash.minidumpPath, crash.extrasPath, false)
+        }
+
         val extrasJson = crash.extrasPath?.let { getExtrasJson(it) }
 
-        val minidumpHash =
-            if (!crash.minidumpSuccess) null else crash.minidumpPath?.let { calculateMinidumpHash(it) }
+        val minidumpHash = crash.minidumpPath?.let { calculateMinidumpHash(it) }
 
         recordCrashAction(
             GleanCrashAction.Ping(

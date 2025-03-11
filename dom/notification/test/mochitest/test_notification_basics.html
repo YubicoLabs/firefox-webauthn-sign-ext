@@ -4,7 +4,7 @@
   <title>Notification Basics</title>
   <script src="/tests/SimpleTest/SimpleTest.js"></script>
   <script src="NotificationTest.js"></script>
-  <script src="GleanTest.js"></script>
+  <script src="/tests/SimpleTest/GleanTest.js"></script>
   <link rel="stylesheet" type="text/css" href="/tests/SimpleTest/test.css" />
 </head>
 <body>
@@ -45,7 +45,7 @@
 
       await new Promise(r => new Notification("first party").onerror = r);
       const showCount = await GleanTest.webNotification.showOrigin.first_party.testGetValue();
-      is(showCount, 1, "Notification first party request permission counter should increment once.");
+      is(showCount, 1, "Notification first party show attempt counter should increment once.");
     },
 
     async function(done) {

@@ -44,7 +44,17 @@ class GenericExperimentIntegrationTest {
             clickStudiesOption()
             verifyStudiesToggle(true)
             clickStudiesToggle()
-            clickStudiesDialogOkButton()
+        }
+    }
+
+    @Test
+    fun verifyStudiesAreDisabled() {
+        homeScreen {
+        }.openThreeDotMenu {
+        }.openSettings {
+        }.openSettingsSubMenuDataCollection {
+            clickStudiesOption()
+            verifyStudiesToggle(false)
         }
     }
 

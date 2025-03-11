@@ -22,6 +22,8 @@ ChromeUtils.defineESModuleGetters(this, {
   RemoteSecuritySettings:
     "resource://gre/modules/psm/RemoteSecuritySettings.sys.mjs",
   SafeBrowsing: "resource://gre/modules/SafeBrowsing.sys.mjs",
+  CaptchaDetectionPingUtils:
+    "resource://gre/modules/CaptchaDetectionPingUtils.sys.mjs",
 });
 
 ChromeUtils.defineLazyGetter(this, "WindowEventDispatcher", () =>
@@ -49,7 +51,7 @@ XPCOMUtils.defineLazyScriptGetter(
  */
 var ModuleManager = {
   get _initData() {
-    return window.arguments[0].QueryInterface(Ci.nsIAndroidView).initData;
+    return window.arguments[0].QueryInterface(Ci.nsIGeckoViewView).initData;
   },
 
   init(aBrowser, aModules) {
@@ -792,6 +794,7 @@ function startup() {
               esModuleURI: "resource://autofill/FormAutofillChild.sys.mjs",
               events: {
                 focusin: {},
+                "form-changed": {},
                 "form-submission-detected": {},
               },
             },
@@ -920,6 +923,14 @@ function startup() {
       // Initialize the blocklist module.
       // TODO bug 1730026: this runs too often. It should run once.
       Blocklist.loadBlocklistAsync();
+    });
+
+    InitLater(() => {
+      // Call the init function for the CaptchaDetectionPingUtils module.
+      // This function adds pref observers that flushes the ping. It also
+      // submits the ping if it has data and has been about 24 hours since the
+      // last submission.
+      CaptchaDetectionPingUtils.init();
     });
 
     // This should always go last, since the idle tasks (except for the ones with

@@ -97,7 +97,9 @@ DeclarationBlock* nsDOMCSSAttributeDeclaration::GetOrCreateCSSDeclaration(
     Operation aOperation, DeclarationBlock** aCreated) {
   MOZ_ASSERT(aOperation != Operation::Modify || aCreated);
 
-  if (!mElement) return nullptr;
+  if (!mElement) {
+    return nullptr;
+  }
 
   DeclarationBlock* declaration;
   if (mIsSMILOverride) {
@@ -164,11 +166,11 @@ nsresult nsDOMCSSAttributeDeclaration::SetSMILValueHelper(SetterFunc aFunc) {
 }
 
 nsresult nsDOMCSSAttributeDeclaration::SetSMILValue(
-    const nsCSSPropertyID /*aPropID*/, const SMILValue& aValue) {
+    const nsCSSPropertyID aPropID, const SMILValue& aValue) {
   MOZ_ASSERT(aValue.mType == &SMILCSSValueType::sSingleton,
              "We should only try setting a CSS value type");
-  return SetSMILValueHelper([&aValue](DeclarationBlock& aDecl) {
-    return SMILCSSValueType::SetPropertyValues(aValue, aDecl);
+  return SetSMILValueHelper([&](DeclarationBlock& aDecl) {
+    return SMILCSSValueType::SetPropertyValues(aPropID, aValue, aDecl);
   });
 }
 

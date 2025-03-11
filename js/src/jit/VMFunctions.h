@@ -29,6 +29,7 @@ namespace js {
 
 class AbstractGeneratorObject;
 class ArrayObject;
+class DateObject;
 class GlobalObject;
 class InterpreterFrame;
 class LexicalScope;
@@ -497,19 +498,6 @@ ArrayObject* InitRestParameter(JSContext* cx, uint32_t length, Value* rest,
 [[nodiscard]] bool PushVarEnv(JSContext* cx, BaselineFrame* frame,
                               Handle<Scope*> scope);
 
-#ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT
-[[nodiscard]] bool AddDisposableResource(JSContext* cx, BaselineFrame* frame,
-                                         JS::Handle<JS::Value> val,
-                                         JS::Handle<JS::Value> method,
-                                         JS::Handle<JS::Value> needsClosure,
-                                         UsingHint hint);
-
-[[nodiscard]] bool CreateSuppressedError(JSContext* cx, BaselineFrame* frame,
-                                         JS::Handle<JS::Value> error,
-                                         JS::Handle<JS::Value> suppressed,
-                                         JS::MutableHandle<JS::Value> rval);
-#endif
-
 [[nodiscard]] bool InitBaselineFrameForOsr(BaselineFrame* frame,
                                            InterpreterFrame* interpFrame,
                                            uint32_t numStackValues);
@@ -711,12 +699,27 @@ float RoundFloat16ToFloat32(double d);
 float Float16ToFloat32(int32_t value);
 int32_t Float32ToFloat16(float value);
 
+void DateFillLocalTimeSlots(DateObject* dateObj);
+
 JSAtom* AtomizeStringNoGC(JSContext* cx, JSString* str);
 
-bool SetObjectHas(JSContext* cx, HandleObject obj, HandleValue key, bool* rval);
-bool MapObjectHas(JSContext* cx, HandleObject obj, HandleValue key, bool* rval);
-bool MapObjectGet(JSContext* cx, HandleObject obj, HandleValue key,
+bool SetObjectHas(JSContext* cx, Handle<SetObject*> obj, HandleValue key,
+                  bool* rval);
+bool SetObjectDelete(JSContext* cx, Handle<SetObject*> obj, HandleValue key,
+                     bool* rval);
+bool SetObjectAdd(JSContext* cx, Handle<SetObject*> obj, HandleValue key);
+bool SetObjectAddFromIC(JSContext* cx, Handle<SetObject*> obj, HandleValue key,
+                        MutableHandleValue rval);
+bool MapObjectHas(JSContext* cx, Handle<MapObject*> obj, HandleValue key,
+                  bool* rval);
+bool MapObjectGet(JSContext* cx, Handle<MapObject*> obj, HandleValue key,
                   MutableHandleValue rval);
+bool MapObjectDelete(JSContext* cx, Handle<MapObject*> obj, HandleValue key,
+                     bool* rval);
+bool MapObjectSet(JSContext* cx, Handle<MapObject*> obj, HandleValue key,
+                  HandleValue val);
+bool MapObjectSetFromIC(JSContext* cx, Handle<MapObject*> obj, HandleValue key,
+                        HandleValue val, MutableHandleValue rval);
 
 void AssertSetObjectHash(JSContext* cx, SetObject* obj, const Value* value,
                          mozilla::HashNumber actualHash);

@@ -148,8 +148,6 @@ var snapshotFormatters = {
     } catch (e) {}
 
     const STATUS_STRINGS = {
-      experimentControl: "fission-status-experiment-control",
-      experimentTreatment: "fission-status-experiment-treatment",
       disabledByE10sEnv: "fission-status-disabled-by-e10s-env",
       enabledByEnv: "fission-status-enabled-by-env",
       disabledByEnv: "fission-status-disabled-by-env",
@@ -158,7 +156,6 @@ var snapshotFormatters = {
       enabledByUserPref: "fission-status-enabled-by-user-pref",
       disabledByUserPref: "fission-status-disabled-by-user-pref",
       disabledByE10sOther: "fission-status-disabled-by-e10s-other",
-      enabledByRollout: "fission-status-enabled-by-rollout",
     };
 
     let statusTextId = STATUS_STRINGS[data.fissionDecisionStatus];
@@ -334,6 +331,7 @@ var snapshotFormatters = {
           $.new("td", addon.type),
           $.new("td", addon.version),
           $.new("td", addon.isActive),
+          $.new("td", addon.locationName),
           $.new("td", addon.id),
         ]);
       })
@@ -350,19 +348,6 @@ var snapshotFormatters = {
     $("security-software-antivirus").textContent = data.registeredAntiVirus;
     $("security-software-antispyware").textContent = data.registeredAntiSpyware;
     $("security-software-firewall").textContent = data.registeredFirewall;
-  },
-
-  features(data) {
-    $.append(
-      $("features-tbody"),
-      data.map(function (feature) {
-        return $.new("tr", [
-          $.new("td", feature.name),
-          $.new("td", feature.version),
-          $.new("td", feature.id),
-        ]);
-      })
-    );
   },
 
   async processes(data) {

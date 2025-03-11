@@ -121,19 +121,20 @@ export class AboutLoginsChild extends JSWindowActorChild {
        * @param resolve Callback that is called with result of authentication.
        * @param messageId The string ID that corresponds to a string stored in aboutLogins.ftl.
        *                  This string will be displayed only when the OS auth dialog is used.
+       * @param reason The reason for requesting reauthentication, used for telemetry.
        */
-      async promptForPrimaryPassword(resolve, messageId) {
+      async promptForPrimaryPassword(resolve, messageId, reason) {
         gPrimaryPasswordPromise = {
           resolve,
         };
 
-        that.sendAsyncMessage("AboutLogins:PrimaryPasswordRequest", messageId);
+        that.sendAsyncMessage("AboutLogins:PrimaryPasswordRequest", {
+          messageId,
+          reason,
+        });
 
         return gPrimaryPasswordPromise;
       },
-      fileImportEnabled: Services.prefs.getBoolPref(
-        "signon.management.page.fileImport.enabled"
-      ),
       // Default to enabled just in case a search is attempted before we get a response.
       primaryPasswordEnabled: true,
       passwordRevealVisible: true,

@@ -16,7 +16,7 @@
 #include "mozilla/dom/nsCSPContext.h"
 #include "mozilla/dom/nsMixedContentBlocker.h"
 #include "mozilla/dom/ReferrerInfo.h"
-#include "mozilla/glean/GleanMetrics.h"
+#include "mozilla/glean/NetwerkProtocolHttpMetrics.h"
 #include "mozilla/ipc/BackgroundUtils.h"
 #include "mozilla/LoadInfo.h"
 #include "mozilla/Logging.h"
@@ -352,8 +352,9 @@ void EarlyHintPreloader::MaybeCreateAndInsertPreload(
     mozilla::ipc::PrincipalInfo principalInfo;
     rv = PrincipalToPrincipalInfo(aPrincipal, &principalInfo);
     NS_ENSURE_SUCCESS_VOID(rv);
-    dom::ClientInfo clientInfo(nsID::GenerateUUID(), dom::ClientType::Window,
-                               principalInfo, TimeStamp::Now());
+    dom::ClientInfo clientInfo(nsID::GenerateUUID(), Nothing(),
+                               dom::ClientType::Window, principalInfo,
+                               TimeStamp::Now(), ""_ns, dom::FrameType::None);
 
     // Our newly-created CSP is set on the ClientInfo via the indirect route of
     // first serializing to CSPInfo
@@ -426,6 +427,11 @@ nsresult EarlyHintPreloader::OpenChannel(
   mParentListener = new ParentChannelListener(this, nullptr);
 
   PriorizeAsPreload();
+
+  if (nsCOMPtr<nsIRaceCacheWithNetwork> rcwn = do_QueryInterface(httpChannel)) {
+    // Since this is an early hint, we should consult the cache first.
+    rcwn->SetAllowRacing(false);
+  }
 
   rv = mChannel->AsyncOpen(mParentListener);
   if (NS_FAILED(rv)) {

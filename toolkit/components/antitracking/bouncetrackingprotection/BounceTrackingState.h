@@ -65,6 +65,10 @@ class BounceTrackingState : public nsIWebProgressListener,
 
   void ResetBounceTrackingRecord();
 
+  // The top level BrowsingContext and its BrowsingContextWebProgress are
+  // discarded (e.g. tab closed).
+  void OnBrowsingContextDiscarded();
+
   // Callback for when we received a response from the server and are about to
   // create a document for the response. Calls into
   // BounceTrackingState::OnResponseReceived.
@@ -114,6 +118,10 @@ class BounceTrackingState : public nsIWebProgressListener,
   // Record sites which have accessed storage in the current extended
   // navigation.
   [[nodiscard]] nsresult OnStorageAccess(nsIPrincipal* aPrincipal);
+
+  // Record sites which have user activation in the current extended
+  // navigation.
+  [[nodiscard]] nsresult OnUserActivation(const nsACString& aSiteHost);
 
  private:
   explicit BounceTrackingState();

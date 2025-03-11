@@ -29,7 +29,6 @@
 #include "vm/DateTime.h"
 #include "vm/Iteration.h"
 #include "vm/JSContext.h"
-#include "vm/PIC.h"
 
 #include "gc/Marking-inl.h"
 #include "vm/JSObject-inl.h"
@@ -60,7 +59,8 @@ Realm::Realm(Compartment* comp, const JS::RealmOptions& options)
 
 Realm::~Realm() {
   MOZ_ASSERT(!hasBeenEnteredIgnoringJit());
-  MOZ_ASSERT(!isDebuggee());
+  MOZ_ASSERT(!localAllocSite);
+  MOZ_ASSERT_IF(isDebuggee(), isTracingExecution_);
 
   // Write the code coverage information in a file.
   if (lcovRealm_) {
@@ -69,6 +69,10 @@ Realm::~Realm() {
 
   if (allocationMetadataBuilder_) {
     forgetAllocationMetadataBuilder();
+  }
+
+  if (isTracingExecution_) {
+    disableExecutionTracing();
   }
 
   MOZ_ASSERT(runtime_->numRealms > 0);
@@ -90,6 +94,10 @@ void Realm::init(JSContext* cx, JSPrincipals* principals) {
     isSystem_ = (principals == cx->runtime()->trustedPrincipals());
     JS_HoldPrincipals(principals);
     principals_ = principals;
+  }
+
+  if (!isSystem_ && cx->hasExecutionTracer()) {
+    enableExecutionTracing();
   }
 }
 
@@ -284,6 +292,7 @@ void Realm::traceRoots(JSTracer* trc,
   }
 
   objects_.trace(trc);
+  baselineCompileQueue_.trace(trc);
 }
 
 void ObjectRealm::finishRoots() {
@@ -344,21 +353,11 @@ void Realm::purge() {
   newPlainObjectWithPropsCache.purge();
   plainObjectAssignCache.purge();
   objects_.iteratorCache.clearAndCompact();
-  arraySpeciesLookup.purge();
   promiseLookup.purge();
-
-  if (zone()->isGCPreparing()) {
-    purgeForOfPicChain();
-  }
 }
 
-void Realm::purgeForOfPicChain() {
-  if (GlobalObject* global = global_.unbarrieredGet()) {
-    if (NativeObject* object = global->getForOfPICObject()) {
-      ForOfPIC::Chain* chain = ForOfPIC::fromJSObject(object);
-      chain->freeAllStubs(runtime_->gcContext());
-    }
-  }
+void Realm::removeFromCompileQueue(JSScript* script) {
+  baselineCompileQueue_.remove(script);
 }
 
 // Check to see if this individual realm is recording allocations. Debuggers or
@@ -437,7 +436,8 @@ void Realm::updateDebuggerObservesFlag(unsigned flag) {
           : maybeGlobal();
   bool observes = false;
   if (flag == DebuggerObservesAllExecution) {
-    observes = DebugAPI::debuggerObservesAllExecution(global);
+    observes = (global && DebugAPI::debuggerObservesAllExecution(global)) ||
+               isTracingExecution_;
   } else if (flag == DebuggerObservesCoverage) {
     observes = DebugAPI::debuggerObservesCoverage(global);
   } else if (flag == DebuggerObservesAsmJS) {

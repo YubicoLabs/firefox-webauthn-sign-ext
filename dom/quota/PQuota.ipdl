@@ -44,6 +44,12 @@ union UInt64Response
   uint64_t;
 };
 
+union CStringArrayResponse
+{
+  nsresult;
+  nsCString[];
+};
+
 } // namespace ipc
 
 namespace dom {
@@ -80,11 +86,6 @@ struct ClearResetOriginParams
   bool clientTypeIsExplicit;
 };
 
-struct ResetOriginParams
-{
-  ClearResetOriginParams commonParams;
-};
-
 struct PersistedParams
 {
   PrincipalInfo principalInfo;
@@ -100,19 +101,13 @@ struct EstimateParams
   PrincipalInfo principalInfo;
 };
 
-struct ListOriginsParams
-{
-};
-
 union RequestParams
 {
   StorageNameParams;
   GetFullOriginMetadataParams;
-  ResetOriginParams;
   PersistedParams;
   PersistParams;
   EstimateParams;
-  ListOriginsParams;
 };
 
 [ChildImpl=virtual, ParentImpl=virtual]
@@ -131,17 +126,37 @@ parent:
   async StorageInitialized()
       returns(BoolResponse response);
 
+  async PersistentStorageInitialized()
+      returns(BoolResponse response);
+
   async TemporaryStorageInitialized()
       returns(BoolResponse response);
 
+  async TemporaryGroupInitialized(PrincipalInfo principalInfo)
+      returns(BoolResponse response);
+
+  async PersistentOriginInitialized(PrincipalInfo principalInfo)
+      returns(BoolResponse response);
+
+  async TemporaryOriginInitialized(PersistenceType persistenceType,
+                                   PrincipalInfo principalInfo)
+      returns(BoolResponse response);
+
   async InitializeStorage()
+      returns(BoolResponse response);
+
+  async InitializePersistentStorage()
+      returns(BoolResponse response);
+
+  async InitializeTemporaryGroup(PrincipalInfo principalInfo)
       returns(BoolResponse response);
 
   async InitializePersistentOrigin(PrincipalInfo principalInfo)
       returns(BoolResponse response);
 
   async InitializeTemporaryOrigin(PersistenceType persistenceType,
-                                  PrincipalInfo principalInfo)
+                                  PrincipalInfo principalInfo,
+                                  bool createIfNonExistent)
       returns(BoolResponse response);
 
   async InitializePersistentClient(PrincipalInfo principalInfo,
@@ -167,9 +182,19 @@ parent:
   async GetCachedOriginUsage(PrincipalInfo principalInfo)
       returns(UInt64Response response);
 
+  async ListOrigins()
+      returns(CStringArrayResponse response);
+
+  async ListCachedOrigins()
+      returns(CStringArrayResponse response);
+
   async ClearStoragesForOrigin(PersistenceType? persistenceType,
+                               PrincipalInfo principalInfo)
+      returns(BoolResponse response);
+
+  async ClearStoragesForClient(PersistenceType? persistenceType,
                                PrincipalInfo principalInfo,
-                               Type? clientType)
+                               Type clientType)
       returns(BoolResponse response);
 
   async ClearStoragesForOriginPrefix(PersistenceType? persistenceType,
@@ -186,6 +211,15 @@ parent:
   async ClearStorage()
       returns(BoolResponse response);
 
+  async ShutdownStoragesForOrigin(PersistenceType? persistenceType,
+                                  PrincipalInfo principalInfo)
+      returns(BoolResponse response);
+
+  async ShutdownStoragesForClient(PersistenceType? persistenceType,
+                                  PrincipalInfo principalInfo,
+                                  Type clientType)
+      returns(BoolResponse response);
+
   async ShutdownStorage()
       returns(BoolResponse response);
 
@@ -194,6 +228,8 @@ parent:
   async StopIdleMaintenance();
 
   async AbortOperationsForProcess(ContentParentId contentParentId);
+
+  async SetThumbnailPrivateIdentityId(uint32_t aThumbnailPrivateIdentityId);
 };
 
 } // namespace quota

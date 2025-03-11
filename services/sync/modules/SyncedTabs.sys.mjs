@@ -16,9 +16,8 @@ ChromeUtils.defineESModuleGetters(lazy, {
 
 // The Sync XPCOM service
 ChromeUtils.defineLazyGetter(lazy, "weaveXPCService", function () {
-  return Cc["@mozilla.org/weave/service;1"].getService(
-    Ci.nsISupports
-  ).wrappedJSObject;
+  return Cc["@mozilla.org/weave/service;1"].getService(Ci.nsISupports)
+    .wrappedJSObject;
 });
 
 ChromeUtils.defineLazyGetter(lazy, "fxAccounts", () => {
@@ -402,7 +401,6 @@ export var SyncedTabs = {
   },
 
   recordSyncedTabsTelemetry(object, tabEvent, extraOptions) {
-    Services.telemetry.setEventRecordingEnabled("synced_tabs", true);
     if (
       !["fxa_avatar_menu", "fxa_app_menu", "synced_tabs_sidebar"].includes(
         object

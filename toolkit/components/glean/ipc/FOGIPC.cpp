@@ -7,7 +7,7 @@
 
 #include <limits>
 #include "mozilla/glean/fog_ffi_generated.h"
-#include "mozilla/glean/GleanMetrics.h"
+#include "mozilla/glean/ProcesstoolsMetrics.h"
 #include "mozilla/dom/BrowsingContextGroup.h"
 #include "mozilla/dom/ContentChild.h"
 #include "mozilla/dom/ContentParent.h"
@@ -17,6 +17,8 @@
 #include "mozilla/gfx/GPUChild.h"
 #include "mozilla/gfx/GPUParent.h"
 #include "mozilla/gfx/GPUProcessManager.h"
+#include "mozilla/glean/bindings/jog/JOG.h"
+#include "mozilla/glean/GleanMetrics.h"
 #include "mozilla/Hal.h"
 #include "mozilla/MozPromise.h"
 #include "mozilla/net/SocketProcessChild.h"
@@ -233,23 +235,17 @@ void GetTrackerType(nsAutoCString& aTrackerType) {
        nsIClassifiedChannel::CLASSIFIED_TRACKING_AD |
        nsIClassifiedChannel::CLASSIFIED_TRACKING_ANALYTICS |
        nsIClassifiedChannel::CLASSIFIED_TRACKING_SOCIAL);
-  AutoTArray<RefPtr<BrowsingContextGroup>, 5> bcGroups;
-  BrowsingContextGroup::GetAllGroups(bcGroups);
-  for (auto& bcGroup : bcGroups) {
-    AutoTArray<DocGroup*, 5> docGroups;
-    bcGroup->GetDocGroups(docGroups);
-    for (auto* docGroup : docGroups) {
-      for (Document* doc : *docGroup) {
-        nsCOMPtr<nsIClassifiedChannel> classifiedChannel =
-            do_QueryInterface(doc->GetChannel());
-        if (classifiedChannel) {
-          uint32_t classificationFlags =
-              classifiedChannel->GetThirdPartyClassificationFlags();
-          trackingFlags &= classificationFlags;
-          if (!trackingFlags) {
-            return;
-          }
-        }
+  AutoTArray<RefPtr<Document>, 32> allDocuments;
+  Document::GetAllInProcessDocuments(allDocuments);
+  for (auto& doc : allDocuments) {
+    nsCOMPtr<nsIClassifiedChannel> classifiedChannel =
+        do_QueryInterface(doc->GetChannel());
+    if (classifiedChannel) {
+      uint32_t classificationFlags =
+          classifiedChannel->GetThirdPartyClassificationFlags();
+      trackingFlags &= classificationFlags;
+      if (!trackingFlags) {
+        return;
       }
     }
   }

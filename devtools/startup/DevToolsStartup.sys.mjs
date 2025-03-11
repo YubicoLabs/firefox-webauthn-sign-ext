@@ -330,7 +330,6 @@ DevToolsStartup.prototype = {
   get telemetry() {
     if (!this._telemetry) {
       this._telemetry = new lazy.Telemetry();
-      this._telemetry.setEventRecordingEnabled(true);
     }
     return this._telemetry;
   },
@@ -706,6 +705,13 @@ DevToolsStartup.prototype = {
     // popup for our users, regardless of if the feature is enabled by default.
     this.initializeProfilerWebChannel();
 
+    if (!Cu.isInAutomation && Services.env.exists("MOZ_PROFILER_STARTUP")) {
+      // If the profiler is active due to startup profiling, show the profiler
+      // button in the nav bar. But do not do it in automation to avoid
+      // side-effects with existing tests.
+      lazy.ProfilerMenuButton.ensureButtonInNavbar();
+    }
+
     if (isPopupFeatureFlagEnabled) {
       // Initialize the CustomizableUI widget.
       lazy.ProfilerMenuButton.initialize(this.toggleProfilerKeyShortcuts);
@@ -1042,9 +1048,12 @@ DevToolsStartup.prototype = {
     if (pauseOnStartup) {
       // Spin the event loop until the debugger connects.
       const tm = Cc["@mozilla.org/thread-manager;1"].getService();
-      tm.spinEventLoopUntil("DevToolsStartup.jsm:handleDebuggerFlag", () => {
-        return devtoolsThreadResumed;
-      });
+      tm.spinEventLoopUntil(
+        "DevToolsStartup.sys.mjs:handleDebuggerFlag",
+        () => {
+          return devtoolsThreadResumed;
+        }
+      );
     }
 
     if (cmdLine.state == Ci.nsICommandLine.STATE_REMOTE_AUTO) {
@@ -1208,7 +1217,7 @@ DevToolsStartup.prototype = {
     // won't necessarely start the tool. For example key shortcuts may
     // only change the currently selected tool.
     try {
-      this.telemetry.getHistogramById("DEVTOOLS_ENTRY_POINT").add(reason);
+      Glean.devtools.entryPoint[reason].add(1);
     } catch (e) {
       dump("DevTools telemetry entry point failed: " + e + "\n");
     }

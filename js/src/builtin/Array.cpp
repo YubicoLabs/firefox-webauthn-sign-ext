@@ -48,10 +48,6 @@
 #include "vm/ToSource.h"  // js::ValueToSource
 #include "vm/TypedArrayObject.h"
 #include "vm/WrapperObject.h"
-#ifdef ENABLE_RECORD_TUPLE
-#  include "vm/TupleType.h"
-#endif
-
 #include "builtin/Sorting-inl.h"
 #include "vm/ArgumentsObject-inl.h"
 #include "vm/ArrayObject-inl.h"
@@ -649,6 +645,88 @@ struct ReverseIndexComparator {
   }
 };
 
+// Fast path to remove all elements with index >= newLen when setting the
+// .length property of an array to a smaller value.
+static bool TryFastDeleteElementsForNewLength(JSContext* cx,
+                                              Handle<ArrayObject*> arr,
+                                              uint32_t newLen, bool* success) {
+  MOZ_ASSERT(newLen < arr->length());
+
+  // If there might be an active for-in iterator for this array we have to use
+  // the generic code path because it supports suppressing deleted properties.
+  // Keys deleted before being reached during the iteration must not be visited.
+  if (arr->denseElementsMaybeInIteration()) {
+    *success = false;
+    return true;
+  }
+
+  // Sealed elements are non-configurable and shouldn't be removed.
+  if (arr->denseElementsAreSealed()) {
+    *success = false;
+    return true;
+  }
+
+  if (arr->isIndexed()) {
+    // This fast path doesn't suppress deleted properties from active iterators.
+    if (arr->compartment()->objectMaybeInIteration(arr)) {
+      *success = false;
+      return true;
+    }
+
+    // First add all sparse indexes we want to remove to a vector and check for
+    // non-configurable elements.
+    JS::RootedVector<PropertyKey> keys(cx);
+    for (ShapePropertyIter<NoGC> iter(arr->shape()); !iter.done(); iter++) {
+      uint32_t index;
+      if (!IdIsIndex(iter->key(), &index)) {
+        continue;
+      }
+      if (index < newLen) {
+        continue;
+      }
+      // Non-configurable elements shouldn't be removed.
+      if (!iter->configurable()) {
+        *success = false;
+        return true;
+      }
+      if (!keys.append(iter->key())) {
+        return false;
+      }
+    }
+
+    // Remove the sparse elements. Note that this starts at the most recently
+    // added property because this is most efficient when removing many
+    // elements.
+    //
+    // The rest of this function must be infallible (other than OOM).
+    for (size_t i = 0, len = keys.length(); i < len; i++) {
+      MOZ_ASSERT(arr->containsPure(keys[i]), "must still be a sparse element");
+      if (!NativeObject::removeProperty(cx, arr, keys[i])) {
+        MOZ_ASSERT(cx->isThrowingOutOfMemory());
+        return false;
+      }
+    }
+  }
+
+  // Remove dense elements.
+  uint32_t oldCapacity = arr->getDenseCapacity();
+  uint32_t oldInitializedLength = arr->getDenseInitializedLength();
+  MOZ_ASSERT(oldCapacity >= oldInitializedLength);
+  if (oldInitializedLength > newLen) {
+    arr->setDenseInitializedLengthMaybeNonExtensible(cx, newLen);
+  }
+  if (oldCapacity > newLen) {
+    if (arr->isExtensible()) {
+      arr->shrinkElements(cx, newLen);
+    } else {
+      MOZ_ASSERT(arr->getDenseInitializedLength() == arr->getDenseCapacity());
+    }
+  }
+
+  *success = true;
+  return true;
+}
+
 /* ES6 draft rev 34 (2015 Feb 20) 9.4.2.4 ArraySetLength */
 bool js::ArraySetLength(JSContext* cx, Handle<ArrayObject*> arr, HandleId id,
                         Handle<PropertyDescriptor> desc,
@@ -728,41 +806,14 @@ bool js::ArraySetLength(JSContext* cx, Handle<ArrayObject*> arr, HandleId id,
       break;
     }
 
-    // Attempt to propagate dense-element optimization tricks, if possible,
-    // and avoid the generic (and accordingly slow) deletion code below.
-    // We can only do this if there are only densely-indexed elements.
-    // Once there's a sparse indexed element, there's no good way to know,
-    // save by enumerating all the properties to find it.  But we *have* to
-    // know in case that sparse indexed element is non-configurable, as
-    // that element must prevent any deletions below it.  Bug 586842 should
-    // fix this inefficiency by moving indexed storage to be entirely
-    // separate from non-indexed storage.
-    // A second reason for this optimization to be invalid is an active
-    // for..in iteration over the array. Keys deleted before being reached
-    // during the iteration must not be visited, and suppressing them here
-    // would be too costly.
-    // This optimization is also invalid when there are sealed
-    // (non-configurable) elements.
-    if (!arr->isIndexed() && !arr->denseElementsMaybeInIteration() &&
-        !arr->denseElementsAreSealed()) {
-      uint32_t oldCapacity = arr->getDenseCapacity();
-      uint32_t oldInitializedLength = arr->getDenseInitializedLength();
-      MOZ_ASSERT(oldCapacity >= oldInitializedLength);
-      if (oldInitializedLength > newLen) {
-        arr->setDenseInitializedLengthMaybeNonExtensible(cx, newLen);
-      }
-      if (oldCapacity > newLen) {
-        if (arr->isExtensible()) {
-          arr->shrinkElements(cx, newLen);
-        } else {
-          MOZ_ASSERT(arr->getDenseInitializedLength() ==
-                     arr->getDenseCapacity());
-        }
-      }
+    bool success;
+    if (!TryFastDeleteElementsForNewLength(cx, arr, newLen, &success)) {
+      return false;
+    }
 
-      // We've done the work of deleting any dense elements needing
-      // deletion, and there are no sparse elements.  Thus we can skip
-      // straight to defining the length.
+    if (success) {
+      // We've done the work of deleting any elements needing deletion.
+      // Thus we can skip straight to defining the length.
       break;
     }
 
@@ -983,6 +1034,38 @@ bool js::IsCrossRealmArrayConstructor(JSContext* cx, JSObject* obj,
   return true;
 }
 
+static MOZ_ALWAYS_INLINE bool HasBuiltinArraySpecies(ArrayObject* arr,
+                                                     JSContext* cx) {
+  // Ensure `Array.prototype.constructor` and `Array[@@species]` haven't been
+  // mutated.
+  if (!cx->realm()->realmFuses.optimizeArraySpeciesFuse.intact()) {
+    return false;
+  }
+
+  // Ensure the array has `Array.prototype` as prototype and doesn't have an own
+  // `constructor` property.
+  //
+  // Most arrays have the default array shape so we have a fast path for this
+  // case.
+  GlobalObject* global = cx->global();
+  if (arr->shape() == global->maybeArrayShapeWithDefaultProto()) {
+    return true;
+  }
+
+  // Ensure the array's prototype is the actual Array.prototype.
+  NativeObject* arrayProto = global->maybeGetArrayPrototype();
+  if (!arrayProto || arr->staticPrototype() != arrayProto) {
+    return false;
+  }
+
+  // Fail if the array has an own `constructor` property.
+  if (arr->containsPure(NameToId(cx->names().constructor))) {
+    return false;
+  }
+
+  return true;
+}
+
 // Returns true iff we know for -sure- that it is definitely safe to use the
 // realm's array constructor.
 //
@@ -1008,8 +1091,7 @@ static MOZ_ALWAYS_INLINE bool IsArraySpecies(JSContext* cx,
     return true;
   }
 
-  if (cx->realm()->arraySpeciesLookup.tryOptimizeArray(
-          cx, &origArray->as<ArrayObject>())) {
+  if (HasBuiltinArraySpecies(&origArray->as<ArrayObject>(), cx)) {
     return true;
   }
 
@@ -1040,6 +1122,30 @@ static MOZ_ALWAYS_INLINE bool IsArraySpecies(JSContext* cx,
   }
 
   return IsSelfHostedFunctionWithName(getter, cx->names().dollar_ArraySpecies_);
+}
+
+bool js::intrinsic_CanOptimizeArraySpecies(JSContext* cx, unsigned argc,
+                                           Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+  MOZ_ASSERT(args.length() == 1);
+
+  JSObject* obj = &args[0].toObject();
+
+  // Return `true` if this is a plain array with the original array shape and
+  // an intact array-species fuse. This is the case for at least 98% of all
+  // calls on Speedometer 3 and JetStream 2. This condition is also simple
+  // enough to inline efficiently in JIT code.
+  //
+  // The shape check implies:
+  // - The object is an array object.
+  // - The array belongs to the current realm.
+  // - The array has (the current realm's) `Array.prototype` as prototype.
+  // - The array does not define an own `constructor` property.
+  bool optimizable =
+      obj->shape() == cx->global()->maybeArrayShapeWithDefaultProto() &&
+      cx->realm()->realmFuses.optimizeArraySpeciesFuse.intact();
+  args.rval().setBoolean(optimizable);
+  return true;
 }
 
 static bool ArraySpeciesCreate(JSContext* cx, HandleObject origArray,
@@ -3036,8 +3142,8 @@ static bool GetActualDeleteCount(JSContext* cx, const CallArgs& args,
 
     // Step 10.b. Let actualDeleteCount be the result of clamping dc between 0
     // and len - actualStart.
-    *actualDeleteCount = uint64_t(
-        std::min(std::max(0.0, deleteCount), double(len - actualStart)));
+    *actualDeleteCount =
+        uint64_t(std::clamp(deleteCount, 0.0, double(len - actualStart)));
     MOZ_ASSERT(*actualDeleteCount <= len);
 
     // Step 11. Let newLen be len + insertCount - actualDeleteCount.
@@ -4367,8 +4473,7 @@ static bool SearchElementDense(JSContext* cx, HandleValue val, Iter iterator,
     return iterator(cx, cmp, rval);
   }
 
-  MOZ_ASSERT(val.isBigInt() ||
-             IF_RECORD_TUPLE(val.isExtendedPrimitive(), false));
+  MOZ_ASSERT(val.isBigInt());
 
   // Generic implementation for the remaining types.
   RootedValue elementRoot(cx);
@@ -5344,6 +5449,20 @@ static MOZ_ALWAYS_INLINE ArrayObject* NewArrayWithProto(JSContext* cx,
   return NewArrayWithShape<maxLength>(cx, shape, length, newKind, nullptr);
 }
 
+static JSObject* CreateArrayConstructor(JSContext* cx, JSProtoKey key) {
+  MOZ_ASSERT(key == JSProto_Array);
+  Rooted<JSObject*> ctor(cx, GlobalObject::createConstructor(
+                                 cx, ArrayConstructor, cx->names().Array, 1,
+                                 gc::AllocKind::FUNCTION, &jit::JitInfo_Array));
+  if (!ctor) {
+    return nullptr;
+  }
+  if (!JSObject::setHasFuseProperty(cx, ctor)) {
+    return nullptr;
+  }
+  return ctor;
+}
+
 static JSObject* CreateArrayPrototype(JSContext* cx, JSProtoKey key) {
   MOZ_ASSERT(key == JSProto_Array);
   RootedObject proto(cx, &cx->global()->getObjectPrototype());
@@ -5403,13 +5522,8 @@ static const JSClassOps ArrayObjectClassOps = {
 };
 
 static const ClassSpec ArrayObjectClassSpec = {
-    GenericCreateConstructor<ArrayConstructor, 1, gc::AllocKind::FUNCTION,
-                             &jit::JitInfo_Array>,
-    CreateArrayPrototype,
-    array_static_methods,
-    array_static_props,
-    array_methods,
-    nullptr,
+    CreateArrayConstructor, CreateArrayPrototype, array_static_methods,
+    array_static_props,     array_methods,        nullptr,
     array_proto_finish,
 };
 
@@ -5557,160 +5671,6 @@ bool js::ArrayInfo(JSContext* cx, unsigned argc, Value* vp) {
   return true;
 }
 #endif
-
-void js::ArraySpeciesLookup::initialize(JSContext* cx) {
-  MOZ_ASSERT(state_ == State::Uninitialized);
-
-  // Get the canonical Array.prototype.
-  NativeObject* arrayProto = cx->global()->maybeGetArrayPrototype();
-
-  // Leave the cache uninitialized if the Array class itself is not yet
-  // initialized.
-  if (!arrayProto) {
-    return;
-  }
-
-  // Get the canonical Array constructor. The Array constructor must be
-  // initialized if Array.prototype is initialized.
-  JSObject& arrayCtorObject = cx->global()->getConstructor(JSProto_Array);
-  JSFunction* arrayCtor = &arrayCtorObject.as<JSFunction>();
-
-  // Shortcut returns below means Array[@@species] will never be
-  // optimizable, set to disabled now, and clear it later when we succeed.
-  state_ = State::Disabled;
-
-  // Look up Array.prototype.constructor and ensure it's a data property.
-  Maybe<PropertyInfo> ctorProp =
-      arrayProto->lookup(cx, NameToId(cx->names().constructor));
-  if (ctorProp.isNothing() || !ctorProp->isDataProperty()) {
-    return;
-  }
-
-  // Get the referred value, and ensure it holds the canonical Array
-  // constructor.
-  JSFunction* ctorFun;
-  if (!IsFunctionObject(arrayProto->getSlot(ctorProp->slot()), &ctorFun)) {
-    return;
-  }
-  if (ctorFun != arrayCtor) {
-    return;
-  }
-
-  // Look up the '@@species' value on Array
-  Maybe<PropertyInfo> speciesProp = arrayCtor->lookup(
-      cx, PropertyKey::Symbol(cx->wellKnownSymbols().species));
-  if (speciesProp.isNothing() || !arrayCtor->hasGetter(*speciesProp)) {
-    return;
-  }
-
-  // Get the referred value, ensure it holds the canonical Array[@@species]
-  // function.
-  uint32_t speciesGetterSlot = speciesProp->slot();
-  JSObject* speciesGetter = arrayCtor->getGetter(speciesGetterSlot);
-  if (!speciesGetter || !speciesGetter->is<JSFunction>()) {
-    return;
-  }
-  JSFunction* speciesFun = &speciesGetter->as<JSFunction>();
-  if (!IsSelfHostedFunctionWithName(speciesFun,
-                                    cx->names().dollar_ArraySpecies_)) {
-    return;
-  }
-
-  // Store raw pointers below. This is okay to do here, because all objects
-  // are in the tenured heap.
-  MOZ_ASSERT(!IsInsideNursery(arrayProto));
-  MOZ_ASSERT(!IsInsideNursery(arrayCtor));
-  MOZ_ASSERT(!IsInsideNursery(arrayCtor->shape()));
-  MOZ_ASSERT(!IsInsideNursery(speciesFun));
-  MOZ_ASSERT(!IsInsideNursery(arrayProto->shape()));
-
-  state_ = State::Initialized;
-  arrayProto_ = arrayProto;
-  arrayConstructor_ = arrayCtor;
-  arrayConstructorShape_ = arrayCtor->shape();
-  arraySpeciesGetterSlot_ = speciesGetterSlot;
-  canonicalSpeciesFunc_ = speciesFun;
-  arrayProtoShape_ = arrayProto->shape();
-  arrayProtoConstructorSlot_ = ctorProp->slot();
-}
-
-void js::ArraySpeciesLookup::reset() {
-  AlwaysPoison(this, JS_RESET_VALUE_PATTERN, sizeof(*this),
-               MemCheckKind::MakeUndefined);
-  state_ = State::Uninitialized;
-}
-
-bool js::ArraySpeciesLookup::isArrayStateStillSane() {
-  MOZ_ASSERT(state_ == State::Initialized);
-
-  // Ensure that Array.prototype still has the expected shape.
-  if (arrayProto_->shape() != arrayProtoShape_) {
-    return false;
-  }
-
-  // Ensure that Array.prototype.constructor contains the canonical Array
-  // constructor function.
-  if (arrayProto_->getSlot(arrayProtoConstructorSlot_) !=
-      ObjectValue(*arrayConstructor_)) {
-    return false;
-  }
-
-  // Ensure that Array still has the expected shape.
-  if (arrayConstructor_->shape() != arrayConstructorShape_) {
-    return false;
-  }
-
-  // Ensure the species getter contains the canonical @@species function.
-  JSObject* getter = arrayConstructor_->getGetter(arraySpeciesGetterSlot_);
-  return getter == canonicalSpeciesFunc_;
-}
-
-bool js::ArraySpeciesLookup::tryOptimizeArray(JSContext* cx,
-                                              ArrayObject* array) {
-  if (state_ == State::Uninitialized) {
-    // If the cache is not initialized, initialize it.
-    initialize(cx);
-  } else if (state_ == State::Initialized && !isArrayStateStillSane()) {
-    // Otherwise, if the array state is no longer sane, reinitialize.
-    reset();
-    initialize(cx);
-  }
-
-  // If the cache is disabled or still uninitialized, don't bother trying to
-  // optimize.
-  if (state_ != State::Initialized) {
-    return false;
-  }
-
-  // By the time we get here, we should have a sane array state.
-  MOZ_ASSERT(isArrayStateStillSane());
-
-  // Ensure |array|'s prototype is the actual Array.prototype.
-  if (array->staticPrototype() != arrayProto_) {
-    return false;
-  }
-
-  // Ensure the array does not define an own "constructor" property which may
-  // shadow `Array.prototype.constructor`.
-
-  // Most arrays don't define any additional own properties beside their
-  // "length" property. If "length" is the last property, it must be the only
-  // property, because it's non-configurable.
-  MOZ_ASSERT(array->shape()->propMapLength() > 0);
-  PropertyKey lengthKey = NameToId(cx->names().length);
-  if (MOZ_LIKELY(array->getLastProperty().key() == lengthKey)) {
-    MOZ_ASSERT(array->shape()->propMapLength() == 1, "Expected one property");
-    return true;
-  }
-
-  // Fail if the array has an own "constructor" property.
-  uint32_t index;
-  if (array->shape()->lookup(cx, NameToId(cx->names().constructor), &index)) {
-    return false;
-  }
-
-  return true;
-}
 
 JS_PUBLIC_API JSObject* JS::NewArrayObject(JSContext* cx,
                                            const HandleValueArray& contents) {

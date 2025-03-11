@@ -11,6 +11,7 @@
 
 #include <utility>
 
+#include "jit/InlineList.h"
 #include "jit/InlineScriptTree.h"
 #include "jit/JitcodeMap.h"
 #include "jit/LIR.h"
@@ -32,11 +33,11 @@ class IonIC;
 class OutOfLineTruncateSlow;
 
 class CodeGeneratorShared : public LElementVisitor {
-  js::Vector<OutOfLineCode*, 0, BackgroundSystemAllocPolicy> outOfLineCode_;
+  AppendOnlyList<OutOfLineCode> outOfLineCode_;
 
   MacroAssembler& ensureMasm(MacroAssembler* masm, TempAllocator& alloc,
                              CompileRealm* realm);
-  mozilla::Maybe<IonHeapMacroAssembler> maybeMasm_;
+  mozilla::Maybe<OffThreadMacroAssembler> maybeMasm_;
 
  public:
   MacroAssembler& masm;
@@ -61,8 +62,7 @@ class CodeGeneratorShared : public LElementVisitor {
   // Amount of bytes allocated for incoming args. Used for Wasm return calls.
   uint32_t inboundStackArgBytes_;
 
-  js::Vector<CodegenSafepointIndex, 0, BackgroundSystemAllocPolicy>
-      safepointIndices_;
+  js::Vector<CodegenSafepointIndex, 0, JitAllocPolicy> safepointIndices_;
   js::Vector<OsiIndex, 0, BackgroundSystemAllocPolicy> osiIndices_;
 
   // Allocated data space needed at runtime.
@@ -237,8 +237,7 @@ class CodeGeneratorShared : public LElementVisitor {
 
   OutOfLineCode* oolTruncateDouble(
       FloatRegister src, Register dest, MInstruction* mir,
-      wasm::BytecodeOffset callOffset = wasm::BytecodeOffset(),
-      bool preserveInstance = false);
+      wasm::BytecodeOffset callOffset = wasm::BytecodeOffset());
   void emitTruncateDouble(FloatRegister src, Register dest, MInstruction* mir);
   void emitTruncateFloat32(FloatRegister src, Register dest, MInstruction* mir);
 
@@ -382,7 +381,7 @@ class CodeGeneratorShared : public LElementVisitor {
   void jumpToBlock(MBasicBlock* mir);
 
 // This function is not used for MIPS. MIPS has branchToBlock.
-#if !defined(JS_CODEGEN_MIPS32) && !defined(JS_CODEGEN_MIPS64)
+#if !defined(JS_CODEGEN_MIPS64)
   void jumpToBlock(MBasicBlock* mir, Assembler::Condition cond);
 #endif
 
@@ -402,7 +401,8 @@ class CodeGeneratorShared : public LElementVisitor {
 };
 
 // An out-of-line path is generated at the end of the function.
-class OutOfLineCode : public TempObject {
+class OutOfLineCode : public TempObject,
+                      public AppendOnlyListNode<OutOfLineCode> {
   Label entry_;
   Label rejoin_;
   uint32_t framePushed_;
@@ -420,6 +420,19 @@ class OutOfLineCode : public TempObject {
   uint32_t framePushed() const { return framePushed_; }
   void setBytecodeSite(const BytecodeSite* site) { site_ = site; }
   const BytecodeSite* bytecodeSite() const { return site_; }
+};
+
+// An implementation of OutOfLineCode for quick and simple cases. The lambda
+// should have the signature (OutOfLineCode& ool) -> void.
+template <typename Func>
+class LambdaOutOfLineCode : public OutOfLineCode {
+  Func generateFunc_;
+
+ public:
+  explicit LambdaOutOfLineCode(Func generateFunc)
+      : generateFunc_(std::move(generateFunc)) {}
+
+  void generate(CodeGeneratorShared*) override { generateFunc_(*this); }
 };
 
 // For OOL paths that want a specific-typed code generator.
@@ -442,7 +455,7 @@ class OutOfLineWasmTruncateCheckBase : public OutOfLineCodeBase<CodeGen> {
   Register output_;
   Register64 output64_;
   TruncFlags flags_;
-  wasm::BytecodeOffset bytecodeOffset_;
+  wasm::TrapSiteDesc trapSiteDesc_;
 
  public:
   OutOfLineWasmTruncateCheckBase(MWasmTruncateToInt32* mir, FloatRegister input,
@@ -453,7 +466,7 @@ class OutOfLineWasmTruncateCheckBase : public OutOfLineCodeBase<CodeGen> {
         output_(output),
         output64_(Register64::Invalid()),
         flags_(mir->flags()),
-        bytecodeOffset_(mir->bytecodeOffset()) {}
+        trapSiteDesc_(mir->trapSiteDesc()) {}
 
   OutOfLineWasmTruncateCheckBase(MWasmBuiltinTruncateToInt64* mir,
                                  FloatRegister input, Register64 output)
@@ -463,7 +476,7 @@ class OutOfLineWasmTruncateCheckBase : public OutOfLineCodeBase<CodeGen> {
         output_(Register::Invalid()),
         output64_(output),
         flags_(mir->flags()),
-        bytecodeOffset_(mir->bytecodeOffset()) {}
+        trapSiteDesc_(mir->trapSiteDesc()) {}
 
   OutOfLineWasmTruncateCheckBase(MWasmTruncateToInt64* mir, FloatRegister input,
                                  Register64 output)
@@ -473,7 +486,7 @@ class OutOfLineWasmTruncateCheckBase : public OutOfLineCodeBase<CodeGen> {
         output_(Register::Invalid()),
         output64_(output),
         flags_(mir->flags()),
-        bytecodeOffset_(mir->bytecodeOffset()) {}
+        trapSiteDesc_(mir->trapSiteDesc()) {}
 
   void accept(CodeGen* codegen) override {
     codegen->visitOutOfLineWasmTruncateCheck(this);
@@ -487,7 +500,7 @@ class OutOfLineWasmTruncateCheckBase : public OutOfLineCodeBase<CodeGen> {
   bool isUnsigned() const { return flags_ & TRUNC_UNSIGNED; }
   bool isSaturating() const { return flags_ & TRUNC_SATURATING; }
   TruncFlags flags() const { return flags_; }
-  wasm::BytecodeOffset bytecodeOffset() const { return bytecodeOffset_; }
+  wasm::TrapSiteDesc trapSiteDesc() const { return trapSiteDesc_; }
 };
 
 }  // namespace jit

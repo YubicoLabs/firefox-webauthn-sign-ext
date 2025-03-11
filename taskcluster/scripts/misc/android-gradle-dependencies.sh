@@ -15,10 +15,10 @@ export PATH=$MOZ_FETCHES_DIR/jdk-8/bin:$PATH
 
 export MOZCONFIG=mobile/android/config/mozconfigs/android-arm-gradle-dependencies/nightly
 ./mach build
-./mach gradle downloadDependencies
-./mach android gradle-dependencies
+./mach gradle downloadDependencies --no-configuration-cache
+./mach android gradle-dependencies --no-configuration-cache
 pushd mobile/android/fenix
-./gradlew detekt lint assembleDebug mozilla-lint-rules:test
+./gradlew detekt lint assembleDebug mozilla-lint-rules:test :benchmark:assembleBenchmark
 popd
 pushd mobile/android/focus-android
 ./gradlew lint

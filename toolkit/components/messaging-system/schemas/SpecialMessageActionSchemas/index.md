@@ -115,9 +115,24 @@ Opens Firefox accounts sign-up page. Encodes some information that the origin wa
 }
 ```
 
+* example:
+```json
+"action": {
+  "type": "FXA_SIGNIN_FLOW",
+  "needsAwait": true,
+  "navigate": "actionResult",
+  "data": {
+    "entrypoint": "onboarding",
+    "extraParams": {
+      "utm_content": "migration-onboarding"
+    }
+  }
+}
+```
+
 Opens a Firefox accounts sign-up or sign-in page, and does the work of closing the resulting tab or window once
 sign-in completes. Returns a Promise that resolves to `true` if sign-in succeeded, or to `false` if the sign-in
-window or tab closed before sign-in could be completed.
+window or tab closed before sign-in could be completed. In messaging surfaces using `aboutwelcome` templates, setting `needsAwait` ensures that the UI will wait for the Promise to resolve. The `navigate` and `dismiss` properties should be assigned the string value "actionResult" for the UI to respect the resolved boolean value before proceeding to the next step.
 
 Encodes some information that the origin was from about:welcome by default.
 
@@ -375,3 +390,24 @@ Sets the visibility of the bookmarks toolbar.
   visibility?: string; // "always", "never", or "newtab"
 }
 ```
+
+
+### `DATAREPORTING_NOTIFY_DATA_POLICY_INTERACTED`
+
+Notify Firefox that the notification policy was interacted with.
+
+- args: (none)
+
+### `CREATE_NEW_SELECTABLE_PROFILE`
+
+Creates a new user profile and launches it in a separate instance.
+
+Any message that uses this action should have `canCreateSelectableProfiles` as part of the targeting, to ensure we don't accidentally show a message where the action will not work.
+
+- args: (none)
+
+### `SUBMIT_ONBOARDING_OPT_OUT_PING`
+
+Submits a Glean `onboarding-opt-out` ping.  Should only be used during preonboarding (but this is not enforced).
+
+- args: (none)

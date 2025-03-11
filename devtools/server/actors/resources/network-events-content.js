@@ -59,17 +59,6 @@ class NetworkEventContentWatcher {
 
     Services.obs.addObserver(
       this.httpOnResourceCacheResponse,
-      "http-on-image-cache-response"
-    );
-
-    // TODO: Use the same notification for all resources (bug 1919218).
-    Services.obs.addObserver(
-      this.httpOnResourceCacheResponse,
-      "http-on-stylesheet-cache-response"
-    );
-
-    Services.obs.addObserver(
-      this.httpOnResourceCacheResponse,
       "http-on-resource-cache-response"
     );
   }
@@ -107,9 +96,7 @@ class NetworkEventContentWatcher {
 
   httpOnResourceCacheResponse(subject, topic) {
     if (
-      (topic != "http-on-image-cache-response" &&
-        topic != "http-on-stylesheet-cache-response" &&
-        topic != "http-on-resource-cache-response") ||
+      topic != "http-on-resource-cache-response" ||
       !(subject instanceof Ci.nsIHttpChannel)
     ) {
       return;
@@ -125,14 +112,22 @@ class NetworkEventContentWatcher {
       return;
     }
 
-    // Only one network request should be created per URI for resources from
-    // the cache
-    const hasURI = Array.from(this.networkEvents.values()).some(
-      networkEvent => networkEvent.uri === channel.URI.spec
-    );
+    if (
+      channel.loadInfo?.externalContentPolicyType !==
+      Ci.nsIContentPolicy.TYPE_SCRIPT
+    ) {
+      // For images and stylesheets from the cache, only one network request
+      // should be created per URI.
+      //
+      // For scripts from the cache, multiple network requests should be
+      // created.
+      const hasURI = Array.from(this.networkEvents.values()).some(
+        networkEvent => networkEvent.uri === channel.URI.spec
+      );
 
-    if (hasURI) {
-      return;
+      if (hasURI) {
+        return;
+      }
     }
 
     this.onNetworkEventAvailable(channel, {
@@ -279,16 +274,6 @@ class NetworkEventContentWatcher {
     Services.obs.removeObserver(
       this.httpFailedOpeningRequest,
       "http-on-failed-opening-request"
-    );
-
-    Services.obs.removeObserver(
-      this.httpOnResourceCacheResponse,
-      "http-on-image-cache-response"
-    );
-
-    Services.obs.removeObserver(
-      this.httpOnResourceCacheResponse,
-      "http-on-stylesheet-cache-response"
     );
 
     Services.obs.removeObserver(

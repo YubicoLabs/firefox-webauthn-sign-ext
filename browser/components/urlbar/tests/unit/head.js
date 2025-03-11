@@ -65,6 +65,8 @@ SearchTestUtils.init(this);
 const SUGGESTIONS_ENGINE_NAME = "Suggestions";
 const TAIL_SUGGESTIONS_ENGINE_NAME = "Tail Suggestions";
 
+const SEARCH_GLASS_ICON = "chrome://global/skin/icons/search-glass.svg";
+
 /**
  * Gets the database connection.  If the Places connection is invalid it will
  * try to create a new connection.
@@ -361,6 +363,7 @@ function testEngine_setup() {
 
     registerCleanupFunction(async () => {
       Services.prefs.clearUserPref("browser.urlbar.suggest.searches");
+      Services.prefs.clearUserPref("browser.urlbar.contextualSearch.enabled");
       Services.prefs.clearUserPref(
         "browser.search.separatePrivateDefault.ui.enabled"
       );
@@ -379,6 +382,10 @@ function testEngine_setup() {
       false
     );
     Services.prefs.setBoolPref("browser.urlbar.suggest.searches", false);
+    Services.prefs.setBoolPref(
+      "browser.urlbar.scotchBonnet.enableOverride",
+      false
+    );
   });
 }
 
@@ -507,9 +514,6 @@ function makeOmniboxResult(
     keyword: [keyword, UrlbarUtils.HIGHLIGHT.TYPED],
     icon: [UrlbarUtils.ICON.EXTENSION],
   };
-  if (!heuristic) {
-    payload.blockL10n = { id: "urlbar-result-menu-dismiss-firefox-suggest" };
-  }
   let result = new UrlbarResult(
     UrlbarUtils.RESULT_TYPE.OMNIBOX,
     UrlbarUtils.RESULT_SOURCE.ADDON,
@@ -774,6 +778,10 @@ function makeSearchResult(
     payload.isGeneralPurposeEngine = false;
   }
 
+  if (providerName == "TokenAliasEngines") {
+    payload.keywords = alias?.toLowerCase();
+  }
+
   let result = new UrlbarResult(
     type,
     source,
@@ -893,6 +901,30 @@ function makeVisitResult(
 }
 
 /**
+ * Creates a UrlbarResult for a calculator result.
+ *
+ * @param {UrlbarQueryContext} queryContext
+ *   The context that this result will be displayed in.
+ * @param {object} options
+ *   Options for the result.
+ * @param {string} options.value
+ *   The value of the calculator result.
+ * @returns {UrlbarResult}
+ */
+function makeCalculatorResult(queryContext, { value }) {
+  const result = new UrlbarResult(
+    UrlbarUtils.RESULT_TYPE.DYNAMIC,
+    UrlbarUtils.RESULT_SOURCE.OTHER_LOCAL,
+    {
+      value,
+      input: queryContext.searchString,
+      dynamicType: "calculator",
+    }
+  );
+  return result;
+}
+
+/**
  * Checks that the results returned by a UrlbarController match those in
  * the param `matches`.
  *
@@ -988,16 +1020,6 @@ async function check_results({
     "Found the expected number of results."
   );
 
-  function getPayload(result) {
-    let payload = {};
-    for (let [key, value] of Object.entries(result.payload)) {
-      if (value !== undefined) {
-        payload[key] = value;
-      }
-    }
-    return payload;
-  }
-
   let propertiesToCheck = {
     type: {},
     source: {},
@@ -1007,7 +1029,11 @@ async function check_results({
     suggestedIndex: { optional: true },
     isSuggestedIndexRelativeToGroup: { optional: true, map: v => !!v },
     exposureTelemetry: { optional: true },
+    isRichSuggestion: { optional: true },
+    richSuggestionIconVariation: { optional: true },
   };
+
+  let optionalPayloadProperties = new Set(["lastVisit"]);
 
   for (let i = 0; i < matches.length; i++) {
     let actual = context.results[i];
@@ -1031,12 +1057,41 @@ async function check_results({
       }
     }
 
+    if (
+      actual.type == UrlbarUtils.RESULT_TYPE.SEARCH &&
+      actual.source == UrlbarUtils.RESULT_SOURCE.SEARCH &&
+      actual.providerName == "HeuristicFallback"
+    ) {
+      expected.payload.icon = SEARCH_GLASS_ICON;
+    }
+
+    if (actual.payload?.url) {
+      try {
+        const payloadUrlProtocol = new URL(actual.payload.url).protocol;
+        if (
+          !UrlbarUtils.PROTOCOLS_WITH_ICONS.includes(payloadUrlProtocol) &&
+          actual.source != UrlbarUtils.RESULT_SOURCE.OTHER_LOCAL
+        ) {
+          expected.payload.icon = UrlbarUtils.ICON.DEFAULT;
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
     if (expected.payload) {
-      Assert.deepEqual(
-        getPayload(actual),
-        getPayload(expected),
-        `result.payload at result index ${i}`
+      let expectedEntries = new Set(Object.keys(expected.payload));
+      let actualEntries = new Set(Object.keys(actual.payload)).difference(
+        optionalPayloadProperties
       );
+
+      for (let key of actualEntries.union(expectedEntries)) {
+        Assert.deepEqual(
+          actual.payload[key],
+          expected.payload[key],
+          `result.payload.${key} at result index ${i}`
+        );
+      }
     }
   }
 }

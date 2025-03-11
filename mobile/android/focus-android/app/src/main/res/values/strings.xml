@@ -86,7 +86,6 @@
     <string name="share_dialog_title">Share via</string>
 
     <string name="notification_erase_title_android_14">Erase browsing history?</string>
-    <string name="notification_erase_text_android_14" moz:RemovedIn="124" tools:ignore="UnusedResources">Tap or clear this notification to securely erase your browsing history.</string>
 
     <!-- Text shown in the notification description that pops up to remind the user that a browsing session is active
     for Android 14+. -->
@@ -351,6 +350,11 @@
     <!-- %1$s will be replaced with the name of the app (e.g. Firefox Focus) -->
     <string name="preference_mozilla_telemetry_summary2">Mozilla strives to collect only what we need to provide and improve %1$s for everyone.</string>
 
+    <!-- Preference switch for daily usage ping data collection -->
+    <string name="preference_daily_usage_ping_title">Daily usage ping</string>
+    <string name="preference_daily_usage_ping_description">This helps Mozilla to estimate active users.</string>
+    <string name="preference_daily_usage_ping_learn_more">Learn more</string>
+
     <!-- In-app link (in settings) to Focus privacy notice. -->
     <string name="preference_privacy_notice">Privacy Notice</string>
 
@@ -359,6 +363,9 @@
 
     <!-- Link to Focus licensing information from other libraries that we use. -->
     <string name="preference_libraries_we_use">Libraries that we use</string>
+
+    <!-- Link to Focus Crash reports list. -->
+    <string name="preference_crashes">Crashes</string>
 
     <!-- Open Source Licenses page title. The first parameter is the app name -->
     <string name="open_source_licenses_title">%s | OSS Libraries</string>
@@ -488,9 +495,6 @@
 
     <string name="error_hostLookup_title">Server not found</string>
 
-    <!-- Content description (not visible, for screen readers etc.): This is the description for the close button from the new onboarding flow screen one and two -->
-    <string name="onboarding_close_button_content_description">Close</string>
-
     <!-- New Onboarding flow first screen title -->
     <!-- %1$s will be replaced by the app name and build variant(e.g. Firefox Focus, Firefox Klar Nightly) -->
     <string name="onboarding_first_screen_title">Welcome to %1$s</string>
@@ -498,8 +502,26 @@
     <!-- New Onboarding flow first screen subtitle the one that appears under title -->
     <string name="onboarding_first_screen_subtitle">Fast. Private. No distractions.</string>
 
+    <!-- New Onboarding flow first screen 'terms of use' text -->
+    <!-- %1$s will be replaced by a link using onboarding_first_screen_terms_of_use_link as text -->
+    <string name="onboarding_first_screen_terms_of_use_text" tools:ignore="UnusedResources">By continuing, you agree to the %1$s</string>
+
+    <!-- New Onboarding flow first screen 'terms of use link' -->
+    <!-- Text for the link used in onboarding_first_screen_terms_of_use_text -->
+    <string name="onboarding_first_screen_terms_of_use_link" tools:ignore="BrandUsage">Firefox Terms of Use.</string>
+
+    <!-- New Onboarding flow first screen 'privacy notice' text -->
+    <!-- %1$s will be replaced by a link using onboarding_first_screen_privacy_notice_link as text -->
+    <string name="onboarding_first_screen_privacy_notice_text" tools:ignore="BrandUsage">Firefox cares about your privacy. Learn more in our %1$s</string>
+
+    <!-- Text for the link used in onboarding_first_screen_privacy_notice_text -->
+    <string name="onboarding_first_screen_privacy_notice_link">Privacy Notice.</string>
+
     <!-- New Onboarding flow first screen button label-->
-    <string name="onboarding_first_screen_button_text">Get started</string>
+    <string name="onboarding_first_screen_button_text" moz:removedIn="137" tools:ignore="UnusedResources">Get started</string>
+
+    <!-- New Onboarding flow first screen button label -->
+    <string name="onboarding_first_screen_button_agree_and_continue">Agree and continue</string>
 
     <!-- Onboarding second screen: Title -->
     <!-- %1$s will be replaced by the app short name(Focus) -->
@@ -682,7 +704,7 @@
     <!--  Preference summary inside Cookie banner reduction screen. Here you can set the cookie banner option to disabled or reject_all. -->
     <string name="cookie_banner_reject_all_option_summary">See fewer banners by automatically rejecting cookie requests, when possible.</string>
 
-    <!-- Preference for removing cookie/consent banners from sites automatically, this is shown as part of the protections panel with the tracking protection toggle. -->-->
+    <!-- Preference for removing cookie/consent banners from sites automatically, this is shown as part of the protections panel with the tracking protection toggle. -->
     <string name="cookie_banner_exception_item_title">Cookie Banner Reduction</string>
 
     <!-- Text for indicating cookie banner handling is on this site, this is shown as part of the protections panel with the tracking protection toggle. -->
@@ -803,7 +825,7 @@
     <string name="studies_learn_more">Learn more</string>
 
     <!-- Dialog message shown when some changes are made on studies -->
-    <string name="studies_restart_app">The application will quit to apply changes</string>
+    <string name="studies_restart_app" moz:removedIn="137">The application will quit to apply changes</string>
 
     <!-- Title of the remove studies button -->
     <string name="studies_remove">Remove</string>
@@ -898,9 +920,6 @@
 
     <!-- Label for the button in the snackbar that switches to the newly opened tab -->
     <string name="open_new_tab_snackbar">Switch</string>
-
-    <!-- Text displayed in a notification when the user enters full screen mode -->
-    <string name="full_screen_notification" moz:removedIn="130" tools:ignore="UnusedResources">Entering full screen mode</string>
 
     <!-- Preference for switching to a new tab immediately after opening -->
     <string name="preference_open_new_tab">Switch to link in new tab immediately</string>
@@ -1071,11 +1090,6 @@
     <string name="promote_search_widget_snackbar_message">Widget added to home screen</string>
 
     <!-- Messages explaining how to exit fullscreen mode -->
-    <!-- Message shown to explain how to exit fullscreen mode when gesture navigation is enabled -->
-    <string name="exit_fullscreen_with_gesture" moz:removedIn="132" tools:ignore="UnusedResources">To exit fullscreen, drag from top and use back gesture</string>
-    <!-- Message shown to explain how to exit fullscreen mode when using back button navigation -->
-    <string name="exit_fullscreen_with_back_button" moz:removedIn="132" tools:ignore="UnusedResources">To exit fullscreen, drag from top and press back</string>
-
     <!-- Message shown to explain how to exit fullscreen mode when gesture navigation is enabled. -->
     <!-- Localisation note: this text should be as short as possible, max 68 chars -->
     <string name="exit_fullscreen_with_gesture_short">Drag from top &amp; use back gesture to exit</string>

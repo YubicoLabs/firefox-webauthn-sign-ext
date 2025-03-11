@@ -315,6 +315,14 @@
     obj: ObjId
     clasp: RawPointerField
 
+- name: HasShapeResult
+  shared: false
+  transpile: true
+  cost_estimate: 1
+  args:
+    obj: ObjId
+    shape: ShapeField
+
 - name: CallRegExpMatcherResult
   shared: false
   transpile: true
@@ -564,6 +572,14 @@
     num: Int32Id
     expected: Int32Imm
 
+- name: GuardSpecificValue
+  shared: false
+  transpile: true
+  cost_estimate: 1
+  args:
+    val: ValId
+    expected: ValueField
+
 - name: GuardNoDenseElements
   shared: true
   transpile: true
@@ -793,6 +809,14 @@
   args:
     obj: ObjId
     flags: ByteImm
+
+# Guard cx->realm() == obj->realm().
+- name: GuardObjectHasSameRealm
+  shared: true
+  transpile: true
+  cost_estimate: 1
+  args:
+    obj: ObjId
 
 - name: LoadObject
   shared: true
@@ -1397,6 +1421,36 @@
     templateObject: ObjectField
     array: ObjId
 
+- name: NewMapObjectResult
+  shared: true
+  transpile: true
+  cost_estimate: 5
+  args:
+    templateObject: ObjectField
+
+- name: NewSetObjectResult
+  shared: true
+  transpile: true
+  cost_estimate: 5
+  args:
+    templateObject: ObjectField
+
+- name: NewMapObjectFromIterableResult
+  shared: true
+  transpile: true
+  cost_estimate: 5
+  args:
+    templateObject: ObjectField
+    iterable: ValId
+
+- name: NewSetObjectFromIterableResult
+  shared: true
+  transpile: true
+  cost_estimate: 5
+  args:
+    templateObject: ObjectField
+    iterable: ValId
+
 - name: NewStringObjectResult
   shared: true
   transpile: true
@@ -1853,6 +1907,12 @@
   args:
     value: Int32Id
 
+- name: AtomicsPauseResult
+  shared: true
+  transpile: true
+  cost_estimate: 1
+  args:
+
 - name: CallNativeSetter
   shared: false
   transpile: true
@@ -2043,6 +2103,22 @@
     target: RawPointerField
 #endif
 
+- name: CallDOMFunctionWithAllocSite
+  shared: false
+  transpile: true
+  cost_estimate: 4
+  custom_writer: true
+  args:
+    callee: ObjId
+    argc: Int32Id
+    thisObj: ObjId
+    flags: CallFlagsImm
+    argcFixed: UInt32Imm
+    site: AllocSiteField
+#ifdef JS_SIMULATOR
+    target: RawPointerField
+#endif
+
 - name: CallClassHook
   shared: false
   transpile: true
@@ -2093,7 +2169,7 @@
     property: ValId
     trap: ObjId
     nargsAndFlags: UInt32Imm
-#endif
+  #endif
 
 # Meta ops generate no code, but contain data for the Warp Transpiler.
 - name: MetaScriptedThisShape
@@ -2315,6 +2391,15 @@
   args:
     obj: ObjId
     result: ObjId
+
+- name: LoadBoundFunctionArgument
+  shared: true
+  transpile: true
+  cost_estimate: 2
+  args:
+    obj: ObjId
+    index: UInt32Imm
+    result: ValId
 
 - name: GuardBoundFunctionIsConstructor
   shared: true
@@ -3184,13 +3269,22 @@
     shape: ShapeField
     site: AllocSiteField
 
-- name: CallStringConcatResult
+- name: NewFunctionCloneResult
+  shared: false
+  transpile: false
+  cost_estimate: 4
+  args:
+    canonical: ObjectField
+    allocKind: AllocKindImm
+
+- name: ConcatStringsResult
   shared: true
   transpile: true
   cost_estimate: 5
   args:
     lhs: StringId
     rhs: StringId
+    stub: JitCodeField
 
 - name: CallStringObjectConcatResult
   shared: false
@@ -3320,13 +3414,6 @@
   args:
     val: Int32Id
 
-- name: Int32ToBigIntResult
-  shared: true
-  transpile: true
-  cost_estimate: 4
-  args:
-    input: Int32Id
-
 - name: BigIntAsIntNResult
   shared: true
   transpile: true
@@ -3390,6 +3477,22 @@
   args:
     set: ObjId
     obj: ObjId
+
+- name: SetDeleteResult
+  shared: true
+  transpile: true
+  cost_estimate: 5
+  args:
+    set: ObjId
+    val: ValId
+
+- name: SetAddResult
+  shared: true
+  transpile: true
+  cost_estimate: 5
+  args:
+    set: ObjId
+    key: ValId
 
 - name: SetSizeResult
   shared: true
@@ -3494,12 +3597,57 @@
     map: ObjId
     obj: ObjId
 
+- name: MapDeleteResult
+  shared: true
+  transpile: true
+  cost_estimate: 5
+  args:
+    map: ObjId
+    val: ValId
+
+- name: MapSetResult
+  shared: true
+  transpile: true
+  cost_estimate: 5
+  args:
+    map: ObjId
+    key: ValId
+    val: ValId
+
 - name: MapSizeResult
   shared: true
   transpile: true
   cost_estimate: 1
   args:
     map: ObjId
+
+- name: DateFillLocalTimeSlots
+  shared: true
+  transpile: true
+  cost_estimate: 4
+  args:
+    date: ObjId
+
+- name: DateHoursFromSecondsIntoYearResult
+  shared: true
+  transpile: true
+  cost_estimate: 2
+  args:
+    secondsIntoYear: ValId
+
+- name: DateMinutesFromSecondsIntoYearResult
+  shared: true
+  transpile: true
+  cost_estimate: 2
+  args:
+    secondsIntoYear: ValId
+
+- name: DateSecondsFromSecondsIntoYearResult
+  shared: true
+  transpile: true
+  cost_estimate: 2
+  args:
+    secondsIntoYear: ValId
 
 - name: ArrayFromArgumentsObjectResult
   shared: true

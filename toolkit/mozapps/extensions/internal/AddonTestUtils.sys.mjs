@@ -552,6 +552,24 @@ export var AddonTestUtils = {
     this.appInfo = lazy.getAppInfo();
   },
 
+  updateAppInfo(appInfoProps = {}) {
+    const {
+      ID = "xpcshell@tests.mozilla.org",
+      name = "XPCShell",
+      version = "1",
+      platformVersion = "1.0",
+    } = appInfoProps;
+    lazy.updateAppInfo({
+      ID,
+      name,
+      version,
+      platformVersion,
+      crashReporter: true,
+      ...appInfoProps,
+    });
+    this.appInfo = lazy.getAppInfo();
+  },
+
   getManifestURI(file) {
     if (file.isDirectory()) {
       file.leafName = "manifest.json";
@@ -1395,6 +1413,22 @@ export var AddonTestUtils = {
       };
 
       AddonManager.addInstallListener(listener);
+    });
+  },
+
+  promiseManagerEvent(event, checkFn) {
+    return new Promise(resolve => {
+      let listener = {
+        [event](...args) {
+          if (typeof checkFn == "function" && !checkFn(...args)) {
+            return;
+          }
+          AddonManager.removeManagerListener(listener);
+          resolve(args);
+        },
+      };
+
+      AddonManager.addManagerListener(listener);
     });
   },
 

@@ -1358,12 +1358,223 @@ const BASE_MESSAGES = () => [
       delay: 1000,
       target: "fxa-toolbar-menu-button",
     },
-    skip_in_tests: "covered by browser_asrouter_toolbarbadge.js",
+    skip_in_tests: "it's covered by browser_asrouter_toolbarbadge.js",
     targeting:
       "source == 'newtab' && !hasAccessedFxAPanel && !usesFirefoxSync && isFxAEnabled && !isFxASignedIn",
     trigger: {
       id: "defaultBrowserCheck",
     },
+  },
+  {
+    id: "INFOBAR_DEFAULT_AND_PIN_87",
+    groups: ["cfr"],
+    content: {
+      text: {
+        string_id: "default-browser-notification-message",
+      },
+      type: "global",
+      buttons: [
+        {
+          label: {
+            string_id: "default-browser-notification-button",
+          },
+          action: {
+            type: "PIN_AND_DEFAULT",
+          },
+          primary: true,
+          accessKey: "P",
+        },
+      ],
+      category: "cfrFeatures",
+      bucket_id: "INFOBAR_DEFAULT_AND_PIN_87",
+    },
+    trigger: {
+      id: "defaultBrowserCheck",
+    },
+    template: "infobar",
+    frequency: {
+      custom: [
+        {
+          cap: 1,
+          period: 3024000000,
+        },
+      ],
+      lifetime: 2,
+    },
+    targeting:
+      "(firefoxVersion >= 138 && source == 'startup' && !isDefaultBrowser && !'browser.shell.checkDefaultBrowser'|preferenceValue && currentDate|date - 'browser.shell.userDisabledDefaultCheck'|preferenceValue * 1000 >= 604800000 && isMajorUpgrade != true && platformName != 'linux' && ((currentDate|date - profileAgeCreated) / 604800000) >= 5 && !activeNotifications && 'browser.newtabpage.activity-stream.asrouter.userprefs.cfr.features'|preferenceValue && ((currentDate|date - profileAgeCreated) / 604800000) < 15",
+  },
+];
+
+const PREONBOARDING_MESSAGES = () => [
+  {
+    id: "ON_TRAIN_ROLLOUT",
+    enabled: true,
+    requireAction: true,
+    currentPolicyVersion: 3,
+    minimumPolicyVersion: 3,
+    firstRunURL: "https://www.mozilla.org/privacy/firefox/",
+    screens: [
+      {
+        id: "TOU_ONBOARDING",
+        content: {
+          action_buttons_above_content: true,
+          screen_style: {
+            overflow: "auto",
+            display: "block",
+            padding: "40px 0 0 0",
+            width: "560px",
+          },
+          logo: {
+            imageURL: "chrome://branding/content/about-logo.png",
+            height: "40px",
+            width: "40px",
+          },
+          title: {
+            string_id: "preonboarding-title",
+          },
+          subtitle: {
+            string_id: "preonboarding-subtitle",
+            paddingInline: "24px",
+          },
+          tiles: [
+            {
+              type: "embedded_browser",
+              id: "terms_of_use",
+              header: {
+                title: {
+                  string_id: "preonboarding-terms-of-use-header-button-title",
+                },
+              },
+              data: {
+                style: {
+                  width: "100%",
+                  height: "200px",
+                },
+                url: "https://mozilla.org/about/legal/terms/firefox/?v=product",
+              },
+            },
+            {
+              type: "embedded_browser",
+              id: "privacy_notice",
+              header: {
+                title: {
+                  string_id: "preonboarding-privacy-notice-header-button-title",
+                },
+              },
+              data: {
+                style: {
+                  width: "100%",
+                  height: "200px",
+                },
+                url: "https://mozilla.org/privacy/firefox/?v=product",
+              },
+            },
+            {
+              type: "multiselect",
+              header: {
+                title: {
+                  string_id: "preonboarding-manage-data-header-button-title",
+                },
+              },
+              data: [
+                {
+                  id: "interaction-data",
+                  type: "checkbox",
+                  defaultValue: true,
+                  label: {
+                    string_id: "preonboarding-checklist-interaction-data-label",
+                  },
+                  description: {
+                    string_id:
+                      "preonboarding-checklist-interaction-data-description",
+                  },
+                  action: {
+                    type: "SET_PREF",
+                    data: {
+                      pref: {
+                        name: "datareporting.healthreport.uploadEnabled",
+                        value: true,
+                      },
+                    },
+                  },
+                  uncheckedAction: {
+                    type: "MULTI_ACTION",
+                    data: {
+                      orderedExecution: true,
+                      actions: [
+                        {
+                          type: "SET_PREF",
+                          data: {
+                            pref: {
+                              name: "datareporting.healthreport.uploadEnabled",
+                              value: false,
+                            },
+                          },
+                        },
+                        {
+                          type: "SUBMIT_ONBOARDING_OPT_OUT_PING",
+                        },
+                      ],
+                    },
+                  },
+                },
+                {
+                  id: "crash-data",
+                  type: "checkbox",
+                  defaultValue: false,
+                  label: {
+                    string_id: "preonboarding-checklist-crash-reports-label",
+                  },
+                  description: {
+                    string_id:
+                      "preonboarding-checklist-crash-reports-description",
+                  },
+                  action: {
+                    type: "SET_PREF",
+                    data: {
+                      pref: {
+                        name: "browser.crashReports.unsubmittedCheck.autoSubmit2",
+                        value: true,
+                      },
+                    },
+                  },
+                  uncheckedAction: {
+                    type: "SET_PREF",
+                    data: {
+                      pref: {
+                        name: "browser.crashReports.unsubmittedCheck.autoSubmit2",
+                        value: false,
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          ],
+          primary_button: {
+            label: {
+              string_id: "preonboarding-primary-cta",
+              marginBlock: "24px 0",
+            },
+            should_focus_button: true,
+            action: {
+              type: "MULTI_ACTION",
+              collectSelect: true,
+              data: {
+                orderedExecution: true,
+                actions: [
+                  {
+                    type: "DATAREPORTING_NOTIFY_DATA_POLICY_INTERACTED",
+                  },
+                ],
+              },
+              dismiss: true,
+            },
+          },
+        },
+      },
+    ],
   },
 ];
 
@@ -1379,15 +1590,22 @@ export const OnboardingMessageProvider = {
     ]);
     return { header: header.value, button_label: button_label.value };
   },
+
   async getMessages() {
     const messages = await this.translateMessages(await ONBOARDING_MESSAGES());
     return messages;
   },
+
+  getPreonboardingMessages() {
+    return PREONBOARDING_MESSAGES();
+  },
+
   async getUntranslatedMessages() {
     // This is helpful for jsonSchema testing - since we are localizing in the provider
     const messages = await ONBOARDING_MESSAGES();
     return messages;
   },
+
   async translateMessages(messages) {
     let translatedMessages = [];
     for (const msg of messages) {
@@ -1417,10 +1635,12 @@ export const OnboardingMessageProvider = {
     }
     return translatedMessages;
   },
+
   async _doesAppNeedPin(privateBrowsing = false) {
     const needPin = await lazy.ShellService.doesAppNeedPin(privateBrowsing);
     return needPin;
   },
+
   async _doesAppNeedDefault() {
     let checkDefault = Services.prefs.getBoolPref(
       "browser.shell.checkDefaultBrowser",
@@ -1429,11 +1649,13 @@ export const OnboardingMessageProvider = {
     let isDefault = await lazy.ShellService.isDefaultBrowser();
     return checkDefault && !isDefault;
   },
+
   _shouldShowPrivacySegmentationScreen() {
     return Services.prefs.getBoolPref(
       "browser.privacySegmentation.preferences.show"
     );
   },
+
   _doesHomepageNeedReset() {
     return (
       Services.prefs.prefHasUserValue(HOMEPAGE_PREF) ||
@@ -1475,7 +1697,7 @@ export const OnboardingMessageProvider = {
         };
       }
       // Update CN specific QRCode url
-      if (AppConstants.isChinaRepack()) {
+      if (lazy.BrowserUtils.isChinaRepack()) {
         mobileContent.hero_image.url = `${mobileContent.hero_image.url.slice(
           0,
           mobileContent.hero_image.url.indexOf(".svg")

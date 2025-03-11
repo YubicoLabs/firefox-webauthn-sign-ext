@@ -4,10 +4,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#include "mozilla/ipc/IOThreadChild.h"
-
 #include "ContentProcess.h"
-#include "base/shared_memory.h"
 #include "mozilla/Preferences.h"
 
 #if defined(XP_MACOSX) && defined(MOZ_SANDBOX)
@@ -22,8 +19,6 @@
 #include "mozilla/GeckoArgs.h"
 #include "mozilla/Omnijar.h"
 #include "nsCategoryManagerUtils.h"
-
-using mozilla::ipc::IOThreadChild;
 
 namespace mozilla::dom {
 
@@ -58,9 +53,10 @@ static nsresult GetGREDir(nsIFile** aResult) {
   return NS_OK;
 }
 
-ContentProcess::ContentProcess(ProcessId aParentPid,
+ContentProcess::ContentProcess(IPC::Channel::ChannelHandle aClientChannel,
+                               ProcessId aParentPid,
                                const nsID& aMessageChannelId)
-    : ProcessChild(aParentPid, aMessageChannelId) {
+    : ProcessChild(std::move(aClientChannel), aParentPid, aMessageChannelId) {
   NS_LogInit();
 }
 
@@ -75,8 +71,10 @@ void ContentProcess::InfallibleInit(int aArgc, char* aArgv[]) {
   Maybe<bool> isForBrowser = Nothing();
   Maybe<const char*> parentBuildID =
       geckoargs::sParentBuildID.Get(aArgc, aArgv);
-  Maybe<uint64_t> jsInitHandle;
-  Maybe<uint64_t> jsInitLen = geckoargs::sJsInitLen.Get(aArgc, aArgv);
+
+  // command line: -jsInitHandle handle
+  Maybe<mozilla::ipc::ReadOnlySharedMemoryHandle> jsInitHandle =
+      geckoargs::sJsInitHandle.Get(aArgc, aArgv);
 
   nsCOMPtr<nsIFile> appDirArg;
   Maybe<const char*> appDir = geckoargs::sAppDir.Get(aArgc, aArgv);
@@ -102,11 +100,6 @@ void ContentProcess::InfallibleInit(int aArgc, char* aArgv[]) {
   if (notForBrowserParam.isSome()) {
     isForBrowser = Some(false);
   }
-
-  // command line: [-jsInitHandle handle] -jsInitLen length
-#ifdef XP_WIN
-  jsInitHandle = geckoargs::sJsInitHandle.Get(aArgc, aArgv);
-#endif
 
 #if defined(XP_MACOSX) && defined(MOZ_SANDBOX)
   nsCOMPtr<nsIFile> profileDir;
@@ -137,8 +130,8 @@ void ContentProcess::InfallibleInit(int aArgc, char* aArgv[]) {
     MOZ_CRASH("InitPrefs failed");
   }
 
-  if (!::mozilla::ipc::ImportSharedJSInit(jsInitHandle.valueOr(0),
-                                          jsInitLen.valueOr(0))) {
+  if (jsInitHandle &&
+      !::mozilla::ipc::ImportSharedJSInit(jsInitHandle.extract())) {
     MOZ_CRASH("ImportSharedJSInit failed");
   }
 

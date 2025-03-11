@@ -9,6 +9,7 @@
 
 #include "vm/JSObject.h"
 #include "vm/NativeObject.h"
+#include "vm/UsingHint.h"
 
 namespace js {
 
@@ -22,6 +23,26 @@ bool ThrowIfOnDisposeNotCallable(JSContext* cx,
 
 bool AdoptClosure(JSContext* cx, unsigned argc, JS::Value* vp);
 
+bool AddDisposableResource(JSContext* cx,
+                           JS::Handle<ArrayObject*> disposeCapability,
+                           JS::Handle<JS::Value> val, UsingHint hint);
+
+bool AddDisposableResource(JSContext* cx,
+                           JS::Handle<ArrayObject*> disposeCapability,
+                           JS::Handle<JS::Value> val, UsingHint hint,
+                           JS::Handle<JS::Value> methodVal);
+
+bool CreateDisposableResource(JSContext* cx, JS::Handle<JS::Value> objVal,
+                              UsingHint hint,
+                              JS::MutableHandle<JS::Value> result);
+
+bool CreateDisposableResource(JSContext* cx, JS::Handle<JS::Value> objVal,
+                              UsingHint hint, JS::Handle<JS::Value> methodVal,
+                              JS::MutableHandle<JS::Value> result);
+
+bool GetDisposeMethod(JSContext* cx, JS::Handle<JS::Value> obj, UsingHint hint,
+                      JS::MutableHandle<JS::Value> disposeMethod);
+
 // This is a shared base class for common functionality between
 // DisposableStackObject and AsyncDisposableStackObject.
 class DisposableStackObjectBase : public NativeObject {
@@ -33,7 +54,9 @@ class DisposableStackObjectBase : public NativeObject {
   static constexpr uint32_t RESERVED_SLOTS = 2;
 
  protected:
-  ArrayObject* getOrCreateDisposeCapability(JSContext* cx);
+  static ArrayObject* GetOrCreateDisposeCapability(
+      JSContext* cx, JS::Handle<DisposableStackObjectBase*> obj);
+
   bool isDisposableResourceStackEmpty() const;
   void clearDisposableResourceStack();
   ArrayObject* nonEmptyDisposableResourceStack() const;

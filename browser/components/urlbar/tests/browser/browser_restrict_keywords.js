@@ -2,7 +2,7 @@
    https://creativecommons.org/publicdomain/zero/1.0/ */
 
 // This test checks that searching for "@" provides restrict keywords
-// (@bookmarks, @history, @tabs), and verifies that selecting one of
+// (@bookmarks, @history, @tabs, @actions) and verifies that selecting one of
 // these keywords enters the appropriate search mode.
 
 "use strict";
@@ -11,9 +11,20 @@ ChromeUtils.defineESModuleGetters(this, {
   UrlbarTokenizer: "resource:///modules/UrlbarTokenizer.sys.mjs",
 });
 
+const RESTRICT_TOKENS = [
+  UrlbarTokenizer.RESTRICT.HISTORY,
+  UrlbarTokenizer.RESTRICT.BOOKMARK,
+  UrlbarTokenizer.RESTRICT.OPENPAGE,
+  UrlbarTokenizer.RESTRICT.ACTION,
+];
+
 add_setup(async function () {
   await SpecialPowers.pushPrefEnv({
     set: [["browser.urlbar.searchRestrictKeywords.featureGate", true]],
+  });
+
+  registerCleanupFunction(async function () {
+    sinon.restore();
   });
 });
 
@@ -29,11 +40,20 @@ async function getRestrictKeywordResult(window, restrictToken) {
 
   for (let index = 0; !restrictResult && index < resultCount; index++) {
     let details = await UrlbarTestUtils.getDetailsOfResultAt(window, index);
+    if (details.result.type != UrlbarUtils.RESULT_TYPE.RESTRICT) {
+      continue;
+    }
+    let l10nRestrictKeywords = details.result.payload.l10nRestrictKeywords;
+    let localSearchMode = l10nRestrictKeywords[0].toLowerCase();
+    let keywords = l10nRestrictKeywords
+      .map(keyword => `@${keyword.toLowerCase()}`)
+      .join(", ");
+    let symbol = details.result.payload.keyword;
 
-    if (details.result.payload.keyword == restrictToken) {
+    if (symbol == restrictToken) {
       Assert.equal(
         details.displayed.title,
-        `Search with ${details.result.payload.l10nRestrictKeyword}`,
+        `${keywords} - Search ${localSearchMode}`,
         "The result's title is set correctly."
       );
 
@@ -56,8 +76,7 @@ async function exitSearchModeAndClosePanel() {
 }
 
 async function assertRestrictKeywordResult(window, restrictToken) {
-  Services.telemetry.clearScalars();
-  let { restrictResult, resultIndex } = await getRestrictKeywordResult(
+  let { restrictResult } = await getRestrictKeywordResult(
     window,
     restrictToken
   );
@@ -72,29 +91,30 @@ async function assertRestrictKeywordResult(window, restrictToken) {
   await UrlbarTestUtils.assertSearchMode(window, {
     ...searchMode,
     entry: "keywordoffer",
+    restrictType: "keyword",
   });
-
-  const scalars = TelemetryTestUtils.getProcessScalars("parent", true, true);
-  let category =
-    restrictResult.result.payload.l10nRestrictKeyword.toLowerCase();
-  TelemetryTestUtils.assertKeyedScalar(
-    scalars,
-    `urlbar.picked.restrict_keyword_${category}`,
-    resultIndex,
-    1
-  );
 
   await exitSearchModeAndClosePanel();
 }
 
 add_task(async function test_search_restrict_keyword_results() {
-  const restrictTokens = [
-    UrlbarTokenizer.RESTRICT.HISTORY,
-    UrlbarTokenizer.RESTRICT.BOOKMARK,
-    UrlbarTokenizer.RESTRICT.OPENPAGE,
-  ];
+  for (const restrictToken of RESTRICT_TOKENS) {
+    await assertRestrictKeywordResult(window, restrictToken);
+  }
+});
 
-  for (const restrictToken of restrictTokens) {
+add_task(async function test_search_restrict_keyword_results_es_en_locales() {
+  let spanishEnglishKeywords = new Map([
+    ["*", ["Marcadores", "Bookmarks"]],
+    ["%", ["Pesta\xF1as", "Tabs"]],
+    ["^", ["Historial", "History"]],
+    [">", ["Acciones", "Actions"]],
+  ]);
+
+  let tokenizerStub = sinon.stub(UrlbarTokenizer, "getL10nRestrictKeywords");
+  tokenizerStub.resolves(spanishEnglishKeywords);
+
+  for (const restrictToken of RESTRICT_TOKENS) {
     await assertRestrictKeywordResult(window, restrictToken);
   }
 });

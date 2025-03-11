@@ -19,6 +19,7 @@
 #include "gc/GCMarker.h"
 #include "gc/GCParallelTask.h"
 #include "gc/IteratorUtils.h"
+#include "gc/Memory.h"
 #include "gc/Nursery.h"
 #include "gc/Scheduling.h"
 #include "gc/Statistics.h"
@@ -49,6 +50,7 @@ class AutoCallGCCallbacks;
 class AutoGCSession;
 class AutoHeapSession;
 class AutoTraceSession;
+class BufferAllocator;
 struct FinalizePhase;
 class MarkingValidator;
 struct MovingTracer;
@@ -150,6 +152,9 @@ class BackgroundUnmarkTask : public GCParallelTask {
   explicit BackgroundUnmarkTask(GCRuntime* gc);
   void initZones();
   void run(AutoLockHelperThreadState& lock) override;
+
+ private:
+  void unmark();
 
   ZoneVector zones;
 };
@@ -472,8 +477,8 @@ class GCRuntime {
   void removeFinalizeCallback(JSFinalizeCallback callback);
   void setHostCleanupFinalizationRegistryCallback(
       JSHostCleanupFinalizationRegistryCallback callback, void* data);
-  void callHostCleanupFinalizationRegistryCallback(
-      JSFunction* doCleanup, GlobalObject* incumbentGlobal);
+  void callHostCleanupFinalizationRegistryCallback(JSFunction* doCleanup,
+                                                   JSObject* hostDefinedData);
   [[nodiscard]] bool addWeakPointerZonesCallback(
       JSWeakPointerZonesCallback callback, void* data);
   void removeWeakPointerZonesCallback(JSWeakPointerZonesCallback callback);
@@ -570,7 +575,15 @@ class GCRuntime {
   void verifyAllChunks();
 #endif
 
-  ArenaChunk* getOrAllocChunk(AutoLockGCBgAlloc& lock);
+  // Get a free chunk or allocate one if needed. The chunk is left in the empty
+  // chunks pool.
+  ArenaChunk* getOrAllocChunk(StallAndRetry stallAndRetry,
+                              AutoLockGCBgAlloc& lock);
+
+  // Get or allocate a free chunk, removing it from the empty chunks pool.
+  ArenaChunk* takeOrAllocChunk(StallAndRetry stallAndRetry,
+                               AutoLockGCBgAlloc& lock);
+
   void recycleChunk(ArenaChunk* chunk, const AutoLockGC& lock);
 
 #ifdef JS_GC_ZEAL
@@ -591,6 +604,8 @@ class GCRuntime {
   // the given kind. (TraceKind::Null means to ignore the kind.)
   bool isPointerWithinTenuredCell(
       void* ptr, JS::TraceKind traceKind = JS::TraceKind::Null);
+  // Crawl the heap to check whether an arbitary pointer is within a buffer.
+  bool isPointerWithinBufferAlloc(void* ptr);
 
 #ifdef DEBUG
   bool hasZone(Zone* target);
@@ -600,7 +615,8 @@ class GCRuntime {
   void queueUnusedLifoBlocksForFree(LifoAlloc* lifo);
   void queueAllLifoBlocksForFreeAfterMinorGC(LifoAlloc* lifo);
   void queueBuffersForFreeAfterMinorGC(
-      Nursery::BufferSet& buffers, Nursery::StringBufferVector& stringBuffers);
+      Nursery::BufferSet& buffers, Nursery::StringBufferVector& stringBuffers,
+      Nursery::LargeAllocList& largeAllocs);
 
   // Public here for ReleaseArenaLists and FinalizeTypedArenas.
   void releaseArena(Arena* arena, const AutoLockGC& lock);
@@ -629,6 +645,7 @@ class GCRuntime {
   void joinTask(GCParallelTask& task, AutoLockHelperThreadState& lock);
   void updateHelperThreadCount();
   size_t parallelWorkerCount() const;
+  void maybeRequestGCAfterBackgroundTask(const AutoLockHelperThreadState& lock);
 
   // GC parallel task dispatch infrastructure.
   size_t getMaxParallelThreads() const;
@@ -666,18 +683,21 @@ class GCRuntime {
 #endif
 
  private:
-  enum IncrementalResult { ResetIncremental = 0, Ok };
+  enum class IncrementalResult { Reset = 0, Abort, Ok };
 
   bool hasBuffersForBackgroundFree() const {
     return !lifoBlocksToFree.ref().isEmpty() ||
            !buffersToFreeAfterMinorGC.ref().empty() ||
-           !stringBuffersToReleaseAfterMinorGC.ref().empty();
+           !stringBuffersToReleaseAfterMinorGC.ref().empty() ||
+           !largeBuffersToFreeAfterMinorGC.ref().isEmpty();
   }
 
+  // Returns false on failure without raising an exception.
   [[nodiscard]] bool setParameter(JSGCParamKey key, uint32_t value,
                                   AutoLockGC& lock);
   void resetParameter(JSGCParamKey key, AutoLockGC& lock);
   uint32_t getParameter(JSGCParamKey key, const AutoLockGC& lock);
+  // Returns false on failure without raising an exception.
   bool setThreadParameter(JSGCParamKey key, uint32_t value, AutoLockGC& lock);
   void resetThreadParameter(JSGCParamKey key, AutoLockGC& lock);
   void updateThreadDataStructures(AutoLockGC& lock);
@@ -693,7 +713,7 @@ class GCRuntime {
 
   // For ArenaLists::allocateFromArena()
   friend class ArenaLists;
-  ArenaChunk* pickChunk(AutoLockGCBgAlloc& lock);
+  ArenaChunk* pickChunk(StallAndRetry stallAndRetry, AutoLockGCBgAlloc& lock);
   Arena* allocateArena(ArenaChunk* chunk, Zone* zone, AllocKind kind,
                        ShouldCheckThresholds checkThresholds,
                        const AutoLockGC& lock);
@@ -782,7 +802,7 @@ class GCRuntime {
                              const mozilla::TimeStamp& currentTime,
                              JS::GCReason reason, bool canAllocateMoreCode,
                              bool isActiveCompartment);
-  void discardJITCodeForGC();
+  void maybeDiscardJitCodeForGC();
   void startBackgroundFreeAfterMinorGC();
   void relazifyFunctionsForShrinkingGC();
   void purgePropMapTablesForShrinkingGC();
@@ -954,21 +974,10 @@ class GCRuntime {
   void releaseHeldRelocatedArenasWithoutUnlocking(const AutoLockGC& lock);
 #endif
 
-  /*
-   * Whether to immediately trigger a slice after a background task
-   * finishes. This may not happen at a convenient time, so the consideration is
-   * whether the slice will run quickly or may take a long time.
-   */
-  enum ShouldTriggerSliceWhenFinished : bool {
-    DontTriggerSliceWhenFinished = false,
-    TriggerSliceWhenFinished = true
-  };
+  IncrementalProgress waitForBackgroundTask(GCParallelTask& task,
+                                            const JS::SliceBudget& budget,
+                                            bool shouldPauseMutator);
 
-  IncrementalProgress waitForBackgroundTask(
-      GCParallelTask& task, const JS::SliceBudget& budget,
-      bool shouldPauseMutator, ShouldTriggerSliceWhenFinished triggerSlice);
-
-  void maybeRequestGCAfterBackgroundTask(const AutoLockHelperThreadState& lock);
   void cancelRequestedGCAfterBackgroundTask();
   void finishCollection(JS::GCReason reason);
   void maybeStopPretenuring();
@@ -1110,9 +1119,6 @@ class GCRuntime {
 
   mozilla::Atomic<size_t, mozilla::ReleaseAcquire> numActiveZoneIters;
 
-  /* During shutdown, the GC needs to clean up every possible object. */
-  MainThreadData<bool> cleanUpEverything;
-
   /*
    * The gray bits can become invalid if UnmarkGray overflows the stack. A
    * full GC will reset this bit, since it fills in all the gray bits.
@@ -1189,10 +1195,6 @@ class GCRuntime {
   // thread.
   MainThreadData<bool> useBackgroundThreads;
 
-  // Whether we have already discarded JIT code for all collected zones in this
-  // slice.
-  MainThreadData<bool> haveDiscardedJITCodeThisSlice;
-
 #ifdef DEBUG
   /* Shutdown has started. Further collections must be shutdown collections. */
   MainThreadData<bool> hadShutdownGC;
@@ -1219,6 +1221,11 @@ class GCRuntime {
   HelperThreadLockData<Nursery::BufferSet> buffersToFreeAfterMinorGC;
   HelperThreadLockData<Nursery::StringBufferVector>
       stringBuffersToReleaseAfterMinorGC;
+  HelperThreadLockData<SlimLinkedList<LargeBuffer>>
+      largeBuffersToFreeAfterMinorGC;
+
+  /* The number of the minor GC peformed at the start of major GC. */
+  MainThreadData<uint64_t> initialMinorGCNumber;
 
   /* Index of current sweep group (for stats). */
   MainThreadData<unsigned> sweepGroupIndex;
@@ -1415,6 +1422,14 @@ class GCRuntime {
 
   /* Lock used to synchronise access to delayed marking state. */
   Mutex delayedMarkingLock MOZ_UNANNOTATED;
+
+  /*
+   * Lock used by buffer allocators to synchronise data passed back to the main
+   * thread by background sweeping.
+   */
+  Mutex bufferAllocatorLock MOZ_UNANNOTATED;
+  friend class BufferAllocator;
+  friend class AutoLock;
 
   friend class BackgroundSweepTask;
   friend class BackgroundFreeTask;

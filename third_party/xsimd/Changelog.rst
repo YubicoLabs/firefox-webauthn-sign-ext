@@ -9,6 +9,61 @@
 Changelog
 =========
 
+13.2.0
+------
+
+    * Added broadcast overload for bool
+
+    * Fixed kernel::store for booleans
+
+    * Explicitly verify dependency between architectures (like sse2 implies sse2)
+
+    * Use default arch alignment as default alignment for xsimd::aligned_allocator
+
+    * sse2 version of xsimd::swizzle on [u]int16_t
+
+    * avx implementation of transpose for [u]int[8|16]
+
+    * Implement [u]int8 and [u]int16 matrix transpose for 128 bit registers
+
+    * Fix minor warning 
+
+    * Fix fma4 support
+
+13.1.0
+------
+
+    * Fix rotate_left and rotate_right behavior (it was swapped!)
+
+    * Fix compress implementation on RISC-V
+
+    * Improve RISC-V CI
+
+    * Fix clang-17 compilation on RISC-V
+
+    * Validate cmake integration
+
+    * Provide xsimd::transpose on 64 and 32 bits on most platforms
+
+    * Improve documentation
+
+    * Provide xsimd::batch_bool::count
+
+    * Fix interaction between xsimd::make_sized_batch_t and
+      xsimd::batch<std::complex, ...>
+
+    * Fix vbmi, sve and rvv detection through xsimd::available_architectures
+
+    * Fix compilation on MS targets where ``small`` can be defined.
+
+    * Change default install directory for installed headers.
+
+    * Support mixed-complex implementations of xsimd::pow()
+
+    * Improve xsimd::pow implementation for complex numbers
+
+    * Fix uninitialized read in lgamma implementation
+
 13.0.0
 ------
 

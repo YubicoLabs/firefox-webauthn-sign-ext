@@ -225,6 +225,10 @@
   background-color: rgba(0, 0, 0, 0.1);
 }
 
+#requests-list-override-button:hover {
+  background-color: unset;
+}
+
 .requests-list-header-button > .button-text,
 .message-list-header-button > .button-text {
   display: inline-block;
@@ -372,6 +376,14 @@
   fill: var(--theme-icon-dimmed-color);
 }
 
+.request-list-item.selected .status-code:not(.status-code-blocked) {
+  outline: 1px solid currentColor;
+}
+
+:root[forced-colors-active] .request-list-item.selected .status-code {
+  color: var(--theme-selection-color);
+}
+
 .request-list-item.selected .status-code-blocked,
 .request-list-item.selected .requests-security-state-icon,
 .request-list-item.selected .tracking-resource {
@@ -434,6 +446,15 @@
   /* Background created on a <canvas> in js. */
   /* @see devtools/client/netmonitor/src/widgets/WaterfallBackground.js */
   background-image: -moz-element(#waterfall-background);
+
+  :root[forced-colors-active] & {
+    /* Make sure that the background is visible in High Contrast Mode */
+    forced-color-adjust: none;
+    & > * {
+      /* and reset forced-color-adjust on children so we respect HCM */
+      forced-color-adjust: auto;
+    }
+  }
 }
 
 .requests-list-waterfall:dir(rtl) {

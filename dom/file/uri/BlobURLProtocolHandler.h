@@ -55,18 +55,18 @@ class BlobURLProtocolHandler final : public nsIProtocolHandler,
   static void AddDataEntry(const nsACString& aURI, nsIPrincipal* aPrincipal,
                            const nsCString& aPartitionKey, BlobImpl* aBlobImpl);
 
-  // These methods revoke a blobURL. Because some operations could still be in
-  // progress, the revoking consists in marking the blobURL as revoked and in
-  // removing it after RELEASING_TIMER milliseconds.
-  static void RemoveDataEntry(const nsACString& aUri,
-                              bool aBroadcastToOTherProcesses = true);
+  // These methods revoke a list of blobURLs. Because some operations could
+  // still be in progress, the revoking consists in marking the blobURL as
+  // revoked and in removing it after RELEASING_TIMER milliseconds.
+  static void RemoveDataEntries(const nsTArray<nsCString>& aUris,
+                                bool aBroadcastToOTherProcesses = true);
   // Returns true if the entry was allowed to be removed.
   static bool RemoveDataEntry(const nsACString& aUri, nsIPrincipal* aPrincipal,
                               const nsCString& aPartitionKey);
 
   static void RemoveDataEntries();
 
-  static bool HasDataEntry(const nsACString& aUri);
+  static bool HasDataEntryTypeBlob(const nsACString& aUri);
 
   static bool GetDataEntry(const nsACString& aUri, BlobImpl** aBlobImpl,
                            nsIPrincipal* aLoadingPrincipal,

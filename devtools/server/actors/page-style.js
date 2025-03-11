@@ -60,12 +60,6 @@ loader.lazyGetter(this, "PSEUDO_ELEMENTS", () => {
 loader.lazyGetter(this, "FONT_VARIATIONS_ENABLED", () => {
   return Services.prefs.getBoolPref("layout.css.font-variations.enabled");
 });
-loader.lazyGetter(this, "DISPLAY_STARTING_STYLE_RULES", () => {
-  return Services.prefs.getBoolPref(
-    "devtools.inspector.rule-view.starting-style",
-    false
-  );
-});
 
 const NORMAL_FONT_WEIGHT = 400;
 const BOLD_FONT_WEIGHT = 700;
@@ -383,6 +377,17 @@ class PageStyleActor extends Actor {
         format: font.format,
         localName: font.localName,
         metadata: font.metadata,
+        version: font.getNameString(InspectorFontFace.NAME_ID_VERSION),
+        description: font.getNameString(InspectorFontFace.NAME_ID_DESCRIPTION),
+        manufacturer: font.getNameString(
+          InspectorFontFace.NAME_ID_MANUFACTURER
+        ),
+        vendorUrl: font.getNameString(InspectorFontFace.NAME_ID_VENDOR_URL),
+        designer: font.getNameString(InspectorFontFace.NAME_ID_DESIGNER),
+        designerUrl: font.getNameString(InspectorFontFace.NAME_ID_DESIGNER_URL),
+        license: font.getNameString(InspectorFontFace.NAME_ID_LICENSE),
+        licenseUrl: font.getNameString(InspectorFontFace.NAME_ID_LICENSE_URL),
+        sampleText: font.getNameString(InspectorFontFace.NAME_ID_SAMPLE_TEXT),
       };
 
       // If this font comes from a @font-face rule
@@ -658,7 +663,11 @@ class PageStyleActor extends Actor {
       return rules;
     }
 
-    const elementStyle = this._styleRef(bindingElement, pseudo);
+    const elementStyle = this._styleRef(
+      bindingElement,
+      // for inline style, we can't have a related pseudo element
+      null
+    );
     const showElementStyles = !inherited && !pseudo;
     const showInheritedStyles =
       inherited && this._hasInheritedProps(bindingElement.style);
@@ -840,8 +849,7 @@ class PageStyleActor extends Actor {
    */
   _getElementRules(node, pseudo, inherited, options) {
     // we don't need to retrieve inherited starting style rules
-    const includeStartingStyleRules =
-      !inherited && DISPLAY_STARTING_STYLE_RULES;
+    const includeStartingStyleRules = !inherited;
     const domRules = InspectorUtils.getMatchingCSSRules(
       node,
       pseudo,

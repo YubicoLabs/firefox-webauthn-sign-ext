@@ -8,15 +8,25 @@
 #define DOM_NOTIFICATION_NOTIFICATIONUTILS_H_
 
 #include <cstdint>
+#include "mozilla/dom/DOMTypes.h"
+#include "nsCOMPtr.h"
+#include "nsINotificationStorage.h"
+#include "nsStringFwd.h"
 
+enum class nsresult : uint32_t;
 class nsIPrincipal;
-
+class nsINotificationStorage;
 namespace mozilla::dom {
 enum class NotificationPermission : uint8_t;
 class Document;
 }  // namespace mozilla::dom
 
 namespace mozilla::dom::notification {
+
+// The spec defines maxActions to depend on system limitation, but that can be
+// used for fingerprinting.
+// See also https://github.com/whatwg/notifications/issues/110.
+static constexpr uint8_t kMaxActions = 2;
 
 /**
  * Retrieves raw notification permission directly from PermissionManager.
@@ -55,6 +65,64 @@ bool IsNotificationForbiddenFor(nsIPrincipal* aPrincipal,
 NotificationPermission GetNotificationPermission(
     nsIPrincipal* aPrincipal, nsIPrincipal* aEffectiveStoragePrincipal,
     bool isSecureContext, PermissionCheckPurpose aPurpose);
+
+nsCOMPtr<nsINotificationStorage> GetNotificationStorage(bool isPrivate);
+
+nsresult GetOrigin(nsIPrincipal* aPrincipal, nsString& aOrigin);
+
+nsresult PersistNotification(nsIPrincipal* aPrincipal,
+                             const IPCNotification& aNotification,
+                             const nsString& aScope);
+nsresult UnpersistNotification(nsIPrincipal* aPrincipal, const nsString& aId);
+
+enum class CloseMode {
+  CloseMethod,
+  // Either on global teardown or freeze
+  InactiveGlobal,
+};
+void UnregisterNotification(nsIPrincipal* aPrincipal, const nsString& aId,
+                            CloseMode aCloseMode);
+
+nsresult RemovePermission(nsIPrincipal* aPrincipal);
+nsresult OpenSettings(nsIPrincipal* aPrincipal);
+
+enum class NotificationStatusChange { Shown, Closed };
+nsresult AdjustPushQuota(nsIPrincipal* aPrincipal,
+                         NotificationStatusChange aChange);
+
+class NotificationActionStorageEntry
+    : public nsINotificationActionStorageEntry {
+ public:
+  NS_DECL_ISUPPORTS
+  NS_DECL_NSINOTIFICATIONACTIONSTORAGEENTRY
+  explicit NotificationActionStorageEntry(
+      const IPCNotificationAction& aIPCAction)
+      : mIPCAction(aIPCAction) {}
+
+  static Result<IPCNotificationAction, nsresult> ToIPC(
+      nsINotificationActionStorageEntry& aEntry);
+
+ private:
+  virtual ~NotificationActionStorageEntry() = default;
+
+  IPCNotificationAction mIPCAction;
+};
+
+class NotificationStorageEntry : public nsINotificationStorageEntry {
+ public:
+  NS_DECL_ISUPPORTS
+  NS_DECL_NSINOTIFICATIONSTORAGEENTRY
+  explicit NotificationStorageEntry(const IPCNotification& aIPCNotification)
+      : mIPCNotification(aIPCNotification) {}
+
+  static Result<IPCNotification, nsresult> ToIPC(
+      nsINotificationStorageEntry& aEntry);
+
+ private:
+  virtual ~NotificationStorageEntry() = default;
+
+  IPCNotification mIPCNotification;
+};
 
 }  // namespace mozilla::dom::notification
 

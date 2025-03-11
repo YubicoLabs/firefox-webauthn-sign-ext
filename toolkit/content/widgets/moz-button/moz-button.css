@@ -168,8 +168,8 @@ button {
   img,
   &[type~=icon]:not(.labelled) {
     -moz-context-properties: fill, fill-opacity, stroke;
-    fill: currentColor;
-    stroke: currentColor;
+    fill: var(--button-icon-fill);
+    stroke: var(--button-icon-stroke);
   }
 
   img {

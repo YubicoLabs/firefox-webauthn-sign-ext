@@ -442,7 +442,13 @@ class nsPresContext : public nsISupports, public mozilla::SupportsWeakPtr {
 
   void UpdateKeyboardHeight(mozilla::ScreenIntCoord aHeight);
 
-  mozilla::ScreenIntCoord GetKeyboardHeight() const { return mKeyboardHeight; }
+  mozilla::ScreenIntCoord GetKeyboardHeight() const;
+
+  /**
+   * Returns true if the software keyboard is hidden or
+   * the document is `interactive-widget=resizes-content` mode.
+   */
+  bool IsKeyboardHiddenOrResizesContentMode() const;
 
   /**
    * Returns the maximum height of the dynamic toolbar if the toolbar state is
@@ -538,9 +544,11 @@ class nsPresContext : public nsISupports, public mozilla::SupportsWeakPtr {
   /**
    * Notify the pres context that the safe area insets have changed.
    */
-  void SetSafeAreaInsets(const mozilla::ScreenIntMargin& aInsets);
+  void SetSafeAreaInsets(const mozilla::LayoutDeviceIntMargin& aInsets);
 
-  mozilla::ScreenIntMargin GetSafeAreaInsets() const { return mSafeAreaInsets; }
+  const mozilla::LayoutDeviceIntMargin& GetSafeAreaInsets() const {
+    return mSafeAreaInsets;
+  }
 
   void RegisterManagedPostRefreshObserver(mozilla::ManagedPostRefreshObserver*);
   void UnregisterManagedPostRefreshObserver(
@@ -732,10 +740,13 @@ class nsPresContext : public nsISupports, public mozilla::SupportsWeakPtr {
    * treated as "overflow: visible"), and we store the overflow style here.
    * If the document is in fullscreen, and the fullscreen element is not the
    * root, the scrollbar of viewport will be suppressed.
+   * @param aRemovedChild the element we're about to remove from the DOM, which
+   *                      we can't make the new override element.
    * @return if scroll was propagated from some content node, the content node
    *         it was propagated from.
    */
-  mozilla::dom::Element* UpdateViewportScrollStylesOverride();
+  mozilla::dom::Element* UpdateViewportScrollStylesOverride(
+      const mozilla::dom::Element* aRemovedChild = nullptr);
 
   /**
    * Returns the cached result from the last call to
@@ -885,8 +896,7 @@ class nsPresContext : public nsISupports, public mozilla::SupportsWeakPtr {
     // to actual nscoord values.
     static const nscoord kBorderWidths[] = {
         CSSPixelsToAppUnits(1), CSSPixelsToAppUnits(3), CSSPixelsToAppUnits(5)};
-    MOZ_ASSERT(size_t(aBorderWidthKeyword) <
-               mozilla::ArrayLength(kBorderWidths));
+    MOZ_ASSERT(size_t(aBorderWidthKeyword) < std::size(kBorderWidths));
 
     return kBorderWidths[aBorderWidthKeyword];
   }
@@ -1009,7 +1019,7 @@ class nsPresContext : public nsISupports, public mozilla::SupportsWeakPtr {
    * Returns true if CheckForInterrupt has returned true since the last
    * ReflowStarted call. Cannot itself trigger an interrupt check.
    */
-  bool HasPendingInterrupt() { return mHasPendingInterrupt; }
+  bool HasPendingInterrupt() const { return mHasPendingInterrupt; }
   /**
    * Sets a flag that will trip a reflow interrupt. This only bypasses the
    * interrupt timeout and the pending event check; other checks such as whether
@@ -1237,10 +1247,8 @@ class nsPresContext : public nsISupports, public mozilla::SupportsWeakPtr {
   // The maximum height of the dynamic toolbar on mobile.
   mozilla::ScreenIntCoord mDynamicToolbarMaxHeight;
   mozilla::ScreenIntCoord mDynamicToolbarHeight;
-  // The software keyboard height.
-  mozilla::ScreenIntCoord mKeyboardHeight;
   // Safe area insets support
-  mozilla::ScreenIntMargin mSafeAreaInsets;
+  mozilla::LayoutDeviceIntMargin mSafeAreaInsets;
   nsSize mPageSize;
 
   // The computed page margins from the print settings.

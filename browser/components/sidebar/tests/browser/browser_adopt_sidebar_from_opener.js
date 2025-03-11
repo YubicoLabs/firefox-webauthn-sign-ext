@@ -64,7 +64,27 @@ add_task(async function test_adopt_from_window() {
     "New window sidebar width is the same as opener window sidebar width"
   );
 
+  // Check that private windows do adopt UI state from non-private sources.
+  const privateWin = await BrowserTestUtils.openNewBrowserWindow({
+    openerWindow: win,
+    private: true,
+  });
+  const privateSidebar = privateWin.SidebarController;
+  await privateSidebar.promiseInitialized;
+
+  Assert.equal(
+    privateSidebar.currentID,
+    win.SidebarController.currentID,
+    "Category was adopted from opener window sidebar."
+  );
+  Assert.equal(
+    privateSidebar._box.style.width,
+    win.SidebarController._box.style.width,
+    "Width was adopted from opener window sidebar."
+  );
+
   await BrowserTestUtils.closeWindow(newWin);
+  await BrowserTestUtils.closeWindow(privateWin);
   await BrowserTestUtils.closeWindow(win);
 });
 

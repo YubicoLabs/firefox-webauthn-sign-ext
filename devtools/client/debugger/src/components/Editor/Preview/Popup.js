@@ -7,12 +7,14 @@ import { div } from "devtools/client/shared/vendor/react-dom-factories";
 import PropTypes from "devtools/client/shared/vendor/react-prop-types";
 import { connect } from "devtools/client/shared/vendor/react-redux";
 
-import Reps from "devtools/client/shared/components/reps/index";
+const Reps = ChromeUtils.importESModule(
+  "resource://devtools/client/shared/components/reps/index.mjs"
+);
 const {
   REPS: { Grip },
   MODE,
-  objectInspector,
 } = Reps;
+import * as objectInspector from "resource://devtools/client/shared/components/object-inspector/index.js";
 
 const { ObjectInspector, utils } = objectInspector;
 
@@ -107,7 +109,7 @@ export class Popup extends Component {
 
   renderPreview() {
     const {
-      preview: { root, exception, resultGrip, previewType },
+      preview: { root, exception, previewType },
     } = this.props;
 
     const usesCustomFormatter =
@@ -150,15 +152,8 @@ export class Popup extends Component {
         onDOMNodeMouseOver: grip => this.props.highlightDomElement(grip),
         onDOMNodeMouseOut: grip => this.props.unHighlightDomElement(grip),
         mayUseCustomFormatter: true,
-        onViewSourceInDebugger: () => {
-          return (
-            resultGrip.location &&
-            this.props.selectSourceURL(resultGrip.location.url, {
-              line: resultGrip.location.line,
-              column: resultGrip.location.column,
-            })
-          );
-        },
+        onViewSourceInDebugger: ({ url, line, column }) =>
+          this.props.selectSourceURL(url, { line, column }),
       })
     );
   }

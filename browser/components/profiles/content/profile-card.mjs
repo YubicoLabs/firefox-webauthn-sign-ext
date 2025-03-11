@@ -9,6 +9,10 @@ import { html } from "chrome://global/content/vendor/lit.all.mjs";
 import "chrome://browser/content/profiles/profile-card.mjs";
 // eslint-disable-next-line import/no-unassigned-import
 import "chrome://global/content/elements/moz-card.mjs";
+// eslint-disable-next-line import/no-unassigned-import
+import "chrome://global/content/elements/moz-button.mjs";
+// eslint-disable-next-line import/no-unassigned-import
+import "chrome://global/content/elements/moz-button-group.mjs";
 
 const { SelectableProfile } = ChromeUtils.importESModule(
   "resource:///modules/profiles/SelectableProfile.sys.mjs"
@@ -22,16 +26,32 @@ export class ProfileCard extends MozLitElement {
     profile: { type: SelectableProfile, reflect: true },
   };
 
-  static queries = { backgroundImage: ".profile-background-image" };
+  static queries = {
+    backgroundImage: ".profile-background-image",
+    avatarImage: ".profile-avatar",
+  };
 
   firstUpdated() {
     super.firstUpdated();
+
+    this.setBackgroundImage();
+    this.setAvatarImage();
+  }
+
+  setBackgroundImage() {
     this.backgroundImage.style.backgroundImage = `url("chrome://browser/content/profiles/assets/profilesBackground${
       this.profile.id % 5
     }.svg")`;
     let { themeFg, themeBg } = this.profile.theme;
     this.backgroundImage.style.fill = themeBg;
     this.backgroundImage.style.stroke = themeFg;
+  }
+
+  setAvatarImage() {
+    this.avatarImage.style.backgroundImage = `url("chrome://browser/content/profiles/assets/80_${this.profile.avatar}.svg")`;
+    let { themeFg, themeBg } = this.profile.theme;
+    this.avatarImage.style.fill = themeBg;
+    this.avatarImage.style.stroke = themeFg;
   }
 
   launchProfile(url) {
@@ -80,6 +100,8 @@ export class ProfileCard extends MozLitElement {
         href="chrome://browser/content/profiles/profile-card.css"
       />
       <div
+        data-l10n-id="profile-card"
+        data-l10n-args=${JSON.stringify({ profileName: this.profile.name })}
         class="profile-card"
         role="button"
         tabindex="0"
@@ -94,11 +116,13 @@ export class ProfileCard extends MozLitElement {
           <h3 class="text-truncated-ellipsis">${this.profile.name}</h3>
           <moz-button-group
             ><moz-button
+              data-l10n-id="profile-card-edit-button"
               type="ghost"
-              iconsrc="chrome://global/skin/icons/edit.svg"
+              iconsrc="chrome://global/skin/icons/edit-outline.svg"
               @click=${this.handleEditClick}
             ></moz-button
             ><moz-button
+              data-l10n-id="profile-card-delete-button"
               type="ghost"
               iconsrc="chrome://global/skin/icons/delete.svg"
               @click=${this.handleDeleteClick}

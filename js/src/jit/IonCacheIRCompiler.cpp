@@ -567,9 +567,11 @@ bool IonCacheIRCompiler::init() {
     case CacheKind::TypeOf:
     case CacheKind::TypeOfEq:
     case CacheKind::ToBool:
-    case CacheKind::GetIntrinsic:
+    case CacheKind::LazyConstant:
     case CacheKind::NewArray:
     case CacheKind::NewObject:
+    case CacheKind::Lambda:
+    case CacheKind::GetImport:
       MOZ_CRASH("Unsupported IC");
   }
 
@@ -681,9 +683,11 @@ void IonCacheIRCompiler::assertFloatRegisterAvailable(FloatRegister reg) {
     case CacheKind::TypeOf:
     case CacheKind::TypeOfEq:
     case CacheKind::ToBool:
-    case CacheKind::GetIntrinsic:
+    case CacheKind::LazyConstant:
     case CacheKind::NewArray:
     case CacheKind::NewObject:
+    case CacheKind::Lambda:
+    case CacheKind::GetImport:
       MOZ_CRASH("Unsupported IC");
   }
 }
@@ -858,6 +862,31 @@ bool IonCacheIRCompiler::emitGuardSpecificSymbol(SymbolOperandId symId,
 
   masm.branchPtr(Assembler::NotEqual, sym, ImmGCPtr(expected),
                  failure->label());
+  return true;
+}
+
+bool IonCacheIRCompiler::emitGuardSpecificValue(ValOperandId valId,
+                                                uint32_t expectedOffset) {
+  JitSpew(JitSpew_Codegen, "%s", __FUNCTION__);
+  ValueOperand val = allocator.useValueRegister(masm, valId);
+  Value expected = valueStubField(expectedOffset);
+
+  Maybe<AutoScratchRegister> maybeScratch;
+  if (expected.isNaN()) {
+    maybeScratch.emplace(allocator, masm);
+  }
+
+  FailurePath* failure;
+  if (!addFailurePath(&failure)) {
+    return false;
+  }
+
+  if (expected.isNaN()) {
+    masm.branchTestNaNValue(Assembler::NotEqual, val, *maybeScratch,
+                            failure->label());
+  } else {
+    masm.branchTestValue(Assembler::NotEqual, val, expected, failure->label());
+  }
   return true;
 }
 
@@ -1902,7 +1931,17 @@ void IonIC::attachCacheIRStub(JSContext* cx, const CacheIRWriter& writer,
 
   // Do nothing if the IR generator failed or triggered a GC that invalidated
   // the script.
-  if (writer.failed() || ionScript->invalidated()) {
+  if (writer.tooLarge()) {
+    cx->runtime()->setUseCounter(cx->global(), JSUseCounter::IC_STUB_TOO_LARGE);
+    return;
+  }
+  if (writer.oom()) {
+    cx->runtime()->setUseCounter(cx->global(), JSUseCounter::IC_STUB_OOM);
+    return;
+  }
+  MOZ_ASSERT(!writer.failed());
+
+  if (ionScript->invalidated()) {
     return;
   }
 
@@ -2149,6 +2188,13 @@ bool IonCacheIRCompiler::emitCallDOMFunction(
     CallFlags flags, uint32_t argcFixed, uint32_t targetOffset) {
   MOZ_CRASH("Call ICs not used in ion");
 }
+
+bool IonCacheIRCompiler::emitCallDOMFunctionWithAllocSite(
+    ObjOperandId calleeId, Int32OperandId argcId, ObjOperandId thisObjId,
+    CallFlags flags, uint32_t argcFixed, uint32_t siteOffset,
+    uint32_t targetOffset) {
+  MOZ_CRASH("Call ICs not used in ion");
+}
 #else
 bool IonCacheIRCompiler::emitCallNativeFunction(ObjOperandId calleeId,
                                                 Int32OperandId argcId,
@@ -2163,6 +2209,12 @@ bool IonCacheIRCompiler::emitCallDOMFunction(ObjOperandId calleeId,
                                              ObjOperandId thisObjId,
                                              CallFlags flags,
                                              uint32_t argcFixed) {
+  MOZ_CRASH("Call ICs not used in ion");
+}
+
+bool IonCacheIRCompiler::emitCallDOMFunctionWithAllocSite(
+    ObjOperandId calleeId, Int32OperandId argcId, ObjOperandId thisObjId,
+    CallFlags flags, uint32_t argcFixed, uint32_t siteOffset) {
   MOZ_CRASH("Call ICs not used in ion");
 }
 #endif
@@ -2252,6 +2304,11 @@ bool IonCacheIRCompiler::emitHasClassResult(ObjOperandId objId,
   MOZ_CRASH("Call ICs not used in ion");
 }
 
+bool IonCacheIRCompiler::emitHasShapeResult(ObjOperandId objId,
+                                            uint32_t shapeOffset) {
+  MOZ_CRASH("Call ICs not used in ion");
+}
+
 bool IonCacheIRCompiler::emitSameValueResult(ValOperandId lhs,
                                              ValOperandId rhs) {
   MOZ_CRASH("Call ICs not used in ion");
@@ -2284,6 +2341,11 @@ bool IonCacheIRCompiler::emitNewPlainObjectResult(uint32_t numFixedSlots,
                                                   uint32_t shapeOffset,
                                                   uint32_t siteOffset) {
   MOZ_CRASH("NewObject ICs not used in ion");
+}
+
+bool IonCacheIRCompiler::emitNewFunctionCloneResult(uint32_t canonicalOffset,
+                                                    gc::AllocKind allocKind) {
+  MOZ_CRASH("Lambda ICs not used in ion");
 }
 
 bool IonCacheIRCompiler::emitCallRegExpMatcherResult(ObjOperandId regexpId,

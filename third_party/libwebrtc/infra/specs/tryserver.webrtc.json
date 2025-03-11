@@ -479,24 +479,46 @@
         "test_id_prefix": "ninja://:webrtc_perf_tests/"
       }
     ],
-    "junit_tests": [
+    "isolated_scripts": [
       {
         "args": [
           "--shards=1"
         ],
+        "merge": {
+          "script": "//testing/merge_scripts/standard_isolated_script_merge.py"
+        },
         "name": "android_examples_junit_tests",
         "resultdb": {
           "enable": true,
           "has_native_resultdb_integration": true
         },
+        "swarming": {
+          "dimensions": {
+            "android_devices": "1",
+            "device_type": "walleye",
+            "os": "Android"
+          },
+          "service_account": "chromium-tester@chops-service-accounts.iam.gserviceaccount.com"
+        },
         "test": "android_examples_junit_tests",
         "test_id_prefix": "ninja://examples:android_examples_junit_tests/"
       },
       {
+        "merge": {
+          "script": "//testing/merge_scripts/standard_isolated_script_merge.py"
+        },
         "name": "android_sdk_junit_tests",
         "resultdb": {
           "enable": true,
           "has_native_resultdb_integration": true
+        },
+        "swarming": {
+          "dimensions": {
+            "android_devices": "1",
+            "device_type": "walleye",
+            "os": "Android"
+          },
+          "service_account": "chromium-tester@chops-service-accounts.iam.gserviceaccount.com"
         },
         "test": "android_sdk_junit_tests",
         "test_id_prefix": "ninja://sdk/android:android_sdk_junit_tests/"
@@ -981,24 +1003,46 @@
         "test_id_prefix": "ninja://:webrtc_perf_tests/"
       }
     ],
-    "junit_tests": [
+    "isolated_scripts": [
       {
         "args": [
           "--shards=1"
         ],
+        "merge": {
+          "script": "//testing/merge_scripts/standard_isolated_script_merge.py"
+        },
         "name": "android_examples_junit_tests",
         "resultdb": {
           "enable": true,
           "has_native_resultdb_integration": true
         },
+        "swarming": {
+          "dimensions": {
+            "android_devices": "1",
+            "device_type": "walleye",
+            "os": "Android"
+          },
+          "service_account": "chromium-tester@chops-service-accounts.iam.gserviceaccount.com"
+        },
         "test": "android_examples_junit_tests",
         "test_id_prefix": "ninja://examples:android_examples_junit_tests/"
       },
       {
+        "merge": {
+          "script": "//testing/merge_scripts/standard_isolated_script_merge.py"
+        },
         "name": "android_sdk_junit_tests",
         "resultdb": {
           "enable": true,
           "has_native_resultdb_integration": true
+        },
+        "swarming": {
+          "dimensions": {
+            "android_devices": "1",
+            "device_type": "walleye",
+            "os": "Android"
+          },
+          "service_account": "chromium-tester@chops-service-accounts.iam.gserviceaccount.com"
         },
         "test": "android_sdk_junit_tests",
         "test_id_prefix": "ninja://sdk/android:android_sdk_junit_tests/"
@@ -1483,24 +1527,46 @@
         "test_id_prefix": "ninja://:webrtc_perf_tests/"
       }
     ],
-    "junit_tests": [
+    "isolated_scripts": [
       {
         "args": [
           "--shards=1"
         ],
+        "merge": {
+          "script": "//testing/merge_scripts/standard_isolated_script_merge.py"
+        },
         "name": "android_examples_junit_tests",
         "resultdb": {
           "enable": true,
           "has_native_resultdb_integration": true
         },
+        "swarming": {
+          "dimensions": {
+            "android_devices": "1",
+            "device_type": "walleye",
+            "os": "Android"
+          },
+          "service_account": "chromium-tester@chops-service-accounts.iam.gserviceaccount.com"
+        },
         "test": "android_examples_junit_tests",
         "test_id_prefix": "ninja://examples:android_examples_junit_tests/"
       },
       {
+        "merge": {
+          "script": "//testing/merge_scripts/standard_isolated_script_merge.py"
+        },
         "name": "android_sdk_junit_tests",
         "resultdb": {
           "enable": true,
           "has_native_resultdb_integration": true
+        },
+        "swarming": {
+          "dimensions": {
+            "android_devices": "1",
+            "device_type": "walleye",
+            "os": "Android"
+          },
+          "service_account": "chromium-tester@chops-service-accounts.iam.gserviceaccount.com"
         },
         "test": "android_sdk_junit_tests",
         "test_id_prefix": "ninja://sdk/android:android_sdk_junit_tests/"
@@ -2010,24 +2076,46 @@
         "test_id_prefix": "ninja://:webrtc_perf_tests/"
       }
     ],
-    "junit_tests": [
+    "isolated_scripts": [
       {
         "args": [
           "--shards=1"
         ],
+        "merge": {
+          "script": "//testing/merge_scripts/standard_isolated_script_merge.py"
+        },
         "name": "android_examples_junit_tests",
         "resultdb": {
           "enable": true,
           "has_native_resultdb_integration": true
         },
+        "swarming": {
+          "dimensions": {
+            "android_devices": "1",
+            "device_type": "walleye",
+            "os": "Android"
+          },
+          "service_account": "chromium-tester@chops-service-accounts.iam.gserviceaccount.com"
+        },
         "test": "android_examples_junit_tests",
         "test_id_prefix": "ninja://examples:android_examples_junit_tests/"
       },
       {
+        "merge": {
+          "script": "//testing/merge_scripts/standard_isolated_script_merge.py"
+        },
         "name": "android_sdk_junit_tests",
         "resultdb": {
           "enable": true,
           "has_native_resultdb_integration": true
+        },
+        "swarming": {
+          "dimensions": {
+            "android_devices": "1",
+            "device_type": "walleye",
+            "os": "Android"
+          },
+          "service_account": "chromium-tester@chops-service-accounts.iam.gserviceaccount.com"
         },
         "test": "android_sdk_junit_tests",
         "test_id_prefix": "ninja://sdk/android:android_sdk_junit_tests/"
@@ -2318,13 +2406,13 @@
     "isolated_scripts": [
       {
         "args": [
+          "--xcodebuild-sim-runner",
           "--platform",
           "iPhone 14",
           "--version",
-          "17.4",
-          "--xcodebuild-sim-runner",
+          "17.5",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -2342,16 +2430,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -2367,13 +2455,13 @@
       },
       {
         "args": [
+          "--xcodebuild-sim-runner",
           "--platform",
           "iPhone 15",
           "--version",
           "18.0",
-          "--xcodebuild-sim-runner",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -2391,16 +2479,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -2416,13 +2504,13 @@
       },
       {
         "args": [
+          "--xcodebuild-sim-runner",
           "--platform",
           "iPhone X",
           "--version",
           "16.4",
-          "--xcodebuild-sim-runner",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -2440,16 +2528,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -2468,9 +2556,9 @@
           "--platform",
           "iPhone 14",
           "--version",
-          "17.4",
+          "17.5",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -2488,16 +2576,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -2518,7 +2606,7 @@
           "--version",
           "18.0",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -2536,16 +2624,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -2566,7 +2654,7 @@
           "--version",
           "16.4",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -2584,16 +2672,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -2612,9 +2700,9 @@
           "--platform",
           "iPhone 14",
           "--version",
-          "17.4",
+          "17.5",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -2632,16 +2720,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -2662,7 +2750,7 @@
           "--version",
           "18.0",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -2680,16 +2768,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -2710,7 +2798,7 @@
           "--version",
           "16.4",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -2728,16 +2816,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -2756,9 +2844,9 @@
           "--platform",
           "iPhone 14",
           "--version",
-          "17.4",
+          "17.5",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -2776,16 +2864,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -2806,7 +2894,7 @@
           "--version",
           "18.0",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -2824,16 +2912,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -2854,7 +2942,7 @@
           "--version",
           "16.4",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -2872,16 +2960,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -2900,9 +2988,9 @@
           "--platform",
           "iPhone 14",
           "--version",
-          "17.4",
+          "17.5",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -2920,16 +3008,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -2950,7 +3038,7 @@
           "--version",
           "18.0",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -2968,16 +3056,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -2998,7 +3086,7 @@
           "--version",
           "16.4",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -3016,16 +3104,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -3044,9 +3132,9 @@
           "--platform",
           "iPhone 14",
           "--version",
-          "17.4",
+          "17.5",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -3064,16 +3152,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -3095,7 +3183,7 @@
           "--version",
           "18.0",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -3113,16 +3201,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -3144,7 +3232,7 @@
           "--version",
           "16.4",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -3162,16 +3250,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -3191,9 +3279,9 @@
           "--platform",
           "iPhone 14",
           "--version",
-          "17.4",
+          "17.5",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -3211,17 +3299,17 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -3243,7 +3331,7 @@
           "--version",
           "18.0",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -3261,17 +3349,17 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -3293,7 +3381,7 @@
           "--version",
           "16.4",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -3311,17 +3399,17 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -3341,9 +3429,9 @@
           "--platform",
           "iPhone 14",
           "--version",
-          "17.4",
+          "17.5",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -3361,16 +3449,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -3391,7 +3479,7 @@
           "--version",
           "18.0",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -3409,16 +3497,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -3439,7 +3527,7 @@
           "--version",
           "16.4",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -3457,16 +3545,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -3485,9 +3573,9 @@
           "--platform",
           "iPhone 14",
           "--version",
-          "17.4",
+          "17.5",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -3505,16 +3593,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -3535,7 +3623,7 @@
           "--version",
           "18.0",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -3553,16 +3641,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -3583,7 +3671,7 @@
           "--version",
           "16.4",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -3601,16 +3689,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -3629,9 +3717,9 @@
           "--platform",
           "iPhone 14",
           "--version",
-          "17.4",
+          "17.5",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -3649,16 +3737,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -3679,7 +3767,7 @@
           "--version",
           "18.0",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -3697,16 +3785,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -3727,7 +3815,7 @@
           "--version",
           "16.4",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -3745,16 +3833,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -3773,9 +3861,9 @@
           "--platform",
           "iPhone 14",
           "--version",
-          "17.4",
+          "17.5",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -3793,16 +3881,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -3824,7 +3912,7 @@
           "--version",
           "18.0",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -3842,16 +3930,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -3873,7 +3961,7 @@
           "--version",
           "16.4",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -3891,16 +3979,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -3917,13 +4005,13 @@
       },
       {
         "args": [
+          "--xcodebuild-sim-runner",
           "--platform",
           "iPhone 14",
           "--version",
-          "17.4",
-          "--xcodebuild-sim-runner",
+          "17.5",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -3941,16 +4029,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -3966,13 +4054,13 @@
       },
       {
         "args": [
+          "--xcodebuild-sim-runner",
           "--platform",
           "iPhone 15",
           "--version",
           "18.0",
-          "--xcodebuild-sim-runner",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -3990,16 +4078,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -4015,13 +4103,13 @@
       },
       {
         "args": [
+          "--xcodebuild-sim-runner",
           "--platform",
           "iPhone X",
           "--version",
           "16.4",
-          "--xcodebuild-sim-runner",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -4039,16 +4127,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -4064,13 +4152,13 @@
       },
       {
         "args": [
+          "--xcodebuild-sim-runner",
           "--platform",
           "iPhone 14",
           "--version",
-          "17.4",
-          "--xcodebuild-sim-runner",
+          "17.5",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -4088,16 +4176,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -4113,13 +4201,13 @@
       },
       {
         "args": [
+          "--xcodebuild-sim-runner",
           "--platform",
           "iPhone 15",
           "--version",
           "18.0",
-          "--xcodebuild-sim-runner",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -4137,16 +4225,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -4162,13 +4250,13 @@
       },
       {
         "args": [
+          "--xcodebuild-sim-runner",
           "--platform",
           "iPhone X",
           "--version",
           "16.4",
-          "--xcodebuild-sim-runner",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -4186,16 +4274,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -4214,9 +4302,9 @@
           "--platform",
           "iPhone 14",
           "--version",
-          "17.4",
+          "17.5",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -4234,17 +4322,17 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -4266,7 +4354,7 @@
           "--version",
           "18.0",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -4284,17 +4372,17 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -4316,7 +4404,7 @@
           "--version",
           "16.4",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -4334,17 +4422,17 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -4364,9 +4452,9 @@
           "--platform",
           "iPhone 14",
           "--version",
-          "17.4",
+          "17.5",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -4384,16 +4472,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -4414,7 +4502,7 @@
           "--version",
           "18.0",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -4432,16 +4520,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -4462,7 +4550,7 @@
           "--version",
           "16.4",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -4480,16 +4568,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -4508,9 +4596,9 @@
           "--platform",
           "iPhone 14",
           "--version",
-          "17.4",
+          "17.5",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -4528,16 +4616,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -4558,7 +4646,7 @@
           "--version",
           "18.0",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -4576,16 +4664,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -4606,7 +4694,7 @@
           "--version",
           "16.4",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -4624,16 +4712,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -4652,9 +4740,9 @@
           "--platform",
           "iPhone 14",
           "--version",
-          "17.4",
+          "17.5",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -4672,16 +4760,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -4702,7 +4790,7 @@
           "--version",
           "18.0",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -4720,16 +4808,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -4750,7 +4838,7 @@
           "--version",
           "16.4",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -4768,16 +4856,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -4796,9 +4884,9 @@
           "--platform",
           "iPhone 14",
           "--version",
-          "17.4",
+          "17.5",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -4816,16 +4904,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -4847,7 +4935,7 @@
           "--version",
           "18.0",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -4865,16 +4953,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -4896,7 +4984,7 @@
           "--version",
           "16.4",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -4914,16 +5002,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -4943,9 +5031,9 @@
           "--platform",
           "iPhone 14",
           "--version",
-          "17.4",
+          "17.5",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -4963,16 +5051,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -4993,7 +5081,7 @@
           "--version",
           "18.0",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -5011,16 +5099,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -5041,7 +5129,7 @@
           "--version",
           "16.4",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -5059,16 +5147,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -5087,9 +5175,9 @@
           "--platform",
           "iPhone 14",
           "--version",
-          "17.4",
+          "17.5",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -5107,16 +5195,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -5137,7 +5225,7 @@
           "--version",
           "18.0",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -5155,16 +5243,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -5185,7 +5273,7 @@
           "--version",
           "16.4",
           "--xcode-build-version",
-          "15f31d",
+          "16a5230g",
           "--out-dir",
           "${ISOLATED_OUTDIR}",
           "--xctest"
@@ -5203,16 +5291,16 @@
             {
               "cipd_package": "infra/tools/mac_toolchain/${platform}",
               "location": ".",
-              "revision": "git_revision:b28cf90d462a7bbd45c28f2d931960c2b9404cb0"
+              "revision": "git_revision:a18b7d95d26f3c6bf9591978b19cf0ca8268ac7d"
             }
           ],
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-13"
+            "os": "Mac-14"
           },
           "named_caches": [
             {
-              "name": "xcode_ios_15f31d",
+              "name": "xcode_ios_16a5230g",
               "path": "Xcode.app"
             },
             {
@@ -8818,7 +8906,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "audio_decoder_unittests",
@@ -8836,7 +8924,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "common_audio_unittests",
@@ -8854,7 +8942,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "common_video_unittests",
@@ -8872,7 +8960,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "dcsctp_unittests",
@@ -8890,7 +8978,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           },
           "shards": 2
         },
@@ -8909,7 +8997,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           },
           "shards": 6
         },
@@ -8928,7 +9016,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           },
           "shards": 4
         },
@@ -8947,7 +9035,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "rtc_media_unittests",
@@ -8965,7 +9053,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "rtc_pc_unittests",
@@ -8983,7 +9071,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "rtc_stats_unittests",
@@ -9001,7 +9089,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           },
           "shards": 6
         },
@@ -9020,7 +9108,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "slow_peer_connection_unittests",
@@ -9038,7 +9126,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           },
           "shards": 4
         },
@@ -9057,7 +9145,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "system_wrappers_unittests",
@@ -9075,7 +9163,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "test_support_unittests",
@@ -9093,7 +9181,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "tools_unittests",
@@ -9111,7 +9199,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           },
           "shards": 4
         },
@@ -9130,7 +9218,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "voip_unittests",
@@ -9148,7 +9236,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "webrtc_nonparallel_tests",
@@ -9172,7 +9260,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "audio_decoder_unittests",
@@ -9190,7 +9278,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "common_audio_unittests",
@@ -9208,7 +9296,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "common_video_unittests",
@@ -9226,7 +9314,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "dcsctp_unittests",
@@ -9244,7 +9332,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           },
           "shards": 2
         },
@@ -9263,7 +9351,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           },
           "shards": 6
         },
@@ -9282,7 +9370,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           },
           "shards": 4
         },
@@ -9301,7 +9389,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "rtc_media_unittests",
@@ -9319,7 +9407,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "rtc_pc_unittests",
@@ -9337,7 +9425,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "rtc_stats_unittests",
@@ -9355,7 +9443,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           },
           "shards": 6
         },
@@ -9374,7 +9462,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "slow_peer_connection_unittests",
@@ -9392,7 +9480,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           },
           "shards": 4
         },
@@ -9411,7 +9499,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "system_wrappers_unittests",
@@ -9429,7 +9517,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "test_support_unittests",
@@ -9447,7 +9535,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "tools_unittests",
@@ -9465,7 +9553,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           },
           "shards": 4
         },
@@ -9484,7 +9572,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "voip_unittests",
@@ -9502,7 +9590,7 @@
           "dimensions": {
             "cores": "12",
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "webrtc_nonparallel_tests",
@@ -9523,7 +9611,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "audio_decoder_unittests",
@@ -9540,7 +9628,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "common_audio_unittests",
@@ -9557,7 +9645,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "common_video_unittests",
@@ -9574,7 +9662,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "dcsctp_unittests",
@@ -9591,7 +9679,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           },
           "shards": 2
         },
@@ -9609,7 +9697,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           },
           "shards": 6
         },
@@ -9627,7 +9715,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           },
           "shards": 4
         },
@@ -9645,7 +9733,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "rtc_media_unittests",
@@ -9662,7 +9750,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "rtc_pc_unittests",
@@ -9679,7 +9767,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "rtc_stats_unittests",
@@ -9696,7 +9784,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           },
           "shards": 6
         },
@@ -9714,7 +9802,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "slow_peer_connection_unittests",
@@ -9731,7 +9819,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           },
           "shards": 4
         },
@@ -9749,7 +9837,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "system_wrappers_unittests",
@@ -9766,7 +9854,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "test_support_unittests",
@@ -9783,7 +9871,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "tools_unittests",
@@ -9800,7 +9888,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           },
           "shards": 4
         },
@@ -9818,7 +9906,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "voip_unittests",
@@ -9835,7 +9923,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "webrtc_nonparallel_tests",
@@ -9856,7 +9944,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "audio_decoder_unittests",
@@ -9873,7 +9961,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "common_audio_unittests",
@@ -9890,7 +9978,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "common_video_unittests",
@@ -9907,7 +9995,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "dcsctp_unittests",
@@ -9924,7 +10012,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           },
           "shards": 2
         },
@@ -9942,7 +10030,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           },
           "shards": 6
         },
@@ -9960,7 +10048,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           },
           "shards": 4
         },
@@ -9978,7 +10066,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "rtc_media_unittests",
@@ -9995,7 +10083,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "rtc_pc_unittests",
@@ -10012,7 +10100,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "rtc_stats_unittests",
@@ -10029,7 +10117,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           },
           "shards": 6
         },
@@ -10047,7 +10135,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "slow_peer_connection_unittests",
@@ -10064,7 +10152,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           },
           "shards": 4
         },
@@ -10082,7 +10170,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "system_wrappers_unittests",
@@ -10099,7 +10187,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "test_support_unittests",
@@ -10116,7 +10204,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "tools_unittests",
@@ -10139,7 +10227,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "video_codec_perf_tests",
@@ -10156,7 +10244,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           },
           "shards": 4
         },
@@ -10174,7 +10262,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "voip_unittests",
@@ -10191,7 +10279,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "webrtc_nonparallel_tests",
@@ -10214,7 +10302,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "x86-64",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "webrtc_perf_tests",
@@ -10235,7 +10323,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "audio_decoder_unittests",
@@ -10252,7 +10340,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "common_audio_unittests",
@@ -10269,7 +10357,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "common_video_unittests",
@@ -10286,7 +10374,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "dcsctp_unittests",
@@ -10303,7 +10391,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           },
           "shards": 2
         },
@@ -10321,7 +10409,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           },
           "shards": 6
         },
@@ -10339,7 +10427,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           },
           "shards": 4
         },
@@ -10357,7 +10445,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "rtc_media_unittests",
@@ -10374,7 +10462,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "rtc_pc_unittests",
@@ -10391,7 +10479,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "rtc_stats_unittests",
@@ -10408,7 +10496,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           },
           "shards": 6
         },
@@ -10426,7 +10514,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "slow_peer_connection_unittests",
@@ -10443,7 +10531,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           },
           "shards": 4
         },
@@ -10461,7 +10549,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "system_wrappers_unittests",
@@ -10478,7 +10566,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "test_support_unittests",
@@ -10495,7 +10583,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "tools_unittests",
@@ -10512,7 +10600,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           },
           "shards": 4
         },
@@ -10530,7 +10618,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "voip_unittests",
@@ -10547,7 +10635,7 @@
         "swarming": {
           "dimensions": {
             "cpu": "arm64-64-Apple_M1",
-            "os": "Mac-12"
+            "os": "Mac-14"
           }
         },
         "test": "webrtc_nonparallel_tests",

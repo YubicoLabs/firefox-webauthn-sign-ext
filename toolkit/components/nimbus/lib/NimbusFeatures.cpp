@@ -8,14 +8,14 @@
 #include "mozilla/browser/NimbusFeatureManifest.h"
 #include "mozilla/Try.h"
 #include "mozilla/dom/ScriptSettings.h"
-#include "mozilla/glean/GleanMetrics.h"
+#include "mozilla/glean/NimbusMetrics.h"
 #include "jsapi.h"
 #include "js/JSON.h"
 #include "nsJSUtils.h"
 
 namespace mozilla {
 
-static nsTHashSet<nsCString> sExposureFeatureSet;
+MOZ_RUNINIT static nsTHashSet<nsCString> sExposureFeatureSet;
 
 void NimbusFeatures::GetPrefName(const nsACString& branchPrefix,
                                  const nsACString& aFeatureId,
@@ -195,12 +195,17 @@ nsresult NimbusFeatures::RecordExposureEvent(const nsACString& aFeatureId,
     // this featureId
     return NS_ERROR_UNEXPECTED;
   }
-  Telemetry::SetEventRecordingEnabled("normandy"_ns, true);
   glean::normandy::expose_nimbus_experiment.Record(
       Some(glean::normandy::ExposeNimbusExperimentExtra{
           .branchslug = Some(branchName),
           .featureid = Some(featureName),
           .value = Some(slugName),
+      }));
+  glean::nimbus_events::exposure.Record(
+      Some(glean::nimbus_events::ExposureExtra{
+          .branch = Some(branchName),
+          .experiment = Some(slugName),
+          .featureId = Some(featureName),
       }));
 
   return NS_OK;

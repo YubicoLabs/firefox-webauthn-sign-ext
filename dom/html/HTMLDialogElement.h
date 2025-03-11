@@ -38,13 +38,21 @@ class HTMLDialogElement final : public nsGenericHTMLElement {
 
   void UnbindFromTree(UnbindContext&) override;
 
-  void Close(const mozilla::dom::Optional<nsAString>& aReturnValue);
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY void Close(
+      const mozilla::dom::Optional<nsAString>& aReturnValue);
   MOZ_CAN_RUN_SCRIPT void Show(ErrorResult& aError);
   MOZ_CAN_RUN_SCRIPT void ShowModal(ErrorResult& aError);
 
+  void AfterSetAttr(int32_t aNameSpaceID, nsAtom* aName,
+                    const nsAttrValue* aValue, const nsAttrValue* aOldValue,
+                    nsIPrincipal* aMaybeScriptedPrincipal,
+                    bool aNotify) override;
+
+  void AsyncEventRunning(AsyncEventDispatcher* aEvent) override;
+
   bool IsInTopLayer() const;
   void QueueCancelDialog();
-  void RunCancelDialogSteps();
+  MOZ_CAN_RUN_SCRIPT void RunCancelDialogSteps();
 
   MOZ_CAN_RUN_SCRIPT_BOUNDARY void FocusDialog();
 
@@ -66,8 +74,11 @@ class HTMLDialogElement final : public nsGenericHTMLElement {
   void AddToTopLayerIfNeeded();
   void RemoveFromTopLayerIfNeeded();
   void StorePreviouslyFocusedElement();
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY void QueueToggleEventTask();
 
   nsWeakPtr mPreviouslyFocusedElement;
+
+  RefPtr<AsyncEventDispatcher> mToggleEventDispatcher;
 
   // This won't need to be cycle collected as CloseWatcher only has strong
   // references to event listeners, which themselves have Weak References back

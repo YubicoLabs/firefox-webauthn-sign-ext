@@ -7,6 +7,7 @@
 #define GPU_ExternalTextureDMABuf_H_
 
 #include "mozilla/gfx/FileHandleWrapper.h"
+#include "mozilla/WeakPtr.h"
 #include "mozilla/webgpu/ExternalTexture.h"
 
 class DMABufSurface;
@@ -15,16 +16,20 @@ namespace mozilla {
 
 namespace webgpu {
 
+class VkImageHandle;
+class VkSemaphoreHandle;
+
 class ExternalTextureDMABuf final : public ExternalTexture {
  public:
   static UniquePtr<ExternalTextureDMABuf> Create(
-      const ffi::WGPUGlobal* aContext, const ffi::WGPUDeviceId aDeviceId,
+      WebGPUParent* aParent, const ffi::WGPUDeviceId aDeviceId,
       const uint32_t aWidth, const uint32_t aHeight,
       const struct ffi::WGPUTextureFormat aFormat,
       const ffi::WGPUTextureUsages aUsage);
 
   ExternalTextureDMABuf(
-      UniquePtr<ffi::WGPUVkImageHandle> aVkImageHandle, const uint32_t aWidth,
+      WebGPUParent* aParent, const ffi::WGPUDeviceId aDeviceId,
+      UniquePtr<VkImageHandle>&& aVkImageHandle, const uint32_t aWidth,
       const uint32_t aHeight, const struct ffi::WGPUTextureFormat aFormat,
       const ffi::WGPUTextureUsages aUsage, RefPtr<DMABufSurface>&& aSurface,
       const layers::SurfaceDescriptorDMABuf& aSurfaceDescriptor);
@@ -40,14 +45,20 @@ class ExternalTextureDMABuf final : public ExternalTexture {
 
   ExternalTextureDMABuf* AsExternalTextureDMABuf() override { return this; }
 
+  void onBeforeQueueSubmit(RawId aQueueId) override;
+
   UniqueFileHandle CloneDmaBufFd();
 
-  ffi::WGPUVkImageHandle* GetHandle() { return mVkImageHandle.get(); }
+  const ffi::WGPUVkImageHandle* GetHandle();
 
  protected:
-  UniquePtr<ffi::WGPUVkImageHandle> mVkImageHandle;
+  const WeakPtr<WebGPUParent> mParent;
+  const RawId mDeviceId;
+  UniquePtr<VkImageHandle> mVkImageHandle;
+  UniquePtr<VkSemaphoreHandle> mVkSemaphoreHandle;
   RefPtr<DMABufSurface> mSurface;
   const layers::SurfaceDescriptorDMABuf mSurfaceDescriptor;
+  RefPtr<gfx::FileHandleWrapper> mSemaphoreFd;
 };
 
 }  // namespace webgpu

@@ -4,6 +4,7 @@
 
 package org.mozilla.fenix.ui
 
+import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.core.net.toUri
 import org.junit.Rule
 import org.junit.Test
@@ -14,11 +15,16 @@ import org.mozilla.fenix.helpers.Constants.PackageName.GOOGLE_DOCS
 import org.mozilla.fenix.helpers.HomeActivityIntentTestRule
 import org.mozilla.fenix.helpers.MatcherHelper
 import org.mozilla.fenix.helpers.MatcherHelper.itemContainingText
+import org.mozilla.fenix.helpers.MatcherHelper.itemWithResIdAndText
 import org.mozilla.fenix.helpers.MatcherHelper.itemWithText
 import org.mozilla.fenix.helpers.TestAssetHelper.getGenericAsset
+import org.mozilla.fenix.helpers.TestHelper.appName
+import org.mozilla.fenix.helpers.TestHelper.mDevice
 import org.mozilla.fenix.helpers.TestSetup
+import org.mozilla.fenix.ui.robots.browserScreen
 import org.mozilla.fenix.ui.robots.clickPageObject
 import org.mozilla.fenix.ui.robots.navigationToolbar
+import org.mozilla.fenix.ui.robots.notificationShade
 
 class PDFViewerTest : TestSetup() {
     private val downloadTestPage =
@@ -28,7 +34,10 @@ class PDFViewerTest : TestSetup() {
     private val pdfFileContent = "Washington Crossing the Delaware"
 
     @get:Rule
-    val activityTestRule = HomeActivityIntentTestRule.withDefaultSettingsOverrides()
+    val composeTestRule =
+        AndroidComposeTestRule(
+            HomeActivityIntentTestRule.withDefaultSettingsOverrides(),
+        ) { it.activity }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/2048140
     @SmokeTest
@@ -40,6 +49,7 @@ class PDFViewerTest : TestSetup() {
         navigationToolbar {
         }.enterURLAndEnterToBrowser(genericURL.url) {
             clickPageObject(itemContainingText("PDF form file"))
+            clickPageObject(itemWithResIdAndText("android:id/button2", "CANCEL"))
             verifyPageContent("Washington Crossing the Delaware")
             verifyTabCounter("1")
         }
@@ -55,6 +65,7 @@ class PDFViewerTest : TestSetup() {
         navigationToolbar {
         }.enterURLAndEnterToBrowser(genericURL.url) {
             clickPageObject(itemWithText("PDF form file"))
+            clickPageObject(itemWithResIdAndText("android:id/button2", "CANCEL"))
         }.clickDownloadPDFButton {
             verifyDownloadedFileName(downloadFile)
         }.clickOpen("application/pdf") {
@@ -70,6 +81,7 @@ class PDFViewerTest : TestSetup() {
         navigationToolbar {
         }.enterURLAndEnterToBrowser(genericURL.url) {
             clickPageObject(MatcherHelper.itemWithText("PDF form file"))
+            clickPageObject(itemWithResIdAndText("android:id/button2", "CANCEL"))
         }.openThreeDotMenu {
             verifyThreeDotMenuExists()
             verifyFindInPageButton()
@@ -110,6 +122,62 @@ class PDFViewerTest : TestSetup() {
             clickSystemHomeScreenShortcutAddButton()
         }.openHomeScreenShortcut(pdfFileName) {
             verifyUrl(pdfFileURL)
+        }
+    }
+
+    // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/2797677
+    // Download PDF file using the download toolbar button
+    @Test
+    fun verifyDownloadedPDFIsOpenedInFirefoxTest() {
+        val genericURL = getGenericAsset(mockWebServer, 3)
+        val downloadFile = "pdfForm.pdf"
+
+        navigationToolbar {
+        }.enterURLAndEnterToBrowser(genericURL.url) {
+            clickPageObject(itemWithText("PDF form file"))
+            clickPageObject(itemWithResIdAndText("android:id/button2", "CANCEL"))
+            verifyTabCounter("1")
+        }.openThreeDotMenu {
+            expandMenu()
+        }.openAddToHomeScreen {
+            verifyShortcutTextFieldTitle("Untitled document")
+            addShortcutName("pdfForm")
+            clickAddShortcutButton()
+            clickSystemHomeScreenShortcutAddButton()
+        }.openHomeScreenShortcut("pdfForm") {
+            verifyTabCounter("1")
+        }.clickDownloadPDFButton {
+            verifyDownloadedFileName(downloadFile)
+        }.clickOpen("application/pdf") {
+            selectToAlwaysOpenDownloadedFileWithApp(appName = appName)
+            verifyUrl("content://media/external_primary/downloads/")
+            verifyTabCounter("2")
+        }
+
+        navigationToolbar {
+        }.enterURLAndEnterToBrowser(genericURL.url) {
+            clickPageObject(itemWithText("PDF form file"))
+            clickPageObject(itemWithResIdAndText("android:id/button2", "CANCEL"))
+        }.clickDownloadPDFButton {
+            verifyDownloadedFileName(downloadFile)
+        }
+
+        mDevice.openNotification()
+
+        notificationShade {
+            expandMultipleDownloadNotification("pdfForm(1).pdf")
+            clickNotification("pdfForm(1).pdf")
+        }
+        browserScreen {
+            verifyUrl("content://media/external_primary/downloads/")
+            verifyTabCounter("3")
+        }.openThreeDotMenu {
+        }.openDownloadsManager {
+            clickDownloadedItem(composeTestRule, "pdfForm.pdf")
+        }
+        browserScreen {
+            verifyTabCounter("4")
+            verifyUrl("content://media/external_primary/downloads/")
         }
     }
 }

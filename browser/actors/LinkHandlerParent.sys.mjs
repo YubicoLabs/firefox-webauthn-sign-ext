@@ -6,6 +6,8 @@ const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
   PlacesUtils: "resource://gre/modules/PlacesUtils.sys.mjs",
+  OpenSearchManager:
+    "moz-src:///browser/components/search/OpenSearchManager.sys.mjs",
 });
 
 let gTestListeners = new Set();
@@ -67,7 +69,7 @@ export class LinkHandlerParent extends JSWindowActorParent {
         this.notifyTestListeners("SetFailedIcon", aMsg.data);
         break;
 
-      case "Link:AddSearch":
+      case "Link:AddSearch": {
         if (!gBrowser) {
           return;
         }
@@ -77,10 +79,9 @@ export class LinkHandlerParent extends JSWindowActorParent {
           break;
         }
 
-        if (win.BrowserSearch) {
-          win.BrowserSearch.addEngine(browser, aMsg.data.engine);
-        }
+        lazy.OpenSearchManager.addEngine(browser, aMsg.data.engine);
         break;
+      }
     }
   }
 
@@ -137,14 +138,15 @@ export class LinkHandlerParent extends JSWindowActorParent {
     }
     if (canStoreIcon) {
       try {
-        lazy.PlacesUtils.favicons.setFaviconForPage(
-          Services.io.newURI(pageURL),
-          Services.io.newURI(originalURL),
-          iconURI,
-          expiration && lazy.PlacesUtils.toPRTime(expiration),
-          null,
-          isRichIcon
-        );
+        lazy.PlacesUtils.favicons
+          .setFaviconForPage(
+            Services.io.newURI(pageURL),
+            Services.io.newURI(originalURL),
+            iconURI,
+            expiration && lazy.PlacesUtils.toPRTime(expiration),
+            isRichIcon
+          )
+          .catch(console.error);
       } catch (ex) {
         console.error(ex);
       }

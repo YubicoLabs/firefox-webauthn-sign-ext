@@ -269,14 +269,11 @@ class StyleRuleActor extends Actor {
       const inspectorActor = this.pageStyle.inspector;
       const resourceId =
         this.pageStyle.styleSheetsManager.getStyleSheetResourceId(sheet);
-      const styleSheetIndex =
-        this.pageStyle.styleSheetsManager.getStyleSheetIndex(resourceId);
       data.source = {
         // Inline stylesheets have a null href; Use window URL instead.
         type: sheet.href ? "stylesheet" : "inline",
         href: sheet.href || inspectorActor.window.location.toString(),
         id: resourceId,
-        index: styleSheetIndex,
         // Whether the stylesheet lives in a different frame than the host document.
         isFramed: inspectorActor.window !== inspectorActor.window.top,
       };
@@ -327,9 +324,21 @@ class StyleRuleActor extends Actor {
     }
 
     const { selectedElement } = this.pageStyle;
+
+    // We can be in one of two cases:
+    // - we are selecting a pseudo element, and that pseudo element is referenced
+    //   by `selectedElement`
+    // - we are selecting the pseudo element "parent".
+    // implementPseudoElement returns the pseudo-element string if this element represents
+    // a pseudo-element, or null otherwise. See https://searchfox.org/mozilla-central/rev/1b90936792b2c71ef931cb1b8d6baff9d825592e/dom/webidl/Element.webidl#102-107
+    const isPseudoElementParentSelected =
+      selectedElement.implementedPseudoElement !== this._pseudoElement;
+
     return selectedElement.ownerGlobal.getComputedStyle(
       selectedElement,
-      this._pseudoElement
+      // If we are selecting the pseudo element parent, we need to pass the pseudo element
+      // to getComputedStyle to actually get the computed style of the pseudo element.
+      isPseudoElementParentSelected ? this._pseudoElement : null
     );
   }
 
@@ -813,9 +822,8 @@ class StyleRuleActor extends Actor {
         this.pageStyle.styleSheetsManager.getStyleSheetResourceId(
           this._parentSheet
         );
-      const cssText = await this.pageStyle.styleSheetsManager.getText(
-        resourceId
-      );
+      const cssText =
+        await this.pageStyle.styleSheetsManager.getText(resourceId);
       const text = getRuleText(cssText, this.line, this.column);
       // Cache the result on the rule actor to avoid parsing again next time
       this._failedToGetRuleText = false;
@@ -862,9 +870,8 @@ class StyleRuleActor extends Actor {
         this.pageStyle.styleSheetsManager.getStyleSheetResourceId(
           this._parentSheet
         );
-      const stylesheetText = await this.pageStyle.styleSheetsManager.getText(
-        resourceId
-      );
+      const stylesheetText =
+        await this.pageStyle.styleSheetsManager.getText(resourceId);
 
       const [start, end] = getSelectorOffsets(
         stylesheetText,
@@ -916,9 +923,8 @@ class StyleRuleActor extends Actor {
           this._parentSheet
         );
 
-      const sheetText = await this.pageStyle.styleSheetsManager.getText(
-        resourceId
-      );
+      const sheetText =
+        await this.pageStyle.styleSheetsManager.getText(resourceId);
       const cssText = InspectorUtils.replaceBlockRuleBodyTextInStylesheet(
         sheetText,
         this.line,
@@ -1060,9 +1066,8 @@ class StyleRuleActor extends Actor {
         this.pageStyle.styleSheetsManager.getStyleSheetResourceId(
           this._parentSheet
         );
-      let authoredText = await this.pageStyle.styleSheetsManager.getText(
-        resourceId
-      );
+      let authoredText =
+        await this.pageStyle.styleSheetsManager.getText(resourceId);
 
       const [startOffset, endOffset] = getSelectorOffsets(
         authoredText,

@@ -10,6 +10,7 @@
 
 #include "builtin/Array.h"
 #include "builtin/ModuleObject.h"
+#include "js/EnvironmentChain.h"  // JS::EnvironmentChain
 #include "js/Exception.h"
 #include "js/friend/ErrorMessages.h"  // js::GetErrorMessage, JSMSG_*
 #include "js/friend/StackLimits.h"    // js::AutoCheckRecursionLimit
@@ -467,6 +468,10 @@ ModuleEnvironmentObject* ModuleEnvironmentObject::createSynthetic(
   Rooted<SharedShape*> shape(cx,
                              CreateEnvironmentShapeForSyntheticModule(
                                  cx, &class_, JSSLOT_FREE(&class_), module));
+  if (!shape) {
+    return nullptr;
+  }
+
   MOZ_ASSERT(shape->getObjectClass() == &class_);
 
   Rooted<ModuleEnvironmentObject*> env(
@@ -717,10 +722,9 @@ JSObject* js::GetThisObject(JSObject* obj) {
   return obj;
 }
 
-WithEnvironmentObject* WithEnvironmentObject::create(JSContext* cx,
-                                                     HandleObject object,
-                                                     HandleObject enclosing,
-                                                     Handle<WithScope*> scope) {
+WithEnvironmentObject* WithEnvironmentObject::create(
+    JSContext* cx, HandleObject object, HandleObject enclosing,
+    Handle<WithScope*> scope, JS::SupportUnscopables supportUnscopables) {
   Rooted<SharedShape*> shape(cx,
                              EmptyEnvironmentShape<WithEnvironmentObject>(cx));
   if (!shape) {
@@ -738,17 +742,22 @@ WithEnvironmentObject* WithEnvironmentObject::create(JSContext* cx,
   obj->initReservedSlot(OBJECT_SLOT, ObjectValue(*object));
   obj->initReservedSlot(THIS_SLOT, ObjectValue(*thisObj));
   if (scope) {
-    obj->initReservedSlot(SCOPE_SLOT, PrivateGCThingValue(scope));
+    MOZ_ASSERT(supportUnscopables == JS::SupportUnscopables::Yes,
+               "with-statements must support Symbol.unscopables");
+    obj->initReservedSlot(SCOPE_OR_SUPPORT_UNSCOPABLES_SLOT,
+                          PrivateGCThingValue(scope));
   } else {
-    obj->initReservedSlot(SCOPE_SLOT, NullValue());
+    Value v = BooleanValue(supportUnscopables == JS::SupportUnscopables::Yes);
+    obj->initReservedSlot(SCOPE_OR_SUPPORT_UNSCOPABLES_SLOT, v);
   }
 
   return obj;
 }
 
 WithEnvironmentObject* WithEnvironmentObject::createNonSyntactic(
-    JSContext* cx, HandleObject object, HandleObject enclosing) {
-  return create(cx, object, enclosing, nullptr);
+    JSContext* cx, HandleObject object, HandleObject enclosing,
+    JS::SupportUnscopables supportUnscopables) {
+  return create(cx, object, enclosing, nullptr, supportUnscopables);
 }
 
 static inline bool IsUnscopableDotName(JSContext* cx, HandleId id) {
@@ -811,8 +820,9 @@ static bool with_LookupProperty(JSContext* cx, HandleObject obj, HandleId id,
   }
 
   if (propp->isFound()) {
-    bool scopable;
-    if (!CheckUnscopables(cx, actual, id, &scopable)) {
+    bool scopable = true;
+    if (obj->as<WithEnvironmentObject>().supportUnscopables() &&
+        !CheckUnscopables(cx, actual, id, &scopable)) {
       return false;
     }
     if (!scopable) {
@@ -840,7 +850,7 @@ static bool with_HasProperty(JSContext* cx, HandleObject obj, HandleId id,
   if (!HasProperty(cx, actual, id, foundp)) {
     return false;
   }
-  if (!*foundp) {
+  if (!*foundp || !obj->as<WithEnvironmentObject>().supportUnscopables()) {
     return true;
   }
 
@@ -938,7 +948,7 @@ const JSClass NonSyntacticVariablesObject::class_ = {
 };
 
 NonSyntacticLexicalEnvironmentObject* js::CreateNonSyntacticEnvironmentChain(
-    JSContext* cx, HandleObjectVector envChain) {
+    JSContext* cx, const JS::EnvironmentChain& envChain) {
   // Callers are responsible for segregating the NonSyntactic case from simple
   // compilation cases.
   MOZ_RELEASE_ASSERT(!envChain.empty());
@@ -2437,9 +2447,12 @@ class DebugEnvironmentProxyHandler : public NurseryAllocableProxyHandler {
 
     if (isWith) {
       size_t j = 0;
+      bool supportUnscopables =
+          env->as<WithEnvironmentObject>().supportUnscopables();
       for (size_t i = 0; i < props.length(); i++) {
-        bool inScope;
-        if (!CheckUnscopables(cx, env, props[i], &inScope)) {
+        bool inScope = true;
+        if (supportUnscopables &&
+            !CheckUnscopables(cx, env, props[i], &inScope)) {
           return false;
         }
         if (inScope) {
@@ -3429,13 +3442,14 @@ JSObject* js::GetDebugEnvironmentForGlobalLexicalEnvironment(JSContext* cx) {
 }
 
 WithEnvironmentObject* js::CreateObjectsForEnvironmentChain(
-    JSContext* cx, HandleObjectVector chain, HandleObject terminatingEnv) {
+    JSContext* cx, const JS::EnvironmentChain& chain,
+    HandleObject terminatingEnv) {
   MOZ_ASSERT(!chain.empty());
 
 #ifdef DEBUG
   for (size_t i = 0; i < chain.length(); ++i) {
-    cx->check(chain[i]);
-    MOZ_ASSERT(!chain[i]->isUnqualifiedVarObj());
+    cx->check(chain.chain()[i]);
+    MOZ_ASSERT(!chain.chain()[i]->isUnqualifiedVarObj());
   }
 #endif
 
@@ -3444,8 +3458,8 @@ WithEnvironmentObject* js::CreateObjectsForEnvironmentChain(
   Rooted<WithEnvironmentObject*> withEnv(cx);
   RootedObject enclosingEnv(cx, terminatingEnv);
   for (size_t i = chain.length(); i > 0;) {
-    withEnv =
-        WithEnvironmentObject::createNonSyntactic(cx, chain[--i], enclosingEnv);
+    withEnv = WithEnvironmentObject::createNonSyntactic(
+        cx, chain.chain()[--i], enclosingEnv, chain.supportUnscopables());
     if (!withEnv) {
       return nullptr;
     }
@@ -3470,14 +3484,24 @@ JSObject* WithEnvironmentObject::withThis() const {
 }
 
 bool WithEnvironmentObject::isSyntactic() const {
-  Value v = getReservedSlot(SCOPE_SLOT);
-  MOZ_ASSERT(v.isPrivateGCThing() || v.isNull());
+  Value v = getReservedSlot(SCOPE_OR_SUPPORT_UNSCOPABLES_SLOT);
+  MOZ_ASSERT(v.isPrivateGCThing() || v.isBoolean());
   return v.isPrivateGCThing();
+}
+
+bool WithEnvironmentObject::supportUnscopables() const {
+  if (isSyntactic()) {
+    return true;
+  }
+  Value v = getReservedSlot(SCOPE_OR_SUPPORT_UNSCOPABLES_SLOT);
+  MOZ_ASSERT(v.isBoolean());
+  return v.isTrue();
 }
 
 WithScope& WithEnvironmentObject::scope() const {
   MOZ_ASSERT(isSyntactic());
-  return *static_cast<WithScope*>(getReservedSlot(SCOPE_SLOT).toGCThing());
+  Value v = getReservedSlot(SCOPE_OR_SUPPORT_UNSCOPABLES_SLOT);
+  return *static_cast<WithScope*>(v.toGCThing());
 }
 
 ModuleEnvironmentObject* js::GetModuleEnvironmentForScript(JSScript* script) {
@@ -3639,15 +3663,7 @@ static void ReportRuntimeRedeclaration(JSContext* cx,
   mozilla::Maybe<PropertyInfo> prop;
   bool shadowsExistingProperty = false;
 
-#ifndef NIGHTLY_BUILD
-  if (varObj->is<GlobalObject>() &&
-      varObj->as<GlobalObject>().isInVarNames(name)) {
-    // ES 15.1.11 step 5.a
-    redeclKind = "var";
-  } else
-#endif
-
-      if ((prop = lexicalEnv->lookup(cx, name))) {
+  if ((prop = lexicalEnv->lookup(cx, name))) {
     // ES 15.1.11 step 5.b
     redeclKind = prop->writable() ? "let" : "const";
   } else if (varObj->is<NativeObject>() &&
@@ -3786,14 +3802,6 @@ static bool InitGlobalOrEvalDeclarations(
           }
         }
 
-#ifndef NIGHTLY_BUILD
-        if (varObj->is<GlobalObject>()) {
-          if (!varObj->as<GlobalObject>().addToVarNames(cx, name)) {
-            return false;
-          }
-        }
-#endif
-
         break;
       }
 
@@ -3866,14 +3874,6 @@ static bool InitHoistedFunctionDeclarations(JSContext* cx, HandleScript script,
         return false;
       }
 
-#ifndef NIGHTLY_BUILD
-      if (varObj->is<GlobalObject>()) {
-        if (!varObj->as<GlobalObject>().addToVarNames(cx, name)) {
-          return false;
-        }
-      }
-#endif
-
       // Done processing this function.
       continue;
     }
@@ -3898,14 +3898,6 @@ static bool InitHoistedFunctionDeclarations(JSContext* cx, HandleScript script,
         MOZ_ASSERT(propInfo.writable());
         MOZ_ASSERT(propInfo.enumerable());
       }
-
-#ifndef NIGHTLY_BUILD
-      // Careful: the presence of a shape, even one appearing to derive from
-      // a variable declaration, doesn't mean it's in [[VarNames]].
-      if (!varObj->as<GlobalObject>().addToVarNames(cx, name)) {
-        return false;
-      }
-#endif
     }
 
     /*
@@ -4389,14 +4381,13 @@ bool js::AnalyzeEntrainedVariables(JSContext* cx, HandleScript script) {
 }
 #endif
 
-JSObject* js::MaybeOptimizeBindUnqualifiedGlobalName(
-    JSContext* cx, Handle<GlobalObject*> global, Handle<PropertyName*> name) {
+JSObject* js::MaybeOptimizeBindUnqualifiedGlobalName(GlobalObject* global,
+                                                     PropertyName* name) {
   // We can bind name to the global lexical scope if the binding already
   // exists, is initialized, and is writable (i.e., an initialized
   // 'let') at compile time.
-  Rooted<GlobalLexicalEnvironmentObject*> env(cx,
-                                              &global->lexicalEnvironment());
-  mozilla::Maybe<PropertyInfo> prop = env->lookup(cx, name);
+  GlobalLexicalEnvironmentObject* env = &global->lexicalEnvironment();
+  mozilla::Maybe<PropertyInfo> prop = env->lookupPure(name);
   if (prop.isSome()) {
     if (prop->writable() &&
         !env->getSlot(prop->slot()).isMagic(JS_UNINITIALIZED_LEXICAL)) {
@@ -4405,7 +4396,7 @@ JSObject* js::MaybeOptimizeBindUnqualifiedGlobalName(
     return nullptr;
   }
 
-  prop = global->lookup(cx, name);
+  prop = global->lookupPure(name);
   if (prop.isSome()) {
     // If the property does not currently exist on the global lexical
     // scope, we can bind name to the global object if the property

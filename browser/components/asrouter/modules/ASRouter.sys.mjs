@@ -43,6 +43,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   InfoBar: "resource:///modules/asrouter/InfoBar.sys.mjs",
   KintoHttpClient: "resource://services-common/kinto-http-client.sys.mjs",
   MacAttribution: "resource:///modules/MacAttribution.sys.mjs",
+  MenuMessage: "resource:///modules/asrouter/MenuMessage.sys.mjs",
   MomentsPageHub: "resource:///modules/asrouter/MomentsPageHub.sys.mjs",
   NimbusFeatures: "resource://nimbus/ExperimentAPI.sys.mjs",
   PanelTestProvider: "resource:///modules/asrouter/PanelTestProvider.sys.mjs",
@@ -61,12 +62,6 @@ ChromeUtils.defineESModuleGetters(lazy, {
 
 XPCOMUtils.defineLazyServiceGetters(lazy, {
   BrowserHandler: ["@mozilla.org/browser/clh;1", "nsIBrowserHandler"],
-});
-ChromeUtils.defineLazyGetter(lazy, "log", () => {
-  const { Logger } = ChromeUtils.importESModule(
-    "resource://messaging-system/lib/Logger.sys.mjs"
-  );
-  return new Logger("ASRouter");
 });
 import { MESSAGING_EXPERIMENTS_DEFAULT_FEATURES } from "resource:///modules/asrouter/MessagingExperimentConstants.sys.mjs";
 import { CFRMessageProvider } from "resource:///modules/asrouter/CFRMessageProvider.sys.mjs";
@@ -106,8 +101,6 @@ const TOPIC_EXPERIMENT_ENROLLMENT_CHANGED = "nimbus:enrollments-updated";
 const USE_REMOTE_L10N_PREF =
   "browser.newtabpage.activity-stream.asrouter.useRemoteL10n";
 
-const REACH_EVENT_CATEGORY = "messaging_experiments";
-const REACH_EVENT_METHOD = "reach";
 // Reach for the pbNewtab feature will be added in bug 1755401
 const NO_REACH_EVENT_GROUPS = ["pbNewtab"];
 
@@ -544,7 +537,7 @@ export const MessageLoaderUtils = {
             try {
               return this._delocalizeValues(message);
             } catch (e) {
-              lazy.log.error(
+              lazy.ASRouterPreferences.console.error(
                 `Failed to delocalize message ${message.id}:`,
                 e.message,
                 e.cause
@@ -691,7 +684,6 @@ export class _ASRouter {
     this._onExperimentEnrollmentsUpdated =
       this._onExperimentEnrollmentsUpdated.bind(this);
     this.forcePBWindow = this.forcePBWindow.bind(this);
-    Services.telemetry.setEventRecordingEnabled(REACH_EVENT_CATEGORY, true);
     this.messagesEnabledInAutomation = [];
   }
 
@@ -949,8 +941,13 @@ export class _ASRouter {
 
       // Some messages have triggers that require us to initalise trigger listeners
       const unseenListeners = new Set(lazy.ASRouterTriggerListeners.keys());
-      for (const { trigger } of newState.messages) {
-        if (trigger && lazy.ASRouterTriggerListeners.has(trigger.id)) {
+      for (const message of newState.messages) {
+        const { trigger } = message;
+        if (
+          trigger &&
+          lazy.ASRouterTriggerListeners.has(trigger.id) &&
+          !this._shouldSkipForAutomation(message)
+        ) {
           lazy.ASRouterTriggerListeners.get(trigger.id).init(
             this._triggerHandler,
             trigger.params,
@@ -1376,6 +1373,17 @@ export class _ASRouter {
     return true;
   }
 
+  _shouldSkipForAutomation(message) {
+    return (
+      message.skip_in_tests &&
+      // `this.messagesEnabledInAutomation` should be stubbed in tests
+      !this.messagesEnabledInAutomation?.includes(message.id) &&
+      (Cu.isInAutomation ||
+        Services.env.exists("XPCSHELL_TEST_PROFILE_DIR") ||
+        Services.env.get("MOZ_AUTOMATION"))
+    );
+  }
+
   _findProvider(providerID) {
     return this._localProviders[
       this.state.providers.find(i => i.id === providerID).localProvider
@@ -1384,21 +1392,6 @@ export class _ASRouter {
 
   routeCFRMessage(message, browser, trigger, force = false) {
     if (!message) {
-      return { message: {} };
-    }
-
-    // filter out messages we want to exclude from tests
-    if (
-      message.skip_in_tests &&
-      // `this.messagesEnabledInAutomation` should be stubbed in tests
-      !this.messagesEnabledInAutomation?.includes(message.id) &&
-      (Cu.isInAutomation ||
-        Services.env.exists("XPCSHELL_TEST_PROFILE_DIR") ||
-        Services.env.get("MOZ_AUTOMATION"))
-    ) {
-      lazy.log.debug(
-        `Skipping message ${message.id} because ${message.skip_in_tests}`
-      );
       return { message: {} };
     }
 
@@ -1481,12 +1474,21 @@ export class _ASRouter {
       case "bookmarks_bar_button":
         lazy.BookmarksBarButton.showBookmarksBarButton(browser, message);
         break;
+      case "menu_message":
+        lazy.MenuMessage.showMenuMessage(browser, message, trigger, force);
+        break;
     }
 
     return { message };
   }
 
-  addScreenImpression(screen) {
+  async addScreenImpression(screen) {
+    // wait to ensure storage has been intialized before setting
+    // screenImpression
+    if (!this.initialized) {
+      await this.waitForInitialized;
+    }
+
     lazy.ASRouterPreferences.console.debug(
       `entering addScreenImpression for ${screen.id}`
     );
@@ -1670,6 +1672,13 @@ export class _ASRouter {
     const messages =
       candidates ||
       this.state.messages.filter(m => {
+        if (this._shouldSkipForAutomation(m)) {
+          lazy.ASRouterPreferences.console.debug(
+            m.id,
+            ` filtered in tests because ${m.skip_in_tests}`
+          );
+          return false;
+        }
         if (provider && m.provider !== provider) {
           lazy.ASRouterPreferences.console.debug(m.id, " filtered by provider");
           return false;
@@ -1982,16 +1991,19 @@ export class _ASRouter {
 
   _recordReachEvent(message) {
     const messageGroup = message.forReachEvent.group;
-    // Events telemetry only accepts understores for the event `object`
-    const underscored = messageGroup.split("-").join("_");
-    const extra = { branches: message.branchSlug };
-    Services.telemetry.recordEvent(
-      REACH_EVENT_CATEGORY,
-      REACH_EVENT_METHOD,
-      underscored,
-      message.experimentSlug,
-      extra
-    );
+    // Keeping parity with legacy event telemetry values that only accepted
+    // underscores in featureID passed to event telemetry.
+    // Glean expects the metric name in camelCase.
+    const name = messageGroup
+      .replace(/-/g, "_")
+      .split("_")
+      .map(word => word[0].toUpperCase() + word.slice(1))
+      .join("");
+    const extra = {
+      value: message.experimentSlug,
+      branches: message.branchSlug,
+    };
+    Glean.messagingExperiments[`reach${name}`].record(extra);
   }
 
   /**
@@ -2105,7 +2117,7 @@ export class _ASRouter {
       privateBrowserOpener.browsingContext.currentWindowGlobal
         .getActor("AboutPrivateBrowsing")
         .sendAsyncMessage("ShowDevToolsMessage", msg);
-    }, 100);
+    }, 200);
 
     return privateBrowserOpener;
   }

@@ -21,15 +21,15 @@
 # - visibility = [ ":*" ] - directory private.
 # As a general guideline, only targets in api/ should have public visibility.
 
-import("//build/config/linux/pkg_config.gni")
-import("//build/config/sanitizers/sanitizers.gni")
+import("//chromium/build/config/linux/pkg_config.gni")
+import("//chromium/build/config/sanitizers/sanitizers.gni")
 import("webrtc.gni")
 if (rtc_enable_protobuf) {
   import("//third_party/protobuf/proto_library.gni")
 }
 if (is_android) {
-  import("//build/config/android/config.gni")
-  import("//build/config/android/rules.gni")
+  import("//chromium/build/config/android/config.gni")
+  import("//chromium/build/config/android/rules.gni")
   import("//third_party/jni_zero/jni_zero.gni")
 }
 
@@ -79,6 +79,9 @@ if (!build_with_chromium && !build_with_mozilla) {
         "video:sv_loopback",
         "video:video_loopback",
       ]
+      if (use_libfuzzer) {
+        deps += [ "test/fuzzers" ]
+      }
       if (!is_asan) {
         # Do not build :webrtc_lib_link_test because lld complains on some OS
         # (e.g. when target_os = "mac") when is_asan=true. For more details,
@@ -360,10 +363,6 @@ config("common_config") {
     defines += [ "WEBRTC_ABSL_MUTEX" ]
   }
 
-  if (rtc_enable_libevent) {
-    defines += [ "WEBRTC_ENABLE_LIBEVENT" ]
-  }
-
   if (rtc_disable_logging) {
     defines += [ "RTC_DISABLE_LOGGING" ]
   }
@@ -374,10 +373,6 @@ config("common_config") {
 
   if (rtc_disable_metrics) {
     defines += [ "RTC_DISABLE_METRICS" ]
-  }
-
-  if (rtc_exclude_transient_suppressor) {
-    defines += [ "WEBRTC_EXCLUDE_TRANSIENT_SUPPRESSOR" ]
   }
 
   if (rtc_exclude_audio_processing_module) {
@@ -429,19 +424,11 @@ config("common_config") {
     }
 
     if (is_clang) {
-      cflags += [ "-Wc++11-narrowing" ]
-
-      if (!is_fuchsia) {
-        # Compiling with the Fuchsia SDK results in Wundef errors
-        # TODO(bugs.fuchsia.dev/100722): Remove from (!is_fuchsia) branch when
-        # Fuchsia build errors are fixed.
-        cflags += [ "-Wundef" ]
-      }
-
-      if (!is_nacl) {
-        # Flags NaCl (Clang 3.7) do not recognize.
-        cflags += [ "-Wunused-lambda-capture" ]
-      }
+      cflags += [
+        "-Wc++11-narrowing",
+        "-Wundef",
+        "-Wunused-lambda-capture",
+      ]
     }
 
     if (is_win && !is_clang) {
@@ -524,6 +511,21 @@ config("common_objc") {
 }
 }
 
+if (!rtc_build_ssl) {
+  config("external_ssl_library") {
+    if (rtc_ssl_root != "") {
+      include_dirs = [ rtc_ssl_root ]
+    }
+    libs = [
+      "crypto",
+      "ssl",
+    ]
+    if (build_with_mozilla) {
+      libs = []
+    }
+  }
+}
+
 if (!build_with_chromium) {
   # Target to build all the WebRTC production code.
   rtc_static_library("webrtc") {
@@ -535,7 +537,7 @@ if (!build_with_chromium) {
 
     sources = []
     complete_static_lib = true
-    suppressed_configs += [ "//build/config/compiler:thin_archive" ]
+    suppressed_configs += [ "//chromium/build/config/compiler:thin_archive" ]
     defines = []
 
     deps = [
@@ -544,6 +546,7 @@ if (!build_with_chromium) {
       "api:libjingle_peerconnection_api",
       "api:rtc_error",
       "api:transport_api",
+      "api/audio_codecs:opus_audio_decoder_factory",
       "api/crypto",
       "api/rtc_event_log:rtc_event_log_factory",
       "api/task_queue",
@@ -563,11 +566,11 @@ if (!build_with_chromium) {
       "call",
       "common_audio",
       "common_video",
+      ":dcsctp",
       "logging:rtc_event_log_api",
       "media",
       "modules",
       "modules/video_capture:video_capture_internal_impl",
-      "p2p:rtc_p2p",
       "pc:libjingle_peerconnection",
       "pc:rtc_pc",
       "sdk",
@@ -595,7 +598,7 @@ if (!build_with_chromium) {
         "api/video_codecs:video_encoder_factory_template_libvpx_vp9_adapter",
         "api/video_codecs:video_encoder_factory_template_open_h264_adapter",
         "logging:rtc_event_log_api",
-        "p2p:rtc_p2p",
+#        "p2p:rtc_p2p",
         "pc:libjingle_peerconnection",
         "pc:rtc_pc",
         "sdk",
@@ -611,9 +614,11 @@ if (!build_with_chromium) {
 
     if (build_with_mozilla) {
       deps += [
+        "api/audio:builtin_audio_processing_builder",
         "api/environment:environment_factory",
         "api/video:video_frame",
         "api/video:video_rtp_headers",
+        "api/video_codecs:builtin_video_decoder_factory",
         "test:rtp_test_utils",
       ]
       # Added when we removed deps in other places to avoid building
@@ -688,12 +693,13 @@ if (rtc_include_tests && !build_with_chromium) {
     deps = [
       "api:compile_all_headers",
       "api:rtc_api_unittests",
-      "api/audio/test:audio_api_unittests",
+      "api/audio:audio_api_unittests",
       "api/audio_codecs/test:audio_codecs_api_unittests",
       "api/numerics:numerics_unittests",
       "api/task_queue:pending_task_safety_flag_unittests",
       "api/test/metrics:metrics_unittests",
       "api/transport:stun_unittest",
+      "api/transport/rtp:corruption_detection_message_unittest",
       "api/video/test:rtc_api_video_unittests",
       "api/video_codecs:libaom_av1_encoder_factory_test",
       "api/video_codecs:simple_encoder_wrapper_unittests",
@@ -704,6 +710,7 @@ if (rtc_include_tests && !build_with_chromium) {
       "p2p:rtc_p2p_unittests",
       "rtc_base:async_dns_resolver_unittests",
       "rtc_base:async_packet_socket_unittest",
+      "rtc_base:async_udp_socket_unittest",
       "rtc_base:callback_list_unittests",
       "rtc_base:rtc_base_approved_unittests",
       "rtc_base:rtc_base_unittests",
@@ -745,7 +752,6 @@ if (rtc_include_tests && !build_with_chromium) {
       deps += [
         "sdk/android:native_unittests",
         "sdk/android:native_unittests_java",
-        "//testing/android/native_test:native_test_support",
       ]
       shard_timeout = 900
     }
@@ -763,6 +769,7 @@ if (rtc_include_tests && !build_with_chromium) {
 
   # TODO(pbos): Rename test suite, this is no longer "just" for video targets.
   video_engine_tests_resources = [
+    "resources/ConferenceMotion_1280_720_50.yuv",
     "resources/foreman_cif_short.yuv",
     "resources/voice_engine/audio_long16.pcm",
   ]
@@ -793,11 +800,7 @@ if (rtc_include_tests && !build_with_chromium) {
     data = video_engine_tests_resources
     if (is_android) {
       use_default_launcher = false
-      deps += [
-        "//build/android/gtest_apk:native_test_instrumentation_test_runner_java",
-        "//testing/android/native_test:native_test_java",
-        "//testing/android/native_test:native_test_support",
-      ]
+      deps += [ "//build/android/gtest_apk:native_test_instrumentation_test_runner_java" ]
       shard_timeout = 900
     }
     if (is_ios) {
@@ -842,11 +845,7 @@ if (rtc_include_tests && !build_with_chromium) {
     data = webrtc_perf_tests_resources
     if (is_android) {
       use_default_launcher = false
-      deps += [
-        "//build/android/gtest_apk:native_test_instrumentation_test_runner_java",
-        "//testing/android/native_test:native_test_java",
-        "//testing/android/native_test:native_test_support",
-      ]
+      deps += [ "//build/android/gtest_apk:native_test_instrumentation_test_runner_java" ]
       shard_timeout = 4500
     }
     if (is_ios) {
@@ -858,7 +857,6 @@ if (rtc_include_tests && !build_with_chromium) {
     testonly = true
     deps = [ "rtc_base:rtc_base_nonparallel_tests" ]
     if (is_android) {
-      deps += [ "//testing/android/native_test:native_test_support" ]
       shard_timeout = 900
     }
   }
@@ -880,10 +878,10 @@ if (rtc_include_tests && !build_with_chromium) {
 # Build target for standalone dcsctp
 rtc_static_library("dcsctp") {
   # Only the root target should depend on this.
-  visibility = [ "//:default" ]
+  visibility = [ "//:default", "//libwebrtc:webrtc" ]
   sources = []
   complete_static_lib = true
-  suppressed_configs += [ "//build/config/compiler:thin_archive" ]
+  suppressed_configs += [ "//chromium/build/config/compiler:thin_archive" ]
   defines = []
   deps = [
     "net/dcsctp/public:factory",

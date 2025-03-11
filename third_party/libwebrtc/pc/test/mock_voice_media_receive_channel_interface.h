@@ -67,8 +67,9 @@ class MockVoiceMediaReceiveChannelInterface
               GetStats,
               (VoiceMediaReceiveInfo * stats, bool reset_legacy),
               (override));
-  MOCK_METHOD(void, SetReceiveNackEnabled, (bool enabled), (override));
+  MOCK_METHOD(webrtc::RtcpMode, RtcpMode, (), (const, override));
   MOCK_METHOD(void, SetRtcpMode, (webrtc::RtcpMode mode), (override));
+  MOCK_METHOD(void, SetReceiveNackEnabled, (bool enabled), (override));
   MOCK_METHOD(void, SetReceiveNonSenderRttEnabled, (bool enabled), (override));
 
   // MediaReceiveChannelInterface
@@ -92,7 +93,7 @@ class MockVoiceMediaReceiveChannelInterface
               OnPacketReceived,
               (const webrtc::RtpPacketReceived& packet),
               (override));
-  MOCK_METHOD(absl::optional<uint32_t>,
+  MOCK_METHOD(std::optional<uint32_t>,
               GetUnsignaledSsrc,
               (),
               (const, override));
@@ -118,7 +119,7 @@ class MockVoiceMediaReceiveChannelInterface
               SetBaseMinimumPlayoutDelayMs,
               (uint32_t ssrc, int delay_ms),
               (override));
-  MOCK_METHOD(absl::optional<int>,
+  MOCK_METHOD(std::optional<int>,
               GetBaseMinimumPlayoutDelayMs,
               (uint32_t ssrc),
               (const, override));

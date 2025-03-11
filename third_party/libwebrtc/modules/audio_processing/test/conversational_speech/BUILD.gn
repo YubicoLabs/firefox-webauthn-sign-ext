@@ -70,10 +70,10 @@ rtc_library("unittest") {
     "../../../../api:array_view",
     "../../../../common_audio",
     "../../../../rtc_base:logging",
+    "../../../../rtc_base:safe_conversions",
     "../../../../test:fileutils",
     "../../../../test:test_support",
     "//testing/gtest",
     "//third_party/abseil-cpp/absl/strings:string_view",
-    "//third_party/abseil-cpp/absl/types:optional",
   ]
 }

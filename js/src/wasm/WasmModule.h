@@ -158,7 +158,9 @@ class Module : public JS::WasmModule {
   const CodeMetadataForAsmJS* codeMetaForAsmJS() const {
     return code_->codeMetaForAsmJS();
   }
-  const Bytes& bytecode() const { return code().bytecode(); }
+  const Bytes& debugBytecode() const {
+    return codeMeta().debugBytecode->vector;
+  }
   uint32_t tier1CodeMemoryUsed() const { return code_->tier1CodeMemoryUsed(); }
 
   // Instantiate this module with the given imports:
@@ -182,6 +184,7 @@ class Module : public JS::WasmModule {
 
   // Code caching support.
 
+  bool canSerialize() const;
   [[nodiscard]] bool serialize(Bytes* bytes) const;
   static RefPtr<Module> deserialize(const uint8_t* begin, size_t size);
   bool loggingDeserialized() const { return loggingDeserialized_; }

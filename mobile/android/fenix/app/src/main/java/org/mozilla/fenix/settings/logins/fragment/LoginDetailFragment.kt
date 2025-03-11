@@ -27,18 +27,19 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
 import androidx.navigation.fragment.navArgs
-import com.google.android.material.snackbar.Snackbar
 import mozilla.components.lib.state.ext.consumeFrom
 import mozilla.components.ui.widgets.withCenterAlignedButtons
 import mozilla.telemetry.glean.private.NoExtras
+import org.mozilla.fenix.AuthenticationStatus
 import org.mozilla.fenix.BiometricAuthenticationManager
 import org.mozilla.fenix.BrowserDirection
 import org.mozilla.fenix.GleanMetrics.Logins
 import org.mozilla.fenix.HomeActivity
 import org.mozilla.fenix.R
 import org.mozilla.fenix.SecureFragment
-import org.mozilla.fenix.components.FenixSnackbar
 import org.mozilla.fenix.components.StoreProvider
+import org.mozilla.fenix.compose.snackbar.Snackbar
+import org.mozilla.fenix.compose.snackbar.SnackbarState
 import org.mozilla.fenix.databinding.FragmentLoginDetailBinding
 import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.ext.increaseTapArea
@@ -66,7 +67,7 @@ class LoginDetailFragment : SecureFragment(R.layout.fragment_login_detail), Menu
     private lateinit var savedLoginsStore: LoginsFragmentStore
     private lateinit var loginDetailsBindingDelegate: LoginDetailsBindingDelegate
     private lateinit var interactor: LoginDetailInteractor
-    private lateinit var menu: Menu
+    private var menu: Menu? = null
     private var deleteDialog: AlertDialog? = null
 
     private var _binding: FragmentLoginDetailBinding? = null
@@ -82,8 +83,10 @@ class LoginDetailFragment : SecureFragment(R.layout.fragment_login_detail), Menu
         _binding = FragmentLoginDetailBinding.bind(view)
 
         startForResult = registerForActivityResult {
-            BiometricAuthenticationManager.biometricAuthenticationNeededInfo.shouldAuthenticate =
+            BiometricAuthenticationManager.biometricAuthenticationNeededInfo.shouldShowAuthenticationPrompt =
                 false
+            BiometricAuthenticationManager.biometricAuthenticationNeededInfo.authenticationStatus =
+                AuthenticationStatus.AUTHENTICATED
             setSecureContentVisibility(true)
         }
 
@@ -139,17 +142,32 @@ class LoginDetailFragment : SecureFragment(R.layout.fragment_login_detail), Menu
 
     override fun onResume() {
         super.onResume()
-        if (BiometricAuthenticationManager.biometricAuthenticationNeededInfo.shouldAuthenticate) {
-            BiometricAuthenticationManager.biometricAuthenticationNeededInfo.shouldAuthenticate =
+        if (BiometricAuthenticationManager.biometricAuthenticationNeededInfo.shouldShowAuthenticationPrompt) {
+            BiometricAuthenticationManager.biometricAuthenticationNeededInfo.shouldShowAuthenticationPrompt =
                 false
+            BiometricAuthenticationManager.biometricAuthenticationNeededInfo.authenticationStatus =
+                AuthenticationStatus.AUTHENTICATION_IN_PROGRESS
             setSecureContentVisibility(false)
+
             bindBiometricsCredentialsPromptOrShowWarning(
                 view = requireView(),
                 onShowPinVerification = { intent -> startForResult.launch(intent) },
-                onAuthSuccess = { setSecureContentVisibility(true) },
+                onAuthSuccess = {
+                    BiometricAuthenticationManager.biometricAuthenticationNeededInfo.authenticationStatus =
+                        AuthenticationStatus.AUTHENTICATED
+                    setSecureContentVisibility(true)
+                },
+                onAuthFailure = {
+                    BiometricAuthenticationManager.biometricAuthenticationNeededInfo.authenticationStatus =
+                        AuthenticationStatus.NOT_AUTHENTICATED
+                    setSecureContentVisibility(false)
+                },
             )
         } else {
-            setSecureContentVisibility(true)
+            setSecureContentVisibility(
+                BiometricAuthenticationManager.biometricAuthenticationNeededInfo.authenticationStatus ==
+                    AuthenticationStatus.AUTHENTICATED,
+            )
         }
     }
 
@@ -160,7 +178,7 @@ class LoginDetailFragment : SecureFragment(R.layout.fragment_login_detail), Menu
      */
     override fun onPause() {
         deleteDialog?.isShowing.run { deleteDialog?.dismiss() }
-        menu.close()
+        menu?.close()
         super.onPause()
     }
 
@@ -208,23 +226,35 @@ class LoginDetailFragment : SecureFragment(R.layout.fragment_login_detail), Menu
 
     override fun onMenuItemSelected(item: MenuItem): Boolean = when (item.itemId) {
         R.id.delete_login_button -> {
-            displayDeleteLoginDialog()
-            true
+            if (binding.loginDetailLayout.isVisible) {
+                displayDeleteLoginDialog()
+                true
+            } else {
+                false
+            }
         }
+
         R.id.edit_login_button -> {
-            editLogin()
-            true
+            if (binding.loginDetailLayout.isVisible) {
+                editLogin()
+                true
+            } else {
+                false
+            }
         }
+
         else -> false
     }
 
     private fun showCopiedSnackbar(view: View, copiedItem: String) {
         // Only show a toast for Android 12 and lower.
         if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S_V2) {
-            FenixSnackbar.make(
-                view,
-                duration = Snackbar.LENGTH_SHORT,
-            ).setText(copiedItem).show()
+            Snackbar.make(
+                snackBarParentView = view,
+                snackbarState = SnackbarState(
+                    message = copiedItem,
+                ),
+            ).show()
         }
     }
 
@@ -272,11 +302,18 @@ class LoginDetailFragment : SecureFragment(R.layout.fragment_login_detail), Menu
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null
-        BiometricAuthenticationManager.biometricAuthenticationNeededInfo.shouldAuthenticate = false
+        // If you've made it here and you're authenticated, let's reset the values so we don't
+        // prompt the user again when navigating back.
+        val authenticated = BiometricAuthenticationManager.biometricAuthenticationNeededInfo.authenticationStatus ==
+            AuthenticationStatus.AUTHENTICATED
+        BiometricAuthenticationManager.biometricAuthenticationNeededInfo.shouldShowAuthenticationPrompt =
+            !authenticated
     }
 
     private fun setSecureContentVisibility(isVisible: Boolean) {
         binding.loginDetailLayout.isVisible = isVisible
+        menu?.findItem(R.id.edit_login_button)?.setEnabled(isVisible)
+        menu?.findItem(R.id.delete_login_button)?.setEnabled(isVisible)
     }
 
     companion object {

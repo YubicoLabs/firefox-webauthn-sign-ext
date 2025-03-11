@@ -26,6 +26,7 @@
 #include "mozilla/Unused.h"
 #include "nsPrintfCString.h"
 #include "nsReadableUtils.h"
+#include "prtime.h"
 
 #if defined(MOZ_SANDBOX) && defined(XP_WIN)
 #  include "mozilla/sandboxTarget.h"
@@ -338,14 +339,13 @@ IProtocol::~IProtocol() {
 // almost directly do.
 IProtocol* IProtocol::Lookup(int32_t aId) { return mToplevel->Lookup(aId); }
 
-Shmem::SharedMemory* IProtocol::CreateSharedMemory(size_t aSize, bool aUnsafe,
-                                                   int32_t* aId) {
-  return mToplevel->CreateSharedMemory(aSize, aUnsafe, aId);
+Shmem IProtocol::CreateSharedMemory(size_t aSize, bool aUnsafe) {
+  return mToplevel->CreateSharedMemory(aSize, aUnsafe);
 }
-Shmem::SharedMemory* IProtocol::LookupSharedMemory(int32_t aId) {
+Shmem::Segment* IProtocol::LookupSharedMemory(int32_t aId) {
   return mToplevel->LookupSharedMemory(aId);
 }
-bool IProtocol::IsTrackingSharedMemory(Shmem::SharedMemory* aSegment) {
+bool IProtocol::IsTrackingSharedMemory(const Shmem::Segment* aSegment) {
   return mToplevel->IsTrackingSharedMemory(aSegment);
 }
 bool IProtocol::DestroySharedMemory(Shmem& aShmem) {
@@ -419,14 +419,8 @@ bool IProtocol::AllocShmem(size_t aSize, Shmem* aOutMem) {
     return false;
   }
 
-  Shmem::id_t id;
-  Shmem::SharedMemory* rawmem(CreateSharedMemory(aSize, false, &id));
-  if (!rawmem) {
-    return false;
-  }
-
-  *aOutMem = Shmem(rawmem, id, aSize, false);
-  return true;
+  *aOutMem = CreateSharedMemory(aSize, false);
+  return aOutMem->IsReadable();
 }
 
 bool IProtocol::AllocUnsafeShmem(size_t aSize, Shmem* aOutMem) {
@@ -436,14 +430,8 @@ bool IProtocol::AllocUnsafeShmem(size_t aSize, Shmem* aOutMem) {
     return false;
   }
 
-  Shmem::id_t id;
-  Shmem::SharedMemory* rawmem(CreateSharedMemory(aSize, true, &id));
-  if (!rawmem) {
-    return false;
-  }
-
-  *aOutMem = Shmem(rawmem, id, aSize, true);
-  return true;
+  *aOutMem = CreateSharedMemory(aSize, true);
+  return aOutMem->IsReadable();
 }
 
 bool IProtocol::DeallocShmem(Shmem& aMem) {
@@ -527,12 +515,12 @@ void IProtocol::UnlinkManager() {
   mManager = nullptr;
 }
 
-bool IProtocol::ChannelSend(UniquePtr<IPC::Message> aMsg) {
+bool IProtocol::ChannelSend(UniquePtr<IPC::Message> aMsg, int32_t* aSeqno) {
   if (CanSend()) {
     // NOTE: This send call failing can only occur during toplevel channel
     // teardown. As this is an async call, this isn't reasonable to predict or
     // respond to, so just drop the message on the floor silently.
-    GetIPCChannel()->Send(std::move(aMsg));
+    GetIPCChannel()->Send(std::move(aMsg), aSeqno);
     return true;
   }
 
@@ -625,7 +613,7 @@ void IProtocol::ActorDisconnected(ActorDestroyReason aWhy) {
       }
     }
 
-    ipcChannel->RejectPendingResponsesForActor(id);
+    actor->RejectPendingResponses(ResponseRejectReason::ActorDestroyed);
     actor->ActorDestroy(why);
   };
 
@@ -758,35 +746,30 @@ IProtocol* IToplevelProtocol::Lookup(int32_t aId) {
   return nullptr;
 }
 
-Shmem::SharedMemory* IToplevelProtocol::CreateSharedMemory(size_t aSize,
-                                                           bool aUnsafe,
-                                                           Shmem::id_t* aId) {
-  RefPtr<Shmem::SharedMemory> segment(Shmem::Alloc(aSize));
-  if (!segment) {
-    return nullptr;
+Shmem IToplevelProtocol::CreateSharedMemory(size_t aSize, bool aUnsafe) {
+  auto shmemBuilder = Shmem::Builder(aSize);
+  if (!shmemBuilder) {
+    return {};
   }
-  int32_t id = NextId();
-  Shmem shmem(segment.get(), id, aSize, aUnsafe);
-
-  UniquePtr<Message> descriptor = shmem.MkCreatedMessage(MSG_ROUTING_CONTROL);
-  if (!descriptor) {
-    return nullptr;
+  auto [createdMessage, shmem] =
+      shmemBuilder.Build(NextId(), aUnsafe, MSG_ROUTING_CONTROL);
+  if (!createdMessage) {
+    return {};
   }
-  Unused << GetIPCChannel()->Send(std::move(descriptor));
+  Unused << GetIPCChannel()->Send(std::move(createdMessage));
 
-  *aId = shmem.Id();
-  Shmem::SharedMemory* rawSegment = segment.get();
-  MOZ_ASSERT(!mShmemMap.Contains(*aId), "Don't insert with an existing ID");
-  mShmemMap.InsertOrUpdate(*aId, std::move(segment));
-  return rawSegment;
+  MOZ_ASSERT(!mShmemMap.Contains(shmem.Id()),
+             "Don't insert with an existing ID");
+  mShmemMap.InsertOrUpdate(shmem.Id(), shmem.GetSegment());
+  return shmem;
 }
 
-Shmem::SharedMemory* IToplevelProtocol::LookupSharedMemory(Shmem::id_t aId) {
+Shmem::Segment* IToplevelProtocol::LookupSharedMemory(Shmem::id_t aId) {
   auto entry = mShmemMap.Lookup(aId);
   return entry ? entry.Data().get() : nullptr;
 }
 
-bool IToplevelProtocol::IsTrackingSharedMemory(Shmem::SharedMemory* segment) {
+bool IToplevelProtocol::IsTrackingSharedMemory(const Shmem::Segment* segment) {
   for (const auto& shmem : mShmemMap.Values()) {
     if (segment == shmem) {
       return true;
@@ -797,8 +780,7 @@ bool IToplevelProtocol::IsTrackingSharedMemory(Shmem::SharedMemory* segment) {
 
 bool IToplevelProtocol::DestroySharedMemory(Shmem& shmem) {
   Shmem::id_t aId = shmem.Id();
-  Shmem::SharedMemory* segment = LookupSharedMemory(aId);
-  if (!segment) {
+  if (!LookupSharedMemory(aId)) {
     return false;
   }
 
@@ -820,12 +802,12 @@ void IToplevelProtocol::DeallocShmems() { mShmemMap.Clear(); }
 
 bool IToplevelProtocol::ShmemCreated(const Message& aMsg) {
   Shmem::id_t id;
-  RefPtr<Shmem::SharedMemory> rawmem(Shmem::OpenExisting(aMsg, &id, true));
-  if (!rawmem) {
+  RefPtr<Shmem::Segment> segment(Shmem::OpenExisting(aMsg, &id, true));
+  if (!segment) {
     return false;
   }
   MOZ_ASSERT(!mShmemMap.Contains(id), "Don't insert with an existing ID");
-  mShmemMap.InsertOrUpdate(id, std::move(rawmem));
+  mShmemMap.InsertOrUpdate(id, std::move(segment));
   return true;
 }
 
@@ -892,6 +874,77 @@ IPDLResolverInner::~IPDLResolverInner() {
       ResponseRejectReason reason = ResponseRejectReason::ResolverDestroyed;
       WriteIPDLParam(&writer, aActor, reason);
     });
+  }
+}
+
+bool IPDLAsyncReturnsCallbacks::EntryKey::operator==(
+    const EntryKey& aOther) const {
+  return mSeqno == aOther.mSeqno && mType == aOther.mType;
+}
+
+bool IPDLAsyncReturnsCallbacks::EntryKey::operator<(
+    const EntryKey& aOther) const {
+  return mSeqno < aOther.mSeqno ||
+         (mSeqno == aOther.mSeqno && mType < aOther.mType);
+}
+
+void IPDLAsyncReturnsCallbacks::AddCallback(int32_t aSeqno, msgid_t aType,
+                                            Callback aResolve,
+                                            RejectCallback aReject) {
+  Entry entry{{aSeqno, aType}, std::move(aResolve), std::move(aReject)};
+  MOZ_ASSERT(!mMap.ContainsSorted(entry));
+  mMap.InsertElementSorted(std::move(entry));
+}
+
+auto IPDLAsyncReturnsCallbacks::GotReply(IProtocol* aActor,
+                                         const IPC::Message& aMessage)
+    -> Result {
+  // Check if we have an entry for the given seqno and message type.
+  EntryKey key{aMessage.seqno(), aMessage.type()};
+  size_t index = mMap.BinaryIndexOf(key);
+  if (index == nsTArray<Entry>::NoIndex) {
+    return MsgProcessingError;
+  }
+
+  // Move the callbacks out of the map, as we will now be handling it.
+  Entry entry = std::move(mMap[index]);
+  mMap.RemoveElementAt(index);
+  MOZ_ASSERT(entry == key);
+
+  // Deserialize the message which was serialized by IPDLResolverInner.
+  IPC::MessageReader reader{aMessage, aActor};
+  bool resolve = false;
+  if (!IPC::ReadParam(&reader, &resolve)) {
+    entry.mReject(ResponseRejectReason::HandlerRejected);
+    return MsgValueError;
+  }
+
+  if (resolve) {
+    // Hand off resolve-case deserialization & success to the callback.
+    Result rv = entry.mResolve(&reader);
+    if (rv != MsgProcessed) {
+      // If deserialization failed, we need to call the reject handler.
+      entry.mReject(ResponseRejectReason::HandlerRejected);
+    }
+    return rv;
+  }
+
+  ResponseRejectReason reason;
+  if (!IPC::ReadParam(&reader, &reason)) {
+    entry.mReject(ResponseRejectReason::HandlerRejected);
+    return MsgValueError;
+  }
+  reader.EndRead();
+
+  entry.mReject(reason);
+  return MsgProcessed;
+}
+
+void IPDLAsyncReturnsCallbacks::RejectPendingResponses(
+    ResponseRejectReason aReason) {
+  nsTArray<Entry> pending = std::move(mMap);
+  for (auto& entry : pending) {
+    entry.mReject(aReason);
   }
 }
 

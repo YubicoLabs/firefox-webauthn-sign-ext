@@ -24,6 +24,7 @@
 #include "mozilla/dom/SafeRefPtr.h"
 #include "mozilla/dom/TrustedTypePolicyFactory.h"
 #include "mozilla/dom/WorkerPrivate.h"
+#include "mozilla/dom/TimeoutManager.h"
 #include "nsCOMPtr.h"
 #include "nsCycleCollectionParticipant.h"
 #include "nsIGlobalObject.h"
@@ -63,10 +64,12 @@ enum class EventCallbackDebuggerNotificationType : uint8_t;
 class EventHandlerNonNull;
 class FontFaceSet;
 class Function;
+class FunctionOrTrustedScriptOrString;
 class IDBFactory;
 class OnErrorEventHandlerNonNull;
 template <typename T>
 class Optional;
+class OwningTrustedScriptURLOrString;
 class Performance;
 class Promise;
 class RequestOrUTF8String;
@@ -104,6 +107,10 @@ class WorkerGlobalScopeBase : public DOMEventTargetHelper,
   WorkerGlobalScopeBase(WorkerPrivate* aWorkerPrivate,
                         UniquePtr<ClientSource> aClientSource);
 
+  mozilla::dom::TimeoutManager* GetTimeoutManager() override final {
+    return mTimeoutManager.get();
+  }
+
   virtual bool WrapGlobalObject(JSContext* aCx,
                                 JS::MutableHandle<JSObject*> aReflector) = 0;
 
@@ -126,7 +133,12 @@ class WorkerGlobalScopeBase : public DOMEventTargetHelper,
 
   StorageAccess GetStorageAccess() final;
 
+  nsICookieJarSettings* GetCookieJarSettings() final;
+
+  nsIURI* GetBaseURI() const final;
+
   Maybe<ClientInfo> GetClientInfo() const final;
+  Maybe<ClientState> GetClientState() const final;
 
   Maybe<ServiceWorkerDescriptor> GetController() const final;
 
@@ -177,6 +189,30 @@ class WorkerGlobalScopeBase : public DOMEventTargetHelper,
   // demands it.
   void WorkerPrivateSaysForbidScript() { StartForbiddingScript(); }
   void WorkerPrivateSaysAllowScript() { StopForbiddingScript(); }
+  bool IsBackgroundInternal() const override {
+    MOZ_ASSERT(mWorkerPrivate);
+    return mWorkerPrivate->IsRunningInBackground();
+  }
+
+  MOZ_CAN_RUN_SCRIPT bool RunTimeoutHandler(
+      mozilla::dom::Timeout* aTimeout) override;
+  bool IsFrozen() const override {
+    return mWorkerPrivate->IsFrozenForWorkerThread();
+  }
+
+  // workers don't support both frozen and suspended,
+  // either both are true, or both are false.
+  bool IsSuspended() const override {
+    return mWorkerPrivate->IsFrozenForWorkerThread();
+  }
+
+  void TriggerUpdateCCFlag() override {
+    mWorkerPrivate->UpdateCCFlag(WorkerPrivate::CCFlag::EligibleForTimeout);
+  }
+
+  static WorkerGlobalScopeBase* Cast(nsIGlobalObject* obj) {
+    return static_cast<WorkerGlobalScopeBase*>(obj);
+  }
 
  protected:
   ~WorkerGlobalScopeBase();
@@ -195,6 +231,7 @@ class WorkerGlobalScopeBase : public DOMEventTargetHelper,
 #ifdef DEBUG
   PRThread* mWorkerThreadUsedOnlyForAssert;
 #endif
+  mozilla::UniquePtr<mozilla::dom::TimeoutManager> mTimeoutManager;
 };
 
 namespace workerinternals {
@@ -227,6 +264,11 @@ class WorkerGlobalScope : public WorkerGlobalScopeBase {
   void NoteShuttingDown();
 
   // nsIGlobalObject implementation
+  already_AddRefed<ServiceWorkerContainer> GetServiceWorkerContainer() final;
+
+  RefPtr<ServiceWorker> GetOrCreateServiceWorker(
+      const ServiceWorkerDescriptor& aDescriptor) final;
+
   RefPtr<ServiceWorkerRegistration> GetServiceWorkerRegistration(
       const ServiceWorkerRegistrationDescriptor& aDescriptor) const final;
 
@@ -246,6 +288,12 @@ class WorkerGlobalScope : public WorkerGlobalScopeBase {
 
   bool IsEligibleForMessaging() final;
 
+  void ReportToConsole(uint32_t aErrorFlags, const nsCString& aCategory,
+                       nsContentUtils::PropertiesFile aFile,
+                       const nsCString& aMessageName,
+                       const nsTArray<nsString>& aParams,
+                       const mozilla::SourceLocation& aLocation) final;
+
   // WorkerGlobalScope WebIDL implementation
   WorkerGlobalScope* Self() { return this; }
 
@@ -258,8 +306,10 @@ class WorkerGlobalScope : public WorkerGlobalScopeBase {
   FontFaceSet* GetFonts(ErrorResult&);
   FontFaceSet* GetFonts() final { return GetFonts(IgnoreErrors()); }
 
-  void ImportScripts(JSContext* aCx, const Sequence<nsString>& aScriptURLs,
-                     ErrorResult& aRv);
+  MOZ_CAN_RUN_SCRIPT void ImportScripts(
+      JSContext* aCx,
+      const Sequence<OwningTrustedScriptURLOrString>& aScriptURLs,
+      ErrorResult& aRv);
 
   OnErrorEventHandlerNonNull* GetOnerror();
 
@@ -292,23 +342,18 @@ class WorkerGlobalScope : public WorkerGlobalScopeBase {
   bool CrossOriginIsolated() const final;
 
   MOZ_CAN_RUN_SCRIPT
-  int32_t SetTimeout(JSContext* aCx, Function& aHandler, int32_t aTimeout,
-                     const Sequence<JS::Value>& aArguments, ErrorResult& aRv);
-
-  MOZ_CAN_RUN_SCRIPT
-  int32_t SetTimeout(JSContext* aCx, const nsAString& aHandler,
-                     int32_t aTimeout, const Sequence<JS::Value>&,
+  int32_t SetTimeout(JSContext* aCx,
+                     const FunctionOrTrustedScriptOrString& aHandler,
+                     int32_t aTimeout, const Sequence<JS::Value>& aArguments,
                      ErrorResult& aRv);
 
   MOZ_CAN_RUN_SCRIPT
   void ClearTimeout(int32_t aHandle);
 
   MOZ_CAN_RUN_SCRIPT
-  int32_t SetInterval(JSContext* aCx, Function& aHandler, int32_t aTimeout,
-                      const Sequence<JS::Value>& aArguments, ErrorResult& aRv);
-  MOZ_CAN_RUN_SCRIPT
-  int32_t SetInterval(JSContext* aCx, const nsAString& aHandler,
-                      int32_t aTimeout, const Sequence<JS::Value>&,
+  int32_t SetInterval(JSContext* aCx,
+                      const FunctionOrTrustedScriptOrString& aHandler,
+                      int32_t aTimeout, const Sequence<JS::Value>& aArguments,
                       ErrorResult& aRv);
 
   MOZ_CAN_RUN_SCRIPT
@@ -361,15 +406,11 @@ class WorkerGlobalScope : public WorkerGlobalScopeBase {
 
  private:
   MOZ_CAN_RUN_SCRIPT
-  int32_t SetTimeoutOrInterval(JSContext* aCx, Function& aHandler,
+  int32_t SetTimeoutOrInterval(JSContext* aCx,
+                               const FunctionOrTrustedScriptOrString& aHandler,
                                int32_t aTimeout,
                                const Sequence<JS::Value>& aArguments,
                                bool aIsInterval, ErrorResult& aRv);
-
-  MOZ_CAN_RUN_SCRIPT
-  int32_t SetTimeoutOrInterval(JSContext* aCx, const nsAString& aHandler,
-                               int32_t aTimeout, bool aIsInterval,
-                               ErrorResult& aRv);
 
   RefPtr<Crypto> mCrypto;
   RefPtr<WorkerLocation> mLocation;

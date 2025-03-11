@@ -656,6 +656,15 @@ function BuildConditionSandbox(aURL) {
   // data not using mozinfo
   sandbox.xulRuntime = {};
 
+  // Do we *not* have a dedicated gpu process.
+  sandbox.nogpu =
+    sandbox.wayland ||
+    sandbox.cocoaWidget ||
+    !(
+      Services.prefs.getBoolPref("layers.gpu-process.enabled") &&
+      Services.prefs.getBoolPref("layers.gpu-process.force-enabled")
+    );
+
   var gfxInfo =
     NS_GFXINFO_CONTRACTID in Cc &&
     Cc[NS_GFXINFO_CONTRACTID].getService(Ci.nsIGfxInfo);
@@ -741,6 +750,9 @@ function BuildConditionSandbox(aURL) {
 
   // Running with a variant enabled?
   sandbox.fission = Services.appinfo.fissionAutostart;
+
+  sandbox.incOriginInit =
+    Services.env.get("MOZ_ENABLE_INC_ORIGIN_INIT") === "1";
 
   if (!g.dumpedConditionSandbox) {
     g.logger.info(

@@ -102,6 +102,7 @@ specific_include_rules = {
 
   "packet_socket_factory\.h": [
     "+rtc_base/async_packet_socket.h",
+    "+rtc_base/socket_address.h",
   ],
 
   "peer_connection_interface\.h": [
@@ -134,6 +135,8 @@ specific_include_rules = {
 
   "rtc_error\.h": [
     "+rtc_base/logging.h",
+    "+absl/strings/has_absl_stringify.h",
+    "+absl/strings/str_format.h",
   ],
   "rtc_event_log_output_file.h": [
     # For private member and constructor.
@@ -171,6 +174,11 @@ specific_include_rules = {
 
   "notifier\.h": [
     "+rtc_base/system/no_unique_address.h",
+    "+rtc_base/thread_annotations.h",
+  ],
+
+  "priority\.h": [
+    "+rtc_base/strong_alias.h",
   ],
 
   "simulated_network\.h": [
@@ -188,6 +196,10 @@ specific_include_rules = {
 
   "videocodec_test_fixture\.h": [
     "+modules/video_coding/include/video_codec_interface.h"
+  ],
+
+  "rtp_parameters\.h": [
+    "+absl/strings/str_format.h",
   ],
 
   "sequence_checker\.h": [

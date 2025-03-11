@@ -34,6 +34,9 @@ import org.mozilla.fenix.components.metrics.MetricsMiddleware
 import org.mozilla.fenix.crashes.CrashReportingAppMiddleware
 import org.mozilla.fenix.crashes.SettingsCrashReportCache
 import org.mozilla.fenix.datastore.pocketStoriesSelectedCategoriesDataStore
+import org.mozilla.fenix.distributions.DefaultDistributionBrowserStoreProvider
+import org.mozilla.fenix.distributions.DefaultDistributionProviderChecker
+import org.mozilla.fenix.distributions.DistributionIdManager
 import org.mozilla.fenix.ext.asRecentTabs
 import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.ext.filterState
@@ -42,6 +45,7 @@ import org.mozilla.fenix.ext.sort
 import org.mozilla.fenix.home.PocketUpdatesMiddleware
 import org.mozilla.fenix.home.blocklist.BlocklistHandler
 import org.mozilla.fenix.home.blocklist.BlocklistMiddleware
+import org.mozilla.fenix.home.middleware.HomeTelemetryMiddleware
 import org.mozilla.fenix.messaging.state.MessagingMiddleware
 import org.mozilla.fenix.onboarding.FenixOnboarding
 import org.mozilla.fenix.perf.AppStartReasonProvider
@@ -77,32 +81,30 @@ class Components(private val context: Context) {
             strictMode,
         )
     }
-    val services by lazyMonitored { Services(context, backgroundServices.accountManager) }
+    val services by lazyMonitored { Services(context, core.store, backgroundServices.accountManager) }
     val core by lazyMonitored { Core(context, analytics.crashReporter, strictMode) }
 
     @Suppress("Deprecation")
     val useCases by lazyMonitored {
         UseCases(
             context,
-            core.engine,
-            core.store,
-            core.webAppShortcutManager,
-            core.topSitesStorage,
-            core.bookmarksStorage,
-            core.historyStorage,
-            backgroundServices.syncedTabsCommands,
-            appStore,
-            core.client,
-            strictMode,
+            lazyMonitored { core.engine },
+            lazyMonitored { core.store },
+            lazyMonitored { core.webAppShortcutManager },
+            lazyMonitored { core.topSitesStorage },
+            lazyMonitored { core.bookmarksStorage },
+            lazyMonitored { core.historyStorage },
+            lazyMonitored { backgroundServices.syncedTabsCommands },
+            lazyMonitored { appStore },
+            lazyMonitored { core.client },
+            lazyMonitored { strictMode },
         )
     }
 
     private val notificationManagerCompat = NotificationManagerCompat.from(context)
 
     val notificationsDelegate: NotificationsDelegate by lazyMonitored {
-        NotificationsDelegate(
-            notificationManagerCompat,
-        )
+        NotificationsDelegate(notificationManagerCompat)
     }
 
     val intentProcessors by lazyMonitored {
@@ -223,7 +225,7 @@ class Components(private val context: Context) {
             middlewares = listOf(
                 BlocklistMiddleware(blocklistHandler),
                 PocketUpdatesMiddleware(
-                    core.pocketStoriesService,
+                    lazyMonitored { core.pocketStoriesService },
                     context.pocketStoriesSelectedCategoriesDataStore,
                 ),
                 MessagingMiddleware(
@@ -238,15 +240,22 @@ class Components(private val context: Context) {
                         currentTimeInMillis = { System.currentTimeMillis() },
                     ),
                 ),
+                HomeTelemetryMiddleware(),
             ),
         ).also {
-            if (context.settings().useNewCrashReporter) {
-                it.dispatch(AppAction.CrashActionWrapper(CrashAction.Initialize))
-            }
+            it.dispatch(AppAction.CrashActionWrapper(CrashAction.Initialize))
         }
     }
 
     val fxSuggest by lazyMonitored { FxSuggest(context) }
+
+    val distributionIdManager by lazyMonitored {
+        DistributionIdManager(
+            context = context,
+            browserStoreProvider = DefaultDistributionBrowserStoreProvider(core.store),
+            distributionProviderChecker = DefaultDistributionProviderChecker(context),
+        )
+    }
 }
 
 /**

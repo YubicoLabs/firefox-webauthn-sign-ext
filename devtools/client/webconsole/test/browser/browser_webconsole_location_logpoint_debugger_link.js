@@ -6,6 +6,9 @@
 
 "use strict";
 
+// Allow more time since we now wait for CM6 document updates to complete
+requestLongerTimeout(2);
+
 const TEST_URI =
   "https://example.com/browser/devtools/client/webconsole/" +
   "test/browser/test-location-debugger-link-logpoint.html";
@@ -35,8 +38,8 @@ add_task(async function () {
   info("Add a logpoint with a valid expression");
   await setLogPoint(dbg, 8, "`a is ${a}`");
 
-  await assertEditorLogpoint(dbg, 7, { hasLog: true });
-  await assertEditorLogpoint(dbg, 8, { hasLog: true });
+  await assertLogBreakpoint(dbg, 7);
+  await assertLogBreakpoint(dbg, 8);
 
   info("Close the file in the debugger");
   await closeTab(dbg, "test-location-debugger-link-logpoint-1.js");
@@ -119,10 +122,12 @@ add_task(async function () {
 
   info("Add a logpoint to the first file");
   await selectSource(dbg, "test-location-debugger-link-logpoint-1.js");
+
   await setLogPoint(dbg, 8, "`a is ${a}`");
 
   info("Add a logpoint to the second file");
   await selectSource(dbg, "test-location-debugger-link-logpoint-2.js");
+
   await setLogPoint(dbg, 8, "`c is ${c}`");
 
   info("Selecting the console");

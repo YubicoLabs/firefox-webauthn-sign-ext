@@ -33,6 +33,8 @@ var localProviderModules = {
     "resource:///modules/UrlbarProviderAboutPages.sys.mjs",
   UrlbarProviderActionsSearchMode:
     "resource:///modules/UrlbarProviderActionsSearchMode.sys.mjs",
+  UrlbarProviderGlobalActions:
+    "resource:///modules/UrlbarProviderGlobalActions.sys.mjs",
   UrlbarProviderAliasEngines:
     "resource:///modules/UrlbarProviderAliasEngines.sys.mjs",
   UrlbarProviderAutofill: "resource:///modules/UrlbarProviderAutofill.sys.mjs",
@@ -77,7 +79,6 @@ var localProviderModules = {
   UrlbarProviderTopSites: "resource:///modules/UrlbarProviderTopSites.sys.mjs",
   UrlbarProviderUnitConversion:
     "resource:///modules/UrlbarProviderUnitConversion.sys.mjs",
-  UrlbarProviderWeather: "resource:///modules/UrlbarProviderWeather.sys.mjs",
 };
 
 // List of available local muxers, each is implemented in its own jsm module.
@@ -85,14 +86,6 @@ var localMuxerModules = {
   UrlbarMuxerUnifiedComplete:
     "resource:///modules/UrlbarMuxerUnifiedComplete.sys.mjs",
 };
-
-import { ActionsProviderQuickActions } from "resource:///modules/ActionsProviderQuickActions.sys.mjs";
-import { ActionsProviderContextualSearch } from "resource:///modules/ActionsProviderContextualSearch.sys.mjs";
-
-let globalActionsProviders = [
-  ActionsProviderContextualSearch,
-  ActionsProviderQuickActions,
-];
 
 const DEFAULT_MUXER = "UnifiedComplete";
 
@@ -208,17 +201,6 @@ class ProvidersManager {
   }
 
   /**
-   * Returns the provider with the given name.
-   *
-   * @param {string} name
-   *   The provider name.
-   * @returns {UrlbarProvider} The provider.
-   */
-  getActionProvider(name) {
-    return globalActionsProviders.find(p => p.name == name);
-  }
-
-  /**
    * Registers a muxer object with the manager.
    *
    * @param {object} muxer
@@ -324,14 +306,6 @@ class ProvidersManager {
       // history and bookmarks even if search engines are not available.
     }
 
-    // All current global actions are currently memory lookups so it is safe to
-    // wait on them.
-    this.#globalAction = lazy.UrlbarPrefs.getScotchBonnetPref(
-      "secondaryActions.featureGate"
-    )
-      ? await this.pickGlobalAction(queryContext, controller)
-      : null;
-
     if (query.canceled) {
       return;
     }
@@ -419,7 +393,8 @@ class ProvidersManager {
         state,
         queryContext,
         controller,
-        visibleResultsByProviderName
+        visibleResultsByProviderName,
+        state == "engagement" && details.result ? details : null
       );
     }
 
@@ -465,7 +440,8 @@ class ProvidersManager {
     state,
     queryContext,
     controller,
-    visibleResultsByProviderName
+    visibleResultsByProviderName,
+    details
   ) {
     for (const provider of impressionProviders) {
       const providerVisibleResults =
@@ -477,7 +453,8 @@ class ProvidersManager {
           state,
           queryContext,
           controller,
-          providerVisibleResults
+          providerVisibleResults,
+          details
         );
       }
     }
@@ -510,25 +487,6 @@ class ProvidersManager {
         details
       );
     }
-  }
-
-  #globalAction = null;
-
-  async pickGlobalAction(queryContext, controller) {
-    for (let provider of globalActionsProviders) {
-      if (provider.isActive(queryContext)) {
-        let action = await provider.queryAction(queryContext, controller);
-        if (action) {
-          action.providerName = provider.name;
-          return action;
-        }
-      }
-    }
-    return null;
-  }
-
-  getGlobalAction() {
-    return this.#globalAction;
   }
 }
 

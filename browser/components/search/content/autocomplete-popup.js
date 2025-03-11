@@ -7,8 +7,10 @@
 // Wrap in a block to prevent leaking to window scope.
 {
   ChromeUtils.defineESModuleGetters(this, {
+    BrowserSearchTelemetry:
+      "moz-src:///browser/components/search/BrowserSearchTelemetry.sys.mjs",
     BrowserUtils: "resource://gre/modules/BrowserUtils.sys.mjs",
-    SearchOneOffs: "resource:///modules/SearchOneOffs.sys.mjs",
+    SearchOneOffs: "moz-src:///browser/components/search/SearchOneOffs.sys.mjs",
   });
 
   /**

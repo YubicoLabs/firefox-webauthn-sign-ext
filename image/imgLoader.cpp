@@ -1372,7 +1372,12 @@ imgLoader::Observe(nsISupports* aSubject, const char* aTopic,
 }
 
 NS_IMETHODIMP
-imgLoader::ClearCache(bool chrome) {
+imgLoader::ClearCache(JS::Handle<JS::Value> chrome) {
+  return ClearCache(chrome.isBoolean() ? Some(chrome.toBoolean()) : Nothing());
+}
+
+nsresult
+imgLoader::ClearCache(mozilla::Maybe<bool> chrome) {
   if (XRE_IsParentProcess()) {
     bool privateLoader = this == gPrivateBrowsingLoader;
     for (auto* cp : ContentParent::AllProcesses(ContentParent::eLive)) {
@@ -1381,7 +1386,11 @@ imgLoader::ClearCache(bool chrome) {
   }
   ClearOptions options;
   if (chrome) {
-    options += ClearOption::ChromeOnly;
+    if (*chrome) {
+      options += ClearOption::ChromeOnly;
+    } else {
+      options += ClearOption::ContentOnly;
+    }
   }
   return ClearImageCache(options);
 }
@@ -1905,7 +1914,7 @@ void imgLoader::NotifyObserversForCachedImage(
 
   nsCOMPtr<nsIObserverService> obsService = services::GetObserverService();
 
-  if (!obsService->HasObservers("http-on-image-cache-response")) {
+  if (!obsService->HasObservers("http-on-resource-cache-response")) {
     return;
   }
 
@@ -1930,7 +1939,7 @@ void imgLoader::NotifyObserversForCachedImage(
     if (image) {
       newChannel->SetContentLength(aEntry->GetDataSize());
     }
-    obsService->NotifyObservers(newChannel, "http-on-image-cache-response",
+    obsService->NotifyObservers(newChannel, "http-on-resource-cache-response",
                                 nullptr);
   }
 }
@@ -2148,11 +2157,19 @@ bool imgLoader::RemoveFromCache(imgCacheEntry* entry, QueueState aQueueState) {
 
 nsresult imgLoader::ClearImageCache(ClearOptions aOptions) {
   const bool chromeOnly = aOptions.contains(ClearOption::ChromeOnly);
+  const bool contentOnly = aOptions.contains(ClearOption::ContentOnly);
   const auto ShouldRemove = [&](imgCacheEntry* aEntry) {
-    if (chromeOnly) {
-      // TODO: Consider also removing "resource://" etc?
+    if (chromeOnly || contentOnly) {
       RefPtr<imgRequest> request = aEntry->GetRequest();
-      if (!request || !request->CacheKey().URI()->SchemeIs("chrome")) {
+      if (!request) {
+        return false;
+      }
+      nsIURI* uri = request->CacheKey().URI();
+      bool isChrome = uri->SchemeIs("chrome") || uri->SchemeIs("resource");
+      if (chromeOnly && !isChrome) {
+        return false;
+      }
+      if (contentOnly && isChrome) {
         return false;
       }
     }
@@ -2176,7 +2193,7 @@ nsresult imgLoader::ClearImageCache(ClearOptions aOptions) {
       }
     }
 
-    MOZ_ASSERT(chromeOnly || mCacheQueue.GetNumElements() == 0);
+    MOZ_ASSERT(chromeOnly || contentOnly || mCacheQueue.GetNumElements() == 0);
     return NS_OK;
   }
 
@@ -2193,7 +2210,7 @@ nsresult imgLoader::ClearImageCache(ClearOptions aOptions) {
       return NS_ERROR_FAILURE;
     }
   }
-  MOZ_ASSERT(chromeOnly || mCache.IsEmpty());
+  MOZ_ASSERT(chromeOnly || contentOnly || mCache.IsEmpty());
   return NS_OK;
 }
 
@@ -2318,7 +2335,7 @@ nsresult imgLoader::LoadImage(
   bool isPrivate = false;
 
   if (aLoadingDocument) {
-    isPrivate = nsContentUtils::IsInPrivateBrowsing(aLoadingDocument);
+    isPrivate = aLoadingDocument->IsInPrivateBrowsing();
   } else if (aLoadGroup) {
     isPrivate = nsContentUtils::IsInPrivateBrowsing(aLoadGroup);
   }
@@ -2845,7 +2862,7 @@ bool imgLoader::SupportImageWithMimeType(const nsACString& aMimeType,
   ToLowerCase(mimeType);
 
   if (aAccept == AcceptedMimeTypes::IMAGES_AND_DOCUMENTS &&
-      mimeType.EqualsLiteral("image/svg+xml")) {
+      mimeType.EqualsLiteral(IMAGE_SVG_XML)) {
     return true;
   }
 

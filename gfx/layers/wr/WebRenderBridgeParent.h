@@ -236,6 +236,10 @@ class WebRenderBridgeParent final : public PWebRenderBridgeParent,
     return MatchesNamespace(wr::AsImageKey(aBlobKey));
   }
 
+  bool MatchesNamespace(const wr::SnapshotImageKey& aSnapshotKey) const {
+    return MatchesNamespace(wr::AsImageKey(aSnapshotKey));
+  }
+
   bool MatchesNamespace(const wr::FontKey& aFontKey) const {
     return aFontKey.mNamespace == mIdNamespace;
   }
@@ -244,7 +248,7 @@ class WebRenderBridgeParent final : public PWebRenderBridgeParent,
     return aFontKey.mNamespace == mIdNamespace;
   }
 
-  void FlushRendering(wr::RenderReasons aReasons, bool aBlocking = true);
+  void FlushRendering(wr::RenderReasons aReasons, bool aBlocking);
 
   /**
    * Schedule generating WebRender frame definitely at next composite timing.

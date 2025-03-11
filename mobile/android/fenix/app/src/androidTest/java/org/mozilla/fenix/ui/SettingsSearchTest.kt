@@ -6,6 +6,7 @@ package org.mozilla.fenix.ui
 
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.test.espresso.Espresso.pressBack
+import androidx.test.filters.SdkSuppress
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Before
@@ -421,7 +422,7 @@ class SettingsSearchTest : TestSetup() {
             openEngineOverflowMenu(customSearchEngineTitle)
             clickDeleteSearchEngine()
             verifySnackBarText("Deleted $customSearchEngineTitle")
-            clickSnackbarButton("UNDO")
+            clickSnackbarButton(activityTestRule, "UNDO")
             verifyEngineListContains(customSearchEngineTitle, shouldExist = true)
             changeDefaultSearchEngine(customSearchEngineTitle)
             openEngineOverflowMenu(customSearchEngineTitle)
@@ -481,11 +482,7 @@ class SettingsSearchTest : TestSetup() {
             clickSearchSelectorButton()
             selectTemporarySearchMethod("DuckDuckGo")
             typeSearch("mozilla ")
-            verifySearchEngineSuggestionResults(
-                activityTestRule,
-                "mozilla firefox",
-                searchTerm = "mozilla ",
-            )
+            verifySearchSuggestionsAreDisplayed(activityTestRule, "mozilla firefox")
         }.dismissSearchBar {
         }.openThreeDotMenu {
         }.openSettings {
@@ -527,11 +524,7 @@ class SettingsSearchTest : TestSetup() {
             typeSearch("mozilla")
             verifyAllowSuggestionsInPrivateModeDialog()
             allowSuggestionsInPrivateMode()
-            verifySearchEngineSuggestionResults(
-                activityTestRule,
-                "mozilla firefox",
-                searchTerm = "mozilla",
-            )
+            verifySearchSuggestionsAreDisplayed(activityTestRule, "mozilla firefox")
         }.dismissSearchBar {
         }.openThreeDotMenu {
         }.openSettings {
@@ -546,6 +539,7 @@ class SettingsSearchTest : TestSetup() {
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/888673
+    @SdkSuppress(minSdkVersion = 34)
     @Test
     fun verifyShowVoiceSearchToggleTest() {
         homeScreen {

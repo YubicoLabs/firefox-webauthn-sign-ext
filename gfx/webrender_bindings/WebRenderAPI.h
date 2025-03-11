@@ -132,7 +132,8 @@ class TransactionBuilder final {
 
   void ClearDisplayList(Epoch aEpoch, wr::WrPipelineId aPipeline);
 
-  void GenerateFrame(const VsyncId& aVsyncId, wr::RenderReasons aReasons);
+  void GenerateFrame(const VsyncId& aVsyncId, bool aPresent,
+                     wr::RenderReasons aReasons);
 
   void InvalidateRenderedFrame(wr::RenderReasons aReasons);
 
@@ -185,6 +186,10 @@ class TransactionBuilder final {
   void DeleteImage(wr::ImageKey aKey);
 
   void DeleteBlobImage(wr::BlobImageKey aKey);
+
+  void AddSnapshotImage(wr::SnapshotImageKey aKey);
+
+  void DeleteSnapshotImage(wr::SnapshotImageKey aKey);
 
   void AddRawFont(wr::FontKey aKey, wr::Vec<uint8_t>& aBytes, uint32_t aIndex);
 
@@ -529,6 +534,7 @@ struct MOZ_STACK_CLASS StackingContextParams : public WrStackingContextParams {
   StackingContextParams()
       : WrStackingContextParams{
             WrStackingContextClip::None(),
+            nullptr,
             nullptr,
             nullptr,
             nullptr,

@@ -1,7 +1,10 @@
+plugins {
+    alias(libs.plugins.kotlin.android)
+}
+
 buildDir "${topobjdir}/gradle/build/mobile/android/geckoview_example"
 
 apply plugin: 'com.android.application'
-apply plugin: 'kotlin-android'
 
 android {
     buildToolsVersion project.ext.buildToolsVersion
@@ -42,12 +45,12 @@ android {
 }
 
 dependencies {
-    implementation ComponentsDependencies.androidx_annotation
-    implementation ComponentsDependencies.androidx_appcompat
-    implementation ComponentsDependencies.androidx_core
-    implementation ComponentsDependencies.androidx_preferences
+    implementation libs.androidx.annotation
+    implementation libs.androidx.appcompat
+    implementation libs.androidx.core
+    implementation libs.androidx.preferences
 
     implementation project(path: ':geckoview')
-    implementation ComponentsDependencies.androidx_constraintlayout
-    implementation ComponentsDependencies.google_material
+    implementation libs.androidx.constraintlayout
+    implementation libs.google.material
 }

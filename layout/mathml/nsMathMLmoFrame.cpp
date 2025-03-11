@@ -47,7 +47,9 @@ eMathMLFrameType nsMathMLmoFrame::GetMathMLFrameType() {
 // its selected state bit, and use this little helper to double check.
 bool nsMathMLmoFrame::IsFrameInSelection(nsIFrame* aFrame) {
   NS_ASSERTION(aFrame, "null arg");
-  if (!aFrame || !aFrame->IsSelected()) return false;
+  if (!aFrame || !aFrame->IsSelected()) {
+    return false;
+  }
 
   const nsFrameSelection* frameSelection = aFrame->GetConstFrameSelection();
   UniquePtr<SelectionDetails> details =
@@ -168,7 +170,9 @@ void nsMathMLmoFrame::ProcessTextData() {
   bool isMutable =
       NS_MATHML_OPERATOR_IS_LARGEOP(allFlags) ||
       (mEmbellishData.direction != NS_STRETCH_DIRECTION_UNSUPPORTED);
-  if (isMutable) mFlags |= NS_MATHML_OPERATOR_MUTABLE;
+  if (isMutable) {
+    mFlags |= NS_MATHML_OPERATOR_MUTABLE;
+  }
 
   mMathMLChar.SetComputedStyle(Style());
 }
@@ -205,8 +209,9 @@ void nsMathMLmoFrame::ProcessOperatorData() {
     mEmbellishData.coreFrame = nullptr;
     mEmbellishData.leadingSpace = 0;
     mEmbellishData.trailingSpace = 0;
-    if (mMathMLChar.Length() != 1)
+    if (mMathMLChar.Length() != 1) {
       mEmbellishData.direction = NS_STRETCH_DIRECTION_UNSUPPORTED;
+    }
     // else... retain the native direction obtained in ProcessTextData()
 
     if (!mFrames.FirstChild()) {
@@ -226,10 +231,12 @@ void nsMathMLmoFrame::ProcessOperatorData() {
 
     // default values from the Operator Dictionary were obtained in
     // ProcessTextData() and these special bits are always kept in mFlags
-    if (NS_MATHML_OPERATOR_IS_ACCENT(mFlags))
+    if (NS_MATHML_OPERATOR_IS_ACCENT(mFlags)) {
       mEmbellishData.flags |= NS_MATHML_EMBELLISH_ACCENT;
-    if (NS_MATHML_OPERATOR_IS_MOVABLELIMITS(mFlags))
+    }
+    if (NS_MATHML_OPERATOR_IS_MOVABLELIMITS(mFlags)) {
       mEmbellishData.flags |= NS_MATHML_EMBELLISH_MOVABLELIMITS;
+    }
 
     // see if the accent attribute is there
     mContent->AsElement()->GetAttr(nsGkAtoms::accent_, value);
@@ -275,10 +282,11 @@ void nsMathMLmoFrame::ProcessOperatorData() {
     } while (embellishData.coreFrame == this);
 
     // flag if we have an embellished ancestor
-    if (embellishAncestor != this)
+    if (embellishAncestor != this) {
       mFlags |= NS_MATHML_OPERATOR_EMBELLISH_ANCESTOR;
-    else
+    } else {
       mFlags &= ~NS_MATHML_OPERATOR_EMBELLISH_ANCESTOR;
+    }
 
     // find the position of our outermost embellished container w.r.t
     // its siblings.
@@ -308,16 +316,18 @@ void nsMathMLmoFrame::ProcessOperatorData() {
     form = NS_MATHML_OPERATOR_FORM_INFIX;
     mContent->AsElement()->GetAttr(nsGkAtoms::form, value);
     if (!value.IsEmpty()) {
-      if (value.EqualsLiteral("prefix"))
+      if (value.EqualsLiteral("prefix")) {
         form = NS_MATHML_OPERATOR_FORM_PREFIX;
-      else if (value.EqualsLiteral("postfix"))
+      } else if (value.EqualsLiteral("postfix")) {
         form = NS_MATHML_OPERATOR_FORM_POSTFIX;
+      }
     } else {
       // set our form flag depending on the position
-      if (!prevSibling && nextSibling)
+      if (!prevSibling && nextSibling) {
         form = NS_MATHML_OPERATOR_FORM_PREFIX;
-      else if (prevSibling && !nextSibling)
+      } else if (prevSibling && !nextSibling) {
         form = NS_MATHML_OPERATOR_FORM_POSTFIX;
+      }
     }
     mFlags &= ~NS_MATHML_OPERATOR_FORM;  // clear the old form bits
     mFlags |= form;
@@ -383,11 +393,13 @@ void nsMathMLmoFrame::ProcessOperatorData() {
     nsCSSValue cssValue;
     if (dom::MathMLElement::ParseNumericValue(value, cssValue, 0,
                                               mContent->OwnerDoc())) {
-      if ((eCSSUnit_Number == cssValue.GetUnit()) && !cssValue.GetFloatValue())
+      if ((eCSSUnit_Number == cssValue.GetUnit()) &&
+          !cssValue.GetFloatValue()) {
         leadingSpace = 0;
-      else if (cssValue.IsLengthUnit())
+      } else if (cssValue.IsLengthUnit()) {
         leadingSpace = CalcLength(presContext, mComputedStyle, cssValue,
                                   fontSizeInflation);
+      }
       mFlags |= NS_MATHML_OPERATOR_LSPACE_ATTR;
     }
   }
@@ -410,11 +422,13 @@ void nsMathMLmoFrame::ProcessOperatorData() {
     nsCSSValue cssValue;
     if (dom::MathMLElement::ParseNumericValue(value, cssValue, 0,
                                               mContent->OwnerDoc())) {
-      if ((eCSSUnit_Number == cssValue.GetUnit()) && !cssValue.GetFloatValue())
+      if ((eCSSUnit_Number == cssValue.GetUnit()) &&
+          !cssValue.GetFloatValue()) {
         trailingSpace = 0;
-      else if (cssValue.IsLengthUnit())
+      } else if (cssValue.IsLengthUnit()) {
         trailingSpace = CalcLength(presContext, mComputedStyle, cssValue,
                                    fontSizeInflation);
+      }
       mFlags |= NS_MATHML_OPERATOR_RSPACE_ATTR;
     }
   }
@@ -423,8 +437,12 @@ void nsMathMLmoFrame::ProcessOperatorData() {
   // operators don't look as if they are colliding with their operands
   if (leadingSpace || trailingSpace) {
     nscoord onePixel = nsPresContext::CSSPixelsToAppUnits(1);
-    if (leadingSpace && leadingSpace < onePixel) leadingSpace = onePixel;
-    if (trailingSpace && trailingSpace < onePixel) trailingSpace = onePixel;
+    if (leadingSpace && leadingSpace < onePixel) {
+      leadingSpace = onePixel;
+    }
+    if (trailingSpace && trailingSpace < onePixel) {
+      trailingSpace = onePixel;
+    }
   }
 
   // the values that we get from our attributes override the dictionary
@@ -495,11 +513,11 @@ void nsMathMLmoFrame::ProcessOperatorData() {
     if (dom::MathMLElement::ParseNumericValue(value, cssValue, 0,
                                               mContent->OwnerDoc())) {
       nsCSSUnit unit = cssValue.GetUnit();
-      if (eCSSUnit_Number == unit)
+      if (eCSSUnit_Number == unit) {
         mMinSize = cssValue.GetFloatValue();
-      else if (eCSSUnit_Percent == unit)
+      } else if (eCSSUnit_Percent == unit) {
         mMinSize = cssValue.GetPercentValue();
-      else if (eCSSUnit_Null != unit) {
+      } else if (eCSSUnit_Null != unit) {
         mMinSize = float(CalcLength(presContext, mComputedStyle, cssValue,
                                     fontSizeInflation));
         mFlags |= NS_MATHML_OPERATOR_MINSIZE_ABSOLUTE;
@@ -526,11 +544,11 @@ void nsMathMLmoFrame::ProcessOperatorData() {
     if (dom::MathMLElement::ParseNumericValue(value, cssValue, 0,
                                               mContent->OwnerDoc())) {
       nsCSSUnit unit = cssValue.GetUnit();
-      if (eCSSUnit_Number == unit)
+      if (eCSSUnit_Number == unit) {
         mMaxSize = cssValue.GetFloatValue();
-      else if (eCSSUnit_Percent == unit)
+      } else if (eCSSUnit_Percent == unit) {
         mMaxSize = cssValue.GetPercentValue();
-      else if (eCSSUnit_Null != unit) {
+      } else if (eCSSUnit_Null != unit) {
         mMaxSize = float(CalcLength(presContext, mComputedStyle, cssValue,
                                     fontSizeInflation));
         mFlags |= NS_MATHML_OPERATOR_MAXSIZE_ABSOLUTE;
@@ -741,7 +759,8 @@ nsMathMLmoFrame::Stretch(DrawTarget* aDrawTarget,
 
   // Place our children using the default method and no border/padding.
   // This will allow our child text frame to get its DidReflow()
-  PlaceFlags flags = PlaceFlag::IgnoreBorderPadding;
+  PlaceFlags flags(PlaceFlag::IgnoreBorderPadding,
+                   PlaceFlag::DoNotAdjustForWidthAndHeight);
   nsresult rv = Place(aDrawTarget, flags, aDesiredStretchSize);
   if (NS_FAILED(rv)) {
     // Make sure the child frames get their DidReflow() calls.
@@ -852,8 +871,10 @@ nsMathMLmoFrame::Stretch(DrawTarget* aDrawTarget,
   }
 
   flags = PlaceFlags();
+  auto sizes = GetWidthAndHeightForPlaceAdjustment(flags);
   auto borderPadding = GetBorderPaddingForPlace(flags);
-  if (leadingSpace || trailingSpace || !borderPadding.IsAllZero()) {
+  if (leadingSpace || trailingSpace || !borderPadding.IsAllZero() ||
+      sizes.width || sizes.height) {
     mBoundingMetrics.width += leadingSpace + trailingSpace;
     aDesiredStretchSize.Width() = mBoundingMetrics.width;
     aDesiredStretchSize.mBoundingMetrics.width = mBoundingMetrics.width;
@@ -865,6 +886,10 @@ nsMathMLmoFrame::Stretch(DrawTarget* aDrawTarget,
     mBoundingMetrics.rightBearing += dx;
     aDesiredStretchSize.mBoundingMetrics.leftBearing += dx;
     aDesiredStretchSize.mBoundingMetrics.rightBearing += dx;
+
+    // Apply inline/block sizes to math content box.
+    dx += ApplyAdjustmentForWidthAndHeight(flags, sizes, aDesiredStretchSize,
+                                           mBoundingMetrics);
 
     // Add border/padding.
     InflateReflowAndBoundingMetrics(borderPadding, aDesiredStretchSize,

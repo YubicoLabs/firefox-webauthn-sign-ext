@@ -28,10 +28,13 @@
 #include "mozilla/StaticPrefs_widget.h"
 #include "mozilla/UniquePtr.h"
 #include "mozilla/WindowsVersion.h"
+#include "nsArrayEnumerator.h"
 #include "nsCRT.h"
 #include "nsEnumeratorUtils.h"
 #include "nsHashPropertyBag.h"
 #include "nsIContentAnalysis.h"
+#include "nsIFile.h"
+#include "nsISimpleEnumerator.h"
 #include "nsCExternalHandlerService.h"
 #include "nsIExternalHelperAppService.h"
 #include "nsNetUtil.h"
@@ -42,8 +45,6 @@
 #include "nsToolkit.h"
 #include "nsWindow.h"
 #include "WinUtils.h"
-
-#include "mozilla/glean/GleanMetrics.h"
 
 #include "mozilla/widget/filedialog/WinFileDialogCommands.h"
 #include "mozilla/widget/filedialog/WinFileDialogParent.h"
@@ -56,7 +57,7 @@ using namespace mozilla::widget;
 template <typename Res>
 using FDPromise = filedialog::Promise<Res>;
 
-UniquePtr<char16_t[], nsFilePicker::FreeDeleter>
+MOZ_RUNINIT UniquePtr<char16_t[], nsFilePicker::FreeDeleter>
     nsFilePicker::sLastUsedUnicodeDirectory;
 
 #define MAX_EXTENSION_LENGTH 10
@@ -79,11 +80,15 @@ class AutoWidgetPickerState {
   explicit AutoWidgetPickerState(nsIWidget* aWidget)
       : mWindow(GetWindowForWidget(aWidget)) {
     MOZ_ASSERT(mWindow);
-    if (mWindow) mWindow->PickerOpen();
+    if (mWindow) {
+      mWindow->PickerOpen();
+    }
   }
   ~AutoWidgetPickerState() {
     // may be null if moved-from
-    if (mWindow) mWindow->PickerClosed();
+    if (mWindow) {
+      mWindow->PickerClosed();
+    }
   }
 
   AutoWidgetPickerState(AutoWidgetPickerState const&) = delete;
@@ -96,7 +101,7 @@ class AutoWidgetPickerState {
 ///////////////////////////////////////////////////////////////////////////////
 // nsIFilePicker
 
-nsFilePicker::nsFilePicker() : mSelectedType(1) {}
+nsFilePicker::nsFilePicker() = default;
 
 NS_IMPL_ISUPPORTS(nsFilePicker, nsIFilePicker)
 
@@ -321,76 +326,6 @@ class AsyncAllIterator final {
   RefPtr<mozilla::MozPromise<bool, nsresult, true>::Private> mPromise;
 };
 
-namespace telemetry {
-static uint32_t Delta(uint64_t tb, uint64_t ta) {
-  // FILETIMEs are 100ns intervals; we reduce that to 1ms.
-  // (`u32::max()` milliseconds is roughly 47.91 days.)
-  return uint32_t((tb - ta) / 10'000);
-};
-static nsCString HexString(uint32_t val) {
-  return nsPrintfCString("%08" PRIX32, val);
-};
-
-static bool InShutdown() {
-  return AppShutdown::GetCurrentShutdownPhase() != ShutdownPhase::NotInShutdown;
-}
-
-static void RecordSuccess(uint64_t (&&time)[2]) {
-  auto [t0, t1] = time;
-
-  namespace glean_fd = mozilla::glean::file_dialog;
-  glean_fd::FallbackV21Extra extra{
-      .inShutdown = Some(InShutdown()),
-      .succeeded = Some(true),
-      .timeLocal = Nothing(),
-      .timeRemote = Some(Delta(t1, t0)),
-      .whereLocal = Nothing(),
-      .whereRemote = Nothing(),
-      .whyLocal = Nothing(),
-      .whyRemote = Nothing(),
-  };
-  glean_fd::fallback_v2_1.Record(Some(extra));
-}
-
-// for use when a local fallback is not attempted
-static void RecordFailure(uint64_t (&&time)[2], Error const& remote) {
-  auto [t0, t1] = time;
-
-  namespace glean_fd = mozilla::glean::file_dialog;
-  glean_fd::FallbackV21Extra extra{
-      .inShutdown = Some(InShutdown()),
-      .succeeded = Some(false),
-      .timeLocal = Nothing(),
-      .timeRemote = Some(Delta(t1, t0)),
-      .whereLocal = Nothing(),
-      .whereRemote = Some(remote.where.c_str()),
-      .whyLocal = Nothing(),
-      .whyRemote = Some(HexString(remote.why)),
-  };
-  glean_fd::fallback_v2_1.Record(Some(extra));
-}
-
-// for use when a local fallback is attempted
-static void RecordFailure(uint64_t (&&time)[3], Error const& remote,
-                          Maybe<Error> const& local) {
-  auto [t0, t1, t2] = time;
-
-  namespace glean_fd = mozilla::glean::file_dialog;
-  glean_fd::FallbackV21Extra extra{
-      .inShutdown = Some(InShutdown()),
-      .succeeded = Some(false),
-      .timeLocal = Some(Delta(t2, t1)),
-      .timeRemote = Some(Delta(t1, t0)),
-      .whereLocal = local.map([](auto const& e) { return e.where.c_str(); }),
-      .whereRemote = Some(remote.where.c_str()),
-      .whyLocal = local.map([](auto const& e) { return HexString(e.why); }),
-      .whyRemote = Some(HexString(remote.why)),
-  };
-  glean_fd::fallback_v2_1.Record(Some(extra));
-}
-
-}  // namespace telemetry
-
 /* N.B.: L and R stand for Local and Remote, not just Left and Right */
 template <typename FnL, typename FnR, typename... Args>
 struct AsyncExecuteInfo {
@@ -446,14 +381,6 @@ static auto AsyncExecute(Fn1 local, Fn2 remote, Args const&... args) ->
 
   constexpr static char kFunctionName[] = "LocalAndOrRemote::AsyncExecute";
 
-  // capture time for telemetry
-  constexpr static const auto GetTime = []() -> uint64_t {
-    FILETIME t;
-    ::GetSystemTimeAsFileTime(&t);
-    return (uint64_t(t.dwHighDateTime) << 32) | t.dwLowDateTime;
-  };
-  uint64_t const t0 = GetTime();
-
   bool (*useLocalFallback)(Error const& err) = [](Error const& err) {
     MOZ_ASSERT_UNREACHABLE("useLocalFallback not set?!");
     return true;
@@ -491,11 +418,8 @@ static auto AsyncExecute(Fn1 local, Fn2 remote, Args const&... args) ->
 
   return remote(args...)->Then(
       NS_GetCurrentThread(), kFunctionName,
-      [t0](typename RPromiseT::ResolveValueType result) -> RefPtr<PromiseT> {
+      [](typename RPromiseT::ResolveValueType result) -> RefPtr<PromiseT> {
         // success; stop here
-        auto const t1 = GetTime();
-        // record success
-        telemetry::RecordSuccess({t0, t1});
         return PromiseT::CreateAndResolve(std::move(result), kFunctionName);
       },
       // initialized lambda pack captures are C++20 (clang 9, gcc 9);
@@ -503,12 +427,10 @@ static auto AsyncExecute(Fn1 local, Fn2 remote, Args const&... args) ->
       [=, tuple = std::make_tuple(Copy(args)...)](
           typename RPromiseT::RejectValueType err) mutable -> RefPtr<PromiseT> {
         // failure; record time
-        auto const t1 = GetTime();
 
         // should we fall back to a local implementation?
         if (!useLocalFallback(err)) {
           // if not, log this failure immediately...
-          telemetry::RecordFailure({t0, t1}, err);
           MOZ_LOG(filedialog::sLogFileDialog, LogLevel::Info,
                   ("remote file-dialog failed: kind=%s, where=%s, "
                    "why=%08" PRIX32,
@@ -517,19 +439,12 @@ static auto AsyncExecute(Fn1 local, Fn2 remote, Args const&... args) ->
           return PromiseT::CreateAndReject(err, kFunctionName);
         }
 
-        // otherwise, retry locally...
+        // otherwise, retry locally
         auto p0 = std::apply(local, std::move(tuple));
-        // ...then record the telemetry event
         return p0->Then(
             NS_GetCurrentThread(), kFunctionName,
-            [t0, t1, errRemote = std::move(err)](
-                typename LPromiseT::ResolveOrRejectValue&& val)
+            [](typename LPromiseT::ResolveOrRejectValue&& val)
                 -> RefPtr<PromiseT> {
-              auto const t2 = GetTime();
-              Maybe<Error> const errLocal =
-                  val.IsReject() ? Some(val.RejectValue()) : Nothing();
-              telemetry::RecordFailure({t0, t1, t2}, errRemote, errLocal);
-
               using V = typename PromiseT::ResolveOrRejectValue;
               return PromiseT::CreateAndResolveOrReject(
                   val.IsResolve()
@@ -540,26 +455,8 @@ static auto AsyncExecute(Fn1 local, Fn2 remote, Args const&... args) ->
       });
 }
 
-// Asynchronously invokes `aPredicate` on each member of `aItems`.
-// Yields `false` (and stops immediately) if any invocation of
-// `predicate` yielded `false`; otherwise yields `true`.
-template <typename T>
-static RefPtr<mozilla::MozPromise<bool, nsresult, true>> AsyncAll(
-    nsTArray<T> aItems,
-    std::function<
-        RefPtr<mozilla::MozPromise<bool, nsresult, true>>(const T& item)>
-        aPredicate) {
-  auto promise =
-      mozilla::MakeRefPtr<mozilla::MozPromise<bool, nsresult, true>::Private>(
-          __func__);
-  auto iterator = mozilla::MakeRefPtr<details::AsyncAllIterator<T>>(
-      std::move(aItems), aPredicate, promise);
-  iterator->StartIterating();
-  return promise;
-}
 }  // namespace fd_async
 
-using fd_async::AsyncAll;
 using fd_async::AsyncExecute;
 
 }  // namespace mozilla::detail
@@ -655,19 +552,29 @@ nsFilePicker::ShowFilePicker(const nsString& aInitialDir) {
 
     // mode specification
     switch (mMode) {
+      case modeOpenMultiple:
+        fos |= FOS_ALLOWMULTISELECT;
+        [[fallthrough]];
+
       case modeOpen:
         fos |= FOS_FILEMUSTEXIST;
-        break;
-
-      case modeOpenMultiple:
-        fos |= FOS_FILEMUSTEXIST | FOS_ALLOWMULTISELECT;
+        switch (mozilla::StaticPrefs::
+                    widget_windows_follow_shortcuts_on_file_open()) {
+          case 1:
+            break;
+          default:
+            fos |= FOS_NODEREFERENCELINKS;
+        }
         break;
 
       case modeSave:
         fos |= FOS_NOREADONLYRETURN;
-        // Don't follow shortcuts when saving a shortcut, this can be used
-        // to trick users (bug 271732)
-        if (IsDefaultPathLink()) fos |= FOS_NODEREFERENCELINKS;
+        // Don't follow shortcuts when saving a shortcut; this can be used to
+        // trick users (bug 271732). _Do_ follow shortcuts when not saving a
+        // shortcut (bug 283730).
+        if (IsDefaultPathLink()) {
+          fos |= FOS_NODEREFERENCELINKS;
+        }
         break;
 
       case modeGetFolder:
@@ -762,7 +669,7 @@ nsFilePicker::ShowFilePicker(const nsString& aInitialDir) {
         // multiple selection
         for (auto const& str : paths) {
           nsCOMPtr<nsIFile> file;
-          if (NS_SUCCEEDED(NS_NewLocalFile(str, false, getter_AddRefs(file)))) {
+          if (NS_SUCCEEDED(NS_NewLocalFile(str, getter_AddRefs(file)))) {
             self->mFiles.AppendObject(file);
           }
         }
@@ -775,49 +682,6 @@ void nsFilePicker::ClearFiles() {
   mUnicodeFile.Truncate();
   mFiles.Clear();
 }
-
-namespace {
-class GetFilesInDirectoryCallback final
-    : public mozilla::dom::GetFilesCallback {
- public:
-  explicit GetFilesInDirectoryCallback(
-      RefPtr<mozilla::MozPromise<nsTArray<mozilla::PathString>, nsresult,
-                                 true>::Private>
-          aPromise)
-      : mPromise(std::move(aPromise)) {}
-  void Callback(
-      nsresult aStatus,
-      const FallibleTArray<RefPtr<mozilla::dom::BlobImpl>>& aBlobImpls) {
-    if (NS_FAILED(aStatus)) {
-      mPromise->Reject(aStatus, __func__);
-      return;
-    }
-    nsTArray<mozilla::PathString> filePaths;
-    filePaths.SetCapacity(aBlobImpls.Length());
-    for (const auto& blob : aBlobImpls) {
-      if (blob->IsFile()) {
-        mozilla::PathString pathString;
-        mozilla::ErrorResult error;
-        blob->GetMozFullPathInternal(pathString, error);
-        nsresult rv = error.StealNSResult();
-        if (NS_WARN_IF(NS_FAILED(rv))) {
-          mPromise->Reject(rv, __func__);
-          return;
-        }
-        filePaths.AppendElement(pathString);
-      } else {
-        NS_WARNING("Got a non-file blob, can't do content analysis on it");
-      }
-    }
-    mPromise->Resolve(std::move(filePaths), __func__);
-  }
-
- private:
-  RefPtr<mozilla::MozPromise<nsTArray<mozilla::PathString>, nsresult,
-                             true>::Private>
-      mPromise;
-};
-}  // anonymous namespace
 
 RefPtr<nsFilePicker::ContentAnalysisResponse>
 nsFilePicker::CheckContentAnalysisService() {
@@ -832,127 +696,64 @@ nsFilePicker::CheckContentAnalysisService() {
   if (NS_WARN_IF(NS_FAILED(rv))) {
     return nsFilePicker::ContentAnalysisResponse::CreateAndReject(rv, __func__);
   }
-  if (!contentAnalysisIsActive) {
+  if (!contentAnalysisIsActive ||
+      !mozilla::StaticPrefs::
+          browser_contentanalysis_interception_point_file_upload_enabled()) {
     return nsFilePicker::ContentAnalysisResponse::CreateAndResolve(true,
                                                                    __func__);
   }
 
-  nsCOMPtr<nsIURI> uri =
-      mozilla::contentanalysis::ContentAnalysis::GetURIForBrowsingContext(
-          mBrowsingContext->Canonical());
-  if (!uri) {
-    return nsFilePicker::ContentAnalysisResponse::CreateAndReject(
-        NS_ERROR_FAILURE, __func__);
-  }
-
-  auto processOneItem = [self = RefPtr{this},
-                         contentAnalysis = std::move(contentAnalysis),
-                         uri =
-                             std::move(uri)](const mozilla::PathString& aItem) {
-    nsCString emptyDigestString;
-    auto* windowGlobal =
-        self->mBrowsingContext->Canonical()->GetCurrentWindowGlobal();
-    nsCOMPtr<nsIContentAnalysisRequest> contentAnalysisRequest(
-        new mozilla::contentanalysis::ContentAnalysisRequest(
-            nsIContentAnalysisRequest::AnalysisType::eFileAttached, aItem, true,
-            std::move(emptyDigestString), uri,
-            nsIContentAnalysisRequest::OperationType::eCustomDisplayString,
-            windowGlobal));
-
-    auto promise =
-        mozilla::MakeRefPtr<nsFilePicker::ContentAnalysisResponse::Private>(
-            __func__);
-    auto contentAnalysisCallback =
-        mozilla::MakeRefPtr<mozilla::contentanalysis::ContentAnalysisCallback>(
-            [promise](nsIContentAnalysisResponse* aResponse) {
-              bool shouldAllow = false;
-              mozilla::DebugOnly<nsresult> rv =
-                  aResponse->GetShouldAllowContent(&shouldAllow);
-              MOZ_ASSERT(NS_SUCCEEDED(rv));
-              promise->Resolve(shouldAllow, __func__);
-            },
-            [promise](nsresult aError) { promise->Reject(aError, __func__); });
-
-    nsresult rv = contentAnalysis->AnalyzeContentRequestCallback(
-        contentAnalysisRequest, /* aAutoAcknowledge */ true,
-        contentAnalysisCallback);
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      promise->Reject(rv, __func__);
-    }
-    return promise;
-  };
-
-  // Since getting the files to analyze might be asynchronous, use a MozPromise
-  // to unify the logic below.
-  RefPtr<mozilla::MozPromise<nsTArray<mozilla::PathString>, nsresult,
-                             true>::Private>
-      getFilesToAnalyzePromise = nullptr;
-  if (mMode == modeGetFolder) {
-    nsCOMPtr<nsIFile> file;
-    nsresult rv = GetFile(getter_AddRefs(file));
-    if (NS_WARN_IF(NS_FAILED(rv) || !file)) {
+  // Entries may be files or folders.  Folder contents will be recursively
+  // checked.
+  nsTArray<mozilla::PathString> filePaths;
+  if (mMode == modeGetFolder || !mUnicodeFile.IsEmpty()) {
+    RefPtr<nsIFile> folderOrFile;
+    nsresult rv = GetFile(getter_AddRefs(folderOrFile));
+    if (NS_WARN_IF(NS_FAILED(rv) || !folderOrFile)) {
       return nsFilePicker::ContentAnalysisResponse::CreateAndReject(rv,
                                                                     __func__);
     }
-    // We just need to iterate over the directory, so use the junk scope
-    RefPtr<mozilla::dom::Directory> directory = mozilla::dom::Directory::Create(
-        xpc::NativeGlobal(xpc::PrivilegedJunkScope()), file);
-    if (!directory) {
-      // The directory may have been deleted
-      return nsFilePicker::ContentAnalysisResponse::CreateAndReject(rv,
-                                                                    __func__);
-    }
-    mozilla::dom::OwningFileOrDirectory owningDirectory;
-    owningDirectory.SetAsDirectory() = directory;
-    nsTArray<mozilla::dom::OwningFileOrDirectory> directoryArray{
-        std::move(owningDirectory)};
-
-    mozilla::ErrorResult error;
-    RefPtr<mozilla::dom::GetFilesHelper> helper =
-        mozilla::dom::GetFilesHelper::Create(directoryArray, true, error);
-    rv = error.StealNSResult();
-    if (NS_WARN_IF(NS_FAILED(rv))) {
-      return nsFilePicker::ContentAnalysisResponse::CreateAndReject(rv,
-                                                                    __func__);
-    }
-
-    getFilesToAnalyzePromise = mozilla::MakeRefPtr<mozilla::MozPromise<
-        nsTArray<mozilla::PathString>, nsresult, true>::Private>(__func__);
-    auto getFilesCallback = mozilla::MakeRefPtr<GetFilesInDirectoryCallback>(
-        getFilesToAnalyzePromise);
-    helper->AddCallback(getFilesCallback);
+    filePaths.AppendElement(folderOrFile->NativePath());
   } else {
-    nsCOMArray<nsIFile> files;
-    if (!mUnicodeFile.IsEmpty()) {
-      nsCOMPtr<nsIFile> file;
-      rv = GetFile(getter_AddRefs(file));
-      if (NS_WARN_IF(NS_FAILED(rv))) {
-        return nsFilePicker::ContentAnalysisResponse::CreateAndReject(rv,
-                                                                      __func__);
-      }
-      files.AppendElement(file);
-    } else {
-      files.AppendElements(mFiles);
-    }
-    nsTArray<mozilla::PathString> paths(files.Length());
-    std::transform(files.begin(), files.end(), MakeBackInserter(paths),
+    // multiple selections
+    std::transform(mFiles.begin(), mFiles.end(), MakeBackInserter(filePaths),
                    [](auto* entry) { return entry->NativePath(); });
-    getFilesToAnalyzePromise = mozilla::MakeRefPtr<mozilla::MozPromise<
-        nsTArray<mozilla::PathString>, nsresult, true>::Private>(__func__);
-    getFilesToAnalyzePromise->Resolve(std::move(paths), __func__);
+  }
+  MOZ_ASSERT(!filePaths.IsEmpty());
+
+  auto promise =
+      mozilla::MakeRefPtr<nsFilePicker::ContentAnalysisResponse::Private>(
+          __func__);
+  auto contentAnalysisCallback =
+      mozilla::MakeRefPtr<mozilla::contentanalysis::ContentAnalysisCallback>(
+          [promise](nsIContentAnalysisResult* aResult) {
+            promise->Resolve(aResult->GetShouldAllowContent(), __func__);
+          });
+
+  auto* windowGlobal = mBrowsingContext->Canonical()->GetCurrentWindowGlobal();
+  NS_ENSURE_TRUE(
+      windowGlobal,
+      nsFilePicker::ContentAnalysisResponse::CreateAndReject(rv, __func__));
+
+  nsTArray<RefPtr<nsIContentAnalysisRequest>> requests(filePaths.Length());
+  for (auto& path : filePaths) {
+#ifdef XP_WIN
+    nsString pathString(std::move(path));
+#else
+    nsString pathString = NS_ConvertUTF8toUTF16(path);
+#endif
+
+    requests.AppendElement(new mozilla::contentanalysis::ContentAnalysisRequest(
+        nsIContentAnalysisRequest::AnalysisType::eFileAttached,
+        nsIContentAnalysisRequest::Reason::eFilePickerDialog, pathString,
+        true /* aStringIsFilePath */, EmptyCString(), nullptr,
+        nsIContentAnalysisRequest::OperationType::eCustomDisplayString,
+        windowGlobal));
   }
 
-  MOZ_ASSERT(getFilesToAnalyzePromise);
-  return getFilesToAnalyzePromise->Then(
-      mozilla::GetMainThreadSerialEventTarget(), __func__,
-      [processOneItem](nsTArray<mozilla::PathString> aPaths) mutable {
-        return mozilla::detail::AsyncAll<mozilla::PathString>(std::move(aPaths),
-                                                              processOneItem);
-      },
-      [](nsresult aError) {
-        return nsFilePicker::ContentAnalysisResponse::CreateAndReject(aError,
-                                                                      __func__);
-      });
+  contentAnalysis->AnalyzeContentRequestsCallback(
+      requests, true /* aAutoAcknowledge */, contentAnalysisCallback);
+  return promise;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -971,7 +772,9 @@ nsresult nsFilePicker::Open(nsIFilePickerShownCallback* aCallback) {
   }
 
   nsAutoString initialDir;
-  if (mDisplayDirectory) mDisplayDirectory->GetPath(initialDir);
+  if (mDisplayDirectory) {
+    mDisplayDirectory->GetPath(initialDir);
+  }
 
   // If no display directory, re-use the last one.
   if (initialDir.IsEmpty()) {
@@ -1003,7 +806,7 @@ nsresult nsFilePicker::Open(nsIFilePickerShownCallback* aCallback) {
           // file already exists.
           nsCOMPtr<nsIFile> file;
           nsresult rv =
-              NS_NewLocalFile(self->mUnicodeFile, false, getter_AddRefs(file));
+              NS_NewLocalFile(self->mUnicodeFile, getter_AddRefs(file));
 
           bool flag = false;
           if (NS_SUCCEEDED(rv) && NS_SUCCEEDED(file->Exists(&flag)) && flag) {
@@ -1058,19 +861,17 @@ nsresult nsFilePicker::Open(nsIFilePickerShownCallback* aCallback) {
   return NS_OK;
 }
 
-nsresult nsFilePicker::Show(nsIFilePicker::ResultCode* aReturnVal) {
-  return NS_ERROR_NOT_IMPLEMENTED;
-}
-
 NS_IMETHODIMP
 nsFilePicker::GetFile(nsIFile** aFile) {
   NS_ENSURE_ARG_POINTER(aFile);
   *aFile = nullptr;
 
-  if (mUnicodeFile.IsEmpty()) return NS_OK;
+  if (mUnicodeFile.IsEmpty()) {
+    return NS_OK;
+  }
 
   nsCOMPtr<nsIFile> file;
-  nsresult rv = NS_NewLocalFile(mUnicodeFile, false, getter_AddRefs(file));
+  nsresult rv = NS_NewLocalFile(mUnicodeFile, getter_AddRefs(file));
   if (NS_FAILED(rv)) {
     return rv;
   }
@@ -1084,7 +885,9 @@ nsFilePicker::GetFileURL(nsIURI** aFileURL) {
   *aFileURL = nullptr;
   nsCOMPtr<nsIFile> file;
   nsresult rv = GetFile(getter_AddRefs(file));
-  if (!file) return rv;
+  if (!file) {
+    return rv;
+  }
 
   return NS_NewFileURI(aFileURL, file);
 }
@@ -1103,16 +906,19 @@ nsBaseWinFilePicker::SetDefaultString(const nsAString& aString) {
   // First, make sure the file name is not too long.
   int32_t nameLength;
   int32_t nameIndex = mDefaultFilePath.RFind(u"\\");
-  if (nameIndex == kNotFound)
+  if (nameIndex == kNotFound) {
     nameIndex = 0;
-  else
+  } else {
     nameIndex++;
+  }
   nameLength = mDefaultFilePath.Length() - nameIndex;
   mDefaultFilename.Assign(Substring(mDefaultFilePath, nameIndex));
 
   if (nameLength > MAX_PATH) {
     int32_t extIndex = mDefaultFilePath.RFind(u".");
-    if (extIndex == kNotFound) extIndex = mDefaultFilePath.Length();
+    if (extIndex == kNotFound) {
+      extIndex = mDefaultFilePath.Length();
+    }
 
     // Let's try to shave the needed characters from the name part.
     int32_t charsToRemove = nameLength - MAX_PATH;
@@ -1192,7 +998,7 @@ void nsFilePicker::RememberLastUsedDirectory() {
   }
 
   nsCOMPtr<nsIFile> file;
-  if (NS_FAILED(NS_NewLocalFile(mUnicodeFile, false, getter_AddRefs(file)))) {
+  if (NS_FAILED(NS_NewLocalFile(mUnicodeFile, getter_AddRefs(file)))) {
     NS_WARNING("RememberLastUsedDirectory failed to init file path.");
     return;
   }
@@ -1228,8 +1034,9 @@ bool nsFilePicker::IsDefaultPathHtml() {
     mDefaultFilePath.Right(ext, mDefaultFilePath.Length() - extIndex);
     if (ext.LowerCaseEqualsLiteral(".htm") ||
         ext.LowerCaseEqualsLiteral(".html") ||
-        ext.LowerCaseEqualsLiteral(".shtml"))
+        ext.LowerCaseEqualsLiteral(".shtml")) {
       return true;
+    }
   }
   return false;
 }
@@ -1302,7 +1109,9 @@ void nsFilePicker::SendFailureNotification(nsFilePicker::ResultCode aResult,
   }
 
   nsCOMPtr<nsIObserverService> obsSvc = mozilla::services::GetObserverService();
-  if (!obsSvc) return;  // normal during XPCOM shutdown
+  if (!obsSvc) {
+    return;  // normal during XPCOM shutdown
+  }
 
   RefPtr<nsHashPropertyBag> props = new nsHashPropertyBag();
   props->SetPropertyAsInterface(u"ctx"_ns, mBrowsingContext);

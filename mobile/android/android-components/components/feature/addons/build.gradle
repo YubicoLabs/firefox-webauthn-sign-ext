@@ -47,22 +47,18 @@ android {
     namespace 'mozilla.components.feature.addons'
 }
 
-tasks.withType(KotlinCompile).configureEach {
-    kotlinOptions.freeCompilerArgs += "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi"
-}
-
 dependencies {
-    implementation ComponentsDependencies.kotlin_coroutines
+    implementation libs.kotlin.coroutines
 
-    implementation ComponentsDependencies.androidx_activity
-    implementation ComponentsDependencies.androidx_appcompat
-    implementation ComponentsDependencies.androidx_cardview
-    implementation ComponentsDependencies.androidx_core_ktx
-    implementation ComponentsDependencies.androidx_recyclerview
-    implementation ComponentsDependencies.androidx_work_runtime
+    implementation libs.androidx.activity
+    implementation libs.androidx.appcompat
+    implementation libs.androidx.cardview
+    implementation libs.androidx.core.ktx
+    implementation libs.androidx.recyclerview
+    implementation libs.androidx.work.runtime
 
-    implementation ComponentsDependencies.androidx_room_runtime
-    ksp ComponentsDependencies.androidx_room_compiler
+    implementation libs.androidx.room.runtime
+    ksp libs.androidx.room.compiler
 
     implementation project(':ui-colors')
     implementation project(':ui-icons')
@@ -78,13 +74,14 @@ dependencies {
 
     testImplementation project(':support-test')
     testImplementation project(':support-test-libstate')
-    testImplementation ComponentsDependencies.androidx_test_core
-    testImplementation ComponentsDependencies.androidx_test_junit
-    testImplementation ComponentsDependencies.testing_robolectric
-    testImplementation ComponentsDependencies.androidx_work_testing
-    testImplementation ComponentsDependencies.testing_coroutines
+    testImplementation libs.androidx.concurrent
+    testImplementation libs.androidx.test.core
+    testImplementation libs.androidx.test.junit
+    testImplementation libs.testing.robolectric
+    testImplementation libs.androidx.work.testing
+    testImplementation libs.testing.coroutines
 }
 
 apply from: '../../../android-lint.gradle'
 apply from: '../../../publish.gradle'
-ext.configurePublish(config.componentsGroupId, archivesBaseName, project.ext.description)
+ext.configurePublish(config.componentsGroupId, project.name, project.ext.description)

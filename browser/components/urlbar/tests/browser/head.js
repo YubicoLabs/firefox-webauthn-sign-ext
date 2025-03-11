@@ -312,7 +312,7 @@ function assertSearchStringIsInUrlbar(
   {
     win = window,
     pageProxyState = "invalid",
-    userTypedValue = null,
+    userTypedValue = searchString,
     persistSearchTerms = true,
   } = {}
 ) {
@@ -321,8 +321,9 @@ function assertSearchStringIsInUrlbar(
     searchString,
     `Search string should be the urlbar value.`
   );
+  let state = win.gURLBar.getBrowserState(win.gBrowser.selectedBrowser);
   Assert.equal(
-    win.gBrowser.selectedBrowser.searchTerms,
+    state.persist.searchTerms,
     searchString,
     `Search terms should match.`
   );
@@ -372,6 +373,8 @@ async function searchWithTab(
     waitForFocus,
     value: searchString,
     fireInputEvent: true,
+    selectionStart: 0,
+    selectionEnd: searchString.length - 1,
   });
   EventUtils.synthesizeKey("KEY_Enter");
   await browserLoadedPromise;
@@ -382,4 +385,20 @@ async function searchWithTab(
   }
 
   return { tab, expectedSearchUrl };
+}
+
+async function focusSwitcher(win = window) {
+  await UrlbarTestUtils.promiseAutocompleteResultPopup({
+    window: win,
+    waitForFocus: true,
+    value: "",
+    fireInputEvent: true,
+  });
+  Assert.ok(win.gURLBar.hasAttribute("focused"));
+
+  EventUtils.synthesizeKey("KEY_Tab", { shiftKey: true }, win);
+  let switcher = win.document.getElementById("urlbar-searchmode-switcher");
+  await BrowserTestUtils.waitForCondition(
+    () => win.document.activeElement == switcher
+  );
 }

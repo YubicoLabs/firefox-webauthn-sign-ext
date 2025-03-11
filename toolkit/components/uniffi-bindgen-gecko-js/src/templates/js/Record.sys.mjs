@@ -1,6 +1,7 @@
 {%- let record = ci.get_record_definition(name).unwrap() -%}
+{{ record.js_docstring(0) -}}
 export class {{ record.js_name() }} {
-    constructor({{ record.constructor_field_list() }} = {}) {
+    constructor({{ record.constructor_field_list() }} = { {% for f in record.fields() %}{{ f.js_name() }}: undefined{% if !loop.last %}, {% endif %}{% endfor %} }) {
         {%- for field in record.fields() %}
         try {
             {{ field.ffi_converter() }}.checkType({{ field.js_name() }})
@@ -13,9 +14,11 @@ export class {{ record.js_name() }} {
         {%- endfor %}
 
         {%- for field in record.fields() %}
+        {{ field.js_docstring(8) -}}
         this.{{field.js_name()}} = {{ field.js_name() }};
         {%- endfor %}
     }
+
     equals(other) {
         return (
             {%- for field in record.fields() %}

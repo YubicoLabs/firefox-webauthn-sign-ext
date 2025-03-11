@@ -133,16 +133,10 @@ export var BookmarkJSONUtils = {
    */
   async exportToFile(aFilePath, aOptions = {}) {
     let [bookmarks, count] = await lazy.PlacesBackups.getBookmarksTree();
-    let startTime = Date.now();
-    let jsonString = JSON.stringify(bookmarks);
     // Report the time taken to convert the tree to JSON.
-    try {
-      Services.telemetry
-        .getHistogramById("PLACES_BACKUPS_TOJSON_MS")
-        .add(Date.now() - startTime);
-    } catch (ex) {
-      console.error("Unable to report telemetry.");
-    }
+    let timerId = Glean.places.backupsTojson.start();
+    let jsonString = JSON.stringify(bookmarks);
+    Glean.places.backupsTojson.stopAndAccumulate(timerId);
 
     // Use "base64url" as this may be part of a filename.
     let hash = PlacesUtils.sha256(jsonString, { format: "base64url" });
@@ -228,7 +222,7 @@ BookmarkImporter.prototype = {
     let nodes = PlacesUtils.unwrapNodes(
       aString,
       PlacesUtils.TYPE_X_MOZ_PLACE_CONTAINER
-    );
+    ).validNodes;
 
     if (!nodes.length || !nodes[0].children || !nodes[0].children.length) {
       return 0;
@@ -291,7 +285,7 @@ BookmarkImporter.prototype = {
       ).length;
 
       // Now add any favicons.
-      insertFaviconsForTree(node).catch(console.warn);
+      insertFaviconsForTree(node);
     }
     return bookmarkCount;
   },
@@ -498,7 +492,7 @@ function translateTreeTypes(node) {
  *
  * @param {Object} node The bookmark node for icons to be inserted.
  */
-async function insertFaviconForNode(node) {
+function insertFaviconForNode(node) {
   if (!node.icon && !node.iconUri) {
     // No favicon information.
     return;
@@ -511,19 +505,14 @@ async function insertFaviconForNode(node) {
       return;
     }
 
-    let result = await new Promise(resolve => {
-      PlacesUtils.favicons.setFaviconForPage(
+    PlacesUtils.favicons
+      .setFaviconForPage(
         Services.io.newURI(node.url),
         // Use iconUri otherwise create a fake favicon URI to use (FIXME: bug 523932)
         Services.io.newURI(node.iconUri ?? "fake-favicon-uri:" + node.url),
-        faviconDataURI,
-        null,
-        resolve
-      );
-    });
-    if (!Components.isSuccessCode(result)) {
-      throw new Error("Failed to call setFaviconForPage():", node.url);
-    }
+        faviconDataURI
+      )
+      .catch(console.error);
   } catch (ex) {
     console.error("Failed to import favicon data:", ex);
   }
@@ -538,12 +527,12 @@ async function insertFaviconForNode(node) {
  *
  * @param {Object} nodeTree The bookmark node tree for icons to be inserted.
  */
-async function insertFaviconsForTree(nodeTree) {
-  await insertFaviconForNode(nodeTree);
+function insertFaviconsForTree(nodeTree) {
+  insertFaviconForNode(nodeTree);
 
   if (nodeTree.children) {
     for (let child of nodeTree.children) {
-      await insertFaviconsForTree(child);
+      insertFaviconsForTree(child);
     }
   }
 }

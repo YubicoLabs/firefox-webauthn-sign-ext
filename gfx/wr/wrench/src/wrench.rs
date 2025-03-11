@@ -15,11 +15,24 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Receiver;
 use std::time::Instant;
-use webrender::api::*;
+use webrender::{api::*, CompositorConfig};
 use webrender::render_api::*;
 use webrender::api::units::*;
-use webrender::{DebugFlags, RenderResults, ShaderPrecacheFlags};
+use webrender::{DebugFlags, RenderResults, ShaderPrecacheFlags, LayerCompositor};
 use crate::{WindowWrapper, NotifierEvent};
+
+#[derive(Clone)]
+pub struct DisplayList {
+    pub pipeline: PipelineId,
+    pub payload: BuiltDisplayList,
+    /// Whether to request that the transaction is presented to the window.
+    ///
+    /// The transaction will be presented if it contains at least one display list
+    /// with present set to true.
+    pub present: bool,
+    /// If set to true, send the transaction after adding this display list to it.
+    pub send_transaction: bool,
+}
 
 // TODO(gw): This descriptor matches what we currently support for fonts
 //           but is quite a mess. We should at least document and
@@ -229,6 +242,7 @@ impl Wrench {
         precache_shaders: bool,
         dump_shader_source: Option<String>,
         notifier: Option<Box<dyn RenderNotifier>>,
+        layer_compositor: Option<Box<dyn LayerCompositor>>,
     ) -> Self {
         println!("Shader override path: {:?}", shader_override_path);
 
@@ -240,6 +254,11 @@ impl Wrench {
             ShaderPrecacheFlags::FULL_COMPILE
         } else {
             ShaderPrecacheFlags::empty()
+        };
+
+        let compositor_config = match layer_compositor {
+            Some(compositor) => CompositorConfig::Layer { compositor },
+            None => CompositorConfig::default(),
         };
 
         let opts = webrender::WebRenderOptions {
@@ -258,6 +277,7 @@ impl Wrench {
             // SWGL doesn't support the GL_ALWAYS depth comparison function used by
             // `clear_caches_with_quads`, but scissored clears work well.
             clear_caches_with_quads: !window.is_software(),
+            compositor_config,
             ..Default::default()
         };
 
@@ -544,24 +564,36 @@ impl Wrench {
 
     pub fn send_lists(
         &mut self,
-        frame_number: u32,
-        display_lists: Vec<(PipelineId, BuiltDisplayList)>,
+        frame_number: &mut u32,
+        display_lists: Vec<DisplayList>,
         scroll_offsets: &HashMap<ExternalScrollId, Vec<SampledScrollOffset>>,
     ) {
         let mut txn = Transaction::new();
+        let mut present = false;
         for display_list in display_lists {
+            present |= display_list.present;
+
             txn.set_display_list(
-                Epoch(frame_number),
-                display_list,
+                Epoch(*frame_number),
+                (display_list.pipeline, display_list.payload),
             );
+
+            if display_list.send_transaction {
+                for (id, offsets) in scroll_offsets {
+                    txn.set_scroll_offsets(*id, offsets.clone());
+                }
+
+                txn.generate_frame(0, present, RenderReasons::TESTING);
+                self.api.send_transaction(self.document_id, txn);
+                txn = Transaction::new();
+
+                present = false;
+                *frame_number += 1;
+            }
         }
 
-        for (id, offsets) in scroll_offsets {
-            txn.set_scroll_offsets(*id, offsets.clone());
-        }
-
-        txn.generate_frame(0, RenderReasons::TESTING);
-        self.api.send_transaction(self.document_id, txn);
+        // The last display lists should be have send_transaction set to true.
+        assert!(txn.is_empty());
     }
 
     pub fn get_frame_profiles(
@@ -581,7 +613,7 @@ impl Wrench {
     pub fn refresh(&mut self) {
         self.begin_frame();
         let mut txn = Transaction::new();
-        txn.generate_frame(0, RenderReasons::TESTING);
+        txn.generate_frame(0, true, RenderReasons::TESTING);
         self.api.send_transaction(self.document_id, txn);
     }
 

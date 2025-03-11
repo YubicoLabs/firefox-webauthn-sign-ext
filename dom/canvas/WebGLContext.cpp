@@ -43,7 +43,7 @@
 #include "mozilla/Services.h"
 #include "mozilla/StaticPrefs_webgl.h"
 #include "mozilla/SVGObserverUtils.h"
-#include "mozilla/Telemetry.h"
+#include "mozilla/glean/DomCanvasMetrics.h"
 #include "nsContentUtils.h"
 #include "nsDisplayList.h"
 #include "nsError.h"
@@ -102,7 +102,7 @@ WebGLContextOptions::WebGLContextOptions() {
 }
 
 StaticMutex WebGLContext::sLruMutex;
-std::list<WebGLContext*> WebGLContext::sLru;
+MOZ_RUNINIT std::list<WebGLContext*> WebGLContext::sLru;
 
 WebGLContext::LruPosition::LruPosition() {
   StaticMutexAutoLock lock(sLruMutex);
@@ -516,7 +516,7 @@ void WebGLContext::Resize(uvec2 requestedSize) {
   mResetLayer = true;  // New size means new Layer.
 }
 
-UniquePtr<webgl::FormatUsageAuthority> WebGLContext::CreateFormatUsage(
+std::unique_ptr<webgl::FormatUsageAuthority> WebGLContext::CreateFormatUsage(
     gl::GLContext* gl) const {
   return webgl::FormatUsageAuthority::CreateForWebGL1(gl);
 }
@@ -561,10 +561,11 @@ RefPtr<WebGLContext> WebGLContext::Create(HostWebGLContext* host,
       for (const auto& cur : failReasons) {
         // Don't try to accumulate using an empty key if |cur.key| is empty.
         if (cur.key.IsEmpty()) {
-          Telemetry::Accumulate(Telemetry::CANVAS_WEBGL_FAILURE_ID,
-                                "FEATURE_FAILURE_REASON_UNKNOWN"_ns);
+          glean::canvas::webgl_failure_id
+              .Get("FEATURE_FAILURE_REASON_UNKNOWN"_ns)
+              .Add(1);
         } else {
-          Telemetry::Accumulate(Telemetry::CANVAS_WEBGL_FAILURE_ID, cur.key);
+          glean::canvas::webgl_failure_id.Get(cur.key).Add(1);
         }
 
         const auto str = nsPrintfCString("\n* %s (%s)", cur.info.BeginReading(),
@@ -608,7 +609,7 @@ RefPtr<WebGLContext> WebGLContext::Create(HostWebGLContext* host,
   if (res.isOk()) {
     failureId = "SUCCESS"_ns;
   }
-  Telemetry::Accumulate(Telemetry::CANVAS_WEBGL_FAILURE_ID, failureId);
+  glean::canvas::webgl_failure_id.Get(failureId).Add(1);
 
   if (!res.isOk()) {
     out->error = res.unwrapErr();
@@ -629,6 +630,13 @@ RefPtr<WebGLContext> WebGLContext::Create(HostWebGLContext* host,
   const auto UploadableSdTypes = [&]() {
     webgl::EnumMask<layers::SurfaceDescriptor::Type> types;
     types[layers::SurfaceDescriptor::TSurfaceDescriptorBuffer] = true;
+    // Only support canvas surface interchange if using AC2D. This guarantees
+    // that WebGL and AC2D commands are sequenced and processed on the same
+    // thread, so that there is no mal-ordering between AC2D and WebGL
+    // processing. We can flush out AC2D commands to produce a surface in time
+    // for WebGL to use without requiring any blocking to occur.
+    types[layers::SurfaceDescriptor::TSurfaceDescriptorCanvasSurface] =
+        gfx::gfxVars::UseAcceleratedCanvas2D();
     // This is conditional on not using the Compositor thread because we may
     // need to synchronize with the RDD process over the PVideoBridge protocol
     // to wait for the texture to be available in the compositor process. We
@@ -2224,6 +2232,25 @@ Maybe<std::string> WebGLContext::GetString(const GLenum pname) const {
       nsCString info;
       gl->GetWSIInfo(&info);
       return Some(std::string(info.BeginReading()));
+    }
+
+    case dom::MOZ_debug_Binding::CONTEXT_TYPE: {
+      gl::GLContextType ctxType = gl->GetContextType();
+      switch (ctxType) {
+        case gl::GLContextType::Unknown:
+          return Some("unknown"_ns);
+        case gl::GLContextType::WGL:
+          return Some("wgl"_ns);
+        case gl::GLContextType::CGL:
+          return Some("cgl"_ns);
+        case gl::GLContextType::GLX:
+          return Some("glx"_ns);
+        case gl::GLContextType::EGL:
+          return Some("egl"_ns);
+        case gl::GLContextType::EAGL:
+          return Some("eagl"_ns);
+      }
+      return Some("unknown"_ns);
     }
 
     default:

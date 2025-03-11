@@ -89,6 +89,9 @@ enum JSExnType {
   JSEXN_WASMCOMPILEERROR,
   JSEXN_WASMLINKERROR,
   JSEXN_WASMRUNTIMEERROR,
+#ifdef ENABLE_WASM_JSPI
+  JSEXN_WASMSUSPENDERROR,
+#endif
   JSEXN_ERROR_LIMIT,
   // Warnings
   JSEXN_WARN = JSEXN_ERROR_LIMIT,
@@ -552,6 +555,20 @@ extern JS_PUBLIC_API bool CreateError(
     uint32_t lineNumber, JS::ColumnNumberOneOrigin column,
     JSErrorReport* report, HandleString message,
     Handle<mozilla::Maybe<Value>> cause, MutableHandleValue rval);
+
+/**
+ * An uncatchable exception is used to terminate execution by returning false
+ * or nullptr without reporting a pending exception on the context. These
+ * exceptions are called "uncatchable" because try-catch can't be used to catch
+ * them.
+ *
+ * This is mainly used to terminate JS execution from the interrupt handler.
+ *
+ * If the context has a pending exception, this function will clear it. Also, in
+ * debug builds, it sets a flag on the context to improve exception handling
+ * assertions in the engine.
+ */
+extern JS_PUBLIC_API void ReportUncatchableException(JSContext* cx);
 
 } /* namespace JS */
 

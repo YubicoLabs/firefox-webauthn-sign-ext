@@ -455,17 +455,6 @@ class CycleCollectWithLogsChild final : public PCycleCollectWithLogsChild {
 
 NS_IMPL_ISUPPORTS(CycleCollectWithLogsChild::Sink, nsICycleCollectorLogSink);
 
-class AlertObserver {
- public:
-  AlertObserver(nsIObserver* aObserver, const nsString& aData)
-      : mObserver(aObserver), mData(aData) {}
-
-  ~AlertObserver() = default;
-
-  nsCOMPtr<nsIObserver> mObserver;
-  nsString mData;
-};
-
 class ConsoleListener final : public nsIConsoleListener {
  public:
   explicit ConsoleListener(ContentChild* aChild) : mChild(aChild) {}
@@ -663,9 +652,9 @@ NS_INTERFACE_MAP_END
 mozilla::ipc::IPCResult ContentChild::RecvSetXPCOMProcessAttributes(
     XPCOMInitData&& aXPCOMInit, const StructuredCloneData& aInitialData,
     FullLookAndFeel&& aLookAndFeelData, dom::SystemFontList&& aFontList,
-    Maybe<SharedMemoryHandle>&& aSharedUASheetHandle,
+    Maybe<mozilla::ipc::ReadOnlySharedMemoryHandle>&& aSharedUASheetHandle,
     const uintptr_t& aSharedUASheetAddress,
-    nsTArray<SharedMemoryHandle>&& aSharedFontListBlocks,
+    nsTArray<mozilla::ipc::ReadOnlySharedMemoryHandle>&& aSharedFontListBlocks,
     const bool& aIsReadyForBackgroundProcessing) {
   if (!sShutdownCanary) {
     return IPC_OK();
@@ -803,6 +792,13 @@ void ContentChild::Init(mozilla::ipc::UntypedEndpoint&& aEndpoint,
         BackgroundHangMonitor::RegisterAnnotator(
             PendingInputEventHangAnnotator::sSingleton);
       }));
+#endif
+
+#if defined(MOZ_MEMORY) && defined(DEBUG) && !defined(MOZ_UBSAN)
+  jemalloc_stats_t stats;
+  jemalloc_stats(&stats);
+  MOZ_ASSERT(!stats.opt_randomize_small,
+             "Content process should not randomize small allocations");
 #endif
 }
 
@@ -989,6 +985,7 @@ nsresult ContentChild::ProvideWindowCommon(
     parentSandboxFlags = doc->GetSandboxFlags();
   }
 
+  const bool isForPrinting = aOpenWindowInfo->GetIsForPrinting();
   // Certain conditions complicate the process of creating the new
   // BrowsingContext, and prevent us from using the
   // "CreateWindowInDifferentProcess" codepath.
@@ -998,8 +995,8 @@ nsresult ContentChild::ProvideWindowCommon(
   //    so that a static clone of the source document can be created.
   //  * Sandboxed popups require the full window creation codepath.
   //  * Loads with form or POST data require the full window creation codepath.
-  bool cannotLoadInDifferentProcess =
-      useRemoteSubframes || aOpenWindowInfo->GetIsForPrinting() ||
+  const bool cannotLoadInDifferentProcess =
+      useRemoteSubframes || isForPrinting ||
       (parentSandboxFlags &
        SANDBOX_PROPAGATES_TO_AUXILIARY_BROWSING_CONTEXTS) ||
       (aLoadState &&
@@ -1072,8 +1069,11 @@ nsresult ContentChild::ProvideWindowCommon(
 
   RefPtr<BrowsingContext> browsingContext = BrowsingContext::CreateDetached(
       nullptr, openerBC, nullptr, aName, BrowsingContext::Type::Content,
-      {.isPopupRequested = aIsPopupRequested,
-       .topLevelCreatedByWebContent = true});
+      BrowsingContext::CreateDetachedOptions{
+          .isPopupRequested = aIsPopupRequested,
+          .topLevelCreatedByWebContent = true,
+          .isForPrinting = isForPrinting,
+      });
   MOZ_ALWAYS_SUCCEEDS(browsingContext->SetRemoteTabs(true));
   MOZ_ALWAYS_SUCCEEDS(browsingContext->SetRemoteSubframes(useRemoteSubframes));
   MOZ_ALWAYS_SUCCEEDS(browsingContext->SetOriginAttributes(
@@ -1332,8 +1332,9 @@ void ContentChild::InitGraphicsDeviceData(const ContentDeviceData& aData) {
   gfxPlatform::InitChild(aData);
 }
 
-void ContentChild::InitSharedUASheets(Maybe<SharedMemoryHandle>&& aHandle,
-                                      uintptr_t aAddress) {
+void ContentChild::InitSharedUASheets(
+    Maybe<mozilla::ipc::ReadOnlySharedMemoryHandle>&& aHandle,
+    uintptr_t aAddress) {
   MOZ_ASSERT_IF(!aHandle, !aAddress);
 
   if (!aAddress) {
@@ -2090,18 +2091,18 @@ mozilla::ipc::IPCResult ContentChild::RecvRegisterChromeItem(
   return IPC_OK();
 }
 mozilla::ipc::IPCResult ContentChild::RecvClearStyleSheetCache(
-    const Maybe<RefPtr<nsIPrincipal>>& aPrincipal,
+    const Maybe<bool>& aChrome, const Maybe<RefPtr<nsIPrincipal>>& aPrincipal,
     const Maybe<nsCString>& aSchemelessSite,
     const Maybe<OriginAttributesPattern>& aPattern) {
-  SharedStyleSheetCache::Clear(aPrincipal, aSchemelessSite, aPattern);
+  SharedStyleSheetCache::Clear(aChrome, aPrincipal, aSchemelessSite, aPattern);
   return IPC_OK();
 }
 
 mozilla::ipc::IPCResult ContentChild::RecvClearScriptCache(
-    const Maybe<RefPtr<nsIPrincipal>>& aPrincipal,
+    const Maybe<bool>& aChrome, const Maybe<RefPtr<nsIPrincipal>>& aPrincipal,
     const Maybe<nsCString>& aSchemelessSite,
     const Maybe<OriginAttributesPattern>& aPattern) {
-  SharedScriptCache::Clear(aPrincipal, aSchemelessSite, aPattern);
+  SharedScriptCache::Clear(aChrome, aPrincipal, aSchemelessSite, aPattern);
   return IPC_OK();
 }
 
@@ -2129,7 +2130,7 @@ mozilla::ipc::IPCResult ContentChild::RecvClearImageCacheFromSite(
 }
 
 mozilla::ipc::IPCResult ContentChild::RecvClearImageCache(
-    const bool& privateLoader, const bool& chrome) {
+    const bool& privateLoader, const mozilla::Maybe<bool>& chrome) {
   imgLoader* loader = privateLoader ? imgLoader::PrivateBrowsingLoader()
                                     : imgLoader::NormalLoader();
 
@@ -2220,8 +2221,6 @@ void ContentChild::ActorDestroy(ActorDestroyReason why) {
 
   mSharedData = nullptr;
 
-  mAlertObservers.Clear();
-
   mIdleObservers.Clear();
 
   if (mConsoleListener) {
@@ -2250,7 +2249,6 @@ void ContentChild::ProcessingError(Result aCode, const char* aReason) {
     case MsgNotAllowed:
     case MsgPayloadError:
     case MsgProcessingError:
-    case MsgRouteError:
     case MsgValueError:
       break;
 
@@ -2262,13 +2260,6 @@ void ContentChild::ProcessingError(Result aCode, const char* aReason) {
       CrashReporter::Annotation::ipc_channel_error, aReason);
 
   MOZ_CRASH("Content child abort due to IPC error");
-}
-
-nsresult ContentChild::AddRemoteAlertObserver(const nsString& aData,
-                                              nsIObserver* aObserver) {
-  NS_ASSERTION(aObserver, "Adding a null observer?");
-  mAlertObservers.AppendElement(new AlertObserver(aObserver, aData));
-  return NS_OK;
 }
 
 mozilla::ipc::IPCResult ContentChild::RecvPreferenceUpdate(const Pref& aPref) {
@@ -2298,28 +2289,6 @@ mozilla::ipc::IPCResult ContentChild::RecvCollectScrollingMetrics(
   auto metrics = ScrollingMetrics::CollectLocalScrollingMetrics();
   using ResolverArgs = std::tuple<const uint32_t&, const uint32_t&>;
   aResolver(ResolverArgs(std::get<0>(metrics), std::get<1>(metrics)));
-  return IPC_OK();
-}
-
-mozilla::ipc::IPCResult ContentChild::RecvNotifyAlertsObserver(
-    const nsCString& aType, const nsString& aData) {
-  nsTArray<nsCOMPtr<nsIObserver>> observersToNotify;
-
-  mAlertObservers.RemoveElementsBy([&](UniquePtr<AlertObserver>& observer) {
-    if (!observer->mData.Equals(aData)) {
-      return false;
-    }
-
-    // aType == alertfinished, this alert is done and we can remove the
-    // observer.
-    observersToNotify.AppendElement(observer->mObserver);
-    return aType.EqualsLiteral("alertfinished");
-  });
-
-  for (auto& observer : observersToNotify) {
-    observer->Observe(nullptr, aType.get(), aData.get());
-  }
-
   return IPC_OK();
 }
 
@@ -2381,9 +2350,16 @@ mozilla::ipc::IPCResult ContentChild::RecvRegisterStringBundles(
 
   for (auto& descriptor : aDescriptors) {
     stringBundleService->RegisterContentBundle(
-        descriptor.bundleURL(), descriptor.mapFile(), descriptor.mapSize());
+        descriptor.bundleURL(), std::move(descriptor.mapHandle()));
   }
 
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult ContentChild::RecvSimpleURIUnknownRemoteSchemes(
+    nsTArray<nsCString>&& aRemoteSchemes) {
+  RefPtr<nsIOService> io = nsIOService::GetInstance();
+  io->SetSimpleURIUnknownRemoteSchemes(aRemoteSchemes);
   return IPC_OK();
 }
 
@@ -2394,7 +2370,7 @@ mozilla::ipc::IPCResult ContentChild::RecvUpdateL10nFileSources(
 }
 
 mozilla::ipc::IPCResult ContentChild::RecvUpdateSharedData(
-    const FileDescriptor& aMapFile, const uint32_t& aMapSize,
+    mozilla::ipc::ReadOnlySharedMemoryHandle&& aMapHandle,
     nsTArray<IPCBlob>&& aBlobs, nsTArray<nsCString>&& aChangedKeys) {
   nsTArray<RefPtr<BlobImpl>> blobImpls(aBlobs.Length());
   for (auto& ipcBlob : aBlobs) {
@@ -2402,27 +2378,20 @@ mozilla::ipc::IPCResult ContentChild::RecvUpdateSharedData(
   }
 
   if (mSharedData) {
-    mSharedData->Update(aMapFile, aMapSize, std::move(blobImpls),
+    mSharedData->Update(std::move(aMapHandle), std::move(blobImpls),
                         std::move(aChangedKeys));
   } else {
     mSharedData =
         new SharedMap(ContentProcessMessageManager::Get()->GetParentObject(),
-                      aMapFile, aMapSize, std::move(blobImpls));
+                      std::move(aMapHandle), std::move(blobImpls));
   }
 
   return IPC_OK();
 }
 
-mozilla::ipc::IPCResult ContentChild::RecvFontListChanged() {
-  gfxPlatformFontList::PlatformFontList()->FontListChanged();
-
-  return IPC_OK();
-}
-
 mozilla::ipc::IPCResult ContentChild::RecvForceGlobalReflow(
-    bool aNeedsReframe) {
-  gfxPlatform::ForceGlobalReflow(aNeedsReframe ? gfxPlatform::NeedsReframe::Yes
-                                               : gfxPlatform::NeedsReframe::No);
+    const gfxPlatform::GlobalReflowFlags& aFlags) {
+  gfxPlatform::ForceGlobalReflow(aFlags);
 
   return IPC_OK();
 }
@@ -2475,7 +2444,7 @@ mozilla::ipc::IPCResult ContentChild::RecvRebuildFontList(
 
 mozilla::ipc::IPCResult ContentChild::RecvFontListShmBlockAdded(
     const uint32_t& aGeneration, const uint32_t& aIndex,
-    base::SharedMemoryHandle&& aHandle) {
+    mozilla::ipc::ReadOnlySharedMemoryHandle&& aHandle) {
   if (gfxPlatform::Initialized()) {
     gfxPlatformFontList::PlatformFontList()->ShmBlockAdded(aGeneration, aIndex,
                                                            std::move(aHandle));
@@ -2502,10 +2471,8 @@ mozilla::ipc::IPCResult ContentChild::RecvSystemTimezoneChanged() {
 
 mozilla::ipc::IPCResult ContentChild::RecvAddPermission(
     const IPC::Permission& permission) {
-  nsCOMPtr<nsIPermissionManager> permissionManagerIface =
-      components::PermissionManager::Service();
-  PermissionManager* permissionManager =
-      static_cast<PermissionManager*>(permissionManagerIface.get());
+  RefPtr<PermissionManager> permissionManager =
+      PermissionManager::GetInstance();
   MOZ_ASSERT(permissionManager,
              "We have no permissionManager in the Content process !");
 
@@ -2535,10 +2502,8 @@ mozilla::ipc::IPCResult ContentChild::RecvAddPermission(
 }
 
 mozilla::ipc::IPCResult ContentChild::RecvRemoveAllPermissions() {
-  nsCOMPtr<nsIPermissionManager> permissionManagerIface =
-      components::PermissionManager::Service();
-  PermissionManager* permissionManager =
-      static_cast<PermissionManager*>(permissionManagerIface.get());
+  RefPtr<PermissionManager> permissionManager =
+      PermissionManager::GetInstance();
   MOZ_ASSERT(permissionManager,
              "We have no permissionManager in the Content process !");
 
@@ -2767,7 +2732,8 @@ mozilla::ipc::IPCResult ContentChild::RecvInitBlobURLs(
     // for a while (see BlobURLProtocolHandler) in order to support pending
     // operations such as navigation, download and so on.
     if (registration.revoked()) {
-      BlobURLProtocolHandler::RemoveDataEntry(registration.url(), false);
+      BlobURLProtocolHandler::RemoveDataEntries(nsTArray{registration.url()},
+                                                false);
     }
   }
 
@@ -3224,13 +3190,6 @@ mozilla::ipc::IPCResult ContentChild::RecvPushWithData(
   return IPC_OK();
 }
 
-mozilla::ipc::IPCResult ContentChild::RecvPushSubscriptionChange(
-    const nsCString& aScope, nsIPrincipal* aPrincipal) {
-  PushSubscriptionChangeDispatcher dispatcher(aScope, aPrincipal);
-  Unused << NS_WARN_IF(NS_FAILED(dispatcher.NotifyObserversAndWorkers()));
-  return IPC_OK();
-}
-
 mozilla::ipc::IPCResult ContentChild::RecvPushError(const nsCString& aScope,
                                                     nsIPrincipal* aPrincipal,
                                                     const nsString& aMessage,
@@ -3260,20 +3219,20 @@ mozilla::ipc::IPCResult ContentChild::RecvBlobURLRegistration(
 }
 
 mozilla::ipc::IPCResult ContentChild::RecvBlobURLUnregistration(
-    const nsCString& aURI) {
-  BlobURLProtocolHandler::RemoveDataEntry(
-      aURI,
+    const nsTArray<nsCString>& aURIs) {
+  BlobURLProtocolHandler::RemoveDataEntries(
+      aURIs,
       /* aBroadcastToOtherProcesses = */ false);
   return IPC_OK();
 }
 
-void ContentChild::CreateGetFilesRequest(const nsAString& aDirectoryPath,
+void ContentChild::CreateGetFilesRequest(nsTArray<nsString>&& aDirectoryPaths,
                                          bool aRecursiveFlag, nsID& aUUID,
                                          GetFilesHelperChild* aChild) {
   MOZ_ASSERT(aChild);
   MOZ_ASSERT(!mGetFilesPendingRequests.Contains(aUUID));
 
-  Unused << SendGetFilesRequest(aUUID, aDirectoryPath, aRecursiveFlag);
+  Unused << SendGetFilesRequest(aUUID, aDirectoryPaths, aRecursiveFlag);
   mGetFilesPendingRequests.InsertOrUpdate(aUUID, RefPtr{aChild});
 }
 
@@ -3351,6 +3310,20 @@ PURLClassifierLocalChild* ContentChild::AllocPURLClassifierLocalChild(
 
 bool ContentChild::DeallocPURLClassifierLocalChild(
     PURLClassifierLocalChild* aActor) {
+  MOZ_ASSERT(aActor);
+  delete aActor;
+  return true;
+}
+
+PURLClassifierLocalByNameChild*
+ContentChild::AllocPURLClassifierLocalByNameChild(
+    nsIURI* aUri, Span<const nsCString> aFeatures,
+    const nsIUrlClassifierFeature::listType& aListType) {
+  return new URLClassifierLocalByNameChild();
+}
+
+bool ContentChild::DeallocPURLClassifierLocalByNameChild(
+    PURLClassifierLocalByNameChild* aActor) {
   MOZ_ASSERT(aActor);
   delete aActor;
   return true;
@@ -3476,7 +3449,7 @@ mozilla::ipc::IPCResult ContentChild::RecvCrossProcessRedirect(
   nsresult rv = mozilla::ipc::LoadInfoArgsToLoadInfo(
       aArgs.loadInfo(), NOT_REMOTE_TYPE, getter_AddRefs(loadInfo));
   if (NS_FAILED(rv)) {
-    MOZ_DIAGNOSTIC_ASSERT(false, "LoadInfoArgsToLoadInfo failed");
+    MOZ_DIAGNOSTIC_CRASH("LoadInfoArgsToLoadInfo failed");
     return IPC_OK();
   }
 
@@ -3718,9 +3691,15 @@ mozilla::ipc::IPCResult ContentChild::RecvDiscardBrowsingContext(
 }
 
 mozilla::ipc::IPCResult ContentChild::RecvRegisterBrowsingContextGroup(
-    uint64_t aGroupId, nsTArray<SyncedContextInitializer>&& aInits) {
+    uint64_t aGroupId, nsTArray<SyncedContextInitializer>&& aInits,
+    nsTArray<OriginAgentClusterInitializer>&& aUseOriginAgentCluster) {
   RefPtr<BrowsingContextGroup> group =
       BrowsingContextGroup::GetOrCreate(aGroupId);
+
+  for (auto& entry : aUseOriginAgentCluster) {
+    group->SetUseOriginAgentClusterFromIPC(entry.principal(),
+                                           entry.useOriginAgentCluster());
+  }
 
   // Each of the initializers in aInits is sorted in pre-order, so our parent
   // should always be available before the element itself.
@@ -3767,6 +3746,14 @@ mozilla::ipc::IPCResult ContentChild::RecvDestroyBrowsingContextGroup(
           BrowsingContextGroup::GetExisting(aGroupId)) {
     group->ChildDestroy();
   }
+  return IPC_OK();
+}
+
+mozilla::ipc::IPCResult ContentChild::RecvSetUseOriginAgentCluster(
+    uint64_t aGroupId, nsIPrincipal* aPrincipal, bool aUseOriginAgentCluster) {
+  RefPtr<BrowsingContextGroup> group =
+      BrowsingContextGroup::GetOrCreate(aGroupId);
+  group->SetUseOriginAgentClusterFromIPC(aPrincipal, aUseOriginAgentCluster);
   return IPC_OK();
 }
 
@@ -4248,7 +4235,7 @@ mozilla::ipc::IPCResult ContentChild::RecvReportFrameTimingData(
   nsresult rv = mozilla::ipc::LoadInfoArgsToLoadInfo(
       loadInfoArgs, NOT_REMOTE_TYPE, getter_AddRefs(loadInfo));
   if (NS_FAILED(rv)) {
-    MOZ_DIAGNOSTIC_ASSERT(false, "LoadInfoArgsToLoadInfo failed");
+    MOZ_DIAGNOSTIC_CRASH("LoadInfoArgsToLoadInfo failed");
     return IPC_OK();
   }
 
@@ -4683,7 +4670,7 @@ void ContentChild::ConfigureThreadPerformanceHints(
           cpu_set_t cpuset;
           CPU_ZERO(&cpuset);
           for (size_t i = 0; i < cpuInfo->mTotalNumCpus; i++) {
-            if (cpus.Test(i)) {
+            if (cpus.test(i)) {
               CPU_SET(i, &cpuset);
             }
           }

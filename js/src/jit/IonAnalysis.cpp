@@ -669,12 +669,20 @@ static bool IsTestInputMaybeToBool(MTest* test, MDefinition* value) {
   }
 }
 
-// Change block so that it ends in a goto to the specific target block.
-// existingPred is an existing predecessor of the block.
+// Change |block| so that it ends in a goto to the specific |target| block.
+// |existingPred| is an existing predecessor of the block.
+//
+// |blockResult| is the value computed by |block|. This was a phi input but the
+// caller has determined that |blockResult| matches the input of an earlier
+// MTest instruction and we don't need to test it a second time. Mark it as
+// implicitly-used because we're removing a use.
 [[nodiscard]] static bool UpdateGotoSuccessor(TempAllocator& alloc,
                                               MBasicBlock* block,
+                                              MDefinition* blockResult,
                                               MBasicBlock* target,
                                               MBasicBlock* existingPred) {
+  blockResult->setImplicitlyUsedUnchecked();
+
   MInstruction* ins = block->lastIns();
   MOZ_ASSERT(ins->isGoto());
   ins->toGoto()->target()->removePredecessor(block);
@@ -849,8 +857,8 @@ static bool IsDiamondPattern(MBasicBlock* initialBlock) {
   // testBlock, rather than to testBlock itself.
 
   if (IsTestInputMaybeToBool(initialTest, trueResult)) {
-    if (!UpdateGotoSuccessor(graph.alloc(), trueBranch, finalTest->ifTrue(),
-                             testBlock)) {
+    if (!UpdateGotoSuccessor(graph.alloc(), trueBranch, trueResult,
+                             finalTest->ifTrue(), testBlock)) {
       return false;
     }
   } else {
@@ -862,8 +870,8 @@ static bool IsDiamondPattern(MBasicBlock* initialBlock) {
   }
 
   if (IsTestInputMaybeToBool(initialTest, falseResult)) {
-    if (!UpdateGotoSuccessor(graph.alloc(), falseBranch, finalTest->ifFalse(),
-                             testBlock)) {
+    if (!UpdateGotoSuccessor(graph.alloc(), falseBranch, falseResult,
+                             finalTest->ifFalse(), testBlock)) {
       return false;
     }
   } else {
@@ -1052,8 +1060,8 @@ static bool IsTrianglePattern(MBasicBlock* initialBlock) {
       return false;
     }
   } else if (IsTestInputMaybeToBool(initialTest, trueResult)) {
-    if (!UpdateGotoSuccessor(graph.alloc(), trueBranch, finalTest->ifTrue(),
-                             testBlock)) {
+    if (!UpdateGotoSuccessor(graph.alloc(), trueBranch, trueResult,
+                             finalTest->ifTrue(), testBlock)) {
       return false;
     }
   } else {
@@ -1071,8 +1079,8 @@ static bool IsTrianglePattern(MBasicBlock* initialBlock) {
       return false;
     }
   } else if (IsTestInputMaybeToBool(initialTest, falseResult)) {
-    if (!UpdateGotoSuccessor(graph.alloc(), falseBranch, finalTest->ifFalse(),
-                             testBlock)) {
+    if (!UpdateGotoSuccessor(graph.alloc(), falseBranch, falseResult,
+                             finalTest->ifFalse(), testBlock)) {
       return false;
     }
   } else {
@@ -2223,7 +2231,7 @@ bool TypeAnalyzer::adjustPhiInputs(MPhi* phi) {
   // 1. Every input is of that type.
   // 2. Every observed input is of that type (i.e., some inputs haven't been
   // executed yet).
-  // 3. Inputs were doubles and int32s, and was specialized to double.
+  // 3. Inputs were numbers, and was specialized to floating point type.
   if (phiType != MIRType::Value) {
     for (size_t i = 0, e = phi->numOperands(); i < e; i++) {
       MDefinition* in = phi->getOperand(i);
@@ -2231,55 +2239,53 @@ bool TypeAnalyzer::adjustPhiInputs(MPhi* phi) {
         continue;
       }
 
+      if (in->isBox() && in->toBox()->input()->type() == phiType) {
+        phi->replaceOperand(i, in->toBox()->input());
+        continue;
+      }
+
       if (!alloc().ensureBallast()) {
         return false;
       }
 
-      if (in->isBox() && in->toBox()->input()->type() == phiType) {
-        phi->replaceOperand(i, in->toBox()->input());
-      } else {
-        MInstruction* replacement;
-        MBasicBlock* predecessor = phi->block()->getPredecessor(i);
+      MBasicBlock* predecessor = phi->block()->getPredecessor(i);
 
-        if (phiType == MIRType::Double && IsFloatType(in->type())) {
-          // Convert int32 operands to double.
+      MInstruction* replacement;
+      if (IsFloatingPointType(phiType) &&
+          IsTypeRepresentableAsDouble(in->type())) {
+        // Convert number operands to |phiType|.
+        if (phiType == MIRType::Double) {
           replacement = MToDouble::New(alloc(), in);
-        } else if (phiType == MIRType::Float32) {
-          if (in->type() == MIRType::Int32 || in->type() == MIRType::Double) {
-            replacement = MToFloat32::New(alloc(), in);
-          } else {
-            // See comment below
-            if (in->type() != MIRType::Value) {
-              MBox* box = MBox::New(alloc(), in);
-              predecessor->insertAtEnd(box);
-              in = box;
-            }
-
-            MUnbox* unbox =
-                MUnbox::New(alloc(), in, MIRType::Double, MUnbox::Fallible);
-            unbox->setBailoutKind(BailoutKind::SpeculativePhi);
-            predecessor->insertAtEnd(unbox);
-            replacement = MToFloat32::New(alloc(), in);
-          }
         } else {
-          // If we know this branch will fail to convert to phiType,
-          // insert a box that'll immediately fail in the fallible unbox
-          // below.
-          if (in->type() != MIRType::Value) {
-            MBox* box = MBox::New(alloc(), in);
-            predecessor->insertAtEnd(box);
-            in = box;
-          }
-
-          // Be optimistic and insert unboxes when the operand is a
-          // value.
-          replacement = MUnbox::New(alloc(), in, phiType, MUnbox::Fallible);
+          MOZ_ASSERT(phiType == MIRType::Float32);
+          replacement = MToFloat32::New(alloc(), in);
+        }
+      } else {
+        // If we know this branch will fail to convert to phiType, insert a box
+        // that'll immediately fail in the fallible unbox below.
+        if (in->type() != MIRType::Value) {
+          auto* box = MBox::New(alloc(), in);
+          predecessor->insertAtEnd(box);
+          in = box;
         }
 
-        replacement->setBailoutKind(BailoutKind::SpeculativePhi);
-        predecessor->insertAtEnd(replacement);
-        phi->replaceOperand(i, replacement);
+        // Be optimistic and insert unboxes when the operand is a value.
+        if (phiType == MIRType::Float32) {
+          // Float32 is unboxed as Double, then converted.
+          auto* unbox =
+              MUnbox::New(alloc(), in, MIRType::Double, MUnbox::Fallible);
+          unbox->setBailoutKind(BailoutKind::SpeculativePhi);
+          predecessor->insertAtEnd(unbox);
+          replacement = MToFloat32::New(alloc(), unbox);
+        } else {
+          replacement = MUnbox::New(alloc(), in, phiType, MUnbox::Fallible);
+          replacement->setBailoutKind(BailoutKind::SpeculativePhi);
+        }
       }
+      MOZ_ASSERT(replacement->type() == phiType);
+
+      predecessor->insertAtEnd(replacement);
+      phi->replaceOperand(i, replacement);
     }
 
     return true;
@@ -2307,7 +2313,7 @@ bool TypeAnalyzer::adjustPhiInputs(MPhi* phi) {
       }
 
       MBasicBlock* pred = phi->block()->getPredecessor(i);
-      in = AlwaysBoxAt(alloc(), pred->lastIns(), in);
+      in = BoxAt(alloc(), pred->lastIns(), in);
     }
 
     phi->replaceOperand(i, in);
@@ -3429,11 +3435,11 @@ static bool IsResumableMIRType(MIRType type) {
     case MIRType::MagicUninitializedLexical:
     case MIRType::MagicIsConstructing:
     case MIRType::Value:
-    case MIRType::Simd128:
     case MIRType::Int64:
     case MIRType::IntPtr:
       return true;
 
+    case MIRType::Simd128:
     case MIRType::MagicHole:
     case MIRType::None:
     case MIRType::Slots:

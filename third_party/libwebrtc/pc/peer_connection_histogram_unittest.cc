@@ -9,21 +9,21 @@
  */
 
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include "absl/types/optional.h"
 #include "api/jsep.h"
 #include "api/jsep_session_description.h"
+#include "api/make_ref_counted.h"
 #include "api/peer_connection_interface.h"
 #include "api/rtc_error.h"
 #include "api/scoped_refptr.h"
 #include "api/task_queue/default_task_queue_factory.h"
-#include "api/task_queue/task_queue_factory.h"
 #include "api/test/mock_async_dns_resolver.h"
-#include "media/base/media_engine.h"
+#include "api/test/rtc_error_matchers.h"
 #include "p2p/base/port_allocator.h"
 #include "p2p/client/basic_port_allocator.h"
 #include "pc/peer_connection.h"
@@ -40,23 +40,23 @@
 #include "rtc_base/fake_mdns_responder.h"
 #include "rtc_base/fake_network.h"
 #include "rtc_base/gunit.h"
-#include "rtc_base/mdns_responder_interface.h"
 #include "rtc_base/socket_address.h"
 #include "rtc_base/thread.h"
 #include "rtc_base/virtual_socket_server.h"
 #include "system_wrappers/include/metrics.h"
 #include "test/gmock.h"
 #include "test/gtest.h"
+#include "test/wait_until.h"
 
 namespace webrtc {
 
 using RTCConfiguration = PeerConnectionInterface::RTCConfiguration;
 using RTCOfferAnswerOptions = PeerConnectionInterface::RTCOfferAnswerOptions;
 using ::testing::NiceMock;
-using ::testing::Values;
 
 static const char kUsagePatternMetric[] = "WebRTC.PeerConnection.UsagePattern";
-static constexpr int kDefaultTimeout = 10000;
+static constexpr webrtc::TimeDelta kDefaultTimeout =
+    webrtc::TimeDelta::Millis(10000);
 static const rtc::SocketAddress kLocalAddrs[2] = {
     rtc::SocketAddress("1.1.1.1", 0), rtc::SocketAddress("2.2.2.2", 0)};
 static const rtc::SocketAddress kPrivateLocalAddress("10.1.1.1", 0);
@@ -104,18 +104,18 @@ class ObserverForUsageHistogramTest : public MockPeerConnectionObserver {
 
   bool HaveDataChannel() { return last_datachannel_ != nullptr; }
 
-  absl::optional<int> interesting_usage_detected() {
+  std::optional<int> interesting_usage_detected() {
     return interesting_usage_detected_;
   }
 
   void ClearInterestingUsageDetector() {
-    interesting_usage_detected_ = absl::optional<int>();
+    interesting_usage_detected_ = std::optional<int>();
   }
 
   bool candidate_gathered() const { return candidate_gathered_; }
 
  private:
-  absl::optional<int> interesting_usage_detected_;
+  std::optional<int> interesting_usage_detected_;
   bool candidate_gathered_ = false;
   RawWrapperPtr candidate_target_;  // Note: Not thread-safe against deletions.
 };
@@ -186,12 +186,12 @@ class PeerConnectionWrapperForUsageHistogramTest
       return false;
     }
     // Wait until the gathering completes before we signal the candidate.
-    WAIT(observer()->ice_gathering_complete_, kDefaultTimeout);
-    WAIT(callee->observer()->ice_gathering_complete_, kDefaultTimeout);
+    WAIT(observer()->ice_gathering_complete_, kDefaultTimeout.ms());
+    WAIT(callee->observer()->ice_gathering_complete_, kDefaultTimeout.ms());
     AddBufferedIceCandidates();
     callee->AddBufferedIceCandidates();
-    WAIT(IsConnected(), kDefaultTimeout);
-    WAIT(callee->IsConnected(), kDefaultTimeout);
+    WAIT(IsConnected(), kDefaultTimeout.ms());
+    WAIT(callee->IsConnected(), kDefaultTimeout.ms());
     return IsConnected() && callee->IsConnected();
   }
 
@@ -206,7 +206,9 @@ class PeerConnectionWrapperForUsageHistogramTest
     if (!set_local_offer) {
       return false;
     }
-    EXPECT_TRUE_WAIT(observer()->ice_gathering_complete_, kDefaultTimeout);
+    EXPECT_THAT(WaitUntil([&] { return observer()->ice_gathering_complete_; },
+                          ::testing::IsTrue()),
+                IsRtcOk());
     return true;
   }
 
@@ -386,8 +388,10 @@ TEST_F(PeerConnectionUsageHistogramTest, UsageFingerprintHistogramFromTimeout) {
   auto pc = CreatePeerConnectionWithImmediateReport();
 
   int expected_fingerprint = MakeUsageFingerprint({});
-  EXPECT_METRIC_EQ_WAIT(1, metrics::NumSamples(kUsagePatternMetric),
-                        kDefaultTimeout);
+  EXPECT_THAT(
+      WaitUntil([&] { return metrics::NumSamples(kUsagePatternMetric); },
+                ::testing::Eq(1)),
+      IsRtcOk());
   EXPECT_METRIC_EQ(
       1, metrics::NumEvents(kUsagePatternMetric, expected_fingerprint));
 }
@@ -512,7 +516,9 @@ TEST_F(PeerConnectionUsageHistogramTest, FingerprintDataOnly) {
   auto callee = CreatePeerConnection();
   caller->CreateDataChannel("foodata");
   ASSERT_TRUE(caller->ConnectTo(callee.get()));
-  ASSERT_TRUE_WAIT(callee->HaveDataChannel(), kDefaultTimeout);
+  ASSERT_THAT(
+      WaitUntil([&] { return callee->HaveDataChannel(); }, ::testing::IsTrue()),
+      IsRtcOk());
   caller->pc()->Close();
   callee->pc()->Close();
   int expected_fingerprint = MakeUsageFingerprint(
@@ -658,8 +664,10 @@ TEST_F(PeerConnectionUsageHistogramTest,
   ASSERT_TRUE(caller->SetLocalDescription(caller->CreateOffer()));
   // Wait until the gathering completes so that the session description would
   // have contained ICE candidates.
-  EXPECT_EQ_WAIT(PeerConnectionInterface::kIceGatheringComplete,
-                 caller->ice_gathering_state(), kDefaultTimeout);
+  EXPECT_THAT(
+      WaitUntil([&] { return caller->ice_gathering_state(); },
+                ::testing::Eq(PeerConnectionInterface::kIceGatheringComplete)),
+      IsRtcOk());
   EXPECT_TRUE(caller->observer()->candidate_gathered());
   // Get the current offer that contains candidates and pass it to the callee.
   //
@@ -680,11 +688,18 @@ TEST_F(PeerConnectionUsageHistogramTest,
   auto answer = callee->CreateAnswer();
   callee->SetLocalDescription(CloneSessionDescription(answer.get()));
   caller->SetRemoteDescription(std::move(answer));
-  EXPECT_TRUE_WAIT(caller->IsConnected(), kDefaultTimeout);
-  EXPECT_TRUE_WAIT(callee->IsConnected(), kDefaultTimeout);
+  EXPECT_THAT(
+      WaitUntil([&] { return caller->IsConnected(); }, ::testing::IsTrue()),
+      IsRtcOk());
+  EXPECT_THAT(
+      WaitUntil([&] { return callee->IsConnected(); }, ::testing::IsTrue()),
+      IsRtcOk());
   // The callee needs to process the open message to have the data channel open.
-  EXPECT_TRUE_WAIT(callee->observer()->last_datachannel_ != nullptr,
-                   kDefaultTimeout);
+  EXPECT_THAT(
+      WaitUntil(
+          [&] { return callee->observer()->last_datachannel_ != nullptr; },
+          ::testing::IsTrue()),
+      IsRtcOk());
   caller->pc()->Close();
   callee->pc()->Close();
 
@@ -728,7 +743,7 @@ TEST_F(PeerConnectionUsageHistogramTest, NotableUsageNoted) {
       (expected_fingerprint |
        static_cast<int>(UsageEvent::PRIVATE_CANDIDATE_COLLECTED)) ==
           ObservedFingerprint());
-  EXPECT_METRIC_EQ(absl::make_optional(ObservedFingerprint()),
+  EXPECT_METRIC_EQ(std::make_optional(ObservedFingerprint()),
                    caller->observer()->interesting_usage_detected());
 }
 
@@ -741,14 +756,16 @@ TEST_F(PeerConnectionUsageHistogramTest, NotableUsageOnEventFiring) {
        UsageEvent::CANDIDATE_COLLECTED});
   EXPECT_METRIC_EQ(0, metrics::NumSamples(kUsagePatternMetric));
   caller->GetInternalPeerConnection()->RequestUsagePatternReportForTesting();
-  EXPECT_METRIC_EQ_WAIT(1, metrics::NumSamples(kUsagePatternMetric),
-                        kDefaultTimeout);
+  EXPECT_THAT(
+      WaitUntil([&] { return metrics::NumSamples(kUsagePatternMetric); },
+                ::testing::Eq(1)),
+      IsRtcOk());
   EXPECT_METRIC_TRUE(
       expected_fingerprint == ObservedFingerprint() ||
       (expected_fingerprint |
        static_cast<int>(UsageEvent::PRIVATE_CANDIDATE_COLLECTED)) ==
           ObservedFingerprint());
-  EXPECT_METRIC_EQ(absl::make_optional(ObservedFingerprint()),
+  EXPECT_METRIC_EQ(std::make_optional(ObservedFingerprint()),
                    caller->observer()->interesting_usage_detected());
 }
 
@@ -765,8 +782,10 @@ TEST_F(PeerConnectionUsageHistogramTest,
   EXPECT_METRIC_EQ(1, metrics::NumSamples(kUsagePatternMetric));
   caller->GetInternalPeerConnection()->RequestUsagePatternReportForTesting();
   caller->observer()->ClearInterestingUsageDetector();
-  EXPECT_METRIC_EQ_WAIT(2, metrics::NumSamples(kUsagePatternMetric),
-                        kDefaultTimeout);
+  EXPECT_THAT(
+      WaitUntil([&] { return metrics::NumSamples(kUsagePatternMetric); },
+                ::testing::Eq(2)),
+      IsRtcOk());
   EXPECT_METRIC_TRUE(
       expected_fingerprint == ObservedFingerprint() ||
       (expected_fingerprint |

@@ -28,29 +28,34 @@ import kotlin.math.roundToInt
  * @param context [Context] for various Android interactions.
  * @param attrs XML attributes configuring this behavior.
  * @param engineViewParent The parent [View] of the [EngineView].
- * @param topToolbarHeight The height of [ScrollableToolbar] when placed above the [EngineView].
+ * @param topToolbarHeight The height of a [ScrollableToolbar] placed above the [EngineView].
+ * @param bottomToolbarHeight The height of a [ScrollableToolbar] placed below the [EngineView].
  */
 
 class EngineViewClippingBehavior(
-    context: Context?,
+    context: Context,
     attrs: AttributeSet?,
     private val engineViewParent: View,
     private val topToolbarHeight: Int,
+    private val bottomToolbarHeight: Int,
 ) : CoordinatorLayout.Behavior<View>(context, attrs) {
 
     @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
     internal var engineView = engineViewParent.findViewInHierarchy { it is EngineView } as EngineView?
 
     @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
-    internal var recentBottomToolbarTranslation = 0f
+    internal var recentBottomToolbarTranslation: Float = 0f
+        set(value) { field = value.coerceIn(0f, bottomToolbarHeight.toFloat()) }
 
     @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
-    internal var recentTopToolbarTranslation = 0f
+    internal var recentTopToolbarTranslation: Float = 0f
+        set(value) { field = value.coerceIn(-topToolbarHeight.toFloat(), 0f) }
 
     private val hasTopToolbar = topToolbarHeight > 0
 
     override fun layoutDependsOn(parent: CoordinatorLayout, child: View, dependency: View): Boolean {
         if (dependency is ScrollableToolbar) {
+            applyUpdatesDependentViewChanged(parent, dependency)
             return true
         }
 
@@ -63,12 +68,13 @@ class EngineViewClippingBehavior(
     // have different sizes: as the top toolbar moves up, the bottom content clipping should be adjusted at twice the
     // speed to compensate for the increased parent view height. However, once the top toolbar is completely hidden, the
     // bottom content clipping should then move at the normal speed.
-    override fun onDependentViewChanged(parent: CoordinatorLayout, child: View, dependency: View): Boolean {
+    @VisibleForTesting
+    internal fun applyUpdatesDependentViewChanged(parent: CoordinatorLayout, dependency: View) {
         // Added NaN check for translationY as a precaution based on historical issues observed in
         // [https://bugzilla.mozilla.org/show_bug.cgi?id=1823306]. This check aims to prevent similar issues, as
         // confirmed by the test. Further investigation might be needed to identify all possible causes of NaN values.
         if (dependency.translationY.isNaN()) {
-            return true
+            return
         }
 
         val dependantAtTop = dependency.top < parent.height / 2
@@ -100,6 +106,5 @@ class EngineViewClippingBehavior(
             val contentBottomClipping = recentTopToolbarTranslation - recentBottomToolbarTranslation
             it.setVerticalClipping(contentBottomClipping.roundToInt())
         }
-        return true
     }
 }

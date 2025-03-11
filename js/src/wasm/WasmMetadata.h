@@ -58,6 +58,9 @@ struct CodeMetadata : public ShareableBase<CodeMetadata> {
   // This may be empty for internally constructed modules which don't care
   // about this information.
   BuiltinModuleFuncIdVector knownFuncImports;
+  // Treat imported wasm functions as if they were JS functions. This is used
+  // when compiling the module for new WebAssembly.Function.
+  bool funcImportsAreJS;
   // The number of imported globals in the module.
   uint32_t numGlobalImports;
 
@@ -114,12 +117,16 @@ struct CodeMetadata : public ShareableBase<CodeMetadata> {
   CustomSectionRangeVector customSectionRanges;
 
   // Bytecode range for the code section.
-  MaybeSectionRange codeSection;
+  MaybeBytecodeRange codeSectionRange;
+  // The bytes for the code section. Only available if we're using lazy
+  // tiering, and after we've decoded the whole module. This means
+  // it is not available while doing a 'tier-1' or 'once' compilation.
+  SharedBytes codeSectionBytecode;
 
   // The ranges of every function defined in this module. This is only
   // accessible after we've decoded the code section. This means it is not
   // available while doing a 'tier-1' or 'once' compilation.
-  FuncDefRangeVector funcDefRanges;
+  BytecodeRangeVector funcDefRanges;
 
   // The feature usage for every function defined in this module. This is only
   // accessible after we've decoded the code section. This means it is not
@@ -132,11 +139,10 @@ struct CodeMetadata : public ShareableBase<CodeMetadata> {
   // compilation.
   CallRefMetricsRangeVector funcDefCallRefs;
 
-  // The bytecode for this module. Only available for debuggable modules, or if
-  // doing lazy tiering. This is only accessible after we've decoded the whole
-  // module. This means it is not available while doing a 'tier-1' or 'once'
-  // compilation.
-  SharedBytes bytecode;
+  // The full bytecode for this module. Only available for debuggable modules.
+  // This is only accessible after we've decoded the whole module. This means
+  // it is not available while doing a 'tier-1' or 'once' compilation.
+  SharedBytes debugBytecode;
 
   // An array of hints to use when compiling a call_ref. This is only
   // accessible after we've decoded the code section. This means it is not
@@ -151,10 +157,6 @@ struct CodeMetadata : public ShareableBase<CodeMetadata> {
   // A SHA-1 hash of the module bytecode for use in display urls. Only
   // available if we're debugging.
   ModuleHash debugHash;
-
-  // Heuristics for lazy tiering and inlining.
-  const LazyTieringHeuristics lazyTieringHeuristics;
-  const InliningHeuristics inliningHeuristics;
 
   // Statistics collection for lazy tiering and inlining.
   struct ProtectedOptimizationStats {
@@ -180,14 +182,18 @@ struct CodeMetadata : public ShareableBase<CodeMetadata> {
     size_t partialCodeBytesMapped = 0;
     // total used space for p-tier code (will be less than the above)
     size_t partialCodeBytesUsed = 0;
-
+    // The remaining inlining budget (in bytecode bytes) for the module as a
+    // whole.  Must be signed.  It will be negative if we have overrun the
+    // budget.
+    int64_t inliningBudget = 0;
     WASM_CHECK_CACHEABLE_POD(completeNumFuncs, completeBCSize, partialNumFuncs,
                              partialBCSize, partialNumFuncsInlinedDirect,
                              partialNumFuncsInlinedCallRef,
                              partialBCInlinedSizeDirect,
                              partialBCInlinedSizeCallRef,
                              partialInlineBudgetOverruns,
-                             partialCodeBytesMapped, partialCodeBytesUsed);
+                             partialCodeBytesMapped, partialCodeBytesUsed,
+                             inliningBudget);
   };
   using ReadGuard = RWExclusiveData<ProtectedOptimizationStats>::ReadGuard;
   using WriteGuard = RWExclusiveData<ProtectedOptimizationStats>::WriteGuard;
@@ -229,6 +235,7 @@ struct CodeMetadata : public ShareableBase<CodeMetadata> {
       : kind(kind),
         compileArgs(compileArgs),
         numFuncImports(0),
+        funcImportsAreJS(false),
         numGlobalImports(0),
         callRefHints(nullptr),
         debugEnabled(false),
@@ -274,7 +281,7 @@ struct CodeMetadata : public ShareableBase<CodeMetadata> {
 
   bool hugeMemoryEnabled(uint32_t memoryIndex) const {
     return !isAsmJS() && memoryIndex < memories.length() &&
-           IsHugeMemoryEnabled(memories[memoryIndex].indexType());
+           IsHugeMemoryEnabled(memories[memoryIndex].addressType());
   }
   bool usesSharedMemory(uint32_t memoryIndex) const {
     return memoryIndex < memories.length() && memories[memoryIndex].isShared();
@@ -306,18 +313,26 @@ struct CodeMetadata : public ShareableBase<CodeMetadata> {
       return 0;
     }
     uint32_t funcDefIndex = funcIndex - numFuncImports;
-    return funcDefRanges[funcDefIndex].bytecodeOffset;
+    return funcDefRanges[funcDefIndex].start;
   }
-  const FuncDefRange& funcDefRange(uint32_t funcIndex) const {
+  const BytecodeRange& funcDefRange(uint32_t funcIndex) const {
     MOZ_ASSERT(funcIndex >= numFuncImports);
     uint32_t funcDefIndex = funcIndex - numFuncImports;
     return funcDefRanges[funcDefIndex];
+  }
+  BytecodeSpan funcDefBody(uint32_t funcIndex) const {
+    return funcDefRange(funcIndex)
+        .relativeTo(*codeSectionRange)
+        .toSpan(*codeSectionBytecode);
   }
   FeatureUsage funcDefFeatureUsage(uint32_t funcIndex) const {
     MOZ_ASSERT(funcIndex >= numFuncImports);
     uint32_t funcDefIndex = funcIndex - numFuncImports;
     return funcDefFeatureUsages[funcDefIndex];
   }
+  // Given a bytecode offset inside a function definition, find the function
+  // index.
+  uint32_t findFuncIndex(uint32_t bytecodeOffset) const;
 
   BuiltinModuleFuncId knownFuncImport(uint32_t funcIndex) const {
     MOZ_ASSERT(funcIndex < numFuncImports);
@@ -341,12 +356,19 @@ struct CodeMetadata : public ShareableBase<CodeMetadata> {
 
   CallRefHint getCallRefHint(uint32_t callRefIndex) const {
     if (!callRefHints) {
-      return CallRefHint::unknown();
+      return CallRefHint();
     }
     return CallRefHint::fromRepr(callRefHints[callRefIndex]);
   }
   void setCallRefHint(uint32_t callRefIndex, CallRefHint hint) const {
     callRefHints[callRefIndex] = hint.toRepr();
+  }
+
+  size_t codeSectionSize() const {
+    if (codeSectionRange) {
+      return codeSectionRange->size;
+    }
+    return 0;
   }
 
   // This gets names for wasm only.

@@ -7,7 +7,6 @@ package org.mozilla.fenix.debugsettings.gleandebugtools
 import mozilla.components.lib.state.Middleware
 import mozilla.components.lib.state.MiddlewareContext
 import mozilla.components.support.ktx.kotlin.urlEncode
-import org.mozilla.fenix.R
 import org.mozilla.fenix.utils.ClipboardHandler
 
 internal const val PING_PREVIEW_URL = "https://debug-ping-preview.firebaseapp.com/"
@@ -15,16 +14,16 @@ internal const val PING_PREVIEW_URL = "https://debug-ping-preview.firebaseapp.co
 /**
  * [Middleware] that reacts to various [GleanDebugToolsAction]s.
  *
- * @param gleanDebugToolsService [GleanDebugToolsService] used to dispatch calls to the Glean API.
+ * @param gleanDebugToolsStorage [GleanDebugToolsStorage] used to dispatch calls to the Glean API.
  * @param clipboardHandler [ClipboardHandler] used to add the debug view link to the clipboard.
  * @param openDebugView Invoked when the user clicks on the open debug view button.
  * @param showToast Invoked when the user sends a test ping.
  */
 class GleanDebugToolsMiddleware(
-    private val gleanDebugToolsService: GleanDebugToolsService,
+    private val gleanDebugToolsStorage: GleanDebugToolsStorage,
     private val clipboardHandler: ClipboardHandler,
     private val openDebugView: (String) -> Unit,
-    private val showToast: (Int) -> Unit,
+    private val showToast: (String) -> Unit,
 ) : Middleware<GleanDebugToolsState, GleanDebugToolsAction> {
     override fun invoke(
         context: MiddlewareContext<GleanDebugToolsState, GleanDebugToolsAction>,
@@ -34,7 +33,7 @@ class GleanDebugToolsMiddleware(
         next(action)
         when (action) {
             is GleanDebugToolsAction.LogPingsToConsoleToggled -> {
-                gleanDebugToolsService.setLogPings(context.state.logPingsToConsoleEnabled)
+                gleanDebugToolsStorage.setLogPings(context.state.logPingsToConsoleEnabled)
             }
             is GleanDebugToolsAction.OpenDebugView -> {
                 val debugViewLink = getDebugViewLink(
@@ -51,24 +50,14 @@ class GleanDebugToolsMiddleware(
                 clipboardHandler.text = debugViewLink
             }
             is GleanDebugToolsAction.DebugViewTagChanged -> {} // No-op
-            is GleanDebugToolsAction.SendBaselinePing -> {
-                gleanDebugToolsService.sendBaselinePing(
+            is GleanDebugToolsAction.SendPing -> {
+                gleanDebugToolsStorage.sendPing(
+                    pingType = context.state.pingType,
                     debugViewTag = context.state.debugViewTag,
                 )
-                showToast(R.string.glean_debug_tools_send_baseline_ping_toast_message)
+                showToast(context.state.pingType)
             }
-            is GleanDebugToolsAction.SendMetricsPing -> {
-                gleanDebugToolsService.sendMetricsPing(
-                    debugViewTag = context.state.debugViewTag,
-                )
-                showToast(R.string.glean_debug_tools_send_metrics_ping_toast_message)
-            }
-            is GleanDebugToolsAction.SendPendingEventPing -> {
-                gleanDebugToolsService.sendPendingEventPing(
-                    debugViewTag = context.state.debugViewTag,
-                )
-                showToast(R.string.glean_debug_tools_send_pending_event_ping_toast_message)
-            }
+            is GleanDebugToolsAction.ChangePingType -> {} // No-op
         }
     }
 

@@ -109,7 +109,7 @@ add_task(async function testGutterBreakpointsForSourceWithIgnoredLines() {
   await closeContextMenu(dbg, popup);
 
   info("Assert that the lines 17 to 21 are still ignored");
-  assertIgnoredStyleInSourceLines(dbg, {
+  await assertIgnoredStyleInSourceLines(dbg, {
     lines: [17, 21],
     hasBlackboxedLinesClass: true,
   });
@@ -137,8 +137,3 @@ add_task(async function testGutterBreakpointsForSourceWithIgnoredLines() {
     "The breakpoint on an ignored line is disabled"
   );
 });
-
-async function assertContextMenuItemDisabled(dbg, selector, expectedState) {
-  const item = await waitFor(() => findContextMenu(dbg, selector));
-  is(item.disabled, expectedState, "The context menu item is disabled");
-}

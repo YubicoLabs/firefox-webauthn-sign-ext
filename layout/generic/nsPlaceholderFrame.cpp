@@ -144,7 +144,7 @@ static FrameChildListID ChildListIDForOutOfFlow(nsFrameState aPlaceholderState,
   if (aPlaceholderState & PLACEHOLDER_FOR_ABSPOS) {
     return FrameChildListID::Absolute;
   }
-  MOZ_DIAGNOSTIC_ASSERT(false, "unknown list");
+  MOZ_DIAGNOSTIC_CRASH("unknown list");
   return FrameChildListID::Float;
 }
 
@@ -223,7 +223,8 @@ void nsPlaceholderFrame::List(FILE* out, const char* aPrefix,
 
   if (mOutOfFlowFrame) {
     str += " outOfFlowFrame=";
-    str += mOutOfFlowFrame->ListTag();
+    str += mOutOfFlowFrame->ListTag(
+        aFlags.contains(ListFlag::OnlyListDeterministicInfo));
   }
   fprintf_stderr(out, "%s\n", str.get());
 }

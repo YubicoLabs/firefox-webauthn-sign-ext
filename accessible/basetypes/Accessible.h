@@ -443,11 +443,6 @@ class Accessible {
   virtual nsAtom* TagName() const = 0;
 
   /**
-   * Return input `type` attribute
-   */
-  virtual already_AddRefed<nsAtom> InputType() const = 0;
-
-  /**
    * Return a landmark role if applied.
    */
   nsStaticAtom* LandmarkRole() const;
@@ -646,8 +641,6 @@ class Accessible {
 
   bool IsDateTimeField() const { return mType == eHTMLDateTimeFieldType; }
 
-  bool IsSearchbox() const;
-
   virtual bool HasNumericValue() const = 0;
 
   /**
@@ -729,7 +722,16 @@ class Accessible {
   /**
    * Return the localized string for the given key.
    */
-  static void TranslateString(const nsString& aKey, nsAString& aStringOut);
+  static void TranslateString(const nsString& aKey, nsAString& aStringOut,
+                              const nsTArray<nsString>& aParams = {});
+
+  /*
+   * Return calculated group level based on accessible hierarchy.
+   *
+   * @param aFast  [in] Don't climb up tree. Calculate level from aria and
+   *                    roles.
+   */
+  virtual int32_t GetLevel(bool aFast) const;
 
  protected:
   // Some abstracted group utility methods.
@@ -749,14 +751,6 @@ class Accessible {
    * Return group info or create and update.
    */
   virtual AccGroupInfo* GetOrCreateGroupInfo() = 0;
-
-  /*
-   * Return calculated group level based on accessible hierarchy.
-   *
-   * @param aFast  [in] Don't climb up tree. Calculate level from aria and
-   *                    roles.
-   */
-  virtual int32_t GetLevel(bool aFast) const;
 
   /**
    * Calculate position in group and group size ('posinset' and 'setsize') based

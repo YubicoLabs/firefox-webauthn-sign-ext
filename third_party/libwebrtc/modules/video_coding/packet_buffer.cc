@@ -82,7 +82,8 @@ PacketBuffer::InsertResult PacketBuffer::InsertPacket(
       return result;
     }
 
-    if (ForwardDiff<uint16_t>(first_seq_num_, seq_num) >= max_size_) {
+    if (ForwardDiff<uint16_t>(first_seq_num_, seq_num) >= max_size_ &&
+        ForwardDiff<uint16_t>(seq_num, first_seq_num_) >= max_size_ / 2) {
       // Large negative jump in rtp sequence number: clear the buffer and treat
       // latest packet as the new first packet.
       Clear();
@@ -129,8 +130,7 @@ PacketBuffer::InsertResult PacketBuffer::InsertPacket(
 
 uint32_t PacketBuffer::ClearTo(uint16_t seq_num) {
   // We have already cleared past this sequence number, no need to do anything.
-  if (is_cleared_to_first_seq_num_ &&
-      AheadOf<uint16_t>(first_seq_num_, seq_num)) {
+  if (AheadOf<uint16_t>(first_seq_num_, seq_num)) {
     return 0;
   }
 
@@ -283,6 +283,14 @@ std::vector<std::unique_ptr<PacketBuffer::Packet>> PacketBuffer::FindFrames(
       int idr_height = -1;
       bool full_frame_found = false;
       while (true) {
+        // GFD is only attached to first packet of frame, so update check on
+        // every packet.
+        if (buffer_[start_index] != nullptr) {
+          is_generic = buffer_[start_index]->video_header.generic.has_value();
+          if (is_generic) {
+            is_h264_descriptor = false;
+          }
+        }
         ++tested_packets;
 
         if (!is_h264_descriptor) {

@@ -1,5 +1,5 @@
 // META: title=test WebNN API softsign operation
-// META: global=window,dedicatedworker
+// META: global=window
 // META: variant=?cpu
 // META: variant=?gpu
 // META: variant=?npu
@@ -344,7 +344,7 @@ const softsignTests = [
 
 if (navigator.ml) {
   softsignTests.forEach((test) => {
-    webnn_conformance_test(buildGraphAndCompute, getPrecisionTolerance, test);
+    webnn_conformance_test(buildAndExecuteGraph, getPrecisionTolerance, test);
   });
 } else {
   test(() => assert_implements(navigator.ml, 'missing navigator.ml'));

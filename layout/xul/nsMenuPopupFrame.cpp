@@ -70,8 +70,6 @@ using mozilla::dom::Element;
 using mozilla::dom::Event;
 using mozilla::dom::XULButtonElement;
 
-int8_t nsMenuPopupFrame::sDefaultLevelIsTop = -1;
-
 TimeStamp nsMenuPopupFrame::sLastKeyTime;
 
 #ifdef MOZ_WAYLAND
@@ -105,13 +103,7 @@ NS_QUERYFRAME_TAIL_INHERITING(nsBlockFrame)
 //
 nsMenuPopupFrame::nsMenuPopupFrame(ComputedStyle* aStyle,
                                    nsPresContext* aPresContext)
-    : nsBlockFrame(aStyle, aPresContext, kClassID) {
-  // the preference name is backwards here. True means that the 'top' level is
-  // the default, and false means that the 'parent' level is the default.
-  if (sDefaultLevelIsTop >= 0) return;
-  sDefaultLevelIsTop =
-      Preferences::GetBool("ui.panel.default_level_parent", false);
-}  // ctor
+    : nsBlockFrame(aStyle, aPresContext, kClassID) {}
 
 nsMenuPopupFrame::~nsMenuPopupFrame() = default;
 
@@ -147,12 +139,7 @@ void nsMenuPopupFrame::Init(nsIContent* aContent, nsContainerFrame* aParent,
 
   CreatePopupView();
 
-  // XXX Hack. The popup's view should float above all other views,
-  // so we use the nsView::SetFloating() to tell the view manager
-  // about that constraint.
   nsView* ourView = GetView();
-  nsViewManager* viewManager = ourView->GetViewManager();
-  viewManager->SetViewFloating(ourView, true);
 
   const auto& el = PopupElement();
   mPopupType = PopupType::Panel;
@@ -238,24 +225,56 @@ widget::PopupLevel nsMenuPopupFrame::GetPopupLevel(bool aIsNoAutoHide) const {
   }
 
   // Otherwise, the result depends on the platform.
-  return sDefaultLevelIsTop ? PopupLevel::Top : PopupLevel::Parent;
+  return StaticPrefs::ui_panel_default_level_parent() ? PopupLevel::Parent
+                                                      : PopupLevel::Top;
 }
 
-void nsMenuPopupFrame::PrepareWidget(bool aRecreate) {
+void nsMenuPopupFrame::PrepareWidget(bool aForceRecreate) {
   nsView* ourView = GetView();
-  if (aRecreate) {
-    if (auto* widget = GetWidget()) {
+  if (auto* widget = GetWidget()) {
+    nsCOMPtr<nsIWidget> parent = ComputeParentWidget();
+    if (aForceRecreate || widget->GetParent() != parent ||
+        widget->NeedsRecreateToReshow()) {
       // Widget's WebRender resources needs to be cleared before creating new
       // widget.
       widget->ClearCachedWebrenderResources();
+      ourView->DestroyWidget();
     }
-    ourView->DestroyWidget();
   }
   if (!ourView->HasWidget()) {
     CreateWidgetForView(ourView);
   } else {
     PropagateStyleToWidget();
   }
+}
+
+already_AddRefed<nsIWidget> nsMenuPopupFrame::ComputeParentWidget() const {
+  auto popupLevel = GetPopupLevel(IsNoAutoHide());
+  // Panels which have a parent level need a parent widget. This allows them to
+  // always appear in front of the parent window but behind other windows that
+  // should be in front of it.
+  nsCOMPtr<nsIWidget> parentWidget;
+  if (popupLevel != PopupLevel::Top) {
+    nsCOMPtr<nsIDocShellTreeItem> dsti = PresContext()->GetDocShell();
+    if (!dsti) {
+      return nullptr;
+    }
+
+    nsCOMPtr<nsIDocShellTreeOwner> treeOwner;
+    dsti->GetTreeOwner(getter_AddRefs(treeOwner));
+    if (!treeOwner) {
+      return nullptr;
+    }
+
+    nsCOMPtr<nsIBaseWindow> baseWindow(do_QueryInterface(treeOwner));
+    if (baseWindow) {
+      baseWindow->GetMainWidget(getter_AddRefs(parentWidget));
+    }
+  }
+  if (!parentWidget && mView && mView->GetParent()) {
+    parentWidget = mView->GetParent()->GetNearestWidget(nullptr);
+  }
+  return parentWidget.forget();
 }
 
 nsresult nsMenuPopupFrame::CreateWidgetForView(nsView* aView) {
@@ -276,27 +295,16 @@ nsresult nsMenuPopupFrame::CreateWidgetForView(nsView* aView) {
     }
   }
 
-  bool remote = HasRemoteContent();
+  const bool remote = HasRemoteContent();
 
   const auto mode = nsLayoutUtils::GetFrameTransparency(this, this);
   widgetData.mHasRemoteContent = remote;
   widgetData.mTransparencyMode = mode;
   widgetData.mPopupLevel = GetPopupLevel(widgetData.mNoAutoHide);
 
-  // Panels which have a parent level need a parent widget. This allows them to
-  // always appear in front of the parent window but behind other windows that
-  // should be in front of it.
-  nsCOMPtr<nsIWidget> parentWidget;
-  if (widgetData.mPopupLevel != PopupLevel::Top) {
-    nsCOMPtr<nsIDocShellTreeItem> dsti = PresContext()->GetDocShell();
-    if (!dsti) return NS_ERROR_FAILURE;
-
-    nsCOMPtr<nsIDocShellTreeOwner> treeOwner;
-    dsti->GetTreeOwner(getter_AddRefs(treeOwner));
-    if (!treeOwner) return NS_ERROR_FAILURE;
-
-    nsCOMPtr<nsIBaseWindow> baseWindow(do_QueryInterface(treeOwner));
-    if (baseWindow) baseWindow->GetMainWidget(getter_AddRefs(parentWidget));
+  nsCOMPtr<nsIWidget> parentWidget = ComputeParentWidget();
+  if (NS_WARN_IF(!parentWidget)) {
+    return NS_ERROR_FAILURE;
   }
 
   nsresult rv = aView->CreateWidgetForPopup(&widgetData, parentWidget);
@@ -305,8 +313,9 @@ nsresult nsMenuPopupFrame::CreateWidgetForView(nsView* aView) {
   }
 
   nsIWidget* widget = aView->GetWidget();
-  widget->SetTransparencyMode(mode);
+  MOZ_ASSERT(widget->GetParent() == parentWidget);
 
+  widget->SetTransparencyMode(mode);
   PropagateStyleToWidget();
 
   return NS_OK;
@@ -336,6 +345,10 @@ void nsMenuPopupFrame::PropagateStyleToWidget(WidgetStyleFlags aFlags) const {
   }
   if (aFlags.contains(WidgetStyle::Transform)) {
     widget->SetWindowTransform(ComputeWidgetTransform());
+  }
+  if (aFlags.contains(WidgetStyle::MicaBackdrop)) {
+    widget->SetMicaBackdrop(StyleDisplay()->EffectiveAppearance() ==
+                            StyleAppearance::Menupopup);
   }
 }
 
@@ -445,6 +458,11 @@ void nsMenuPopupFrame::DidSetComputedStyle(ComputedStyle* aOldStyle) {
 
   if (newUI.mWindowShadow != oldUI.mWindowShadow) {
     flags += WidgetStyle::Shadow;
+  }
+
+  if (aOldStyle->StyleDisplay()->EffectiveAppearance() !=
+      StyleDisplay()->EffectiveAppearance()) {
+    flags += WidgetStyle::MicaBackdrop;
   }
 
   const auto& pc = *PresContext();
@@ -637,8 +655,7 @@ void nsMenuPopupFrame::LayoutPopup(nsPresContext* aPresContext,
         mContent->AsElement()->AttrValueIs(kNameSpaceID_None,
                                            nsGkAtoms::animate, nsGkAtoms::open,
                                            eCaseMatters) &&
-        AnimationUtils::HasCurrentTransitions(mContent->AsElement(),
-                                              PseudoStyleType::NotPseudo)) {
+        AnimationUtils::HasCurrentTransitions(mContent->AsElement())) {
       mPopupShownDispatcher = new nsXULPopupShownEvent(mContent, aPresContext);
       mContent->AddSystemEventListener(u"transitionend"_ns,
                                        mPopupShownDispatcher, false, false);
@@ -691,43 +708,45 @@ void nsMenuPopupFrame::InitPositionFromAnchorAlign(const nsAString& aAnchor,
                                                    const nsAString& aAlign) {
   mTriggerContent = nullptr;
 
-  if (aAnchor.EqualsLiteral("topleft"))
+  if (aAnchor.EqualsLiteral("topleft")) {
     mPopupAnchor = POPUPALIGNMENT_TOPLEFT;
-  else if (aAnchor.EqualsLiteral("topright"))
+  } else if (aAnchor.EqualsLiteral("topright")) {
     mPopupAnchor = POPUPALIGNMENT_TOPRIGHT;
-  else if (aAnchor.EqualsLiteral("bottomleft"))
+  } else if (aAnchor.EqualsLiteral("bottomleft")) {
     mPopupAnchor = POPUPALIGNMENT_BOTTOMLEFT;
-  else if (aAnchor.EqualsLiteral("bottomright"))
+  } else if (aAnchor.EqualsLiteral("bottomright")) {
     mPopupAnchor = POPUPALIGNMENT_BOTTOMRIGHT;
-  else if (aAnchor.EqualsLiteral("leftcenter"))
+  } else if (aAnchor.EqualsLiteral("leftcenter")) {
     mPopupAnchor = POPUPALIGNMENT_LEFTCENTER;
-  else if (aAnchor.EqualsLiteral("rightcenter"))
+  } else if (aAnchor.EqualsLiteral("rightcenter")) {
     mPopupAnchor = POPUPALIGNMENT_RIGHTCENTER;
-  else if (aAnchor.EqualsLiteral("topcenter"))
+  } else if (aAnchor.EqualsLiteral("topcenter")) {
     mPopupAnchor = POPUPALIGNMENT_TOPCENTER;
-  else if (aAnchor.EqualsLiteral("bottomcenter"))
+  } else if (aAnchor.EqualsLiteral("bottomcenter")) {
     mPopupAnchor = POPUPALIGNMENT_BOTTOMCENTER;
-  else
+  } else {
     mPopupAnchor = POPUPALIGNMENT_NONE;
+  }
 
-  if (aAlign.EqualsLiteral("topleft"))
+  if (aAlign.EqualsLiteral("topleft")) {
     mPopupAlignment = POPUPALIGNMENT_TOPLEFT;
-  else if (aAlign.EqualsLiteral("topright"))
+  } else if (aAlign.EqualsLiteral("topright")) {
     mPopupAlignment = POPUPALIGNMENT_TOPRIGHT;
-  else if (aAlign.EqualsLiteral("bottomleft"))
+  } else if (aAlign.EqualsLiteral("bottomleft")) {
     mPopupAlignment = POPUPALIGNMENT_BOTTOMLEFT;
-  else if (aAlign.EqualsLiteral("bottomright"))
+  } else if (aAlign.EqualsLiteral("bottomright")) {
     mPopupAlignment = POPUPALIGNMENT_BOTTOMRIGHT;
-  else if (aAlign.EqualsLiteral("leftcenter"))
+  } else if (aAlign.EqualsLiteral("leftcenter")) {
     mPopupAlignment = POPUPALIGNMENT_LEFTCENTER;
-  else if (aAlign.EqualsLiteral("rightcenter"))
+  } else if (aAlign.EqualsLiteral("rightcenter")) {
     mPopupAlignment = POPUPALIGNMENT_RIGHTCENTER;
-  else if (aAlign.EqualsLiteral("topcenter"))
+  } else if (aAlign.EqualsLiteral("topcenter")) {
     mPopupAlignment = POPUPALIGNMENT_TOPCENTER;
-  else if (aAlign.EqualsLiteral("bottomcenter"))
+  } else if (aAlign.EqualsLiteral("bottomcenter")) {
     mPopupAlignment = POPUPALIGNMENT_BOTTOMCENTER;
-  else
+  } else {
     mPopupAlignment = POPUPALIGNMENT_NONE;
+  }
 
   mPosition = POPUPPOSITION_UNKNOWN;
 }
@@ -736,15 +755,15 @@ static FlipType FlipFromAttribute(nsMenuPopupFrame* aFrame) {
   nsAutoString flip;
   aFrame->PopupElement().GetAttr(nsGkAtoms::flip, flip);
   if (flip.EqualsLiteral("none")) {
-    return FlipType_None;
+    return FlipType::None;
   }
   if (flip.EqualsLiteral("both")) {
-    return FlipType_Both;
+    return FlipType::Both;
   }
   if (flip.EqualsLiteral("slide")) {
-    return FlipType_Slide;
+    return FlipType::Slide;
   }
-  return FlipType_Default;
+  return FlipType::Default;
 }
 
 void nsMenuPopupFrame::InitializePopup(nsIContent* aAnchorContent,
@@ -753,9 +772,7 @@ void nsMenuPopupFrame::InitializePopup(nsIContent* aAnchorContent,
                                        int32_t aXPos, int32_t aYPos,
                                        MenuPopupAnchorType aAnchorType,
                                        bool aAttributesOverride) {
-  auto* widget = GetWidget();
-  bool recreateWidget = widget && widget->NeedsRecreateToReshow();
-  PrepareWidget(recreateWidget);
+  PrepareWidget();
 
   mPopupState = ePopupShowing;
   mAnchorContent = aAnchorContent;
@@ -796,8 +813,9 @@ void nsMenuPopupFrame::InitializePopup(nsIContent* aAnchorContent,
     if (aAttributesOverride) {
       // if the attributes are set, clear the offset position. Otherwise,
       // the offset is used to adjust the position from the anchor point
-      if (anchor.IsEmpty() && align.IsEmpty() && position.IsEmpty())
+      if (anchor.IsEmpty() && align.IsEmpty() && position.IsEmpty()) {
         position.Assign(aPosition);
+      }
     } else if (!aPosition.IsEmpty()) {
       position.Assign(aPosition);
     }
@@ -855,6 +873,8 @@ void nsMenuPopupFrame::InitializePopup(nsIContent* aAnchorContent,
       InitPositionFromAnchorAlign(anchor, align);
     }
   }
+  mUntransformedPopupAnchor = mPopupAnchor;
+  mUntransformedPopupAlignment = mPopupAlignment;
 
   if (aAttributesOverride) {
     // Use |left| and |top| dimension attributes to position the popup if
@@ -882,9 +902,7 @@ void nsMenuPopupFrame::InitializePopup(nsIContent* aAnchorContent,
 void nsMenuPopupFrame::InitializePopupAtScreen(nsIContent* aTriggerContent,
                                                int32_t aXPos, int32_t aYPos,
                                                bool aIsContextMenu) {
-  auto* widget = GetWidget();
-  bool recreateWidget = widget && widget->NeedsRecreateToReshow();
-  PrepareWidget(recreateWidget);
+  PrepareWidget();
 
   mPopupState = ePopupShowing;
   mAnchorContent = nullptr;
@@ -912,7 +930,7 @@ void nsMenuPopupFrame::InitializePopupAsNativeContextMenu(
   mScreenRect =
       nsRect(CSSPixel::ToAppUnits(CSSIntPoint(aXPos, aYPos)), nsSize());
   mExtraMargin = {};
-  mFlip = FlipType_Default;
+  mFlip = FlipType::Default;
   mPopupAnchor = POPUPALIGNMENT_NONE;
   mPopupAlignment = POPUPALIGNMENT_NONE;
   mPosition = POPUPPOSITION_UNKNOWN;
@@ -962,7 +980,9 @@ void nsMenuPopupFrame::ShowPopup(bool aIsContextMenu) {
 
     if (mPopupType == PopupType::Menu) {
       nsCOMPtr<nsISound> sound(do_GetService("@mozilla.org/sound;1"));
-      if (sound) sound->PlayEventSound(nsISound::EVENT_MENU_POPUP);
+      if (sound) {
+        sound->PlayEventSound(nsISound::EVENT_MENU_POPUP);
+      }
     }
   }
 }
@@ -1025,10 +1045,7 @@ void nsMenuPopupFrame::HidePopup(bool aDeselectMenu, nsPopupState aNewState,
   mConstrainedByLayout = false;
 
   if (auto* widget = GetWidget()) {
-    // Ideally we should call ClearCachedWebrenderResources but there are
-    // intermittent failures (see bug 1748788), so we currently call
-    // ClearWebrenderAnimationResources instead.
-    widget->ClearWebrenderAnimationResources();
+    widget->ClearCachedWebrenderResources();
   }
 
   nsView* view = GetView();
@@ -1198,24 +1215,25 @@ nsPoint nsMenuPopupFrame::AdjustPositionForAnchorAlign(
   switch (popupAnchor) {
     case POPUPALIGNMENT_LEFTCENTER:
     case POPUPALIGNMENT_RIGHTCENTER:
-      aHFlip = FlipStyle_Outside;
-      aVFlip = FlipStyle_Inside;
+      aHFlip = FlipStyle::Outside;
+      aVFlip = FlipStyle::Inside;
       break;
     case POPUPALIGNMENT_TOPCENTER:
     case POPUPALIGNMENT_BOTTOMCENTER:
-      aHFlip = FlipStyle_Inside;
-      aVFlip = FlipStyle_Outside;
+      aHFlip = FlipStyle::Inside;
+      aVFlip = FlipStyle::Outside;
       break;
     default: {
       FlipStyle anchorEdge =
-          mFlip == FlipType_Both ? FlipStyle_Inside : FlipStyle_None;
-      aHFlip = (popupAnchor == -popupAlign) ? FlipStyle_Outside : anchorEdge;
+          mFlip == FlipType::Both ? FlipStyle::Inside : FlipStyle::None;
+      aHFlip = (popupAnchor == -popupAlign) ? FlipStyle::Outside : anchorEdge;
       if (((popupAnchor > 0) == (popupAlign > 0)) ||
           (popupAnchor == POPUPALIGNMENT_TOPLEFT &&
-           popupAlign == POPUPALIGNMENT_TOPLEFT))
-        aVFlip = FlipStyle_Outside;
-      else
+           popupAlign == POPUPALIGNMENT_TOPLEFT)) {
+        aVFlip = FlipStyle::Outside;
+      } else {
         aVFlip = anchorEdge;
+      }
       break;
     }
   }
@@ -1272,10 +1290,11 @@ nscoord nsMenuPopupFrame::FlipOrResize(nscoord& aScreenPoint, nscoord aSize,
   if (aScreenPoint < aScreenBegin) {
     // at its current position, the popup would extend past the left or top
     // edge of the screen, so it will have to be moved or resized.
-    if (aFlip) {
+    if (aFlip != FlipStyle::None) {
       // for inside flips, we flip on the opposite side of the anchor
-      nscoord startpos = aFlip == FlipStyle_Outside ? aAnchorBegin : aAnchorEnd;
-      nscoord endpos = aFlip == FlipStyle_Outside ? aAnchorEnd : aAnchorBegin;
+      nscoord startpos =
+          aFlip == FlipStyle::Outside ? aAnchorBegin : aAnchorEnd;
+      nscoord endpos = aFlip == FlipStyle::Outside ? aAnchorEnd : aAnchorBegin;
 
       // check whether there is more room to the left and right (or top and
       // bottom) of the anchor and put the popup on the side with more room.
@@ -1305,10 +1324,11 @@ nscoord nsMenuPopupFrame::FlipOrResize(nscoord& aScreenPoint, nscoord aSize,
   } else if (aScreenPoint + aSize > aScreenEnd) {
     // at its current position, the popup would extend past the right or
     // bottom edge of the screen, so it will have to be moved or resized.
-    if (aFlip) {
+    if (aFlip != FlipStyle::None) {
       // for inside flips, we flip on the opposite side of the anchor
-      nscoord startpos = aFlip == FlipStyle_Outside ? aAnchorBegin : aAnchorEnd;
-      nscoord endpos = aFlip == FlipStyle_Outside ? aAnchorEnd : aAnchorBegin;
+      nscoord startpos =
+          aFlip == FlipStyle::Outside ? aAnchorBegin : aAnchorEnd;
+      nscoord endpos = aFlip == FlipStyle::Outside ? aAnchorEnd : aAnchorBegin;
 
       // check whether there is more room to the left and right (or top and
       // bottom) of the anchor and put the popup on the side with more room.
@@ -1413,7 +1433,8 @@ auto nsMenuPopupFrame::GetRects(const nsSize& aPrefSize) const -> Rects {
                "rootFrame's view is not our view's parent???");
 
   // Indicators of whether the popup should be flipped or resized.
-  FlipStyle hFlip = FlipStyle_None, vFlip = FlipStyle_None;
+  FlipStyle hFlip = FlipStyle::None;
+  FlipStyle vFlip = FlipStyle::None;
 
   const nsMargin margin = GetMargin();
 
@@ -1489,17 +1510,21 @@ auto nsMenuPopupFrame::GetRects(const nsSize& aPrefSize) const -> Rects {
       result.mUsedRect.MoveBy(margin.left, margin.top);
     }
 #ifdef XP_MACOSX
-    // OSX tooltips follow standard flip rule but other popups flip horizontally
-    // not vertically
+    // On macOS, tooltips follow standard flip rule but other popups like
+    // context menus flip horizontally, not vertically.
     if (mPopupType == PopupType::Tooltip) {
-      vFlip = FlipStyle_Outside;
+      vFlip = FlipStyle::Outside;
     } else {
-      hFlip = FlipStyle_Outside;
+      hFlip = FlipStyle::Outside;
     }
 #else
-    // Other OS screen positioned popups can be flipped vertically but never
-    // horizontally
-    vFlip = FlipStyle_Outside;
+    // On Windows and Linux, other OS screen positioned popups can be flipped
+    // vertically. Only the context menu can be flipped horizontally as well, in
+    // order to avoid showing the context menu accidentally under the mouse.
+    vFlip = FlipStyle::Outside;
+    if (mIsContextMenu) {
+      hFlip = FlipStyle::Outside;
+    }
 #endif  // #ifdef XP_MACOSX
   }
 
@@ -1513,7 +1538,7 @@ auto nsMenuPopupFrame::GetRects(const nsSize& aPrefSize) const -> Rects {
   // If a panel has flip="none", don't constrain or flip it.
   // Also, always do this for content shells, so that the popup doesn't extend
   // outside the containing frame.
-  if (mInContentShell || mFlip != FlipType_None) {
+  if (mInContentShell || mFlip != FlipType::None) {
     const Maybe<nsRect> constraintRect =
         GetConstraintRect(result.mAnchorRect, rootScreenRect, popupLevel);
 
@@ -1571,7 +1596,7 @@ auto nsMenuPopupFrame::GetRects(const nsSize& aPrefSize) const -> Rects {
       // but we can only slide on one axis - the other axis must be "flipped or
       // resized" as normal.
       bool slideHorizontal = false, slideVertical = false;
-      if (mFlip == FlipType_Slide) {
+      if (mFlip == FlipType::Slide) {
         int8_t position = GetAlignmentPosition();
         slideHorizontal = position >= POPUPPOSITION_BEFORESTART &&
                           position <= POPUPPOSITION_AFTEREND;
@@ -2072,10 +2097,12 @@ nsresult nsMenuPopupFrame::AttributeChanged(int32_t aNameSpaceID,
     MoveToAttributePosition();
   }
 
-  if (aAttribute == nsGkAtoms::remote) {
+  if (aAttribute == nsGkAtoms::remote && GetWidget()) {
     // When the remote attribute changes, we need to create a new widget to
     // ensure that it has the correct compositor and transparency settings to
-    // match the new value.
+    // match the new value. Do that only if we already have a widget.
+    // TODO(emilio): We should consider doing it only when we get re-shown or
+    // so.
     PrepareWidget(true);
   }
 

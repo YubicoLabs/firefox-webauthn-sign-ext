@@ -344,25 +344,27 @@ void* GCRuntime::refillFreeList(JS::Zone* zone, AllocKind thingKind) {
 
   // It should not be possible to allocate on the main thread while we are
   // inside a GC.
-  MOZ_ASSERT(!JS::RuntimeHeapIsBusy(), "allocating while under GC");
+  MOZ_ASSERT(!JS::RuntimeHeapIsCollecting(), "allocating while under GC");
 
   return zone->arenas.refillFreeListAndAllocate(
-      thingKind, ShouldCheckThresholds::CheckThresholds);
+      thingKind, ShouldCheckThresholds::CheckThresholds, StallAndRetry::No);
 }
 
 /* static */
 void* GCRuntime::refillFreeListInGC(Zone* zone, AllocKind thingKind) {
-  // Called by compacting GC to refill a free list while we are in a GC.
-  MOZ_ASSERT(JS::RuntimeHeapIsCollecting());
+  // Called when tenuring nursery cells and during compacting GC.
   MOZ_ASSERT_IF(!JS::RuntimeHeapIsMinorCollecting(),
                 !zone->runtimeFromMainThread()->gc.isBackgroundSweeping());
 
+  // Since this needs to succeed we pass StallAndRetry::Yes.
   return zone->arenas.refillFreeListAndAllocate(
-      thingKind, ShouldCheckThresholds::DontCheckThresholds);
+      thingKind, ShouldCheckThresholds::DontCheckThresholds,
+      StallAndRetry::Yes);
 }
 
 void* ArenaLists::refillFreeListAndAllocate(
-    AllocKind thingKind, ShouldCheckThresholds checkThresholds) {
+    AllocKind thingKind, ShouldCheckThresholds checkThresholds,
+    StallAndRetry stallAndRetry) {
   MOZ_ASSERT(freeLists().isEmpty(thingKind));
 
   JSRuntime* rt = runtimeFromAnyThread();
@@ -374,7 +376,7 @@ void* ArenaLists::refillFreeListAndAllocate(
     maybeLock.emplace(rt);
   }
 
-  Arena* arena = arenaList(thingKind).takeNextArena();
+  Arena* arena = arenaList(thingKind).takeInitialNonFullArena();
   if (arena) {
     // Empty arenas should be immediately freed.
     MOZ_ASSERT(!arena->isEmpty());
@@ -388,7 +390,7 @@ void* ArenaLists::refillFreeListAndAllocate(
     maybeLock.emplace(rt);
   }
 
-  ArenaChunk* chunk = rt->gc.pickChunk(maybeLock.ref());
+  ArenaChunk* chunk = rt->gc.pickChunk(stallAndRetry, maybeLock.ref());
   if (!chunk) {
     return nullptr;
   }
@@ -402,8 +404,8 @@ void* ArenaLists::refillFreeListAndAllocate(
   }
 
   ArenaList& al = arenaList(thingKind);
-  MOZ_ASSERT(al.isCursorAtEnd());
-  al.insertBeforeCursor(arena);
+  MOZ_ASSERT(!al.hasNonFullArenas());
+  al.pushBack(arena);
 
   return freeLists().setArenaAndAllocate(arena, thingKind);
 }
@@ -466,7 +468,15 @@ Arena* GCRuntime::allocateArena(ArenaChunk* chunk, Zone* zone,
   }
 
   Arena* arena = chunk->allocateArena(this, zone, thingKind, lock);
-  zone->gcHeapSize.addGCArena(heapSize);
+
+  if (IsBufferAllocKind(thingKind)) {
+    // Try to keep GC scheduling the same to minimize benchmark noise.
+    // Keep this in sync with Arena::release.
+    size_t usableSize = ArenaSize - arena->getFirstThingOffset();
+    zone->mallocHeapSize.addBytes(usableSize);
+  } else {
+    zone->gcHeapSize.addGCArena(heapSize);
+  }
 
   // Trigger an incremental slice if needed.
   if (checkThresholds != ShouldCheckThresholds::DontCheckThresholds) {
@@ -494,27 +504,12 @@ Arena* ArenaChunk::allocateArena(GCRuntime* gc, Zone* zone, AllocKind thingKind,
   return arena;
 }
 
-template <size_t N>
-static inline size_t FindFirstBitSet(
-    const mozilla::BitSet<N, uint32_t>& bitset) {
-  MOZ_ASSERT(!bitset.IsEmpty());
-
-  const auto& words = bitset.Storage();
-  for (size_t i = 0; i < words.Length(); i++) {
-    uint32_t word = words[i];
-    if (word) {
-      return i * 32 + mozilla::CountTrailingZeroes32(word);
-    }
-  }
-
-  MOZ_CRASH("No bits found");
-}
-
 void ArenaChunk::commitOnePage(GCRuntime* gc) {
   MOZ_ASSERT(info.numArenasFreeCommitted == 0);
   MOZ_ASSERT(info.numArenasFree >= ArenasPerPage);
 
-  uint32_t pageIndex = FindFirstBitSet(decommittedPages);
+  uint32_t pageIndex = decommittedPages.FindFirst();
+  MOZ_ASSERT(pageIndex < PagesPerChunk);
   MOZ_ASSERT(decommittedPages[pageIndex]);
 
   if (DecommitEnabled()) {
@@ -537,7 +532,8 @@ Arena* ArenaChunk::fetchNextFreeArena(GCRuntime* gc) {
   MOZ_ASSERT(info.numArenasFreeCommitted > 0);
   MOZ_ASSERT(info.numArenasFreeCommitted <= info.numArenasFree);
 
-  size_t index = FindFirstBitSet(freeCommittedArenas);
+  size_t index = freeCommittedArenas.FindFirst();
+  MOZ_ASSERT(index < ArenasPerChunk);
   MOZ_ASSERT(freeCommittedArenas[index]);
 
   freeCommittedArenas[index] = false;
@@ -549,22 +545,36 @@ Arena* ArenaChunk::fetchNextFreeArena(GCRuntime* gc) {
 
 // ///////////  System -> ArenaChunk Allocator  ////////////////////////////////
 
-ArenaChunk* GCRuntime::getOrAllocChunk(AutoLockGCBgAlloc& lock) {
-  ArenaChunk* chunk = emptyChunks(lock).pop();
-  if (chunk) {
+ArenaChunk* GCRuntime::takeOrAllocChunk(StallAndRetry stallAndRetry,
+                                        AutoLockGCBgAlloc& lock) {
+  ArenaChunk* chunk = getOrAllocChunk(stallAndRetry, lock);
+  if (!chunk) {
+    return nullptr;
+  }
+
+  emptyChunks(lock).remove(chunk);
+  return chunk;
+}
+
+ArenaChunk* GCRuntime::getOrAllocChunk(StallAndRetry stallAndRetry,
+                                       AutoLockGCBgAlloc& lock) {
+  ArenaChunk* chunk;
+  if (!emptyChunks(lock).empty()) {
+    chunk = emptyChunks(lock).head();
     // Reinitialize ChunkBase; arenas are all free and may or may not be
     // committed.
     SetMemCheckKind(chunk, sizeof(ChunkBase), MemCheckKind::MakeUndefined);
     chunk->initBaseForArenaChunk(rt);
     MOZ_ASSERT(chunk->unused());
   } else {
-    void* ptr = ArenaChunk::allocate(this);
+    void* ptr = ArenaChunk::allocate(this, stallAndRetry);
     if (!ptr) {
       return nullptr;
     }
 
     chunk = ArenaChunk::emplace(ptr, this, /* allMemoryCommitted = */ true);
-    MOZ_ASSERT(chunk->info.numArenasFree == ArenasPerChunk);
+    MOZ_ASSERT(chunk->unused());
+    emptyChunks(lock).push(chunk);
   }
 
   if (wantBackgroundAllocation(lock)) {
@@ -587,12 +597,13 @@ void GCRuntime::recycleChunk(ArenaChunk* chunk, const AutoLockGC& lock) {
   emptyChunks(lock).push(chunk);
 }
 
-ArenaChunk* GCRuntime::pickChunk(AutoLockGCBgAlloc& lock) {
+ArenaChunk* GCRuntime::pickChunk(StallAndRetry stallAndRetry,
+                                 AutoLockGCBgAlloc& lock) {
   if (availableChunks(lock).count()) {
     return availableChunks(lock).head();
   }
 
-  ArenaChunk* chunk = getOrAllocChunk(lock);
+  ArenaChunk* chunk = getOrAllocChunk(stallAndRetry, lock);
   if (!chunk) {
     return nullptr;
   }
@@ -600,11 +611,8 @@ ArenaChunk* GCRuntime::pickChunk(AutoLockGCBgAlloc& lock) {
 #ifdef DEBUG
   chunk->verify();
   MOZ_ASSERT(chunk->unused());
-  MOZ_ASSERT(!fullChunks(lock).contains(chunk));
-  MOZ_ASSERT(!availableChunks(lock).contains(chunk));
+  MOZ_ASSERT(emptyChunks(lock).contains(chunk));
 #endif
-
-  availableChunks(lock).push(chunk);
 
   return chunk;
 }
@@ -624,7 +632,7 @@ void BackgroundAllocTask::run(AutoLockHelperThreadState& lock) {
     ArenaChunk* chunk;
     {
       AutoUnlockGC unlock(gcLock);
-      void* ptr = ArenaChunk::allocate(gc);
+      void* ptr = ArenaChunk::allocate(gc, StallAndRetry::No);
       if (!ptr) {
         break;
       }
@@ -635,8 +643,8 @@ void BackgroundAllocTask::run(AutoLockHelperThreadState& lock) {
 }
 
 /* static */
-void* ArenaChunk::allocate(GCRuntime* gc) {
-  void* chunk = MapAlignedPages(ChunkSize, ChunkSize);
+void* ArenaChunk::allocate(GCRuntime* gc, StallAndRetry stallAndRetry) {
+  void* chunk = MapAlignedPages(ChunkSize, ChunkSize, stallAndRetry);
   if (!chunk) {
     return nullptr;
   }
@@ -675,6 +683,7 @@ ArenaChunk* ArenaChunk::emplace(void* ptr, GCRuntime* gc,
     chunk->initAsCommitted();
   }
 
+  MOZ_ASSERT(chunk->unused());
   chunk->verify();
 
   return chunk;

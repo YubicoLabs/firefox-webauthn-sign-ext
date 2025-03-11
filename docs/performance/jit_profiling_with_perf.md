@@ -1,16 +1,30 @@
 # JIT Profiling with perf
 
-perf is a performance profiling tool available on Linux that is capable of measuring performance events such as cycles, instructions executed, cache misses, etc and providing assembly and source code annotation.
-It is possible to collect performance profiles of the SpiderMonkey JIT using perf on Linux and also annotate the generated assembly with the IR opcodes that were used during compilation as shown below.
+## Maybe preferable: profiling with `samply`
+
+`samply` makes profiling JIT a lot easier and should be preferred if running
+macOS or Linux. Documentation is at [JIT profiling with
+`samply`](jit_profiling_with_samply.md).
+
+## Introduction
+
+`perf` is a performance profiling tool available on Linux that is
+capable of measuring performance events such as cycles, instructions executed,
+cache misses, etc and providing assembly and source code annotation. It is
+possible to collect performance profiles of the SpiderMonkey JIT using perf on
+Linux and also annotate the generated assembly with the IR opcodes that were
+used during compilation as shown below.
 
 ![](img/annotation.png)
 
 ## Build setup
 
-To enable JIT profiling with perf jitdump, you must build Firefox or the JS shell with the following flag:
+JIT profiling with perf jitdump is **enabled by default for nightly builds** in the shell and browser.
+
+If you wish to disable jitdump support in your build, then you can include the following build flag:
 
 ```
-ac_add_options --enable-perf
+ac_add_options --disable-jitdump
 ```
 
 ## Environment Variables

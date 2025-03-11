@@ -10,6 +10,7 @@
 #include "mozilla/DebugOnly.h"
 
 #include "gc/AllocKind.h"
+#include "gc/Memory.h"
 #include "gc/Pretenuring.h"
 #include "js/HeapAPI.h"
 #include "js/TypeDecls.h"
@@ -245,7 +246,8 @@ class alignas(ArenaSize) Arena {
   }
 
   // Return an allocated arena to its unallocated (free) state.
-  inline void release(GCRuntime* gc, const AutoLockGC& lock);
+  // The lock is required for arenas in an atoms zone.
+  inline void release(GCRuntime* gc, const AutoLockGC* maybeLock);
 
   uintptr_t address() const {
     checkAddress();
@@ -301,7 +303,8 @@ class alignas(ArenaSize) Arena {
            firstFreeSpan.last == lastThingOffset(kind);
   }
 
-  bool hasFreeThings() const { return !firstFreeSpan.isEmpty(); }
+  bool isFull() const { return firstFreeSpan.isEmpty(); }
+  bool hasFreeThings() const { return !isFull(); }
 
   size_t numFreeThings(size_t thingSize) const {
     firstFreeSpan.checkSpan(this);
@@ -523,7 +526,6 @@ class ArenaChunk : public ArenaChunkBase {
                        const AutoLockGC& lock);
 
   void releaseArena(GCRuntime* gc, Arena* arena, const AutoLockGC& lock);
-  void recycleArena(Arena* arena, SortedArenaList& dest, size_t thingsPerArena);
 
   void decommitFreeArenas(GCRuntime* gc, const bool& cancel, AutoLockGC& lock);
   [[nodiscard]] bool decommitOneFreePage(GCRuntime* gc, size_t pageIndex,
@@ -534,7 +536,7 @@ class ArenaChunk : public ArenaChunkBase {
   // system call for each arena but is only used during OOM.
   void decommitFreeArenasWithoutUnlocking(const AutoLockGC& lock);
 
-  static void* allocate(GCRuntime* gc);
+  static void* allocate(GCRuntime* gc, StallAndRetry stallAndRetry);
   static ArenaChunk* emplace(void* ptr, GCRuntime* gc, bool allMemoryCommitted);
 
   /* Unlink and return the freeArenasHead. */
@@ -633,6 +635,7 @@ enum class MarkInfo : int {
   NURSERY_FROMSPACE = -2,
   NURSERY_TOSPACE = -3,  // Unused if semispace disabled.
   UNKNOWN = -4,
+  BUFFER = -5,
 };
 
 // For calling from gdb only: given a pointer that is either in the nursery

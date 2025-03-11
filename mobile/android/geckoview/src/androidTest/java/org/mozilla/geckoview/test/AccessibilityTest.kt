@@ -1405,13 +1405,6 @@ class AccessibilityTest : BaseSessionTest() {
 
     @Test
     fun autoFill_navigation() {
-        // Fails with BFCache in the parent.
-        // https://bugzilla.mozilla.org/show_bug.cgi?id=1715480
-        sessionRule.setPrefsUntilTestEnd(
-            mapOf(
-                "fission.bfcacheInParent" to false,
-            ),
-        )
         fun countAutoFillNodes(
             cond: (AccessibilityNodeInfo) -> Boolean =
                 { it.className == "android.widget.EditText" },
@@ -1478,7 +1471,7 @@ class AccessibilityTest : BaseSessionTest() {
         )
 
         // Now wait for the nodes to reappear.
-        mainSession.goBack()
+        mainSession.goBack(false)
         waitForInitialFocus()
         waitForAutoFillNodes()
         assertThat(
@@ -1674,6 +1667,8 @@ class AccessibilityTest : BaseSessionTest() {
     @Test
     fun testRemoteIframeTree() {
         testIframeTree(REMOTE_IFRAME)
+        // disabled for frequent failures - on Bug 1769324
+        assumeThat(sessionRule.env.isX86, equalTo(false))
     }
 
     @Test
@@ -2179,6 +2174,10 @@ class AccessibilityTest : BaseSessionTest() {
         sessionRule.waitUntilCalled(object : EventDelegate {
             @AssertCalled(count = 1)
             override fun onFocused(event: AccessibilityEvent) {}
+
+            // Focus fires a caret moved event which produces this event.
+            @AssertCalled(count = 1)
+            override fun onTextSelectionChanged(event: AccessibilityEvent) {}
         })
 
         mainSession.evaluateJS("document.querySelector('input[aria-label=Naame]').value = 'Tobiasas'")

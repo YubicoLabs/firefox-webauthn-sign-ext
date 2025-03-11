@@ -308,7 +308,7 @@ class WindowlessBrowser final : public nsIWindowlessBrowser,
   }
   NS_DECL_ISUPPORTS
   NS_DECL_NSIWINDOWLESSBROWSER
-  NS_FORWARD_SAFE_NSIWEBNAVIGATION(mWebNavigation)
+  NS_FORWARD_SAFE_NSIWEBNAVIGATION(RefPtr{mWebNavigation.get()})
   NS_FORWARD_SAFE_NSIINTERFACEREQUESTOR(mInterfaceRequestor)
 
  private:
@@ -408,13 +408,14 @@ nsAppShellService::CreateWindowlessBrowser(bool aIsChrome, uint32_t aChromeMask,
   }
 
   nsresult rv =
-      widget->Create(nullptr, 0, LayoutDeviceIntRect(0, 0, 0, 0), nullptr);
+      widget->Create(nullptr, LayoutDeviceIntRect(0, 0, 0, 0), nullptr);
   NS_ENSURE_SUCCESS(rv, rv);
 
   // Create a BrowsingContext for our windowless browser.
   RefPtr<BrowsingContext> browsingContext = BrowsingContext::CreateIndependent(
       aIsChrome ? BrowsingContext::Type::Chrome
-                : BrowsingContext::Type::Content);
+                : BrowsingContext::Type::Content,
+      true);
 
   if (aChromeMask & nsIWebBrowserChrome::CHROME_REMOTE_WINDOW) {
     browsingContext->SetRemoteTabs(true);

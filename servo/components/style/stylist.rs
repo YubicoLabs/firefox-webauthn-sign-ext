@@ -67,7 +67,7 @@ use selectors::matching::{
 };
 use selectors::matching::{MatchingForInvalidation, VisitedHandlingMode};
 use selectors::parser::{
-    AncestorHashes, Combinator, Component, FeaturelessHostMatches, Selector, SelectorIter,
+    AncestorHashes, Combinator, Component, MatchesFeaturelessHost, Selector, SelectorIter,
     SelectorList,
 };
 use selectors::visitor::{SelectorListKind, SelectorVisitor};
@@ -2483,7 +2483,7 @@ struct ScopeConditionReference {
     parent: ScopeConditionId,
     condition: Option<ScopeBoundsWithHashes>,
     #[ignore_malloc_size_of = "Raw ptr behind the scenes"]
-    implicit_scope_root: Option<StylistImplicitScopeRoot>,
+    implicit_scope_root: StylistImplicitScopeRoot,
     is_trivial: bool,
 }
 
@@ -2492,7 +2492,7 @@ impl ScopeConditionReference {
         Self {
             parent: ScopeConditionId::none(),
             condition: None,
-            implicit_scope_root: None,
+            implicit_scope_root: StylistImplicitScopeRoot::default_const(),
             is_trivial: true,
         }
     }
@@ -2575,13 +2575,26 @@ impl ScopeBoundsWithHashes {
 
 /// Implicit scope root, which may or may not be cached (i.e. For shadow DOM author
 /// styles that are cached and shared).
-#[derive(Clone, Debug, MallocSizeOf)]
+#[derive(Copy, Clone, Debug, MallocSizeOf)]
 enum StylistImplicitScopeRoot {
     Normal(ImplicitScopeRoot),
     Cached(usize),
 }
 // Should be safe, only mutated through mutable methods in `Stylist`.
 unsafe impl Sync for StylistImplicitScopeRoot {}
+
+impl StylistImplicitScopeRoot {
+    const fn default_const() -> Self {
+        // Use the "safest" fallback.
+        Self::Normal(ImplicitScopeRoot::DocumentElement)
+    }
+}
+
+impl Default for StylistImplicitScopeRoot {
+    fn default() -> Self {
+        Self::default_const()
+    }
+}
 
 /// Data resulting from performing the CSS cascade that is specific to a given
 /// origin.
@@ -2713,11 +2726,11 @@ pub struct CascadeData {
     num_declarations: usize,
 }
 
-// TODO(emilio, dshin): According to https://github.com/w3c/csswg-drafts/issues/10431 other browsers don't quite do this.
 fn parent_selector_for_scope(parent: Option<&SelectorList<SelectorImpl>>) -> &SelectorList<SelectorImpl> {
     lazy_static! {
         static ref SCOPE: SelectorList<SelectorImpl> = {
-            let list = SelectorList::scope();
+            // Implicit scope, as per https://github.com/w3c/csswg-drafts/issues/10196
+            let list = SelectorList::implicit_scope();
             list.mark_as_intentionally_leaked();
             list
         };
@@ -2726,6 +2739,14 @@ fn parent_selector_for_scope(parent: Option<&SelectorList<SelectorImpl>>) -> &Se
         Some(l) => l,
         None => &SCOPE,
     }
+}
+
+fn scope_start_matches_shadow_host(start: &SelectorList<SelectorImpl>) -> bool {
+    // TODO(emilio): Should we carry a MatchesFeaturelessHost rather than a bool around?
+    // Pre-existing behavior with multiple selectors matches this tho.
+    start.slice().iter().any(|s| {
+        s.matches_featureless_host(true).may_match()
+    })
 }
 
 impl CascadeData {
@@ -3021,39 +3042,24 @@ impl CascadeData {
             }
             (
                 ScopeTarget::Selector(&start.selectors),
-                start.selectors.slice().iter().any(|s| {
-                    !s.matches_featureless_host_selector_or_pseudo_element()
-                        .is_empty()
-                }),
+                scope_start_matches_shadow_host(&start.selectors),
             )
         } else {
-            let implicit_root = condition_ref
-                .implicit_scope_root
-                .as_ref()
-                .expect("No boundaries, no implicit root?");
+            let implicit_root = condition_ref.implicit_scope_root;
             match implicit_root {
                 StylistImplicitScopeRoot::Normal(r) => {
-                    match r.element(context.current_host.clone()) {
-                        None => return ScopeRootCandidates::empty(is_trivial),
-                        Some(root) => (ScopeTarget::Element(root), r.matches_shadow_host()),
-                    }
+                    (ScopeTarget::Implicit(r.element(context.current_host.clone())), r.matches_shadow_host())
                 },
                 StylistImplicitScopeRoot::Cached(index) => {
-                    use crate::dom::TShadowRoot;
                     let host = context
                         .current_host
                         .expect("Cached implicit scope for light DOM implicit scope");
-                    let shadow_root = E::unopaque(host)
-                        .shadow_root()
-                        .expect("Shadow host without root?");
-                    match shadow_root.implicit_scope_for_sheet(*index) {
+                    match E::implicit_scope_for_sheet_in_shadow_root(host, index) {
                         None => return ScopeRootCandidates::empty(is_trivial),
-                        Some(root) => {
-                            match root.element(context.current_host.clone()) {
-                                None => return ScopeRootCandidates::empty(is_trivial),
-                                Some(r) =>  (ScopeTarget::Element(r), root.matches_shadow_host()),
-                            }
-                        },
+                        Some(root) => (
+                            ScopeTarget::Implicit(root.element(context.current_host.clone())),
+                            root.matches_shadow_host(),
+                        ),
                     }
                 },
             }
@@ -3361,28 +3367,27 @@ impl CascadeData {
                 vec.try_reserve(1)?;
                 vec.push(rule);
             } else {
+                let scope_matches_shadow_host = containing_rule_state.scope_matches_shadow_host == ScopeMatchesShadowHost::Yes;
+                let matches_featureless_host_only = match rule.selector.matches_featureless_host(scope_matches_shadow_host) {
+                    MatchesFeaturelessHost::Only => true,
+                    MatchesFeaturelessHost::Yes => {
+                        // We need to insert this in featureless_host_rules but also normal_rules.
+                        self.featureless_host_rules
+                            .get_or_insert_with(|| Box::new(Default::default()))
+                            .for_insertion(pseudo_element)
+                            .insert(rule.clone(), quirks_mode)?;
+                        false
+                    },
+                    MatchesFeaturelessHost::Never => false,
+                };
+
                 // NOTE(emilio): It's fine to look at :host and then at
                 // ::slotted(..), since :host::slotted(..) could never
                 // possibly match, as <slot> is not a valid shadow host.
                 // :scope may match featureless shadow host if the scope
                 // root is the shadow root.
                 // See https://github.com/w3c/csswg-drafts/issues/9025
-                let potentially_matches_featureless_host = rule
-                    .selector
-                    .matches_featureless_host_selector_or_pseudo_element();
-                let matches_featureless_host = if potentially_matches_featureless_host
-                    .intersects(FeaturelessHostMatches::FOR_HOST)
-                {
-                    true
-                } else if potentially_matches_featureless_host
-                    .intersects(FeaturelessHostMatches::FOR_SCOPE)
-                {
-                    containing_rule_state.scope_matches_shadow_host ==
-                        ScopeMatchesShadowHost::Yes
-                } else {
-                    false
-                };
-                let rules = if matches_featureless_host {
+                let rules = if matches_featureless_host_only {
                     self.featureless_host_rules
                         .get_or_insert_with(|| Box::new(Default::default()))
                 } else if rule.selector.is_slotted() {
@@ -3684,20 +3689,18 @@ impl CascadeData {
                     let id = ScopeConditionId(self.scope_conditions.len() as u16);
                     let mut matches_shadow_host = false;
                     let implicit_scope_root = if let Some(start) = rule.bounds.start.as_ref() {
-                        matches_shadow_host = start.slice().iter().any(|s| {
-                            !s.matches_featureless_host_selector_or_pseudo_element()
-                                .is_empty()
-                        });
-                        // Would be unused anyway.
-                        None
+                        matches_shadow_host = scope_start_matches_shadow_host(start);
+                        // Would be unused, but use the default as fallback.
+                        StylistImplicitScopeRoot::default()
                     } else {
                         // (Re)Moving stylesheets trigger a complete flush, so saving the implicit
                         // root here should be safe.
-                        stylesheet.implicit_scope_root().map(|root| {
+                        if let Some(root) = stylesheet.implicit_scope_root() {
                             matches_shadow_host = root.matches_shadow_host();
                             match root {
                                 ImplicitScopeRoot::InLightTree(_) |
-                                ImplicitScopeRoot::Constructed => {
+                                ImplicitScopeRoot::Constructed |
+                                ImplicitScopeRoot::DocumentElement => {
                                     StylistImplicitScopeRoot::Normal(root)
                                 },
                                 ImplicitScopeRoot::ShadowHost(_) | ImplicitScopeRoot::InShadowTree(_) => {
@@ -3710,7 +3713,10 @@ impl CascadeData {
                                     StylistImplicitScopeRoot::Cached(sheet_index)
                                 },
                             }
-                        })
+                        } else {
+                            // Could not find implicit scope root, but use the default as fallback.
+                            StylistImplicitScopeRoot::default()
+                        }
                     };
 
                     let replaced = {

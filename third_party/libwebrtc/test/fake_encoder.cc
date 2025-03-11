@@ -105,7 +105,7 @@ int32_t FakeEncoder::Encode(const VideoFrame& input_image,
   RateControlParameters rates;
   bool keyframe;
   uint32_t counter;
-  absl::optional<int> qp;
+  std::optional<int> qp;
   {
     MutexLock lock(&mutex_);
     max_framerate = config_.maxFramerate;
@@ -269,7 +269,7 @@ void FakeEncoder::SetRatesLocked(const RateControlParameters& parameters) {
           uint32_t bitrate = current_rate_settings_.bitrate.GetBitrate(
               spatial_idx, temporal_idx);
           bitrate = static_cast<uint32_t>(
-              (bitrate* int64_t{max_target_bitrate_kbps_}) /
+              (bitrate * int64_t{max_target_bitrate_kbps_}) /
               allocated_bitrate_kbps);
           current_rate_settings_.bitrate.SetBitrate(spatial_idx, temporal_idx,
                                                     bitrate);

@@ -23,7 +23,7 @@
 #include "mozilla/UniquePtr.h"
 #include "mozilla/gfx/gfxVars.h"
 #include "mozilla/gfx/GPUParent.h"
-#include "mozilla/glean/GleanMetrics.h"
+#include "mozilla/glean/GfxMetrics.h"
 #include "mozilla/layers/AnimationHelper.h"
 #include "mozilla/layers/APZSampler.h"
 #include "mozilla/layers/APZUpdater.h"
@@ -195,6 +195,11 @@ void ResetDirtyPageModifier() {
   }
 
   moz_set_max_dirty_page_modifier(0);
+
+  wr::RenderThread* renderThread = wr::RenderThread::Get();
+  if (renderThread) {
+    renderThread->NotifyIdle();
+  }
 
 #if defined(MOZ_MEMORY)
   jemalloc_free_excess_dirty_pages();
@@ -600,6 +605,24 @@ bool WebRenderBridgeParent::UpdateResources(
         }
         aUpdates.SetBlobImageVisibleArea(op.key(),
                                          wr::ToDeviceIntRect(op.area()));
+        break;
+      }
+      case OpUpdateResource::TOpAddSnapshotImage: {
+        const auto& op = cmd.get_OpAddSnapshotImage();
+        if (!MatchesNamespace(wr::AsImageKey(op.key()))) {
+          MOZ_ASSERT_UNREACHABLE("Stale snapshot image key (add)!");
+          break;
+        }
+        aUpdates.AddSnapshotImage(op.key());
+        break;
+      }
+      case OpUpdateResource::TOpDeleteSnapshotImage: {
+        const auto& op = cmd.get_OpDeleteSnapshotImage();
+        if (!MatchesNamespace(wr::AsImageKey(op.key()))) {
+          MOZ_ASSERT_UNREACHABLE("Stale snapshot image key (remove)!");
+          break;
+        }
+        aUpdates.DeleteSnapshotImage(op.key());
         break;
       }
       case OpUpdateResource::TOpAddSharedExternalImage: {
@@ -1136,11 +1159,6 @@ bool WebRenderBridgeParent::SetDisplayList(
   wr::Vec<uint8_t> dlSpatialTreeData(std::move(aSpatialTreeDL));
 
   if (IsRootWebRenderBridgeParent()) {
-#ifdef MOZ_WIDGET_GTK
-    if (mWidget->AsGTK()) {
-      mWidget->AsGTK()->RemoteLayoutSizeUpdated(aRect);
-    }
-#endif
     LayoutDeviceIntSize widgetSize = mWidget->GetClientSize();
     LayoutDeviceIntRect rect =
         LayoutDeviceIntRect(LayoutDeviceIntPoint(), widgetSize);
@@ -2344,7 +2362,7 @@ void WebRenderBridgeParent::CompositeToTarget(VsyncId aId,
                          MarkerInnerWindowId(innerWindowId),
                          "Too many pending frames");
 
-    Telemetry::ScalarAdd(Telemetry::ScalarID::GFX_SKIPPED_COMPOSITES, 1);
+    glean::gfx::skipped_composites.Add(1);
 
     return;
   }
@@ -2440,7 +2458,7 @@ void WebRenderBridgeParent::MaybeGenerateFrame(VsyncId aId,
   mApi->SetFrameStartTime(startTime);
 #endif
 
-  fastTxn.GenerateFrame(aId, aReasons);
+  fastTxn.GenerateFrame(aId, true, aReasons);
   wr::RenderThread::Get()->IncPendingFrameCount(mApi->GetId(), aId, start);
 
   NeedIncreasedMaxDirtyPageModifier();

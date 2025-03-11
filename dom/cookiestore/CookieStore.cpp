@@ -78,9 +78,9 @@ bool ValidateCookieNameAndValue(const nsAString& aName, const nsAString& aValue,
     return false;
   }
 
-  if (aName.Length() + aValue.Length() > 1024) {
+  if (aName.Length() + aValue.Length() > 4096) {
     aPromise->MaybeRejectWithTypeError(
-        "Cookie name and value size cannot be greater than 1024 bytes");
+        "Cookie name and value size cannot be greater than 4096 bytes");
     return false;
   }
 
@@ -143,16 +143,31 @@ bool ValidateCookiePath(const nsAString& aPath, nsAString& retPath,
   return true;
 }
 
+bool HasSecurePrefix(const nsAString& aString) {
+  return StringBeginsWith(aString, u"__Secure-"_ns,
+                          nsCaseInsensitiveStringComparator);
+}
+
+bool HasHostPrefix(const nsAString& aString) {
+  return StringBeginsWith(aString, u"__Host-"_ns,
+                          nsCaseInsensitiveStringComparator);
+}
+
 // Reject cookies whose name starts with the magic prefixes from
 // https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-rfc6265bis
 // if they do not meet the criteria required by the prefix.
-bool ValidateCookieNamePrefix(const nsAString& aName,
+bool ValidateCookieNamePrefix(const nsAString& aName, const nsAString& aValue,
                               const nsAString& aOptionDomain,
                               const nsAString& aPath, Promise* aPromise) {
   MOZ_ASSERT(aPromise);
 
-  if (!StringBeginsWith(aName, u"__Host-"_ns,
-                        nsCaseInsensitiveStringComparator)) {
+  if (aName.IsEmpty() && (HasHostPrefix(aValue) || HasSecurePrefix(aValue))) {
+    aPromise->MaybeRejectWithTypeError(
+        "Nameless cookies should not begin with special prefixes");
+    return false;
+  }
+
+  if (!HasHostPrefix(aName)) {
     return true;
   }
 
@@ -196,11 +211,12 @@ void ResolvePromiseAsync(Promise* aPromise) {
 
 bool GetContextAttributes(CookieStore* aCookieStore, bool* aThirdPartyContext,
                           bool* aPartitionForeign, bool* aUsingStorageAccess,
-                          Promise* aPromise) {
+                          bool* aIsOn3PCBExceptionList, Promise* aPromise) {
   MOZ_ASSERT(aCookieStore);
   MOZ_ASSERT(aThirdPartyContext);
   MOZ_ASSERT(aPartitionForeign);
   MOZ_ASSERT(aUsingStorageAccess);
+  MOZ_ASSERT(aIsOn3PCBExceptionList);
   MOZ_ASSERT(aPromise);
 
   if (NS_IsMainThread()) {
@@ -224,6 +240,7 @@ bool GetContextAttributes(CookieStore* aCookieStore, bool* aThirdPartyContext,
 
     *aPartitionForeign = document->CookieJarSettings()->GetPartitionForeign();
     *aUsingStorageAccess = document->UsingStorageAccess();
+    *aIsOn3PCBExceptionList = document->IsOn3PCBExceptionList();
     return true;
   }
 
@@ -234,6 +251,7 @@ bool GetContextAttributes(CookieStore* aCookieStore, bool* aThirdPartyContext,
   *aPartitionForeign =
       workerPrivate->CookieJarSettings()->GetPartitionForeign();
   *aUsingStorageAccess = workerPrivate->UsingStorageAccess();
+  *aIsOn3PCBExceptionList = workerPrivate->IsOn3PCBExceptionList();
   return true;
 }
 
@@ -263,7 +281,9 @@ already_AddRefed<CookieStore> CookieStore::Create(nsIGlobalObject* aGlobal) {
 
 CookieStore::CookieStore(nsIGlobalObject* aGlobal)
     : DOMEventTargetHelper(aGlobal) {
-  mNotifier = CookieStoreNotifier::Create(this);
+  if (NS_IsMainThread()) {
+    mNotifier = CookieStoreNotifier::Create(this);
+  }
 
   // This must be created _after_ CookieStoreNotifier because we rely on the
   // notification order.
@@ -368,17 +388,19 @@ already_AddRefed<Promise> CookieStore::Set(const CookieInit& aOptions,
           return;
         }
 
-        if (!ValidateCookieNamePrefix(aOptions.mName, aOptions.mDomain, path,
-                                      promise)) {
+        if (!ValidateCookieNamePrefix(aOptions.mName, aOptions.mValue,
+                                      aOptions.mDomain, path, promise)) {
           return;
         }
 
         bool thirdPartyContext = true;
         bool partitionForeign = true;
         bool usingStorageAccess = false;
+        bool isOn3PCBExceptionList = false;
 
         if (!GetContextAttributes(self, &thirdPartyContext, &partitionForeign,
-                                  &usingStorageAccess, promise)) {
+                                  &usingStorageAccess, &isOn3PCBExceptionList,
+                                  promise)) {
           return;
         }
 
@@ -407,8 +429,8 @@ already_AddRefed<Promise> CookieStore::Set(const CookieInit& aOptions,
                 aOptions.mDomain.IsEmpty() ? nsString(baseDomain)
                                            : nsString(aOptions.mDomain),
                 cookiePrincipal->OriginAttributesRef(), thirdPartyContext,
-                partitionForeign, usingStorageAccess, nsString(aOptions.mName),
-                nsString(aOptions.mValue),
+                partitionForeign, usingStorageAccess, isOn3PCBExceptionList,
+                nsString(aOptions.mName), nsString(aOptions.mValue),
                 // If expires is not set, it's a session cookie.
                 aOptions.mExpires.IsNull(),
                 aOptions.mExpires.IsNull()
@@ -427,7 +449,7 @@ already_AddRefed<Promise> CookieStore::Set(const CookieInit& aOptions,
              operationID](
                 const CookieStoreChild::SetRequestPromise::ResolveOrRejectValue&
                     aResult) {
-              if (!aResult.ResolveValue()) {
+              if (!aResult.IsResolve() || !aResult.ResolveValue()) {
                 self->mNotificationWatcher->ForgetOperationID(operationID);
                 promise->MaybeResolveWithUndefined();
               }
@@ -491,17 +513,19 @@ already_AddRefed<Promise> CookieStore::Delete(
           return;
         }
 
-        if (!ValidateCookieNamePrefix(aOptions.mName, aOptions.mDomain, path,
-                                      promise)) {
+        if (!ValidateCookieNamePrefix(aOptions.mName, u""_ns, aOptions.mDomain,
+                                      path, promise)) {
           return;
         }
 
         bool thirdPartyContext = true;
         bool partitionForeign = true;
         bool usingStorageAccess = false;
+        bool isOn3PCBExceptionList = false;
 
         if (!GetContextAttributes(self, &thirdPartyContext, &partitionForeign,
-                                  &usingStorageAccess, promise)) {
+                                  &usingStorageAccess, &isOn3PCBExceptionList,
+                                  promise)) {
           return;
         }
 
@@ -530,8 +554,9 @@ already_AddRefed<Promise> CookieStore::Delete(
                 aOptions.mDomain.IsEmpty() ? nsString(baseDomain)
                                            : nsString(aOptions.mDomain),
                 cookiePrincipal->OriginAttributesRef(), thirdPartyContext,
-                partitionForeign, usingStorageAccess, nsString(aOptions.mName),
-                path, aOptions.mPartitioned, operationID);
+                partitionForeign, usingStorageAccess, isOn3PCBExceptionList,
+                nsString(aOptions.mName), path, aOptions.mPartitioned,
+                operationID);
         if (NS_WARN_IF(!ipcPromise)) {
           promise->MaybeResolveWithUndefined();
           return;
@@ -542,8 +567,7 @@ already_AddRefed<Promise> CookieStore::Delete(
             [promise = RefPtr<dom::Promise>(promise), self = RefPtr(self),
              operationID](const CookieStoreChild::DeleteRequestPromise::
                               ResolveOrRejectValue& aResult) {
-              MOZ_ASSERT(aResult.IsResolve());
-              if (!aResult.ResolveValue()) {
+              if (!aResult.IsResolve() || !aResult.ResolveValue()) {
                 self->mNotificationWatcher->ForgetOperationID(operationID);
                 promise->MaybeResolveWithUndefined();
               }
@@ -639,7 +663,10 @@ already_AddRefed<Promise> CookieStore::GetInternal(
 
           if (NS_IsMainThread()) {
             nsCOMPtr<nsPIDOMWindowInner> window = self->GetOwnerWindow();
-            MOZ_ASSERT(window);
+            if (NS_WARN_IF(!window)) {
+              promise->MaybeReject(NS_ERROR_DOM_SECURITY_ERR);
+              return;
+            }
 
             nsCOMPtr<Document> document = window->GetExtantDoc();
             if (NS_WARN_IF(!document)) {
@@ -703,9 +730,11 @@ already_AddRefed<Promise> CookieStore::GetInternal(
         bool thirdPartyContext = true;
         bool partitionForeign = true;
         bool usingStorageAccess = false;
+        bool isOn3PCBExceptionList = false;
 
         if (!GetContextAttributes(self, &thirdPartyContext, &partitionForeign,
-                                  &usingStorageAccess, promise)) {
+                                  &usingStorageAccess, &isOn3PCBExceptionList,
+                                  promise)) {
           return;
         }
 
@@ -729,8 +758,8 @@ already_AddRefed<Promise> CookieStore::GetInternal(
                     ? Some(partitionedCookiePrincipal->OriginAttributesRef())
                     : Nothing(),
                 thirdPartyContext, partitionForeign, usingStorageAccess,
-                aOptions.mName.WasPassed(), nsString(name), path,
-                aOnlyTheFirstMatch);
+                isOn3PCBExceptionList, aOptions.mName.WasPassed(),
+                nsString(name), path, aOnlyTheFirstMatch);
         if (NS_WARN_IF(!ipcPromise)) {
           promise->MaybeResolveWithUndefined();
           return;
@@ -741,9 +770,12 @@ already_AddRefed<Promise> CookieStore::GetInternal(
             [promise = RefPtr<dom::Promise>(promise), aOnlyTheFirstMatch](
                 const CookieStoreChild::GetRequestPromise::ResolveOrRejectValue&
                     aResult) {
-              nsTArray<CookieListItem> list;
-              MOZ_ASSERT(aResult.IsResolve());
+              if (!aResult.IsResolve()) {
+                promise->MaybeResolveWithUndefined();
+                return;
+              }
 
+              nsTArray<CookieListItem> list;
               CookieDataToList(aResult.ResolveValue(), list);
 
               if (!aOnlyTheFirstMatch) {

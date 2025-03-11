@@ -21,10 +21,12 @@ import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.material.Icon
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
@@ -38,21 +40,37 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.times
+import mozilla.components.compose.base.Divider
+import mozilla.components.compose.base.annotation.FlexibleWindowLightDarkPreview
 import org.mozilla.fenix.R
-import org.mozilla.fenix.compose.annotation.FlexibleWindowLightDarkPreview
+import org.mozilla.fenix.compose.menu.DropdownMenu
+import org.mozilla.fenix.compose.menu.MenuItem
+import org.mozilla.fenix.compose.text.Text
+import org.mozilla.fenix.compose.text.value
 import org.mozilla.fenix.theme.FirefoxTheme
 
-private val ICON_SIZE = 24.dp
+private val IconSize = 24.dp
+private val HorizontalPadding = 4.dp
+private val IconSpace = 12.dp
+
+// The default padding from androidx.compose.material.DropdownMenuItemHorizontalPadding
+private val DefaultDropdownMenuItemHorizontalPadding = 16.dp
+
+private val ContextMenuWidth =
+    2 * HorizontalPadding +
+        IconSize +
+        IconSpace +
+        2 * DefaultDropdownMenuItemHorizontalPadding
 
 /**
  * UI for a dropdown and a contextual menu that can be expanded or collapsed.
  *
  * @param label Text to be displayed above the dropdown.
  * @param placeholder The text to be displayed when no [dropdownItems] are selected.
- * @param dropdownItems The [MenuItem]s that should be shown when the dropdown is expanded.
+ * @param dropdownItems The [MenuItem.CheckableItem]s that should be shown when the dropdown is expanded.
  * @param modifier Modifier to be applied to the dropdown layout.
- * @param dropdownMenuTextWidth The optional width to allocate for the text for each [MenuItem]. If
- * not specified, the best width will be determined based on the dropdown items provided.
+ * @param dropdownMenuTextWidth The optional width to allocate for the text for each [MenuItem.CheckableItem].
+ * If not specified, the best width will be determined based on the dropdown items provided.
  * @param isInLandscapeMode Whether the device is in landscape mode.
  */
 @Suppress("LongMethod")
@@ -60,37 +78,30 @@ private val ICON_SIZE = 24.dp
 fun Dropdown(
     label: String,
     placeholder: String,
-    dropdownItems: List<MenuItem>,
+    dropdownItems: List<MenuItem.CheckableItem>,
     modifier: Modifier = Modifier,
     dropdownMenuTextWidth: Dp? = null,
     isInLandscapeMode: Boolean = false,
 ) {
-    val horizontalPadding = 4.dp
-    // The default padding from androidx.compose.material.DropdownMenuItemHorizontalPadding
-    val defaultDropdownMenuItemHorizontalPadding = 16.dp
-    val iconSpace = 12.dp
-
-    var contextMenuWidth =
-        2 * horizontalPadding +
-            ICON_SIZE +
-            iconSpace +
-            2 * defaultDropdownMenuItemHorizontalPadding
-
+    val dropdownMenuWidth: Dp
     if (dropdownMenuTextWidth != null) {
-        contextMenuWidth += dropdownMenuTextWidth
+        dropdownMenuWidth = ContextMenuWidth + dropdownMenuTextWidth
     } else {
-        val longestDropdownItemSize: Dp
-        dropdownItems.sortedWith(compareBy { it.title.length }).last().let {
-            longestDropdownItemSize = measureTextWidth(it.title, FirefoxTheme.typography.subtitle1)
+        val longestDropdownItemSize = getLongestItemWidth(dropdownItems, FirefoxTheme.typography.subtitle1)
+        dropdownMenuWidth = ContextMenuWidth + longestDropdownItemSize
+    }
+
+    val checkedItemText by remember(dropdownItems) {
+        derivedStateOf {
+            dropdownItems.find { it.isChecked }?.text
         }
-        contextMenuWidth += longestDropdownItemSize
     }
 
     val density = LocalDensity.current
 
     var expanded by remember { mutableStateOf(false) }
 
-    var contextMenuWidthDp by remember { mutableStateOf(0.dp) }
+    var measuredDropdownMenuWidthDp by remember { mutableStateOf(0.dp) }
 
     Column(
         modifier = modifier
@@ -111,57 +122,54 @@ fun Dropdown(
 
         Spacer(modifier = Modifier.height(4.dp))
 
-        val placeholderText = dropdownItems.find { it.isChecked }?.title ?: placeholder
+        val placeholderText = checkedItemText?.value ?: placeholder
 
-        Row {
-            Text(
-                text = placeholderText,
-                modifier = Modifier.weight(1f),
-                color = FirefoxTheme.colors.textPrimary,
-                style = FirefoxTheme.typography.subtitle1,
-            )
+        Box {
+            Row {
+                Text(
+                    text = placeholderText,
+                    modifier = Modifier.weight(1f),
+                    color = FirefoxTheme.colors.textPrimary,
+                    style = FirefoxTheme.typography.subtitle1,
+                )
 
-            Spacer(modifier = Modifier.width(10.dp))
+                Spacer(modifier = Modifier.width(10.dp))
 
-            Box {
                 Icon(
                     painter = painterResource(id = R.drawable.mozac_ic_dropdown_arrow),
                     contentDescription = null,
                     tint = FirefoxTheme.colors.iconPrimary,
                 )
+            }
 
-                if (expanded) {
-                    ContextualMenu(
-                        showMenu = true,
-                        onDismissRequest = {
-                            expanded = false
-                        },
-                        menuItems = dropdownItems,
-                        modifier = Modifier
-                            .onGloballyPositioned { coordinates ->
-                                contextMenuWidthDp = with(density) {
-                                    coordinates.size.width.toDp()
-                                }
+            Box(modifier = Modifier.align(Alignment.TopEnd)) {
+                DropdownMenu(
+                    menuItems = dropdownItems,
+                    expanded = expanded,
+                    modifier = Modifier
+                        .onGloballyPositioned { coordinates ->
+                            measuredDropdownMenuWidthDp = with(density) {
+                                coordinates.size.width.toDp()
                             }
-                            .requiredSizeIn(
-                                maxHeight = 200.dp,
-                                maxWidth = contextMenuWidth,
-                                minWidth = contextMenuWidth,
-                            ),
-                        canShowCheckItems = true,
-                        offset = if (isInLandscapeMode) {
-                            DpOffset(
-                                -contextMenuWidthDp + ICON_SIZE,
-                                ICON_SIZE,
-                            )
-                        } else {
-                            DpOffset(
-                                0.dp,
-                                ICON_SIZE,
-                            )
-                        },
-                    )
-                }
+                        }
+                        .requiredSizeIn(
+                            maxHeight = 200.dp,
+                            maxWidth = dropdownMenuWidth,
+                            minWidth = dropdownMenuWidth,
+                        ),
+                    offset = if (isInLandscapeMode) {
+                        DpOffset(
+                            -measuredDropdownMenuWidthDp,
+                            IconSize,
+                        )
+                    } else {
+                        DpOffset(
+                            0.dp,
+                            IconSize,
+                        )
+                    },
+                    onDismissRequest = { expanded = false },
+                )
             }
         }
 
@@ -169,41 +177,49 @@ fun Dropdown(
     }
 }
 
-/**
- * Measure the amount of [Dp] the given text in the given style will take up.
- *
- * @param text The text to measure the [Dp] of.
- * @param style The style that the text will use.
- */
 @Composable
-fun measureTextWidth(text: String, style: TextStyle): Dp {
-    val textMeasurer = rememberTextMeasurer()
-    val widthInPixels = textMeasurer.measure(text, style).size.width
-    return with(LocalDensity.current) { widthInPixels.toDp() }
+private fun getLongestItemWidth(items: List<MenuItem.CheckableItem>, style: TextStyle): Dp {
+    if (items.isEmpty()) {
+        return 0.dp
+    }
+
+    val textMeasurer = rememberTextMeasurer(cacheSize = items.size)
+    val longestDropdownItemSize = items.maxOf {
+        val width = textMeasurer.measure(
+            text = it.text.value,
+            style = style,
+        ).size.width
+
+        with(LocalDensity.current) { width.toDp() }
+    }
+    return longestDropdownItemSize
 }
 
 @Suppress("MagicNumber")
-private fun getDropdownItems(): List<MenuItem> =
+private fun getDropdownItems(): List<MenuItem.CheckableItem> =
     List(10) { index ->
-        MenuItem(
-            title = "Item $index",
+        MenuItem.CheckableItem(
+            text = Text.String("Item $index"),
+            isChecked = false,
             onClick = {},
         )
     }
 
-private fun getSelectedDropdownItems(): List<MenuItem> =
+private fun getSelectedDropdownItems(): List<MenuItem.CheckableItem> =
     listOf(
-        MenuItem(
-            title = "Item 1",
+        MenuItem.CheckableItem(
+            text = Text.String("Item 1"),
             isChecked = true,
             onClick = {},
         ),
-        MenuItem(
-            title = "Item 2",
+        MenuItem.CheckableItem(
+            text = Text.String("Item 2"),
+            isChecked = false,
             onClick = {},
         ),
-        MenuItem(
-            title = "Item 3",
+        MenuItem.CheckableItem(
+            text = Text.String("Item 3"),
+            isChecked = false,
             onClick = {},
         ),
     )
@@ -224,7 +240,7 @@ private fun DropdownPreview() {
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            Spacer(modifier = Modifier.height(FirefoxTheme.space.xSmall))
+            Spacer(modifier = Modifier.height(FirefoxTheme.layout.space.dynamic150))
 
             Dropdown(
                 label = "Placeholder and item selected",

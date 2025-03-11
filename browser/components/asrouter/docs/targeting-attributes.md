@@ -11,6 +11,7 @@ Please note that some targeting attributes require stricter controls on the tele
 * [activeNotifications](#activenotifications)
 * [addonsInfo](#addonsinfo)
 * [addressesSaved](#addressessaved)
+* [alltabsButtonAreaType](#alltabsButtonAreaType)
 * [archBits](#archbits)
 * [attachedFxAOAuthClients](#attachedfxaoauthclients)
 * [attributionData](#attributiondata)
@@ -18,12 +19,15 @@ Please note that some targeting attributes require stricter controls on the tele
 * [blockedCountByType](#blockedcountbytype)
 * [browserIsSelected](#browserisselected)
 * [browserSettings](#browsersettings)
+* [canCreateSelectableProfiles](#cancreateselectableprofiles)
 * [creditCardsSaved](#creditcardssaved)
 * [currentDate](#currentdate)
+* [currentTabGroups](#currentTabGroups)
 * [defaultPDFHandler](#defaultpdfhandler)
 * [devToolsOpenedCount](#devtoolsopenedcount)
 * [distributionId](#distributionid)
 * [doesAppNeedPin](#doesappneedpin)
+* [doesAppNeedPinUncached](#doesappneedpinuncached)
 * [doesAppNeedPrivatePin](#doesappneedprivatepin)
 * [firefoxVersion](#firefoxversion)
 * [fxViewButtonAreaType](#fxviewbuttonareatype)
@@ -34,10 +38,12 @@ Please note that some targeting attributes require stricter controls on the tele
 * [hasMigratedHistory](#hasmigratedhistory)
 * [hasMigratedPasswords](#hasmigratedpasswords)
 * [hasPinnedTabs](#haspinnedtabs)
+* [hasSelectableProfiles](#hasselectableprofiles)
 * [homePageSettings](#homepagesettings)
 * [isBackgroundTaskMode](#isbackgroundtaskmode)
 * [isChinaRepack](#ischinarepack)
 * [isDefaultBrowser](#isdefaultbrowser)
+* [isDefaultBrowserUncached](#isdefaultbrowseruncached)
 * [isDefaultHandler](#isdefaulthandler)
 * [isDeviceMigration](#isdevicemigration)
 * [isFxAEnabled](#isfxaenabled)
@@ -45,6 +51,7 @@ Please note that some targeting attributes require stricter controls on the tele
 * [isMajorUpgrade](#ismajorupgrade)
 * [isMSIX](#ismsix)
 * [isRTAMO](#isrtamo)
+* [unhandledCampaignAction](#unhandledCampaignAction)
 * [launchOnLoginEnabled](#launchonloginenabled)
 * [locale](#locale)
 * [localeLanguageCode](#localelanguagecode)
@@ -62,6 +69,7 @@ Please note that some targeting attributes require stricter controls on the tele
 * [providerCohorts](#providercohorts)
 * [recentBookmarks](#recentbookmarks)
 * [region](#region)
+* [savedTabGroups](#savedtabgroups)
 * [screenImpressions](#screenimpressions)
 * [searchEngines](#searchengines)
 * [sync](#sync)
@@ -235,6 +243,10 @@ Is Firefox the user's default browser?
 ```ts
 declare const isDefaultBrowser: boolean;
 ```
+
+### `isDefaultBrowserUncached`
+
+Behaves the same as `isDefaultBrowser`, but retrieves the current value directly from shell service instead of using the cached value. This may not be as performant.
 
 ### `isDefaultHandler`
 
@@ -611,6 +623,13 @@ Pref used by system administrators to disallow add-ons from installed altogether
 ```ts
 declare const xpinstallEnabled: boolean;
 ```
+### `currentTabGroups`
+
+Returns the number of currently open tab groups.
+
+### `savedTabGroups`
+
+Returns the number of tab groups the user has saved.
 
 ### `hasPinnedTabs`
 
@@ -971,6 +990,10 @@ user activity where the first entry is the total urls visited for that day.
 
 Checks if Firefox app can be and isn't pinned to OS taskbar/dock or Windows start menu in MSIX builds.
 
+### `doesAppNeedPinUncached`
+
+Does the same as `doesAppNeedPin`, but retrieves the current value directly from shell service instead of using the cached value. This may not be as performant.
+
 ### `doesAppNeedPrivatePin`
 
 Checks if Firefox Private Browsing Mode can be and isn't pinned to OS taskbar/dock. Currently this only works on certain Windows versions.
@@ -997,6 +1020,10 @@ is no distribution associated with the build.
 
 A string of the name of the container where the Firefox View button is shown, null if the button has been removed.
 
+### `alltabsButtonAreaType`
+
+A string of the name of the container where the Tab Overflow button (or All Tabs button) is shown, null if the button has been removed.
+
 ### `hasMigratedBookmarks`
 
 A boolean. `true` if the user ever used the Migration Wizard to migrate bookmarks since Firefox 113 released. Available in Firefox 113+; will not be true if the user had only ever migrated bookmarks prior to Firefox 113 being released.
@@ -1020,6 +1047,18 @@ A boolean. `true` if the user is configured to use the embedded Migration Wizard
 ### `isRTAMO`
 
 A boolean. `true` when [RTAMO](first-run.md#return-to-amo-rtamo) has been used to download Firefox, `false` otherwise.
+
+### `canCreateSelectableProfiles`
+
+A boolean. `true` when both the current install and current profile support creating additional profiles using the `SelectableProfileService`; `false` otherwise.
+
+### `hasSelectableProfiles`
+
+A boolean. `true` when the `toolkit.profiles.storeID` pref has a value. Indicates that the profile is part of a profile group managed by the `SelectableProfileService`, and the user has used the multiple profiles feature. `false` otherwise.
+
+### `unhandledCampaignAction`
+
+A string. A special message action to be executed on first-run. For example, `"SET_DEFAULT_BROWSER"` when the user selected to set as default via the [install marketing page](https://www.mozilla.org/firefox/new/) and set default has not yet been automatically triggered, `null` otherwise.
 
 ### `isMSIX`
 

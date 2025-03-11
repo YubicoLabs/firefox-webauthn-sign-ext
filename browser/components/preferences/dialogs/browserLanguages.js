@@ -300,7 +300,7 @@ class SortedItemSelectList {
     document.l10n.setAttributes(this.menulist, messageId);
     this.menulist.setAttribute(
       "image",
-      "chrome://browser/skin/tabbrowser/tab-connecting.png"
+      "chrome://global/skin/icons/loading.svg"
     );
     this.menulist.disabled = true;
     this.button.disabled = true;
@@ -719,3 +719,5 @@ var gBrowserLanguagesDialog = {
     };
   },
 };
+
+window.addEventListener("load", () => gBrowserLanguagesDialog.onLoad());

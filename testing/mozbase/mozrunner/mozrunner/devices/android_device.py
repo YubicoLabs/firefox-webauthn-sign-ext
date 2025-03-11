@@ -11,14 +11,18 @@ import shutil
 import signal
 import subprocess
 import sys
-import telnetlib
 import time
 from collections import namedtuple
 from enum import Enum
+from urllib.request import urlopen
 
 import six
 from mozdevice import ADBDeviceFactory, ADBHost
-from six.moves import input, urllib
+
+try:
+    import telnetlib
+except ImportError:  # telnetlib was removed in Python 3.13
+    from . import telnetlib
 
 MOZBUILD_PATH = os.environ.get(
     "MOZBUILD_STATE_PATH", os.path.expanduser(os.path.join("~", ".mozbuild"))
@@ -76,6 +80,11 @@ cd {lldb_tmp_dir}
 
 
 class InstallIntent(Enum):
+    YES = 1
+    NO = 2
+
+
+class UninstallIntent(Enum):
     YES = 1
     NO = 2
 
@@ -289,7 +298,15 @@ def metadata_for_app(app, aab=False):
     activity_name = None
     subcommand = None
 
-    if "fennec" in app or "firefox" in app:
+    if app == "org.mozilla.fenix.release" or app == "org.mozilla.firefox":
+        package_name = "org.mozilla.firefox"
+        activity_name = "org.mozilla.firefox.App"
+        subcommand = "installFenixRelease"
+    if app == "org.mozilla.fenix.nightly" or app == "fenix.nightly":
+        # Likely only works for --no-install.
+        package_name = "org.mozilla.fenix"
+        activity_name = "org.mozilla.fenix.App"
+    elif "fennec" in app or "firefox" in app:
         activity_name = "org.mozilla.gecko.BrowserApp"
     elif app == "org.mozilla.geckoview.test":
         subcommand = "install-geckoview-test"
@@ -307,11 +324,11 @@ def metadata_for_app(app, aab=False):
         )
     elif "fenix" in app:
         package_name = "org.mozilla.fenix.debug"
-        activity_name = "org.mozilla.fenix.debug.App"
+        activity_name = "org.mozilla.fenix.IntentReceiverActivity"
         subcommand = "install-fenix"
     elif "focus" in app:
         package_name = "org.mozilla.focus.debug"
-        activity_name = "org.mozilla.focus.activity.MainActivity"
+        activity_name = "org.mozilla.focus.activity.IntentReceiverActivity"
         subcommand = "install-focus"
     return metadata(activity_name, package_name, subcommand)
 
@@ -319,6 +336,7 @@ def metadata_for_app(app, aab=False):
 def verify_android_device(
     build_obj,
     install=InstallIntent.NO,
+    uninstall=UninstallIntent.YES,
     xre=False,
     debugger=False,
     network=False,
@@ -353,9 +371,18 @@ def verify_android_device(
         _log_info(
             "*********************************************************************\n"
             "Neither the MOZ_DISABLE_ADB_INSTALL environment variable nor the\n"
-            "--no-install flag was found. The code will now uninstall the current\n"
-            "app then re-install the android app from a different source. If you\n"
-            "don't want this set your local env so that\n"
+            "--no-install flag was found."
+        )
+
+        if uninstall == UninstallIntent.YES:
+            _log_info(
+                "The code will now uninstall the current app then re-install the\n"
+                "android app from a different source. If you want to avoid unintalling\n"
+                "the current app, set the --no-uninstall flag."
+            )
+
+        _log_info(
+            "If you don't want this set your local env so that\n"
             "MOZ_DISABLE_ADB_INSTALL=True or pass the --no-install flag\n"
             "*********************************************************************"
         )
@@ -415,11 +442,11 @@ def verify_android_device(
                 % metadata.package_name
             )
 
-        if metadata.subcommand and installed:
+        if metadata.subcommand and installed and uninstall == UninstallIntent.YES:
             device.uninstall_app(metadata.package_name)
 
-        if "fennec" in metadata.package_name or "firefox" in metadata.package_name:
-            if installed:
+        if metadata.activity_name == "org.mozilla.gecko.BrowserApp":
+            if installed and uninstall == UninstallIntent.YES:
                 device.uninstall_app(metadata.package_name)
             _log_info("Installing Firefox...")
             build_obj._run_make(directory=".", target="install", ensure_exit_code=False)
@@ -513,6 +540,7 @@ def run_lldb_server(app, substs, device_serial):
 
 def _setup_or_run_lldb_server(app, substs, device_serial, setup=True):
     device = _get_device(substs, device_serial)
+    device.run_as_package = app
 
     # Don't use enable_run_as here, as this will not give you what you
     # want if we have root access on the device.
@@ -1009,7 +1037,7 @@ def _log_info(text):
 
 def _download_file(url, filename, path):
     _log_debug("Download %s to %s/%s..." % (url, path, filename))
-    f = urllib.request.urlopen(url)
+    f = urlopen(url)
     if not os.path.isdir(path):
         try:
             os.makedirs(path)

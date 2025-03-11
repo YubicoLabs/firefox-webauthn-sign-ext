@@ -106,7 +106,7 @@ async function typeInSearchField(browser, text, fieldName) {
 
 async function searchInSearchbar(inputText, win = window) {
   await new Promise(r => waitForFocus(r, win));
-  let sb = win.BrowserSearch.searchBar;
+  let sb = win.document.getElementById("searchbar");
   // Write the search query in the searchbar.
   sb.focus();
   sb.value = inputText;
@@ -131,3 +131,82 @@ function clearSearchbarHistory() {
 registerCleanupFunction(async () => {
   await PlacesUtils.history.clear();
 });
+
+/**
+ * Fills a text field ensuring to cause expected edit events.
+ *
+ * @param {string} id
+ *        id of the text field
+ * @param {string} text
+ *        text to fill in
+ * @param {object} win
+ *        dialog window
+ */
+function fillTextField(id, text, win) {
+  let elt = win.document.getElementById(id);
+  elt.focus();
+  elt.select();
+  EventUtils.synthesizeKey("a", { metaKey: true }, win);
+  EventUtils.synthesizeKey("KEY_Backspace", {}, win);
+
+  for (let c of text.split("")) {
+    EventUtils.synthesizeKey(c, {}, win);
+  }
+}
+
+/**
+ * Wait for the user's default search engine to change.
+ *
+ * @param {XULBrowser} browser
+ * @param {Function} searchEngineChangeFn
+ *   A function that is called to change the search engine.
+ */
+async function promiseContentSearchChange(browser, searchEngineChangeFn) {
+  // Add an event listener manually then perform the action, rather than using
+  // BrowserTestUtils.addContentEventListener as that doesn't add the listener
+  // early enough.
+  await SpecialPowers.spawn(browser, [], async () => {
+    // Store the results in a temporary place.
+    content._searchDetails = {
+      defaultEnginesList: [],
+      listener: event => {
+        if (event.detail.type == "CurrentEngine") {
+          content._searchDetails.defaultEnginesList.push(
+            content.wrappedJSObject.gContentSearchController.defaultEngine.name
+          );
+        }
+      },
+    };
+
+    // Listen using the system group to ensure that it fires after
+    // the default behaviour.
+    content.addEventListener(
+      "ContentSearchService",
+      content._searchDetails.listener,
+      { mozSystemGroup: true }
+    );
+  });
+
+  let expectedEngineName = await searchEngineChangeFn();
+
+  await SpecialPowers.spawn(
+    browser,
+    [expectedEngineName],
+    async expectedEngineNameChild => {
+      await ContentTaskUtils.waitForCondition(
+        () =>
+          content._searchDetails.defaultEnginesList &&
+          content._searchDetails.defaultEnginesList[
+            content._searchDetails.defaultEnginesList.length - 1
+          ] == expectedEngineNameChild,
+        `Waiting for ${expectedEngineNameChild} to be set`
+      );
+      content.removeEventListener(
+        "ContentSearchService",
+        content._searchDetails.listener,
+        { mozSystemGroup: true }
+      );
+      delete content._searchDetails;
+    }
+  );
+}

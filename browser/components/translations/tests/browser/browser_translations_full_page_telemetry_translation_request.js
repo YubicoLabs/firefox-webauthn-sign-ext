@@ -49,11 +49,11 @@ add_task(async function test_translations_telemetry_manual_translation() {
     downloadHandler: resolveDownloads,
   });
 
-  await FullPageTranslationsTestUtils.assertPageIsTranslated(
-    "es",
-    "en",
-    runInPage
-  );
+  await FullPageTranslationsTestUtils.assertPageIsTranslated({
+    fromLanguage: "es",
+    toLanguage: "en",
+    runInPage,
+  });
 
   await TestTranslationsTelemetry.assertCounter(
     "RequestCount",
@@ -106,11 +106,15 @@ add_task(async function test_translations_telemetry_manual_translation() {
         to_language: "en",
         auto_translate: false,
         document_language: "es",
-        top_preferred_language: "en",
+        top_preferred_language: "en-US",
         request_target: "full_page",
       },
     }
   );
+
+  await TestTranslationsTelemetry.assertTranslationsEnginePerformance({
+    expectedEventCount: 1,
+  });
 
   await cleanup();
 });
@@ -130,11 +134,11 @@ add_task(async function test_translations_telemetry_auto_translation() {
     downloadHandler: resolveDownloads,
   });
 
-  await FullPageTranslationsTestUtils.assertPageIsTranslated(
-    "es",
-    "en",
-    runInPage
-  );
+  await FullPageTranslationsTestUtils.assertPageIsTranslated({
+    fromLanguage: "es",
+    toLanguage: "en",
+    runInPage,
+  });
 
   await TestTranslationsTelemetry.assertCounter(
     "RequestCount",
@@ -178,11 +182,15 @@ add_task(async function test_translations_telemetry_auto_translation() {
         to_language: "en",
         auto_translate: true,
         document_language: "es",
-        top_preferred_language: "en",
+        top_preferred_language: "en-US",
         request_target: "full_page",
       },
     }
   );
+
+  await TestTranslationsTelemetry.assertTranslationsEnginePerformance({
+    expectedEventCount: 1,
+  });
 
   await cleanup();
 });

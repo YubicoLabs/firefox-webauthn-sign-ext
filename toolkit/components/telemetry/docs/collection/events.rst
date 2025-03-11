@@ -134,15 +134,6 @@ The following event properties are valid:
   - ``firefox`` - Collected in Firefox Desktop for submission via Firefox Telemetry.
   - ``thunderbird`` - Collected in Thunderbird for submission via Thunderbird Telemetry.
 
-- ``operating_systems`` *(optional, list of strings)*: This field restricts recording to certain operating systems only. It defaults to ``all``. Currently supported values are:
-
-   - ``mac``
-   - ``linux``
-   - ``windows``
-   - ``android``
-   - ``unix``
-   - ``all`` (record on all operating systems)
-
 .. note::
 
   Combinations of ``category``, ``method``, and ``object`` defined in the file must be unique.
@@ -157,30 +148,10 @@ Since Firefox 132 (see `bug 1863031 <https://bugzilla.mozilla.org/show_bug.cgi?i
 events in Firefox Desktop are
 :doc:`recorded using the Glean API <../../glean/user/glean_for_legacy_events>`.
 
-``setEventRecordingEnabled()``
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: js
-
-  Services.telemetry.setEventRecordingEnabled(category, enabled);
-
-Event recording is currently disabled by default for events registered in Events.yaml.
-Dynamically-registered events (those registered using ``registerEvents()``) are enabled by default, and cannot be disabled.
-Privileged add-ons and Firefox code can enable & disable recording events for specific categories using this function.
-
-Example:
-
-.. code-block:: js
-
-  Services.telemetry.setEventRecordingEnabled("ui", true);
-  // ... now events in the "ui" category will be recorded.
-  Services.telemetry.setEventRecordingEnabled("ui", false);
-  // ... now "ui" events will not be recorded anymore.
-
 .. note::
-
-  Even if your event category isn't enabled, counts of events that attempted to be recorded will
-  be :ref:`summarized <events.event-summary>`.
+  Events can be expensive to store, submit, and query.
+  You are responsible for ensuring that you don't submit too many events.
+  When your new events land in Nightly, consult with the Data Org about whether they are too "chatty".
 
 Internal API
 ------------
@@ -240,14 +211,12 @@ the dynamic-process scalar ``telemetry.dynamic_event_counts`` would have a key
 Testing
 =======
 
-Tests involving Event Telemetry often follow this four-step form:
+Tests involving Event Telemetry often follow this three-step form:
 
 1. ``Services.telemetry.clearEvents();`` To minimize the effects of prior code and tests.
-2. ``Services.telemetry.setEventRecordingEnabled(myCategory, true);`` To enable the collection of
-   your events. (May or may not be relevant in your case)
-3. ``runTheCode();`` This is part of the test where you call the code that's supposed to collect
+2. ``runTheCode();`` This is part of the test where you call the code that's supposed to collect
    Event Telemetry.
-4. ``TelemetryTestUtils.assertEvents(expected, filter, options);`` This will check the
+3. ``TelemetryTestUtils.assertEvents(expected, filter, options);`` This will check the
    events recorded by Event Telemetry against your provided list of expected events.
    If you only need to check the number of events recorded, you can use
    ``TelemetryTestUtils.assertNumberOfEvents(expectedNum, filter, options);``.
@@ -257,6 +226,7 @@ Tests involving Event Telemetry often follow this four-step form:
 Version History
 ===============
 
+- Firefox 134: Remove ``operating_systems`` (`bug 1925369 <https://bugzilla.mozilla.org/show_bug.cgi?id=1925369>`_).
 - Firefox 132: recordEvent|registerEvents deprecation and removal (see `bug 1863031 <https://bugzilla.mozilla.org/show_bug.cgi?id=1863031>`__).
 - Firefox 79:  ``geckoview`` support removed (see `bug 1620395 <https://bugzilla.mozilla.org/show_bug.cgi?id=1620395>`__).
 - Firefox 52: Initial event support (`bug 1302663 <https://bugzilla.mozilla.org/show_bug.cgi?id=1302663>`_).

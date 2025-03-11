@@ -70,7 +70,7 @@ mod nss {
 
 // Need to map the types through.
 fn secstatus_to_res(code: nss::SECStatus) -> Res<()> {
-    crate::err::secstatus_to_res(code as crate::ssl::SECStatus)
+    err::secstatus_to_res(code)
 }
 
 enum NssLoaded {
@@ -106,7 +106,7 @@ fn version_check() -> Res<()> {
 /// This allows us to use SSLTRACE in all of our unit tests and programs.
 #[cfg(debug_assertions)]
 fn enable_ssl_trace() -> Res<()> {
-    let opt = ssl::Opt::Locking.as_int();
+    let opt = Opt::Locking.as_int();
     let mut v: ::std::os::raw::c_int = 0;
     secstatus_to_res(unsafe { ssl::SSL_OptionGetDefault(opt, &mut v) })
 }
@@ -146,13 +146,6 @@ fn init_once(db: Option<PathBuf>) -> Res<NssLoaded> {
     };
 
     secstatus_to_res(unsafe { nss::NSS_SetDomesticPolicy() })?;
-    secstatus_to_res(unsafe {
-        p11::NSS_SetAlgorithmPolicy(
-            p11::SECOidTag::SEC_OID_XYBER768D00,
-            p11::NSS_USE_ALG_IN_SSL_KX,
-            0,
-        )
-    })?;
 
     #[cfg(debug_assertions)]
     enable_ssl_trace()?;

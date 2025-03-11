@@ -26,7 +26,6 @@
 #include "nsIScriptLoaderObserver.h"
 #include "nsURIHashKey.h"
 #include "mozilla/CORSMode.h"
-#include "mozilla/dom/JSExecutionContext.h"  // JSExecutionContext
 #include "ModuleLoader.h"
 #include "mozilla/MaybeOneOf.h"
 #include "mozilla/MozPromise.h"
@@ -224,6 +223,11 @@ class ScriptLoader final : public JS::loader::ScriptLoaderInterface {
    * generate a unique key based on the currently executing script.
    */
   nsIScriptElement* GetCurrentScript() { return mCurrentScript; }
+
+  void ContinueParsingDocumentAfterCurrentScript() {
+    MOZ_ASSERT(mCurrentScript);
+    mContinueParsingDocumentAfterCurrentScript = true;
+  }
 
   nsIScriptElement* GetCurrentParserInsertedScript() {
     return mCurrentParserInsertedScript;
@@ -472,10 +476,10 @@ class ScriptLoader final : public JS::loader::ScriptLoaderInterface {
       const SRIMetadata& aIntegrity, ReferrerPolicy aReferrerPolicy,
       JS::loader::ParserMetadata aParserMetadata, RequestType requestType);
 
-  void NotifyObserversForCachedScript(nsIURI* aURI, nsINode* aContext,
-                                      nsIPrincipal* aTriggeringPrincipal,
-                                      nsSecurityFlags aSecurityFlags,
-                                      nsContentPolicyType aContentPolicyType);
+  void NotifyObserversForCachedScript(
+      nsIURI* aURI, nsINode* aContext, nsIPrincipal* aTriggeringPrincipal,
+      nsSecurityFlags aSecurityFlags, nsContentPolicyType aContentPolicyType,
+      SubResourceNetworkMetadataHolder* aNetworkMetadata);
 
   /**
    * Unblocks the creator parser of the parser-blocking scripts.
@@ -617,6 +621,10 @@ class ScriptLoader final : public JS::loader::ScriptLoaderInterface {
 
   void ReportPreloadErrorsToConsole(ScriptLoadRequest* aRequest);
 
+  nsIConsoleReportCollector* GetConsoleReportCollector() const override {
+    return mReporter;
+  }
+
   nsresult AttemptOffThreadScriptCompile(ScriptLoadRequest* aRequest,
                                          bool* aCouldCompileOut);
 
@@ -638,21 +646,32 @@ class ScriptLoader final : public JS::loader::ScriptLoaderInterface {
   //   * text source
   //   * encoded bytecode
   //   * cached stencil
-  nsresult InstantiateClassicScriptFromAny(JSContext* aCx,
-                                           JSExecutionContext& aExec,
-                                           ScriptLoadRequest* aRequest);
+  void InstantiateClassicScriptFromAny(
+      JSContext* aCx, JS::CompileOptions& aCompileOptions,
+      ScriptLoadRequest* aRequest, JS::MutableHandle<JSScript*> aScript,
+      JS::Handle<JS::Value> aDebuggerPrivateValue,
+      JS::Handle<JSScript*> aDebuggerIntroductionScript, ErrorResult& aRv);
 
   // Instantiate classic script from one of the following data:
   //   * text source
   //   * encoded bytecode
-  nsresult InstantiateClassicScriptFromMaybeEncodedSource(
-      JSContext* aCx, JSExecutionContext& aExec, ScriptLoadRequest* aRequest);
+  //
+  // aStencilOut is set to the compiled stencil.
+  void InstantiateClassicScriptFromMaybeEncodedSource(
+      JSContext* aCx, JS::CompileOptions& aCompileOptions,
+      ScriptLoadRequest* aRequest, JS::MutableHandle<JSScript*> aScript,
+      RefPtr<JS::Stencil>& aStencilOut,
+      JS::Handle<JS::Value> aDebuggerPrivateValue,
+      JS::Handle<JSScript*> aDebuggerIntroductionScript, ErrorResult& aRv);
 
   // Instantiate classic script from the following data:
   //   * cached stencil
-  nsresult InstantiateClassicScriptFromCachedStencil(
-      JSContext* aCx, JSExecutionContext& aExec, ScriptLoadRequest* aRequest,
-      JS::Stencil* aStencil);
+  void InstantiateClassicScriptFromCachedStencil(
+      JSContext* aCx, JS::CompileOptions& aCompileOptions,
+      ScriptLoadRequest* aRequest, JS::Stencil* aStencil,
+      JS::MutableHandle<JSScript*> aScript,
+      JS::Handle<JS::Value> aDebuggerPrivateValue,
+      JS::Handle<JSScript*> aDebuggerIntroductionScript, ErrorResult& aRv);
 
   static nsCString& BytecodeMimeTypeFor(ScriptLoadRequest* aRequest);
 
@@ -807,6 +826,7 @@ class ScriptLoader final : public JS::loader::ScriptLoaderInterface {
   bool mBlockingDOMContentLoaded;
   bool mLoadEventFired;
   bool mGiveUpEncoding;
+  bool mContinueParsingDocumentAfterCurrentScript;
 
   TimeDuration mMainThreadParseTime;
 

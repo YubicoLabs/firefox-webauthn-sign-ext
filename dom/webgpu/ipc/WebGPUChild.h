@@ -12,9 +12,6 @@
 #include "mozilla/webgpu/ffi/wgpu.h"
 
 namespace mozilla {
-namespace ipc {
-class UnsafeSharedMemoryHandle;
-}  // namespace ipc
 namespace dom {
 struct GPURequestAdapterOptions;
 }  // namespace dom
@@ -98,6 +95,9 @@ class WebGPUChild final : public PWebGPUChild, public SupportsWeakPtr {
   UniquePtr<ffi::WGPUClient> const mClient;
   std::unordered_map<RawId, WeakPtr<Device>> mDeviceMap;
   nsTArray<RawId> mSwapChainTexturesWaitingForSubmit;
+
+  bool ResolveLostForDeviceId(RawId aDeviceId, Maybe<uint8_t> aReason,
+                              const nsAString& aMessage);
 
  public:
   ipc::IPCResult RecvUncapturedError(Maybe<RawId> aDeviceId,

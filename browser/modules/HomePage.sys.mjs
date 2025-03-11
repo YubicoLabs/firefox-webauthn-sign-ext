@@ -76,8 +76,6 @@ export let HomePage = {
       return;
     }
 
-    Services.telemetry.setEventRecordingEnabled("homepage", true);
-
     // Now we have the values, listen for future updates.
     this._ignoreListListener = this._handleIgnoreListUpdated.bind(this);
 
@@ -133,6 +131,17 @@ export let HomePage = {
     }
 
     return homePages;
+  },
+
+  getForErrorPage(win) {
+    if (lazy.PrivateBrowsingUtils.isWindowPrivate(win)) {
+      return win.BROWSER_NEW_TAB_URL;
+    }
+    let url = this.get(win);
+    if (url.includes("|")) {
+      url = url.split("|")[0];
+    }
+    return url;
   },
 
   /**
@@ -269,9 +278,10 @@ export let HomePage = {
             return;
           }
           // getSetting does not need the module to be loaded.
-          const item = await lazy.ExtensionPreferencesManager.getSetting(
-            "homepage_override"
-          );
+          const item =
+            await lazy.ExtensionPreferencesManager.getSetting(
+              "homepage_override"
+            );
           if (item && item.id) {
             // During startup some modules may not be loaded yet, so we load
             // the setting we need prior to removal.
@@ -328,7 +338,10 @@ export let HomePage = {
       let navbarPlacements = lazy.CustomizableUI.getWidgetIdsInArea("nav-bar");
       let position = navbarPlacements.indexOf("urlbar-container");
       for (let i = position - 1; i >= 0; i--) {
-        if (!navbarPlacements[i].startsWith("customizableui-special-spring")) {
+        if (
+          !navbarPlacements[i].startsWith("customizableui-special-spring") &&
+          !navbarPlacements[i].includes("spacer")
+        ) {
           position = i + 1;
           break;
         }

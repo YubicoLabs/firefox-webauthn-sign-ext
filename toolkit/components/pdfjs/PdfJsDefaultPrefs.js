@@ -30,6 +30,7 @@ pref("pdfjs.disableRange", false);
 pref("pdfjs.disableStream", false);
 pref("pdfjs.enableAltText", false);
 pref("pdfjs.enableAltTextModelDownload", true);
+pref("pdfjs.enableAutoLinking", true);
 pref("pdfjs.enableGuessAltText", true);
 pref("pdfjs.enableHWA", false);
 pref("pdfjs.enableHighlightFloatingButton", false);
@@ -37,6 +38,7 @@ pref("pdfjs.enableNewAltTextWhenAddingImage", true);
 pref("pdfjs.enablePermissions", false);
 pref("pdfjs.enablePrintAutoRotate", true);
 pref("pdfjs.enableScripting", true);
+pref("pdfjs.enableSignatureEditor", false);
 pref("pdfjs.enableUpdatedAddImage", false);
 pref("pdfjs.enableXfa", true);
 pref("pdfjs.externalLinkTarget", 0);
@@ -52,5 +54,6 @@ pref("pdfjs.sidebarViewOnLoad", -1);
 pref("pdfjs.spreadModeOnLoad", -1);
 pref("pdfjs.textLayerMode", 1);
 pref("pdfjs.viewOnLoad", 0);
+pref("pdfjs.viewerCssTheme", 0);
 
 #include PdfJsOverridePrefs.js

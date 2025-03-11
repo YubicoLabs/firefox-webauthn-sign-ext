@@ -78,8 +78,8 @@ static void SetTypePolicyBailoutKind(MInstruction* newIns,
   return replace->typePolicy()->adjustInputs(alloc, replace);
 }
 
-MDefinition* js::jit::AlwaysBoxAt(TempAllocator& alloc, MInstruction* at,
-                                  MDefinition* operand) {
+MDefinition* js::jit::BoxAt(TempAllocator& alloc, MInstruction* at,
+                            MDefinition* operand) {
   MDefinition* boxedOperand = operand;
   // Replace Float32 by double
   if (operand->type() == MIRType::Float32) {
@@ -90,14 +90,6 @@ MDefinition* js::jit::AlwaysBoxAt(TempAllocator& alloc, MInstruction* at,
   MBox* box = MBox::New(alloc, boxedOperand);
   at->block()->insertBefore(at, box);
   return box;
-}
-
-static MDefinition* BoxAt(TempAllocator& alloc, MInstruction* at,
-                          MDefinition* operand) {
-  if (operand->isUnbox()) {
-    return operand->toUnbox()->input();
-  }
-  return AlwaysBoxAt(alloc, at, operand);
 }
 
 bool BoxInputsPolicy::staticAdjustInputs(TempAllocator& alloc,
@@ -276,11 +268,13 @@ bool ComparePolicy::adjustInputs(TempAllocator& alloc,
     case MCompare::Compare_BigInt_String:
       return convertOperand(0, MIRType::BigInt) &&
              convertOperand(1, MIRType::String);
-    default:
-      MOZ_CRASH("Unexpected compare type");
+    case MCompare::Compare_UInt32:
+    case MCompare::Compare_Int64:
+    case MCompare::Compare_UInt64:
+    case MCompare::Compare_WasmAnyRef:
+      break;
   }
-
-  return true;
+  MOZ_CRASH("Unexpected compare type");
 }
 
 bool TestPolicy::adjustInputs(TempAllocator& alloc, MInstruction* ins) const {
@@ -304,6 +298,10 @@ bool TestPolicy::adjustInputs(TempAllocator& alloc, MInstruction* ins) const {
       ins->replaceOperand(0, length);
       break;
     }
+
+    case MIRType::Int64:
+    case MIRType::IntPtr:
+      MOZ_CRASH("Int64 and IntPtr are only used as input type after GVN");
 
     default:
       MOZ_ASSERT(IsMagicType(op->type()));

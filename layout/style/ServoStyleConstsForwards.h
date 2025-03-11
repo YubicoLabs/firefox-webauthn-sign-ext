@@ -48,6 +48,11 @@ struct nsCSSValueSharedList;
 class gfxFontFeatureValueSet;
 struct GeckoFontMetrics;
 namespace mozilla {
+
+// Forward declaration for `StyleLengthPercentageUnion::AsCalc`, which
+// references the type below in the generated code.
+struct StyleCalcLengthPercentage;
+
 namespace gfx {
 struct FontVariation;
 struct FontFeature;
@@ -85,6 +90,7 @@ using ComputedKeyframeValues = nsTArray<PropertyStyleAnimationValuePair>;
 
 class ComputedStyle;
 enum class LogicalAxis : uint8_t;
+enum class PhysicalAxis : uint8_t;
 class SeenPtrs;
 class SharedFontList;
 class StyleSheet;
@@ -107,6 +113,9 @@ enum class PseudoStyleType : uint8_t;
 enum class OriginFlags : uint8_t;
 enum class UseBoxSizing : uint8_t;
 
+template <typename L>
+union StyleGenericCalcNode;
+
 namespace css {
 class Loader;
 class LoaderReusableStyleSheets;
@@ -124,10 +133,6 @@ class Document;
 class ImageTracker;
 
 }  // namespace dom
-
-namespace ipc {
-class ByteBuf;
-}  // namespace ipc
 
 // Replacement for a Rust Box<T> for a non-dynamically-sized-type.
 //

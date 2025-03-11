@@ -4,7 +4,88 @@ title: Changelog
 permalink: /changelog/
 ---
 
-# 132.0 (In Development)
+# 138.0 (In Development)
+* **browser-state**, **concept-engine**
+  * ⚠️ **Breaking change**: Added new `origins` parameter to `WebExtensionDelegate.onOptionalPermissionsRequest` and `WebExtensionPromptRequest.AfterInstallation.Permissions.Optional`. [Bug 1935680](https://bugzilla.mozilla.org/show_bug.cgi?id=1935680).
+* **support-webextensions**
+  * Renamed `WebExtensionController` to `BuiltInWebExtensionController`. [Bug 1950422](https://bugzilla.mozilla.org/show_bug.cgi?id=1950422).
+
+* **browser-toolbar**
+  * Rename `securityIconSecure` and `securityIconInsecure` to `siteIconSecure` and `siteIconInsecure`. See [Bug 1920085](https://bugzilla.mozilla.org/show_bug.cgi?id=1920085).
+  * Adds `siteIconLocalPdf` ColorInt to to `DisplayToolbar.Colors`. See [Bug 1920085](https://bugzilla.mozilla.org/show_bug.cgi?id=1920085).
+
+* **concept-toolbar**
+  * Rename `Toolbar.siteSecure` property to `Toolbar.siteInfo`. See [Bug 1920085](https://bugzilla.mozilla.org/show_bug.cgi?id=1920085).
+  * Rename `Toolbar.SiteSecurity` enum to `Toolbar.SiteInfo` and adds `LOCAL_PDF` enum value. See [Bug 1920085](https://bugzilla.mozilla.org/show_bug.cgi?id=1920085).
+  * Rename `DisplayToolbarViews.securityIndicator` and `DisplayToolbarViews.setOnSiteSecurityClickedListener` to `DisplayToolbarViews.siteInfoIndicator` and `DisplayToolbarViews.setOnSiteInfoClickedListener`. See [Bug 1920085](https://bugzilla.mozilla.org/show_bug.cgi?id=1920085).
+
+* **feature-toolbar**
+  * When showing a local PDF, the site security icon will display the `mozac_ic_page_portrait_24` icon. See [Bug 1920085](https://bugzilla.mozilla.org/show_bug.cgi?id=1920085).
+
+* **ui-icons**
+  * Adds a `mozac_ic_page_portrait_24` icon to be used as a security icon when browsing a local pdf. See [Bug 1920085](https://bugzilla.mozilla.org/show_bug.cgi?id=1920085).
+
+* **feature-addons**
+  * Added `AddonManager.getAddonByID` method to allow querying a specific add-on. This is more efficient than calling `AddonManager.getAddons()` and selecting a specific result. See [Bug 1949963](https://bugzilla.mozilla.org/show_bug.cgi?id=1949963).
+
+# 137.0
+* **support-ktx**
+  * 🌟 Added `String.isContentUrl` method that checks if the string is a content URL. [Bug 1944084](https://bugzilla.mozilla.org/show_bug.cgi?id=1944084).
+  * 🌟 Added `String.isAboutUrl` method that checks if the string is an about URL. [Bug 1944084](https://bugzilla.mozilla.org/show_bug.cgi?id=1944084).
+* **browser-state**, **concept-engine**, **feature-addons**
+  * ⚠️ **Breaking change**: Added new `origins` parameter to `PermissionsDialogFragment.newInstance`. [Bug 1911999](https://bugzilla.mozilla.org/show_bug.cgi?id=1911999).
+  * ⚠️ **Breaking change**: Added new `origins` parameter to `WebExtensionDelegate.onInstallPermissionsRequest` and `WebExtensionPromptRequest.AfterInstallation.Permissions.Required`. [Bug 1911999](https://bugzilla.mozilla.org/show_bug.cgi?id=1911999).
+
+# 136.0
+* **support-ktx**
+    * 🆕 New `ExpandablePrompt` interface implemented by `AddressSelectBar`, `CreditCardSelectBar` to inform when it is expanded or collapsed. [Bug 19010409](https://bugzilla.mozilla.org/show_bug.cgi?id=19010409).
+
+# 135.0
+* **support-ktx**
+    * 🆕 `Context.setApplicationNightMode()` will apply the provided night mode on all API levels and persist it on Android 31+ so that on new launches the splashscreen matches. [Bug 1919488](https://bugzilla.mozilla.org/show_bug.cgi?id=1919488)
+* **feature-downloads**
+    * `AbstractFetchDownloadService.createOpenFileIntent` will no longer create an intent to open PDF files from the caller application if it can open PDFs. The user will be prompted to choose an application. See [Bug 1941609](https://bugzilla.mozilla.org/show_bug.cgi?id=1941609).
+* **feature-prompts**
+    * 🆕 New `ToggleablePrompt` interface implemented by `AddressSelectBar`, `CreditCardSelectBar` `LoginSelectBar` and `SuggestStrongPasswordBar` to inform when these are shown or hidden. [Bug 1909746](https://bugzilla.mozilla.org/show_bug.cgi?id=1909746).
+    * 🆕 New `ExpandablePrompt` interface implemented by `LoginSelectBar` to inform when it is expanded or collapsed. [Bug 1909746](https://bugzilla.mozilla.org/show_bug.cgi?id=1909746).
+
+# 134.0
+* **browser-state**
+  * 🌟 Added `DownloadState.isPdf` property to indicate whether the file associated with the download is a PDF. See [Bug 1920092](https://bugzilla.mozilla.org/show_bug.cgi?id=1920092).
+
+* **concept-storage**
+  * 🆕 Exposed `lastModified` property for `BookmarkNode`s that includes timestamp data for the last time the node was modified. [Bug 1928444](https://bugzilla.mozilla.org/show_bug.cgi?id=1928444)
+
+* **feature-downloads**
+  * `AbstractFetchDownloadService.createOpenFileIntent` will create an intent to open PDF files from the caller application if it can open PDFs. See [Bug 1920092](https://bugzilla.mozilla.org/show_bug.cgi?id=1920092).
+  * `AbstractFetchDownloadService.openFile` will open PDF files from the caller application if it can open PDFs. See [Bug 1920092](https://bugzilla.mozilla.org/show_bug.cgi?id=1920092).
+
+* **browser-toolbar**
+    * Added internal data class `DisplayMargins` in `DisplayToolbar` class that can be used to specify margins for `DisplayToolbar`'s views
+    * Added `setUrlBackgroundMargins` method in `DisplayToolbar` class that client apps can use to specify custom `DisplayMargins` for the `background` view. [Bug 1927778](https://bugzilla.mozilla.org/show_bug.cgi?id=1927778)
+
+* **lib-crash**
+  * ⚠️ **Breaking change**: Crash database functions dealing with unsent crashes have been renamed and now require a timestamp parameter as the start of the range to search for unsent crashes.
+
+# 133.0
+* **browser-store**
+    * Adds `desktopMode` property to the `BrowserStore` to know whether or not browsing is in desktop mode. The pre-existing Action to update a tab's desktop mode has been renamed to disambiguate its intended use case. [Bug 1910768](https://bugzilla.mozilla.org/show_bug.cgi?id=1910768)
+
+* **browser-errorpages**
+  * 🌟 Vertically center content of all error pages. Update image and text of no internet connection error page. [Bug 1921460](https://bugzilla.mozilla.org/show_bug.cgi?id=1921460)
+
+* **browser-engine-gecko**
+  * Added `WebExtensionInstallException.SoftBlocked` to handle the `ERROR_SOFT_BLOCKED` error returned by Gecko.
+  * Adds support for enabling desktop mode browsing at the time of the engine session's creation.  [Bug 1910768](https://bugzilla.mozilla.org/show_bug.cgi?id=1910768)
+
+* **support-ktx**
+  * 🆕 `Window.setupPersistentInsets()` will setup handling persistent insets instead of the framework to allow for custom handling of dynamic insets [Bug 1911042](https://bugzilla.mozilla.org/show_bug.cgi?id=1911042)
+  * 🆕 `ImeInsetsSynchronizer` allows synchronizing the resize animation for any View which should be shown at the top of the keyboard while this is showing or hiding. [Bug 1911042](https://bugzilla.mozilla.org/show_bug.cgi?id=1911042)
+
+* **ui-widgets**
+  * 🆕 New `mozac_material_ripple_minimum_interaction_size` drawable for a 48dp ripple to be used when `selectableItemBackgroundBorderless` is too big and `selectableItemBackground` is too small. [Bug 1920554](https://bugzilla.mozilla.org/show_bug.cgi?id=1920554).
+
+# 132.0
 * **feature-awesomebar**
   * The `onCancelEditing` now returns a result based on the `onStartEditing` and `onStopEditing` callback. [Bug 1917496](https://bugzilla.mozilla.org/show_bug.cgi?id=1917496)
 
@@ -184,9 +265,6 @@ permalink: /changelog/
 
 * **feature-customtabs**
   * Fallback behaviour when failing to open a new window in custom tab will now be loading the URL directly in the same custom tab. [Bug 1832357](https://bugzilla.mozilla.org/show_bug.cgi?id=1832357)
-
-* **feature-session**
-  * Update URL in the store immediately when using the optimized load URL code path.
 
 * **tooling-lint**
   * Added a lint rule to detect when `Response#close` may not have been called. Note: Currently, this rule only runs on Android Components.

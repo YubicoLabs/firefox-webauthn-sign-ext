@@ -59,6 +59,23 @@ export const MultiStageAboutWelcome = props => {
 
       didFilter.current = true;
 
+      // After completing screen filtering, trigger any unhandled campaign
+      // action present in the attribution campaign data. This updates the
+      // "trailhead.firstrun.didHandleCampaignAction" preference, marking the
+      // actions as complete to prevent them from being handled on subsequent
+      // visits to about:welcome. Do not await getting the action to avoid
+      // blocking the thread.
+      window
+        .AWGetUnhandledCampaignAction?.()
+        .then(action => {
+          if (typeof action === "string") {
+            AboutWelcomeUtils.handleCampaignAction(action, props.message_id);
+          }
+        })
+        .catch(error => {
+          console.error("Failed to get unhandled campaign action:", error);
+        });
+
       const screenInitials = filteredScreens
         .map(({ id }) => id?.split("_")[1]?.[0])
         .join("");
@@ -463,13 +480,15 @@ export class WelcomeScreen extends React.PureComponent {
 
     let actionResult;
     if (["OPEN_URL", "SHOW_FIREFOX_ACCOUNTS"].includes(action.type)) {
-      actionResult = await this.handleOpenURL(
+      actionResult = this.handleOpenURL(
         action,
         props.flowParams,
         props.UTMTerm
       );
     } else if (action.type) {
-      actionResult = await AboutWelcomeUtils.handleUserAction(action);
+      actionResult = action.needsAwait
+        ? await AboutWelcomeUtils.handleUserAction(action)
+        : AboutWelcomeUtils.handleUserAction(action);
       if (action.type === "FXA_SIGNIN_FLOW") {
         AboutWelcomeUtils.sendActionTelemetry(
           props.messageId,
@@ -494,20 +513,7 @@ export class WelcomeScreen extends React.PureComponent {
           ? event.currentTarget.value
           : this.props.initialTheme || action.theme;
       this.props.setActiveTheme(themeToUse);
-      if (props.content.tiles?.category?.type === "wallpaper") {
-        const theme = themeToUse.split("-")?.[1];
-        let actionWallpaper = { ...props.content.tiles.category.action };
-        actionWallpaper.data.actions.forEach(async wpAction => {
-          if (wpAction.data.pref.name?.includes("dark")) {
-            wpAction.data.pref.value = `dark-${theme}`;
-          } else {
-            wpAction.data.pref.value = `light-${theme}`;
-          }
-          await AboutWelcomeUtils.handleUserAction(actionWallpaper);
-        });
-      } else {
-        window.AWSelectTheme(themeToUse);
-      }
+      window.AWSelectTheme(themeToUse);
     }
 
     if (action.picker) {
@@ -528,8 +534,20 @@ export class WelcomeScreen extends React.PureComponent {
     // `navigate` and `dismiss` can be true/false/undefined, or they can be a
     // string "actionResult" in which case we should use the actionResult
     // (boolean resolved by handleUserAction)
-    const shouldDoBehavior = behavior =>
-      behavior === "actionResult" ? actionResult : behavior;
+    const shouldDoBehavior = behavior => {
+      if (behavior !== "actionResult") {
+        return behavior;
+      }
+
+      if (action.needsAwait) {
+        return actionResult;
+      }
+
+      console.error(
+        "actionResult is only supported for actions with needsAwait"
+      );
+      return false;
+    };
 
     if (shouldDoBehavior(action.navigate)) {
       props.navigate();
@@ -564,19 +582,39 @@ export class WelcomeScreen extends React.PureComponent {
     // 2. checkbox action 2
     // 3. radio action
     // 4. CTA action (which perhaps depends on the radio action)
+    // Note, this order is only guaranteed if action.data has the
+    // `orderedExecution` flag set to true.
     let multiSelectActions = [];
-    for (const checkbox of props.content?.tiles?.data ?? []) {
-      let checkboxAction;
-      if (props.activeMultiSelect?.includes(checkbox.id)) {
-        checkboxAction = checkbox.checkedAction ?? checkbox.action;
-      } else {
-        checkboxAction = checkbox.uncheckedAction;
-      }
 
-      if (checkboxAction) {
-        multiSelectActions.push(checkboxAction);
+    const processTile = tile => {
+      if (tile?.type === "multiselect" && Array.isArray(tile.data)) {
+        for (const checkbox of tile.data) {
+          let checkboxAction;
+          if (props.activeMultiSelect?.includes(checkbox.id)) {
+            checkboxAction = checkbox.checkedAction ?? checkbox.action;
+          } else {
+            checkboxAction = checkbox.uncheckedAction;
+          }
+
+          if (checkboxAction) {
+            multiSelectActions.push(checkboxAction);
+          }
+        }
+      }
+    };
+
+    // Process tiles (this may be a single tile object or an array consisting of
+    // tile objects)
+    if (props.content?.tiles) {
+      if (Array.isArray(props.content.tiles)) {
+        props.content.tiles.forEach(processTile);
+      } else {
+        // Handle case where tiles is a single tile object
+        processTile(props.content.tiles);
       }
     }
+
+    // Prepend the collected multi-select actions to the CTA's actions array
     action.data.actions.unshift(...multiSelectActions);
 
     // Send telemetry with selected checkbox ids

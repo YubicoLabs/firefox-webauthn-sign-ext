@@ -19,6 +19,10 @@ support-addons-type = Type
 support-addons-enabled = Enabled
 support-addons-version = Version
 support-addons-id = ID
+# In the add-on world, locations are where the addon files are stored. Each
+# location has name. For instance: app-system-addons, app-builtin,
+# app-temporary, etc.
+support-addons-location-name = Location
 legacy-user-stylesheets-title = Legacy User Stylesheets
 legacy-user-stylesheets-enabled = Active
 legacy-user-stylesheets-stylesheet-types = Stylesheets
@@ -29,10 +33,6 @@ security-software-name = Name
 security-software-antivirus = Antivirus
 security-software-antispyware = Antispyware
 security-software-firewall = Firewall
-features-title = { -brand-short-name } Features
-features-name = Name
-features-version = Version
-features-id = ID
 processes-title = Remote Processes
 processes-type = Type
 processes-count = Count
@@ -397,8 +397,6 @@ multi-process-windows = { $remoteWindows }/{ $totalWindows }
 # $fissionWindows (integer) - Number of remote windows
 # $totalWindows (integer) - Number of total windows
 fission-windows = { $fissionWindows }/{ $totalWindows }
-fission-status-experiment-control = Disabled by experiment
-fission-status-experiment-treatment = Enabled by experiment
 fission-status-disabled-by-e10s-env = Disabled by environment
 fission-status-enabled-by-env = Enabled by environment
 fission-status-disabled-by-env = Disabled by environment
@@ -407,7 +405,6 @@ fission-status-disabled-by-default = Disabled by default
 fission-status-enabled-by-user-pref = Enabled by user
 fission-status-disabled-by-user-pref = Disabled by user
 fission-status-disabled-by-e10s-other = E10s disabled
-fission-status-enabled-by-rollout = Enabled by phased rollout
 
 async-pan-zoom = Asynchronous Pan/Zoom
 apz-none = none

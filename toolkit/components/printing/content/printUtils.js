@@ -313,9 +313,8 @@ var PrintUtils = {
       }
 
       if (useSystemDialog) {
-        const hasSelection = await PrintUtils.checkForSelection(
-          browsingContext
-        );
+        const hasSelection =
+          await PrintUtils.checkForSelection(browsingContext);
 
         // Prompt the user to choose a printer and make any desired print
         // settings changes.
@@ -488,11 +487,7 @@ var PrintUtils = {
       msg
     );
 
-    Services.telemetry.keyedScalarAdd(
-      "printing.error",
-      this._getErrorCodeForNSResult(nsresult),
-      1
-    );
+    Glean.printing.error[this._getErrorCodeForNSResult(nsresult)].add(1);
   },
 
   getPrintSettings(aPrinterName, aDefaultsOnly, aAllowPseudoPrinter = true) {

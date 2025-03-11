@@ -64,9 +64,15 @@ ServiceWorkerRegistration::ServiceWorkerRegistration(
     return;
   }
 
+  Maybe<ClientInfo> clientInfo = aGlobal->GetClientInfo();
+  if (clientInfo.isNothing()) {
+    Shutdown();
+    return;
+  }
+
   PServiceWorkerRegistrationChild* sentActor =
       parentActor->SendPServiceWorkerRegistrationConstructor(
-          actor, aDescriptor.ToIPC());
+          actor, aDescriptor.ToIPC(), clientInfo.ref().ToIPC());
   if (NS_WARN_IF(!sentActor)) {
     Shutdown();
     return;
@@ -208,8 +214,7 @@ ServiceWorkerUpdateViaCache ServiceWorkerRegistration::GetUpdateViaCache(
 }
 
 already_AddRefed<Promise> ServiceWorkerRegistration::Update(ErrorResult& aRv) {
-  AUTO_PROFILER_MARKER_TEXT("ServiceWorkerRegistration::Update", DOM, {},
-                            ""_ns);
+  AUTO_PROFILER_MARKER_UNTYPED("ServiceWorkerRegistration::Update", DOM, {});
 
   nsIGlobalObject* global = GetParentObject();
   if (!global) {
@@ -262,8 +267,8 @@ already_AddRefed<Promise> ServiceWorkerRegistration::Update(ErrorResult& aRv) {
       [outer,
        self](const IPCServiceWorkerRegistrationDescriptorOrCopyableErrorResult&
                  aResult) {
-        AUTO_PROFILER_MARKER_TEXT("ServiceWorkerRegistration::Update (inner)",
-                                  DOM, {}, ""_ns);
+        AUTO_PROFILER_MARKER_UNTYPED(
+            "ServiceWorkerRegistration::Update (inner)", DOM, {});
 
         if (aResult.type() ==
             IPCServiceWorkerRegistrationDescriptorOrCopyableErrorResult::
@@ -410,28 +415,85 @@ already_AddRefed<Promise> ServiceWorkerRegistration::ShowNotification(
   return p.forget();
 }
 
+// https://notifications.spec.whatwg.org/#dom-serviceworkerregistration-getnotifications
 already_AddRefed<Promise> ServiceWorkerRegistration::GetNotifications(
     const GetNotificationOptions& aOptions, ErrorResult& aRv) {
-  nsIGlobalObject* global = GetParentObject();
+  // Step 1: Let global be this’s relevant global object.
+  // Step 2: Let realm be this’s relevant Realm.
+  nsCOMPtr<nsIGlobalObject> global = GetParentObject();
   if (!global) {
     aRv.Throw(NS_ERROR_DOM_INVALID_STATE_ERR);
     return nullptr;
   }
 
-  NS_ConvertUTF8toUTF16 scope(mDescriptor.Scope());
+  // Step 3: Let origin be this’s relevant settings object’s origin.
+  // (Done in ServiceWorkerRegistrationProxy::GetNotifications)
 
-  if (NS_IsMainThread()) {
-    nsCOMPtr<nsPIDOMWindowInner> window = do_QueryInterface(global);
-    if (NS_WARN_IF(!window)) {
-      aRv.Throw(NS_ERROR_DOM_INVALID_STATE_ERR);
-      return nullptr;
-    }
-    return Notification::Get(window, aOptions, scope, aRv);
+  // Step 4: Let promise be a new promise in realm.
+  RefPtr<Promise> promise = Promise::CreateInfallible(global);
+
+  // Step 5: Run these steps in parallel:
+  // Step 5.1: Let tag be filter["tag"].
+  // Step 5.2: Let notifications be a list of all notifications in the list of
+  // notifications whose origin is same origin with origin, whose service worker
+  // registration is this, and whose tag, if tag is not the empty string, is
+  // tag.
+
+  if (!mActor) {
+    // While it's not clear from the current spec, it's fair to say that
+    // unregistered registrations cannot have a match in the step 5.2. See also
+    // bug 1881812.
+    // One could also say we should throw here, but no browsers throw.
+    promise->MaybeResolve(nsTArray<RefPtr<Notification>>());
+    return promise.forget();
   }
 
-  WorkerPrivate* worker = GetCurrentThreadWorkerPrivate();
-  worker->AssertIsOnWorkerThread();
-  return Notification::WorkerGet(worker, aOptions, scope, aRv);
+  // Step 5.3: Queue a global task on the DOM manipulation task source
+  // given global to run these steps:
+  mActor->SendGetNotifications(aOptions.mTag)
+      ->Then(GetCurrentSerialEventTarget(), __func__,
+             [promise, scope = NS_ConvertUTF8toUTF16(mDescriptor.Scope())](
+                 const PServiceWorkerRegistrationChild::
+                     GetNotificationsPromise::ResolveOrRejectValue&& aValue) {
+               if (aValue.IsReject()) {
+                 // An unregistered registration
+                 promise->MaybeResolve(nsTArray<RefPtr<Notification>>());
+                 return;
+               }
+
+               if (aValue.ResolveValue().type() ==
+                   IPCNotificationsOrError::Tnsresult) {
+                 // An active registration but had some internal error
+                 promise->MaybeRejectWithInvalidStateError(
+                     "Could not retrieve notifications"_ns);
+                 return;
+               }
+
+               const nsTArray<IPCNotification>& notifications =
+                   aValue.ResolveValue().get_ArrayOfIPCNotification();
+
+               // Step 5.3.1: Let objects be a list.
+               nsTArray<RefPtr<Notification>> objects(notifications.Length());
+
+               // Step 5.3.2: For each notification in notifications, in
+               // creation order, create a new Notification object with realm
+               // representing notification, and append it to objects.
+               for (const IPCNotification& ipcNotification : notifications) {
+                 auto result = Notification::ConstructFromIPC(
+                     promise->GetParentObject(), ipcNotification, scope);
+                 if (result.isErr()) {
+                   continue;
+                 }
+                 RefPtr<Notification> n = result.unwrap();
+                 objects.AppendElement(n.forget());
+               }
+
+               // Step 5.3.3: Resolve promise with objects.
+               promise->MaybeResolve(std::move(objects));
+             });
+
+  // Step 6: Return promise.
+  return promise.forget();
 }
 
 void ServiceWorkerRegistration::SetNavigationPreloadEnabled(
@@ -523,13 +585,18 @@ void ServiceWorkerRegistration::WhenVersionReached(
 void ServiceWorkerRegistration::MaybeScheduleUpdateFound(
     const Maybe<ServiceWorkerDescriptor>& aInstallingDescriptor) {
   // This function sets mScheduledUpdateFoundId to note when we were told about
-  // a new installing worker. We rely on a call to
-  // MaybeDispatchUpdateFoundRunnable (called indirectly from UpdateJobCallback)
-  // to actually fire the event.
+  // a new installing worker. We rely on a call to MaybeDispatchUpdateFound via
+  // ServiceWorkerRegistrationChild::RecvFireUpdateFound to trigger the properly
+  // timed notification...
   uint64_t newId = aInstallingDescriptor.isSome()
                        ? aInstallingDescriptor.ref().Id()
                        : kInvalidUpdateFoundId;
 
+  // ...but the whole reason this logic exists is because SWRegistrations are
+  // bootstrapped off of inherently stale descriptor snapshots and receive
+  // catch-up updates once the actor is created and registered in the parent.
+  // To handle the catch-up case where we need to generate a synthetic
+  // updatefound that would otherwise be lost, we immediately flush here.
   if (mScheduledUpdateFoundId != kInvalidUpdateFoundId) {
     if (mScheduledUpdateFoundId == newId) {
       return;
@@ -546,22 +613,6 @@ void ServiceWorkerRegistration::MaybeScheduleUpdateFound(
   }
 
   mScheduledUpdateFoundId = newId;
-}
-
-void ServiceWorkerRegistration::MaybeDispatchUpdateFoundRunnable() {
-  if (mScheduledUpdateFoundId == kInvalidUpdateFoundId) {
-    return;
-  }
-
-  nsIGlobalObject* global = GetParentObject();
-  NS_ENSURE_TRUE_VOID(global);
-
-  nsCOMPtr<nsIRunnable> r = NewCancelableRunnableMethod(
-      "ServiceWorkerRegistration::MaybeDispatchUpdateFound", this,
-      &ServiceWorkerRegistration::MaybeDispatchUpdateFound);
-
-  Unused << global->SerialEventTarget()->Dispatch(r.forget(),
-                                                  NS_DISPATCH_NORMAL);
 }
 
 void ServiceWorkerRegistration::MaybeDispatchUpdateFound() {
@@ -638,11 +689,8 @@ void ServiceWorkerRegistration::UpdateStateInternal(
   });
 
   // Clear all workers if the registration has been detached from the global.
-  // Also, we cannot expose ServiceWorker objects on worker threads yet, so
-  // do the same on when off-main-thread.  This main thread check should be
-  // removed as part of bug 1113522.
   nsCOMPtr<nsIGlobalObject> global = GetParentObject();
-  if (!global || !NS_IsMainThread()) {
+  if (!global) {
     return;
   }
 

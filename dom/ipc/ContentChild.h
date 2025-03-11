@@ -17,6 +17,7 @@
 #include "mozilla/Hal.h"
 #include "mozilla/ipc/InputStreamUtils.h"
 #include "mozilla/ipc/ProtocolUtils.h"
+#include "mozilla/ipc/SharedMemoryHandle.h"
 #include "mozilla/StaticPtr.h"
 #include "mozilla/UniquePtr.h"
 #include "nsClassHashtable.h"
@@ -68,7 +69,6 @@ namespace ipc {
 class SharedMap;
 }
 
-class AlertObserver;
 class ConsoleListener;
 class ClonedMessageData;
 class BrowserChild;
@@ -120,8 +120,9 @@ class ContentChild final : public PContentChild,
                  const mozilla::dom::ipc::StructuredCloneData& aInitialData,
                  bool aIsReadyForBackgroundProcessing);
 
-  void InitSharedUASheets(Maybe<base::SharedMemoryHandle>&& aHandle,
-                          uintptr_t aAddress);
+  void InitSharedUASheets(
+      Maybe<mozilla::ipc::ReadOnlySharedMemoryHandle>&& aHandle,
+      uintptr_t aAddress);
 
   void InitGraphicsDeviceData(const ContentDeviceData& aData);
 
@@ -246,12 +247,12 @@ class ContentChild final : public PContentChild,
       const ChromeRegistryItem& item);
 
   mozilla::ipc::IPCResult RecvClearStyleSheetCache(
-      const Maybe<RefPtr<nsIPrincipal>>& aPrincipal,
+      const Maybe<bool>& aChrome, const Maybe<RefPtr<nsIPrincipal>>& aPrincipal,
       const Maybe<nsCString>& aSchemelessSite,
       const Maybe<OriginAttributesPattern>& aPattern);
 
   mozilla::ipc::IPCResult RecvClearScriptCache(
-      const Maybe<RefPtr<nsIPrincipal>>& aPrincipal,
+      const Maybe<bool>& aChrome, const Maybe<RefPtr<nsIPrincipal>>& aPrincipal,
       const Maybe<nsCString>& aSchemelessSite,
       const Maybe<OriginAttributesPattern>& aPattern);
 
@@ -261,7 +262,7 @@ class ContentChild final : public PContentChild,
       const nsCString& aSchemelessSite,
       const OriginAttributesPattern& aPattern);
   mozilla::ipc::IPCResult RecvClearImageCache(const bool& privateLoader,
-                                              const bool& chrome);
+                                              const Maybe<bool>& chrome);
 
   PRemoteSpellcheckEngineChild* AllocPRemoteSpellcheckEngineChild();
 
@@ -283,10 +284,6 @@ class ContentChild final : public PContentChild,
   mozilla::ipc::IPCResult RecvThemeChanged(FullLookAndFeel&&,
                                            widget::ThemeChangeKind);
 
-  // auto remove when alertfinished is received.
-  nsresult AddRemoteAlertObserver(const nsString& aData,
-                                  nsIObserver* aObserver);
-
   mozilla::ipc::IPCResult RecvPreferenceUpdate(const Pref& aPref);
   mozilla::ipc::IPCResult RecvVarUpdate(const GfxVarUpdate& pref);
 
@@ -299,9 +296,6 @@ class ContentChild final : public PContentChild,
   mozilla::ipc::IPCResult RecvCollectScrollingMetrics(
       CollectScrollingMetricsResolver&& aResolver);
 
-  mozilla::ipc::IPCResult RecvNotifyAlertsObserver(const nsCString& aType,
-                                                   const nsString& aData);
-
   mozilla::ipc::IPCResult RecvLoadProcessScript(const nsString& aURL);
 
   mozilla::ipc::IPCResult RecvAsyncMessage(const nsString& aMsg,
@@ -310,15 +304,18 @@ class ContentChild final : public PContentChild,
   mozilla::ipc::IPCResult RecvRegisterStringBundles(
       nsTArray<StringBundleDescriptor>&& stringBundles);
 
+  mozilla::ipc::IPCResult RecvSimpleURIUnknownRemoteSchemes(
+      nsTArray<nsCString>&& aRemoteSchemes);
+
   mozilla::ipc::IPCResult RecvUpdateL10nFileSources(
       nsTArray<L10nFileSourceDescriptor>&& aDescriptors);
 
   mozilla::ipc::IPCResult RecvUpdateSharedData(
-      const FileDescriptor& aMapFile, const uint32_t& aMapSize,
+      mozilla::ipc::ReadOnlySharedMemoryHandle&& aMapHandle,
       nsTArray<IPCBlob>&& aBlobs, nsTArray<nsCString>&& aChangedKeys);
 
-  mozilla::ipc::IPCResult RecvFontListChanged();
-  mozilla::ipc::IPCResult RecvForceGlobalReflow(bool aNeedsReframe);
+  mozilla::ipc::IPCResult RecvForceGlobalReflow(
+      const gfxPlatform::GlobalReflowFlags& aFlags);
 
   mozilla::ipc::IPCResult RecvGeolocationUpdate(nsIDOMGeoPosition* aPosition);
 
@@ -334,7 +331,7 @@ class ContentChild final : public PContentChild,
   mozilla::ipc::IPCResult RecvRebuildFontList(const bool& aFullRebuild);
   mozilla::ipc::IPCResult RecvFontListShmBlockAdded(
       const uint32_t& aGeneration, const uint32_t& aIndex,
-      base::SharedMemoryHandle&& aHandle);
+      mozilla::ipc::ReadOnlySharedMemoryHandle&& aHandle);
 
   mozilla::ipc::IPCResult RecvUpdateAppLocales(
       nsTArray<nsCString>&& aAppLocales);
@@ -427,9 +424,6 @@ class ContentChild final : public PContentChild,
                                            const nsString& aMessageId,
                                            nsTArray<uint8_t>&& aData);
 
-  mozilla::ipc::IPCResult RecvPushSubscriptionChange(const nsCString& aScope,
-                                                     nsIPrincipal* aPrincipal);
-
   mozilla::ipc::IPCResult RecvPushError(const nsCString& aScope,
                                         nsIPrincipal* aPrincipal,
                                         const nsString& aMessage,
@@ -481,7 +475,7 @@ class ContentChild final : public PContentChild,
 
   // GetFiles for WebKit/Blink FileSystem API and Directory API must run on the
   // parent process.
-  void CreateGetFilesRequest(const nsAString& aDirectoryPath,
+  void CreateGetFilesRequest(nsTArray<nsString>&& aDirectoryPath,
                              bool aRecursiveFlag, nsID& aUUID,
                              GetFilesHelperChild* aChild);
 
@@ -494,7 +488,8 @@ class ContentChild final : public PContentChild,
       const nsCString& aURI, const IPCBlob& aBlob, nsIPrincipal* aPrincipal,
       const nsCString& aPartitionKey);
 
-  mozilla::ipc::IPCResult RecvBlobURLUnregistration(const nsCString& aURI);
+  mozilla::ipc::IPCResult RecvBlobURLUnregistration(
+      const nsTArray<nsCString>& aURIs);
 
   mozilla::ipc::IPCResult RecvRequestMemoryReport(
       const uint32_t& generation, const bool& anonymize,
@@ -510,9 +505,10 @@ class ContentChild final : public PContentChild,
   mozilla::ipc::IPCResult RecvSetXPCOMProcessAttributes(
       XPCOMInitData&& aXPCOMInit, const StructuredCloneData& aInitialData,
       FullLookAndFeel&& aLookAndFeelData, SystemFontList&& aFontList,
-      Maybe<base::SharedMemoryHandle>&& aSharedUASheetHandle,
+      Maybe<mozilla::ipc::ReadOnlySharedMemoryHandle>&& aSharedUASheetHandle,
       const uintptr_t& aSharedUASheetAddress,
-      nsTArray<base::SharedMemoryHandle>&& aSharedFontListBlocks,
+      nsTArray<mozilla::ipc::ReadOnlySharedMemoryHandle>&&
+          aSharedFontListBlocks,
       const bool& aIsReadyForBackgroundProcessing);
 
   mozilla::ipc::IPCResult RecvProvideAnonymousTemporaryFile(
@@ -542,7 +538,7 @@ class ContentChild final : public PContentChild,
   // for use during gfx initialization.
   SystemFontList& SystemFontList() { return mFontList; }
 
-  nsTArray<base::SharedMemoryHandle>& SharedFontListBlocks() {
+  nsTArray<mozilla::ipc::ReadOnlySharedMemoryHandle>& SharedFontListBlocks() {
     return mSharedFontListBlocks;
   }
 
@@ -555,6 +551,13 @@ class ContentChild final : public PContentChild,
   PURLClassifierLocalChild* AllocPURLClassifierLocalChild(
       nsIURI* aUri, Span<const IPCURLClassifierFeature> aFeatures);
   bool DeallocPURLClassifierLocalChild(PURLClassifierLocalChild* aActor);
+
+  // PURLClassifierLocalByNameByNameParentChild
+  PURLClassifierLocalByNameChild* AllocPURLClassifierLocalByNameChild(
+      nsIURI* aUri, Span<const nsCString> aFeatures,
+      const nsIUrlClassifierFeature::listType& aListType);
+  bool DeallocPURLClassifierLocalByNameChild(
+      PURLClassifierLocalByNameChild* aActor);
 
   PSessionStorageObserverChild* AllocPSessionStorageObserverChild();
 
@@ -644,8 +647,12 @@ class ContentChild final : public PContentChild,
       DiscardBrowsingContextResolver&& aResolve);
 
   mozilla::ipc::IPCResult RecvRegisterBrowsingContextGroup(
-      uint64_t aGroupId, nsTArray<SyncedContextInitializer>&& aInits);
+      uint64_t aGroupId, nsTArray<SyncedContextInitializer>&& aInits,
+      nsTArray<OriginAgentClusterInitializer>&& aUseOriginAgentCluster);
   mozilla::ipc::IPCResult RecvDestroyBrowsingContextGroup(uint64_t aGroupId);
+
+  mozilla::ipc::IPCResult RecvSetUseOriginAgentCluster(
+      uint64_t aGroupId, nsIPrincipal* aPrincipal, bool aUseOriginAgentCluster);
 
   mozilla::ipc::IPCResult RecvWindowClose(
       const MaybeDiscarded<BrowsingContext>& aContext, bool aTrustedCaller);
@@ -735,17 +742,21 @@ class ContentChild final : public PContentChild,
   mozilla::ipc::IPCResult RecvDisplayLoadError(
       const MaybeDiscarded<BrowsingContext>& aContext, const nsAString& aURI);
 
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY
   mozilla::ipc::IPCResult RecvGoBack(
       const MaybeDiscarded<BrowsingContext>& aContext,
       const Maybe<int32_t>& aCancelContentJSEpoch, bool aRequireUserInteraction,
       bool aUserActivation);
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY
   mozilla::ipc::IPCResult RecvGoForward(
       const MaybeDiscarded<BrowsingContext>& aContext,
       const Maybe<int32_t>& aCancelContentJSEpoch, bool aRequireUserInteraction,
       bool aUserActivation);
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY
   mozilla::ipc::IPCResult RecvGoToIndex(
       const MaybeDiscarded<BrowsingContext>& aContext, const int32_t& aIndex,
       const Maybe<int32_t>& aCancelContentJSEpoch, bool aUserActivation);
+  MOZ_CAN_RUN_SCRIPT_BOUNDARY
   mozilla::ipc::IPCResult RecvReload(
       const MaybeDiscarded<BrowsingContext>& aContext,
       const uint32_t aReloadFlags);
@@ -817,7 +828,6 @@ class ContentChild final : public PContentChild,
 
   void ConfigureThreadPerformanceHints(const hal::ProcessPriority& aPriority);
 
-  nsTArray<mozilla::UniquePtr<AlertObserver>> mAlertObservers;
   RefPtr<ConsoleListener> mConsoleListener;
 
   nsTHashSet<nsIObserver*> mIdleObservers;
@@ -831,7 +841,7 @@ class ContentChild final : public PContentChild,
   // Temporary storage for look and feel data.
   FullLookAndFeel mLookAndFeelData;
   // Temporary storage for list of shared-fontlist memory blocks.
-  nsTArray<base::SharedMemoryHandle> mSharedFontListBlocks;
+  nsTArray<mozilla::ipc::ReadOnlySharedMemoryHandle> mSharedFontListBlocks;
 
   AppInfo mAppInfo;
 

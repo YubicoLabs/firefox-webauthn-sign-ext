@@ -39,7 +39,7 @@ void OffscreenCanvasDisplayHelper::DestroyElement() {
 
   MutexAutoLock lock(mMutex);
   if (mImageContainer) {
-    mImageContainer->ClearAllImages();
+    mImageContainer->ClearImagesInHost(layers::ClearImagesType::All);
     mImageContainer = nullptr;
   }
   mFrontBufferSurface = nullptr;
@@ -53,7 +53,7 @@ void OffscreenCanvasDisplayHelper::DestroyCanvas() {
 
   MutexAutoLock lock(mMutex);
   if (mImageContainer) {
-    mImageContainer->ClearAllImages();
+    mImageContainer->ClearImagesInHost(layers::ClearImagesType::All);
     mImageContainer = nullptr;
   }
   mFrontBufferSurface = nullptr;
@@ -193,12 +193,6 @@ bool OffscreenCanvasDisplayHelper::CommitFrameToCompositor(
     MaybeQueueInvalidateElement();
   }
 
-  if (mData.mOwnerId.isSome()) {
-    // No need to update the ImageContainer as the presentation itself is
-    // handled in the compositor process.
-    return true;
-  }
-
   if (!mImageContainer) {
     return false;
   }
@@ -315,7 +309,7 @@ bool OffscreenCanvasDisplayHelper::CommitFrameToCompositor(
         image, TimeStamp(), mLastFrameID++, mImageProducerID));
     mImageContainer->SetCurrentImages(imageList);
   } else {
-    mImageContainer->ClearAllImages();
+    mImageContainer->ClearImagesInHost(layers::ClearImagesType::All);
   }
 
   return true;

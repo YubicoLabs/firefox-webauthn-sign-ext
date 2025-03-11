@@ -1,5 +1,5 @@
 // META: title=test WebNN API prelu operation
-// META: global=window,dedicatedworker
+// META: global=window
 // META: variant=?cpu
 // META: variant=?gpu
 // META: variant=?npu
@@ -580,8 +580,8 @@ const preluTests = [
           'constant': true
         },
         'preluSlope': {
-          'data': [5.0114545822143555],
-          'descriptor': {shape: [1, 1, 1, 1], dataType: 'float32'},
+          'data': [5.0114545822143555, 5.0114545822143555],
+          'descriptor': {shape: [1, 2, 1, 1], dataType: 'float32'},
           'constant': true
         }
       },
@@ -611,7 +611,7 @@ const preluTests = [
 
 if (navigator.ml) {
   preluTests.forEach((test) => {
-    webnn_conformance_test(buildGraphAndCompute, getPrecisionTolerance, test);
+    webnn_conformance_test(buildAndExecuteGraph, getPrecisionTolerance, test);
   });
 } else {
   test(() => assert_implements(navigator.ml, 'missing navigator.ml'));

@@ -8,6 +8,7 @@ export const HeuristicsRegExp = {
   RULES: {
     email: undefined,
     tel: undefined,
+    "address-housenumber": undefined,
     "street-address": undefined,
     "address-line1": undefined,
     "address-line2": undefined,
@@ -47,9 +48,12 @@ export const HeuristicsRegExp = {
     // Firefox-specific rules
     {
       "address-line1": "addrline1|address_1|addl1",
-      "address-line2": "addrline2|address_2|addl2",
+      "address-line2":
+        "addrline2|address_2|addl2" +
+        "|landmark", // common in IN
       "address-line3": "addrline3|address_3|addl3",
-      "country": "land", // de-DE
+      "address-housenumber":
+        "house\\s*number|hausnummer|haus|house[a-z\-]*n(r|o)",
       "postal-code": "^PLZ(\\b|\\*)", // de-DE
       "additional-name": "apellido.?materno|lastlastname",
       "cc-name":
@@ -197,9 +201,8 @@ export const HeuristicsRegExp = {
         "cc-?name" +
         "|card-?name" +
         "|cardholder-?name" +
-        "|cardholder" +
+        "|cardholder",
         // "|(^name$)" + // Removed to avoid overwriting "name", above.
-        "|(^nom$)",
 
       "cc-number":
         "cc-?number" +
@@ -389,7 +392,7 @@ export const HeuristicsRegExp = {
       "address-line1":
         "^address$|address[_-]?line(one)?|address1|addr1|street" +
         "|(?:shipping|billing)address$" +
-        "|strasse|straße|hausnummer|housenumber" + // de-DE
+        "|strasse|straße" + // de-DE
         "|house.?name" + // en-GB
         "|direccion|dirección" + // es
         "|adresse" + // fr-FR
@@ -640,6 +643,7 @@ export const HeuristicsRegExp = {
     {
       "address-line2":
         "address|line" +
+        "|house|building|apartment|floor" +    // de-DE
         "|adresse" +      // fr-FR
         "|indirizzo" +    // it-IT
         "|地址" +         // zh-CN

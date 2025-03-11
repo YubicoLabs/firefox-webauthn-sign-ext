@@ -15,21 +15,23 @@
 struct JSContext;
 
 namespace js::jit {
+class MIRGenerator;
 
 struct CompilationDependency {
-  enum class Type { GetIterator, EmulatesUndefined, Limit };
+  enum class Type { GetIterator, ArraySpecies, EmulatesUndefined, Limit };
 
   Type type;
 
   CompilationDependency(Type type) : type(type) {}
-  virtual bool operator==(CompilationDependency& other) = 0;
+  virtual bool operator==(const CompilationDependency& other) const = 0;
 
-  // Return true iff this dependency still holds.
-  virtual bool checkDependency() = 0;
+  // Return true iff this dependency still holds. May only be called on main
+  // thread.
+  virtual bool checkDependency(JSContext* cx) = 0;
   [[nodiscard]] virtual bool registerDependency(JSContext* cx,
                                                 HandleScript script) = 0;
 
-  virtual UniquePtr<CompilationDependency> clone() = 0;
+  virtual UniquePtr<CompilationDependency> clone() const = 0;
   virtual ~CompilationDependency() = default;
 };
 
@@ -40,7 +42,7 @@ struct CompilationDependencyTracker {
   mozilla::Vector<UniquePtr<CompilationDependency>, 8, SystemAllocPolicy>
       dependencies;
 
-  [[nodiscard]] bool addDependency(CompilationDependency& dep) {
+  [[nodiscard]] bool addDependency(const CompilationDependency& dep) {
     // Ensure we don't add duplicates. We expect this list to be short,
     // and so iteration is preferred over a more costly hashset.
     MOZ_ASSERT(dependencies.length() <= 32);
@@ -58,9 +60,10 @@ struct CompilationDependencyTracker {
     return dependencies.append(std::move(clone));
   }
 
-  bool checkDependencies() {
+  // Check all dependencies. May only be checked on main thread.
+  bool checkDependencies(JSContext* cx) {
     for (auto& dep : dependencies) {
-      if (!dep->checkDependency()) {
+      if (!dep->checkDependency(cx)) {
         return false;
       }
     }

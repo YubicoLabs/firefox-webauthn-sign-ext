@@ -37,7 +37,7 @@
 #include "mozilla/StaticPrefs_webgl.h"
 #include "mozilla/StaticPrefs_widget.h"
 #include "mozilla/Telemetry.h"
-#include "mozilla/glean/GleanMetrics.h"
+#include "mozilla/glean/GfxMetrics.h"
 #include "mozilla/TimeStamp.h"
 #include "mozilla/Unused.h"
 #include "mozilla/IntegerPrintfMacros.h"
@@ -148,7 +148,6 @@ static const uint32_t kDefaultGlyphCacheSize = -1;
 #include "mozilla/Attributes.h"
 #include "mozilla/Mutex.h"
 
-#include "nsAlgorithm.h"
 #include "nsIGfxInfo.h"
 #include "nsIXULRuntime.h"
 #include "VsyncSource.h"
@@ -557,6 +556,10 @@ static void WebRenderDebugPrefChangeCallback(const char* aPrefName, void*) {
   GFX_WEBRENDER_DEBUG(".restrict-blob-size", wr::DebugFlags::RESTRICT_BLOB_SIZE)
   GFX_WEBRENDER_DEBUG(".surface-promotion-logging",
                       wr::DebugFlags::SURFACE_PROMOTION_LOGGING)
+  GFX_WEBRENDER_DEBUG(".missing-snapshot-panic",
+                      wr::DebugFlags::MISSING_SNAPSHOT_PANIC)
+  GFX_WEBRENDER_DEBUG(".missing-snapshot-pink",
+                      wr::DebugFlags::MISSING_SNAPSHOT_PINK)
 #undef GFX_WEBRENDER_DEBUG
   gfx::gfxVars::SetWebRenderDebugFlags(flags._0);
 
@@ -1042,6 +1045,13 @@ void gfxPlatform::Init() {
   }
 }
 
+void gfxPlatform::InitMemoryReportersForGPUProcess() {
+  MOZ_RELEASE_ASSERT(XRE_IsGPUProcess());
+
+  RegisterStrongMemoryReporter(new GfxMemoryImageReporter());
+  RegisterStrongMemoryReporter(new SkMemoryReporter());
+}
+
 void gfxPlatform::ReportTelemetry() {
   MOZ_RELEASE_ASSERT(XRE_IsParentProcess(),
                      "GFX: Only allowed to be called from parent process.");
@@ -1063,7 +1073,7 @@ void gfxPlatform::ReportTelemetry() {
     for (const auto& screen : screenManager.CurrentScreenList()) {
       supportsHDR |= screen->GetIsHDR();
     }
-    Telemetry::ScalarSet(Telemetry::ScalarID::GFX_SUPPORTS_HDR, supportsHDR);
+    glean::gfx::supports_hdr.Set(supportsHDR);
   }
 
   nsString adapterDesc;
@@ -2245,10 +2255,9 @@ void gfxPlatform::FlushFontAndWordCaches() {
 }
 
 /* static */
-void gfxPlatform::ForceGlobalReflow(NeedsReframe aNeedsReframe,
-                                    BroadcastToChildren aBroadcastToChildren) {
+void gfxPlatform::ForceGlobalReflow(GlobalReflowFlags aFlags) {
   MOZ_ASSERT(NS_IsMainThread());
-  const bool reframe = aNeedsReframe == NeedsReframe::Yes;
+  bool reframe = !!(aFlags & GlobalReflowFlags::NeedsReframe);
   // Send a notification that will be observed by PresShells in this process
   // only.
   if (nsCOMPtr<nsIObserverService> obs = services::GetObserverService()) {
@@ -2256,11 +2265,11 @@ void gfxPlatform::ForceGlobalReflow(NeedsReframe aNeedsReframe,
     obs->NotifyObservers(nullptr, "font-info-updated", needsReframe);
   }
   if (XRE_IsParentProcess() &&
-      aBroadcastToChildren == BroadcastToChildren::Yes) {
+      aFlags & GlobalReflowFlags::BroadcastToChildren) {
     // Propagate the change to child processes.
     for (auto* process :
          dom::ContentParent::AllProcesses(dom::ContentParent::eLive)) {
-      Unused << process->SendForceGlobalReflow(reframe);
+      Unused << process->SendForceGlobalReflow(aFlags);
     }
   }
 }
@@ -2452,8 +2461,7 @@ void gfxPlatform::InitAcceleration() {
     sLayersSupportsHardwareVideoDecoding =
         gfxPlatformGtk::GetPlatform()->InitVAAPIConfig(
             StaticPrefs::
-                media_hardware_video_decoding_force_enabled_AtStartup() ||
-            StaticPrefs::media_ffmpeg_vaapi_enabled_AtStartup());
+                media_hardware_video_decoding_force_enabled_AtStartup());
 #else
     if (
 #  ifdef XP_WIN
@@ -2496,7 +2504,7 @@ void gfxPlatform::InitAcceleration() {
                       "FEATURE_REMOTE_CANVAS_NO_GPU_PROCESS"_ns);
     }
 
-#if defined(XP_WIN) && defined(NIGHTLY_BUILD)
+#ifdef XP_WIN
     // If D2D is explicitly disabled on Windows, then don't use remote canvas.
     // This prevents it from interfering with Accelerated Canvas2D.
     if (StaticPrefs::gfx_direct2d_disabled_AtStartup() &&
@@ -2505,9 +2513,7 @@ void gfxPlatform::InitAcceleration() {
                               "Disabled without Direct2D",
                               "FEATURE_REMOTE_CANVAS_NO_DIRECT2D"_ns);
     }
-#endif
-
-#ifndef XP_WIN
+#else
     gfxConfig::ForceDisable(Feature::REMOTE_CANVAS, FeatureStatus::Blocked,
                             "Platform not supported",
                             "FEATURE_REMOTE_CANVAS_NOT_WINDOWS"_ns);
@@ -2960,8 +2966,7 @@ void gfxPlatform::InitWebRenderConfig() {
     gfxVars::SetUseWebRenderCompositor(true);
   }
 
-  Telemetry::ScalarSet(
-      Telemetry::ScalarID::GFX_OS_COMPOSITOR,
+  glean::gfx::os_compositor.Set(
       gfx::gfxConfig::IsEnabled(gfx::Feature::WEBRENDER_COMPOSITOR));
 
   if (gfxConfig::IsEnabled(Feature::WEBRENDER_PARTIAL)) {
@@ -3013,7 +3018,7 @@ void gfxPlatform::InitHardwareVideoConfig() {
   }
   gfxVars::SetUseVP9HwDecode(featureVP9.IsEnabled());
 
-  // H264_HW_DECODE/AV1_HW_DECODE is used on Linux only right now.
+  // H264/AV1/HEVC_HW_DECODE are used on Linux only right now.
 #ifdef MOZ_WIDGET_GTK
   FeatureState& featureH264 = gfxConfig::GetFeature(Feature::H264_HW_DECODE);
   featureH264.EnableByDefault();
@@ -3032,6 +3037,15 @@ void gfxPlatform::InitHardwareVideoConfig() {
     featureAV1.Disable(FeatureStatus::Blocklisted, message.get(), failureId);
   }
   gfxVars::SetUseAV1HwDecode(featureAV1.IsEnabled());
+
+  FeatureState& featureHEVC = gfxConfig::GetFeature(Feature::HEVC_HW_DECODE);
+  featureHEVC.EnableByDefault();
+
+  if (!IsGfxInfoStatusOkay(nsIGfxInfo::FEATURE_HEVC_HW_DECODE, &message,
+                           failureId)) {
+    featureHEVC.Disable(FeatureStatus::Blocklisted, message.get(), failureId);
+  }
+  gfxVars::SetUseHEVCHwDecode(featureHEVC.IsEnabled());
 #endif
 }
 
@@ -3121,22 +3135,41 @@ void gfxPlatform::InitWebGLConfig() {
     }
   }
 
+#ifdef MOZ_WIDGET_GTK
   if (kIsLinux) {
-    nsCString discardFailureId;
-    int32_t status;
     FeatureState& feature =
         gfxConfig::GetFeature(Feature::DMABUF_SURFACE_EXPORT);
+    feature.EnableByDefault();
+    nsCString discardFailureId;
+    int32_t status;
     if (NS_FAILED(
             gfxInfo->GetFeatureStatus(nsIGfxInfo::FEATURE_DMABUF_SURFACE_EXPORT,
                                       discardFailureId, &status)) ||
         status != nsIGfxInfo::FEATURE_STATUS_OK) {
-      feature.DisableByDefault(FeatureStatus::Blocked, "Blocklisted by gfxInfo",
-                               discardFailureId);
-      gfxVars::SetUseDMABufSurfaceExport(false);
-    } else {
-      feature.EnableByDefault();
+      feature.Disable(FeatureStatus::Blocked, "Blocklisted by gfxInfo",
+                      discardFailureId);
     }
+    gfxVars::SetUseDMABufSurfaceExport(feature.IsEnabled());
   }
+
+  if (kIsLinux) {
+    FeatureState& feature = gfxConfig::GetFeature(Feature::DMABUF_WEBGL);
+    feature.EnableByDefault();
+    if (!StaticPrefs::widget_dmabuf_webgl_enabled_AtStartup()) {
+      feature.UserDisable("Disabled by pref",
+                          "FEATURE_FAILURE_DISABLED_BY_PREF"_ns);
+    }
+    nsCString discardFailureId;
+    int32_t status;
+    if (NS_FAILED(gfxInfo->GetFeatureStatus(nsIGfxInfo::FEATURE_DMABUF_WEBGL,
+                                            discardFailureId, &status)) ||
+        status != nsIGfxInfo::FEATURE_STATUS_OK) {
+      feature.Disable(FeatureStatus::Blocked, "Blocklisted by gfxInfo",
+                      discardFailureId);
+    }
+    gfxVars::SetUseDMABufWebGL(feature.IsEnabled());
+  }
+#endif
 }
 
 void gfxPlatform::InitWebGPUConfig() {
@@ -3167,12 +3200,13 @@ void gfxPlatform::InitWebGPUConfig() {
 
   gfxVars::SetAllowWebGPU(feature.IsEnabled());
 
+  if (StaticPrefs::dom_webgpu_allow_present_without_readback()
 #if XP_WIN
-  if (IsWin10CreatorsUpdateOrLater() &&
-      StaticPrefs::dom_webgpu_allow_present_without_readback()) {
+      && IsWin10CreatorsUpdateOrLater()
+#endif
+  ) {
     gfxVars::SetAllowWebGPUPresentWithoutReadback(true);
   }
-#endif
 }
 
 #ifdef XP_WIN

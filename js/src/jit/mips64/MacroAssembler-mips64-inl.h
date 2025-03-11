@@ -56,6 +56,14 @@ void MacroAssembler::move32To64SignExtend(Register src, Register64 dest) {
   ma_sll(dest.reg, src, Imm32(0));
 }
 
+void MacroAssembler::move8SignExtendToPtr(Register src, Register dest) {
+  move8To64SignExtend(src, Register64(dest));
+}
+
+void MacroAssembler::move16SignExtendToPtr(Register src, Register dest) {
+  move16To64SignExtend(src, Register64(dest));
+}
+
 void MacroAssembler::move32SignExtendToPtr(Register src, Register dest) {
   ma_sll(dest, src, Imm32(0));
 }
@@ -79,6 +87,10 @@ void MacroAssembler::notPtr(Register reg) { ma_not(reg, reg); }
 void MacroAssembler::andPtr(Register src, Register dest) { ma_and(dest, src); }
 
 void MacroAssembler::andPtr(Imm32 imm, Register dest) { ma_and(dest, imm); }
+
+void MacroAssembler::andPtr(Imm32 imm, Register src, Register dest) {
+  ma_and(dest, src, imm);
+}
 
 void MacroAssembler::and64(Imm64 imm, Register64 dest) {
   ma_li(ScratchRegister, ImmWord(imm.value));
@@ -114,6 +126,10 @@ void MacroAssembler::orPtr(Register src, Register dest) { ma_or(dest, src); }
 
 void MacroAssembler::orPtr(Imm32 imm, Register dest) { ma_or(dest, imm); }
 
+void MacroAssembler::orPtr(Imm32 imm, Register src, Register dest) {
+  ma_or(dest, src, imm);
+}
+
 void MacroAssembler::or64(Register64 src, Register64 dest) {
   ma_or(dest.reg, src.reg);
 }
@@ -147,6 +163,10 @@ void MacroAssembler::xor64(const Operand& src, Register64 dest) {
 void MacroAssembler::xorPtr(Register src, Register dest) { ma_xor(dest, src); }
 
 void MacroAssembler::xorPtr(Imm32 imm, Register dest) { ma_xor(dest, imm); }
+
+void MacroAssembler::xorPtr(Imm32 imm, Register src, Register dest) {
+  ma_xor(dest, src, imm);
+}
 
 // ===============================================================
 // Swap instructions
@@ -315,6 +335,46 @@ void MacroAssembler::inc64(AbsoluteAddress dest) {
   as_sd(SecondScratchReg, ScratchRegister, 0);
 }
 
+void MacroAssembler::quotient64(Register rhs, Register srcDest,
+                                bool isUnsigned) {
+  if (isUnsigned) {
+#ifdef MIPSR6
+    as_ddivu(srcDest, srcDest, rhs);
+#else
+    as_ddivu(srcDest, rhs);
+#endif
+  } else {
+#ifdef MIPSR6
+    as_ddiv(srcDest, srcDest, rhs);
+#else
+    as_ddiv(srcDest, rhs);
+#endif
+  }
+#ifndef MIPSR6
+  as_mflo(srcDest);
+#endif
+}
+
+void MacroAssembler::remainder64(Register rhs, Register srcDest,
+                                 bool isUnsigned) {
+  if (isUnsigned) {
+#ifdef MIPSR6
+    as_dmodu(srcDest, srcDest, rhs);
+#else
+    as_ddivu(srcDest, rhs);
+#endif
+  } else {
+#ifdef MIPSR6
+    as_dmod(srcDest, srcDest, rhs);
+#else
+    as_ddiv(srcDest, rhs);
+#endif
+  }
+#ifndef MIPSR6
+  as_mfhi(srcDest);
+#endif
+}
+
 void MacroAssembler::neg64(Register64 reg) { as_dsubu(reg.reg, zero, reg.reg); }
 
 void MacroAssembler::negPtr(Register reg) { as_dsubu(reg, zero, reg); }
@@ -323,8 +383,12 @@ void MacroAssembler::negPtr(Register reg) { as_dsubu(reg, zero, reg); }
 // Shift functions
 
 void MacroAssembler::lshiftPtr(Imm32 imm, Register dest) {
+  lshiftPtr(imm, dest, dest);
+}
+
+void MacroAssembler::lshiftPtr(Imm32 imm, Register src, Register dest) {
   MOZ_ASSERT(0 <= imm.value && imm.value < 64);
-  ma_dsll(dest, dest, imm);
+  ma_dsll(dest, src, imm);
 }
 
 void MacroAssembler::lshiftPtr(Register shift, Register dest) {
@@ -341,8 +405,12 @@ void MacroAssembler::lshift64(Register shift, Register64 dest) {
 }
 
 void MacroAssembler::rshiftPtr(Imm32 imm, Register dest) {
+  rshiftPtr(imm, dest, dest);
+}
+
+void MacroAssembler::rshiftPtr(Imm32 imm, Register src, Register dest) {
   MOZ_ASSERT(0 <= imm.value && imm.value < 64);
-  ma_dsrl(dest, dest, imm);
+  ma_dsrl(dest, src, imm);
 }
 
 void MacroAssembler::rshiftPtr(Register shift, Register dest) {
@@ -359,8 +427,17 @@ void MacroAssembler::rshift64(Register shift, Register64 dest) {
 }
 
 void MacroAssembler::rshiftPtrArithmetic(Imm32 imm, Register dest) {
+  rshiftPtrArithmetic(imm, dest, dest);
+}
+
+void MacroAssembler::rshiftPtrArithmetic(Imm32 imm, Register src,
+                                         Register dest) {
   MOZ_ASSERT(0 <= imm.value && imm.value < 64);
-  ma_dsra(dest, dest, imm);
+  ma_dsra(dest, src, imm);
+}
+
+void MacroAssembler::rshiftPtrArithmetic(Register shift, Register dest) {
+  ma_dsra(dest, dest, shift);
 }
 
 void MacroAssembler::rshift64Arithmetic(Imm32 imm, Register64 dest) {
@@ -713,7 +790,8 @@ void MacroAssembler::branchTestMagic(Condition cond, const Address& valaddr,
   ma_b(scratch, ImmWord(magic), label, cond);
 }
 
-void MacroAssembler::branchTestValue(Condition cond, const BaseIndex& lhs,
+template <typename T>
+void MacroAssembler::branchTestValue(Condition cond, const T& lhs,
                                      const ValueOperand& rhs, Label* label) {
   MOZ_ASSERT(cond == Assembler::Equal || cond == Assembler::NotEqual);
   branchPtr(cond, lhs, rhs.valueReg(), label);
@@ -782,7 +860,7 @@ void MacroAssembler::fallibleUnboxPtr(const ValueOperand& src, Register dest,
   //
   // Note: src and dest can be the same register
   ScratchRegisterScope scratch(asMasm());
-  mov(ImmWord(JSVAL_TYPE_TO_SHIFTED_TAG(type)), scratch);
+  mov(ImmShiftedTag(type), scratch);
   ma_xor(scratch, src.valueReg());
   ma_move(dest, scratch);
   ma_dsrl(scratch, scratch, Imm32(JSVAL_TAG_SHIFT));

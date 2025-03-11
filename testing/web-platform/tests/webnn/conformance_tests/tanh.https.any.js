@@ -1,5 +1,5 @@
 // META: title=test WebNN API tanh operation
-// META: global=window,dedicatedworker
+// META: global=window
 // META: variant=?cpu
 // META: variant=?gpu
 // META: variant=?npu
@@ -268,7 +268,7 @@ const tanhTests = [
 if (navigator.ml) {
   tanhTests.forEach((test) => {
     webnn_conformance_test(
-        buildGraphAndCompute, getTanhPrecisionTolerance, test);
+        buildAndExecuteGraph, getTanhPrecisionTolerance, test);
   });
 } else {
   test(() => assert_implements(navigator.ml, 'missing navigator.ml'));

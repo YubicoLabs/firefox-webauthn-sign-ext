@@ -72,9 +72,8 @@ export class AddonSearchEngine extends SearchEngine {
    *   The saved settings for the user.
    */
   async init({ extension, settings } = {}) {
-    let { baseURI, manifest } = await this.#getExtensionDetailsForLocale(
-      extension
-    );
+    let { baseURI, manifest } =
+      await this.#getExtensionDetailsForLocale(extension);
 
     this.#initFromManifest(baseURI, manifest);
     this._loadSettings(settings);
@@ -89,9 +88,8 @@ export class AddonSearchEngine extends SearchEngine {
    *   The extension associated with this search engine, if known.
    */
   async update({ extension } = {}) {
-    let { baseURI, manifest } = await this.#getExtensionDetailsForLocale(
-      extension
-    );
+    let { baseURI, manifest } =
+      await this.#getExtensionDetailsForLocale(extension);
 
     let originalName = this.name;
     let name = manifest.chrome_settings_overrides.search_provider.name.trim();
@@ -125,18 +123,14 @@ export class AddonSearchEngine extends SearchEngine {
       lazy.logConsole.debug(
         `Add-on ${this._extensionID} for search engine ${this.name} is not installed!`
       );
-      Services.telemetry.keyedScalarSet(
-        "browser.searchinit.engine_invalid_webextension",
-        this._extensionID,
+      Glean.browserSearchinit.engineInvalidWebextension[this._extensionID].set(
         1
       );
     } else if (!addon.isActive) {
       lazy.logConsole.debug(
         `Add-on ${this._extensionID} for search engine ${this.name} is not active!`
       );
-      Services.telemetry.keyedScalarSet(
-        "browser.searchinit.engine_invalid_webextension",
-        this._extensionID,
+      Glean.browserSearchinit.engineInvalidWebextension[this._extensionID].set(
         2
       );
     } else {
@@ -150,29 +144,23 @@ export class AddonSearchEngine extends SearchEngine {
         lazy.logConsole.debug(
           `Add-on ${this._extensionID} for search engine ${this.name} no longer has an engine defined`
         );
-        Services.telemetry.keyedScalarSet(
-          "browser.searchinit.engine_invalid_webextension",
-          this._extensionID,
-          4
-        );
+        Glean.browserSearchinit.engineInvalidWebextension[
+          this._extensionID
+        ].set(4);
       } else if (this.name != providerSettings.name) {
         lazy.logConsole.debug(
           `Add-on ${this._extensionID} for search engine ${this.name} has a different name!`
         );
-        Services.telemetry.keyedScalarSet(
-          "browser.searchinit.engine_invalid_webextension",
-          this._extensionID,
-          5
-        );
+        Glean.browserSearchinit.engineInvalidWebextension[
+          this._extensionID
+        ].set(5);
       } else if (!this.checkSearchUrlMatchesManifest(providerSettings)) {
         lazy.logConsole.debug(
           `Add-on ${this._extensionID} for search engine ${this.name} has out-of-date manifest!`
         );
-        Services.telemetry.keyedScalarSet(
-          "browser.searchinit.engine_invalid_webextension",
-          this._extensionID,
-          6
-        );
+        Glean.browserSearchinit.engineInvalidWebextension[
+          this._extensionID
+        ].set(6);
       }
     }
   }
@@ -180,7 +168,7 @@ export class AddonSearchEngine extends SearchEngine {
   /**
    * Initializes the engine based on the manifest and other values.
    *
-   * @param {string} extensionBaseURI
+   * @param {nsIURI} extensionBaseURI
    *   The Base URI of the WebExtension.
    * @param {object} manifest
    *   An object representing the WebExtensions' manifest.
@@ -201,31 +189,18 @@ export class AddonSearchEngine extends SearchEngine {
 
     // Record other icons that the WebExtension has.
     if (manifest.icons) {
-      let iconList = Object.entries(manifest.icons).map(icon => {
-        return {
-          width: icon[0],
-          height: icon[0],
-          url: extensionBaseURI.resolve(icon[1]),
-        };
-      });
-      for (let icon of iconList) {
-        this._addIconToMap(icon.size, icon.size, icon.url);
+      for (let [size, icon] of Object.entries(manifest.icons)) {
+        this._addIconToMap(
+          extensionBaseURI.resolve(icon),
+          parseInt(size),
+          false
+        );
       }
-    }
-
-    // Filter out any untranslated parameters, the extension has to list all
-    // possible mozParams for each engine where a 'locale' may only provide
-    // actual values for some (or none).
-    if (searchProvider.params) {
-      searchProvider.params = searchProvider.params.filter(param => {
-        return !(param.value && param.value.startsWith("__MSG_"));
-      });
     }
 
     this._initWithDetails({
       ...searchProvider,
       iconURL,
-      description: manifest.description,
     });
   }
 
@@ -233,7 +208,7 @@ export class AddonSearchEngine extends SearchEngine {
    * Update this engine based on new manifest, used during
    * webextension upgrades.
    *
-   * @param {string} extensionBaseURI
+   * @param {nsIURI} extensionBaseURI
    *   The Base URI of the WebExtension.
    * @param {object} manifest
    *   An object representing the WebExtensions' manifest.
@@ -251,7 +226,7 @@ export class AddonSearchEngine extends SearchEngine {
    *
    * @param {object} [extension]
    *   The extension to get the manifest from.
-   * @returns {object}
+   * @returns {Promise<object>}
    *   The loaded manifest.
    */
   async #getExtensionDetailsForLocale(extension) {
@@ -288,7 +263,7 @@ export class AddonSearchEngine extends SearchEngine {
    *
    * @param {string} id
    *   The WebExtension id.
-   * @returns {WebExtensionPolicy}
+   * @returns {Promise<WebExtensionPolicy>}
    */
   static async getWebExtensionPolicy(id) {
     let policy = WebExtensionPolicy.getByID(id);

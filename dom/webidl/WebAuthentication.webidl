@@ -83,6 +83,14 @@ partial interface PublicKeyCredential {
     [Throws, Pref="security.webauthn.enable_json_serialization_methods"] static PublicKeyCredentialCreationOptions parseCreationOptionsFromJSON(PublicKeyCredentialCreationOptionsJSON options);
 };
 
+// https://w3c.github.io/webauthn/#sctn-getClientCapabilities
+[SecureContext]
+partial interface PublicKeyCredential {
+        [Throws] static Promise<PublicKeyCredentialClientCapabilities> getClientCapabilities();
+};
+
+typedef record<DOMString, boolean> PublicKeyCredentialClientCapabilities;
+
 dictionary PublicKeyCredentialCreationOptionsJSON {
     required PublicKeyCredentialRpEntity                    rp;
     required PublicKeyCredentialUserEntityJSON              user;
@@ -217,12 +225,14 @@ typedef record<DOMString, DOMString> AuthenticationExtensionsAuthenticatorInputs
 // CollectedClientData is only consumed by the relying party, and because
 // [GenerateToJSON] does not produce the correct serialization algorithm, the
 // definition below is commented out. Please keep this definition in sync with
-// in AssembleClientData in dom/webauthn/WebAuthnManager.cpp.
+// in AssembleClientData in dom/webauthn/WebAuthnTransactionParent.cpp.
 //
 // dictionary CollectedClientData {
 //     required DOMString           type;
 //     required DOMString           challenge;
 //     required DOMString           origin;
+//     boolean                      crossOrigin;
+//     DOMString                    topOrigin;
 // };
 
 dictionary PublicKeyCredentialDescriptor {
@@ -290,6 +300,8 @@ partial dictionary AuthenticationExtensionsClientOutputsJSON {
 
 // hmac-secret
 // <https://fidoalliance.org/specs/fido-v2.1-ps-20210615/fido-client-to-authenticator-protocol-v2.1-ps-errata-20220621.html#sctn-hmac-secret-extension>
+// note: we don't support hmac-secret in get() (see instead the prf extension)
+// so we only define the create() inputs and outputs here.
 
 partial dictionary AuthenticationExtensionsClientInputs {
     boolean hmacCreateSecret;
@@ -326,13 +338,27 @@ dictionary AuthenticationExtensionsPRFValues {
   BufferSource second;
 };
 
+dictionary AuthenticationExtensionsPRFValuesJSON {
+  required Base64URLString first;
+  Base64URLString second;
+};
+
 dictionary AuthenticationExtensionsPRFInputs {
   AuthenticationExtensionsPRFValues eval;
   record<USVString, AuthenticationExtensionsPRFValues> evalByCredential;
 };
 
+dictionary AuthenticationExtensionsPRFInputsJSON {
+  AuthenticationExtensionsPRFValuesJSON eval;
+  record<USVString, AuthenticationExtensionsPRFValuesJSON> evalByCredential;
+};
+
 partial dictionary AuthenticationExtensionsClientInputs {
   AuthenticationExtensionsPRFInputs prf;
+};
+
+partial dictionary AuthenticationExtensionsClientInputsJSON {
+  AuthenticationExtensionsPRFInputsJSON prf;
 };
 
 dictionary AuthenticationExtensionsPRFOutputs {
@@ -340,10 +366,17 @@ dictionary AuthenticationExtensionsPRFOutputs {
   AuthenticationExtensionsPRFValues results;
 };
 
+dictionary AuthenticationExtensionsPRFOutputsJSON {
+  boolean enabled;
+};
+
 partial dictionary AuthenticationExtensionsClientOutputs {
   AuthenticationExtensionsPRFOutputs prf;
 };
 
+partial dictionary AuthenticationExtensionsClientOutputsJSON {
+  AuthenticationExtensionsPRFOutputsJSON prf;
+};
 
 partial dictionary AuthenticationExtensionsClientInputs {
     AuthenticationExtensionsSignInputs sign;

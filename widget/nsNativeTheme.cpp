@@ -116,7 +116,6 @@ NS_IMPL_ISUPPORTS(nsNativeTheme, nsITimerCallback, nsINamed)
         flags |= ElementState::HOVER | ElementState::ACTIVE;
       }
       break;
-    case StyleAppearance::MenulistButton:
     case StyleAppearance::Menulist:
     case StyleAppearance::NumberInput:
     case StyleAppearance::Textfield:
@@ -581,5 +580,7 @@ bool nsNativeTheme::IsWidgetAlwaysNonNative(nsIFrame* aFrame,
                                             StyleAppearance aAppearance) {
   return IsWidgetScrollbarPart(aAppearance) ||
          aAppearance == StyleAppearance::FocusOutline ||
+         aAppearance == StyleAppearance::SpinnerUpbutton ||
+         aAppearance == StyleAppearance::SpinnerDownbutton ||
          (aFrame && aFrame->StyleUI()->mMozTheme == StyleMozTheme::NonNative);
 }

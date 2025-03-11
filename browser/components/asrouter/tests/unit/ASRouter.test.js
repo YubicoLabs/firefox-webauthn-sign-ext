@@ -14,7 +14,7 @@ import {
 } from "modules/ASRouterPreferences.sys.mjs";
 import { ASRouterTriggerListeners } from "modules/ASRouterTriggerListeners.sys.mjs";
 import { CFRPageActions } from "modules/CFRPageActions.sys.mjs";
-import { GlobalOverrider } from "test/unit/utils";
+import { GlobalOverrider } from "tests/unit/utils";
 import { PanelTestProvider } from "modules/PanelTestProvider.sys.mjs";
 import ProviderResponseSchema from "content-src/schemas/provider-response.schema.json";
 
@@ -237,7 +237,7 @@ describe("ASRouter", () => {
       return features;
     }, {});
     globals.set({
-      // Testing framework doesn't know how to `defineLazyModuleGetters` so we're
+      // Testing framework doesn't know how to `defineESModuleGetters` so we're
       // importing these modules into the global scope ourselves.
       GroupsConfigurationProvider: { getMessages: () => Promise.resolve([]) },
       ASRouterPreferences,
@@ -872,12 +872,9 @@ describe("ASRouter", () => {
       assertRouterContainsMessages(FAKE_LOCAL_MESSAGES);
     });
     it("should parse the triggers in the messages and register the trigger listeners", async () => {
-      sandbox.spy(
-        ASRouterTriggerListeners.get("openURL"),
-        "init"
-      ); /* eslint-disable object-property-newline */
+      sandbox.spy(ASRouterTriggerListeners.get("openURL"), "init");
 
-      /* eslint-disable object-curly-newline */ await createRouterAndInit([
+      await createRouterAndInit([
         {
           id: "foo",
           type: "local",
@@ -906,10 +903,8 @@ describe("ASRouter", () => {
             },
           ],
         },
-      ]); /* eslint-enable object-property-newline */
-      /* eslint-enable object-curly-newline */ assert.calledTwice(
-        ASRouterTriggerListeners.get("openURL").init
-      );
+      ]);
+      assert.calledTwice(ASRouterTriggerListeners.get("openURL").init);
       assert.calledWithExactly(
         ASRouterTriggerListeners.get("openURL").init,
         Router._triggerHandler,
@@ -931,10 +926,10 @@ describe("ASRouter", () => {
           enabled: true,
           messages: [
             {
-              id: "bar3",
+              id: "foo",
               template: "simple_template",
               trigger: { id: "messagesLoaded" },
-              content: { title: "Bar3", body: "Bar123" },
+              content: { title: "Foo", body: "Bar123" },
             },
           ],
         },
@@ -948,6 +943,26 @@ describe("ASRouter", () => {
         sandbox.match({ id: "messagesLoaded" }),
         true
       );
+    });
+    it("should not register a trigger listener in automation for a message with skip_in_tests", async () => {
+      sandbox.spy(ASRouterTriggerListeners.get("openURL"), "init");
+      await createRouterAndInit([
+        {
+          id: "foo",
+          type: "local",
+          enabled: true,
+          messages: [
+            {
+              id: "foo",
+              template: "simple_template",
+              trigger: { id: "openURL" },
+              content: { title: "Foo", body: "Foo123" },
+              skip_in_tests: "testing",
+            },
+          ],
+        },
+      ]);
+      assert.notCalled(ASRouterTriggerListeners.get("openURL").init);
     });
     it("should gracefully handle messages loading before a window or browser exists", async () => {
       sandbox.stub(global, "gBrowser").value(undefined);
@@ -1363,6 +1378,15 @@ describe("ASRouter", () => {
       assert.lengthOf(result, 1);
       assert.deepEqual(result[0], message1);
     });
+    it("should filter out messages with skip_in_tests when in automation", async () => {
+      await Router.setState(() => ({
+        messages: [
+          { id: "foo", provider: "cfr", skip_in_tests: "testing", groups: [] },
+        ],
+      }));
+      const result = await Router.handleMessageRequest({ provider: "cfr" });
+      assert.isNull(result);
+    });
   });
 
   describe("#uninit", () => {
@@ -1710,7 +1734,7 @@ describe("ASRouter", () => {
         },
       ];
       sandbox.stub(Router, "handleMessageRequest").resolves(messages);
-      sandbox.spy(Services.telemetry, "recordEvent");
+      sandbox.spy(Glean.messagingExperiments.reachCfr, "record");
 
       await Router.sendTriggerMessage({
         tabId: 0,
@@ -1718,7 +1742,7 @@ describe("ASRouter", () => {
         id: "foo",
       });
 
-      assert.calledTwice(Services.telemetry.recordEvent);
+      assert.calledTwice(Glean.messagingExperiments.reachCfr.record);
     });
     it("should not record the Reach event if it's already sent", async () => {
       let messages = [
@@ -1733,14 +1757,14 @@ describe("ASRouter", () => {
         },
       ];
       sandbox.stub(Router, "handleMessageRequest").resolves(messages);
-      sandbox.spy(Services.telemetry, "recordEvent");
+      sandbox.spy(Glean.messagingExperiments.reachCfr, "record");
 
       await Router.sendTriggerMessage({
         tabId: 0,
         browser: {},
         id: "foo",
       });
-      assert.notCalled(Services.telemetry.recordEvent);
+      assert.notCalled(Glean.messagingExperiments.reachCfr.record);
     });
     it("should record the Exposure event for each valid feature", async () => {
       ["cfr_doorhanger", "update_action", "infobar", "spotlight"].forEach(

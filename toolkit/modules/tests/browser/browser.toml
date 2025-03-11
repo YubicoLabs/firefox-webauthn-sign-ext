@@ -22,8 +22,12 @@ skip-if = ["true"] # bug 1831518 covers re-enabling
 ["browser_FinderHighlighter2.js"]
 skip-if = ["true"] # bug 1831518 covers re-enabling
 
+["browser_FinderSound.js"]
+
 ["browser_Finder_hidden_textarea.js"]
 skip-if = ["verify && debug"]
+
+["browser_Finder_null_global.js"]
 
 ["browser_Finder_offscreen_text.js"]
 
@@ -40,6 +44,8 @@ skip-if = [
 
 ["browser_Finder_skip_invisible_and_option.js"]
 
+["browser_Finder_sound.js"]
+
 ["browser_Finder_vertical_text.js"]
 
 ["browser_Geometry.js"]
@@ -49,6 +55,9 @@ skip-if = [
 ["browser_LayoutUtils.js"]
 
 ["browser_Troubleshoot.js"]
+skip-if = [
+   "os == 'win' && os_version == '11.26100' && bits == 64 && asan", # Bug 1863166
+]
 
 ["browser_web_channel.js"]
 https_first_disabled = true

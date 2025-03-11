@@ -131,6 +131,13 @@ class NewRenderer : public RendererEvent {
       }
     }
 
+    // Only allow the layer compositor in nightly builds, for now.
+    bool use_layer_compositor = false;
+#ifdef NIGHTLY_BUILD
+    use_layer_compositor =
+        StaticPrefs::gfx_webrender_layer_compositor_AtStartup();
+#endif
+
     if (!wr_window_new(
             aWindowId, mSize.width, mSize.height,
             mWindowKind == WindowKind::MAIN, supportLowPriorityTransactions,
@@ -138,7 +145,7 @@ class NewRenderer : public RendererEvent {
             gfx::gfxVars::UseWebRenderScissoredCacheClears(), swgl, gl,
             compositor->SurfaceOriginIsTopLeft(), progCache, shaders,
             aRenderThread.ThreadPool().Raw(),
-            aRenderThread.ThreadPoolLP().Raw(),
+            aRenderThread.ThreadPoolLP().Raw(), aRenderThread.MemoryChunkPool(),
             aRenderThread.GlyphRasterThread().Raw(), &WebRenderMallocSizeOf,
             &WebRenderMallocEnclosingSizeOf, 0, compositor.get(),
             compositor->ShouldUseNativeCompositor(),
@@ -151,7 +158,8 @@ class NewRenderer : public RendererEvent {
             gfx::gfxVars::WebRenderRequiresHardwareDriver(),
             StaticPrefs::gfx_webrender_low_quality_pinch_zoom_AtStartup(),
             StaticPrefs::gfx_webrender_max_shared_surface_size_AtStartup(),
-            StaticPrefs::gfx_webrender_enable_subpixel_aa_AtStartup())) {
+            StaticPrefs::gfx_webrender_enable_subpixel_aa_AtStartup(),
+            use_layer_compositor)) {
       // wr_window_new puts a message into gfxCriticalNote if it returns false
       MOZ_ASSERT(errorMessage);
       mError->AssignASCII(errorMessage);
@@ -178,6 +186,8 @@ class NewRenderer : public RendererEvent {
 
     aRenderThread.AddRenderer(aWindowId, std::move(renderer));
   }
+
+  const char* Name() override { return "NewRenderer"; }
 
  private:
   wr::DocumentHandle** mDocHandle;
@@ -209,6 +219,8 @@ class RemoveRenderer : public RendererEvent {
     aRenderThread.RemoveRenderer(aWindowId);
     layers::AutoCompleteTask complete(mTask);
   }
+
+  const char* Name() override { return "RemoveRenderer"; }
 
  private:
   layers::SynchronousTask* mTask;
@@ -275,9 +287,9 @@ void TransactionBuilder::ClearDisplayList(Epoch aEpoch,
   wr_transaction_clear_display_list(mTxn, aEpoch, aPipelineId);
 }
 
-void TransactionBuilder::GenerateFrame(const VsyncId& aVsyncId,
+void TransactionBuilder::GenerateFrame(const VsyncId& aVsyncId, bool aPresent,
                                        wr::RenderReasons aReasons) {
-  wr_transaction_generate_frame(mTxn, aVsyncId.mId, aReasons);
+  wr_transaction_generate_frame(mTxn, aVsyncId.mId, aPresent, aReasons);
 }
 
 void TransactionBuilder::InvalidateRenderedFrame(wr::RenderReasons aReasons) {
@@ -703,6 +715,9 @@ void WebRenderAPI::Readback(const TimeStamp& aStartTime, gfx::IntSize size,
       layers::AutoCompleteTask complete(mTask);
     }
 
+    const char* Name() override { return "Readback"; }
+
+   private:
     layers::SynchronousTask* mTask;
     TimeStamp mStartTime;
     gfx::IntSize mSize;
@@ -772,15 +787,15 @@ void WebRenderAPI::Pause() {
       layers::AutoCompleteTask complete(mTask);
     }
 
+    const char* Name() override { return "PauseEvent"; }
+
+   private:
     layers::SynchronousTask* mTask;
   };
 
   layers::SynchronousTask task("Pause");
   auto event = MakeUnique<PauseEvent>(&task);
-  // This event will be passed from wr_backend thread to renderer thread. That
-  // implies that all frame data have been processed when the renderer runs this
-  // event.
-  RunOnRenderThread(std::move(event));
+  RenderThread::Get()->PostEvent(mId, std::move(event));
 
   task.Wait();
 }
@@ -800,6 +815,9 @@ bool WebRenderAPI::Resume() {
       layers::AutoCompleteTask complete(mTask);
     }
 
+    const char* Name() override { return "ResumeEvent"; }
+
+   private:
     layers::SynchronousTask* mTask;
     bool* mResult;
   };
@@ -807,10 +825,7 @@ bool WebRenderAPI::Resume() {
   bool result = false;
   layers::SynchronousTask task("Resume");
   auto event = MakeUnique<ResumeEvent>(&task, &result);
-  // This event will be passed from wr_backend thread to renderer thread. That
-  // implies that all frame data have been processed when the renderer runs this
-  // event.
-  RunOnRenderThread(std::move(event));
+  RenderThread::Get()->PostEvent(mId, std::move(event));
 
   task.Wait();
   return result;
@@ -844,6 +859,9 @@ void WebRenderAPI::WaitFlushed() {
       layers::AutoCompleteTask complete(mTask);
     }
 
+    const char* Name() override { return "WaitFlushedEvent"; }
+
+   private:
     layers::SynchronousTask* mTask;
   };
 
@@ -902,6 +920,8 @@ void WebRenderAPI::BeginRecording(const TimeStamp& aRecordingStart,
                                             mRootPipelineId);
     }
 
+    const char* Name() override { return "BeginRecordingEvent"; }
+
    private:
     TimeStamp mRecordingStart;
     wr::PipelineId mRootPipelineId;
@@ -933,6 +953,8 @@ RefPtr<WebRenderAPI::EndRecordingPromise> WebRenderAPI::EndRecording() {
     RefPtr<WebRenderAPI::EndRecordingPromise> GetPromise() {
       return mPromise.Ensure(__func__);
     }
+
+    const char* Name() override { return "EndRecordingEvent"; }
 
    private:
     MozPromiseHolder<WebRenderAPI::EndRecordingPromise> mPromise;
@@ -1045,6 +1067,14 @@ void TransactionBuilder::DeleteBlobImage(BlobImageKey aKey) {
   wr_resource_updates_delete_blob_image(mTxn, aKey);
 }
 
+void TransactionBuilder::AddSnapshotImage(wr::SnapshotImageKey aKey) {
+  wr_resource_updates_add_snapshot_image(mTxn, aKey);
+}
+
+void TransactionBuilder::DeleteSnapshotImage(wr::SnapshotImageKey aKey) {
+  wr_resource_updates_delete_snapshot_image(mTxn, aKey);
+}
+
 void TransactionBuilder::AddRawFont(wr::FontKey aKey, wr::Vec<uint8_t>& aBytes,
                                     uint32_t aIndex) {
   wr_resource_updates_add_raw_font(mTxn, aKey, &aBytes.inner, aIndex);
@@ -1093,6 +1123,8 @@ class FrameStartTime : public RendererEvent {
       renderer->SetFrameStartTime(mTime);
     }
   }
+
+  const char* Name() override { return "FrameStartTime"; }
 
  private:
   TimeStamp mTime;

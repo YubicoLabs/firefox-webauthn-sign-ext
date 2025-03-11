@@ -8,13 +8,11 @@
 
 %{C++
 #include "mozilla/MemoryReporting.h"
+#include "mozilla/ipc/SharedMemoryHandle.h"
 
 namespace mozilla {
 namespace dom {
 class ContentParent;
-}
-namespace ipc {
-class FileDescriptor;
 }
 }
 
@@ -29,7 +27,7 @@ class FileDescriptor;
 %}
 
 [ptr] native ContentParent(mozilla::dom::ContentParent);
-[ref] native FileDescriptor(mozilla::ipc::FileDescriptor);
+native ReadOnlySharedMemoryHandle(mozilla::ipc::ReadOnlySharedMemoryHandle&&);
 native MallocSizeOf(mozilla::MallocSizeOf);
 
 [scriptable, builtinclass, uuid(D85A17C2-AA7C-11d2-9B8C-00805F8A16D9)]
@@ -106,6 +104,5 @@ interface nsIStringBundleService : nsISupports
   [notxpcom, nostdcall] void sendContentBundles(in ContentParent aContentParent);
 
   [notxpcom, nostdcall] void registerContentBundle(in ACString aBundleURL,
-                                                   [const] in FileDescriptor aMapFile,
-                                                   in size_t aMapSize);
+                                                   in ReadOnlySharedMemoryHandle aMapHandle);
 };

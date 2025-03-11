@@ -14,11 +14,11 @@
 #include <array>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "absl/base/attributes.h"
-#include "absl/types/optional.h"
 #include "modules/video_coding/packet_buffer.h"
 #include "rtc_base/numerics/sequence_number_unwrapper.h"
 
@@ -37,6 +37,7 @@ class H26xPacketBuffer {
 
   ABSL_MUST_USE_RESULT InsertResult
   InsertPacket(std::unique_ptr<Packet> packet);
+  ABSL_MUST_USE_RESULT InsertResult InsertPadding(uint16_t unwrapped_seq_num);
 
   // Out of band supplied codec parameters for H.264.
   void SetSpropParameterSets(const std::string& sprop_parameter_sets);
@@ -84,7 +85,7 @@ class H26xPacketBuffer {
   // received without SPS/PPS.
   void InsertSpsPpsNalus(const std::vector<uint8_t>& sps,
                          const std::vector<uint8_t>& pps);
-  // Insert start code and paramter sets for H.264 payload, also update header
+  // Insert start code and parameter sets for H.264 payload, also update header
   // if parameter sets are inserted. Return false if required SPS or PPS is not
   // found.
   bool FixH264Packet(Packet& packet);

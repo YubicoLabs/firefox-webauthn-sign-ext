@@ -21,6 +21,7 @@ class JSString;
 class MessageLoop;
 class nsIDirectoryServiceProvider;
 class nsIFile;
+class nsISerialEventTarget;
 class nsISupports;
 struct JSContext;
 struct XREChildData;
@@ -278,14 +279,7 @@ const char* XRE_GeckoProcessTypeToString(GeckoProcessType aProcessType);
 const char* XRE_ChildProcessTypeToAnnotation(GeckoProcessType aProcessType);
 
 #if defined(MOZ_WIDGET_ANDROID)
-struct XRE_AndroidChildFds {
-  int mPrefsFd;
-  int mPrefMapFd;
-  int mIpcFd;
-  int mCrashFd;
-};
-
-void XRE_SetAndroidChildFds(JNIEnv* env, const XRE_AndroidChildFds& fds);
+void XRE_SetAndroidChildFds(JNIEnv* env, jintArray fds);
 #endif  // defined(MOZ_WIDGET_ANDROID)
 
 nsresult XRE_InitChildProcess(int aArgc, char* aArgv[],
@@ -347,7 +341,7 @@ nsresult XRE_DeinitCommandLine();
 
 void XRE_ShutdownChildProcess();
 
-MessageLoop* XRE_GetIOMessageLoop();
+nsISerialEventTarget* XRE_GetAsyncIOEventTarget();
 
 bool XRE_SendTestShellCommand(JSContext* aCx, JSString* aCommand,
                               JS::Value* aCallback);

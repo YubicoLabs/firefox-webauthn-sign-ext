@@ -114,10 +114,7 @@ static uint32_t ErrorNumber(RegExpError err) {
     case RegExpError::kInvalidFlagGroup:
       return JSMSG_INVALID_FLAG_GROUP;
     case RegExpError::kMultipleFlagDashes:
-      // V8 contains experimental support for turning regexp flags on
-      // and off in the middle of a regular expression. Unless it
-      // becomes standardized, SM does not support this feature.
-      MOZ_CRASH("Mode modifiers not supported");
+      return JSMSG_MULTIPLE_FLAG_DASHES;
     case RegExpError::kNotLinear:
       // V8 has an experimental non-backtracking engine. We do not
       // support it yet.
@@ -656,7 +653,7 @@ struct RegExpNamedCaptureIndexLess {
     // lowest capture index.
     MOZ_ASSERT(!lhs.indices.empty());
     MOZ_ASSERT(!rhs.indices.empty());
-    MOZ_ASSERT(lhs.indices[0] != rhs.indices[0]);
+    MOZ_ASSERT_IF(&lhs != &rhs, lhs.indices[0] != rhs.indices[0]);
     return lhs.indices[0] < rhs.indices[0];
   }
 };
@@ -846,6 +843,12 @@ bool CompilePattern(JSContext* cx, MutableHandleRegExpShared re,
 
   SampleCharacters(input, compiler);
   data.node = compiler.PreprocessRegExp(&data, isLatin1);
+  if (data.error != RegExpError::kNone) {
+    MOZ_ASSERT(data.error == RegExpError::kTooLarge);
+    JS_ReportErrorASCII(cx, "regexp too big");
+    cx->reportResourceExhaustion();
+    return false;
+  }
   data.error = AnalyzeRegExp(cx->isolate, isLatin1, flags, data.node);
   if (data.error != RegExpError::kNone) {
     MOZ_ASSERT(data.error == RegExpError::kAnalysisStackOverflow);

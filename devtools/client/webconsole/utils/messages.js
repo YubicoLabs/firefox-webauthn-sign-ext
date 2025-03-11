@@ -310,7 +310,9 @@ function transformNavigationMessagePacket(packet) {
     source: MESSAGE_SOURCE.CONSOLE_FRONTEND,
     type: MESSAGE_TYPE.NAVIGATION_MARKER,
     level: MESSAGE_LEVEL.LOG,
-    messageText: l10n.getFormatStr("webconsole.navigated", [url]),
+    messageText: url
+      ? l10n.getFormatStr("webconsole.navigated", [url])
+      : l10n.getStr("webconsole.reloaded"),
     timeStamp: packet.timeStamp,
     allowRepeating: false,
   });
@@ -712,6 +714,10 @@ function areMessagesParametersSimilar(message1, message2) {
 
     if (message1Parameter.type) {
       if (message1Parameter.text !== message2Parameter.text) {
+        return false;
+      }
+      // Some objects don't have a text property but a name one (e.g. Symbol)
+      if (message1Parameter.name !== message2Parameter.name) {
         return false;
       }
     } else if (message1Parameter !== message2Parameter) {

@@ -11,6 +11,7 @@ import androidx.browser.customtabs.CustomTabsIntent
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.fragment.app.FragmentActivity
+import mozilla.components.browser.state.state.ExternalAppType
 import mozilla.components.browser.state.state.SessionState
 import mozilla.components.feature.customtabs.createCustomTabConfigFromIntent
 import mozilla.components.support.utils.ext.getPackageInfoCompat
@@ -39,6 +40,23 @@ object SupportUtils {
             return "https://www.mozilla.org/$langTag/about/manifesto/"
         }
 
+    /**
+     * Paths for specific pages on the Mozilla website.
+     */
+    enum class MozillaPage(internal val path: String) {
+        PRIVATE_NOTICE("privacy/firefox/"),
+        TERMS_OF_SERVICE("about/legal/terms/services/"),
+    }
+
+    /**
+     * Returns the localised URL for a given [page].
+     */
+    fun getMozillaPageUrl(page: MozillaPage, locale: Locale = Locale.getDefault()): String {
+        val path = page.path
+        val langTag = Locales.getLanguageTag(locale)
+        return "https://www.mozilla.org/$langTag/$path"
+    }
+
     enum class SumoTopic(
         /** The final path segment for a SUMO URL - see {@see #getSumoURLForTopic}  */
         internal val topicStr: String,
@@ -47,6 +65,7 @@ object SupportUtils {
         AUTOCOMPLETE("autofill-domain-android"),
         TRACKERS("trackers"),
         USAGE_DATA("usage-data"),
+        USAGE_PING_SETTINGS("usage-ping-settings-mobile"),
         SEARCH_SUGGESTIONS("search-suggestions-focus-android"),
         ALLOWLIST("focus-android-allowlist"),
         STUDIES("how-opt-out-studies-firefox-focus-android"),
@@ -109,7 +128,14 @@ object SupportUtils {
         )
     }
 
-    fun openUrlInCustomTab(activity: FragmentActivity, destinationUrl: String) {
+    /**
+     * Opens the given [destinationUrl] in a custom tab.
+     */
+    fun openUrlInCustomTab(
+        activity: FragmentActivity,
+        destinationUrl: String,
+        externalAppType: ExternalAppType = ExternalAppType.CUSTOM_TAB,
+    ) {
         activity.intent.putExtra(
             CustomTabsIntent.EXTRA_TOOLBAR_COLOR,
             ContextCompat.getColor(activity, R.color.settings_background),
@@ -117,7 +143,11 @@ object SupportUtils {
 
         val tabId = activity.components.customTabsUseCases.add(
             url = destinationUrl,
-            customTabConfig = createCustomTabConfigFromIntent(activity.intent, activity.resources),
+            customTabConfig = createCustomTabConfigFromIntent(
+                intent = activity.intent,
+                resources = activity.resources,
+                externalAppType = externalAppType,
+            ),
             private = true,
             source = SessionState.Source.Internal.None,
         )

@@ -16,7 +16,6 @@
 #include "gfxTypes.h"
 #include "gfxUtils.h"
 #include "LookAndFeel.h"
-#include "nsAlgorithm.h"
 #include "nsBidiPresUtils.h"
 #include "nsBlockFrame.h"
 #include "nsCaret.h"
@@ -141,7 +140,9 @@ static void IntersectInterval(uint32_t& aStart, uint32_t& aLength,
   if (aStartOther >= aEnd || aStart >= aEndOther) {
     aLength = 0;
   } else {
-    if (aStartOther >= aStart) aStart = aStartOther;
+    if (aStartOther >= aStart) {
+      aStart = aStartOther;
+    }
     aLength = std::min(aEnd, aEndOther) - aStart;
   }
 }
@@ -2651,8 +2652,7 @@ void SVGTextDrawPathCallbacks::FillGeometry() {
     RefPtr<Path> path = mContext.GetPath();
     FillRule fillRule = SVGUtils::ToFillRule(mFrame->StyleSVG()->mFillRule);
     if (fillRule != path->GetFillRule()) {
-      RefPtr<PathBuilder> builder = path->CopyToBuilder(fillRule);
-      path = builder->Finish();
+      Path::SetFillRule(path, fillRule);
     }
     mContext.GetDrawTarget()->Fill(path, fillPattern);
   }
@@ -2714,7 +2714,7 @@ class DisplaySVGText final : public DisplaySVGItem {
     MOZ_COUNT_CTOR(DisplaySVGText);
   }
 
-  MOZ_COUNTED_DTOR_OVERRIDE(DisplaySVGText)
+  MOZ_COUNTED_DTOR_FINAL(DisplaySVGText)
 
   NS_DISPLAY_DECL_NAME("DisplaySVGText", TYPE_SVG_TEXT)
 
@@ -2786,6 +2786,15 @@ void SVGTextFrame::BuildDisplayList(nsDisplayListBuilder* aBuilder,
   }
   DisplayOutline(aBuilder, aLists);
   aLists.Content()->AppendNewToTop<DisplaySVGText>(aBuilder, this);
+}
+
+void SVGTextFrame::DidSetComputedStyle(ComputedStyle* aOldComputedStyle) {
+  SVGDisplayContainerFrame::DidSetComputedStyle(aOldComputedStyle);
+  if (StyleSVGReset()->HasNonScalingStroke() &&
+      (!aOldComputedStyle ||
+       !aOldComputedStyle->StyleSVGReset()->HasNonScalingStroke())) {
+    SVGUtils::UpdateNonScalingStrokeStateBit(this);
+  }
 }
 
 nsresult SVGTextFrame::AttributeChanged(int32_t aNameSpaceID,
@@ -2884,8 +2893,11 @@ void SVGTextFrame::MutationObserver::ContentInserted(nsIContent* aChild) {
   mFrame->NotifyGlyphMetricsChange(true);
 }
 
-void SVGTextFrame::MutationObserver::ContentRemoved(
-    nsIContent* aChild, nsIContent* aPreviousSibling) {
+void SVGTextFrame::MutationObserver::ContentWillBeRemoved(
+    nsIContent* aChild, const BatchRemovalState* aState) {
+  if (aState && !aState->mIsFirst) {
+    return;
+  }
   mFrame->NotifyGlyphMetricsChange(true);
 }
 
@@ -3127,8 +3139,7 @@ void SVGTextFrame::PaintSVG(gfxContext& aContext, const gfxMatrix& aTransform,
   gfxMatrix currentMatrix = aContext.CurrentMatrixDouble();
 
   RefPtr<nsCaret> caret = presContext->PresShell()->GetCaret();
-  nsRect caretRect;
-  nsIFrame* caretFrame = caret->GetPaintGeometry(&caretRect);
+  nsIFrame* caretFrame = caret->GetPaintGeometry();
 
   gfxContextAutoSaveRestore ctxSR;
   TextRenderedRunIterator it(this, TextRenderedRunIterator::eVisibleFrames);
@@ -4537,8 +4548,7 @@ already_AddRefed<Path> SVGTextFrame::GetTextPath(nsIFrame* aTextPathFrame) {
   // Apply the geometry element's transform if appropriate.
   auto matrix = geomElement->LocalTransform();
   if (!matrix.IsIdentity()) {
-    RefPtr<PathBuilder> builder = path->TransformedCopyToBuilder(matrix);
-    path = builder->Finish();
+    Path::Transform(path, matrix);
   }
 
   return path.forget();
@@ -5266,9 +5276,9 @@ Point SVGTextFrame::TransformFramePointToTextChild(
       // The point was closer to this rendered run's rect than any others
       // we've seen so far.
       pointInRun.x =
-          clamped(pointInRunUserSpace.x.value, runRect.X(), runRect.XMost());
+          std::clamp(pointInRunUserSpace.x.value, runRect.X(), runRect.XMost());
       pointInRun.y =
-          clamped(pointInRunUserSpace.y.value, runRect.Y(), runRect.YMost());
+          std::clamp(pointInRunUserSpace.y.value, runRect.Y(), runRect.YMost());
       hit = run;
     }
   }

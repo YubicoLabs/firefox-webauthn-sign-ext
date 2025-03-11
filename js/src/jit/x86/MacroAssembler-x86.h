@@ -580,19 +580,22 @@ class MacroAssemblerX86 : public MacroAssemblerX86Shared {
   }
 
   void testNullSet(Condition cond, const ValueOperand& value, Register dest) {
+    bool destIsZero = maybeEmitSetZeroByteRegister(value, dest);
     cond = testNull(cond, value);
-    emitSet(cond, dest);
+    emitSet(cond, dest, destIsZero);
   }
 
   void testObjectSet(Condition cond, const ValueOperand& value, Register dest) {
+    bool destIsZero = maybeEmitSetZeroByteRegister(value, dest);
     cond = testObject(cond, value);
-    emitSet(cond, dest);
+    emitSet(cond, dest, destIsZero);
   }
 
   void testUndefinedSet(Condition cond, const ValueOperand& value,
                         Register dest) {
+    bool destIsZero = maybeEmitSetZeroByteRegister(value, dest);
     cond = testUndefined(cond, value);
-    emitSet(cond, dest);
+    emitSet(cond, dest, destIsZero);
   }
 
   void cmpPtr(Register lhs, const Imm32 rhs) { cmpl(rhs, lhs); }
@@ -738,6 +741,10 @@ class MacroAssemblerX86 : public MacroAssemblerX86Shared {
     return FaultingCodeOffsetPair(fco1, fco2);
   }
   void store64(Imm64 imm, Address address) {
+    movl(imm.low(), Operand(LowWord(address)));
+    movl(imm.hi(), Operand(HighWord(address)));
+  }
+  void store64(Imm64 imm, const BaseIndex& address) {
     movl(imm.low(), Operand(LowWord(address)));
     movl(imm.hi(), Operand(HighWord(address)));
   }

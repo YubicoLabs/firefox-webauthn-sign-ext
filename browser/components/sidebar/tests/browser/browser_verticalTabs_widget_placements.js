@@ -7,6 +7,7 @@ registerCleanupFunction(async function resetToolbar() {
   await CustomizableUI.reset();
   Services.prefs.clearUserPref(kPrefCustomizationState);
   Services.prefs.clearUserPref(kPrefCustomizationHorizontalTabstrip);
+  Services.prefs.clearUserPref(kPrefCustomizationNavBarWhenVerticalTabs);
 });
 
 /**
@@ -47,8 +48,8 @@ add_task(async function moveAndRestoreTabsToolbarWidgets() {
     "CustomizableUI verticalTabsEnabled getter reflects pref value"
   );
   Assert.ok(
-    BrowserTestUtils.isVisible(document.getElementById("TabsToolbar")),
-    "#TabsToolbar is still visible"
+    BrowserTestUtils.isHidden(document.getElementById("TabsToolbar")),
+    "#TabsToolbar is now hidden"
   );
 
   // The tabs-widget should be in the vertical tabs area
@@ -111,5 +112,18 @@ add_task(async function moveAndRestoreTabsToolbarWidgets() {
     CustomizableUI.getWidgetIdsInArea(CustomizableUI.AREA_NAVBAR),
     defaultNavbarPlacements,
     "The nav-bar widgets are back in their original state"
+  );
+});
+
+add_task(async function checkNewTabButtonAbsenceWithVerticalTabs() {
+  await SpecialPowers.pushPrefEnv({ set: [["sidebar.verticalTabs", true]] });
+
+  const verticalNavBarPlacements = CustomizableUI.getWidgetIdsInArea(
+    CustomizableUI.AREA_NAVBAR
+  );
+
+  Assert.ok(
+    !verticalNavBarPlacements.includes("new-tab-button"),
+    "The nav-bar does not include the new-tab-button when vertical tabs is enabled."
   );
 });

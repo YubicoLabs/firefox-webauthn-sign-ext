@@ -15,10 +15,6 @@ support-files = [
   "!/accessible/tests/mochitest/letters.gif",
   "!/accessible/tests/mochitest/moz.png",
 ]
-prefs = [
-  "dom.element.popover.enabled=true",
-  "accessibility.ARIAElementReflection.enabled=true"
-]
 
 ["browser_aria_activedescendant.js"]
 

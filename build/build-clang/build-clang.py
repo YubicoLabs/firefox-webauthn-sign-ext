@@ -24,6 +24,7 @@ import zstandard
 
 SUPPORTED_TARGETS = {
     "x86_64-unknown-linux-gnu": ("Linux", "x86_64"),
+    "aarch64-unknown-linux-gnu": ("Linux", "aarch64"),
     "x86_64-pc-windows-msvc": ("Windows", "AMD64"),
     "aarch64-pc-windows-msvc": ("Windows", "ARM64"),
     "x86_64-apple-darwin": ("Darwin", "x86_64"),
@@ -247,7 +248,15 @@ def build_one_stage(
             "-DLLVM_ENABLE_BINDINGS=OFF",
             "-DLLVM_ENABLE_CURL=OFF",
             "-DLLVM_INCLUDE_TESTS=OFF",
+            "-DLLVM_HOST_TRIPLE=%s" % target,
+            "-DCMAKE_C_COMPILER_TARGET=%s" % target,
+            "-DCMAKE_CXX_COMPILER_TARGET=%s" % target,
+            "-DCMAKE_ASM_COMPILER_TARGET=%s" % target,
         ]
+        if is_cross_compile(target):
+            cmake_args += [
+                "-DCMAKE_SYSTEM_NAME=%s" % SUPPORTED_TARGETS[target][0],
+            ]
         if is_llvm_toolchain(cc[0], cxx[0]):
             cmake_args += ["-DLLVM_ENABLE_LLD=ON"]
         elif is_windows(target) and is_cross_compile(target):
@@ -306,10 +315,6 @@ def build_one_stage(
             cmake_args += ["-DCMAKE_LIBTOOL=%s" % slashify_path(libtool)]
         if is_darwin(target):
             arch = "arm64" if target.startswith("aarch64") else "x86_64"
-            if is_cross_compile(target):
-                cmake_args += [
-                    "-DCMAKE_SYSTEM_NAME=Darwin",
-                ]
             cmake_args += [
                 "-DCMAKE_SYSTEM_VERSION=%s" % os.environ["MACOSX_DEPLOYMENT_TARGET"],
                 "-DCMAKE_OSX_SYSROOT=%s" % slashify_path(os.getenv("OSX_SYSROOT")),
@@ -321,10 +326,6 @@ def build_one_stage(
                 "-DCMAKE_OSX_ARCHITECTURES=%s" % arch,
                 "-DDARWIN_osx_ARCHS=%s" % arch,
                 "-DDARWIN_osx_SYSROOT=%s" % slashify_path(os.getenv("OSX_SYSROOT")),
-                "-DLLVM_DEFAULT_TARGET_TRIPLE=%s" % target,
-                "-DCMAKE_C_COMPILER_TARGET=%s" % target,
-                "-DCMAKE_CXX_COMPILER_TARGET=%s" % target,
-                "-DCMAKE_ASM_COMPILER_TARGET=%s" % target,
             ]
             if arch == "arm64":
                 cmake_args += [
@@ -556,7 +557,7 @@ def main():
             elif value is None:
                 if key in config:
                     del config[key]
-            elif type(old_value) != type(value):
+            elif type(old_value) is not type(value):
                 raise Exception(
                     "{} is overriding `{}` with a value of the wrong type".format(
                         c.name, key
@@ -778,9 +779,15 @@ def main():
             cc = stage1_inst_dir + "/bin/%s%s" % (cc_name, exe_ext)
             cxx = stage1_inst_dir + "/bin/%s%s" % (cxx_name, exe_ext)
             asm = stage1_inst_dir + "/bin/%s%s" % (cc_name, exe_ext)
+        name_compression = []
+        if is_windows(target) and is_cross_compile(target) and pgo:
+            # native llvm-profdata.exe on Windows can't read profile data
+            # if name compression is enabled (which cross-compiling enables
+            # by default)
+            name_compression = ["-mllvm", "--enable-name-compression=false"]
         build_one_stage(
-            [cc] + extra_cflags2,
-            [cxx] + extra_cxxflags2,
+            [cc] + extra_cflags2 + name_compression,
+            [cxx] + extra_cxxflags2 + name_compression,
             [asm] + extra_asmflags,
             ar,
             ranlib,
@@ -793,12 +800,16 @@ def main():
             assertions,
             target,
             targets,
-            is_final_stage=(stages == 2),
+            is_final_stage=(stages == 2 and not pgo),
             profile="gen" if pgo else None,
         )
 
     if stages >= 3 and skip_stages < 3:
         stage3_dir = build_dir + "/stage3"
+        if pgo:
+            profiles_dir = build_dir + "/profiles"
+            mkdir_p(profiles_dir)
+            os.environ["LLVM_PROFILE_FILE"] = profiles_dir + "/%m.profraw"
         stage3_inst_dir = stage3_dir + "/" + package_name
         final_stage_dir = stage3_dir
         if skip_stages < 2:
@@ -820,14 +831,16 @@ def main():
             assertions,
             target,
             targets,
-            (stages == 3),
+            is_final_stage=(stages == 3 and not pgo),
         )
         if pgo:
-            llvm_profdata = stage2_inst_dir + "/bin/llvm-profdata%s" % exe_ext
+            del os.environ["LLVM_PROFILE_FILE"]
+            if skip_stages < 1:
+                llvm_profdata = stage1_inst_dir + "/bin/llvm-profdata%s" % exe_ext
+            else:
+                llvm_profdata = get_tool(config, "llvm-profdata")
             merge_cmd = [llvm_profdata, "merge", "-o", "merged.profdata"]
-            profraw_files = glob.glob(
-                os.path.join(stage2_dir, "build", "profiles", "*.profraw")
-            )
+            profraw_files = glob.glob(os.path.join(profiles_dir, "*.profraw"))
             run_in(stage3_dir, merge_cmd + profraw_files)
             if stages == 3:
                 mkdir_p(upload_dir)
@@ -863,7 +876,7 @@ def main():
             assertions,
             target,
             targets,
-            (stages == 4),
+            is_final_stage=(stages == 4),
             profile=profile,
         )
 

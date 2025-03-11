@@ -29,12 +29,18 @@
 ///
 ///  See the autofill DB code for an example.
 ///
-use crate::ConnExt;
+use std::{
+    borrow::Cow,
+    path::Path,
+    sync::atomic::{AtomicUsize, Ordering},
+};
+
 use rusqlite::{
     Connection, Error as RusqliteError, ErrorCode, OpenFlags, Transaction, TransactionBehavior,
 };
-use std::path::Path;
 use thiserror::Error;
+
+use crate::ConnExt;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -116,6 +122,19 @@ pub fn open_database_with_flags<CI: ConnectionInitializer, P: AsRef<Path>>(
         try_handle_db_failure(&path, open_flags, connection_initializer, e)?;
         do_open_database_with_flags(&path, open_flags, connection_initializer)
     })
+}
+
+/// OpenFlags for a read-write database
+pub fn read_write_flags() -> OpenFlags {
+    OpenFlags::SQLITE_OPEN_URI
+        | OpenFlags::SQLITE_OPEN_NO_MUTEX
+        | OpenFlags::SQLITE_OPEN_CREATE
+        | OpenFlags::SQLITE_OPEN_READ_WRITE
+}
+
+/// OpenFlags for a read-only database
+pub fn read_only_flags() -> OpenFlags {
+    OpenFlags::SQLITE_OPEN_URI | OpenFlags::SQLITE_OPEN_NO_MUTEX | OpenFlags::SQLITE_OPEN_READ_ONLY
 }
 
 fn do_open_database_with_flags<CI: ConnectionInitializer, P: AsRef<Path>>(
@@ -237,6 +256,17 @@ fn get_schema_version(conn: &Connection) -> Result<u32> {
 fn set_schema_version(conn: &Connection, version: u32) -> Result<()> {
     conn.set_pragma("user_version", version)?;
     Ok(())
+}
+
+// Get a unique in-memory database path
+//
+// This can be very useful for testing.
+pub fn unique_in_memory_db_path() -> String {
+    static COUNTER: AtomicUsize = AtomicUsize::new(0);
+    format!(
+        "file:in-memory-db-{}?mode=memory&cache=shared",
+        COUNTER.fetch_add(1, Ordering::Relaxed)
+    )
 }
 
 // It would be nice for this to be #[cfg(test)], but that doesn't allow it to be used in tests for
@@ -426,7 +456,10 @@ pub mod test_utils {
 
         pub fn assert_schema_matches_new_database(&self) {
             let db = self.open();
-            let new_db = open_memory_database(&self.connection_initializer).unwrap();
+            let new_db = match open_memory_database(&self.connection_initializer) {
+                Ok(db) => db,
+                Err(e) => panic!("Creating new database failed:\n{e}"),
+            };
 
             compare_sql_maps("table", get_sql(&db, "table"), get_sql(&new_db, "table"));
             compare_sql_maps("index", get_sql(&db, "index"), get_sql(&new_db, "index"));
@@ -442,11 +475,11 @@ pub mod test_utils {
         }
     }
 
-    fn get_sql(conn: &Connection, type_: &str) -> HashMap<String, String> {
+    fn get_sql(conn: &Connection, type_: &str) -> HashMap<String, Option<String>> {
         conn.query_rows_and_then(
             "SELECT name, sql FROM sqlite_master WHERE type=?",
             (type_,),
-            |row| -> rusqlite::Result<(String, String)> { Ok((row.get(0)?, row.get(1)?)) },
+            |row| -> rusqlite::Result<(String, Option<String>)> { Ok((row.get(0)?, row.get(1)?)) },
         )
         .unwrap()
         .into_iter()
@@ -455,8 +488,8 @@ pub mod test_utils {
 
     fn compare_sql_maps(
         type_: &str,
-        old_items: HashMap<String, String>,
-        new_items: HashMap<String, String>,
+        old_items: HashMap<String, Option<String>>,
+        new_items: HashMap<String, Option<String>>,
     ) {
         let old_db_keys: HashSet<&String> = old_items.keys().collect();
         let new_db_keys: HashSet<&String> = new_items.keys().collect();
@@ -471,11 +504,29 @@ pub mod test_utils {
         }
         for key in old_db_keys {
             assert_eq!(
-                old_items.get(key).unwrap(),
-                new_items.get(key).unwrap(),
+                old_items.get(key).unwrap().as_deref().map(normalize),
+                new_items.get(key).unwrap().as_deref().map(normalize),
                 "sql differs for {type_} {key}"
             );
         }
+    }
+
+    /// Normalize SQL code by changing all whitespace to a single space.
+    fn normalize(sql: &str) -> String {
+        sql.split('\'')
+            .enumerate()
+            .map(|(i, part)| {
+                // Only normalize the even parts.  Odd parts are either inside a string literal.
+                // Note: SQLite uses a double quote (`''`) as the escape, which works with this
+                // system.  We'll just end up normalizing the empty string, which doesn't hurt
+                // anything.
+                if (i % 2) == 0 {
+                    Cow::Owned(part.split_whitespace().collect::<Vec<_>>().join(" "))
+                } else {
+                    Cow::Borrowed(part)
+                }
+            })
+            .collect()
     }
 }
 

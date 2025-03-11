@@ -1283,12 +1283,23 @@ static const struct EVInfo kEVInfos[] = {
     "b3QgQ0ExGzAZBgNVBAMTElRXQ0EgQ1lCRVIgUm9vdCBDQQ==",
     "QAE0jMIAAAAAAAAAATzyxg==",
   },
+  {
+    // "CN=D-TRUST EV Root CA 2 2023,O=D-Trust GmbH,C=DE"
+    "2.23.140.1.1",
+    "CA/Browser Forum EV OID",
+    { 0x8E, 0x82, 0x21, 0xB2, 0xE7, 0xD4, 0x00, 0x78, 0x36, 0xA1, 0x67,
+      0x2F, 0x0D, 0xCC, 0x29, 0x9C, 0x33, 0xBC, 0x07, 0xD3, 0x16, 0xF1,
+      0x32, 0xFA, 0x1A, 0x20, 0x6D, 0x58, 0x71, 0x50, 0xF1, 0xCE },
+    "MEgxCzAJBgNVBAYTAkRFMRUwEwYDVQQKEwxELVRydXN0IEdtYkgxIjAgBgNVBAMT"
+    "GUQtVFJVU1QgRVYgUm9vdCBDQSAyIDIwMjM=",
+    "aSYJfoBLTKCnjHhiU19abw==",
+  },
     // clang-format on
 };
 
-static pkix::CertPolicyId sEVInfoIds[ArrayLength(kEVInfos)];
+static pkix::CertPolicyId sEVInfoIds[std::size(kEVInfos)];
 static_assert(
-    ArrayLength(sEVInfoIds) == ArrayLength(kEVInfos),
+    std::size(sEVInfoIds) == std::size(kEVInfos),
     "These arrays are used in parallel and must have the same length.");
 static pkix::CertPolicyId sCABForumEVId = {};
 
@@ -1304,7 +1315,7 @@ bool CertIsAuthoritativeForEVPolicy(const nsTArray<uint8_t>& certBytes,
     return false;
   }
 
-  for (size_t i = 0; i < ArrayLength(kEVInfos); ++i) {
+  for (size_t i = 0; i < std::size(kEVInfos); ++i) {
     const EVInfo& entry = kEVInfos[i];
 
     // This check ensures that only the specific roots we approve for EV get
@@ -1338,7 +1349,7 @@ nsresult LoadExtendedValidationInfo() {
   sCABForumEVId.numBytes = cabforumOIDItem.len;
   PodCopy(sCABForumEVId.bytes, cabforumOIDItem.data, sCABForumEVId.numBytes);
 
-  for (size_t i = 0; i < ArrayLength(kEVInfos); ++i) {
+  for (size_t i = 0; i < std::size(kEVInfos); ++i) {
     const EVInfo& entry = kEVInfos[i];
 
     SECStatus srv;

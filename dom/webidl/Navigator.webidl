@@ -28,13 +28,7 @@ interface URI;
 
 // https://html.spec.whatwg.org/#the-navigator-object
 [HeaderFile="Navigator.h",
- Exposed=Window,
- InstrumentedProps=(canShare,
-                    clearAppBadge,
-                    setAppBadge,
-                    share,
-                    userActivation,
-                    wakeLock)]
+ Exposed=Window]
 interface Navigator {
   // objects implementing this interface also implement the interfaces given below
 };
@@ -106,8 +100,9 @@ interface mixin NavigatorStorageUtils {
   //undefined yieldForStorageUpdates();
 };
 
+// https://w3c.github.io/permissions/#webidl-2112232240
 partial interface Navigator {
-  [Throws]
+  [Throws, SameObject]
   readonly attribute Permissions permissions;
 };
 
@@ -259,6 +254,15 @@ partial interface Navigator {
 partial interface Navigator {
   [NewObject, Func="Navigator::HasMidiSupport"]
   Promise<MIDIAccess> requestMIDIAccess(optional MIDIOptions options = {});
+
+  // Deprecated. Use mediaDevices.getUserMedia instead.
+  [Deprecated="NavigatorGetUserMedia", Throws,
+   Func="Navigator::MozGetUserMediaSupport",
+   NeedsCallerType,
+   UseCounter]
+  undefined mozGetUserMedia(MediaStreamConstraints constraints,
+                            NavigatorUserMediaSuccessCallback successCallback,
+                            NavigatorUserMediaErrorCallback errorCallback);
 };
 
 callback NavigatorUserMediaSuccessCallback = undefined (MediaStream stream);
@@ -267,18 +271,10 @@ callback NavigatorUserMediaErrorCallback = undefined (MediaStreamError error);
 partial interface Navigator {
   [Throws, Func="Navigator::HasUserMediaSupport"]
   readonly attribute MediaDevices mediaDevices;
-
-  // Deprecated. Use mediaDevices.getUserMedia instead.
-  [Deprecated="NavigatorGetUserMedia", Throws,
-   Func="Navigator::HasUserMediaSupport",
-   NeedsCallerType,
-   UseCounter]
-  undefined mozGetUserMedia(MediaStreamConstraints constraints,
-                            NavigatorUserMediaSuccessCallback successCallback,
-                            NavigatorUserMediaErrorCallback errorCallback);
 };
 
 // Service Workers/Navigation Controllers
+// https://w3c.github.io/ServiceWorker/#navigator-serviceworker
 partial interface Navigator {
   [Func="ServiceWorkersEnabled", SameObject, BinaryName="serviceWorkerJS"]
   readonly attribute ServiceWorkerContainer serviceWorker;

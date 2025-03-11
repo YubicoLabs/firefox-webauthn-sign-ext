@@ -40,6 +40,7 @@ class SyncedTabsInSidebar extends SidebarPage {
       Glean.syncedTabs.sidebarToggle.record({
         opened: true,
         synced_tabs_loaded: this.controller.isSyncedTabsLoaded,
+        version: "new",
       })
     );
     this.addContextMenuListeners();
@@ -52,6 +53,7 @@ class SyncedTabsInSidebar extends SidebarPage {
     Glean.syncedTabs.sidebarToggle.record({
       opened: false,
       synced_tabs_loaded: this.controller.isSyncedTabsLoaded,
+      version: "new",
     });
     this.removeContextMenuListeners();
     this.removeSidebarFocusedListeners();
@@ -125,9 +127,7 @@ class SyncedTabsInSidebar extends SidebarPage {
    * @param {string} options.buttonLabel
    * @param {string[]} options.descriptionArray
    * @param {string} options.descriptionLink
-   * @param {boolean} options.error
    * @param {string} options.header
-   * @param {string} options.headerIconUrl
    * @param {string} options.mainImageUrl
    * @returns {TemplateResult}
    */
@@ -136,9 +136,7 @@ class SyncedTabsInSidebar extends SidebarPage {
     buttonLabel,
     descriptionArray,
     descriptionLink,
-    error,
     header,
-    headerIconUrl,
     mainImageUrl,
   }) {
     return html`
@@ -148,19 +146,17 @@ class SyncedTabsInSidebar extends SidebarPage {
         .descriptionLink=${ifDefined(descriptionLink)}
         class="empty-state synced-tabs error"
         isSelectedTab
-        mainImageUrl="${ifDefined(mainImageUrl)}"
-        ?errorGrayscale=${error}
-        headerIconUrl="${ifDefined(headerIconUrl)}"
+        mainImageUrl=${ifDefined(mainImageUrl)}
         id="empty-container"
       >
-        <button
-          class="primary"
+        <moz-button
+          type="primary"
           slot="primary-action"
           ?hidden=${!buttonLabel}
-          data-l10n-id="${ifDefined(buttonLabel)}"
-          data-action="${action}"
+          data-l10n-id=${ifDefined(buttonLabel)}
+          data-action=${action}
           @click=${e => this.controller.handleEvent(e)}
-        ></button>
+        ></moz-button>
       </fxview-empty-state>
     `;
   }
@@ -183,6 +179,7 @@ class SyncedTabsInSidebar extends SidebarPage {
     >
       <sidebar-tab-list
         compactRows
+        maxTabsLength="-1"
         .tabItems=${tabItems}
         .updatesPaused=${false}
         .searchQuery=${this.controller.searchQuery}
@@ -308,7 +305,7 @@ class SyncedTabsInSidebar extends SidebarPage {
         >
         </sidebar-panel-header>
         <fxview-search-textbox
-          data-l10n-id="firefoxview-search-text-box-syncedtabs"
+          data-l10n-id="firefoxview-search-text-box-tabs"
           data-l10n-attrs="placeholder"
           @fxview-search-textbox-query=${this.onSearchQuery}
           size="15"

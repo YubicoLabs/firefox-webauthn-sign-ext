@@ -35,7 +35,8 @@ add_task(async function test_multistage_zeroOnboarding_experimentAPI() {
 
   await test_screen_content(
     browser,
-    "Opens new tab",
+    // When about:welcome is disabled, we should redirect to about:home
+    "home",
     // Expected selectors:
     ["div.search-wrapper", "body.activity-stream"],
     // Unexpected selectors:
@@ -143,8 +144,6 @@ add_task(async function test_multistage_aboutwelcome_experimentAPI() {
     },
   });
 
-  sandbox.spy(ExperimentAPI, "recordExposureEvent");
-
   Services.telemetry.clearScalars();
   let tab = await BrowserTestUtils.openNewForegroundTab(
     gBrowser,
@@ -240,20 +239,6 @@ add_task(async function test_multistage_aboutwelcome_experimentAPI() {
     ["body.activity-stream"],
     // Unexpected selectors:
     ["div.onboardingContainer"]
-  );
-
-  Assert.equal(
-    ExperimentAPI.recordExposureEvent.callCount,
-    1,
-    "Called only once for exposure event"
-  );
-
-  const scalars = TelemetryTestUtils.getProcessScalars("parent", true, true);
-  TelemetryTestUtils.assertKeyedScalar(
-    scalars,
-    "telemetry.event_counts",
-    "normandy#expose#nimbus_experiment",
-    1
   );
 
   doExperimentCleanup();

@@ -75,14 +75,6 @@ void LIRGeneratorMIPS64::lowerUModI64(MMod* mod) {
   defineInt64(lir, mod);
 }
 
-void LIRGeneratorMIPS64::lowerBigIntPtrDiv(MBigIntPtrDiv* ins) {
-  MOZ_CRASH("NYI");
-}
-
-void LIRGeneratorMIPS64::lowerBigIntPtrMod(MBigIntPtrMod* ins) {
-  MOZ_CRASH("NYI");
-}
-
 void LIRGeneratorMIPS64::lowerAtomicLoad64(MLoadUnboxedScalar* ins) {
   const LUse elements = useRegister(ins->elements());
   const LAllocation index =
@@ -123,10 +115,10 @@ void LIRGenerator::visitUnbox(MUnbox* unbox) {
   MDefinition* box = unbox->getOperand(0);
   MOZ_ASSERT(box->type() == MIRType::Value);
 
-  LUnbox* lir;
+  LInstructionHelper<1, BOX_PIECES, 0>* lir;
   if (IsFloatingPointType(unbox->type())) {
-    lir = new (alloc())
-        LUnboxFloatingPoint(useRegisterAtStart(box), unbox->type());
+    MOZ_ASSERT(unbox->type() == MIRType::Double);
+    lir = new (alloc()) LUnboxFloatingPoint(useBoxAtStart(box));
   } else if (unbox->fallible()) {
     // If the unbox is fallible, load the Value in a register first to
     // avoid multiple loads.

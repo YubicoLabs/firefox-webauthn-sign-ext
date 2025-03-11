@@ -32,9 +32,8 @@ const RECENT_REMOTE_TAB_THRESHOLD_MS = 72 * 60 * 60 * 1000; // 72 hours.
 
 ChromeUtils.defineLazyGetter(lazy, "weaveXPCService", function () {
   try {
-    return Cc["@mozilla.org/weave/service;1"].getService(
-      Ci.nsISupports
-    ).wrappedJSObject;
+    return Cc["@mozilla.org/weave/service;1"].getService(Ci.nsISupports)
+      .wrappedJSObject;
   } catch (ex) {
     // The app didn't build Sync.
   }
@@ -45,13 +44,6 @@ XPCOMUtils.defineLazyPreferenceGetter(
   lazy,
   "showRemoteIconsPref",
   "services.sync.syncedTabs.showRemoteIcons",
-  true
-);
-
-XPCOMUtils.defineLazyPreferenceGetter(
-  lazy,
-  "showRemoteTabsPref",
-  "services.sync.syncedTabs.showRemoteTabs",
   true
 );
 
@@ -105,7 +97,6 @@ class ProviderRemoteTabs extends UrlbarProvider {
   isActive(queryContext) {
     return (
       lazy.syncUsernamePref &&
-      lazy.showRemoteTabsPref &&
       lazy.UrlbarPrefs.get("suggest.remotetab") &&
       queryContext.sources.includes(UrlbarUtils.RESULT_SOURCE.TABS) &&
       lazy.weaveXPCService &&

@@ -18,14 +18,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.Icon
 import androidx.compose.material.IconButton
-import androidx.compose.material.Snackbar
-import androidx.compose.material.SnackbarHost
-import androidx.compose.material.SnackbarHostState
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -38,25 +37,34 @@ import androidx.compose.ui.tooling.preview.PreviewParameterProvider
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import mozilla.components.browser.state.state.content.DownloadState
+import mozilla.components.compose.base.annotation.FlexibleWindowLightDarkPreview
 import mozilla.components.lib.state.ext.observeAsState
 import org.mozilla.fenix.R
-import org.mozilla.fenix.compose.annotation.FlexibleWindowLightDarkPreview
 import org.mozilla.fenix.compose.list.SelectableListItem
-import org.mozilla.fenix.ext.getIcon
+import org.mozilla.fenix.compose.menu.DropdownMenu
+import org.mozilla.fenix.compose.menu.MenuItem
+import org.mozilla.fenix.compose.snackbar.AcornSnackbarHostState
+import org.mozilla.fenix.compose.snackbar.SnackbarHost
+import org.mozilla.fenix.compose.snackbar.SnackbarState
+import org.mozilla.fenix.compose.text.Text
+import org.mozilla.fenix.downloads.listscreen.store.DownloadUIAction
+import org.mozilla.fenix.downloads.listscreen.store.DownloadUIState
+import org.mozilla.fenix.downloads.listscreen.store.DownloadUIStore
+import org.mozilla.fenix.downloads.listscreen.store.FileItem
 import org.mozilla.fenix.theme.FirefoxTheme
 
 /**
  * Downloads screen that displays the list of downloads.
  *
- * @param downloadsStore The [DownloadFragmentStore] used to manage and access the state of download items.
+ * @param downloadsStore The [DownloadUIStore] used to manage and access the state of download items.
  * @param onItemClick Invoked when a download item is clicked.
  * @param onItemDeleteClick Invoked when delete icon button is clicked.
  */
 @Composable
 fun DownloadsScreen(
-    downloadsStore: DownloadFragmentStore,
-    onItemClick: (DownloadItem) -> Unit,
-    onItemDeleteClick: (DownloadItem) -> Unit,
+    downloadsStore: DownloadUIStore,
+    onItemClick: (FileItem) -> Unit,
+    onItemDeleteClick: (FileItem) -> Unit,
 ) {
     val uiState by downloadsStore.observeAsState(initialValue = downloadsStore.state) { it }
 
@@ -74,15 +82,15 @@ fun DownloadsScreen(
                 onClick = onItemClick,
                 onSelectionChange = { item, isSelected ->
                     if (isSelected) {
-                        downloadsStore.dispatch(DownloadFragmentAction.AddItemForRemoval(item))
+                        downloadsStore.dispatch(DownloadUIAction.AddItemForRemoval(item))
                     } else {
-                        downloadsStore.dispatch(DownloadFragmentAction.RemoveItemForRemoval(item))
+                        downloadsStore.dispatch(DownloadUIAction.RemoveItemForRemoval(item))
                     }
                 },
                 onDeleteClick = onItemDeleteClick,
                 modifier = Modifier
                     .fillMaxHeight()
-                    .widthIn(max = FirefoxTheme.size.containerMaxWidth),
+                    .widthIn(max = FirefoxTheme.layout.size.containerMaxWidth),
             )
         }
     }
@@ -91,10 +99,10 @@ fun DownloadsScreen(
 @Composable
 @OptIn(ExperimentalFoundationApi::class)
 private fun DownloadsContent(
-    state: DownloadFragmentState,
-    onClick: (DownloadItem) -> Unit,
-    onSelectionChange: (DownloadItem, Boolean) -> Unit,
-    onDeleteClick: (DownloadItem) -> Unit,
+    state: DownloadUIState,
+    onClick: (FileItem) -> Unit,
+    onSelectionChange: (FileItem, Boolean) -> Unit,
+    onDeleteClick: (FileItem) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val haptics = LocalHapticFeedback.current
@@ -106,28 +114,12 @@ private fun DownloadsContent(
             items = state.itemsToDisplay,
             key = { it.id },
         ) { downloadItem ->
-            SelectableListItem(
-                label = downloadItem.fileName ?: downloadItem.url,
-                description = downloadItem.formattedSize,
+            FileListItem(
+                fileItem = downloadItem,
                 isSelected = state.mode.selectedItems.contains(downloadItem),
-                icon = downloadItem.getIcon(),
-                afterListAction = {
-                    if (state.isNormalMode) {
-                        Spacer(modifier = Modifier.width(16.dp))
-
-                        IconButton(
-                            onClick = { onDeleteClick(downloadItem) },
-                            modifier = Modifier.size(24.dp),
-                        ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.mozac_ic_delete_24),
-                                contentDescription = stringResource(id = R.string.download_delete_item_1),
-                                tint = FirefoxTheme.colors.iconPrimary,
-                            )
-                        }
-                    }
-                },
-                modifier = Modifier
+                isMenuIconVisible = state.isNormalMode,
+                onDeleteClick = onDeleteClick,
+                modifier = modifier
                     .animateItem()
                     .combinedClickable(
                         onClick = {
@@ -154,6 +146,54 @@ private fun DownloadsContent(
 }
 
 @Composable
+private fun FileListItem(
+    fileItem: FileItem,
+    isSelected: Boolean,
+    isMenuIconVisible: Boolean,
+    modifier: Modifier = Modifier,
+    onDeleteClick: (FileItem) -> Unit,
+) {
+    SelectableListItem(
+        label = fileItem.fileName ?: fileItem.url,
+        description = fileItem.formattedSize,
+        isSelected = isSelected,
+        icon = fileItem.getIcon(),
+        afterListAction = {
+            if (isMenuIconVisible) {
+                var menuExpanded by remember { mutableStateOf(false) }
+
+                Spacer(modifier = Modifier.width(16.dp))
+
+                IconButton(
+                    onClick = { menuExpanded = true },
+                    modifier = Modifier.size(24.dp)
+                        .testTag("${DownloadsListTestTag.DOWNLOADS_LIST_ITEM_MENU}.${fileItem.fileName}"),
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.mozac_ic_ellipsis_vertical_24),
+                        contentDescription = stringResource(id = R.string.content_description_menu),
+                        tint = FirefoxTheme.colors.iconPrimary,
+                    )
+
+                    DropdownMenu(
+                        menuItems = listOf(
+                            MenuItem.TextItem(
+                                text = Text.Resource(R.string.download_delete_item_1),
+                                onClick = { onDeleteClick(fileItem) },
+                                level = MenuItem.FixedItem.Level.Critical,
+                            ),
+                        ),
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false },
+                    )
+                }
+            }
+        },
+        modifier = modifier,
+    )
+}
+
+@Composable
 private fun NoDownloadsText(modifier: Modifier = Modifier) {
     Text(
         text = stringResource(id = R.string.download_empty_message_1),
@@ -164,13 +204,13 @@ private fun NoDownloadsText(modifier: Modifier = Modifier) {
 }
 
 private class DownloadsScreenPreviewModelParameterProvider :
-    PreviewParameterProvider<DownloadFragmentState> {
-    override val values: Sequence<DownloadFragmentState>
+    PreviewParameterProvider<DownloadUIState> {
+    override val values: Sequence<DownloadUIState>
         get() = sequenceOf(
-            DownloadFragmentState.INITIAL,
-            DownloadFragmentState(
+            DownloadUIState.INITIAL,
+            DownloadUIState(
                 items = listOf(
-                    DownloadItem(
+                    FileItem(
                         id = "1",
                         fileName = "File 1",
                         url = "https://example.com/file1",
@@ -179,7 +219,7 @@ private class DownloadsScreenPreviewModelParameterProvider :
                         status = DownloadState.Status.COMPLETED,
                         filePath = "/path/to/file1",
                     ),
-                    DownloadItem(
+                    FileItem(
                         id = "2",
                         fileName = "File 2",
                         url = "https://example.com/file2",
@@ -188,7 +228,7 @@ private class DownloadsScreenPreviewModelParameterProvider :
                         status = DownloadState.Status.COMPLETED,
                         filePath = "/path/to/file1",
                     ),
-                    DownloadItem(
+                    FileItem(
                         id = "3",
                         fileName = "File 3",
                         url = "https://example.com/file3",
@@ -198,7 +238,7 @@ private class DownloadsScreenPreviewModelParameterProvider :
                         filePath = "/path/to/file1",
                     ),
                 ),
-                mode = DownloadFragmentState.Mode.Normal,
+                mode = DownloadUIState.Mode.Normal,
                 pendingDeletionIds = emptySet(),
                 isDeletingItems = false,
             ),
@@ -208,30 +248,38 @@ private class DownloadsScreenPreviewModelParameterProvider :
 @Composable
 @FlexibleWindowLightDarkPreview
 private fun DownloadsScreenPreviews(
-    @PreviewParameter(DownloadsScreenPreviewModelParameterProvider::class) state: DownloadFragmentState,
+    @PreviewParameter(DownloadsScreenPreviewModelParameterProvider::class) state: DownloadUIState,
 ) {
-    val store = remember { DownloadFragmentStore(initialState = state) }
-    val snackbarHostState = remember { SnackbarHostState() }
+    val store = remember { DownloadUIStore(initialState = state) }
+    val snackbarHostState = remember { AcornSnackbarHostState() }
     val scope = rememberCoroutineScope()
     FirefoxTheme {
         Box {
             DownloadsScreen(
                 downloadsStore = store,
                 onItemClick = {
-                    scope.launch { snackbarHostState.showSnackbar("Item ${it.fileName} clicked") }
+                    scope.launch {
+                        snackbarHostState.showSnackbar(
+                            SnackbarState(message = "Item ${it.fileName} clicked"),
+                        )
+                    }
                 },
                 onItemDeleteClick = {
-                    store.dispatch(DownloadFragmentAction.UpdateDownloadItems(store.state.items - it))
+                    store.dispatch(DownloadUIAction.UpdateFileItems(store.state.items - it))
+                    scope.launch {
+                        snackbarHostState.showSnackbar(
+                            SnackbarState(
+                                message = "Item ${it.fileName} deleted",
+                                type = SnackbarState.Type.Warning,
+                            ),
+                        )
+                    }
                 },
             )
             SnackbarHost(
-                hostState = snackbarHostState,
+                snackbarHostState = snackbarHostState,
                 modifier = Modifier.align(Alignment.BottomCenter),
-            ) { snackbarData ->
-                Snackbar(
-                    snackbarData = snackbarData,
-                )
-            }
+            )
         }
     }
 }

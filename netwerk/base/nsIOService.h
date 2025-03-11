@@ -27,6 +27,7 @@
 #include "nsTHashSet.h"
 #include "nsWeakReference.h"
 #include "nsNetCID.h"
+#include "SimpleURIUnknownSchemes.h"
 
 // We don't want to expose this observer topic.
 // Intended internal use only for remoting offline/inline events.
@@ -148,6 +149,11 @@ class nsIOService final : public nsIIOService,
   static bool ShouldAddAdditionalSearchHeaders(nsIURI* aURI, bool* val);
 #endif
 
+  // Returns true if this is an essential domain and a fallback domain
+  // mapping exists.
+  bool GetFallbackDomain(const nsACString& aDomain,
+                         nsACString& aFallbackDomain);
+
  private:
   // These shouldn't be called directly:
   // - construct using GetInstance
@@ -181,8 +187,7 @@ class nsIOService final : public nsIIOService,
       const mozilla::Maybe<mozilla::dom::ClientInfo>& aLoadingClientInfo,
       const mozilla::Maybe<mozilla::dom::ServiceWorkerDescriptor>& aController,
       uint32_t aSecurityFlags, nsContentPolicyType aContentPolicyType,
-      uint32_t aSandboxFlags, bool aSkipCheckForBrokenURLOrZeroSized,
-      nsIChannel** result);
+      uint32_t aSandboxFlags, nsIChannel** result);
 
   nsresult NewChannelFromURIWithProxyFlagsInternal(nsIURI* aURI,
                                                    nsIURI* aProxyURI,
@@ -266,6 +271,13 @@ class nsIOService final : public nsIIOService,
   nsTHashSet<nsCString> mIOServiceTopicList;
 
   nsCOMPtr<nsIObserverService> mObserverService;
+
+  SimpleURIUnknownSchemes mSimpleURIUnknownSchemes;
+
+  // Maps essential domains to a fallback domain that can be used
+  // to retry that request when it fails.
+  // Only accessible via main thread.
+  nsTHashMap<nsCStringHashKey, nsCString> mEssentialDomainMapping;
 
  public:
   // Used for all default buffer sizes that necko allocates.

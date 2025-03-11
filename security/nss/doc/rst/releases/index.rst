@@ -8,11 +8,17 @@ Releases
    :glob:
    :hidden:
 
+   nss_3_109.rst
+   nss_3_108.rst
+   nss_3_101_3.rst
+   nss_3_107.rst
+   nss_3_106.rst
+   nss_3_105.rst
    nss_3_104.rst
    nss_3_103.rst
    nss_3_102_1.rst
    nss_3_102.rst
-   nss_3_101.2.rst
+   nss_3_101_2.rst
    nss_3_101_1.rst
    nss_3_101.rst
    nss_3_100.rst
@@ -76,44 +82,43 @@ Releases
 
 .. note::
 
-   **NSS 3.104** is the latest version of NSS.
-   Complete release notes are available here: :ref:`mozilla_projects_nss_nss_3_104_release_notes`
+   **NSS 3.109** is the latest version of NSS.
+   Complete release notes are available here: :ref:`mozilla_projects_nss_nss_3_109_release_notes`
 
-   **NSS 3.101.2 (ESR)** is the latest ESR version of NSS.
-   Complete release notes are available here: :ref:`mozilla_projects_nss_nss_3_101_1_release_notes`
+   **NSS 3.101.3 (ESR)** is the latest ESR version of NSS.
+   Complete release notes are available here: :ref:`mozilla_projects_nss_nss_3_101_3_release_notes`
 
 .. container::
 
-   Changes in 3.104 included in this release:
+   Changes in 3.109 included in this release:
 
-   - Bug 1910071 - Copy original corpus to heap-allocated buffer
-   - Bug 1910079 - Fix min ssl version for DTLS client fuzzer
-   - Bug 1908990 - Remove OS2 support just like we did on NSPR
-   - Bug 1910605 - clang-format NSS improvements
-   - Bug 1902078 - Adding basicutil.h to use HexString2SECItem function
-   - Bug 1908990 - removing dirent.c from build
-   - Bug 1902078 - Allow handing in keymaterial to shlibsign to make the output reproducible (
-   - Bug 1908990 - remove nec4.3, sunos4, riscos and SNI references
-   - Bug 1908990 - remove other old OS (BSDI, old HP UX, NCR, openunix, sco, unixware or reliantUnix
-   - Bug 1908990 - remove mentions of WIN95
-   - Bug 1908990 - remove mentions of WIN16
-   - Bug 1913750 - More explicit directory naming
-   - Bug 1913755 - Add more options to TLS server fuzz target
-   - Bug 1913675 - Add more options to TLS client fuzz target
-   - Bug 1835240 - Use OSS-Fuzz corpus in NSS CI
-   - Bug 1908012 - set nssckbi version number to 2.70.
-   - Bug 1914499 - Remove Email Trust bit from ACCVRAIZ1 root cert.
-   - Bug 1908009 - Remove Email Trust bit from certSIGN ROOT CA.
-   - Bug 1908006 - Add Cybertrust Japan Roots to NSS.
-   - Bug 1908004 - Add Taiwan CA Roots to NSS.
-   - Bug 1911354 - remove search by decoded serial in nssToken_FindCertificateByIssuerAndSerialNumber.
-   - Bug 1913132 - Fix tstclnt CI build failure
-   - Bug 1913047 - vfyserv: ensure peer cert chain is in db for CERT_VerifyCertificateNow.
-   - Bug 1912427 - Enable all supported protocol versions for UDP
-   - Bug 1910361 - Actually use random PSK hash type
-   - Bug 1911576: Initialize NSS DB once
-   - Bug 1910361 - Additional ECH cipher suites and PSK hash types
-   - Bug 1903604: Automate corpus file generation for TLS client Fuzzer
-   - Bug 1910364 - Fix crash with UNSAFE_FUZZER_MODE
-   - Bug 1910605 - clang-format shlibsign.c
+   - Bug 1939512 - Call BL_Init before RNG_RNGInit() so that special SHA instructions can be used if available
+   - Bug 1930807 - NSS policy updates - fix inaccurate key policy issues
+   - Bug 1945883 - SMIME fuzz target
+   - Bug 1914256 - ASN1 decoder fuzz target
+   - Bug 1936001 - Part 2: Revert "Extract testcases from ssl gtests for fuzzing"
+   - Bug 1915155 - Add fuzz/README.md
+   - Bug 1936001 - Part 4: Fix tstclnt arguments script
+   - Bug 1944545 - Extend pkcs7 fuzz target
+   - Bug 1912320 - Extend certDN fuzz target
+   - Bug 1854095 - delete old docker image definitions and task scheduling code  
+   - Bug 1854095 - apply nspr patch in acvp script
+   - Bug 1854095 - parse try syntax on pushes to nss-try
+   - Bug 1854095 - add "fuzz" task kind
+   - Bug 1854095 - add "test" task kind
+   - Bug 1854095 - add "certs" task kind
+   - Bug 1854095 - add "build" task kind
+   - Bug 1854095 - add "tools" task kind
+   - Bug 1854095 - add "fuzz" docker image
+   - Bug 1854095 - add "gcc-4.4" docker image
+   - Bug 1854095 - add "clang-format" docker image
+   - Bug 1854095 - add "acvp" docker image
+   - Bug 1854095 - add "builds" docker image
+   - Bug 1854095 - switch .taskcluster.yml to taskgraph
+   - Bug 1944300 - restore alloca.h include
+   - Bug 1944300 - refactor run_hacl.sh slightly
+   - Bug 1944300 - ignore all libcrux files in run_hacl.sh
+   - Bug 1944300 - use `diff -u` in HACL* consistency check
+   - Bug 1944300 - revert changes to HACL* files from bug 1866841
+   - Bug 1936001 - Part 3: Package frida corpus script
 

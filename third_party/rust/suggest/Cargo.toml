@@ -13,11 +13,12 @@
 edition = "2021"
 name = "suggest"
 version = "0.1.0"
-build = "build.rs"
+build = false
 exclude = [
     "/android",
     "/ios",
 ]
+autolib = false
 autobins = false
 autoexamples = false
 autotests = false
@@ -25,6 +26,12 @@ autobenches = false
 description = "Manages sponsored and web suggestions for Firefox Suggest"
 readme = "README.md"
 license = "MPL-2.0"
+
+[features]
+benchmark_api = [
+    "tempfile",
+    "viaduct-reqwest",
+]
 
 [lib]
 name = "suggest"
@@ -83,7 +90,7 @@ version = "3.2.0"
 optional = true
 
 [dependencies.uniffi]
-version = "0.28.0"
+version = "0.28.2"
 
 [dependencies.url]
 version = "2.1"
@@ -109,11 +116,5 @@ default-features = false
 path = "../support/rc_crypto"
 
 [build-dependencies.uniffi]
-version = "0.28.0"
+version = "0.28.2"
 features = ["build"]
-
-[features]
-benchmark_api = [
-    "tempfile",
-    "viaduct-reqwest",
-]

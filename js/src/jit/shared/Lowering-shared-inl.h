@@ -24,12 +24,8 @@ void LIRGeneratorShared::emitAtUses(MInstruction* mir) {
 
 LUse LIRGeneratorShared::use(MDefinition* mir, LUse policy) {
   // It is illegal to call use() on an instruction with two defs.
-#if BOX_PIECES > 1
-  MOZ_ASSERT(mir->type() != MIRType::Value);
-#endif
-#if INT64_PIECES > 1
-  MOZ_ASSERT(mir->type() != MIRType::Int64);
-#endif
+  MOZ_ASSERT_IF(BOX_PIECES > 1, mir->type() != MIRType::Value);
+  MOZ_ASSERT_IF(INT64_PIECES > 1, mir->type() != MIRType::Int64);
   ensureDefined(mir);
   policy.setVirtualRegister(mir->virtualRegister());
   return policy;
@@ -313,6 +309,7 @@ void LIRGeneratorShared::defineReturn(LInstruction* lir, MDefinition* mir) {
         case LDefinition::OBJECT:
         case LDefinition::SLOTS:
         case LDefinition::STACKRESULTS:
+        case LDefinition::WASM_ANYREF:
           lir->setDef(0, LDefinition(vreg, type, LGeneralReg(ReturnReg)));
           break;
         case LDefinition::DOUBLE:
@@ -678,6 +675,7 @@ void LIRGeneratorShared::add(T* ins, MInstruction* mir) {
   }
   annotate(ins);
   if (ins->isCall()) {
+    lirGraph_.incNumCallInstructions();
     gen->setNeedsOverrecursedCheck();
     gen->setNeedsStaticStackAlignment();
   }
@@ -889,6 +887,29 @@ LInt64Allocation LIRGeneratorShared::useInt64OrConstantAtStart(
     MDefinition* mir) {
   return useInt64OrConstant(mir, /* useAtStart = */ true);
 }
+
+#ifdef JS_NUNBOX32
+LUse LIRGeneratorShared::useLowWord(MDefinition* mir, LUse policy) {
+  MOZ_ASSERT(mir->type() == MIRType::Int64);
+
+  // This returns the low word of the Int64 input.
+  ensureDefined(mir);
+  policy.setVirtualRegister(mir->virtualRegister() + INT64LOW_INDEX);
+  return policy;
+}
+
+LUse LIRGeneratorShared::useLowWordRegister(MDefinition* mir) {
+  return useLowWord(mir, LUse(LUse::REGISTER));
+}
+
+LUse LIRGeneratorShared::useLowWordRegisterAtStart(MDefinition* mir) {
+  return useLowWord(mir, LUse(LUse::REGISTER, true));
+}
+
+LUse LIRGeneratorShared::useLowWordFixed(MDefinition* mir, Register reg) {
+  return useLowWord(mir, LUse(reg));
+}
+#endif
 
 void LIRGeneratorShared::lowerConstantDouble(double d, MInstruction* mir) {
   define(new (alloc()) LDouble(d), mir);

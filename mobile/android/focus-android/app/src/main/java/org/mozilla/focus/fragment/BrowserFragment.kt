@@ -20,7 +20,7 @@ import android.webkit.MimeTypeMap
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.pm.ShortcutManagerCompat
+import androidx.annotation.VisibleForTesting
 import androidx.core.net.toUri
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
@@ -40,6 +40,8 @@ import kotlinx.coroutines.plus
 import mozilla.components.browser.state.selector.findTabOrCustomTab
 import mozilla.components.browser.state.selector.privateTabs
 import mozilla.components.browser.state.state.CustomTabConfig
+import mozilla.components.browser.state.state.CustomTabSessionState
+import mozilla.components.browser.state.state.ExternalAppType
 import mozilla.components.browser.state.state.SessionState
 import mozilla.components.browser.state.state.content.DownloadState
 import mozilla.components.browser.state.state.createTab
@@ -49,7 +51,7 @@ import mozilla.components.feature.contextmenu.ContextMenuFeature
 import mozilla.components.feature.downloads.AbstractFetchDownloadService
 import mozilla.components.feature.downloads.DownloadsFeature
 import mozilla.components.feature.downloads.manager.FetchDownloadManager
-import mozilla.components.feature.downloads.temporary.ShareDownloadFeature
+import mozilla.components.feature.downloads.temporary.ShareResourceFeature
 import mozilla.components.feature.media.fullscreen.MediaSessionFullscreenFeature
 import mozilla.components.feature.prompts.PromptFeature
 import mozilla.components.feature.prompts.file.AndroidPhotoPicker
@@ -77,7 +79,7 @@ import org.mozilla.focus.GleanMetrics.OpenWith
 import org.mozilla.focus.GleanMetrics.TabCount
 import org.mozilla.focus.GleanMetrics.TrackingProtection
 import org.mozilla.focus.R
-import org.mozilla.focus.activity.InstallFirefoxActivity
+import org.mozilla.focus.activity.FirefoxInstallationHelper
 import org.mozilla.focus.activity.MainActivity
 import org.mozilla.focus.browser.integration.BrowserMenuController
 import org.mozilla.focus.browser.integration.BrowserToolbarIntegration
@@ -109,6 +111,7 @@ import org.mozilla.focus.session.ui.TabsPopup
 import org.mozilla.focus.settings.permissions.permissionoptions.SitePermissionOptionsStorage
 import org.mozilla.focus.settings.privacy.ConnectionDetailsPanel
 import org.mozilla.focus.settings.privacy.TrackingProtectionPanel
+import org.mozilla.focus.shortcut.HomeScreen
 import org.mozilla.focus.state.AppAction
 import org.mozilla.focus.topsites.DefaultTopSitesStorage.Companion.TOP_SITES_MAX_LIMIT
 import org.mozilla.focus.topsites.DefaultTopSitesView
@@ -137,7 +140,7 @@ class BrowserFragment :
     private val promptFeature = ViewBoundFeatureWrapper<PromptFeature>()
     private val contextMenuFeature = ViewBoundFeatureWrapper<ContextMenuFeature>()
     private val downloadsFeature = ViewBoundFeatureWrapper<DownloadsFeature>()
-    private val shareDownloadFeature = ViewBoundFeatureWrapper<ShareDownloadFeature>()
+    private val shareResourceFeature = ViewBoundFeatureWrapper<ShareResourceFeature>()
     private val windowFeature = ViewBoundFeatureWrapper<WindowFeature>()
     private val appLinksFeature = ViewBoundFeatureWrapper<AppLinksFeature>()
     private val topSitesFeature = ViewBoundFeatureWrapper<TopSitesFeature>()
@@ -212,6 +215,8 @@ class BrowserFragment :
                     grandResults.toIntArray(),
                 )
             }
+
+        HomeScreen.checkIfPinningSupported(requireContext(), lifecycleScope)
     }
 
     /**
@@ -406,8 +411,8 @@ class BrowserFragment :
             view,
         )
 
-        shareDownloadFeature.set(
-            ShareDownloadFeature(
+        shareResourceFeature.set(
+            ShareResourceFeature(
                 context = requireContext().applicationContext,
                 httpClient = components.client,
                 store = components.store,
@@ -565,14 +570,12 @@ class BrowserFragment :
             ::showShortcutAddedSnackBar,
         )
 
-        if (tab.ifCustomTab()?.config == null) {
+        val customTabSessionState = tab.ifCustomTab()
+        if (customTabSessionState?.config == null) {
             val browserMenu = DefaultBrowserMenu(
                 context = requireContext(),
                 appStore = requireComponents.appStore,
                 store = requireComponents.store,
-                isPinningSupported = ShortcutManagerCompat.isRequestPinShortcutSupported(
-                    requireContext(),
-                ),
                 onItemTapped = { controller.handleMenuInteraction(it) },
             )
             binding.browserToolbar.display.menuBuilder = browserMenu.menuBuilder
@@ -589,12 +592,17 @@ class BrowserFragment :
                 sessionUseCases = requireComponents.sessionUseCases,
                 onUrlLongClicked = ::onUrlLongClicked,
                 eraseActionListener = { erase(shouldEraseAllTabs = true) },
+                isOnboardingTab = isOnboardingTab(customTabSessionState),
                 tabCounterListener = ::tabCounterListener,
             ),
             owner = this,
             view = binding.browserToolbar,
         )
     }
+
+    @VisibleForTesting
+    internal fun isOnboardingTab(sessionState: CustomTabSessionState?) =
+        sessionState?.config?.externalAppType == ExternalAppType.ONBOARDING_CUSTOM_TAB
 
     private fun showShortcutAddedSnackBar() {
         FocusSnackbar.make(requireView())
@@ -635,6 +643,7 @@ class BrowserFragment :
         requireActivity().exitImmersiveMode()
     }
 
+    @Suppress("OVERRIDE_DEPRECATION")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         promptFeature.withFeature { it.onActivityResult(requestCode, data, resultCode) }
     }
@@ -955,7 +964,7 @@ class BrowserFragment :
         val store = if (browsers.hasFirefoxBrandedBrowserInstalled) {
             null
         } else {
-            InstallFirefoxActivity.resolveAppStore(requireContext())
+            FirefoxInstallationHelper.resolveAppStore(requireContext())
         }
 
         val fragment = OpenWithFragment.newInstance(

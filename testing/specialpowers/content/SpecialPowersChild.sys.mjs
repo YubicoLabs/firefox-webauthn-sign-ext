@@ -14,6 +14,9 @@ ChromeUtils.defineESModuleGetters(lazy, {
   MockFilePicker: "resource://testing-common/MockFilePicker.sys.mjs",
   MockPermissionPrompt:
     "resource://testing-common/MockPermissionPrompt.sys.mjs",
+  MockPromptCollection:
+    "resource://testing-common/MockPromptCollection.sys.mjs",
+  MockSound: "resource://testing-common/MockSound.sys.mjs",
   NetUtil: "resource://gre/modules/NetUtil.sys.mjs",
   PerTestCoverageUtils:
     "resource://testing-common/PerTestCoverageUtils.sys.mjs",
@@ -441,8 +444,16 @@ export class SpecialPowersChild extends JSWindowActorChild {
     return lazy.MockColorPicker;
   }
 
+  get MockPromptCollection() {
+    return lazy.MockPromptCollection;
+  }
+
   get MockPermissionPrompt() {
     return lazy.MockPermissionPrompt;
+  }
+
+  get MockSound() {
+    return lazy.MockSound;
   }
 
   quit() {
@@ -470,10 +481,10 @@ export class SpecialPowersChild extends JSWindowActorChild {
     return this.sendQuery("Ping").then(aCallback);
   }
 
-  async registeredServiceWorkers() {
+  async registeredServiceWorkers(aForceCheck) {
     // Please see the comment in SpecialPowersParent.sys.mjs above
     // this._serviceWorkerListener's assignment for what this returns.
-    if (this._serviceWorkerRegistered) {
+    if (this._serviceWorkerRegistered || aForceCheck) {
       // This test registered at least one service worker. Send a synchronous
       // call to the parent to make sure that it called unregister on all of its
       // service workers.
@@ -1730,6 +1741,24 @@ export class SpecialPowersChild extends JSWindowActorChild {
     Cc["@mozilla.org/widget/clipboardhelper;1"]
       .getService(Ci.nsIClipboardHelper)
       .copyString(str);
+  }
+
+  cleanupAllClipboard() {
+    // copied from widget/tests/clipboard_helper.js
+    // there is a write there I didn't want to copy
+    const clipboard = Services.clipboard;
+    const clipboardTypes = [
+      clipboard.kGlobalClipboard,
+      clipboard.kSelectionClipboard,
+      clipboard.kFindClipboard,
+      clipboard.kSelectionCache,
+    ];
+
+    clipboardTypes.forEach(function (type) {
+      if (clipboard.isClipboardTypeSupported(type)) {
+        clipboard.emptyClipboard(type);
+      }
+    });
   }
 
   supportsSelectionClipboard() {

@@ -434,6 +434,7 @@ class ChromeActions {
       canvasMaxAreaInBytes: Services.prefs.getIntPref("gfx.max-alloc-size"),
       isInAutomation: Cu.isInAutomation,
       localeProperties: this.getLocaleProperties(),
+      maxCanvasDim: Services.prefs.getIntPref("gfx.canvas.max-size"),
       nimbusDataStr,
       supportsDocumentFonts:
         !!Services.prefs.getIntPref("browser.display.use_document_fonts") &&
@@ -525,11 +526,17 @@ class ChromeActions {
     if (typeof data.rawQuery === "string") {
       rawQuery = data.rawQuery;
     }
+    // Same for the `entireWord` property.
+    let entireWord = false;
+    if (typeof data.entireWord === "boolean") {
+      entireWord = data.entireWord;
+    }
 
     let actor = getActor(this.domWindow);
     actor?.sendAsyncMessage("PDFJS:Parent:updateControlState", {
       result,
       findPrevious,
+      entireWord,
       matchesCount,
       rawQuery,
     });
@@ -620,6 +627,19 @@ class ChromeActions {
         editorStates[key] = value;
       }
     }
+  }
+
+  async handleSignature(data, sendResponse) {
+    const actor = getActor(this.domWindow);
+    if (!actor) {
+      sendResponse(null);
+      return;
+    }
+    const response = await actor.sendQuery(
+      "PDFJS:Parent:handleSignature",
+      data
+    );
+    sendResponse(response);
   }
 }
 
@@ -1086,6 +1106,15 @@ PdfStreamConverter.prototype = {
       if (triggeringPrincipal?.schemeIs("file") && alwaysAskBeforeHandling) {
         return HTML;
       }
+    }
+
+    // If we're loading this PDF with an object/embed element, we always want to
+    // try to render it inline, as we can't fall back to an external handler.
+    if (
+      aChannel.loadInfo?.externalContentPolicyType ==
+      Ci.nsIContentPolicy.TYPE_OBJECT
+    ) {
+      return HTML;
     }
 
     throw new Components.Exception("Can't use PDF.js", Cr.NS_ERROR_FAILURE);

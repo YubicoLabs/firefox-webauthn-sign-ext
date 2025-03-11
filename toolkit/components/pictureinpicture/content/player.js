@@ -134,6 +134,7 @@ let Player = {
   WINDOW_EVENTS: [
     "click",
     "contextmenu",
+    "command",
     "dblclick",
     "keydown",
     "mouseup",
@@ -378,6 +379,17 @@ let Player = {
         }
         break;
       }
+
+      case "command":
+        switch (event.target.id) {
+          case "View:PictureInPicture":
+            this.onCommand(event);
+            break;
+          case "View:Fullscreen":
+            this.fullscreenModeToggle(event);
+            break;
+        }
+        break;
 
       case "contextmenu": {
         event.preventDefault();
@@ -786,8 +798,8 @@ let Player = {
       this.deferredResize = {
         left: window.screenX,
         top: window.screenY,
-        width: window.innerWidth,
-        height: window.innerHeight,
+        width: window.outerWidth,
+        height: window.outerHeight,
       };
       document.body.requestFullscreen();
     }
@@ -915,8 +927,8 @@ let Player = {
    */
   determineCurrentQuadrant() {
     // Determine center coordinates of window.
-    let windowCenterX = window.screenX + window.innerWidth / 2;
-    let windowCenterY = window.screenY + window.innerHeight / 2;
+    let windowCenterX = window.screenX + window.outerWidth / 2;
+    let windowCenterY = window.screenY + window.outerHeight / 2;
     let quadrant = null;
     let halfWidth = window.screen.availLeft + window.screen.availWidth / 2;
     let halfHeight = window.screen.availTop + window.screen.availHeight / 2;

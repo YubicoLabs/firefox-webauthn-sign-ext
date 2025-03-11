@@ -14,7 +14,7 @@
 #include "nsICookieNotification.h"
 #include "CookieStorage.h"
 #include "mozilla/dom/nsMixedContentBlocker.h"
-#include "mozilla/glean/GleanMetrics.h"
+#include "mozilla/glean/NetwerkMetrics.h"
 #include "mozilla/StaticPrefs_network.h"
 #include "nsIMutableArray.h"
 #include "nsTPriorityQueue.h"
@@ -294,7 +294,7 @@ void CookieStorage::GetCookiesFromHost(
 
 void CookieStorage::GetCookiesWithOriginAttributes(
     const OriginAttributesPattern& aPattern, const nsACString& aBaseDomain,
-    nsTArray<RefPtr<nsICookie>>& aResult) {
+    bool aSorted, nsTArray<RefPtr<nsICookie>>& aResult) {
   for (auto iter = mHostTable.Iter(); !iter.Done(); iter.Next()) {
     CookieEntry* entry = iter.Get();
 
@@ -311,6 +311,10 @@ void CookieStorage::GetCookiesWithOriginAttributes(
     for (CookieEntry::IndexType i = 0; i < entryCookies.Length(); ++i) {
       aResult.AppendElement(entryCookies[i]);
     }
+  }
+
+  if (aSorted) {
+    aResult.Sort(CompareCookiesForSending());
   }
 }
 
@@ -598,6 +602,17 @@ void CookieStorage::AddCookie(CookieParser* aCookieParser,
                               bool aFromHttp, bool aIsThirdParty,
                               dom::BrowsingContext* aBrowsingContext,
                               const nsID* aOperationID) {
+  if (CookieCommons::IsFirstPartyPartitionedCookieWithoutCHIPS(
+          aCookie, aBaseDomain, aOriginAttributes)) {
+    COOKIE_LOGFAILURE(SET_COOKIE, aHostURI, aCookieHeader,
+                      "Invalid first-party partitioned cookie without "
+                      "partitioned cookie attribution.");
+    mozilla::glean::networking::set_invalid_first_party_partitioned_cookie.Add(
+        1);
+    MOZ_ASSERT(false);
+    return;
+  }
+
   int64_t currentTime = aCurrentTimeInUsec / PR_USEC_PER_SEC;
 
   CookieListIter exactIter{};

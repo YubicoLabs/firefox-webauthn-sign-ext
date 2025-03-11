@@ -40,7 +40,7 @@
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/extensions/WebExtensionPolicy.h"
-#include "mozilla/glean/GleanMetrics.h"
+#include "mozilla/glean/DomSecurityMetrics.h"
 #include "mozilla/Components.h"
 #include "mozilla/ExtensionPolicyService.h"
 #include "mozilla/Logging.h"
@@ -48,7 +48,6 @@
 #include "mozilla/Preferences.h"
 #include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/StaticPrefs_security.h"
-#include "mozilla/Telemetry.h"
 #include "xpcpublic.h"
 #include "nsMimeTypes.h"
 
@@ -57,12 +56,12 @@
 
 using namespace mozilla;
 using namespace mozilla::dom;
-using namespace mozilla::Telemetry;
 
 NS_IMPL_ISUPPORTS(nsContentSecurityManager, nsIContentSecurityManager,
                   nsIChannelEventSink)
 
 mozilla::LazyLogModule sCSMLog("CSMLog");
+mozilla::LazyLogModule sUELLog("UnexpectedLoad");
 
 // These first two are used for off-the-main-thread checks of
 // general.config.filename
@@ -71,7 +70,6 @@ Atomic<bool, mozilla::Relaxed> sJSHacksChecked(false);
 Atomic<bool, mozilla::Relaxed> sJSHacksPresent(false);
 Atomic<bool, mozilla::Relaxed> sCSSHacksChecked(false);
 Atomic<bool, mozilla::Relaxed> sCSSHacksPresent(false);
-Atomic<bool, mozilla::Relaxed> sTelemetryEventEnabled(false);
 
 /* static */
 bool nsContentSecurityManager::AllowTopLevelNavigationToDataURI(
@@ -115,7 +113,7 @@ bool nsContentSecurityManager::AllowTopLevelNavigationToDataURI(
 
   // Allow data: images as long as they are not SVGs
   if (StringBeginsWith(contentType, "image/"_ns) &&
-      !contentType.EqualsLiteral("image/svg+xml")) {
+      !contentType.EqualsLiteral(IMAGE_SVG_XML)) {
     return true;
   }
   // Allow all data: PDFs. or JSON documents
@@ -490,6 +488,7 @@ static nsresult DoContentSecurityChecks(nsIChannel* aChannel,
     case ExtContentPolicy::TYPE_PROXIED_WEBRTC_MEDIA:
     case ExtContentPolicy::TYPE_WEB_TRANSPORT:
     case ExtContentPolicy::TYPE_WEB_IDENTITY:
+    case ExtContentPolicy::TYPE_JSON:
       break;
 
     case ExtContentPolicy::TYPE_INVALID:
@@ -731,8 +730,7 @@ static void DebugDoContentSecurityCheck(nsIChannel* aChannel,
             ("  allowDeprecatedSystemRequests: %s\n",
              aLoadInfo->GetAllowDeprecatedSystemRequests() ? "true" : "false"));
     MOZ_LOG(sCSMLog, LogLevel::Verbose,
-            ("  wasSchemeless: %s\n",
-             aLoadInfo->GetWasSchemelessInput() ? "true" : "false"));
+            ("  schemelessInput: %d\n", aLoadInfo->GetSchemelessInput()));
 
     // Log CSPrequestPrincipal
     nsCOMPtr<nsIContentSecurityPolicy> csp = aLoadInfo->GetCsp();
@@ -824,24 +822,19 @@ void nsContentSecurityManager::MeasureUnexpectedPrivilegedLoads(
   nsAutoCString loggedRemoteType(dom::RemoteTypePrefix(aRemoteType));
   nsAutoCString loggedContentType(NS_CP_ContentTypeName(contentPolicyType));
 
-  MOZ_LOG(sCSMLog, LogLevel::Debug, ("UnexpectedPrivilegedLoadTelemetry:\n"));
-  MOZ_LOG(sCSMLog, LogLevel::Debug,
+  MOZ_LOG(sUELLog, LogLevel::Debug, ("UnexpectedPrivilegedLoadTelemetry:\n"));
+  MOZ_LOG(sUELLog, LogLevel::Debug,
           ("- contentType: %s\n", loggedContentType.get()));
-  MOZ_LOG(sCSMLog, LogLevel::Debug,
+  MOZ_LOG(sUELLog, LogLevel::Debug,
           ("- URL (not to be reported): %s\n", uriString.get()));
-  MOZ_LOG(sCSMLog, LogLevel::Debug,
+  MOZ_LOG(sUELLog, LogLevel::Debug,
           ("- remoteType: %s\n", loggedRemoteType.get()));
-  MOZ_LOG(sCSMLog, LogLevel::Debug,
+  MOZ_LOG(sUELLog, LogLevel::Debug,
           ("- fileInfo: %s\n", fileNameTypeAndDetails.first.get()));
-  MOZ_LOG(sCSMLog, LogLevel::Debug,
+  MOZ_LOG(sUELLog, LogLevel::Debug,
           ("- fileDetails: %s\n", loggedFileDetails.get()));
-  MOZ_LOG(sCSMLog, LogLevel::Debug,
+  MOZ_LOG(sUELLog, LogLevel::Debug,
           ("- redirects: %s\n\n", loggedRedirects.get()));
-
-  // Send Telemetry
-  if (!sTelemetryEventEnabled.exchange(true)) {
-    Telemetry::SetEventRecordingEnabled("security"_ns, true);
-  }
 
   glean::security::UnexpectedLoadExtra extra = {
       .contenttype = Some(loggedContentType),
@@ -972,13 +965,14 @@ nsresult nsContentSecurityManager::CheckAllowLoadInSystemPrivilegedContext(
   // (2) about: resources are always allowed: they are part of the build.
   // (3) extensions are signed or the user has made bad decisions.
   if (innerURI->SchemeIs("jar") || innerURI->SchemeIs("about") ||
-      innerURI->SchemeIs("moz-extension")) {
+      innerURI->SchemeIs("moz-extension") ||
+      innerURI->SchemeIs("moz-safe-about")) {
     return NS_OK;
   }
 
   nsAutoCString requestedURL;
   innerURI->GetAsciiSpec(requestedURL);
-  MOZ_LOG(sCSMLog, LogLevel::Warning,
+  MOZ_LOG(sUELLog, LogLevel::Warning,
           ("SystemPrincipal should not load remote resources. URL: %s, type %d",
            requestedURL.get(), int(contentPolicyType)));
 

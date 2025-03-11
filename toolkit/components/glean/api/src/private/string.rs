@@ -5,51 +5,8 @@
 use inherent::inherent;
 use std::sync::Arc;
 
-use super::{CommonMetricData, MetricId};
+use super::{CommonMetricData, MetricGetter, MetricId};
 use crate::ipc::need_ipc;
-
-#[cfg(feature = "with_gecko")]
-use super::profiler_utils::{lookup_canonical_metric_name, LookupError};
-
-#[cfg(feature = "with_gecko")]
-use gecko_profiler::gecko_profiler_category;
-
-#[cfg(feature = "with_gecko")]
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
-struct StringMetricMarker {
-    id: MetricId,
-    val: String,
-}
-
-#[cfg(feature = "with_gecko")]
-impl gecko_profiler::ProfilerMarker for StringMetricMarker {
-    fn marker_type_name() -> &'static str {
-        "StringMetric"
-    }
-
-    fn marker_type_display() -> gecko_profiler::MarkerSchema {
-        use gecko_profiler::schema::*;
-        let mut schema = MarkerSchema::new(&[Location::MarkerChart, Location::MarkerTable]);
-        schema.set_tooltip_label("{marker.data.id} {marker.data.val}");
-        schema.set_table_label("{marker.name} - {marker.data.id}: {marker.data.val}");
-        schema.add_key_label_format_searchable(
-            "id",
-            "Metric",
-            Format::String,
-            Searchable::Searchable,
-        );
-        schema.add_key_label_format("val", "Value", Format::String);
-        schema
-    }
-
-    fn stream_json_marker_data(&self, json_writer: &mut gecko_profiler::JSONWriter) {
-        json_writer.string_property(
-            "id",
-            lookup_canonical_metric_name(&self.id).unwrap_or_else(LookupError::as_str),
-        );
-        json_writer.string_property("val", self.val.as_str());
-    }
-}
 
 /// A string metric.
 ///
@@ -83,7 +40,10 @@ impl gecko_profiler::ProfilerMarker for StringMetricMarker {
 #[derive(Clone)]
 pub enum StringMetric {
     Parent {
-        id: MetricId,
+        /// The metric's ID. Used for testing and profiler markers. String
+        /// metrics can be labeled, so we may have either a metric ID or
+        /// sub-metric ID.
+        id: MetricGetter,
         inner: Arc<glean::private::StringMetric>,
     },
     Child(StringMetricIpc),
@@ -98,7 +58,7 @@ impl StringMetric {
             StringMetric::Child(StringMetricIpc)
         } else {
             StringMetric::Parent {
-                id,
+                id: id.into(),
                 inner: Arc::new(glean::private::StringMetric::new(meta)),
             }
         }
@@ -130,14 +90,10 @@ impl glean::traits::String for StringMetric {
             StringMetric::Parent { id, inner } => {
                 let value = value.into();
                 #[cfg(feature = "with_gecko")]
-                gecko_profiler::add_marker(
+                gecko_profiler::lazy_add_marker!(
                     "String::set",
-                    gecko_profiler_category!(Telemetry),
-                    Default::default(),
-                    StringMetricMarker {
-                        id: *id,
-                        val: value.clone(),
-                    },
+                    super::profiler_utils::TelemetryProfilerCategory,
+                    super::profiler_utils::StringLikeMetricMarker::new(*id, &value)
                 );
                 inner.set(value);
             }
@@ -211,7 +167,7 @@ mod test {
 
         assert_eq!(
             "test_string_value",
-            metric.test_get_value("store1").unwrap()
+            metric.test_get_value("test-ping").unwrap()
         );
     }
 
@@ -239,7 +195,7 @@ mod test {
         assert!(ipc::replay_from_buf(&ipc::take_buf().unwrap()).is_ok());
 
         assert!(
-            "test_parent_value" == parent_metric.test_get_value("store1").unwrap(),
+            "test_parent_value" == parent_metric.test_get_value("test-ping").unwrap(),
             "String metrics should only work in the parent process"
         );
     }

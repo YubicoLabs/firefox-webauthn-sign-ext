@@ -31,6 +31,7 @@ import androidx.navigation.fragment.findNavController
 import mozilla.components.concept.menu.MenuController
 import mozilla.components.concept.menu.Orientation
 import mozilla.components.lib.state.ext.consumeFrom
+import org.mozilla.fenix.AuthenticationStatus
 import org.mozilla.fenix.BiometricAuthenticationManager
 import org.mozilla.fenix.BrowserDirection
 import org.mozilla.fenix.HomeActivity
@@ -78,24 +79,42 @@ class SavedLoginsFragment : SecureFragment(), MenuProvider {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         startForResult = registerForActivityResult {
-            BiometricAuthenticationManager.biometricAuthenticationNeededInfo.shouldAuthenticate =
+            BiometricAuthenticationManager.biometricAuthenticationNeededInfo.shouldShowAuthenticationPrompt =
                 false
+            BiometricAuthenticationManager.biometricAuthenticationNeededInfo.authenticationStatus =
+                AuthenticationStatus.AUTHENTICATED
             setSecureContentVisibility(true)
         }
     }
 
     override fun onResume() {
         super.onResume()
-        if (BiometricAuthenticationManager.biometricAuthenticationNeededInfo.shouldAuthenticate) {
-            BiometricAuthenticationManager.biometricAuthenticationNeededInfo.shouldAuthenticate = false
+        if (BiometricAuthenticationManager.biometricAuthenticationNeededInfo.shouldShowAuthenticationPrompt) {
+            BiometricAuthenticationManager.biometricAuthenticationNeededInfo.shouldShowAuthenticationPrompt =
+                false
+            BiometricAuthenticationManager.biometricAuthenticationNeededInfo.authenticationStatus =
+                AuthenticationStatus.AUTHENTICATION_IN_PROGRESS
             setSecureContentVisibility(false)
+
             bindBiometricsCredentialsPromptOrShowWarning(
                 view = requireView(),
                 onShowPinVerification = { intent -> startForResult.launch(intent) },
-                onAuthSuccess = { setSecureContentVisibility(true) },
+                onAuthSuccess = {
+                    BiometricAuthenticationManager.biometricAuthenticationNeededInfo.authenticationStatus =
+                        AuthenticationStatus.AUTHENTICATED
+                    setSecureContentVisibility(true)
+                },
+                onAuthFailure = {
+                    BiometricAuthenticationManager.biometricAuthenticationNeededInfo.authenticationStatus =
+                        AuthenticationStatus.NOT_AUTHENTICATED
+                    setSecureContentVisibility(false)
+                },
             )
         } else {
-            setSecureContentVisibility(true)
+            setSecureContentVisibility(
+                BiometricAuthenticationManager.biometricAuthenticationNeededInfo.authenticationStatus ==
+                    AuthenticationStatus.AUTHENTICATED,
+            )
         }
         initToolbar()
     }
@@ -108,8 +127,6 @@ class SavedLoginsFragment : SecureFragment(), MenuProvider {
         val view = inflater.inflate(R.layout.fragment_saved_logins, container, false)
 
         _binding = FragmentSavedLoginsBinding.bind(view)
-        setSecureContentVisibility(false)
-        BiometricAuthenticationManager.biometricAuthenticationNeededInfo.shouldAuthenticate = true
 
         savedLoginsStore =
             StoreProvider.get(findNavController().getBackStackEntry(R.id.savedLogins)) {
@@ -266,6 +283,7 @@ class SavedLoginsFragment : SecureFragment(), MenuProvider {
             is SortingStrategy.Alphabetically -> setupMenu(
                 SavedLoginsSortingStrategyMenu.Item.AlphabeticallySort,
             )
+
             is SortingStrategy.LastUsed -> setupMenu(
                 SavedLoginsSortingStrategyMenu.Item.LastUsedSort,
             )

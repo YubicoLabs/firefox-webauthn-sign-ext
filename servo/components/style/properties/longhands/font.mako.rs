@@ -98,10 +98,10 @@ ${helpers.predefined_type(
 
 ${helpers.predefined_type(
     "font-synthesis-style",
-    "FontSynthesis",
+    "FontSynthesisStyle",
     engines="gecko",
-    initial_value="computed::FontSynthesis::Auto",
-    initial_specified_value="specified::FontSynthesis::Auto",
+    initial_value="computed::FontSynthesisStyle::Auto",
+    initial_specified_value="specified::FontSynthesisStyle::Auto",
     gecko_ffi_name="mFont.synthesisStyle",
     animation_type="discrete",
     spec="https://drafts.csswg.org/css-fonts-4/#font-synthesis-style",
@@ -254,7 +254,7 @@ ${helpers.predefined_type(
 ${helpers.predefined_type(
     "font-language-override",
     "FontLanguageOverride",
-    engines="gecko",
+    engines="gecko servo",
     initial_value="computed::FontLanguageOverride::normal()",
     initial_specified_value="specified::FontLanguageOverride::normal()",
     animation_type="discrete",
@@ -293,7 +293,7 @@ ${helpers.predefined_type(
 ${helpers.predefined_type(
     "-x-lang",
     "XLang",
-    engines="gecko",
+    engines="gecko servo",
     initial_value="computed::XLang::get_initial_value()",
     animation_type="none",
     enabled_in="",

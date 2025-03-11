@@ -15,6 +15,7 @@
 #include "mozilla/a11y/Role.h"
 #include "States.h"
 #include "TextAttrs.h"
+#include "TextLeafRange.h"
 #include "TextRange.h"
 #include "TreeWalker.h"
 
@@ -168,6 +169,18 @@ uint32_t HyperTextAccessible::DOMPointToOffset(nsINode* aNode,
         descendant = walker.Next();
         if (!descendant) descendant = container;
       }
+    }
+  }
+
+  if (descendant && descendant->IsTextLeaf()) {
+    uint32_t length = nsAccUtils::TextLength(descendant);
+    if (offset > length) {
+      // This can happen if text in the accessibility tree is out of date with
+      // DOM, since the accessibility engine updates text asynchronously. This
+      // should only be the case for a very short time, so it shouldn't be a
+      // real problem.
+      NS_WARNING("Offset too large for text leaf");
+      offset = length;
     }
   }
 
@@ -532,57 +545,6 @@ already_AddRefed<EditorBase> HyperTextAccessible::GetEditor() const {
  * =================== Caret & Selection ======================
  */
 
-nsresult HyperTextAccessible::SetSelectionRange(int32_t aStartPos,
-                                                int32_t aEndPos) {
-  // Before setting the selection range, we need to ensure that the editor
-  // is initialized. (See bug 804927.)
-  // Otherwise, it's possible that lazy editor initialization will override
-  // the selection we set here and leave the caret at the end of the text.
-  // By calling GetEditor here, we ensure that editor initialization is
-  // completed before we set the selection.
-  RefPtr<EditorBase> editorBase = GetEditor();
-
-  bool isFocusable = InteractiveState() & states::FOCUSABLE;
-
-  // If accessible is focusable then focus it before setting the selection to
-  // neglect control's selection changes on focus if any (for example, inputs
-  // that do select all on focus).
-  // some input controls
-  if (isFocusable) TakeFocus();
-
-  RefPtr<dom::Selection> domSel = DOMSelection();
-  NS_ENSURE_STATE(domSel);
-
-  // Set up the selection.
-  domSel->RemoveAllRanges(IgnoreErrors());
-  SetSelectionBoundsAt(0, aStartPos, aEndPos);
-
-  // Make sure it is visible
-  domSel->ScrollIntoView(nsISelectionController::SELECTION_FOCUS_REGION,
-                         ScrollAxis(), ScrollAxis(),
-                         dom::Selection::SCROLL_FOR_CARET_MOVE |
-                             dom::Selection::SCROLL_OVERFLOW_HIDDEN);
-
-  // When selection is done, move the focus to the selection if accessible is
-  // not focusable. That happens when selection is set within hypertext
-  // accessible.
-  if (isFocusable) return NS_OK;
-
-  nsFocusManager* DOMFocusManager = nsFocusManager::GetFocusManager();
-  if (DOMFocusManager) {
-    NS_ENSURE_TRUE(mDoc, NS_ERROR_FAILURE);
-    dom::Document* docNode = mDoc->DocumentNode();
-    NS_ENSURE_TRUE(docNode, NS_ERROR_FAILURE);
-    nsCOMPtr<nsPIDOMWindowOuter> window = docNode->GetWindow();
-    RefPtr<dom::Element> result;
-    DOMFocusManager->MoveFocus(
-        window, nullptr, nsIFocusManager::MOVEFOCUS_CARET,
-        nsIFocusManager::FLAG_BYMOVEFOCUS, getter_AddRefs(result));
-  }
-
-  return NS_OK;
-}
-
 int32_t HyperTextAccessible::CaretOffset() const {
   // Not focused focusable accessible except document accessible doesn't have
   // a caret.
@@ -634,70 +596,6 @@ int32_t HyperTextAccessible::CaretOffset() const {
   }
 
   return DOMPointToOffset(focusNode, focusOffset);
-}
-
-int32_t HyperTextAccessible::CaretLineNumber() {
-  // Provide the line number for the caret, relative to the
-  // currently focused node. Use a 1-based index
-  RefPtr<nsFrameSelection> frameSelection = FrameSelection();
-  if (!frameSelection) return -1;
-
-  dom::Selection* domSel = frameSelection->GetSelection(SelectionType::eNormal);
-  if (!domSel) return -1;
-
-  nsINode* caretNode = domSel->GetFocusNode();
-  if (!caretNode || !caretNode->IsContent()) return -1;
-
-  nsIContent* caretContent = caretNode->AsContent();
-  if (!nsCoreUtils::IsAncestorOf(GetNode(), caretContent)) return -1;
-
-  uint32_t caretOffset = domSel->FocusOffset();
-  CaretAssociationHint hint = frameSelection->GetHint();
-  nsIFrame* caretFrame = SelectionMovementUtils::GetFrameForNodeOffset(
-      caretContent, caretOffset, hint);
-  NS_ENSURE_TRUE(caretFrame, -1);
-
-  AutoAssertNoDomMutations guard;  // The nsILineIterators below will break if
-                                   // the DOM is modified while they're in use!
-  int32_t lineNumber = 1;
-  nsILineIterator* lineIterForCaret = nullptr;
-  nsIContent* hyperTextContent = IsContent() ? mContent.get() : nullptr;
-  while (caretFrame) {
-    if (hyperTextContent == caretFrame->GetContent()) {
-      return lineNumber;  // Must be in a single line hyper text, there is no
-                          // line iterator
-    }
-    nsContainerFrame* parentFrame = caretFrame->GetParent();
-    if (!parentFrame) break;
-
-    // Add lines for the sibling frames before the caret
-    nsIFrame* sibling = parentFrame->PrincipalChildList().FirstChild();
-    while (sibling && sibling != caretFrame) {
-      nsILineIterator* lineIterForSibling = sibling->GetLineIterator();
-      if (lineIterForSibling) {
-        // For the frames before that grab all the lines
-        int32_t addLines = lineIterForSibling->GetNumLines();
-        lineNumber += addLines;
-      }
-      sibling = sibling->GetNextSibling();
-    }
-
-    // Get the line number relative to the container with lines
-    if (!lineIterForCaret) {  // Add the caret line just once
-      lineIterForCaret = parentFrame->GetLineIterator();
-      if (lineIterForCaret) {
-        // Ancestor of caret
-        int32_t addLines = lineIterForCaret->FindLineContaining(caretFrame);
-        lineNumber += addLines;
-      }
-    }
-
-    caretFrame = parentFrame;
-  }
-
-  MOZ_ASSERT_UNREACHABLE(
-      "DOM ancestry had this hypertext but frame ancestry didn't");
-  return lineNumber;
 }
 
 LayoutDeviceIntRect HyperTextAccessible::GetCaretRect(nsIWidget** aWidget) {
@@ -818,39 +716,38 @@ bool HyperTextAccessible::SelectionBoundsAt(int32_t aSelectionNum,
 
   nsRange* range = ranges[aSelectionNum];
 
-  // Get start and end points.
-  nsINode* startNode = range->GetStartContainer();
-  nsINode* endNode = range->GetEndContainer();
-  uint32_t startOffset = range->StartOffset();
-  uint32_t endOffset = range->EndOffset();
-
   // Make sure start is before end, by swapping DOM points.  This occurs when
   // the user selects backwards in the text.
   const Maybe<int32_t> order =
-      nsContentUtils::ComparePoints(endNode, endOffset, startNode, startOffset);
+      nsContentUtils::ComparePoints(range->EndRef(), range->StartRef());
 
   if (!order) {
     MOZ_ASSERT_UNREACHABLE();
     return false;
   }
 
-  if (*order < 0) {
-    std::swap(startNode, endNode);
-    std::swap(startOffset, endOffset);
-  }
+  const RangeBoundary& precedingBoundary =
+      *order < 0 ? range->EndRef() : range->StartRef();
+  const RangeBoundary& followingBoundary =
+      *order < 0 ? range->StartRef() : range->EndRef();
 
-  if (!startNode->IsInclusiveDescendantOf(mContent)) {
+  if (!precedingBoundary.GetContainer()->IsInclusiveDescendantOf(mContent)) {
     *aStartOffset = 0;
   } else {
-    *aStartOffset =
-        DOMPointToOffset(startNode, AssertedCast<int32_t>(startOffset));
+    *aStartOffset = DOMPointToOffset(
+        precedingBoundary.GetContainer(),
+        AssertedCast<int32_t>(*precedingBoundary.Offset(
+            RangeBoundary::OffsetFilter::kValidOrInvalidOffsets)));
   }
 
-  if (!endNode->IsInclusiveDescendantOf(mContent)) {
+  if (!followingBoundary.GetContainer()->IsInclusiveDescendantOf(mContent)) {
     *aEndOffset = CharacterCount();
   } else {
-    *aEndOffset =
-        DOMPointToOffset(endNode, AssertedCast<int32_t>(endOffset), true);
+    *aEndOffset = DOMPointToOffset(
+        followingBoundary.GetContainer(),
+        AssertedCast<int32_t>(*followingBoundary.Offset(
+            RangeBoundary::OffsetFilter::kValidOrInvalidOffsets)),
+        true);
   }
   return true;
 }
@@ -946,7 +843,8 @@ void HyperTextAccessible::ReplaceText(const nsAString& aText) {
     return;
   }
 
-  SetSelectionRange(0, CharacterCount());
+  SetSelectionBoundsAt(TextLeafRange::kRemoveAllExistingSelectedRanges, 0,
+                       CharacterCount());
 
   RefPtr<EditorBase> editorBase = GetEditor();
   if (!editorBase) {
@@ -961,7 +859,8 @@ void HyperTextAccessible::InsertText(const nsAString& aText,
                                      int32_t aPosition) {
   RefPtr<EditorBase> editorBase = GetEditor();
   if (editorBase) {
-    SetSelectionRange(aPosition, aPosition);
+    SetSelectionBoundsAt(TextLeafRange::kRemoveAllExistingSelectedRanges,
+                         aPosition, aPosition);
     DebugOnly<nsresult> rv = editorBase->InsertTextAsAction(aText);
     NS_WARNING_ASSERTION(NS_SUCCEEDED(rv), "Failed to insert the text");
   }
@@ -970,7 +869,8 @@ void HyperTextAccessible::InsertText(const nsAString& aText,
 void HyperTextAccessible::CopyText(int32_t aStartPos, int32_t aEndPos) {
   RefPtr<EditorBase> editorBase = GetEditor();
   if (editorBase) {
-    SetSelectionRange(aStartPos, aEndPos);
+    SetSelectionBoundsAt(TextLeafRange::kRemoveAllExistingSelectedRanges,
+                         aStartPos, aEndPos);
     editorBase->Copy();
   }
 }
@@ -978,7 +878,8 @@ void HyperTextAccessible::CopyText(int32_t aStartPos, int32_t aEndPos) {
 void HyperTextAccessible::CutText(int32_t aStartPos, int32_t aEndPos) {
   RefPtr<EditorBase> editorBase = GetEditor();
   if (editorBase) {
-    SetSelectionRange(aStartPos, aEndPos);
+    SetSelectionBoundsAt(TextLeafRange::kRemoveAllExistingSelectedRanges,
+                         aStartPos, aEndPos);
     editorBase->Cut();
   }
 }
@@ -988,7 +889,8 @@ void HyperTextAccessible::DeleteText(int32_t aStartPos, int32_t aEndPos) {
   if (!editorBase) {
     return;
   }
-  SetSelectionRange(aStartPos, aEndPos);
+  SetSelectionBoundsAt(TextLeafRange::kRemoveAllExistingSelectedRanges,
+                       aStartPos, aEndPos);
   DebugOnly<nsresult> rv =
       editorBase->DeleteSelectionAsAction(nsIEditor::eNone, nsIEditor::eStrip);
   NS_WARNING_ASSERTION(NS_SUCCEEDED(rv), "Failed to delete text");
@@ -997,7 +899,14 @@ void HyperTextAccessible::DeleteText(int32_t aStartPos, int32_t aEndPos) {
 void HyperTextAccessible::PasteText(int32_t aPosition) {
   RefPtr<EditorBase> editorBase = GetEditor();
   if (editorBase) {
-    SetSelectionRange(aPosition, aPosition);
+    // If the caller wants to paste at the caret, we don't need to set the
+    // selection. If there is text already selected, this also allows the caller
+    // to replace it, just as would happen when pasting using the keyboard or
+    // GUI.
+    if (aPosition != nsIAccessibleText::TEXT_OFFSET_CARET) {
+      SetSelectionBoundsAt(TextLeafRange::kRemoveAllExistingSelectedRanges,
+                           aPosition, aPosition);
+    }
     editorBase->PasteAsAction(nsIClipboard::kGlobalClipboard,
                               EditorBase::DispatchPasteEvent::Yes);
   }

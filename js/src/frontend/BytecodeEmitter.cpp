@@ -293,6 +293,7 @@ bool BytecodeEmitter::checkStrictOrSloppy(JSOp op) const {
 
 bool BytecodeEmitter::emit1(JSOp op) {
   MOZ_ASSERT(checkStrictOrSloppy(op));
+  MOZ_ASSERT(GetOpLength(op) == 1);
 
   BytecodeOffset offset;
   if (!emitCheck(op, 1, &offset)) {
@@ -307,6 +308,7 @@ bool BytecodeEmitter::emit1(JSOp op) {
 
 bool BytecodeEmitter::emit2(JSOp op, uint8_t op1) {
   MOZ_ASSERT(checkStrictOrSloppy(op));
+  MOZ_ASSERT(GetOpLength(op) == 2);
 
   BytecodeOffset offset;
   if (!emitCheck(op, 2, &offset)) {
@@ -322,6 +324,7 @@ bool BytecodeEmitter::emit2(JSOp op, uint8_t op1) {
 
 bool BytecodeEmitter::emit3(JSOp op, jsbytecode op1, jsbytecode op2) {
   MOZ_ASSERT(checkStrictOrSloppy(op));
+  MOZ_ASSERT(GetOpLength(op) == 3);
 
   /* These should filter through emitVarOp. */
   MOZ_ASSERT(!IsArgOp(op));
@@ -1056,12 +1059,6 @@ restart:
         }
       }
       return true;
-
-#ifdef ENABLE_RECORD_TUPLE
-    case ParseNodeKind::RecordExpr:
-    case ParseNodeKind::TupleExpr:
-      MOZ_CRASH("Record and Tuple are not supported yet");
-#endif
 
 #ifdef ENABLE_DECORATORS
     case ParseNodeKind::DecoratorList:
@@ -3859,7 +3856,7 @@ bool BytecodeEmitter::emitDestructuringOpsObject(ListNode* pattern,
         return false;
       }
 
-      if (!emit1(JSOp::NewInit)) {
+      if (!emit2(JSOp::NewInit, 0)) {
         //          [stack] ... SET? RHS LREF* RHS TARGET
         return false;
       }
@@ -4032,7 +4029,7 @@ bool BytecodeEmitter::emitDestructuringObjRestExclusionSet(ListNode* pattern) {
     }
   } else {
     // Take the slow but sure way and start off with a blank object.
-    if (!emit1(JSOp::NewInit)) {
+    if (!emit2(JSOp::NewInit, 0)) {
       //            [stack] OBJ
       return false;
     }
@@ -5248,7 +5245,21 @@ MOZ_NEVER_INLINE bool BytecodeEmitter::emitLexicalScope(
     kind = lexicalScope->kind();
   }
 
-  if (!lse.emitScope(kind, lexicalScope->scopeBindings())) {
+#ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT
+  BlockKind blockKind = BlockKind::Other;
+  if (body->isKind(ParseNodeKind::ForStmt) &&
+      body->as<ForNode>().head()->isKind(ParseNodeKind::ForOf)) {
+    MOZ_ASSERT(kind == ScopeKind::Lexical);
+    blockKind = BlockKind::ForOf;
+  }
+#endif
+
+  if (!lse.emitScope(kind, lexicalScope->scopeBindings()
+#ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT
+                               ,
+                     blockKind
+#endif
+                     )) {
     return false;
   }
 
@@ -5844,14 +5855,20 @@ bool BytecodeEmitter::emitForOf(ForNode* forOfLoop,
   // Certain builtins (e.g. Array.from) are implemented in self-hosting
   // as for-of loops.
   auto selfHostedIter = getSelfHostedIterFor(forHeadExpr);
-  ForOfEmitter forOf(
-      this, headLexicalEmitterScope, selfHostedIter, iterKind
 #ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT
-      ,
-      forOfHead->kid1()->isKind(ParseNodeKind::UsingDecl) ||
-              forOfHead->kid1()->isKind(ParseNodeKind::AwaitUsingDecl)
-          ? ForOfEmitter::HasUsingDeclarationInHead::Yes
-          : ForOfEmitter::HasUsingDeclarationInHead::No
+  ForOfEmitter::HeadUsingDeclarationKind headUsingDeclKind =
+      ForOfEmitter::HeadUsingDeclarationKind::None;
+  if (forOfHead->kid1()->isKind(ParseNodeKind::UsingDecl)) {
+    headUsingDeclKind = ForOfEmitter::HeadUsingDeclarationKind::Sync;
+  } else if (forOfHead->kid1()->isKind(ParseNodeKind::AwaitUsingDecl)) {
+    headUsingDeclKind = ForOfEmitter::HeadUsingDeclarationKind::Async;
+  }
+#endif
+
+  ForOfEmitter forOf(this, headLexicalEmitterScope, selfHostedIter, iterKind
+#ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT
+                     ,
+                     headUsingDeclKind
 #endif
   );
 
@@ -8382,6 +8399,85 @@ bool BytecodeEmitter::emitOptionalCall(CallNode* callNode, OptionalEmitter& oe,
   return true;
 }
 
+#ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT
+bool BytecodeEmitter::emitSelfHostedDisposeResources(CallNode* callNode,
+                                                     DisposalKind kind) {
+  ListNode* argsList = callNode->args();
+  MOZ_ASSERT(argsList->count() == 2);
+
+  ParseNode* resourcesNode = argsList->head();
+  ParseNode* countNode = resourcesNode->pn_next;
+
+  DisposalEmitter de(this, bool(kind));
+
+  if (!emit1(JSOp::False)) {
+    // [stack] THROWING
+    return false;
+  }
+
+  if (!emit1(JSOp::Undefined)) {
+    // [stack] THROWING UNDEF
+    return false;
+  }
+
+  if (!de.prepareForDisposeCapability()) {
+    // [stack] RVAL? NEEDS-AWAIT? HAS-AWAITED? THROWING UNDEF
+    return false;
+  }
+
+  if (!emitTree(resourcesNode)) {
+    // [stack] RVAL? NEEDS-AWAIT? HAS-AWAITED? THROWING UNDEF RESOURCES
+    return false;
+  }
+
+  if (!emitTree(countNode)) {
+    // [stack] RVAL? NEEDS-AWAIT? HAS-AWAITED? THROWING UNDEF RESOURCES COUNT
+    return false;
+  }
+
+  if (!de.emitEnd(*innermostEmitterScope())) {
+    // [stack] EXC THROWING
+    return false;
+  }
+
+  // [stack] EXC THROWING
+
+  InternalIfEmitter ifThrow(this);
+
+  if (!ifThrow.emitThenElse()) {
+    // [stack] EXC
+    return false;
+  }
+
+  if (!emit1(JSOp::Throw)) {
+    // [stack]
+    return false;
+  }
+
+  if (!ifThrow.emitElse()) {
+    // [stack] EXC
+    return false;
+  }
+
+  if (!emit1(JSOp::Pop)) {
+    // [stack]
+    return false;
+  }
+
+  if (!ifThrow.emitEnd()) {
+    // [stack]
+    return false;
+  }
+
+  if (!emit1(JSOp::Undefined)) {
+    // [stack] RVAL
+    return false;
+  }
+
+  return true;
+}
+#endif
+
 bool BytecodeEmitter::emitCallOrNew(CallNode* callNode, ValueUsage valueUsage) {
   /*
    * Emit callable invocation or operator new (constructor call) code.
@@ -8480,6 +8576,16 @@ bool BytecodeEmitter::emitCallOrNew(CallNode* callNode, ValueUsage valueUsage) {
     if (calleeName == TaggedParserAtomIndex::WellKnown::IteratorClose()) {
       return emitSelfHostedIteratorClose(callNode);
     }
+#ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT
+    if (calleeName ==
+        TaggedParserAtomIndex::WellKnown::DisposeResourcesAsync()) {
+      return emitSelfHostedDisposeResources(callNode, DisposalKind::Async);
+    }
+    if (calleeName ==
+        TaggedParserAtomIndex::WellKnown::DisposeResourcesSync()) {
+      return emitSelfHostedDisposeResources(callNode, DisposalKind::Sync);
+    }
+#endif
 #ifdef DEBUG
     if (calleeName ==
             TaggedParserAtomIndex::WellKnown::UnsafeGetReservedSlot() ||
@@ -11355,127 +11461,6 @@ bool BytecodeEmitter::emitSpreadIntoArray(UnaryNode* elem) {
   return true;
 }
 
-#ifdef ENABLE_RECORD_TUPLE
-bool BytecodeEmitter::emitRecordLiteral(ListNode* record) {
-  if (!emitUint32Operand(JSOp::InitRecord, record->count())) {
-    //              [stack] RECORD
-    return false;
-  }
-
-  for (ParseNode* propdef : record->contents()) {
-    if (propdef->isKind(ParseNodeKind::Spread)) {
-      if (!emitTree(propdef->as<UnaryNode>().kid())) {
-        //          [stack] RECORD SPREADEE
-        return false;
-      }
-      if (!emit1(JSOp::AddRecordSpread)) {
-        //          [stack] RECORD
-        return false;
-      }
-    } else {
-      BinaryNode* prop = &propdef->as<BinaryNode>();
-
-      ParseNode* key = prop->left();
-      ParseNode* value = prop->right();
-
-      switch (key->getKind()) {
-        case ParseNodeKind::ObjectPropertyName:
-          if (!emitStringOp(JSOp::String, key->as<NameNode>().atom())) {
-            return false;
-          }
-          break;
-        case ParseNodeKind::ComputedName:
-          if (!emitTree(key->as<UnaryNode>().kid())) {
-            return false;
-          }
-          break;
-        default:
-          MOZ_ASSERT(key->isKind(ParseNodeKind::StringExpr) ||
-                     key->isKind(ParseNodeKind::NumberExpr) ||
-                     key->isKind(ParseNodeKind::BigIntExpr));
-          if (!emitTree(key)) {
-            return false;
-          }
-          break;
-      }
-      //            [stack] RECORD KEY
-
-      if (!emitTree(value)) {
-        //          [stack] RECORD KEY VALUE
-        return false;
-      }
-
-      if (!emit1(JSOp::AddRecordProperty)) {
-        //          [stack] RECORD
-        return false;
-      }
-    }
-  }
-
-  if (!emit1(JSOp::FinishRecord)) {
-    //              [stack] RECORD
-    return false;
-  }
-
-  return true;
-}
-
-bool BytecodeEmitter::emitTupleLiteral(ListNode* tuple) {
-  if (!emitUint32Operand(JSOp::InitTuple, tuple->count())) {
-    //              [stack] TUPLE
-    return false;
-  }
-
-  for (ParseNode* elt : tuple->contents()) {
-    if (elt->isKind(ParseNodeKind::Spread)) {
-      ParseNode* expr = elt->as<UnaryNode>().kid();
-      auto selfHostedIter = getSelfHostedIterFor(expr);
-
-      if (!emitIterable(expr, selfHostedIter)) {
-        //          [stack] TUPLE ITERABLE
-        return false;
-      }
-      if (!emitIterator(selfHostedIter)) {
-        //          [stack] TUPLE NEXT ITER
-        return false;
-      }
-      if (!emit2(JSOp::Pick, 2)) {
-        //          [stack] NEXT ITER TUPLE
-        return false;
-      }
-      if (!emitSpread(selfHostedIter, /* spreadeeStackItems = */ 1,
-                      JSOp::AddTupleElement)) {
-        //          [stack] TUPLE
-        return false;
-      }
-    } else {
-      // Update location to throw errors about non-primitive elements
-      // in the correct position.
-      if (!updateSourceCoordNotesIfNonLiteral(elt)) {
-        return false;
-      }
-
-      if (!emitTree(elt)) {
-        //          [stack] TUPLE VALUE
-        return false;
-      }
-
-      if (!emit1(JSOp::AddTupleElement)) {
-        //          [stack] TUPLE
-        return false;
-      }
-    }
-  }
-
-  if (!emit1(JSOp::FinishTuple)) {
-    //              [stack] TUPLE
-    return false;
-  }
-
-  return true;
-}
-#endif
-
 static inline JSOp UnaryOpParseNodeKindToJSOp(ParseNodeKind pnk) {
   switch (pnk) {
     case ParseNodeKind::ThrowStmt:
@@ -11587,15 +11572,7 @@ bool BytecodeEmitter::tryEmitTypeofEq(ListNode* node, bool* emitted) {
     type = JSTYPE_SYMBOL;
   } else if (typeName == TaggedParserAtomIndex::WellKnown::bigint()) {
     type = JSTYPE_BIGINT;
-  }
-#ifdef ENABLE_RECORD_TUPLE
-  else if (typeName == TaggedParserAtomIndex::WellKnown::record()) {
-    type = JSTYPE_RECORD;
-  } else if (typeName == TaggedParserAtomIndex::WellKnown::tuple()) {
-    type = JSTYPE_TUPLE;
-  }
-#endif
-  else {
+  } else {
     *emitted = false;
     return true;
   }
@@ -12179,6 +12156,7 @@ bool BytecodeEmitter::emitClass(
   }
   if (!emitUnpickN(2)) {
     //              [stack] ADDINIT? UNDEFINED CTOR HOMEOBJ
+    return false;
   }
 #endif
 
@@ -12944,20 +12922,6 @@ bool BytecodeEmitter::emitTree(
         return false;
       }
       break;
-
-#ifdef ENABLE_RECORD_TUPLE
-    case ParseNodeKind::RecordExpr:
-      if (!emitRecordLiteral(&pn->as<ListNode>())) {
-        return false;
-      }
-      break;
-
-    case ParseNodeKind::TupleExpr:
-      if (!emitTupleLiteral(&pn->as<ListNode>())) {
-        return false;
-      }
-      break;
-#endif
 
     case ParseNodeKind::PropertyNameExpr:
     case ParseNodeKind::PosHolder:

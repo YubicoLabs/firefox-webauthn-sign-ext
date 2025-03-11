@@ -6,8 +6,8 @@
 # in the file PATENTS.  All contributing project authors may
 # be found in the AUTHORS file in the root of the source tree.
 
-import("//build/config/linux/gtk/gtk.gni")
-import("//build/config/ui.gni")
+import("//chromium/build/config/linux/gtk/gtk.gni")
+import("//chromium/build/config/ui.gni")
 import("../../webrtc.gni")
 
 use_desktop_capture_differ_sse2 = target_cpu == "x86" || target_cpu == "x64"
@@ -280,7 +280,6 @@ rtc_library("desktop_capture") {
     "//third_party/abseil-cpp/absl/memory",
     "//third_party/abseil-cpp/absl/strings",
     "//third_party/abseil-cpp/absl/strings:string_view",
-    "//third_party/abseil-cpp/absl/types:optional",
   ]
   public_configs = [ ":x11_config" ]
   sources = [
@@ -384,8 +383,11 @@ rtc_library("desktop_capture") {
       "Xdamage",
       "Xext",
       "Xfixes",
-      "Xrender",
+
+      # Xrandr depends on Xrender and needs to be listed before its dependency.
       "Xrandr",
+
+      "Xrender",
       "Xtst",
     ]
     if (build_with_mozilla) {

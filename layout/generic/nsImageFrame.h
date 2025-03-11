@@ -196,6 +196,9 @@ class nsImageFrame : public nsAtomicContainerFrame, public nsIReflowCallback {
     ContentPropertyAtIndex,
     // For a list-style-image ::marker.
     ListStyleImage,
+    // For a ::view-transition-old or ::view-transition-new pseudo-element.
+    // Which one of the two is determined by the PseudoStyleType applying to us.
+    ViewTransition,
   };
 
   // Creates a suitable continuing frame for this frame.
@@ -213,6 +216,8 @@ class nsImageFrame : public nsAtomicContainerFrame, public nsIReflowCallback {
   friend nsIFrame* NS_NewImageFrameForGeneratedContentIndex(mozilla::PresShell*,
                                                             ComputedStyle*);
   friend nsIFrame* NS_NewImageFrameForListStyleImage(mozilla::PresShell*,
+                                                     ComputedStyle*);
+  friend nsIFrame* NS_NewImageFrameForViewTransition(mozilla::PresShell*,
                                                      ComputedStyle*);
 
   nsImageFrame(ComputedStyle* aStyle, nsPresContext* aPresContext, Kind aKind)
@@ -295,17 +300,23 @@ class nsImageFrame : public nsAtomicContainerFrame, public nsIReflowCallback {
 
   void OnSizeAvailable(imgIRequest* aRequest, imgIContainer* aImage);
   void OnFrameUpdate(imgIRequest* aRequest, const nsIntRect* aRect);
-  void OnLoadComplete(imgIRequest* aRequest, nsresult aStatus);
+  void OnLoadComplete(imgIRequest* aRequest);
   mozilla::IntrinsicSize ComputeIntrinsicSize(
       bool aIgnoreContainment = false) const;
   // Whether the image frame should use the mapped aspect ratio from width=""
   // and height="".
   bool ShouldUseMappedAspectRatio() const;
 
+  nsAtom* GetViewTransitionName() const;
+  Maybe<nsSize> GetViewTransitionSnapshotSize() const;
+  mozilla::wr::ImageKey GetViewTransitionImageKey(
+      mozilla::layers::RenderRootStateManager*,
+      mozilla::wr::IpcResourceUpdateQueue&) const;
+
   /**
    * Notification that aRequest will now be the current request.
    */
-  void NotifyNewCurrentRequest(imgIRequest* aRequest, nsresult aStatus);
+  void NotifyNewCurrentRequest(imgIRequest* aRequest);
 
   /// Always sync decode our image when painting if @aForce is true.
   void SetForceSyncDecoding(bool aForce) { mForceSyncDecoding = aForce; }
@@ -426,14 +437,12 @@ class nsDisplayImage final : public nsPaintedDisplayItem {
  public:
   typedef mozilla::layers::LayerManager LayerManager;
 
-  nsDisplayImage(nsDisplayListBuilder* aBuilder, nsImageFrame* aFrame,
-                 imgIContainer* aImage, imgIContainer* aPrevImage)
-      : nsPaintedDisplayItem(aBuilder, aFrame),
-        mImage(aImage),
-        mPrevImage(aPrevImage) {
+  nsDisplayImage(nsDisplayListBuilder* aBuilder, nsImageFrame* aFrame)
+      : nsPaintedDisplayItem(aBuilder, aFrame) {
     MOZ_COUNT_CTOR(nsDisplayImage);
   }
-  ~nsDisplayImage() final { MOZ_COUNT_DTOR(nsDisplayImage); }
+
+  MOZ_COUNTED_DTOR_FINAL(nsDisplayImage)
 
   void Paint(nsDisplayListBuilder*, gfxContext* aCtx) final;
 
@@ -460,10 +469,17 @@ class nsDisplayImage final : public nsPaintedDisplayItem {
                                mozilla::layers::RenderRootStateManager*,
                                nsDisplayListBuilder*) final;
 
+  void MaybeCreateWebRenderCommandsForViewTransition(
+      mozilla::wr::DisplayListBuilder&, mozilla::wr::IpcResourceUpdateQueue&,
+      const StackingContextHelper&, mozilla::layers::RenderRootStateManager*,
+      nsDisplayListBuilder*);
+
+  nsImageFrame* Frame() const {
+    MOZ_ASSERT(mFrame->IsImageFrame() || mFrame->IsImageControlFrame());
+    return static_cast<nsImageFrame*>(mFrame);
+  }
+
   NS_DISPLAY_DECL_NAME("Image", TYPE_IMAGE)
- private:
-  nsCOMPtr<imgIContainer> mImage;
-  nsCOMPtr<imgIContainer> mPrevImage;
 };
 
 }  // namespace mozilla

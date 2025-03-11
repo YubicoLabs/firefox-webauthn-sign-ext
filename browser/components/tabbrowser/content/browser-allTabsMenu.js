@@ -7,7 +7,9 @@
 
 ChromeUtils.defineESModuleGetters(this, {
   BrowserUsageTelemetry: "resource:///modules/BrowserUsageTelemetry.sys.mjs",
-  TabsPanel: "resource:///modules/TabsList.sys.mjs",
+  GroupsPanel: "moz-src:///browser/components/tabbrowser/GroupsList.sys.mjs",
+  NimbusFeatures: "resource://nimbus/ExperimentAPI.sys.mjs",
+  TabsPanel: "moz-src:///browser/components/tabbrowser/TabsList.sys.mjs",
 });
 
 var gTabsPanel = {
@@ -19,6 +21,8 @@ var gTabsPanel = {
     containerTabsView: "allTabsMenu-containerTabsView",
     hiddenTabsButton: "allTabsMenu-hiddenTabsButton",
     hiddenTabsView: "allTabsMenu-hiddenTabsView",
+    groupsView: "allTabsMenu-groupsView",
+    groupsSubView: "allTabsMenu-groupsSubView",
   },
   _initialized: false,
   _initializedElements: false,
@@ -37,14 +41,10 @@ var gTabsPanel = {
   },
 
   hasHiddenTabsExcludingFxView() {
-    const hiddenTabCount = gBrowser.tabs.length - gBrowser.visibleTabs.length;
-
-    // If there's only 1 hidden tab, check if it's Firefox View to exclude it.
-    // See Bug 1880138.
-    if (hiddenTabCount == 1) {
-      return !FirefoxViewHandler.tab?.hidden;
-    }
-    return hiddenTabCount > 0;
+    // Exclude Firefox View, see Bug 1880138.
+    return gBrowser.tabs.some(
+      tab => tab.hidden && tab != FirefoxViewHandler.tab
+    );
   },
 
   init() {
@@ -56,7 +56,7 @@ var gTabsPanel = {
 
     this.hiddenAudioTabsPopup = new TabsPanel({
       view: this.allTabsView,
-      insertBefore: document.getElementById("allTabsMenu-tabsSeparator"),
+      insertBefore: document.getElementById("allTabsMenu-hiddenTabsSeparator"),
       filterFn: tab => tab.hidden && tab.soundPlaying,
     });
     this.allTabsPanel = new TabsPanel({
@@ -64,6 +64,16 @@ var gTabsPanel = {
       containerNode: this.allTabsViewTabs,
       filterFn: tab => !tab.hidden,
       dropIndicator: this.dropIndicator,
+      showGroups: true,
+    });
+    this.groupsPanel = new GroupsPanel({
+      view: this.allTabsView,
+      containerNode: this.groupsView,
+    });
+    this.showAllGroupsPanel = new GroupsPanel({
+      view: this.groupsSubView,
+      containerNode: document.getElementById("allTabsMenu-groupsSubView-body"),
+      showAll: true,
     });
 
     this.allTabsView.addEventListener("ViewShowing", () => {
@@ -90,6 +100,10 @@ var gTabsPanel = {
       closeDuplicateTabsItem.hidden = !closeDuplicateEnabled;
       closeDuplicateTabsItem.disabled =
         !closeDuplicateEnabled || !gBrowser.getAllDuplicateTabsToClose().length;
+
+      let syncedTabs = document.getElementById("allTabsMenu-syncedTabs");
+      syncedTabs.hidden =
+        !PlacesUIUtils.shouldShowTabsFromOtherComputersMenuitem();
     });
 
     this.allTabsView.addEventListener("ViewShown", () =>
@@ -113,6 +127,12 @@ var gTabsPanel = {
           break;
         case "allTabsMenu-hiddenTabsButton":
           PanelUI.showSubView(this.kElements.hiddenTabsView, target);
+          break;
+        case "allTabsMenu-syncedTabs":
+          SidebarController.show("viewTabsSidebar");
+          break;
+        case "allTabsMenu-groupsViewShowMore":
+          PanelUI.showSubView(this.kElements.groupsSubView, target);
           break;
       }
     });
@@ -181,11 +201,7 @@ var gTabsPanel = {
     }
     this.init();
     if (this.canOpen) {
-      Services.telemetry.keyedScalarAdd(
-        "browser.ui.interaction.all_tabs_panel_entrypoint",
-        entrypoint,
-        1
-      );
+      Glean.browserUiInteraction.allTabsPanelEntrypoint[entrypoint].add(1);
       BrowserUsageTelemetry.recordInteractionEvent(
         entrypoint,
         "all-tabs-panel-entrypoint"
@@ -199,8 +215,9 @@ var gTabsPanel = {
   },
 
   hideAllTabsPanel() {
-    if (this.allTabsView) {
-      PanelMultiView.hidePopup(this.allTabsView.closest("panel"));
+    let panel = this.allTabsView?.closest("panel");
+    if (panel) {
+      PanelMultiView.hidePopup(panel);
     }
   },
 

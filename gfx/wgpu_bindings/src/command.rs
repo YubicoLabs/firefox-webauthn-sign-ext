@@ -89,7 +89,7 @@ impl RecordedComputePass {
                 dynamic_offsets: Vec::new(),
                 string_data: Vec::new(),
             },
-            timestamp_writes: desc.timestamp_writes.cloned(),
+            timestamp_writes: desc.timestamp_writes.clone(),
         }
     }
 }
@@ -100,7 +100,7 @@ pub enum RenderCommand {
     SetBindGroup {
         index: u32,
         num_dynamic_offsets: usize,
-        bind_group_id: id::BindGroupId,
+        bind_group_id: Option<id::BindGroupId>,
     },
     SetPipeline(id::RenderPipelineId),
     SetIndexBuffer {
@@ -190,7 +190,7 @@ pub enum ComputeCommand {
     SetBindGroup {
         index: u32,
         num_dynamic_offsets: usize,
-        bind_group_id: id::BindGroupId,
+        bind_group_id: Option<id::BindGroupId>,
     },
     SetPipeline(id::ComputePipelineId),
     Dispatch([u32; 3]),
@@ -226,7 +226,7 @@ pub enum ComputeCommand {
 pub unsafe extern "C" fn wgpu_recorded_render_pass_set_bind_group(
     pass: &mut RecordedRenderPass,
     index: u32,
-    bind_group_id: id::BindGroupId,
+    bind_group_id: Option<id::BindGroupId>,
     offsets: *const DynamicOffset,
     offset_length: usize,
 ) {
@@ -589,7 +589,7 @@ pub unsafe extern "C" fn wgpu_recorded_render_pass_execute_bundles(
 pub unsafe extern "C" fn wgpu_recorded_compute_pass_set_bind_group(
     pass: &mut RecordedComputePass,
     index: u32,
-    bind_group_id: id::BindGroupId,
+    bind_group_id: Option<id::BindGroupId>,
     offsets: *const DynamicOffset,
     offset_length: usize,
 ) {
@@ -721,7 +721,7 @@ pub fn replay_render_pass(
     src_pass: &RecordedRenderPass,
     mut error_buf: crate::error::ErrorBuffer,
 ) {
-    let (mut dst_pass, err) = global.command_encoder_create_render_pass(
+    let (mut dst_pass, err) = global.command_encoder_begin_render_pass(
         id,
         &wgc::command::RenderPassDescriptor {
             label: src_pass.base.label.as_ref().map(|s| s.as_str().into()),
@@ -774,7 +774,7 @@ pub fn replay_render_pass_impl(
                 bind_group_id,
             } => {
                 let offsets = dynamic_offsets(num_dynamic_offsets);
-                global.render_pass_set_bind_group(dst_pass, index, Some(bind_group_id), offsets)
+                global.render_pass_set_bind_group(dst_pass, index, bind_group_id, offsets)
             }
             RenderCommand::SetPipeline(pipeline_id) => {
                 global.render_pass_set_pipeline(dst_pass, pipeline_id)
@@ -925,11 +925,11 @@ pub fn replay_compute_pass(
     src_pass: &RecordedComputePass,
     mut error_buf: crate::error::ErrorBuffer,
 ) {
-    let (mut dst_pass, err) = global.command_encoder_create_compute_pass(
+    let (mut dst_pass, err) = global.command_encoder_begin_compute_pass(
         id,
         &wgc::command::ComputePassDescriptor {
             label: src_pass.base.label.as_ref().map(|s| s.as_str().into()),
-            timestamp_writes: src_pass.timestamp_writes.as_ref(),
+            timestamp_writes: src_pass.timestamp_writes.clone(),
         },
     );
     if let Some(err) = err {
@@ -966,7 +966,7 @@ fn replay_compute_pass_impl(
                 bind_group_id,
             } => {
                 let offsets = dynamic_offsets(num_dynamic_offsets);
-                global.compute_pass_set_bind_group(dst_pass, index, Some(bind_group_id), offsets)?;
+                global.compute_pass_set_bind_group(dst_pass, index, bind_group_id, offsets)?;
             }
             ComputeCommand::SetPipeline(pipeline_id) => {
                 global.compute_pass_set_pipeline(dst_pass, pipeline_id)?;

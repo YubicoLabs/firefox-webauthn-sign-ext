@@ -81,7 +81,7 @@ function base64EncodeString(aString) {
   let stream = Cc["@mozilla.org/io/string-input-stream;1"].createInstance(
     Ci.nsIStringInputStream
   );
-  stream.setData(aString, aString.length);
+  stream.setByteStringData(aString);
   let encoder = Cc["@mozilla.org/scriptablebase64encoder;1"].createInstance(
     Ci.nsIScriptableBase64Encoder
   );
@@ -234,19 +234,13 @@ export var BookmarkHTMLUtils = Object.freeze({
    */
   async exportToFile(aFilePath) {
     let [bookmarks, count] = await lazy.PlacesBackups.getBookmarksTree();
-    let startTime = Date.now();
+    let timerId = Glean.places.exportTohtml.start();
 
     // Report the time taken to convert the tree to HTML.
     let exporter = new BookmarkExporter(bookmarks);
     await exporter.exportToFile(aFilePath);
 
-    try {
-      Services.telemetry
-        .getHistogramById("PLACES_EXPORT_TOHTML_MS")
-        .add(Date.now() - startTime);
-    } catch (ex) {
-      console.error("Unable to report telemetry.");
-    }
+    Glean.places.exportTohtml.stopAndAccumulate(timerId);
 
     return count;
   },
@@ -827,7 +821,7 @@ BookmarkImporter.prototype = {
         bookmark => bookmark.type == PlacesUtils.bookmarks.TYPE_BOOKMARK
       ).length;
 
-      insertFaviconsForTree(tree).catch(console.warn);
+      insertFaviconsForTree(tree);
     }
     return bookmarkCount;
   },
@@ -1080,7 +1074,7 @@ BookmarkExporter.prototype = {
  *
  * @param {Object} node The bookmark node for icons to be inserted.
  */
-async function insertFaviconForNode(node) {
+function insertFaviconForNode(node) {
   if (!node.icon && !node.iconUri) {
     // No favicon information.
     return;
@@ -1093,19 +1087,14 @@ async function insertFaviconForNode(node) {
       return;
     }
 
-    let result = await new Promise(resolve => {
-      PlacesUtils.favicons.setFaviconForPage(
+    PlacesUtils.favicons
+      .setFaviconForPage(
         Services.io.newURI(node.url),
         // Use iconUri otherwise create a fake favicon URI to use (FIXME: bug 523932)
         Services.io.newURI(node.iconUri ?? "fake-favicon-uri:" + node.url),
-        faviconDataURI,
-        null,
-        resolve
-      );
-    });
-    if (!Components.isSuccessCode(result)) {
-      throw new Error("Failed to call setFaviconForPage():", node.url);
-    }
+        faviconDataURI
+      )
+      .catch(console.error);
   } catch (ex) {
     console.error("Failed to import favicon data:", ex);
   }
@@ -1120,12 +1109,12 @@ async function insertFaviconForNode(node) {
  *
  * @param {Object} nodeTree The bookmark node tree for icons to be inserted.
  */
-async function insertFaviconsForTree(nodeTree) {
-  await insertFaviconForNode(nodeTree);
+function insertFaviconsForTree(nodeTree) {
+  insertFaviconForNode(nodeTree);
 
   if (nodeTree.children) {
     for (let child of nodeTree.children) {
-      await insertFaviconsForTree(child);
+      insertFaviconsForTree(child);
     }
   }
 }

@@ -481,10 +481,9 @@ var gIdentityHandler = {
   disableMixedContentProtection() {
     // Use telemetry to measure how often unblocking happens
     const kMIXED_CONTENT_UNBLOCK_EVENT = 2;
-    let histogram = Services.telemetry.getHistogramById(
-      "MIXED_CONTENT_UNBLOCK_COUNTER"
+    Glean.mixedContent.unblockCounter.accumulateSingleSample(
+      kMIXED_CONTENT_UNBLOCK_EVENT
     );
-    histogram.add(kMIXED_CONTENT_UNBLOCK_EVENT);
 
     SitePermissions.setForPrincipal(
       gBrowser.contentPrincipal,
@@ -898,6 +897,7 @@ var gIdentityHandler = {
           warnTextOnInsecure
         ) {
           icon_label = gNavigatorBundle.getString("identity.notSecure.label");
+          tooltip = gNavigatorBundle.getString("identity.notSecure.tooltip");
           this._identityBox.classList.add("notSecureText");
         }
       } else if (this._isMixedActiveContentBlocked) {

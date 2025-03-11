@@ -19,6 +19,7 @@ import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiObject
 import androidx.test.uiautomator.UiObjectNotFoundException
+import androidx.test.uiautomator.UiScrollable
 import androidx.test.uiautomator.UiSelector
 import androidx.test.uiautomator.Until
 import org.hamcrest.Matchers.not
@@ -69,6 +70,16 @@ class BrowserRobot {
                 }
             }
         }
+    }
+
+    fun scrollIntoViewTheSmartBlockFixesSection() {
+        val aboutCompatView = UiScrollable(UiSelector().text("about:compat")).setAsVerticalList()
+        aboutCompatView.scrollIntoView(mDevice.findObject(UiSelector().textContains("SmartBlock Fixes")))
+    }
+
+    fun scrollToTheEndOfTheAboutCompatPage() {
+        val aboutCompatView = UiScrollable(UiSelector().text("about:compat")).setAsVerticalList()
+        aboutCompatView.scrollToEnd(3)
     }
 
     fun verifyTrackingProtectionAlert(expectedText: String) {
@@ -167,7 +178,7 @@ class BrowserRobot {
     fun verifyNumberOfTabsOpened(tabsCount: Int) {
         assertTrue(
             mDevice.findObject(
-                UiSelector().description("$tabsCount open tabs. Tap to switch tabs."),
+                UiSelector().description("Tabs Open: $tabsCount. Tap to switch tabs."),
             ).waitForExists(waitingTime),
         )
     }
@@ -212,7 +223,7 @@ class BrowserRobot {
 
     fun verifySiteTrackingProtectionIconShown() = assertTrue(securityIcon.waitForExists(waitingTime))
 
-    fun verifySiteSecurityIndicatorShown() = assertTrue(site_security_indicator.waitForExists(waitingTime))
+    fun verifySiteInfoIndicatorShown() = assertTrue(site_info_indicator.waitForExists(waitingTime))
 
     fun verifyLinkContextMenu(linkAddress: String) {
         assertTrue(
@@ -385,21 +396,12 @@ class BrowserRobot {
         mDevice.wait(Until.findObject(By.res("$packageName:id/find_in_page_result_text")), waitingTime)
     }
 
-    fun verifyFindNextInPageResult(ratioCounter: String) {
-        mDevice.wait(Until.findObject(By.text(ratioCounter)), waitingTime)
-        val resultsCounter = mDevice.findObject(By.text(ratioCounter))
-        findInPageResult.check(matches(withText((ratioCounter))))
-        findInPageNextButton.perform(click())
-        resultsCounter.wait(Until.textNotEquals(ratioCounter), waitingTime)
-    }
+    fun verifyFindInPageResult(ratioCounter: String) =
+        assertTrue(mDevice.findObject(UiSelector().textContains(ratioCounter)).waitForExists(waitingTime))
 
-    fun verifyFindPrevInPageResult(ratioCounter: String) {
-        mDevice.wait(Until.findObject(By.text(ratioCounter)), waitingTime)
-        val resultsCounter = mDevice.findObject(By.text(ratioCounter))
-        findInPageResult.check(matches(withText((ratioCounter))))
-        findInPagePrevButton.perform(click())
-        resultsCounter.wait(Until.textNotEquals(ratioCounter), waitingTime)
-    }
+    fun clickFindInPageNextButton() = findInPageNextButton.click()
+
+    fun clickFindInPagePrevButton() = findInPagePrevButton.click()
 
     fun closeFindInPage() {
         findInPageCloseButton.perform(click())
@@ -539,7 +541,7 @@ class BrowserRobot {
             if (securityIcon.exists()) {
                 securityIcon.click()
             } else {
-                site_security_indicator.click()
+                site_info_indicator.click()
             }
 
             SiteSecurityInfoSheetRobot().interact()
@@ -621,10 +623,10 @@ private val securityIcon =
             .resourceId("$packageName:id/mozac_browser_toolbar_tracking_protection_indicator"),
     )
 
-private val site_security_indicator =
+private val site_info_indicator =
     mDevice.findObject(
         UiSelector()
-            .resourceId("$packageName:id/mozac_browser_toolbar_security_indicator"),
+            .resourceId("$packageName:id/mozac_browser_toolbar_site_info_indicator"),
     )
 
 // Link long-tap context menu items
@@ -650,9 +652,9 @@ private val findInPageQuery = onView(withId(R.id.find_in_page_query_text))
 
 private val findInPageResult = onView(withId(R.id.find_in_page_result_text))
 
-private val findInPageNextButton = onView(withId(R.id.find_in_page_next_btn))
+private val findInPageNextButton = mDevice.findObject(UiSelector().resourceId("$packageName:id/find_in_page_next_btn"))
 
-private val findInPagePrevButton = onView(withId(R.id.find_in_page_prev_btn))
+private val findInPagePrevButton = mDevice.findObject(UiSelector().resourceId("$packageName:id/find_in_page_prev_btn"))
 
 private val findInPageCloseButton = onView(withId(R.id.find_in_page_close_btn))
 

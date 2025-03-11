@@ -46,7 +46,7 @@ namespace a11y {
 // Domain sets we need commonly for functions in this file.
 static constexpr uint64_t kNecessaryBoundsDomains =
     CacheDomain::Bounds | CacheDomain::TransformMatrix | CacheDomain::Style |
-    CacheDomain::ScrollPosition;
+    CacheDomain::ScrollPosition | CacheDomain::APZ;
 static constexpr uint64_t kNecessaryStateDomains =
     CacheDomain::State | CacheDomain::Viewport;
 
@@ -487,7 +487,14 @@ bool RemoteAccessible::ContainsPoint(int32_t aX, int32_t aY) {
     MOZ_ASSERT(lineEnd >= lineStart);
     nsRect lineRect = GetCachedCharRect(lineStart);
     if (lineEnd > lineStart) {
-      lineRect.UnionRect(lineRect, GetCachedCharRect(lineEnd));
+      nsRect lineEndRect = GetCachedCharRect(lineEnd);
+      if (lineEndRect.IsEmpty() && lineEnd - 1 > lineStart) {
+        // The line feed character at the end of a line in pre-formatted text
+        // doesn't have a useful rect. Use the previous character. Otherwise,
+        // lineRect won't span the line of text and we'll miss characters.
+        lineEndRect = GetCachedCharRect(lineEnd - 1);
+      }
+      lineRect.UnionRect(lineRect, lineEndRect);
     }
     if (BoundsWithOffset(Some(lineRect), true).Contains(aX, aY)) {
       return true;
@@ -784,6 +791,26 @@ bool RemoteAccessible::ApplyScrollOffset(nsRect& aBounds) const {
   return true;
 }
 
+void RemoteAccessible::ApplyVisualViewportOffset(nsRect& aBounds) const {
+  ASSERT_DOMAINS_ACTIVE(CacheDomain::APZ);
+  MOZ_ASSERT(IsDoc(), "Attempting to get visual viewport data from non-doc?");
+  Maybe<const nsTArray<int32_t>&> maybeViewportOffset =
+      mCachedFields->GetAttribute<nsTArray<int32_t>>(
+          CacheKey::VisualViewportOffset);
+
+  if (!maybeViewportOffset || maybeViewportOffset->Length() != 2) {
+    return;
+  }
+  // Our retrieved value is in app units, so we don't need to do any
+  // unit conversion here.
+  const nsTArray<int32_t>& viewportOffset = *maybeViewportOffset;
+
+  // Like scroll position, this offset is an inverse representation: the
+  // further the visual viewport moves, the further the page content
+  // moves up/closer to the origin
+  aBounds.MoveBy(-viewportOffset[0], -viewportOffset[1]);
+}
+
 nsRect RemoteAccessible::BoundsInAppUnits() const {
   if (RequestDomainsIfInactive(kNecessaryBoundsDomains)) {
     return {};
@@ -881,6 +908,10 @@ LayoutDeviceIntRect RemoteAccessible::BoundsWithOffset(
         // things. We can't reliably query this value in the parent process,
         // so we retrieve it from the document's cache.
         if (remoteAcc->IsDoc()) {
+          // Apply our visual viewport offset, which is non-zero when
+          // pinch zoom has been applied. Do this before we scale by
+          // resolution as this offset is unscaled.
+          remoteAcc->ApplyVisualViewportOffset(bounds);
           // Apply the document's resolution to the bounds we've gathered
           // thus far. We do this before applying the document's offset
           // because document accs should not have their bounds scaled by
@@ -1178,20 +1209,36 @@ Relation RemoteAccessible::RelationByType(RelationType aType) const {
   // the cached relations need to take precedence. For example, a <figure> with
   // both aria-labelledby and a <figcaption> must return two LABELLED_BY
   // targets: the aria-labelledby and then the <figcaption>.
-  if (aType == RelationType::LABELLED_BY && TagName() == nsGkAtoms::figure) {
+  auto AddChildWithTag = [this, &rel](nsAtom* aTarget) {
     uint32_t count = ChildCount();
     for (uint32_t c = 0; c < count; ++c) {
       RemoteAccessible* child = RemoteChildAt(c);
       MOZ_ASSERT(child);
-      if (child->TagName() == nsGkAtoms::figcaption) {
+      if (child->TagName() == aTarget) {
         rel.AppendTarget(child);
       }
     }
-  } else if (aType == RelationType::LABEL_FOR &&
-             TagName() == nsGkAtoms::figcaption) {
-    if (RemoteAccessible* parent = RemoteParent()) {
-      if (parent->TagName() == nsGkAtoms::figure) {
-        rel.AppendTarget(parent);
+  };
+  if (aType == RelationType::LABELLED_BY) {
+    auto tag = TagName();
+    if (tag == nsGkAtoms::figure) {
+      AddChildWithTag(nsGkAtoms::figcaption);
+    } else if (tag == nsGkAtoms::fieldset) {
+      AddChildWithTag(nsGkAtoms::legend);
+    }
+  } else if (aType == RelationType::LABEL_FOR) {
+    auto tag = TagName();
+    if (tag == nsGkAtoms::figcaption) {
+      if (RemoteAccessible* parent = RemoteParent()) {
+        if (parent->TagName() == nsGkAtoms::figure) {
+          rel.AppendTarget(parent);
+        }
+      }
+    } else if (tag == nsGkAtoms::legend) {
+      if (RemoteAccessible* parent = RemoteParent()) {
+        if (parent->TagName() == nsGkAtoms::fieldset) {
+          rel.AppendTarget(parent);
+        }
       }
     }
   }
@@ -1234,7 +1281,7 @@ nsTArray<bool> RemoteAccessible::PreProcessRelations(AccAttributes* aFields) {
   if (!DomainsAreActive(CacheDomain::Relations)) {
     return {};
   }
-  nsTArray<bool> updateTracker(ArrayLength(kRelationTypeAtoms));
+  nsTArray<bool> updateTracker(std::size(kRelationTypeAtoms));
   for (auto const& data : kRelationTypeAtoms) {
     if (data.mValidTag) {
       // The relation we're currently processing only applies to particular
@@ -1310,7 +1357,7 @@ void RemoteAccessible::PostProcessRelations(const nsTArray<bool>& aToUpdate) {
     return;
   }
   size_t updateCount = aToUpdate.Length();
-  MOZ_ASSERT(updateCount == ArrayLength(kRelationTypeAtoms),
+  MOZ_ASSERT(updateCount == std::size(kRelationTypeAtoms),
              "Did not note update status for every relation type!");
   for (size_t i = 0; i < updateCount; i++) {
     if (aToUpdate.ElementAt(i)) {
@@ -1627,10 +1674,6 @@ already_AddRefed<AccAttributes> RemoteAccessible::Attributes() {
       attributes->SetAttribute(nsGkAtoms::tag, *tag);
     }
 
-    GroupPos groupPos = GroupPosition();
-    nsAccUtils::SetAccGroupAttrs(attributes, groupPos.level, groupPos.setSize,
-                                 groupPos.posInSet);
-
     bool hierarchical = false;
     uint32_t itemCount = AccGroupInfo::TotalItemCount(this, &hierarchical);
     if (itemCount) {
@@ -1758,18 +1801,6 @@ nsAtom* RemoteAccessible::TagName() const {
     if (auto tag =
             mCachedFields->GetAttribute<RefPtr<nsAtom>>(CacheKey::TagName)) {
       return *tag;
-    }
-  }
-
-  return nullptr;
-}
-
-already_AddRefed<nsAtom> RemoteAccessible::InputType() const {
-  if (mCachedFields) {
-    if (auto inputType =
-            mCachedFields->GetAttribute<RefPtr<nsAtom>>(CacheKey::InputType)) {
-      RefPtr<nsAtom> result = *inputType;
-      return result.forget();
     }
   }
 
@@ -2292,10 +2323,6 @@ nsTArray<int32_t>& RemoteAccessible::GetCachedHyperTextOffsets() {
                               std::move(newOffsets));
   return *mCachedFields->GetMutableAttribute<nsTArray<int32_t>>(
       CacheKey::HyperTextOffsets);
-}
-
-void RemoteAccessible::SetCaretOffset(int32_t aOffset) {
-  Unused << mDoc->SendSetCaretOffset(mID, aOffset);
 }
 
 Maybe<int32_t> RemoteAccessible::GetIntARIAAttr(nsAtom* aAttrName) const {

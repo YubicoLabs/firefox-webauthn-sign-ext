@@ -111,6 +111,7 @@ nsHtml5ElementName* nsHtml5ElementName::ELT_RB = nullptr;
 nsHtml5ElementName* nsHtml5ElementName::ELT_DESC = nullptr;
 nsHtml5ElementName* nsHtml5ElementName::ELT_DD = nullptr;
 nsHtml5ElementName* nsHtml5ElementName::ELT_BGSOUND = nullptr;
+nsHtml5ElementName* nsHtml5ElementName::ELT_DISCARD = nullptr;
 nsHtml5ElementName* nsHtml5ElementName::ELT_EMBED = nullptr;
 nsHtml5ElementName* nsHtml5ElementName::ELT_FEBLEND = nullptr;
 nsHtml5ElementName* nsHtml5ElementName::ELT_FEFLOOD = nullptr;
@@ -308,7 +309,7 @@ static int32_t const ELEMENT_HASHES_DATA[] = {
     1935549734, 1939219752, 1941221172, 1965115924, 1966223078, 1967760215,
     1967795910, 1968053806, 1971461414};
 staticJArray<int32_t, int32_t> nsHtml5ElementName::ELEMENT_HASHES = {
-    ELEMENT_HASHES_DATA, MOZ_ARRAY_LENGTH(ELEMENT_HASHES_DATA)};
+    ELEMENT_HASHES_DATA, std::size(ELEMENT_HASHES_DATA)};
 void nsHtml5ElementName::initializeStatics() {
   ELT_ANNOTATION_XML = new nsHtml5ElementName(
       nsGkAtoms::annotation_xml_, nsGkAtoms::annotation_xml_,
@@ -484,6 +485,9 @@ void nsHtml5ElementName::initializeStatics() {
       nsGkAtoms::bgsound, nsGkAtoms::bgsound, NS_NewHTMLUnknownElement,
       NS_NewSVGUnknownElement,
       nsHtml5TreeBuilder::LINK_OR_BASEFONT_OR_BGSOUND | SPECIAL);
+  ELT_DISCARD = new nsHtml5ElementName(
+      nsGkAtoms::discard, nsGkAtoms::discard, NS_NewHTMLUnknownElement,
+      NS_NewSVGDiscardElement, nsHtml5TreeBuilder::OTHER);
   ELT_EMBED = new nsHtml5ElementName(
       nsGkAtoms::embed, nsGkAtoms::embed, NS_NewHTMLEmbedElement,
       NS_NewSVGUnknownElement, nsHtml5TreeBuilder::EMBED | SPECIAL);
@@ -1325,6 +1329,7 @@ void nsHtml5ElementName::releaseStatics() {
   delete ELT_DESC;
   delete ELT_DD;
   delete ELT_BGSOUND;
+  delete ELT_DISCARD;
   delete ELT_EMBED;
   delete ELT_FEBLEND;
   delete ELT_FEFLOOD;

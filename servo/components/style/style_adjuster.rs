@@ -490,13 +490,13 @@ impl<'a, 'b: 'a> StyleAdjuster<'a, 'b> {
             //     Applies layout containment, style containment, and inline-size
             //     containment to the principal box.
             ContainerType::InlineSize => {
-                new_contain.insert(Contain::LAYOUT | Contain::STYLE | Contain::INLINE_SIZE)
+                new_contain.insert(Contain::STYLE | Contain::INLINE_SIZE)
             },
             // https://drafts.csswg.org/css-contain-3/#valdef-container-type-size:
             //     Applies layout containment, style containment, and size
             //     containment to the principal box.
             ContainerType::Size => {
-                new_contain.insert(Contain::LAYOUT | Contain::STYLE | Contain::SIZE)
+                new_contain.insert(Contain::STYLE | Contain::SIZE)
             },
         }
         if new_contain == old_contain {
@@ -573,10 +573,24 @@ impl<'a, 'b: 'a> StyleAdjuster<'a, 'b> {
     /// parent, but we need to make sure it's still scrollable.
     #[cfg(feature = "gecko")]
     fn adjust_for_text_control_editing_root(&mut self) {
+        use crate::properties::longhands::white_space_collapse::computed_value::T as WhiteSpaceCollapse;
         use crate::selector_parser::PseudoElement;
 
         if self.style.pseudo != Some(&PseudoElement::MozTextControlEditingRoot) {
             return;
+        }
+
+        let old_collapse = self.style.get_inherited_text().clone_white_space_collapse();
+        let new_collapse = match old_collapse {
+            WhiteSpaceCollapse::Preserve | WhiteSpaceCollapse::BreakSpaces => old_collapse,
+            WhiteSpaceCollapse::Collapse |
+            WhiteSpaceCollapse::PreserveSpaces |
+            WhiteSpaceCollapse::PreserveBreaks => WhiteSpaceCollapse::Preserve,
+        };
+        if new_collapse != old_collapse {
+            self.style
+                .mutate_inherited_text()
+                .set_white_space_collapse(new_collapse);
         }
 
         let box_style = self.style.get_box();
@@ -872,7 +886,7 @@ impl<'a, 'b: 'a> StyleAdjuster<'a, 'b> {
     #[cfg(feature = "gecko")]
     fn adjust_for_marker_pseudo(&mut self) {
         use crate::values::computed::counters::Content;
-        use crate::values::computed::font::{FontFamily, FontSynthesis};
+        use crate::values::computed::font::{FontFamily, FontSynthesis, FontSynthesisStyle};
         use crate::values::computed::text::{LetterSpacing, WordSpacing};
 
         let is_legacy_marker = self.style.pseudo.map_or(false, |p| p.is_marker()) &&
@@ -898,7 +912,7 @@ impl<'a, 'b: 'a> StyleAdjuster<'a, 'b> {
             if !flags.contains(ComputedValueFlags::HAS_AUTHOR_SPECIFIED_FONT_SYNTHESIS_STYLE) {
                 self.style
                     .mutate_font()
-                    .set_font_synthesis_style(FontSynthesis::None);
+                    .set_font_synthesis_style(FontSynthesisStyle::None);
             }
         }
         if !flags.contains(ComputedValueFlags::HAS_AUTHOR_SPECIFIED_LETTER_SPACING) {

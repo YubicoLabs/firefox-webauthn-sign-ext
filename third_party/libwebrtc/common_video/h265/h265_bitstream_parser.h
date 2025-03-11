@@ -14,9 +14,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <optional>
 #include <vector>
 
-#include "absl/types/optional.h"
 #include "api/video_codecs/bitstream_parser.h"
 #include "common_video/h265/h265_pps_parser.h"
 #include "common_video/h265/h265_sps_parser.h"
@@ -35,13 +35,18 @@ class RTC_EXPORT H265BitstreamParser : public BitstreamParser {
 
   // New interface.
   void ParseBitstream(rtc::ArrayView<const uint8_t> bitstream) override;
-  absl::optional<int> GetLastSliceQp() const override;
+  std::optional<int> GetLastSliceQp() const override;
 
-  absl::optional<uint32_t> GetLastSlicePpsId() const;
+  std::optional<uint32_t> GetLastSlicePpsId() const;
 
-  static absl::optional<uint32_t> ParsePpsIdFromSliceSegmentLayerRbsp(
+  static std::optional<uint32_t> ParsePpsIdFromSliceSegmentLayerRbsp(
       rtc::ArrayView<const uint8_t> data,
       uint8_t nalu_type);
+
+  // Returns true if the slice segment is the first in the picture; otherwise
+  // return false. If parse failed, return nullopt.
+  static std::optional<bool> IsFirstSliceSegmentInPic(
+      rtc::ArrayView<const uint8_t> data);
 
  protected:
   enum Result {
@@ -63,8 +68,8 @@ class RTC_EXPORT H265BitstreamParser : public BitstreamParser {
   flat_map<uint32_t, H265PpsParser::PpsState> pps_;
 
   // Last parsed slice QP.
-  absl::optional<int32_t> last_slice_qp_delta_;
-  absl::optional<uint32_t> last_slice_pps_id_;
+  std::optional<int32_t> last_slice_qp_delta_;
+  std::optional<uint32_t> last_slice_pps_id_;
 };
 
 }  // namespace webrtc

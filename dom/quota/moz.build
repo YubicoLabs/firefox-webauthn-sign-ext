@@ -10,10 +10,13 @@ with Files("**"):
 DIRS += ["test"]
 
 XPIDL_SOURCES += [
+    "nsIQuotaArtificialFailure.idl",
     "nsIQuotaCallbacks.idl",
     "nsIQuotaManagerService.idl",
+    "nsIQuotaManagerServiceInternal.idl",
     "nsIQuotaRequests.idl",
     "nsIQuotaResults.idl",
+    "nsIQuotaUtilsService.idl",
 ]
 
 XPIDL_MODULE = "dom_quota"
@@ -29,6 +32,7 @@ EXPORTS.mozilla.dom += [
 
 EXPORTS.mozilla.dom.quota += [
     "ActorsParent.h",
+    "ArtificialFailure.h",
     "Assertions.h",
     "AssertionsImpl.h",
     "BackgroundThreadObject.h",
@@ -37,6 +41,7 @@ EXPORTS.mozilla.dom.quota += [
     "CipherKeyManager.h",
     "CipherStrategy.h",
     "Client.h",
+    "ClientDirectoryLock.h",
     "ClientImpl.h",
     "CommonMetadata.h",
     "CommonMetadataArray.h",
@@ -48,6 +53,7 @@ EXPORTS.mozilla.dom.quota += [
     "DecryptingInputStream_impl.h",
     "DirectoryLock.h",
     "DirectoryLockCategory.h",
+    "DirectoryLockImpl.h",
     "DirectoryLockInlines.h",
     "DummyCipherStrategy.h",
     "EncryptedBlock.h",
@@ -59,14 +65,19 @@ EXPORTS.mozilla.dom.quota += [
     "FirstInitializationAttempts.h",
     "FirstInitializationAttemptsImpl.h",
     "ForwardDecls.h",
+    "HashKeys.h",
     "InitializationTypes.h",
     "IPCStreamCipherStrategy.h",
+    "MozPromiseUtils.h",
     "NotifyUtils.h",
+    "NotifyUtilsCommon.h",
     "NSSCipherStrategy.h",
+    "OriginDirectoryLock.h",
     "OriginOperationCallbacks.h",
     "OriginScope.h",
     "PersistenceScope.h",
     "PersistenceType.h",
+    "PrincipalUtils.h",
     "PromiseUtils.h",
     "QuotaCommon.h",
     "QuotaManager.h",
@@ -86,7 +97,9 @@ EXPORTS.mozilla.dom.quota += [
     "StorageHelpers.h",
     "StreamUtils.h",
     "StringifyUtils.h",
+    "TargetPtrHolder.h",
     "ThreadUtils.h",
+    "UniversalDirectoryLock.h",
     "UsageInfo.h",
 ]
 
@@ -97,11 +110,13 @@ XPCOM_MANIFESTS += [
 UNIFIED_SOURCES += [
     "ActorsChild.cpp",
     "ActorsParent.cpp",
+    "ArtificialFailure.cpp",
     "Assertions.cpp",
     "BackgroundThreadObject.cpp",
     "CachingDatabaseConnection.cpp",
     "CanonicalQuotaObject.cpp",
     "Client.cpp",
+    "ClientDirectoryLock.cpp",
     "ClientUsageArray.cpp",
     "DecryptingInputStream.cpp",
     "DirectoryLockImpl.cpp",
@@ -113,19 +128,24 @@ UNIFIED_SOURCES += [
     "InitializationTypes.cpp",
     "NormalOriginOperationBase.cpp",
     "NotifyUtils.cpp",
+    "NotifyUtilsCommon.cpp",
     "nsIndexedDBProtocolHandler.cpp",
     "NSSCipherStrategy.cpp",
+    "OriginDirectoryLock.cpp",
     "OriginInfo.cpp",
     "OriginOperationBase.cpp",
     "OriginOperations.cpp",
     "OriginParser.cpp",
+    "PersistenceScope.cpp",
     "PersistenceType.cpp",
+    "PrincipalUtils.cpp",
     "PromiseUtils.cpp",
     "QMResult.cpp",
     "QuotaCommon.cpp",
     "QuotaManagerService.cpp",
     "QuotaObject.cpp",
     "QuotaParent.cpp",
+    "QuotaPrefs.cpp",
     "QuotaRequestBase.cpp",
     "QuotaRequests.cpp",
     "QuotaResults.cpp",
@@ -142,6 +162,7 @@ UNIFIED_SOURCES += [
     "StreamUtils.cpp",
     "StringifyUtils.cpp",
     "ThreadUtils.cpp",
+    "UniversalDirectoryLock.cpp",
 ]
 
 IPDL_SOURCES += [
@@ -150,6 +171,10 @@ IPDL_SOURCES += [
     "PQuotaRequest.ipdl",
     "PQuotaUsageRequest.ipdl",
     "PRemoteQuotaObject.ipdl",
+]
+
+EXTRA_JS_MODULES += [
+    "QuotaUtilsService.sys.mjs",
 ]
 
 include("/ipc/chromium/chromium-config.mozbuild")

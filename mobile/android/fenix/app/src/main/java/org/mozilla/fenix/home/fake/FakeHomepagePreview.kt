@@ -5,7 +5,8 @@
 package org.mozilla.fenix.home.fake
 
 import android.content.Context
-import com.google.firebase.util.nextAlphanumericString
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 import mozilla.components.browser.state.state.ContentState
 import mozilla.components.browser.state.state.TabSessionState
 import mozilla.components.browser.state.state.recover.RecoverableTab
@@ -15,14 +16,27 @@ import mozilla.components.feature.tab.collections.Tab
 import mozilla.components.feature.tab.collections.TabCollection
 import mozilla.components.feature.top.sites.TopSite
 import mozilla.components.service.nimbus.messaging.Message
+import mozilla.components.service.nimbus.messaging.MessageData
+import mozilla.components.service.nimbus.messaging.StyleData
 import mozilla.components.service.pocket.PocketStory
+import mozilla.components.service.pocket.PocketStory.ContentRecommendation
+import mozilla.components.service.pocket.PocketStory.PocketRecommendedStory
+import mozilla.components.service.pocket.PocketStory.PocketSponsoredStory
+import mozilla.components.service.pocket.PocketStory.PocketSponsoredStoryCaps
+import mozilla.components.service.pocket.PocketStory.PocketSponsoredStoryShim
+import org.mozilla.fenix.R
 import org.mozilla.fenix.browser.browsingmode.BrowsingMode
 import org.mozilla.fenix.components.appstate.AppState
+import org.mozilla.fenix.compose.MessageCardColors
+import org.mozilla.fenix.compose.MessageCardState
+import org.mozilla.fenix.compose.SelectableChipColors
 import org.mozilla.fenix.home.bookmarks.Bookmark
 import org.mozilla.fenix.home.bookmarks.interactor.BookmarksInteractor
+import org.mozilla.fenix.home.collections.CollectionColors
 import org.mozilla.fenix.home.collections.CollectionsState
 import org.mozilla.fenix.home.interactor.HomepageInteractor
 import org.mozilla.fenix.home.pocket.PocketRecommendedStoriesCategory
+import org.mozilla.fenix.home.pocket.PocketState
 import org.mozilla.fenix.home.privatebrowsing.interactor.PrivateBrowsingInteractor
 import org.mozilla.fenix.home.recentsyncedtabs.RecentSyncedTab
 import org.mozilla.fenix.home.recentsyncedtabs.interactor.RecentSyncedTabInteractor
@@ -34,9 +48,12 @@ import org.mozilla.fenix.home.recentvisits.RecentlyVisitedItem.RecentHistoryHigh
 import org.mozilla.fenix.home.recentvisits.interactor.RecentVisitsInteractor
 import org.mozilla.fenix.home.sessioncontrol.CollectionInteractor
 import org.mozilla.fenix.home.sessioncontrol.TopSiteInteractor
+import org.mozilla.fenix.home.store.NimbusMessageState
 import org.mozilla.fenix.search.toolbar.SearchSelectorMenu
+import org.mozilla.fenix.theme.FirefoxTheme
 import org.mozilla.fenix.wallpapers.WallpaperState
 import java.io.File
+import java.util.UUID
 import kotlin.random.Random
 
 /**
@@ -69,13 +86,19 @@ internal object FakeHomepagePreview {
 
             override fun openCustomizeHomePage() { /* no op */ }
 
-            override fun onStoryShown(storyShown: PocketStory, storyPosition: Pair<Int, Int>) { /* no op */ }
+            override fun onStoryShown(
+                storyShown: PocketStory,
+                storyPosition: Triple<Int, Int, Int>,
+            ) { /* no op */ }
 
             override fun onStoriesShown(storiesShown: List<PocketStory>) { /* no op */ }
 
             override fun onCategoryClicked(categoryClicked: PocketRecommendedStoriesCategory) { /* no op */ }
 
-            override fun onStoryClicked(storyClicked: PocketStory, storyPosition: Pair<Int, Int>) { /* no op */ }
+            override fun onStoryClicked(
+                storyClicked: PocketStory,
+                storyPosition: Triple<Int, Int, Int>,
+            ) { /* no op */ }
 
             override fun onLearnMoreClicked(link: String) { /* no op */ }
 
@@ -104,6 +127,10 @@ internal object FakeHomepagePreview {
             override fun onRemoveTopSiteClicked(topSite: TopSite) { /* no op */ }
 
             override fun onSelectTopSite(topSite: TopSite, position: Int) { /* no op */ }
+
+            override fun onTopSiteImpression(topSite: TopSite.Provided, position: Int) {
+                // no-op
+            }
 
             override fun onSettingsClicked() { /* no op */ }
 
@@ -168,12 +195,44 @@ internal object FakeHomepagePreview {
 
             override fun onRenameCollectionTapped(collection: TabCollection) { /* no op */ }
 
-            override fun onToggleCollectionExpanded(collection: TabCollection, expand: Boolean) { /* no op */ }
+            override fun onToggleCollectionExpanded(
+                collection: TabCollection,
+                expand: Boolean,
+            ) { /* no op */ }
 
             override fun onAddTabsToCollectionTapped() { /* no op */ }
 
             override fun onRemoveCollectionsPlaceholder() { /* no op */ }
         }
+
+    @Composable
+    internal fun nimbusMessageState() = NimbusMessageState(
+        cardState = messageCardState(),
+        message = message(),
+    )
+
+    @Composable
+    internal fun messageCardState() = MessageCardState(
+        messageText = stringResource(id = R.string.default_browser_experiment_card_text),
+        titleText = stringResource(id = R.string.default_browser_experiment_card_title),
+        buttonText = "",
+        messageColors = MessageCardColors.buildMessageCardColors(),
+    )
+
+    internal fun message() = Message(
+        id = "id",
+        data = MessageData(),
+        style = StyleData(),
+        action = "action",
+        triggerIfAll = emptyList(),
+        excludeIfAny = emptyList(),
+        metadata = Message.Metadata(
+            id = "id",
+            displayCount = 0,
+            pressed = false,
+            dismissed = false,
+        ),
+    )
 
     internal fun topSites(
         pinnedCount: Int = 2,
@@ -235,7 +294,7 @@ internal object FakeHomepagePreview {
                 add(
                     RecentTab.Tab(
                         TabSessionState(
-                            id = randomString(),
+                            id = randomId(),
                             content = ContentState(
                                 url = URL,
                             ),
@@ -288,7 +347,13 @@ internal object FakeHomepagePreview {
     internal fun collectionState() = CollectionsState.Content(
         collections = listOf(collection(tabs = listOf(tab()))),
         expandedCollections = setOf(),
-        showAddTabToCollection = true,
+        showSaveTabsToCollection = true,
+    )
+
+    @Composable
+    internal fun collectionsPlaceholder() = CollectionsState.Placeholder(
+        showSaveTabsToCollection = true,
+        colors = CollectionColors.colors(),
     )
 
     internal fun collection(tabs: List<Tab> = emptyList()): TabCollection {
@@ -326,12 +391,74 @@ internal object FakeHomepagePreview {
         }
     }
 
-    private const val URL = "mozilla.com"
+    @Composable
+    internal fun pocketState(limit: Int = 1) = PocketState(
+        stories = pocketStories(limit = limit),
+        categories = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor"
+            .split(" ")
+            .map { PocketRecommendedStoriesCategory(it) },
+        categoriesSelections = emptyList(),
+        showContentRecommendations = false,
+        categoryColors = SelectableChipColors.buildColors(),
+        textColor = FirefoxTheme.colors.textPrimary,
+        linkTextColor = FirefoxTheme.colors.textAccent,
+    )
+
+    @Suppress("MagicNumber")
+    internal fun pocketStories(limit: Int = 1) = mutableListOf<PocketStory>().apply {
+        for (index in 0 until limit) {
+            when {
+                (index % 3 == 0) -> add(
+                    ContentRecommendation(
+                        corpusItemId = "corpusItemId$index",
+                        scheduledCorpusItemId = "scheduledCorpusItemId$index",
+                        url = "https://story$index.com",
+                        title = "Recommendation - This is a ${"very ".repeat(index)} long title",
+                        excerpt = "Excerpt",
+                        topic = null,
+                        publisher = "Publisher",
+                        isTimeSensitive = false,
+                        imageUrl = URL,
+                        tileId = index.toLong(),
+                        receivedRank = index,
+                        recommendedAt = index.toLong(),
+                        impressions = index.toLong(),
+                    ),
+                )
+                (index % 2 == 0) -> add(
+                    PocketRecommendedStory(
+                        title = "Story - This is a ${"very ".repeat(index)} long title",
+                        publisher = "Publisher",
+                        url = "https://story$index.com",
+                        imageUrl = URL,
+                        timeToRead = index,
+                        category = "Category #$index",
+                        timesShown = index.toLong(),
+                    ),
+                )
+                else -> add(
+                    PocketSponsoredStory(
+                        id = index,
+                        title = "This is a ${"very ".repeat(index)} long title",
+                        url = "https://sponsored-story$index.com",
+                        imageUrl = URL,
+                        sponsor = "Mozilla",
+                        shim = PocketSponsoredStoryShim("", ""),
+                        priority = index,
+                        caps = PocketSponsoredStoryCaps(
+                            flightCount = index,
+                            flightPeriod = index * 2,
+                            lifetimeCount = index * 3,
+                        ),
+                    ),
+                )
+            }
+        }
+    }
 
     private fun randomLong() = random.nextLong()
 
-    private fun randomString(length: Int = random.nextInt(from = 3, until = 11)) =
-        random.nextAlphanumericString(
-            length = length,
-        )
+    private fun randomId() = UUID.randomUUID().toString()
+
+    private const val URL = "https://mozilla.com"
 }

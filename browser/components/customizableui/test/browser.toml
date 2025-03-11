@@ -48,6 +48,7 @@ skip-if = ["os == 'mac' && debug"]
 ["browser_873501_handle_specials.js"]
 
 ["browser_876926_customize_mode_wrapping.js"]
+skip-if = ["os == 'linux' && os_version == '18.04' && processor == 'x86_64' && release_or_beta"] # bug 1921617
 
 ["browser_876944_customize_mode_create_destroy.js"]
 
@@ -271,6 +272,7 @@ https_first_disabled = true
 ["browser_history_after_appMenu.js"]
 
 ["browser_history_recently_closed.js"]
+fail-if = ["a11y_checks"] # Bug 1947098
 
 ["browser_history_recently_closed_middleclick.js"]
 https_first_disabled = true
@@ -333,13 +335,18 @@ skip-if = ["(verify && debug && (os == 'linux' || os == 'mac'))"]
 
 ["browser_remove_customized_specials.js"]
 
+["browser_remove_sidebar_button_and_sidebar.js"]
+
 ["browser_reset_builtin_widget_currentArea.js"]
 
 ["browser_reset_dom_events.js"]
 
 ["browser_screenshot_button_disabled.js"]
+skip-if = ["true"] # TODO: Fix this test (bug 1925823 comment 4)
 
 ["browser_searchbar_removal.js"]
+
+["browser_sidebar_button_reset.js"]
 
 ["browser_sidebar_toggle.js"]
 skip-if = ["verify"]
@@ -360,6 +367,8 @@ skip-if = [
 ]
 
 ["browser_unified_extensions_reset.js"]
+
+["browser_vertical_tabs_customize_navbar.js"]
 
 ["browser_widget_animation.js"]
 

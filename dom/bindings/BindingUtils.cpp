@@ -130,7 +130,7 @@ static const JSErrorFormatString ErrorFormatString[] = {
 
 static const JSErrorFormatString* GetErrorMessage(void* aUserRef,
                                                   const unsigned aErrorNumber) {
-  MOZ_ASSERT(aErrorNumber < ArrayLength(ErrorFormatString));
+  MOZ_ASSERT(aErrorNumber < std::size(ErrorFormatString));
   return &ErrorFormatString[aErrorNumber];
 }
 
@@ -626,10 +626,8 @@ void TErrorResult<CleanupPolicy>::SetPendingException(JSContext* cx,
                                                       const char* context) {
   AssertInOwningThread();
   if (IsUncatchableException()) {
-    // Nuke any existing exception on cx, to make sure we're uncatchable.
-    JS_ClearPendingException(cx);
-    // Don't do any reporting.  Just return, to create an
-    // uncatchable exception.
+    // Note: ReportUncatchableException will clear any existing exception on cx.
+    JS::ReportUncatchableException(cx);
     mResult = NS_OK;
     return;
   }
@@ -998,8 +996,8 @@ static JSObject* CreateInterfaceObject(
     JS::Rooted<JSObject*> legacyFactoryFunction(
         cx, CreateBuiltinFunctionForConstructor(
                 cx, LegacyFactoryFunctionJSNative,
-                LEGACY_FACTORY_FUNCTION_NATIVE_HOLDER_RESERVED_SLOT,
-                const_cast<JSNativeHolder*>(&lff.mHolder), lff.mNargs, nameId,
+                LEGACY_FACTORY_FUNCTION_RESERVED_SLOT,
+                const_cast<LegacyFactoryFunction*>(&lff), lff.mNargs, nameId,
                 nullptr));
     if (!legacyFactoryFunction ||
         !JS_DefineProperty(cx, legacyFactoryFunction, "prototype", proto,
@@ -1263,6 +1261,18 @@ static bool NativeInterface2JSObjectAndThrowIfFailed(
     return false;
   }
   return true;
+}
+
+/* static */
+size_t binding_detail::NeedsQIToWrapperCache::ObjectMoved(JSObject* aObj,
+                                                          JSObject* aOld) {
+  JS::AutoAssertGCCallback inCallback;
+  nsWrapperCache* cache = GetWrapperCache(aObj);
+  if (cache) {
+    cache->UpdateWrapper(aObj, aOld);
+  }
+
+  return 0;
 }
 
 bool TryPreserveWrapper(JS::Handle<JSObject*> obj) {
@@ -1909,6 +1919,30 @@ static bool ResolvePrototypeOrConstructor(
         return true;
       }
     }
+
+    if (id.get() == GetJSIDByIndex(cx, XPCJSContext::IDX_NAME)) {
+      const char* name = IsInterfaceObject(obj)
+                             ? InterfaceInfoFromObject(obj)->mConstructorName
+                             : LegacyFactoryFunctionFromObject(obj)->mName;
+      JSString* nameStr = JS_NewStringCopyZ(cx, name);
+      if (!nameStr) {
+        return false;
+      }
+      desc.set(Some(JS::PropertyDescriptor::Data(
+          JS::StringValue(nameStr), {JS::PropertyAttribute::Configurable,
+                                     JS::PropertyAttribute::Enumerable})));
+      return true;
+    }
+
+    if (id.get() == GetJSIDByIndex(cx, XPCJSContext::IDX_LENGTH)) {
+      uint8_t length = IsInterfaceObject(obj)
+                           ? InterfaceInfoFromObject(obj)->mConstructorArgs
+                           : LegacyFactoryFunctionFromObject(obj)->mNargs;
+      desc.set(Some(JS::PropertyDescriptor::Data(
+          JS::Int32Value(length), {JS::PropertyAttribute::Configurable,
+                                   JS::PropertyAttribute::Enumerable})));
+      return true;
+    }
   } else if (type == eNamespace) {
     if (id.isWellKnownSymbol(JS::SymbolCode::toStringTag)) {
       JS::Rooted<JSString*> nameStr(
@@ -2481,7 +2515,7 @@ nsISupports* GlobalObject::GetAsSupports() const {
 
   // Remove everything below here once all our global objects are using new
   // bindings.  If that ever happens; it would need to include Sandbox and
-  // BackstagePass.
+  // SystemGlobal.
 
   // See whether mGlobalJSObject is an XPCWrappedNative.  This will redo the
   // IsWrapper bit above and the UnwrapDOMObjectToISupports in the case when
@@ -2804,7 +2838,7 @@ bool IsGlobalInExposureSet(JSContext* aCx, JSObject* aGlobal,
   const char* name = JS::GetClass(aGlobal)->name;
 
   if ((aGlobalSet & GlobalNames::Window) &&
-      (!strcmp(name, "Window") || !strcmp(name, "BackstagePass"))) {
+      (!strcmp(name, "Window") || !strcmp(name, "SystemGlobal"))) {
     return true;
   }
 
@@ -4291,7 +4325,43 @@ already_AddRefed<Promise> CreateRejectedPromiseFromThrownException(
   return Promise::RejectWithExceptionFromContext(global, aCx, aError);
 }
 
+/* static */
+void ReflectedHTMLAttributeSlotsBase::ForEachXrayReflectedHTMLAttributeSlots(
+    JS::RootingContext* aCx, JSObject* aObject, size_t aSlotIndex,
+    size_t aArrayIndex, void (*aFunc)(void* aSlots, size_t aArrayIndex)) {
+  xpc::ForEachXrayExpandoObject(
+      aCx, aObject, [aSlotIndex, aFunc, aArrayIndex](JSObject* aExpandObject) {
+        MOZ_ASSERT(JSCLASS_RESERVED_SLOTS(JS::GetClass(aExpandObject)) >
+                   aSlotIndex);
+        MOZ_ASSERT(aSlotIndex >= DOM_EXPANDO_RESERVED_SLOTS);
+        JS::Value array = JS::GetReservedSlot(aExpandObject, aSlotIndex);
+        if (!array.isUndefined()) {
+          aFunc(array.toPrivate(), aArrayIndex);
+        }
+      });
+}
+
+/* static */
+void ReflectedHTMLAttributeSlotsBase::XrayExpandoObjectFinalize(
+    JS::GCContext* aCx, JSObject* aObject) {
+  xpc::ExpandoObjectFinalize(aCx, aObject);
+}
+
+void ClearXrayExpandoSlots(JS::RootingContext* aCx, JSObject* aObject,
+                           size_t aSlotIndex) {
+  xpc::ForEachXrayExpandoObject(
+      aCx, aObject, [aSlotIndex](JSObject* aExpandObject) {
+        MOZ_ASSERT(JSCLASS_RESERVED_SLOTS(JS::GetClass(aExpandObject)) >
+                   aSlotIndex);
+        MOZ_ASSERT(aSlotIndex >= DOM_EXPANDO_RESERVED_SLOTS);
+        JS::SetReservedSlot(aExpandObject, aSlotIndex, JS::UndefinedValue());
+      });
+}
+
 }  // namespace binding_detail
+
+static_assert(UnderlyingValue(DOM_EXPANDO_RESERVED_SLOTS) ==
+              UnderlyingValue(xpc::JSSLOT_EXPANDO_COUNT));
 
 }  // namespace dom
 }  // namespace mozilla

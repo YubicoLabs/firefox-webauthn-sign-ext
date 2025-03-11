@@ -101,7 +101,6 @@
 #include "nsTObserverArray.h"
 #include "nsThreadUtils.h"
 #include "nsURIHashKey.h"
-#include "nsViewportInfo.h"
 #include "nsWeakReference.h"
 #include "nsWindowSizes.h"
 #include "nsXULElement.h"
@@ -181,6 +180,7 @@ class nsRange;
 class nsSimpleContentList;
 class nsTextNode;
 class nsViewManager;
+class nsViewportInfo;
 class nsXULPrototypeDocument;
 struct JSContext;
 struct nsFont;
@@ -280,6 +280,8 @@ class ImageDocument;
 class Touch;
 class TouchList;
 class TreeWalker;
+class TrustedHTMLOrString;
+class OwningTrustedHTMLOrString;
 enum class ViewportFitType : uint8_t;
 class ViewTransition;
 class ViewTransitionUpdateCallback;
@@ -335,12 +337,8 @@ class EarlyHintConnectArgs;
 }  // namespace mozilla::net
 
 // Must be kept in sync with xpcom/rust/xpcom/src/interfaces/nonidl.rs
-#define NS_IDOCUMENT_IID                             \
-  {                                                  \
-    0xce1f7627, 0x7109, 0x4977, {                    \
-      0xba, 0x77, 0x49, 0x0f, 0xfd, 0xe0, 0x7a, 0xaa \
-    }                                                \
-  }
+#define NS_IDOCUMENT_IID \
+  {0xce1f7627, 0x7109, 0x4977, {0xba, 0x77, 0x49, 0x0f, 0xfd, 0xe0, 0x7a, 0xaa}}
 
 namespace mozilla::dom {
 
@@ -498,8 +496,8 @@ class ExternalResourceMap {
     }                                                              \
     NS_DECL_ISUPPORTS                                              \
     NS_FORWARD_NSIINTERFACEREQUESTOR(mIfReq->)                     \
-    NS_FORWARD_##_allcaps(mRealPtr->) private                      \
-        : nsCOMPtr<nsIInterfaceRequestor> mIfReq;                  \
+   NS_FORWARD_##_allcaps(mRealPtr->) private                       \
+       : nsCOMPtr<nsIInterfaceRequestor> mIfReq;                   \
     nsCOMPtr<_i> mRealPtr;                                         \
   };
 
@@ -543,8 +541,11 @@ class Document : public nsINode,
                  public DocumentOrShadowRoot,
                  public nsSupportsWeakReference,
                  public nsIScriptObjectPrincipal,
-                 public SupportsWeakPtr {
+                 public SupportsWeakPtr,
+                 private LinkedListElement<Document> {
   friend class DocumentOrShadowRoot;
+  friend class LinkedList<Document>;
+  friend class LinkedListElement<Document>;
 
  protected:
   explicit Document(const char* aContentType);
@@ -696,7 +697,8 @@ class Document : public nsINode,
   // nsINode
   void InsertChildBefore(nsIContent* aKid, nsIContent* aBeforeThis,
                          bool aNotify, ErrorResult& aRv) override;
-  void RemoveChildNode(nsIContent* aKid, bool aNotify) final;
+  void RemoveChildNode(nsIContent* aKid, bool aNotify,
+                       const BatchRemovalState* = nullptr) final;
   nsresult Clone(dom::NodeInfo* aNodeInfo, nsINode** aResult) const override {
     return NS_ERROR_NOT_IMPLEMENTED;
   }
@@ -1407,6 +1409,9 @@ class Document : public nsINode,
   // Returns whether this document is using unpartitioned cookies
   bool UsingStorageAccess();
 
+  // Returns whether the document is on the 3PCB exception list.
+  bool IsOn3PCBExceptionList() const;
+
   // Returns whether the storage access permission of the document is granted by
   // the allow list.
   bool HasStorageAccessPermissionGrantedByAllowList();
@@ -1594,22 +1599,26 @@ class Document : public nsINode,
   // Get the root <html> element, or return null if there isn't one (e.g.
   // if the root isn't <html>)
   Element* GetHtmlElement() const;
-  // Returns the first child of GetHtmlContent which has the given tag,
-  // or nullptr if that doesn't exist.
-  Element* GetHtmlChildElement(nsAtom* aTag);
+  // Returns the first child of GetHtmlContent which has the given tag and is
+  // not aContentToIgnore, or nullptr if that doesn't exist.
+  Element* GetHtmlChildElement(
+      nsAtom* aTag, const nsIContent* aContentToIgnore = nullptr) const;
   // Get the canonical <body> element, or return null if there isn't one (e.g.
   // if the root isn't <html> or if the <body> isn't there)
-  HTMLBodyElement* GetBodyElement();
+  HTMLBodyElement* GetBodyElement(
+      const nsIContent* aContentToIgnore = nullptr) const;
   // Get the canonical <head> element, or return null if there isn't one (e.g.
   // if the root isn't <html> or if the <head> isn't there)
-  Element* GetHeadElement() { return GetHtmlChildElement(nsGkAtoms::head); }
+  Element* GetHeadElement() const {
+    return GetHtmlChildElement(nsGkAtoms::head);
+  }
   // Get the "body" in the sense of document.body: The first <body> or
   // <frameset> that's a child of a root <html>
-  nsGenericHTMLElement* GetBody();
+  nsGenericHTMLElement* GetBody() const;
   // Set the "body" in the sense of document.body.
   void SetBody(nsGenericHTMLElement* aBody, ErrorResult& rv);
   // Get the "head" element in the sense of document.head.
-  HTMLSharedElement* GetHead();
+  HTMLSharedElement* GetHead() const;
 
   ServoStyleSet* StyleSetForPresShell() const {
     MOZ_ASSERT(!!mStyleSet.get());
@@ -2039,7 +2048,7 @@ class Document : public nsINode,
 
   // Observation hooks for style data to propagate notifications
   // to document observers
-  void RuleChanged(StyleSheet&, css::Rule*, StyleRuleChangeKind);
+  void RuleChanged(StyleSheet&, css::Rule*, const StyleRuleChange&);
   void RuleAdded(StyleSheet&, css::Rule&);
   void RuleRemoved(StyleSheet&, css::Rule&);
   void SheetCloned(StyleSheet&) {}
@@ -2338,14 +2347,14 @@ class Document : public nsINode,
                         nsIPrincipal* aPartitionedPrincipal);
 
   /**
-   * Notify the document that its associated ContentViewer is being destroyed.
+   * Notify the document that its associated DocumentViewer is being destroyed.
    * This releases circular references so that the document can go away.
    * Destroy() is only called on documents that have a content viewer.
    */
   virtual void Destroy();
 
   /**
-   * Notify the document that its associated ContentViewer is no longer
+   * Notify the document that its associated DocumentViewer is no longer
    * the current viewer for the docshell. The document might still
    * be rendered in "zombie state" until the next document is ready.
    * The document should save form control state.
@@ -3158,6 +3167,10 @@ class Document : public nsINode,
 
   void SetNavigationTiming(nsDOMNavigationTiming* aTiming);
 
+  inline void SetPageloadEventFeature(uint32_t aFeature) {
+    mPageloadEventFeatures |= aFeature;
+  }
+
   nsContentList* ImageMapList();
 
   // Add aLink to the set of links that need their status resolved.
@@ -3330,13 +3343,15 @@ class Document : public nsINode,
                  const mozilla::dom::Optional<nsAString>& /* unused */,
                  mozilla::ErrorResult& aError);
   mozilla::dom::Nullable<mozilla::dom::WindowProxyHolder> Open(
-      const nsAString& aURL, const nsAString& aName, const nsAString& aFeatures,
-      mozilla::ErrorResult& rv);
+      const nsACString& aURL, const nsAString& aName,
+      const nsAString& aFeatures, mozilla::ErrorResult& rv);
   void Close(mozilla::ErrorResult& rv);
-  void Write(const mozilla::dom::Sequence<nsString>& aText,
-             mozilla::ErrorResult& rv);
-  void Writeln(const mozilla::dom::Sequence<nsString>& aText,
-               mozilla::ErrorResult& rv);
+  MOZ_CAN_RUN_SCRIPT void Write(
+      const mozilla::dom::Sequence<OwningTrustedHTMLOrString>& aText,
+      mozilla::ErrorResult& rv);
+  MOZ_CAN_RUN_SCRIPT void Writeln(
+      const mozilla::dom::Sequence<OwningTrustedHTMLOrString>& aText,
+      mozilla::ErrorResult& rv);
   Nullable<WindowProxyHolder> GetDefaultView() const;
   Element* GetActiveElement();
   enum class IncludeChromeOnly : bool { No, Yes };
@@ -3360,10 +3375,11 @@ class Document : public nsINode,
   void SetDesignMode(const nsAString& aDesignMode,
                      const mozilla::Maybe<nsIPrincipal*>& aSubjectPrincipal,
                      mozilla::ErrorResult& rv);
+  void SetDocumentEditableFlag(bool);
   MOZ_CAN_RUN_SCRIPT
   bool ExecCommand(const nsAString& aHTMLCommandName, bool aShowUI,
-                   const nsAString& aValue, nsIPrincipal& aSubjectPrincipal,
-                   mozilla::ErrorResult& aRv);
+                   const TrustedHTMLOrString& aValue,
+                   nsIPrincipal& aSubjectPrincipal, mozilla::ErrorResult& aRv);
   MOZ_CAN_RUN_SCRIPT bool QueryCommandEnabled(const nsAString& aHTMLCommandName,
                                               nsIPrincipal& aSubjectPrincipal,
                                               mozilla::ErrorResult& aRv);
@@ -3432,7 +3448,9 @@ class Document : public nsINode,
   Element* GetUnretargetedFullscreenElement() const;
   bool Fullscreen() const { return !!GetUnretargetedFullscreenElement(); }
   already_AddRefed<Promise> ExitFullscreen(ErrorResult&);
-  void ExitPointerLock() { PointerLockManager::Unlock(this); }
+  void ExitPointerLock() {
+    PointerLockManager::Unlock("Document::ExitPointerLock", this);
+  }
   void GetFgColor(nsAString& aFgColor);
   void SetFgColor(const nsAString& aFgColor);
   void GetLinkColor(nsAString& aLinkColor);
@@ -3563,8 +3581,6 @@ class Document : public nsINode,
   }
   void SetDevToolsWatchingDOMMutations(bool aValue);
 
-  void MaybeWarnAboutZoom();
-
   // https://drafts.csswg.org/cssom-view/#evaluate-media-queries-and-report-changes
   void EvaluateMediaQueriesAndReportChanges(bool aRecurse);
 
@@ -3638,6 +3654,10 @@ class Document : public nsINode,
     mUseCounters[aUseCounter] = true;
   }
 
+  bool HasUseCounter(UseCounter aUseCounter) const {
+    return mUseCounters[aUseCounter];
+  }
+
   const StyleUseCounters* GetStyleUseCounters() {
     return mStyleUseCounters.get();
   }
@@ -3665,6 +3685,19 @@ class Document : public nsINode,
   // https://html.spec.whatwg.org/#concept-document-fire-mutation-events-flag
   bool FireMutationEvents() const { return mFireMutationEvents; }
   void SetFireMutationEvents(bool aFire) { mFireMutationEvents = aFire; }
+
+  // https://w3c.github.io/trusted-types/dist/spec/#require-trusted-types-for-csp-directive
+  bool HasPolicyWithRequireTrustedTypesForDirective() const {
+    return mHasPolicyWithRequireTrustedTypesForDirective;
+  }
+  void SetHasPolicyWithRequireTrustedTypesForDirective(
+      bool aHasPolicyWithRequireTrustedTypesForDirective) {
+    mHasPolicyWithRequireTrustedTypesForDirective =
+        aHasPolicyWithRequireTrustedTypesForDirective;
+  }
+  bool IsClipboardCopyTriggered() const { return mClipboardCopyTriggered; }
+  void ClearClipboardCopyTriggered() { mClipboardCopyTriggered = false; }
+  void SetClipboardCopyTriggered() { mClipboardCopyTriggered = true; }
 
   // Even if mutation events are disabled by default,
   // dom.mutation_events.forceEnable can be used to enable them per site.
@@ -3837,6 +3870,8 @@ class Document : public nsINode,
   }
   void ClearActiveViewTransition();
   void PerformPendingViewTransitionOperations();
+  void EnsureViewTransitionOperationsHappen();
+  void MaybeSkipTransitionAfterVisibilityChange();
 
   // Getter for PermissionDelegateHandler. Performs lazy initialization.
   PermissionDelegateHandler* GetPermissionDelegateHandler();
@@ -4174,7 +4209,7 @@ class Document : public nsINode,
   bool ShouldResistFingerprinting(RFPTarget aTarget) const;
   bool IsInPrivateBrowsing() const;
 
-  const Maybe<RFPTarget>& GetOverriddenFingerprintingSettings() const {
+  const Maybe<RFPTargetSet>& GetOverriddenFingerprintingSettings() const {
     return mOverriddenFingerprintingSettings;
   }
 
@@ -4182,12 +4217,26 @@ class Document : public nsINode,
   // the state was changed.
   bool RecomputeResistFingerprinting();
 
+  // Recompute the partitionKey for this document if needed. This is for
+  // handling the case where the principal of the document is changed during the
+  // loading, e.g. a sandboxed document. We only need to recompute for the
+  // top-level content document.
+  void MaybeRecomputePartitionKey();
+
   void RecordCanvasUsage(CanvasUsage& aUsage);
   void RecordFontFingerprinting();
 
   bool MayHaveDOMActivateListeners() const;
 
   void DropStyleSet();
+
+  // Get a list of all Document objects which are present in the current
+  // process. This should not be used in hot code paths.
+  //
+  // NOTE: This includes both primary and data documents, as well as documents
+  // which have not yet been fully initialized.
+  static void GetAllInProcessDocuments(
+      nsTArray<RefPtr<Document>>& aAllDocuments);
 
  protected:
   // Returns the WindowContext for the document that we will contribute
@@ -4244,8 +4293,6 @@ class Document : public nsINode,
     // FIXME(emilio): Can SVG documents be in quirks mode anyway?
     return mCompatMode == eCompatibility_NavQuirks && !IsSVGDocument();
   }
-  void AddContentEditableStyleSheetsToStyleSet(bool aDesignMode);
-  void RemoveContentEditableStyleSheets();
   void AddStyleSheetToStyleSets(StyleSheet&);
   void RemoveStyleSheetFromStyleSets(StyleSheet&);
   void NotifyStyleSheetApplicableStateChanged();
@@ -4261,11 +4308,13 @@ class Document : public nsINode,
   already_AddRefed<nsIURI> RegistrableDomainSuffixOfInternal(
       const nsAString& aHostSuffixString, nsIURI* aOrigHost);
 
-  void WriteCommon(const nsAString& aText, bool aNewlineTerminate,
-                   mozilla::ErrorResult& aRv);
+  MOZ_CAN_RUN_SCRIPT void WriteCommon(const nsAString& aText,
+                                      bool aNewlineTerminate, bool aIsTrusted,
+                                      mozilla::ErrorResult& aRv);
   // A version of WriteCommon used by WebIDL bindings
-  void WriteCommon(const mozilla::dom::Sequence<nsString>& aText,
-                   bool aNewlineTerminate, mozilla::ErrorResult& rv);
+  MOZ_CAN_RUN_SCRIPT void WriteCommon(
+      const mozilla::dom::Sequence<OwningTrustedHTMLOrString>& aText,
+      bool aNewlineTerminate, mozilla::ErrorResult& rv);
 
   void* GenerateParserKey(void);
 
@@ -4388,6 +4437,7 @@ class Document : public nsINode,
    *                            execCommand().
    * @param aValue              The value which is set to the 3rd parameter
    *                            of execCommand().
+   * @param aRv                 ErrorResult used for Trusted Type conversion.
    * @param aAdjustedValue      [out] Must be empty string if set non-nullptr.
    *                            Will be set to adjusted value for executing
    *                            the internal command.
@@ -4400,8 +4450,9 @@ class Document : public nsINode,
    *                            instance registered in
    *                            sInternalCommandDataHashtable.
    */
-  static InternalCommandData ConvertToInternalCommand(
-      const nsAString& aHTMLCommandName, const nsAString& aValue = u""_ns,
+  MOZ_CAN_RUN_SCRIPT InternalCommandData ConvertToInternalCommand(
+      const nsAString& aHTMLCommandName,
+      const TrustedHTMLOrString* aValue = nullptr, ErrorResult* aRv = nullptr,
       nsAString* aAdjustedValue = nullptr);
 
   /**
@@ -4500,7 +4551,8 @@ class Document : public nsINode,
   using AutomaticStorageAccessPermissionGrantPromise =
       MozPromise<bool, bool, true>;
   [[nodiscard]] RefPtr<AutomaticStorageAccessPermissionGrantPromise>
-  AutomaticStorageAccessPermissionCanBeGranted(bool hasUserActivation);
+  AutomaticStorageAccessPermissionCanBeGranted(bool hasUserActivation,
+                                               bool aIsThirdPartyTracker);
 
   static void AddToplevelLoadingDocument(Document* aDoc);
   static void RemoveToplevelLoadingDocument(Document* aDoc);
@@ -4798,12 +4850,6 @@ class Document : public nsINode,
   // Whether we have a quirks mode stylesheet in the style set.
   bool mQuirkSheetAdded : 1;
 
-  // Whether we have a contenteditable.css stylesheet in the style set.
-  bool mContentEditableSheetAdded : 1;
-
-  // Whether we have a designmode.css stylesheet in the style set.
-  bool mDesignModeSheetAdded : 1;
-
   // True if this document has ever had an HTML or SVG <title> element
   // bound to it
   bool mMayHaveTitleElement : 1;
@@ -4885,12 +4931,6 @@ class Document : public nsINode,
   // eDesignMode or eContentEditable.
   bool mHasBeenEditable : 1;
 
-  // Whether we've warned about the CSS zoom property.
-  //
-  // We don't use the general deprecated operation mechanism for this because we
-  // also record this as a `CountedUnknownProperty`.
-  bool mHasWarnedAboutZoom : 1;
-
   // While we're handling an execCommand call by web app, set
   // to true.
   bool mIsRunningExecCommandByContent : 1;
@@ -4945,6 +4985,13 @@ class Document : public nsINode,
 
   bool mFireMutationEvents : 1;
 
+  // Whether the document's CSP contains a require-trusted-types-for directive.
+  bool mHasPolicyWithRequireTrustedTypesForDirective : 1;
+
+  // Whether a copy event happened. Used to detect when this happens
+  // while a paste event is being handled in JS.
+  bool mClipboardCopyTriggered : 1;
+
   Maybe<bool> mMutationEventsEnabled;
 
   // The fingerprinting protections overrides for this document. The value will
@@ -4952,7 +4999,7 @@ class Document : public nsINode,
   // This will only get populated if these is one that comes from the local
   // fingerprinting protection override pref or WebCompat. Otherwise, a value of
   // Nothing() indicates no overrides are present for this document.
-  Maybe<RFPTarget> mOverriddenFingerprintingSettings;
+  Maybe<RFPTargetSet> mOverriddenFingerprintingSettings;
 
   uint8_t mXMLDeclarationBits;
 
@@ -5424,6 +5471,10 @@ class Document : public nsINode,
   // See SetNotifyFormOrPasswordRemoved and ShouldNotifyFormOrPasswordRemoved.
   bool mShouldNotifyFormOrPasswordRemoved;
 
+  // Bitfield to be collected in the pageload event, recording relevant features
+  // used in the document
+  uint32_t mPageloadEventFeatures = 0;
+
   // Record page load telemetry
   void RecordPageLoadEventTelemetry(
       glean::perf::PageLoadExtra& aEventTelemetryData);
@@ -5464,8 +5515,9 @@ class Document : public nsINode,
 
   RadioGroupContainer& OwnedRadioGroupContainer();
 
-  static already_AddRefed<Document> ParseHTMLUnsafe(GlobalObject& aGlobal,
-                                                    const nsAString& aHTML);
+  MOZ_CAN_RUN_SCRIPT static already_AddRefed<Document> ParseHTMLUnsafe(
+      GlobalObject& aGlobal, const TrustedHTMLOrString& aHTML,
+      ErrorResult& aError);
 };
 
 NS_DEFINE_STATIC_IID_ACCESSOR(Document, NS_IDOCUMENT_IID)

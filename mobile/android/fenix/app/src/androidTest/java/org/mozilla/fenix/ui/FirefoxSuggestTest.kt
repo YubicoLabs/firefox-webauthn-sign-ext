@@ -100,7 +100,7 @@ class FirefoxSuggestTest : TestSetup() {
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/2348361
     // Known bug that might affect this UI test: https://bugzilla.mozilla.org/show_bug.cgi?id=1813587
-    @Ignore("Failing, see: https://bugzilla.mozilla.org/show_bug.cgi?id=1898416")
+    @Ignore("Failing, see: https://bugzilla.mozilla.org/show_bug.cgi?id=1898435")
     @SmokeTest
     @Test
     fun verifyFirefoxSuggestSponsoredSearchResultsTest() {
@@ -108,7 +108,7 @@ class FirefoxSuggestTest : TestSetup() {
             navigationToolbar {
             }.clickUrlbar {
                 typeSearch(searchTerm = sponsoredKeyWord)
-                verifySearchEngineSuggestionResults(
+                verifySponsoredSuggestionsResults(
                     rule = activityTestRule,
                     searchSuggestions = arrayOf(
                         "Firefox Suggest",
@@ -123,14 +123,14 @@ class FirefoxSuggestTest : TestSetup() {
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/2348362
     // Known bug that might affect this UI test: https://bugzilla.mozilla.org/show_bug.cgi?id=1813587
-    @Ignore("Failing, see: https://bugzilla.mozilla.org/show_bug.cgi?id=1898457")
+    @Ignore("Failing, see: https://bugzilla.mozilla.org/show_bug.cgi?id=1898435")
     @Test
     fun verifyFirefoxSuggestSponsoredSearchResultsWithPartialKeywordTest() {
         runWithCondition(TestHelper.appContext.settings().enableFxSuggest) {
             navigationToolbar {
             }.clickUrlbar {
                 typeSearch(searchTerm = sponsoredKeyWord.dropLast(1))
-                verifySearchEngineSuggestionResults(
+                verifySponsoredSuggestionsResults(
                     rule = activityTestRule,
                     searchSuggestions = arrayOf(
                         "Firefox Suggest",
@@ -145,14 +145,14 @@ class FirefoxSuggestTest : TestSetup() {
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/2348363
     // Known bug that might affect this UI test: https://bugzilla.mozilla.org/show_bug.cgi?id=1813587
-    @Ignore("Failing, see: https://bugzilla.mozilla.org/show_bug.cgi?id=1879011")
+    @Ignore("Failing, see: https://bugzilla.mozilla.org/show_bug.cgi?id=1898435")
     @Test
     fun openFirefoxSuggestSponsoredSearchResultsTest() {
         runWithCondition(TestHelper.appContext.settings().enableFxSuggest) {
             navigationToolbar {
             }.clickUrlbar {
                 typeSearch(searchTerm = sponsoredKeyWord)
-                verifySearchEngineSuggestionResults(
+                verifySponsoredSuggestionsResults(
                     rule = activityTestRule,
                     searchSuggestions = arrayOf(
                         "Firefox Suggest",
@@ -178,7 +178,7 @@ class FirefoxSuggestTest : TestSetup() {
             }.clickUrlbar {
                 typeSearch(searchTerm = sponsoredKeyWord)
                 deleteSearchKeywordCharacters(numberOfDeletionSteps = 1)
-                verifySearchEngineSuggestionResults(
+                verifySponsoredSuggestionsResults(
                     rule = activityTestRule,
                     searchSuggestions = arrayOf(
                         "Firefox Suggest",
@@ -203,7 +203,7 @@ class FirefoxSuggestTest : TestSetup() {
             navigationToolbar {
             }.clickUrlbar {
                 typeSearch(searchTerm = nonSponsoredKeyWord)
-                verifySearchEngineSuggestionResults(
+                verifySponsoredSuggestionsResults(
                     rule = activityTestRule,
                     searchSuggestions = arrayOf(
                         "Firefox Suggest",
@@ -230,7 +230,7 @@ class FirefoxSuggestTest : TestSetup() {
             navigationToolbar {
             }.clickUrlbar {
                 typeSearch(searchTerm = nonSponsoredKeyWord.dropLast(1))
-                verifySearchEngineSuggestionResults(
+                verifySponsoredSuggestionsResults(
                     rule = activityTestRule,
                     searchSuggestions = arrayOf(
                         "Firefox Suggest",
@@ -251,7 +251,7 @@ class FirefoxSuggestTest : TestSetup() {
             navigationToolbar {
             }.clickUrlbar {
                 typeSearch(searchTerm = nonSponsoredKeyWord)
-                verifySearchEngineSuggestionResults(
+                verifySponsoredSuggestionsResults(
                     rule = activityTestRule,
                     searchSuggestions = arrayOf(
                         "Firefox Suggest",

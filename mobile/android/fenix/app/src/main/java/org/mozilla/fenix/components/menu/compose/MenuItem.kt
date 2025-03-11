@@ -30,9 +30,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import mozilla.components.compose.base.Divider
+import mozilla.components.compose.base.annotation.LightDarkPreview
 import org.mozilla.fenix.R
-import org.mozilla.fenix.compose.Divider
-import org.mozilla.fenix.compose.annotation.LightDarkPreview
 import org.mozilla.fenix.compose.list.IconListItem
 import org.mozilla.fenix.compose.list.ImageListItem
 import org.mozilla.fenix.compose.list.TextListItem
@@ -58,6 +58,8 @@ private val ROUNDED_CORNER_SHAPE = RoundedCornerShape(4.dp)
  * at the end.
  * @param afterIconPainter [Painter] used to display an [IconButton] after the list item.
  * @param afterIconDescription Content description of the icon.
+ * @param modifier [Modifier] to be applied to the layout.
+ * @param labelModifier [Modifier] to be applied to the label.
  * @param onAfterIconClick Invoked when the user clicks on the icon. An [IconButton] will be
  * displayed if this is provided. Otherwise, an [Icon] will be displayed.
  */
@@ -73,6 +75,8 @@ internal fun MenuItem(
     showDivider: Boolean = false,
     afterIconPainter: Painter? = null,
     afterIconDescription: String? = null,
+    modifier: Modifier = Modifier,
+    labelModifier: Modifier = Modifier,
     onAfterIconClick: (() -> Unit)? = null,
 ) {
     val labelTextColor = getLabelTextColor(state = state)
@@ -82,7 +86,7 @@ internal fun MenuItem(
 
     IconListItem(
         label = label,
-        modifier = Modifier
+        modifier = modifier
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = LocalIndication.current,
@@ -90,9 +94,14 @@ internal fun MenuItem(
             ) { onClick?.invoke() }
             .clearAndSetSemantics {
                 role = Role.Button
-                this.contentDescription = label
+                if (description != null) {
+                    this.contentDescription = label + description
+                } else {
+                    this.contentDescription = label
+                }
             }
             .wrapContentSize(),
+        labelModifier = labelModifier,
         labelTextColor = labelTextColor,
         maxLabelLines = 2,
         description = description,
@@ -146,6 +155,7 @@ internal fun MenuTextItem(
  *
  * @param label The label in the list item.
  * @param iconPainter [Painter] used to display an [Icon] before the list item.
+ * @param iconTint Tint color to be applied on the [Icon].
  * @param enabled Controls the enabled state of the list item. When `false`, the list item will not
  * be clickable.
  * @param badgeText WebExtension badge text.
@@ -158,6 +168,7 @@ internal fun MenuTextItem(
 internal fun WebExtensionMenuItem(
     label: String,
     iconPainter: Painter,
+    iconTint: Color? = null,
     enabled: Boolean?,
     badgeText: String?,
     badgeTextColor: Int?,
@@ -168,6 +179,7 @@ internal fun WebExtensionMenuItem(
     ImageListItem(
         label = label,
         iconPainter = iconPainter,
+        iconTint = iconTint,
         enabled = enabled == true,
         modifier = modifier,
         onClick = onClick,
@@ -262,7 +274,7 @@ private fun WebExtensionMenuItemPreview() {
         ) {
             WebExtensionMenuItem(
                 label = "label",
-                iconPainter = painterResource(R.drawable.googleg_standard_color_18),
+                iconPainter = painterResource(R.drawable.mozac_ic_web_extension_default_icon),
                 enabled = true,
                 badgeText = "badgeText",
                 badgeTextColor = Color.Black.toArgb(),

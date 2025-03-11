@@ -12,6 +12,8 @@ ChromeUtils.defineESModuleGetters(this, {
   BackgroundUpdate: "resource://gre/modules/BackgroundUpdate.sys.mjs",
   UpdateListener: "resource://gre/modules/UpdateListener.sys.mjs",
   MigrationUtils: "resource:///modules/MigrationUtils.sys.mjs",
+  SelectableProfileService:
+    "resource:///modules/profiles/SelectableProfileService.sys.mjs",
   TranslationsParent: "resource://gre/actors/TranslationsParent.sys.mjs",
   WindowsLaunchOnLogin: "resource://gre/modules/WindowsLaunchOnLogin.sys.mjs",
   NimbusFeatures: "resource://nimbus/ExperimentAPI.sys.mjs",
@@ -28,7 +30,6 @@ const PREF_CONTAINERS_EXTENSION = "privacy.userContext.extension";
 // Strings to identify ExtensionSettingsStore overrides
 const CONTAINERS_KEY = "privacy.containers";
 
-const PREF_USE_SYSTEM_COLORS = "browser.display.use_system_colors";
 const PREF_CONTENT_APPEARANCE =
   "layout.css.prefers-color-scheme.content-override";
 const FORCED_COLORS_QUERY = matchMedia("(forced-colors)");
@@ -90,6 +91,9 @@ Preferences.addAll([
   { id: "browser.tabs.hoverPreview.enabled", type: "bool" },
   { id: "browser.tabs.hoverPreview.showThumbnails", type: "bool" },
 
+  { id: "sidebar.verticalTabs", type: "bool" },
+  { id: "sidebar.revamp", type: "bool" },
+
   // CFR
   {
     id: "browser.newtabpage.activity-stream.asrouter.userprefs.cfr.addons",
@@ -99,6 +103,9 @@ Preferences.addAll([
     id: "browser.newtabpage.activity-stream.asrouter.userprefs.cfr.features",
     type: "bool",
   },
+
+  // High Contrast
+  { id: "browser.display.document_color_use", type: "int" },
 
   // Fonts
   { id: "font.language.group", type: "wstring" },
@@ -289,9 +296,16 @@ var gMainPane = {
         }
 
         // approximately a "requestIdleInterval"
-        window.setTimeout(() => {
-          window.requestIdleCallback(pollForDefaultBrowser);
-        }, backoffTimes[this._backoffIndex + 1 < backoffTimes.length ? this._backoffIndex++ : backoffTimes.length - 1]);
+        window.setTimeout(
+          () => {
+            window.requestIdleCallback(pollForDefaultBrowser);
+          },
+          backoffTimes[
+            this._backoffIndex + 1 < backoffTimes.length
+              ? this._backoffIndex++
+              : backoffTimes.length - 1
+          ]
+        );
       };
 
       window.setTimeout(() => {
@@ -377,7 +391,7 @@ var gMainPane = {
         let quitKey = ShortcutUtils.prettifyShortcut(quitKeyElement);
         document.l10n.setAttributes(
           document.getElementById("warnOnQuitKey"),
-          "confirm-on-quit-with-key",
+          "ask-on-quit-with-key",
           { quitKey }
         );
       } else {
@@ -427,28 +441,16 @@ var gMainPane = {
         "command",
         gMainPane.onWindowsLaunchOnLoginChange
       );
-      // We do a check here for startWithLastProfile as we could
-      // have disabled the pref for the user before they're ever
-      // exposed to the experiment on a new profile.
-      // If we're using MSIX, we don't show the checkbox as MSIX
-      // can't write to the registry.
       if (
-        Cc["@mozilla.org/toolkit/profile-service;1"].getService(
-          Ci.nsIToolkitProfileService
-        ).startWithLastProfile
+        Services.prefs.getBoolPref(
+          "browser.startup.windowsLaunchOnLogin.enabled",
+          false
+        )
       ) {
+        document.getElementById("windowsLaunchOnLoginBox").hidden = false;
         NimbusFeatures.windowsLaunchOnLogin.recordExposureEvent({
           once: true,
         });
-
-        if (
-          Services.prefs.getBoolPref(
-            "browser.startup.windowsLaunchOnLogin.enabled",
-            false
-          )
-        ) {
-          document.getElementById("windowsLaunchOnLoginBox").hidden = false;
-        }
       }
     }
     gMainPane.updateBrowserStartupUI =
@@ -492,6 +494,11 @@ var gMainPane = {
     );
     setEventListener("advancedFonts", "command", gMainPane.configureFonts);
     setEventListener("colors", "command", gMainPane.configureColors);
+    Preferences.get("browser.display.document_color_use").on(
+      "change",
+      gMainPane.updateColorsButton.bind(gMainPane)
+    );
+    gMainPane.updateColorsButton();
     Preferences.get("layers.acceleration.disabled").on(
       "change",
       gMainPane.updateHardwareAcceleration.bind(gMainPane)
@@ -532,6 +539,16 @@ var gMainPane = {
     ) {
       let backupGroup = document.getElementById("dataBackupGroup");
       backupGroup.removeAttribute("data-hidden-from-search");
+    }
+
+    if (!SelectableProfileService.isEnabled) {
+      // Don't want to rely on .hidden for the toplevel groupbox because
+      // of the pane hiding/showing code potentially interfering:
+      document
+        .getElementById("profilesGroup")
+        .setAttribute("style", "display: none !important");
+    } else {
+      setEventListener("manage-profiles", "command", gMainPane.manageProfiles);
     }
 
     // For media control toggle button, we support it on Windows, macOS and
@@ -687,16 +704,33 @@ var gMainPane = {
         let launchOnLoginCheckbox = document.getElementById(
           "windowsLaunchOnLogin"
         );
-        WindowsLaunchOnLogin.getLaunchOnLoginEnabled().then(enabled => {
-          launchOnLoginCheckbox.checked = enabled;
-        });
-        WindowsLaunchOnLogin.getLaunchOnLoginApproved().then(
-          approvedByWindows => {
-            launchOnLoginCheckbox.disabled = !approvedByWindows;
-            document.getElementById("windowsLaunchOnLoginDisabledBox").hidden =
-              approvedByWindows;
-          }
-        );
+
+        let startWithLastProfile = Cc[
+          "@mozilla.org/toolkit/profile-service;1"
+        ].getService(Ci.nsIToolkitProfileService).startWithLastProfile;
+
+        // Grey out the launch on login checkbox if startWithLastProfile is false
+        document.getElementById(
+          "windowsLaunchOnLoginDisabledProfileBox"
+        ).hidden = startWithLastProfile;
+        launchOnLoginCheckbox.disabled = !startWithLastProfile;
+
+        if (!startWithLastProfile) {
+          launchOnLoginCheckbox.checked = false;
+        } else {
+          WindowsLaunchOnLogin.getLaunchOnLoginEnabled().then(enabled => {
+            launchOnLoginCheckbox.checked = enabled;
+          });
+
+          WindowsLaunchOnLogin.getLaunchOnLoginApproved().then(
+            approvedByWindows => {
+              launchOnLoginCheckbox.disabled = !approvedByWindows;
+              document.getElementById(
+                "windowsLaunchOnLoginDisabledBox"
+              ).hidden = approvedByWindows;
+            }
+          );
+        }
 
         // On Windows, the Application Update setting is an installation-
         // specific preference, not a profile-specific one. Show a warning to
@@ -705,9 +739,8 @@ var gMainPane = {
           "updateSettingsContainer"
         );
         updateContainer.classList.add("updateSettingCrossUserWarningContainer");
-        document.getElementById(
-          "updateSettingCrossUserWarningDesc"
-        ).hidden = false;
+        document.getElementById("updateSettingCrossUserWarningDesc").hidden =
+          false;
       }
     }
 
@@ -916,9 +949,8 @@ var gMainPane = {
     if (!(await FxAccounts.canConnectAccount())) {
       return;
     }
-    let url = await FxAccounts.config.promiseConnectAccountURI(
-      "dev-edition-setup"
-    );
+    let url =
+      await FxAccounts.config.promiseConnectAccountURI("dev-edition-setup");
     let accountsTab = win.gBrowser.addWebTab(url);
     win.gBrowser.selectedTab = accountsTab;
   },
@@ -1018,6 +1050,11 @@ var gMainPane = {
     document.getElementById("zoomBox").hidden = false;
   },
 
+  updateColorsButton() {
+    document.getElementById("colors").disabled =
+      Preferences.get("browser.display.document_color_use").value != 2;
+  },
+
   /**
    * Initialize the translations view.
    */
@@ -1058,9 +1095,8 @@ var gMainPane = {
           await TranslationsParent.getSupportedLanguages();
         const languageList =
           TranslationsParent.getLanguageList(supportedLanguages);
-        const downloadPhases = await TranslationsState.createDownloadPhases(
-          languageList
-        );
+        const downloadPhases =
+          await TranslationsState.createDownloadPhases(languageList);
 
         if (supportedLanguages.languagePairs.length === 0) {
           throw new Error(
@@ -1258,7 +1294,6 @@ var gMainPane = {
         }
         this.updateAllButtons();
         this.elements.installList.appendChild(listFragment);
-        this.elements.installList.hidden = false;
       }
 
       /**
@@ -1397,12 +1432,6 @@ var gMainPane = {
   },
 
   initPrimaryBrowserLanguageUI() {
-    // Enable telemetry.
-    Services.telemetry.setEventRecordingEnabled(
-      "intl.ui.browserLanguage",
-      true
-    );
-
     // This will register the "command" listener.
     let menulist = document.getElementById("primaryBrowserLocale");
     new SelectionChangedMenulist(menulist, event => {
@@ -1779,6 +1808,15 @@ var gMainPane = {
       let setDefaultPane = document.getElementById("setDefaultPane");
       setDefaultPane.classList.toggle("is-default", isDefault);
     }
+  },
+
+  /**
+   *  Shows a subdialog containing the profile selector page.
+   */
+  manageProfiles() {
+    SelectableProfileService.maybeSetupDataStore().then(() => {
+      gSubDialog.open("about:profilemanager");
+    });
   },
 
   /**
@@ -2345,12 +2383,10 @@ var gMainPane = {
     if (Services.appinfo.fissionAutostart) {
       document.getElementById("limitContentProcess").hidden = true;
       document.getElementById("contentProcessCount").hidden = true;
-      document.getElementById(
-        "contentProcessCountEnabledDescription"
-      ).hidden = true;
-      document.getElementById(
-        "contentProcessCountDisabledDescription"
-      ).hidden = true;
+      document.getElementById("contentProcessCountEnabledDescription").hidden =
+        true;
+      document.getElementById("contentProcessCountDisabledDescription").hidden =
+        true;
       return;
     }
     if (Services.appinfo.browserTabsRemoteAutostart) {
@@ -2369,21 +2405,17 @@ var gMainPane = {
 
       document.getElementById("limitContentProcess").disabled = false;
       document.getElementById("contentProcessCount").disabled = false;
-      document.getElementById(
-        "contentProcessCountEnabledDescription"
-      ).hidden = false;
-      document.getElementById(
-        "contentProcessCountDisabledDescription"
-      ).hidden = true;
+      document.getElementById("contentProcessCountEnabledDescription").hidden =
+        false;
+      document.getElementById("contentProcessCountDisabledDescription").hidden =
+        true;
     } else {
       document.getElementById("limitContentProcess").disabled = true;
       document.getElementById("contentProcessCount").disabled = true;
-      document.getElementById(
-        "contentProcessCountEnabledDescription"
-      ).hidden = true;
-      document.getElementById(
-        "contentProcessCountDisabledDescription"
-      ).hidden = false;
+      document.getElementById("contentProcessCountEnabledDescription").hidden =
+        true;
+      document.getElementById("contentProcessCountDisabledDescription").hidden =
+        false;
     }
   },
 
@@ -4252,7 +4284,6 @@ const AppearanceChooser = {
     this.warning = document.getElementById("web-appearance-override-warning");
 
     FORCED_COLORS_QUERY.addEventListener("change", this);
-    Services.prefs.addObserver(PREF_USE_SYSTEM_COLORS, this);
     Services.obs.addObserver(this, "look-and-feel-changed");
     this._update();
   },
@@ -4288,7 +4319,6 @@ const AppearanceChooser = {
   },
 
   destroy() {
-    Services.prefs.removeObserver(PREF_USE_SYSTEM_COLORS, this);
     Services.obs.removeObserver(this, "look-and-feel-changed");
     FORCED_COLORS_QUERY.removeEventListener("change", this);
   },
@@ -4323,10 +4353,6 @@ const AppearanceChooser = {
   },
 
   _updateWarning() {
-    let forcingColorsAndNoColorSchemeSupport =
-      FORCED_COLORS_QUERY.matches &&
-      (AppConstants.platform == "win" ||
-        !Services.prefs.getBoolPref(PREF_USE_SYSTEM_COLORS));
-    this.warning.hidden = !forcingColorsAndNoColorSchemeSupport;
+    this.warning.hidden = !FORCED_COLORS_QUERY.matches;
   },
 };

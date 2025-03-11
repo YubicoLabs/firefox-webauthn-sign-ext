@@ -5,9 +5,9 @@
 import React, { useEffect } from "react";
 
 import { Localized } from "./MSLocalized";
+import { AboutWelcomeUtils } from "../lib/aboutwelcome-utils.mjs";
 
-// This component was formerly "Themes" and continues to support theme and
-// wallpaper pickers.
+// This component was formerly "Themes" and continues to support theme
 export const SingleSelect = ({
   activeSingleSelect,
   activeTheme,
@@ -17,35 +17,66 @@ export const SingleSelect = ({
 }) => {
   const category = content.tiles?.category?.type || content.tiles?.type;
   const isSingleSelect = category === "single-select";
+
+  const autoTriggerAllowed = itemAction => {
+    // Currently only enabled for sidebar experiment prefs
+    const allowedActions = ["SET_PREF"];
+    const allowedPrefs = [
+      "sidebar.revamp",
+      "sidebar.verticalTabs",
+      "sidebar.visibility",
+    ];
+    const checkAction = action => {
+      if (!allowedActions.includes(action.type)) {
+        return false;
+      }
+      if (
+        action.type === "SET_PREF" &&
+        !allowedPrefs.includes(action.data?.pref.name)
+      ) {
+        return false;
+      }
+      return true;
+    };
+    if (itemAction.type === "MULTI_ACTION") {
+      // Only allow autoTrigger if all actions are allowed
+      return !itemAction.data.actions.some(action => !checkAction(action));
+    }
+    return checkAction(itemAction);
+  };
+
   // When screen renders for first time or user navigates back, update state to
   // check default option.
   useEffect(() => {
     if (isSingleSelect && !activeSingleSelect) {
       let newActiveSingleSelect =
-        content.tiles?.selected || content.tiles.data[0].id;
+        content.tiles?.selected || content.tiles?.data[0].id;
       setActiveSingleSelect(newActiveSingleSelect);
+      let selectedTile = content.tiles?.data.find(
+        opt => opt.id === newActiveSingleSelect
+      );
+      // If applicable, automatically trigger the action for the default
+      // selected tile.
+      if (
+        isSingleSelect &&
+        content.tiles?.autoTrigger &&
+        autoTriggerAllowed(selectedTile?.action)
+      ) {
+        handleAction({ currentTarget: { value: selectedTile.id } });
+      }
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const getIconStyles = (icon = {}) => {
-    const CONFIGURABLE_STYLES = [
-      "background",
-      "borderRadius",
-      "height",
-      "marginBlock",
-      "marginInline",
-      "paddingBlock",
-      "paddingInline",
-      "width",
-    ];
-    let styles = {};
-    Object.keys(icon).forEach(styleProp => {
-      if (CONFIGURABLE_STYLES.includes(styleProp)) {
-        styles[styleProp] = icon[styleProp];
-      }
-    });
-    return styles;
-  };
+  const CONFIGURABLE_STYLES = [
+    "background",
+    "borderRadius",
+    "height",
+    "marginBlock",
+    "marginInline",
+    "paddingBlock",
+    "paddingInline",
+    "width",
+  ];
 
   return (
     <div className="tiles-single-select-container">
@@ -101,6 +132,7 @@ export const SingleSelect = ({
                     className={`select-item ${type}`}
                     title={value}
                     onKeyDown={e => handleKeyDown(e)}
+                    style={icon?.width ? { minWidth: icon.width } : {}}
                   >
                     {flair ? (
                       <Localized text={valOrObj(flair.text)}>
@@ -121,7 +153,10 @@ export const SingleSelect = ({
                     </Localized>
                     <div
                       className={`icon ${selected ? " selected" : ""} ${value}`}
-                      style={getIconStyles(icon)}
+                      style={AboutWelcomeUtils.getValidStyle(
+                        icon,
+                        CONFIGURABLE_STYLES
+                      )}
                     />
                     <Localized text={label}>
                       <div className="text" />

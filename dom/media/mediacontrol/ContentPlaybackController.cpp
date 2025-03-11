@@ -9,7 +9,6 @@
 #include "mozilla/dom/MediaSession.h"
 #include "mozilla/dom/Navigator.h"
 #include "mozilla/dom/WindowContext.h"
-#include "mozilla/Telemetry.h"
 #include "nsFocusManager.h"
 
 // avoid redefined macro in unified build
@@ -42,12 +41,12 @@ MediaSession* ContentPlaybackController::GetMediaSession() const {
 }
 
 void ContentPlaybackController::NotifyContentMediaControlKeyReceiver(
-    MediaControlKey aKey) {
+    MediaControlKey aKey, Maybe<SeekDetails> aDetails) {
   if (RefPtr<ContentMediaControlKeyReceiver> receiver =
           ContentMediaControlKeyReceiver::Get(mBC)) {
     LOG("Handle '%s' in default behavior for BC %" PRIu64,
         GetEnumString(aKey).get(), mBC->Id());
-    receiver->HandleMediaKey(aKey);
+    receiver->HandleMediaKey(aKey, aDetails);
   }
 }
 
@@ -124,8 +123,12 @@ void ContentPlaybackController::SeekBackward(double aSeekOffset) {
   MediaSessionActionDetails details;
   details.mAction = MediaSessionAction::Seekbackward;
   details.mSeekOffset.Construct(aSeekOffset);
+  RefPtr<MediaSession> session = GetMediaSession();
   if (IsMediaSessionActionSupported(details.mAction)) {
     NotifyMediaSession(details);
+  } else if (!GetActiveMediaSessionId() || (session && session->IsActive())) {
+    NotifyContentMediaControlKeyReceiver(MediaControlKey::Seekbackward,
+                                         Some(SeekDetails(aSeekOffset)));
   }
 }
 
@@ -133,8 +136,12 @@ void ContentPlaybackController::SeekForward(double aSeekOffset) {
   MediaSessionActionDetails details;
   details.mAction = MediaSessionAction::Seekforward;
   details.mSeekOffset.Construct(aSeekOffset);
+  RefPtr<MediaSession> session = GetMediaSession();
   if (IsMediaSessionActionSupported(details.mAction)) {
     NotifyMediaSession(details);
+  } else if (!GetActiveMediaSessionId() || (session && session->IsActive())) {
+    NotifyContentMediaControlKeyReceiver(MediaControlKey::Seekforward,
+                                         Some(SeekDetails(aSeekOffset)));
   }
 }
 
@@ -163,11 +170,15 @@ void ContentPlaybackController::SeekTo(double aSeekTime, bool aFastSeek) {
   MediaSessionActionDetails details;
   details.mAction = MediaSessionAction::Seekto;
   details.mSeekTime.Construct(aSeekTime);
+  RefPtr<MediaSession> session = GetMediaSession();
   if (aFastSeek) {
     details.mFastSeek.Construct(aFastSeek);
   }
   if (IsMediaSessionActionSupported(details.mAction)) {
     NotifyMediaSession(details);
+  } else if (!GetActiveMediaSessionId() || (session && session->IsActive())) {
+    NotifyContentMediaControlKeyReceiver(
+        MediaControlKey::Seekto, Some(SeekDetails(aSeekTime, aFastSeek)));
   }
 }
 

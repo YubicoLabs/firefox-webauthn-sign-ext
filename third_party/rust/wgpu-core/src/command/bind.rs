@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use alloc::{boxed::Box, sync::Arc, vec::Vec};
+
+use arrayvec::ArrayVec;
+use thiserror::Error;
 
 use crate::{
     binding_model::{BindGroup, LateMinBufferBindingSizeMismatch, PipelineLayout},
@@ -7,10 +10,14 @@ use crate::{
     resource::{Labeled, ResourceErrorIdent},
 };
 
-use arrayvec::ArrayVec;
-use thiserror::Error;
-
 mod compat {
+    use alloc::{
+        string::{String, ToString as _},
+        sync::{Arc, Weak},
+        vec::Vec,
+    };
+    use core::{num::NonZeroU32, ops::Range};
+
     use arrayvec::ArrayVec;
     use thiserror::Error;
     use wgt::{BindingType, ShaderStages};
@@ -19,11 +26,6 @@ mod compat {
         binding_model::BindGroupLayout,
         error::MultiError,
         resource::{Labeled, ParentDevice, ResourceErrorIdent},
-    };
-    use std::{
-        num::NonZeroU32,
-        ops::Range,
-        sync::{Arc, Weak},
     };
 
     pub(crate) enum Error {
@@ -200,13 +202,17 @@ mod compat {
                 entries: (0..hal::MAX_BIND_GROUPS).map(|_| Entry::empty()).collect(),
             }
         }
-        fn make_range(&self, start_index: usize) -> Range<usize> {
+
+        pub fn num_valid_entries(&self) -> usize {
             // find first incompatible entry
-            let end = self
-                .entries
+            self.entries
                 .iter()
                 .position(|e| e.is_incompatible())
-                .unwrap_or(self.entries.len());
+                .unwrap_or(self.entries.len())
+        }
+
+        fn make_range(&self, start_index: usize) -> Range<usize> {
+            let end = self.num_valid_entries();
             start_index..end.max(start_index)
         }
 
@@ -399,11 +405,19 @@ impl Binder {
         &self.payloads[bind_range]
     }
 
-    pub(super) fn list_active<'a>(&'a self) -> impl Iterator<Item = &'a Arc<BindGroup>> + '_ {
+    pub(super) fn list_active<'a>(&'a self) -> impl Iterator<Item = &'a Arc<BindGroup>> + 'a {
         let payloads = &self.payloads;
         self.manager
             .list_active()
             .map(move |index| payloads[index].group.as_ref().unwrap())
+    }
+
+    #[cfg(feature = "indirect-validation")]
+    pub(super) fn list_valid<'a>(&'a self) -> impl Iterator<Item = (usize, &'a EntryPayload)> + 'a {
+        self.payloads
+            .iter()
+            .take(self.manager.num_valid_entries())
+            .enumerate()
     }
 
     pub(super) fn check_compatibility<T: Labeled>(

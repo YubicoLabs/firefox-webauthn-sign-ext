@@ -377,6 +377,78 @@ pwmgr:
     extra_keys: *pwmgr_reauthenticate_extra
     telemetry_mirror: Pwmgr_Reauthenticate_OsAuth
 
+  prompt_shown_os_reauth:
+    type: event
+    description: >
+      Captures the method of user interaction initiating the prompt and the result of the prompt.
+      Possible triggers include:
+        "copy_logins" when a user copies a password in about:logins
+        "copy_cpm" when a user copies a password in contextual password manager
+        "edit_logins" when a user edits a login in about:logins
+        "edit_cpm" when a user edits a login in contextual password manager
+        "export_logins" when a user exports all passwords in about:logins
+        "export_cpm" when a user exports all passwords in contextual password manager
+        "reveal_logins" when a user reveals a password a login in about:logins
+        "reveal_cpm" when a user reveals a password a login in contextual password manager
+        "toggle_pref_primary_password" when a user toggles "Use a Primary Password" in about:preferences
+        "toggle_pref_os_auth" when a user toggles "Passwords / Require device sign in" in about:preferences
+      Possible results include:
+        "success" should be used when the user is shown the OS Auth prompt and successfully authenticates.
+        "fail_user_canceled" should be used when the user cancels the authentication prompt. The user may or may not have provided an incorrect password before cancelling.
+        "fail_error" should be used when an unexpected exception is encountered.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1915672
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1915672
+    notification_emails:
+      - autofill@lists.mozilla.org
+      - passwords-dev@mozilla.org
+    expires: never
+    extra_keys:
+      trigger:
+        description: >
+          Which user interaction triggered the event.
+        type: string
+      result:
+        description: >
+          The result of the OS Authentication.
+        type: string
+
+  require_os_reauth_toggle:
+    type: event
+    description: >
+      Captures the state of the toggle after the change was made.
+      Toggle states include:
+        True means the OS Auth preference is enabeled.
+        False means it is disabled.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1915672
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1915672
+    notification_emails:
+      - autofill@lists.mozilla.org
+      - passwords-dev@mozilla.org
+    expires: never
+    extra_keys:
+      toggle_state:
+        description: >
+          The toggle state after the event.
+        type: boolean
+
+  os_auth_enabled:
+      type: boolean
+      description: >
+          Check at startup whether OS Authentication has been enabled for passwords.
+      bugs:
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1915672
+      data_reviews:
+        - https://bugzilla.mozilla.org/show_bug.cgi?id=1915672
+      notification_emails:
+        - autofill@lists.mozilla.org
+        - passwords-dev@mozilla.org
+      expires: never
+
+
   open_management_aboutprotections:
     type: event
     description: >
@@ -728,6 +800,60 @@ pwmgr:
         type: string
     telemetry_mirror: Pwmgr_Sort_List
 
+  potentially_breached_passwords:
+    type: quantity
+    description: >
+      The number of potentially breached passwords, as determined by
+      LoginBreaches.getPotentialBreachesByLoginGUID.
+      This metric was generated to correspond to the Legacy Telemetry
+      scalar pwmgr.potentially_breached_passwords.
+    bugs:
+      - https://bugzil.la/1577808
+    data_reviews:
+      - https://bugzil.la/1577808
+    notification_emails:
+      - seceng-telemetry@mozilla.com
+      - passwords-dev@mozilla.org
+    expires: never
+    unit: passwords
+    telemetry_mirror: PWMGR_POTENTIALLY_BREACHED_PASSWORDS
+    no_lint:
+      - UNIT_IN_NAME
+
+  num_saved_passwords:
+    type: quantity
+    unit: passwords
+    lifetime: application
+    description: |
+      The number of saved logins, including those that cannot be decrypted.
+      Similar to the legacy telemetry histogram PWMGR_NUM_SAVED_PASSWORDS.
+    bugs:
+      - https://bugzil.la/1937186
+    data_reviews:
+      - https://bugzil.la/1937186
+    notification_emails:
+      - passwords-dev@mozilla.org
+    expires: never
+    no_lint:
+      - UNIT_IN_NAME
+
+  saving_enabled:
+    type: boolean
+    lifetime: application
+    description: |
+      Whether password saving is enabled globally.
+      Tracks the pref `signon.rememberSignons`.
+    metadata:
+      permit_non_commutative_operations_over_ipc: true
+    bugs:
+      - https://bugzil.la/1937186
+    data_reviews:
+      - https://bugzil.la/1937186
+    notification_emails:
+      - passwords-dev@mozilla.org
+    expires: never
+
+
 form_autocomplete:
   show_logins:
     type: event
@@ -791,3 +917,222 @@ form_autocomplete:
           Length of the text in the field that triggered these results.
         type: string
     telemetry_mirror: Form_autocomplete_Show_Logins
+
+relay_integration:
+  enabled_pref_change:
+    type: event
+    description: >
+      Checkbox in the settings page to enable/disable relay
+      This event was generated to correspond to the Legacy Telemetry event
+      relay_integration.enabled#pref_change.
+    bugs: &relay_integration_enabled_bugs
+      - https://bugzil.la/1804502
+    data_reviews: &relay_integration_enabled_data_reviews
+      - https://bugzil.la/1804502
+    notification_emails: &relay_integration_enabled_emails
+      - passwords-dev@mozilla.org
+    expires: never
+    telemetry_mirror: Relay_integration_Enabled_PrefChange
+
+  disabled_pref_change:
+    type: event
+    description: >
+      Checkbox in the settings page to enable/disable relay
+      This event was generated to correspond to the Legacy Telemetry event
+      relay_integration.disabled#pref_change.
+    bugs: *relay_integration_enabled_bugs
+    data_reviews: *relay_integration_enabled_data_reviews
+    notification_emails: *relay_integration_enabled_emails
+    expires: never
+    telemetry_mirror: Relay_integration_Disabled_PrefChange
+
+  shown_offer_relay:
+    type: event
+    description: >
+      Firefox relay integration autocomplete popup
+      This event was generated to correspond to the Legacy Telemetry event
+      relay_integration.shown#offer_relay.
+    bugs: &relay_integration_shown_bugs
+      - https://bugzil.la/1804502
+    data_reviews: &relay_integration_shown_data_reviews
+      - https://bugzil.la/1804502
+    notification_emails: &relay_integration_shown_emails
+      - passwords-dev@mozilla.org
+    expires: never
+    extra_keys: &relay_integration_offer_relay
+      value:
+        description: >
+          The `value` of the event. Mirrors to the Legacy Telemetry
+          event's `value` parameter.
+        type: string
+      scenario:
+        description: >
+          Describes the auth context for now only SignupForm is supported
+        type: string
+    telemetry_mirror: Relay_integration_Shown_OfferRelay
+
+  clicked_offer_relay:
+    type: event
+    description: >
+      Firefox relay integration autocomplete popup
+      This event was generated to correspond to the Legacy Telemetry event
+      relay_integration.clicked#offer_relay.
+    bugs: *relay_integration_shown_bugs
+    data_reviews: *relay_integration_shown_data_reviews
+    notification_emails: *relay_integration_shown_emails
+    expires: never
+    extra_keys: *relay_integration_offer_relay
+    telemetry_mirror: Relay_integration_Clicked_OfferRelay
+
+  shown_fill_username:
+    type: event
+    description: >
+      Firefox relay integration autocomplete popup
+      This event was generated to correspond to the Legacy Telemetry event
+      relay_integration.shown#fill_username.
+    bugs: *relay_integration_shown_bugs
+    data_reviews: *relay_integration_shown_data_reviews
+    notification_emails: *relay_integration_shown_emails
+    expires: never
+    extra_keys: &relay_integration_fill_username
+      value:
+        description: >
+          The `value` of the event. Mirrors to the Legacy Telemetry
+          event's `value` parameter.
+        type: string
+      error_code:
+        description: >
+          The error code after users click the fill username autocomplete entry. Only present if the object is "fill_username". When the event is successful, the error_code  is 0.
+
+        type: string
+    telemetry_mirror: Relay_integration_Shown_FillUsername
+
+  clicked_fill_username:
+    type: event
+    description: >
+      Firefox relay integration autocomplete popup
+      This event was generated to correspond to the Legacy Telemetry event
+      relay_integration.clicked#fill_username.
+    bugs: *relay_integration_shown_bugs
+    data_reviews: *relay_integration_shown_data_reviews
+    notification_emails: *relay_integration_shown_emails
+    expires: never
+    extra_keys: *relay_integration_fill_username
+    telemetry_mirror: Relay_integration_Clicked_FillUsername
+
+  shown_reuse_panel:
+    type: event
+    description: >
+      Panels to show the state of the email alias generation
+      This event was generated to correspond to the Legacy Telemetry event
+      relay_integration.shown#reuse_panel.
+    bugs: &relay_integration_reuse_panel_bugs
+      - https://bugzil.la/1804502
+    data_reviews: &relay_integration_reuse_panel_data_reviews
+      - https://bugzil.la/1804502
+    notification_emails: &relay_integration_reuse_panel_emails
+      - passwords-dev@mozilla.org
+    expires: never
+    extra_keys:
+      value:
+        description: >
+          The `value` of the event. Mirrors to the Legacy Telemetry
+          event's `value` parameter.
+        type: string
+      error_code:
+        description: >
+          The error code after users click the email alias generation panel. When the event is successful, the error_code  is 0.
+
+        type: string
+    telemetry_mirror: Relay_integration_Shown_ReusePanel
+
+  get_unlimited_masks_reuse_panel:
+    type: event
+    description: >
+      Panels to show the state of the email alias generation
+      This event was generated to correspond to the Legacy Telemetry event
+      relay_integration.get_unlimited_masks#reuse_panel.
+    bugs: *relay_integration_reuse_panel_bugs
+    data_reviews: *relay_integration_reuse_panel_data_reviews
+    notification_emails: *relay_integration_reuse_panel_emails
+    expires: never
+    extra_keys: &relay_integration_reuse_panel_extra
+      value:
+        description: >
+          The `value` of the event. Mirrors to the Legacy Telemetry
+          event's `value` parameter.
+        type: string
+    telemetry_mirror: Relay_integration_GetUnlimitedMasks_ReusePanel
+
+  reuse_mask_reuse_panel:
+    type: event
+    description: >
+      Panels to show the state of the email alias generation
+      This event was generated to correspond to the Legacy Telemetry event
+      relay_integration.reuse_mask#reuse_panel.
+    bugs: *relay_integration_reuse_panel_bugs
+    data_reviews: *relay_integration_reuse_panel_data_reviews
+    notification_emails: *relay_integration_reuse_panel_emails
+    expires: never
+    extra_keys: *relay_integration_reuse_panel_extra
+    telemetry_mirror: Relay_integration_ReuseMask_ReusePanel
+
+  shown_opt_in_panel:
+    type: event
+    description: >
+      Panel to opt-in Firefox Relay Integration
+      This event was generated to correspond to the Legacy Telemetry event
+      relay_integration.shown#opt_in_panel.
+    bugs: &relay_integration_opt_in_panel_bugs
+      - https://bugzil.la/1804502
+    data_reviews: &relay_integration_opt_in_panel_data_reviews
+      - https://bugzil.la/1804502
+    notification_emails: &relay_integration_opt_in_panel_emails
+      - passwords-dev@mozilla.org
+    expires: never
+    extra_keys: &relay_integration_opt_in_panel_extra
+      value:
+        description: >
+          The `value` of the event. Mirrors to the Legacy Telemetry
+          event's `value` parameter.
+        type: string
+    telemetry_mirror: Relay_integration_Shown_OptInPanel
+
+  enabled_opt_in_panel:
+    type: event
+    description: >
+      Panel to opt-in Firefox Relay Integration
+      This event was generated to correspond to the Legacy Telemetry event
+      relay_integration.enabled#opt_in_panel.
+    bugs: *relay_integration_opt_in_panel_bugs
+    data_reviews: *relay_integration_opt_in_panel_data_reviews
+    notification_emails: *relay_integration_opt_in_panel_emails
+    expires: never
+    extra_keys: *relay_integration_opt_in_panel_extra
+    telemetry_mirror: Relay_integration_Enabled_OptInPanel
+
+  postponed_opt_in_panel:
+    type: event
+    description: >
+      Panel to opt-in Firefox Relay Integration
+      This event was generated to correspond to the Legacy Telemetry event
+      relay_integration.postponed#opt_in_panel.
+    bugs: *relay_integration_opt_in_panel_bugs
+    data_reviews: *relay_integration_opt_in_panel_data_reviews
+    notification_emails: *relay_integration_opt_in_panel_emails
+    expires: never
+    extra_keys: *relay_integration_opt_in_panel_extra
+    telemetry_mirror: Relay_integration_Postponed_OptInPanel
+
+  disabled_opt_in_panel:
+    type: event
+    description: >
+      Panel to opt-in Firefox Relay Integration
+      This event was generated to correspond to the Legacy Telemetry event
+      relay_integration.disabled#opt_in_panel.
+    bugs: *relay_integration_opt_in_panel_bugs
+    data_reviews: *relay_integration_opt_in_panel_data_reviews
+    notification_emails: *relay_integration_opt_in_panel_emails
+    expires: never
+    extra_keys: *relay_integration_opt_in_panel_extra
+    telemetry_mirror: Relay_integration_Disabled_OptInPanel

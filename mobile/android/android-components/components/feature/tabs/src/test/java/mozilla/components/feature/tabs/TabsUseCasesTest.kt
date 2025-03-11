@@ -159,7 +159,7 @@ class TabsUseCasesTest {
         store.waitUntilIdle()
         assertEquals(1, store.state.tabs.size)
         assertEquals("https://www.mozilla.org", store.state.tabs[0].content.url)
-        verify(engineSession, never()).loadUrl(anyString(), any(), any(), any())
+        verify(engineSession, never()).loadUrl(anyString(), any(), any(), any(), any())
     }
 
     @Test
@@ -298,7 +298,7 @@ class TabsUseCasesTest {
 
     @Test
     fun `GIVEN a tab is added with a parent loadURL will include the parent`() {
-        val parentTabId = tabsUseCases.addTab(url = "https://www.firefox.com")
+        val parentTabId = tabsUseCases.addTab(url = "https://www.firefox.com", selectTab = true)
         store.waitUntilIdle()
         dispatcher.scheduler.advanceUntilIdle()
 

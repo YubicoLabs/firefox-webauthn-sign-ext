@@ -56,23 +56,23 @@ void DOMSecurityMonitor::AuditParsingOfHTMLXMLFragments(
       nsLiteralCString("chrome://devtools/content/shared/sourceeditor/"
                        "codemirror/codemirror.bundle.js"),
       nsLiteralCString(
-          "resource://activity-stream/data/content/activity-stream.bundle.js"),
+          "resource://newtab/data/content/activity-stream.bundle.js"),
       nsLiteralCString("resource://devtools/client/debugger/src/components/"
                        "Editor/Breakpoint.js"),
       nsLiteralCString("resource://devtools/client/debugger/src/components/"
                        "Editor/ColumnBreakpoint.js"),
       nsLiteralCString(
           "resource://devtools/client/shared/vendor/fluent-react.js"),
-      "resource://devtools/client/shared/vendor/react-dom.js"_ns,
+      "resource://devtools/client/shared/vendor/react-dom.mjs"_ns,
       nsLiteralCString(
-          "resource://devtools/client/shared/vendor/react-dom-dev.js"),
+          "resource://devtools/client/shared/vendor/react-dom-dev.mjs"),
       nsLiteralCString(
           "resource://devtools/client/shared/widgets/FilterWidget.js"),
       nsLiteralCString("resource://devtools/client/shared/widgets/tooltip/"
                        "inactive-css-tooltip-helper.js"),
       "resource://devtools/client/shared/widgets/Spectrum.js"_ns,
       "resource://gre/modules/narrate/VoiceSelect.sys.mjs"_ns,
-      "resource://normandy-vendor/ReactDOM.js"_ns,
+      "chrome://global/content/vendor/react-dom.js"_ns,
       // ------------------------------------------------------------------
       // test pages
       // ------------------------------------------------------------------

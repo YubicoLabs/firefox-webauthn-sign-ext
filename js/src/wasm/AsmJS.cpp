@@ -2123,7 +2123,7 @@ class MOZ_STACK_CLASS ModuleValidator : public ModuleValidatorShared {
                                                            : Shareable::False;
       limits.initial = memory_.minPages();
       limits.maximum = Nothing();
-      limits.indexType = IndexType::I32;
+      limits.addressType = AddressType::I32;
       if (!codeMeta_->memories.append(MemoryDesc(limits))) {
         return nullptr;
       }
@@ -2185,9 +2185,9 @@ class MOZ_STACK_CLASS ModuleValidator : public ModuleValidatorShared {
       codeSectionSize += func.bytes().length();
     }
 
-    codeMeta_->codeSection.emplace();
-    codeMeta_->codeSection->start = 0;
-    codeMeta_->codeSection->size = codeSectionSize;
+    codeMeta_->codeSectionRange.emplace();
+    codeMeta_->codeSectionRange->start = 0;
+    codeMeta_->codeSectionRange->size = codeSectionSize;
 
     // asm.js does not have any wasm bytecode to save; view-source is
     // provided through the ScriptSource.
@@ -3267,6 +3267,10 @@ static bool CheckArguments(FunctionValidatorShared& f, ParseNode** stmtIter,
     }
   }
 
+  if (argTypes->length() > MaxParams) {
+    return f.fail(stmt, "too many parameters");
+  }
+
   *stmtIter = stmt;
   return true;
 }
@@ -3987,6 +3991,9 @@ static bool CheckCallArgs(FunctionValidator<Unit>& f, ParseNode* callNode,
       return false;
     }
   }
+  if (args->length() > MaxParams) {
+    return f.fail(callNode, "too many parameters");
+  }
   return true;
 }
 
@@ -4003,10 +4010,6 @@ template <typename Unit>
 static bool CheckFunctionSignature(ModuleValidator<Unit>& m, ParseNode* usepn,
                                    FuncType&& sig, TaggedParserAtomIndex name,
                                    ModuleValidatorShared::Func** func) {
-  if (sig.args().length() > MaxParams) {
-    return m.failf(usepn, "too many parameters");
-  }
-
   ModuleValidatorShared::Func* existing = m.lookupFuncDef(name);
   if (!existing) {
     if (!CheckModuleLevelName(m, usepn, name)) {
@@ -7233,7 +7236,7 @@ bool js::IsAsmJSStrictModeModuleOrFunction(JSFunction* fun) {
   }
 
   if (IsAsmJSFunction(fun)) {
-    return ExportedFunctionToInstance(fun).codeMetaForAsmJS()->asAsmJS().strict;
+    return fun->wasmInstance().codeMetaForAsmJS()->asAsmJS().strict;
   }
 
   return false;
@@ -7338,9 +7341,9 @@ JSString* js::AsmJSFunctionToString(JSContext* cx, HandleFunction fun) {
   MOZ_ASSERT(IsAsmJSFunction(fun));
 
   const CodeMetadataForAsmJSImpl& codeMetaForAsmJS =
-      ExportedFunctionToInstance(fun).codeMetaForAsmJS()->asAsmJS();
+      fun->wasmInstance().codeMetaForAsmJS()->asAsmJS();
   const AsmJSExport& f =
-      codeMetaForAsmJS.lookupAsmJSExport(ExportedFunctionToFuncIndex(fun));
+      codeMetaForAsmJS.lookupAsmJSExport(fun->wasmFuncIndex());
 
   uint32_t begin = codeMetaForAsmJS.srcStart + f.startOffsetInModule();
   uint32_t end = codeMetaForAsmJS.srcStart + f.endOffsetInModule();
@@ -7385,7 +7388,7 @@ bool js::IsValidAsmJSHeapLength(size_t length) {
   }
 
   // The heap length is limited by what a wasm memory32 can handle.
-  if (length > MaxMemoryBytes(IndexType::I32)) {
+  if (length > MaxMemoryBytes(AddressType::I32)) {
     return false;
   }
 

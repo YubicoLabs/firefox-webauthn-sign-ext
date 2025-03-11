@@ -16,6 +16,7 @@
 #include "js/ErrorReport.h"
 #include "mozIThirdPartyUtil.h"
 #include "mozilla/Assertions.h"
+#include "mozilla/ContentBlockingAllowList.h"
 #include "mozilla/CycleCollectedJSContext.h"  // for MicroTaskRunnable
 #include "mozilla/ErrorResult.h"
 #include "mozilla/JSObjectHolder.h"
@@ -29,24 +30,28 @@
 #include "mozilla/Services.h"
 #include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/StoragePrincipalHelper.h"
-#include "mozilla/Telemetry.h"
+#include "mozilla/glean/DomServiceworkersMetrics.h"
 #include "mozilla/Unused.h"
 #include "mozilla/dom/ClientIPCTypes.h"
+#include "mozilla/dom/ClientManager.h"
 #include "mozilla/dom/DOMTypes.h"
 #include "mozilla/dom/FetchEventOpChild.h"
 #include "mozilla/dom/InternalHeaders.h"
 #include "mozilla/dom/InternalRequest.h"
+#include "mozilla/dom/PushManager.h"
 #include "mozilla/dom/ReferrerInfo.h"
 #include "mozilla/dom/RemoteType.h"
 #include "mozilla/dom/RemoteWorkerControllerChild.h"
 #include "mozilla/dom/RemoteWorkerManager.h"  // RemoteWorkerManager::GetRemoteType
 #include "mozilla/dom/ServiceWorkerBinding.h"
+#include "mozilla/dom/ServiceWorkerLifetimeExtension.h"
 #include "mozilla/extensions/WebExtensionPolicy.h"  // WebExtensionPolicy
 #include "mozilla/ipc/BackgroundChild.h"
 #include "mozilla/ipc/IPCStreamUtils.h"
 #include "mozilla/ipc/PBackgroundChild.h"
 #include "mozilla/ipc/URIUtils.h"
 #include "mozilla/net/CookieJarSettings.h"
+#include "mozilla/net/CookieService.h"
 #include "nsContentUtils.h"
 #include "nsDebug.h"
 #include "nsError.h"
@@ -108,14 +113,6 @@ uint32_t ServiceWorkerPrivate::sRunningServiceWorkers = 0;
 uint32_t ServiceWorkerPrivate::sRunningServiceWorkersFetch = 0;
 uint32_t ServiceWorkerPrivate::sRunningServiceWorkersMax = 0;
 uint32_t ServiceWorkerPrivate::sRunningServiceWorkersFetchMax = 0;
-
-// Tracks the "dom.serviceWorkers.disable_open_click_delay" preference. Modified
-// on main thread, read on worker threads.
-// It is updated every time a "notificationclick" event is dispatched. While
-// this is done without synchronization, at the worst, the thread will just get
-// an older value within which a popup is allowed to be displayed, which will
-// still be a valid value since it was set prior to dispatching the runnable.
-Atomic<uint32_t> gDOMDisableOpenClickDelay(0);
 
 /**
  * KeepAliveToken
@@ -463,7 +460,12 @@ nsresult MaybeStoreStreamForBackgroundThread(nsIInterceptedChannel* aChannel,
  * ServiceWorkerPrivate
  */
 ServiceWorkerPrivate::ServiceWorkerPrivate(ServiceWorkerInfo* aInfo)
-    : mInfo(aInfo), mDebuggerCount(0), mTokenCount(0) {
+    : mInfo(aInfo),
+      mPendingSpawnLifetime(
+          ServiceWorkerLifetimeExtension(NoLifetimeExtension{})),
+      mDebuggerCount(0),
+      mTokenCount(0),
+      mLaunchCount(0) {
   MOZ_ASSERT(NS_IsMainThread());
   MOZ_ASSERT(aInfo);
   MOZ_ASSERT(!mControllerChild);
@@ -545,10 +547,11 @@ nsresult ServiceWorkerPrivate::Initialize() {
   // it's a third-party service worker. So, the cookieJarSettings can directly
   // use the partitionKey from it. For first-party case, we can populate the
   // partitionKey from the principal URI.
-  Maybe<uint64_t> overriddenFingerprintingSettingsArg;
-  Maybe<RFPTarget> overriddenFingerprintingSettings;
+  Maybe<RFPTargetSet> overriddenFingerprintingSettingsArg;
+  Maybe<RFPTargetSet> overriddenFingerprintingSettings;
   nsCOMPtr<nsIURI> firstPartyURI;
   bool foreignByAncestorContext = false;
+  bool isOn3PCBExceptionList = false;
   if (!principal->OriginAttributesRef().mPartitionKey.IsEmpty()) {
     net::CookieJarSettings::Cast(cookieJarSettings)
         ->SetPartitionKey(principal->OriginAttributesRef().mPartitionKey);
@@ -574,8 +577,14 @@ nsresult ServiceWorkerPrivate::Initialize() {
                 firstPartyURI, uri);
         if (overriddenFingerprintingSettings.isSome()) {
           overriddenFingerprintingSettingsArg.emplace(
-              uint64_t(overriddenFingerprintingSettings.ref()));
+              overriddenFingerprintingSettings.ref());
         }
+
+        RefPtr<net::CookieService> csSingleton =
+            net::CookieService::GetSingleton();
+        isOn3PCBExceptionList =
+            csSingleton->ThirdPartyCookieBlockingExceptionsRef()
+                .CheckExceptionForURIs(firstPartyURI, uri);
       }
     }
   } else if (!principal->OriginAttributesRef().mFirstPartyDomain.IsEmpty()) {
@@ -602,9 +611,16 @@ nsresult ServiceWorkerPrivate::Initialize() {
               : nsRFPService::GetOverriddenFingerprintingSettingsForURI(
                     uri, nullptr);
 
+      RefPtr<net::CookieService> csSingleton =
+          net::CookieService::GetSingleton();
+      isOn3PCBExceptionList =
+          isThirdParty ? csSingleton->ThirdPartyCookieBlockingExceptionsRef()
+                             .CheckExceptionForURIs(firstPartyURI, uri)
+                       : false;
+
       if (overriddenFingerprintingSettings.isSome()) {
         overriddenFingerprintingSettingsArg.emplace(
-            uint64_t(overriddenFingerprintingSettings.ref()));
+            overriddenFingerprintingSettings.ref());
       }
     }
   } else {
@@ -620,8 +636,15 @@ nsresult ServiceWorkerPrivate::Initialize() {
 
     if (overriddenFingerprintingSettings.isSome()) {
       overriddenFingerprintingSettingsArg.emplace(
-          uint64_t(overriddenFingerprintingSettings.ref()));
+          overriddenFingerprintingSettings.ref());
     }
+  }
+
+  // Firefox doesn't support service workers in PBM.
+  bool isPBM = principal->GetIsInPrivateBrowsing();
+  if (ContentBlockingAllowList::Check(principal, isPBM)) {
+    net::CookieJarSettings::Cast(cookieJarSettings)
+        ->SetIsOnContentBlockingAllowList(true);
   }
 
   bool shouldResistFingerprinting =
@@ -629,11 +652,13 @@ nsresult ServiceWorkerPrivate::Initialize() {
           principal,
           "Service Workers exist outside a Document or Channel; as a property "
           "of the domain (and origin attributes). We don't have a "
-          "CookieJarSettings to perform the nested check, but we can rely on"
+          "CookieJarSettings to perform the *nested check*, but we can rely on"
           "the FPI/dFPI partition key check. The WorkerPrivate's "
           "ShouldResistFingerprinting function for the ServiceWorker depends "
           "on this boolean and will also consider an explicit RFPTarget.",
-          RFPTarget::IsAlwaysEnabledForPrecompute);
+          RFPTarget::IsAlwaysEnabledForPrecompute) &&
+      !nsContentUtils::ETPSaysShouldNotResistFingerprinting(cookieJarSettings,
+                                                            isPBM);
 
   if (shouldResistFingerprinting && NS_SUCCEEDED(rv) && firstPartyURI) {
     auto rfpKey = nsRFPService::GenerateKeyForServiceWorker(
@@ -687,11 +712,22 @@ nsresult ServiceWorkerPrivate::Initialize() {
   bool isThirdPartyContextToTopWindow =
       !principal->OriginAttributesRef().mPartitionKey.IsEmpty();
 
+  mClientInfo = ClientManager::CreateInfo(
+      ClientType::Serviceworker,
+      // The partitioned principal for ServiceWorkers is currently always
+      // partitioned and so we only use it when in a third party context.
+      isThirdPartyContextToTopWindow ? partitionedPrincipal : principal);
+  if (NS_WARN_IF(!mClientInfo.isSome())) {
+    return NS_ERROR_DOM_INVALID_STATE_ERR;
+  }
+
+  mClientInfo->SetAgentClusterId(regInfo->AgentClusterId());
+  mClientInfo->SetURL(mInfo->ScriptSpec());
+  mClientInfo->SetFrameType(FrameType::None);
+
   mRemoteWorkerData = RemoteWorkerData(
       NS_ConvertUTF8toUTF16(mInfo->ScriptSpec()), baseScriptURL, baseScriptURL,
-      /* name */ VoidString(),
-      /* workerType */ WorkerType::Classic,
-      /* credentials */ RequestCredentials::Omit,
+      WorkerOptions(),
       /* loading principal */ principalInfo, principalInfo,
       partitionedPrincipalInfo,
       /* useRegularPrincipal */ true,
@@ -701,14 +737,14 @@ nsresult ServiceWorkerPrivate::Initialize() {
 
       cjsData, domain,
       /* isSecureContext */ true,
-      /* clientInfo*/ Nothing(),
+      /* clientInfo*/ Some(mClientInfo.ref().ToIPC()),
 
       // The RemoteWorkerData CTOR doesn't allow to set the referrerInfo via
       // already_AddRefed<>. Let's set it to null.
       /* referrerInfo */ nullptr,
 
       storageAccess, isThirdPartyContextToTopWindow, shouldResistFingerprinting,
-      overriddenFingerprintingSettingsArg,
+      overriddenFingerprintingSettingsArg, isOn3PCBExceptionList,
       // Origin trials are associated to a window, so it doesn't make sense on
       // service workers.
       OriginTrials(), std::move(serviceWorkerData), regInfo->AgentClusterId(),
@@ -722,7 +758,18 @@ nsresult ServiceWorkerPrivate::Initialize() {
   return NS_OK;
 }
 
+void ServiceWorkerPrivate::RegenerateClientInfo() {
+  // inductively, this object can only still be alive after Initialize() if the
+  // mClientInfo was correctly initialized.
+  MOZ_DIAGNOSTIC_ASSERT(mClientInfo.isSome());
+
+  mClientInfo = ClientManager::CreateInfo(
+      ClientType::Serviceworker, mClientInfo->GetPrincipal().unwrap().get());
+  mRemoteWorkerData.clientInfo().ref() = mClientInfo.ref().ToIPC();
+}
+
 nsresult ServiceWorkerPrivate::CheckScriptEvaluation(
+    const ServiceWorkerLifetimeExtension& aLifetimeExtension,
     RefPtr<LifeCycleEventCallback> aCallback) {
   MOZ_ASSERT(NS_IsMainThread());
   MOZ_ASSERT(aCallback);
@@ -733,7 +780,7 @@ nsresult ServiceWorkerPrivate::CheckScriptEvaluation(
    * We need to capture the actor associated with the current Service Worker so
    * we can terminate it if script evaluation failed.
    */
-  nsresult rv = SpawnWorkerIfNeeded();
+  nsresult rv = SpawnWorkerIfNeeded(aLifetimeExtension);
 
   if (NS_WARN_IF(NS_FAILED(rv))) {
     aCallback->SetResult(false);
@@ -747,7 +794,7 @@ nsresult ServiceWorkerPrivate::CheckScriptEvaluation(
   RefPtr<RAIIActorPtrHolder> holder = mControllerChild;
 
   return ExecServiceWorkerOp(
-      ServiceWorkerCheckScriptEvaluationOpArgs(),
+      ServiceWorkerCheckScriptEvaluationOpArgs(), aLifetimeExtension,
       [self = std::move(self), holder = std::move(holder),
        callback = aCallback](ServiceWorkerOpResult&& aResult) mutable {
         if (aResult.type() == ServiceWorkerOpResult::
@@ -819,7 +866,8 @@ nsresult ServiceWorkerPrivate::CheckScriptEvaluation(
 
 nsresult ServiceWorkerPrivate::SendMessageEvent(
     RefPtr<ServiceWorkerCloneData>&& aData,
-    const ClientInfoAndState& aClientInfoAndState) {
+    const ServiceWorkerLifetimeExtension& aLifetimeExtension,
+    const PostMessageSource& aSource) {
   AssertIsOnMainThread();
   MOZ_ASSERT(aData);
 
@@ -832,7 +880,7 @@ nsresult ServiceWorkerPrivate::SendMessageEvent(
   }
 
   ServiceWorkerMessageEventOpArgs args;
-  args.clientInfoAndState() = aClientInfoAndState;
+  args.source() = aSource;
   if (!aData->BuildClonedMessageData(args.clonedData())) {
     return NS_ERROR_DOM_DATA_CLONE_ERR;
   }
@@ -840,18 +888,21 @@ nsresult ServiceWorkerPrivate::SendMessageEvent(
   scopeExit.release();
 
   return ExecServiceWorkerOp(
-      std::move(args), [](ServiceWorkerOpResult&& aResult) {
+      std::move(args), aLifetimeExtension, [](ServiceWorkerOpResult&& aResult) {
         MOZ_ASSERT(aResult.type() == ServiceWorkerOpResult::Tnsresult);
       });
 }
 
 nsresult ServiceWorkerPrivate::SendLifeCycleEvent(
-    const nsAString& aEventType, RefPtr<LifeCycleEventCallback> aCallback) {
+    const nsAString& aEventType,
+    const ServiceWorkerLifetimeExtension& aLifetimeExtension,
+    const RefPtr<LifeCycleEventCallback>& aCallback) {
   AssertIsOnMainThread();
   MOZ_ASSERT(aCallback);
 
   return ExecServiceWorkerOp(
       ServiceWorkerLifeCycleEventOpArgs(nsString(aEventType)),
+      aLifetimeExtension,
       [callback = aCallback](ServiceWorkerOpResult&& aResult) {
         MOZ_ASSERT(aResult.type() == ServiceWorkerOpResult::Tnsresult);
 
@@ -898,11 +949,10 @@ nsresult ServiceWorkerPrivate::SendPushEvent(
 nsresult ServiceWorkerPrivate::SendPushEventInternal(
     RefPtr<ServiceWorkerRegistrationInfo>&& aRegistration,
     ServiceWorkerPushEventOpArgs&& aArgs) {
-  AssertIsOnMainThread();
   MOZ_ASSERT(aRegistration);
 
   return ExecServiceWorkerOp(
-      std::move(aArgs),
+      std::move(aArgs), ServiceWorkerLifetimeExtension(FullLifetimeExtension{}),
       [registration = aRegistration](ServiceWorkerOpResult&& aResult) {
         MOZ_ASSERT(aResult.type() == ServiceWorkerOpResult::Tnsresult);
 
@@ -913,47 +963,45 @@ nsresult ServiceWorkerPrivate::SendPushEventInternal(
       });
 }
 
-nsresult ServiceWorkerPrivate::SendPushSubscriptionChangeEvent() {
+nsresult ServiceWorkerPrivate::SendPushSubscriptionChangeEvent(
+    const RefPtr<nsIPushSubscription>& aOldSubscription) {
   AssertIsOnMainThread();
 
+  ServiceWorkerPushSubscriptionChangeEventOpArgs args{};
+  if (aOldSubscription) {
+    PushSubscriptionData oldSubscription{};
+    MOZ_TRY(GetSubscriptionParams(aOldSubscription, oldSubscription.endpoint(),
+                                  oldSubscription.rawP256dhKey(),
+                                  oldSubscription.authSecret(),
+                                  oldSubscription.appServerKey()));
+    args.oldSubscription().emplace(oldSubscription);
+  }
+
   return ExecServiceWorkerOp(
-      ServiceWorkerPushSubscriptionChangeEventOpArgs(),
+      std::move(args), ServiceWorkerLifetimeExtension(FullLifetimeExtension{}),
       [](ServiceWorkerOpResult&& aResult) {
         MOZ_ASSERT(aResult.type() == ServiceWorkerOpResult::Tnsresult);
       });
 }
 
 nsresult ServiceWorkerPrivate::SendNotificationEvent(
-    const nsAString& aEventName, const nsAString& aID, const nsAString& aTitle,
-    const nsAString& aDir, const nsAString& aLang, const nsAString& aBody,
-    const nsAString& aTag, const nsAString& aIcon, const nsAString& aData,
-    const nsAString& aBehavior, const nsAString& aScope) {
+    const nsAString& aEventName, const nsAString& aScope,
+    const IPCNotification& aNotification) {
   MOZ_ASSERT(NS_IsMainThread());
 
-  if (aEventName.EqualsLiteral(NOTIFICATION_CLICK_EVENT_NAME)) {
-    gDOMDisableOpenClickDelay =
-        Preferences::GetInt("dom.serviceWorkers.disable_open_click_delay");
-  } else if (!aEventName.EqualsLiteral(NOTIFICATION_CLOSE_EVENT_NAME)) {
+  if (!aEventName.EqualsLiteral(NOTIFICATION_CLICK_EVENT_NAME) &&
+      !aEventName.EqualsLiteral(NOTIFICATION_CLOSE_EVENT_NAME)) {
     MOZ_ASSERT_UNREACHABLE("Invalid notification event name");
     return NS_ERROR_FAILURE;
   }
 
   ServiceWorkerNotificationEventOpArgs args;
   args.eventName() = nsString(aEventName);
-  args.id() = nsString(aID);
-  args.title() = nsString(aTitle);
-  args.dir() = nsString(aDir);
-  args.lang() = nsString(aLang);
-  args.body() = nsString(aBody);
-  args.tag() = nsString(aTag);
-  args.icon() = nsString(aIcon);
-  args.data() = nsString(aData);
-  args.behavior() = nsString(aBehavior);
-  args.scope() = nsString(aScope);
-  args.disableOpenClickDelay() = gDOMDisableOpenClickDelay;
+  args.notification() = aNotification;
 
   return ExecServiceWorkerOp(
-      std::move(args), [](ServiceWorkerOpResult&& aResult) {
+      std::move(args), ServiceWorkerLifetimeExtension(FullLifetimeExtension{}),
+      [](ServiceWorkerOpResult&& aResult) {
         MOZ_ASSERT(aResult.type() == ServiceWorkerOpResult::Tnsresult);
       });
 }
@@ -1073,7 +1121,8 @@ nsresult ServiceWorkerPrivate::SendFetchEventInternal(
     return NS_ERROR_DOM_INVALID_STATE_ERR;
   }
 
-  MOZ_TRY(SpawnWorkerIfNeeded());
+  MOZ_TRY(SpawnWorkerIfNeeded(
+      ServiceWorkerLifetimeExtension(FullLifetimeExtension{})));
   MOZ_TRY(MaybeStoreStreamForBackgroundThread(
       aChannel, aArgs.common().internalRequest()));
 
@@ -1111,7 +1160,7 @@ ServiceWorkerPrivate::WakeForExtensionAPIEvent(
       MakeRefPtr<PromiseExtensionWorkerHasListener::Private>(__func__);
 
   nsresult rv = ExecServiceWorkerOp(
-      std::move(args),
+      std::move(args), ServiceWorkerLifetimeExtension(FullLifetimeExtension{}),
       [promise](ServiceWorkerOpResult&& aResult) {
         MOZ_ASSERT(
             aResult.type() ==
@@ -1129,16 +1178,27 @@ ServiceWorkerPrivate::WakeForExtensionAPIEvent(
   return outPromise;
 }
 
-nsresult ServiceWorkerPrivate::SpawnWorkerIfNeeded() {
+nsresult ServiceWorkerPrivate::SpawnWorkerIfNeeded(
+    const ServiceWorkerLifetimeExtension& aLifetimeExtension) {
   AssertIsOnMainThread();
 
+  // We don't need to spawn if we already have a spawned, non-terminated worker.
   if (mControllerChild) {
-    RenewKeepAliveToken();
+    // We only need to renew the keepalive token if we actually want to extend
+    // the worker's lifetime; we don't for termination requests.
+    if (aLifetimeExtension.LifetimeExtendsIntoTheFuture()) {
+      RenewKeepAliveToken(aLifetimeExtension);
+    }
     return NS_OK;
   }
 
   if (!mInfo) {
     return NS_ERROR_DOM_INVALID_STATE_ERR;
+  }
+
+  // Don't spawn the ServiceWorker if we don't want to extend its life.
+  if (NS_WARN_IF(!aLifetimeExtension.LifetimeExtendsIntoTheFuture())) {
+    return NS_ERROR_DOM_TIMEOUT_ERR;
   }
 
   mServiceWorkerLaunchTimeStart = TimeStamp::Now();
@@ -1177,6 +1237,8 @@ nsresult ServiceWorkerPrivate::SpawnWorkerIfNeeded() {
 
   RefreshRemoteWorkerData(regInfo);
 
+  mLaunchCount++;
+
   RefPtr<RemoteWorkerControllerChild> controllerChild =
       new RemoteWorkerControllerChild(this);
 
@@ -1184,6 +1246,8 @@ nsresult ServiceWorkerPrivate::SpawnWorkerIfNeeded() {
           controllerChild, mRemoteWorkerData))) {
     return NS_ERROR_DOM_INVALID_STATE_ERR;
   }
+
+  mPendingSpawnLifetime = aLifetimeExtension;
 
   mControllerChild = new RAIIActorPtrHolder(controllerChild.forget());
 
@@ -1195,11 +1259,31 @@ nsresult ServiceWorkerPrivate::SpawnWorkerIfNeeded() {
   return NS_OK;
 }
 
-void ServiceWorkerPrivate::TerminateWorker() {
+void ServiceWorkerPrivate::TerminateWorker(
+    Maybe<RefPtr<Promise>> aMaybePromise) {
   MOZ_ASSERT(NS_IsMainThread());
   mIdleWorkerTimer->Cancel();
+  mIdleDeadline = TimeStamp();
+  // We call the shutdown method prior to dropping mIdleKeepAliveToken in order
+  // to ensure that the passed-in promise tracks the shutdown of the current
+  // worker.
+  //
+  // More detail: Dropping the token can cause re-entrance to this method via
+  // ReleaseToken if it is not already the method calling.  Shutdown() is
+  // idempotent except for the promise we pass in; it will only be chained to
+  // track the actual termination if mControllerChild is not null.  On the
+  // second call when mControllerChild is null, it will resolved immediately
+  // with undefined.  The call from ReleaseToken does not pass a Promise and
+  // does not care, so it goes second.
+  //
+  // We of course could hold onto the underlying shutdown promise until it
+  // resolves so that new calls could chain, but because it's conceptually
+  // possible to have multiple spawns and shutdowns in flight and our promise
+  // argument is really only for testing / devtools where we only expect a
+  // single actively involved party at a time, this way works sufficiently.
+  Shutdown(std::move(aMaybePromise));
+  // As per the above, this may potentially
   mIdleKeepAliveToken = nullptr;
-  Shutdown();
 }
 
 void ServiceWorkerPrivate::NoteDeadServiceWorkerInfo() {
@@ -1218,6 +1302,10 @@ void ServiceWorkerPrivate::UpdateState(ServiceWorkerState aState) {
 
   nsresult rv = ExecServiceWorkerOp(
       ServiceWorkerUpdateStateOpArgs(aState),
+      // Lifecycle events potentially update the lifetime for ServiceWorkers
+      // controlling a page, but there's no need to update the lifetime to tell
+      // a SW that its state has changed.
+      ServiceWorkerLifetimeExtension(NoLifetimeExtension{}),
       [](ServiceWorkerOpResult&& aResult) {
         MOZ_ASSERT(aResult.type() == ServiceWorkerOpResult::Tnsresult);
       });
@@ -1238,6 +1326,23 @@ void ServiceWorkerPrivate::UpdateState(ServiceWorkerState aState) {
   mPendingFunctionalEvents.Clear();
 }
 
+void ServiceWorkerPrivate::UpdateIsOnContentBlockingAllowList(
+    bool aOnContentBlockingAllowList) {
+  AssertIsOnMainThread();
+
+  if (!mControllerChild) {
+    return;
+  }
+
+  ExecServiceWorkerOp(
+      ServiceWorkerUpdateIsOnContentBlockingAllowListOpArgs(
+          aOnContentBlockingAllowList),
+      ServiceWorkerLifetimeExtension(NoLifetimeExtension{}),
+      [](ServiceWorkerOpResult&& aResult) {
+        MOZ_ASSERT(aResult.type() == ServiceWorkerOpResult::Tnsresult);
+      });
+}
+
 nsresult ServiceWorkerPrivate::GetDebugger(nsIWorkerDebugger** aResult) {
   MOZ_ASSERT(NS_IsMainThread());
   MOZ_ASSERT(aResult);
@@ -1252,7 +1357,8 @@ nsresult ServiceWorkerPrivate::AttachDebugger() {
   // and cancel the idle timeout. The idle timeout should not be reset until
   // the last debugger detached from the worker.
   if (!mDebuggerCount) {
-    nsresult rv = SpawnWorkerIfNeeded();
+    nsresult rv = SpawnWorkerIfNeeded(
+        ServiceWorkerLifetimeExtension(FullLifetimeExtension{}));
     NS_ENSURE_SUCCESS(rv, rv);
 
     /**
@@ -1268,7 +1374,8 @@ nsresult ServiceWorkerPrivate::AttachDebugger() {
      * due to the idle KeepAliveToken being created asynchronously). So, just
      * renew the KeepAliveToken right now.
      */
-    RenewKeepAliveToken();
+    RenewKeepAliveToken(
+        ServiceWorkerLifetimeExtension(FullLifetimeExtension{}));
     mIdleWorkerTimer->Cancel();
   }
 
@@ -1290,7 +1397,7 @@ nsresult ServiceWorkerPrivate::DetachDebugger() {
   // timeout, or terminate the worker if there are no more active tokens.
   if (!mDebuggerCount) {
     if (mTokenCount) {
-      ResetIdleTimeout();
+      ResetIdleTimeout(ServiceWorkerLifetimeExtension(FullLifetimeExtension{}));
     } else {
       TerminateWorker();
     }
@@ -1360,6 +1467,8 @@ void ServiceWorkerPrivate::NoteIdleWorkerCallback(nsITimer* aTimer) {
 
   // Release ServiceWorkerPrivate's token, since the grace period has ended.
   mIdleKeepAliveToken = nullptr;
+  // Null out our deadline as well.
+  mIdleDeadline = TimeStamp();
 
   if (mControllerChild) {
     // If we still have a living worker at this point it means that either there
@@ -1390,7 +1499,8 @@ void ServiceWorkerPrivate::TerminateWorkerCallback(nsITimer* aTimer) {
   TerminateWorker();
 }
 
-void ServiceWorkerPrivate::RenewKeepAliveToken() {
+void ServiceWorkerPrivate::RenewKeepAliveToken(
+    const ServiceWorkerLifetimeExtension& aLifetimeExtension) {
   // We should have an active worker if we're renewing the keep alive token.
   MOZ_ASSERT(mControllerChild);
 
@@ -1398,7 +1508,7 @@ void ServiceWorkerPrivate::RenewKeepAliveToken() {
   // timeout was canceled when the first debugger attached to the worker. It
   // should not be reset until the last debugger detaches from the worker.
   if (!mDebuggerCount) {
-    ResetIdleTimeout();
+    ResetIdleTimeout(aLifetimeExtension);
   }
 
   if (!mIdleKeepAliveToken) {
@@ -1406,12 +1516,55 @@ void ServiceWorkerPrivate::RenewKeepAliveToken() {
   }
 }
 
-void ServiceWorkerPrivate::ResetIdleTimeout() {
-  uint32_t timeout = Preferences::GetInt("dom.serviceWorkers.idle_timeout");
+void ServiceWorkerPrivate::ResetIdleTimeout(
+    const ServiceWorkerLifetimeExtension& aLifetimeExtension) {
+  TimeStamp now = TimeStamp::NowLoRes();
+  TimeStamp existing = mIdleDeadline;
+  // Normalize the extension, returning a Null TimeStamp if the lifetime
+  // extension does not actually extend our lifetime.
+  TimeStamp normalizedExtension = aLifetimeExtension.match(
+      // No extension means no extension!
+      [](const NoLifetimeExtension& nle) { return TimeStamp(); },
+      [&existing, &now](const PropagatedLifetimeExtension& ple) {
+        // Ignore null deadlines or deadlines that are in the past.
+        if (ple.mDeadline.IsNull() || ple.mDeadline < now) {
+          return TimeStamp();
+        }
+        // Use this new deadline if our existing deadline is null or the
+        // received deadline is after our current deadline.
+        if (existing.IsNull() || ple.mDeadline > existing) {
+          return ple.mDeadline;
+        }
+        // (This means our existing deadline extends further into the future so
+        // we don't want to change our deadline.)
+        return TimeStamp();
+      },
+      [&now](const FullLifetimeExtension& fle) {
+        return now + TimeDuration::FromMilliseconds(Preferences::GetInt(
+                         "dom.serviceWorkers.idle_timeout"));
+      });
+
+  if (normalizedExtension.IsNull()) {
+    // Convert the unlikely situation where we are trying to reset the timeout
+    // without extension and where we have no existing timeout into a 0 timeout.
+    // This is important because we don't want to let the ServiceWorker live
+    // forever!
+    MOZ_ASSERT(!existing.IsNull());
+    if (NS_WARN_IF(existing.IsNull())) {
+      normalizedExtension = now;
+    } else {
+      // Return without altering the deadline or churning the timer.
+      return;
+    }
+  }
+
+  mIdleDeadline = normalizedExtension;
+
   nsCOMPtr<nsITimerCallback> cb = new ServiceWorkerPrivateTimerCallback(
       this, &ServiceWorkerPrivate::NoteIdleWorkerCallback);
-  DebugOnly<nsresult> rv =
-      mIdleWorkerTimer->InitWithCallback(cb, timeout, nsITimer::TYPE_ONE_SHOT);
+  // We don't need high resolution but TimeDuration provides better type safety.
+  DebugOnly<nsresult> rv = mIdleWorkerTimer->InitHighResolutionWithCallback(
+      cb, mIdleDeadline - now, nsITimer::TYPE_ONE_SHOT);
   MOZ_ASSERT(NS_SUCCEEDED(rv));
 }
 
@@ -1489,7 +1642,13 @@ RefPtr<GenericPromise> ServiceWorkerPrivate::SetSkipWaitingFlag() {
   RefPtr<GenericPromise::Private> promise =
       new GenericPromise::Private(__func__);
 
-  regInfo->TryToActivateAsync([promise] { promise->Resolve(true, __func__); });
+  // The ServiceWorker calling skipWaiting on itself is not a basis for lifetime
+  // extension on its own.  `TryToActivate` will upgrade the lifetime to a full
+  // extension iff there are any controlled pages.
+  auto lifetime = ServiceWorkerLifetimeExtension(NoLifetimeExtension{});
+
+  regInfo->TryToActivateAsync(lifetime,
+                              [promise] { promise->Resolve(true, __func__); });
 
   return promise;
 }
@@ -1522,14 +1681,14 @@ void ServiceWorkerPrivate::CreationFailed() {
 
   if (mRemoteWorkerData.remoteType().Find(SERVICEWORKER_REMOTE_TYPE) !=
       kNotFound) {
-    Telemetry::AccumulateTimeDelta(
-        Telemetry::SERVICE_WORKER_ISOLATED_LAUNCH_TIME,
-        mServiceWorkerLaunchTimeStart);
+    glean::service_worker::isolated_launch_time.AccumulateRawDuration(
+        TimeStamp::Now() - mServiceWorkerLaunchTimeStart);
   } else {
-    Telemetry::AccumulateTimeDelta(Telemetry::SERVICE_WORKER_LAUNCH_TIME_2,
-                                   mServiceWorkerLaunchTimeStart);
+    glean::service_worker::launch_time.AccumulateRawDuration(
+        TimeStamp::Now() - mServiceWorkerLaunchTimeStart);
   }
 
+  mPendingSpawnLifetime = ServiceWorkerLifetimeExtension(NoLifetimeExtension{});
   Shutdown();
 }
 
@@ -1537,19 +1696,27 @@ void ServiceWorkerPrivate::CreationSucceeded() {
   AssertIsOnMainThread();
   MOZ_ASSERT(NS_IsMainThread());
   MOZ_ASSERT(mInfo);
-  MOZ_ASSERT(mControllerChild);
+
+  // It's possible for a request to terminate the worker to happen while the
+  // worker is starting up, in which case we do not want to renew the keepalive
+  // timer and we probably don't want to update the telemetry below either.
+  if (NS_WARN_IF(!mControllerChild)) {
+    mPendingSpawnLifetime =
+        ServiceWorkerLifetimeExtension(NoLifetimeExtension{});
+    return;
+  }
 
   if (mRemoteWorkerData.remoteType().Find(SERVICEWORKER_REMOTE_TYPE) !=
       kNotFound) {
-    Telemetry::AccumulateTimeDelta(
-        Telemetry::SERVICE_WORKER_ISOLATED_LAUNCH_TIME,
-        mServiceWorkerLaunchTimeStart);
+    glean::service_worker::isolated_launch_time.AccumulateRawDuration(
+        TimeStamp::Now() - mServiceWorkerLaunchTimeStart);
   } else {
-    Telemetry::AccumulateTimeDelta(Telemetry::SERVICE_WORKER_LAUNCH_TIME_2,
-                                   mServiceWorkerLaunchTimeStart);
+    glean::service_worker::launch_time.AccumulateRawDuration(
+        TimeStamp::Now() - mServiceWorkerLaunchTimeStart);
   }
 
-  RenewKeepAliveToken();
+  RenewKeepAliveToken(mPendingSpawnLifetime);
+  mPendingSpawnLifetime = ServiceWorkerLifetimeExtension(NoLifetimeExtension{});
 
   RefPtr<ServiceWorkerManager> swm = ServiceWorkerManager::GetInstance();
   nsCOMPtr<nsIPrincipal> principal = mInfo->Principal();
@@ -1665,7 +1832,7 @@ RefPtr<FetchServicePromises> ServiceWorkerPrivate::SetupNavigationPreload(
   return FetchService::NetworkErrorResponse(NS_ERROR_UNEXPECTED);
 }
 
-void ServiceWorkerPrivate::Shutdown() {
+void ServiceWorkerPrivate::Shutdown(Maybe<RefPtr<Promise>>&& aMaybePromise) {
   AssertIsOnMainThread();
 
   if (mControllerChild) {
@@ -1680,6 +1847,18 @@ void ServiceWorkerPrivate::Shutdown() {
     RefPtr<GenericNonExclusivePromise> promise =
         ShutdownInternal(shutdownStateId);
     swm->BlockShutdownOn(promise, shutdownStateId);
+    if (aMaybePromise.isSome() && aMaybePromise.ref()) {
+      promise->Then(
+          GetCurrentSerialEventTarget(), __func__,
+          [listener = aMaybePromise.ref()] {
+            listener->MaybeResolveWithUndefined();
+          },
+          [listener = aMaybePromise.ref()] {
+            listener->MaybeResolveWithUndefined();
+          });
+    }
+  } else if (aMaybePromise.isSome() && aMaybePromise.ref()) {
+    aMaybePromise.ref()->MaybeResolveWithUndefined();
   }
 
   MOZ_ASSERT(!mControllerChild);
@@ -1706,6 +1885,11 @@ RefPtr<GenericNonExclusivePromise> ServiceWorkerPrivate::ShutdownInternal(
 
   Unused << ExecServiceWorkerOp(
       ServiceWorkerTerminateWorkerOpArgs(aShutdownStateId),
+      // It doesn't make sense to extend the lifetime in this case.  This will
+      // also ensure that we don't try and spawn the ServiceWorker, but as our
+      // assert at the top of this method makes clear, we don't expect to be in
+      // that situation.
+      ServiceWorkerLifetimeExtension(NoLifetimeExtension{}),
       [promise](ServiceWorkerOpResult&& aResult) {
         MOZ_ASSERT(aResult.type() == ServiceWorkerOpResult::Tnsresult);
         promise->Resolve(true, __func__);
@@ -1714,9 +1898,16 @@ RefPtr<GenericNonExclusivePromise> ServiceWorkerPrivate::ShutdownInternal(
 
   /**
    * After dispatching a termination operation, no new operations should
-   * be routed through this actor anymore.
+   * be routed through this actor anymore so we can drop the controller
+   * reference.  This also means that the next time SpawnWorkerIfNeeded is
+   * invoked we will spawn a new worker, creating a new mControllerChild.
    */
   mControllerChild = nullptr;
+  // Create a new ClientInfo for the next time we potentially spawn this
+  // ServiceWorker.  We do this now rather than immediately before spawning the
+  // ServiceWorker so it's possible to know what the client id will be before
+  // triggering the next spawn.
+  RegenerateClientInfo();
 
   // Update here, since Evaluation failures directly call ShutdownInternal
   UpdateRunning(-1, mHandlesFetch == Enabled ? -1 : 0);
@@ -1726,6 +1917,7 @@ RefPtr<GenericNonExclusivePromise> ServiceWorkerPrivate::ShutdownInternal(
 
 nsresult ServiceWorkerPrivate::ExecServiceWorkerOp(
     ServiceWorkerOpArgs&& aArgs,
+    const ServiceWorkerLifetimeExtension& aLifetimeExtension,
     std::function<void(ServiceWorkerOpResult&&)>&& aSuccessCallback,
     std::function<void()>&& aFailureCallback) {
   AssertIsOnMainThread();
@@ -1736,7 +1928,7 @@ nsresult ServiceWorkerPrivate::ExecServiceWorkerOp(
       "actors!");
   MOZ_ASSERT(aSuccessCallback);
 
-  nsresult rv = SpawnWorkerIfNeeded();
+  nsresult rv = SpawnWorkerIfNeeded(aLifetimeExtension);
 
   if (NS_WARN_IF(NS_FAILED(rv))) {
     aFailureCallback();

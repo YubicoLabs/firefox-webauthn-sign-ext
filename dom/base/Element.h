@@ -232,14 +232,14 @@ class DOMRect;
 class DOMRectList;
 class Flex;
 class Grid;
+class OwningTrustedHTMLOrNullIsEmptyString;
+class TrustedHTML;
+class TrustedHTMLOrNullIsEmptyString;
+class TrustedHTMLOrTrustedScriptOrTrustedScriptURLOrString;
 
 // IID for the dom::Element interface
-#define NS_ELEMENT_IID                               \
-  {                                                  \
-    0xc67ed254, 0xfd3b, 0x4b10, {                    \
-      0x96, 0xa2, 0xc5, 0x8b, 0x7b, 0x64, 0x97, 0xd1 \
-    }                                                \
-  }
+#define NS_ELEMENT_IID \
+  {0xc67ed254, 0xfd3b, 0x4b10, {0x96, 0xa2, 0xc5, 0x8b, 0x7b, 0x64, 0x97, 0xd1}}
 
 #define REFLECT_NULLABLE_DOMSTRING_ATTR(method, attr)            \
   void Get##method(nsAString& aValue) const {                    \
@@ -1226,6 +1226,9 @@ class Element : public FragmentOrElement {
     return false;
   }
 
+  // Note, this does not notify about the removal.
+  void ClearAttributes() { mAttrs.Clear(); }
+
   void GetTagName(nsAString& aTagName) const { aTagName = NodeName(); }
   void GetId(nsAString& aId) const { GetAttr(nsGkAtoms::id, aId); }
   void GetId(DOMString& aId) const { GetAttr(nsGkAtoms::id, aId); }
@@ -1269,6 +1272,22 @@ class Element : public FragmentOrElement {
                     ErrorResult& aError) {
     SetAttribute(aName, aValue, nullptr, aError);
   }
+
+  MOZ_CAN_RUN_SCRIPT void SetAttribute(
+      const nsAString& aName,
+      const TrustedHTMLOrTrustedScriptOrTrustedScriptURLOrString& aValue,
+      nsIPrincipal* aTriggeringPrincipal, ErrorResult& aError);
+  MOZ_CAN_RUN_SCRIPT void SetAttributeNS(
+      const nsAString& aNamespaceURI, const nsAString& aLocalName,
+      const TrustedHTMLOrTrustedScriptOrTrustedScriptURLOrString& aValue,
+      nsIPrincipal* aTriggeringPrincipal, ErrorResult& aError);
+  MOZ_CAN_RUN_SCRIPT void SetAttribute(
+      const nsAString& aName,
+      const TrustedHTMLOrTrustedScriptOrTrustedScriptURLOrString& aValue,
+      ErrorResult& aError) {
+    SetAttribute(aName, aValue, nullptr, aError);
+  }
+
   /**
    * This method creates a principal that subsumes this element's NodePrincipal
    * and which has flags set for elevated permissions that devtools needs to
@@ -1374,13 +1393,13 @@ class Element : public FragmentOrElement {
 
   /**
    * Get an editor which handles user inputs when this element has focus.
-   * If this is a text control, return a TextEditor if it's already created.
-   * Otherwise, return nullptr.
-   * If this is not a text control but this is editable, return
-   * HTMLEditor which should've already been created.
+   * If this is a text control, return a TextEditor if it's already created and
+   * it's not in the design mode.
+   * If this is editable, return HTMLEditor which should've already been
+   * created.
    * Otherwise, return nullptr.
    */
-  EditorBase* GetEditorWithoutCreation() const;
+  EditorBase* GetExtantEditor() const;
 
  private:
   /**
@@ -1410,13 +1429,14 @@ class Element : public FragmentOrElement {
   already_AddRefed<Promise> RequestFullscreen(CallerType, ErrorResult&);
   void RequestPointerLock(CallerType aCallerType);
   Attr* GetAttributeNode(const nsAString& aName);
-  already_AddRefed<Attr> SetAttributeNode(Attr& aNewAttr, ErrorResult& aError);
+  MOZ_CAN_RUN_SCRIPT already_AddRefed<Attr> SetAttributeNode(
+      Attr& aNewAttr, ErrorResult& aError);
   already_AddRefed<Attr> RemoveAttributeNode(Attr& aOldAttr,
                                              ErrorResult& aError);
   Attr* GetAttributeNodeNS(const nsAString& aNamespaceURI,
                            const nsAString& aLocalName);
-  already_AddRefed<Attr> SetAttributeNodeNS(Attr& aNewAttr,
-                                            ErrorResult& aError);
+  MOZ_CAN_RUN_SCRIPT already_AddRefed<Attr> SetAttributeNodeNS(
+      Attr& aNewAttr, ErrorResult& aError);
 
   MOZ_CAN_RUN_SCRIPT already_AddRefed<DOMRectList> GetClientRects();
   MOZ_CAN_RUN_SCRIPT already_AddRefed<DOMRect> GetBoundingClientRect();
@@ -1613,21 +1633,37 @@ class Element : public FragmentOrElement {
   void GetAnimationsWithoutFlush(const GetAnimationsOptions& aOptions,
                                  nsTArray<RefPtr<Animation>>& aAnimations);
 
-  static void GetAnimationsUnsorted(Element* aElement,
-                                    PseudoStyleType aPseudoType,
-                                    nsTArray<RefPtr<Animation>>& aAnimations);
-
   void CloneAnimationsFrom(const Element& aOther);
 
   virtual void GetInnerHTML(nsAString& aInnerHTML, OOMReporter& aError);
-  virtual void SetInnerHTML(const nsAString& aInnerHTML,
-                            nsIPrincipal* aSubjectPrincipal,
-                            ErrorResult& aError);
-  void GetOuterHTML(nsAString& aOuterHTML);
-  void SetOuterHTML(const nsAString& aOuterHTML, ErrorResult& aError);
-  void InsertAdjacentHTML(const nsAString& aPosition,
-                          const TrustedHTMLOrString& aTrustedHTMLOrString,
-                          ErrorResult& aError);
+
+  // https://html.spec.whatwg.org/#dom-parsing-and-serialization:dom-element-innerhtml
+  // @param aInnerHTML will always be of type `NullIsEmptyString`.
+  void GetInnerHTML(OwningTrustedHTMLOrNullIsEmptyString& aInnerHTML,
+                    OOMReporter& aError);
+
+  // https://html.spec.whatwg.org/#dom-parsing-and-serialization:dom-element-innerhtml
+  //
+  // May only run script if aInnerHTML is a string. If this behavior changes,
+  // callees might need adjusting.
+  MOZ_CAN_RUN_SCRIPT void SetInnerHTML(
+      const TrustedHTMLOrNullIsEmptyString& aInnerHTML,
+      nsIPrincipal* aSubjectPrincipal, ErrorResult& aError);
+
+  // Call this method only with trusted, i.e. non-attacker-controlled, strings.
+  virtual void SetInnerHTMLTrusted(const nsAString& aInnerHTML,
+                                   nsIPrincipal* aSubjectPrincipal,
+                                   ErrorResult& aError);
+
+  // @param aOuterHTML will always be of type `NullIsEmptyString`.
+  void GetOuterHTML(OwningTrustedHTMLOrNullIsEmptyString& aOuterHTML);
+
+  MOZ_CAN_RUN_SCRIPT void SetOuterHTML(
+      const TrustedHTMLOrNullIsEmptyString& aOuterHTML, ErrorResult& aError);
+
+  MOZ_CAN_RUN_SCRIPT void InsertAdjacentHTML(
+      const nsAString& aPosition,
+      const TrustedHTMLOrString& aTrustedHTMLOrString, ErrorResult& aError);
 
   void SetHTML(const nsAString& aInnerHTML, const SetHTMLOptions& aOptions,
                ErrorResult& aError);
@@ -1758,6 +1794,8 @@ class Element : public FragmentOrElement {
 
   nsINode* GetScopeChainParent() const override;
 
+  JSObject* WrapNode(JSContext*, JS::Handle<JSObject*> aGivenProto) override;
+
   /**
    * Locate a TextEditor rooted at this content node, if there is one.
    */
@@ -1863,6 +1901,12 @@ class Element : public FragmentOrElement {
   float FontSizeInflation();
 
   void GetImplementedPseudoElement(nsAString&) const;
+
+  /**
+   * Get the pseudo element for this pseudo request (i.e. PseudoStyleType and
+   * its function parameter, if any).
+   */
+  Element* GetPseudoElement(const PseudoStyleRequest&) const;
 
   ReferrerPolicy GetReferrerPolicyAsEnum() const;
   ReferrerPolicy ReferrerPolicyFromAttr(const nsAttrValue* aValue) const;
@@ -2210,7 +2254,8 @@ class Element : public FragmentOrElement {
   virtual bool Translate() const;
 
   MOZ_CAN_RUN_SCRIPT
-  virtual void SetHTMLUnsafe(const nsAString& aHTML);
+  virtual void SetHTMLUnsafe(const TrustedHTMLOrString& aHTML,
+                             ErrorResult& aError);
 
  protected:
   enum class ReparseAttributes { No, Yes };
@@ -2358,45 +2403,37 @@ inline mozilla::dom::Element* nsINode::GetNextElementSibling() const {
  * Macros to implement Clone(). _elementName is the class for which to implement
  * Clone.
  */
-#define NS_IMPL_ELEMENT_CLONE(_elementName)                         \
+#define NS_IMPL_ELEMENT_CLONE(_elementName, ...)                    \
   nsresult _elementName::Clone(mozilla::dom::NodeInfo* aNodeInfo,   \
                                nsINode** aResult) const {           \
     *aResult = nullptr;                                             \
-    RefPtr<mozilla::dom::NodeInfo> ni(aNodeInfo);                   \
-    auto* nim = ni->NodeInfoManager();                              \
-    RefPtr<_elementName> it = new (nim) _elementName(ni.forget());  \
+    RefPtr<_elementName> it = new (aNodeInfo->NodeInfoManager())    \
+        _elementName(do_AddRef(aNodeInfo), ##__VA_ARGS__);          \
     nsresult rv = const_cast<_elementName*>(this)->CopyInnerTo(it); \
     if (NS_SUCCEEDED(rv)) {                                         \
       it.forget(aResult);                                           \
     }                                                               \
-                                                                    \
     return rv;                                                      \
   }
 
-#define EXPAND(...) __VA_ARGS__
-#define NS_IMPL_ELEMENT_CLONE_WITH_INIT_HELPER(_elementName, extra_args_) \
-  nsresult _elementName::Clone(mozilla::dom::NodeInfo* aNodeInfo,         \
-                               nsINode** aResult) const {                 \
-    *aResult = nullptr;                                                   \
-    RefPtr<mozilla::dom::NodeInfo> ni(aNodeInfo);                         \
-    auto* nim = ni->NodeInfoManager();                                    \
-    RefPtr<_elementName> it =                                             \
-        new (nim) _elementName(ni.forget() EXPAND extra_args_);           \
-    nsresult rv = it->Init();                                             \
-    nsresult rv2 = const_cast<_elementName*>(this)->CopyInnerTo(it);      \
-    if (NS_FAILED(rv2)) {                                                 \
-      rv = rv2;                                                           \
-    }                                                                     \
-    if (NS_SUCCEEDED(rv)) {                                               \
-      it.forget(aResult);                                                 \
-    }                                                                     \
-                                                                          \
-    return rv;                                                            \
+#define NS_IMPL_ELEMENT_CLONE_WITH_INIT(_elementName, ...)           \
+  nsresult _elementName::Clone(mozilla::dom::NodeInfo* aNodeInfo,    \
+                               nsINode** aResult) const {            \
+    *aResult = nullptr;                                              \
+    RefPtr<_elementName> it = new (aNodeInfo->NodeInfoManager())     \
+        _elementName(do_AddRef(aNodeInfo), ##__VA_ARGS__);           \
+    nsresult rv = it->Init();                                        \
+    nsresult rv2 = const_cast<_elementName*>(this)->CopyInnerTo(it); \
+    if (NS_FAILED(rv2)) {                                            \
+      rv = rv2;                                                      \
+    }                                                                \
+    if (NS_SUCCEEDED(rv)) {                                          \
+      it.forget(aResult);                                            \
+    }                                                                \
+    return rv;                                                       \
   }
 
-#define NS_IMPL_ELEMENT_CLONE_WITH_INIT(_elementName) \
-  NS_IMPL_ELEMENT_CLONE_WITH_INIT_HELPER(_elementName, ())
 #define NS_IMPL_ELEMENT_CLONE_WITH_INIT_AND_PARSER(_elementName) \
-  NS_IMPL_ELEMENT_CLONE_WITH_INIT_HELPER(_elementName, (, NOT_FROM_PARSER))
+  NS_IMPL_ELEMENT_CLONE_WITH_INIT(_elementName, NOT_FROM_PARSER)
 
 #endif  // mozilla_dom_Element_h__

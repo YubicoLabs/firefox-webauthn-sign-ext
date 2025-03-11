@@ -22,14 +22,6 @@
 
 #ifdef MOZ_WIDGET_ANDROID
 #  include "jni.h"
-
-namespace mozilla {
-struct StaticXREAppData;
-}
-
-extern "C" NS_EXPORT void GeckoStart(JNIEnv* aEnv, char** argv, int argc,
-                                     const mozilla::StaticXREAppData& aAppData,
-                                     bool xpcshell, const char* outFilePath);
 #endif
 
 #if defined(XP_WIN) && defined(MOZ_SANDBOX)
@@ -109,12 +101,9 @@ class Bootstrap {
   virtual void XRE_EnableSameExecutableForContentProc() = 0;
 
 #ifdef MOZ_WIDGET_ANDROID
-  virtual void GeckoStart(JNIEnv* aEnv, char** argv, int argc,
-                          const StaticXREAppData& aAppData, bool xpcshell,
-                          const char* outFilePath) = 0;
+  virtual void XRE_SetGeckoThreadEnv(JNIEnv* aEnv) = 0;
 
-  virtual void XRE_SetAndroidChildFds(JNIEnv* aEnv,
-                                      const XRE_AndroidChildFds& fds) = 0;
+  virtual void XRE_SetAndroidChildFds(JNIEnv* aEnv, jintArray aFds) = 0;
 #  ifdef MOZ_PROFILE_GENERATE
   virtual void XRE_WriteLLVMProfData() = 0;
 #  endif

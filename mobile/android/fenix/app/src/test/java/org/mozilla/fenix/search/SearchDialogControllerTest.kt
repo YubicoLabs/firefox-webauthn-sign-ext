@@ -29,7 +29,6 @@ import mozilla.components.feature.tabs.TabsUseCases
 import mozilla.components.support.test.libstate.ext.waitUntilIdle
 import mozilla.components.support.test.middleware.CaptureActionsMiddleware
 import mozilla.components.support.test.robolectric.testContext
-import mozilla.telemetry.glean.testing.GleanTestRule
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -46,10 +45,14 @@ import org.mozilla.fenix.GleanMetrics.UnifiedSearch
 import org.mozilla.fenix.HomeActivity
 import org.mozilla.fenix.R
 import org.mozilla.fenix.browser.browsingmode.BrowsingMode
-import org.mozilla.fenix.components.Core
 import org.mozilla.fenix.components.metrics.MetricsUtils
+import org.mozilla.fenix.components.search.BOOKMARKS_SEARCH_ENGINE_ID
+import org.mozilla.fenix.components.search.HISTORY_SEARCH_ENGINE_ID
+import org.mozilla.fenix.components.search.TABS_SEARCH_ENGINE_ID
 import org.mozilla.fenix.ext.components
+import org.mozilla.fenix.helpers.FenixGleanTestRule
 import org.mozilla.fenix.helpers.FenixRobolectricTestRunner
+import org.mozilla.fenix.search.SearchDialogFragmentDirections.Companion.actionGleanDebugToolsFragment
 import org.mozilla.fenix.search.SearchDialogFragmentDirections.Companion.actionGlobalAddonsManagementFragment
 import org.mozilla.fenix.search.SearchDialogFragmentDirections.Companion.actionGlobalSearchEngineFragment
 import org.mozilla.fenix.search.toolbar.SearchSelectorMenu
@@ -77,7 +80,7 @@ class SearchDialogControllerTest {
     private lateinit var browserStore: BrowserStore
 
     @get:Rule
-    val gleanTestRule = GleanTestRule(testContext)
+    val gleanTestRule = FenixGleanTestRule(testContext)
 
     @Before
     fun setUp() {
@@ -327,6 +330,18 @@ class SearchDialogControllerTest {
         middleware.assertLastAction(AwesomeBarAction.EngagementFinished::class) { action ->
             assertFalse(action.abandoned)
         }
+    }
+
+    @Test
+    fun handleGleanUrlCommitted() {
+        val url = "about:glean"
+        val directions = actionGleanDebugToolsFragment()
+
+        createController().handleUrlCommitted(url)
+
+        browserStore.waitUntilIdle()
+
+        verify { navController.navigate(directions) }
     }
 
     @Test
@@ -588,7 +603,7 @@ class SearchDialogControllerTest {
     fun `WHEN history search engine is selected THEN dispatch correct action`() {
         val searchEngine: SearchEngine = mockk(relaxed = true)
         every { searchEngine.type } returns SearchEngine.Type.APPLICATION
-        every { searchEngine.id } returns Core.HISTORY_SEARCH_ENGINE_ID
+        every { searchEngine.id } returns HISTORY_SEARCH_ENGINE_ID
 
         assertNull(UnifiedSearch.engineSelected.testGetValue())
 
@@ -619,7 +634,7 @@ class SearchDialogControllerTest {
     fun `WHEN bookmarks search engine is selected THEN dispatch correct action`() {
         val searchEngine: SearchEngine = mockk(relaxed = true)
         every { searchEngine.type } returns SearchEngine.Type.APPLICATION
-        every { searchEngine.id } returns Core.BOOKMARKS_SEARCH_ENGINE_ID
+        every { searchEngine.id } returns BOOKMARKS_SEARCH_ENGINE_ID
 
         assertNull(UnifiedSearch.engineSelected.testGetValue())
 
@@ -650,7 +665,7 @@ class SearchDialogControllerTest {
     fun `WHEN tabs search engine is selected THEN dispatch correct action`() {
         val searchEngine: SearchEngine = mockk(relaxed = true)
         every { searchEngine.type } returns SearchEngine.Type.APPLICATION
-        every { searchEngine.id } returns Core.TABS_SEARCH_ENGINE_ID
+        every { searchEngine.id } returns TABS_SEARCH_ENGINE_ID
 
         assertNull(UnifiedSearch.engineSelected.testGetValue())
 

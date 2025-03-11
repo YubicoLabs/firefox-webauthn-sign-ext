@@ -46,10 +46,6 @@ interface nsIWebAuthnRegisterArgs : nsISupports {
     [must_use] readonly attribute boolean prf;
     [must_use] readonly attribute Array<octet> prfEvalFirst;
     [must_use] readonly attribute Array<octet> prfEvalSecond;
-    [must_use] readonly attribute Array<ACString> prfEvalByCredentialCredentialIdBase64url;
-    [must_use] readonly attribute Array<Array<octet> > prfEvalByCredentialEvalFirst;
-    [must_use] readonly attribute Array<boolean> prfEvalByCredentialEvalSecondMaybe;
-    [must_use] readonly attribute Array<Array<octet> > prfEvalByCredentialEvalSecond;
     [must_use] readonly attribute boolean signExtension;
     [must_use] readonly attribute Array<octet> signExtensionGenerateKeyPhData;
     [must_use] readonly attribute Array<int32_t> signExtensionGenerateKeyAlgorithms;
@@ -68,6 +64,8 @@ interface nsIWebAuthnRegisterArgs : nsISupports {
     // We might overwrite the provided value with "none" if the user declines the
     // consent popup.
     [must_use] readonly attribute AString attestationConveyancePreference;
+
+    readonly attribute boolean privateBrowsing;
 };
 
 [uuid(2e621cf4-a277-11ed-ae00-bf41a54ef553)]
@@ -98,7 +96,7 @@ interface nsIWebAuthnSignArgs : nsISupports {
     [must_use] readonly attribute boolean prf;
     [must_use] readonly attribute Array<octet> prfEvalFirst;
     [must_use] readonly attribute Array<octet> prfEvalSecond;
-    [must_use] readonly attribute Array<ACString> prfEvalByCredentialCredentialIdBase64url;
+    [must_use] readonly attribute Array<Array<octet> > prfEvalByCredentialCredentialId;
     [must_use] readonly attribute Array<Array<octet> > prfEvalByCredentialEvalFirst;
     [must_use] readonly attribute Array<boolean> prfEvalByCredentialEvalSecondMaybe;
     [must_use] readonly attribute Array<Array<octet> > prfEvalByCredentialEvalSecond;
@@ -116,4 +114,6 @@ interface nsIWebAuthnSignArgs : nsISupports {
     readonly attribute unsigned long timeoutMS;
 
     readonly attribute boolean conditionallyMediated;
+
+    readonly attribute boolean privateBrowsing;
 };

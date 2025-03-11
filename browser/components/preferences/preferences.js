@@ -43,10 +43,6 @@ var { Weave } = ChromeUtils.importESModule(
   "resource://services-sync/main.sys.mjs"
 );
 
-var { FirefoxRelayTelemetry } = ChromeUtils.importESModule(
-  "resource://gre/modules/FirefoxRelayTelemetry.mjs"
-);
-
 var { FxAccounts, getFxAccountsSingleton } = ChromeUtils.importESModule(
   "resource://gre/modules/FxAccounts.sys.mjs"
 );
@@ -195,7 +191,6 @@ function init_all() {
   // Asks Preferences to queue an update of the attribute values of
   // the entire document.
   Preferences.queueUpdateOfAllElements();
-  Services.telemetry.setEventRecordingEnabled("aboutpreferences", true);
 
   register_module("paneGeneral", gMainPane);
   register_module("paneHome", gHomePane);

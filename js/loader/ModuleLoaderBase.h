@@ -23,7 +23,6 @@
 #include "nsURIHashKey.h"
 #include "mozilla/Attributes.h"  // MOZ_RAII
 #include "mozilla/CORSMode.h"
-#include "mozilla/dom/JSExecutionContext.h"
 #include "mozilla/MaybeOneOf.h"
 #include "mozilla/UniquePtr.h"
 #include "ResolveResult.h"
@@ -73,7 +72,7 @@ class ModuleScript;
 
 class ScriptLoaderInterface : public nsISupports {
  public:
-  // alias common classes
+  // Alias common classes.
   using ScriptFetchOptions = JS::loader::ScriptFetchOptions;
   using ScriptKind = JS::loader::ScriptKind;
   using ScriptLoadRequest = JS::loader::ScriptLoadRequest;
@@ -91,6 +90,12 @@ class ScriptLoaderInterface : public nsISupports {
   virtual void ReportWarningToConsole(
       ScriptLoadRequest* aRequest, const char* aMessageName,
       const nsTArray<nsString>& aParams = nsTArray<nsString>()) const = 0;
+
+  // Similar to Report*ToConsole(), only non-null in dom/script/ScriptLoader
+  // as we currently only load importmaps there.
+  virtual nsIConsoleReportCollector* GetConsoleReportCollector() const {
+    return nullptr;
+  }
 
   // Fill in CompileOptions, as well as produce the introducer script for
   // subsequent calls to UpdateDebuggerMetadata
@@ -216,6 +221,14 @@ class ModuleMapKey : public PLDHashEntryHdr {
  * 10. The client calls EvaluateModule() to execute the top-level module.
  */
 class ModuleLoaderBase : public nsISupports {
+ public:
+  // Alias common classes.
+  using LoadedScript = JS::loader::LoadedScript;
+  using ScriptFetchOptions = JS::loader::ScriptFetchOptions;
+  using ScriptLoadRequest = JS::loader::ScriptLoadRequest;
+  using ModuleLoadRequest = JS::loader::ModuleLoadRequest;
+
+ private:
   /*
    * Represents an ongoing load operation for a URI initiated for one request
    * and which may have other requests waiting for it to complete.
@@ -282,11 +295,6 @@ class ModuleLoaderBase : public nsISupports {
 
   virtual nsIURI* GetBaseURI() const { return mLoader->GetBaseURI(); };
 
-  using LoadedScript = JS::loader::LoadedScript;
-  using ScriptFetchOptions = JS::loader::ScriptFetchOptions;
-  using ScriptLoadRequest = JS::loader::ScriptLoadRequest;
-  using ModuleLoadRequest = JS::loader::ModuleLoadRequest;
-
   using MaybeSourceText =
       mozilla::MaybeOneOf<JS::SourceText<char16_t>, JS::SourceText<Utf8Unit>>;
 
@@ -296,7 +304,8 @@ class ModuleLoaderBase : public nsISupports {
  private:
   // Create a module load request for a static module import.
   virtual already_AddRefed<ModuleLoadRequest> CreateStaticImport(
-      nsIURI* aURI, JS::ModuleType aModuleType, ModuleLoadRequest* aParent) = 0;
+      nsIURI* aURI, JS::ModuleType aModuleType, ModuleLoadRequest* aParent,
+      const mozilla::dom::SRIMetadata& aSriMetadata) = 0;
 
   // Called by HostImportModuleDynamically hook.
   virtual already_AddRefed<ModuleLoadRequest> CreateDynamicImport(
@@ -392,6 +401,12 @@ class ModuleLoaderBase : public nsISupports {
   bool IsImportMapAllowed() const { return mImportMapsAllowed; }
   // https://html.spec.whatwg.org/multipage/webappapis.html#disallow-further-import-maps
   void DisallowImportMaps() { mImportMapsAllowed = false; }
+
+  // Returns whether there has been an entry in the import map
+  // for the given aURI.
+  bool GetImportMapSRI(nsIURI* aURI, nsIURI* aSourceURI,
+                       nsIConsoleReportCollector* aReporter,
+                       mozilla::dom::SRIMetadata* aMetadataOut);
 
   // Returns true if the module for given module key is already fetched.
   bool IsModuleFetched(const ModuleMapKey& key) const;

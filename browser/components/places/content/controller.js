@@ -77,12 +77,6 @@ function PlacesController(aView) {
     return Services.dirsvc.get("ProfD", Ci.nsIFile).leafName;
   });
 
-  XPCOMUtils.defineLazyPreferenceGetter(
-    this,
-    "forgetSiteClearByBaseDomain",
-    "places.forgetThisSite.clearByBaseDomain",
-    false
-  );
   ChromeUtils.defineESModuleGetters(this, {
     ForgetAboutSite: "resource://gre/modules/ForgetAboutSite.sys.mjs",
   });
@@ -1289,22 +1283,24 @@ PlacesController.prototype = {
     Services.clipboard.getData(xferable, Ci.nsIClipboard.kGlobalClipboard);
 
     // Now get the clipboard contents, in the best available flavor.
-    let data = {},
-      type = {},
-      items = [];
+    let validNodes, invalidNodes;
+
     try {
+      let data = {},
+        type = {};
       xferable.getAnyTransferData(type, data);
-      data = data.value.QueryInterface(Ci.nsISupportsString).data;
-      type = type.value;
-      items = PlacesUtils.unwrapNodes(data, type);
+      ({ validNodes, invalidNodes } = PlacesUtils.unwrapNodes(
+        data.value.QueryInterface(Ci.nsISupportsString).data,
+        type.value
+      ));
     } catch (ex) {
-      // No supported data exists or nodes unwrap failed, just bail out.
+      // No supported data exists, just bail out.
       return;
     }
 
     let doCopy = action == "copy";
     let itemsToSelect = await PlacesUIUtils.handleTransferItems(
-      items,
+      validNodes,
       ip,
       doCopy,
       this._view
@@ -1317,6 +1313,34 @@ PlacesController.prototype = {
 
     if (itemsToSelect.length) {
       this._view.selectItems(itemsToSelect, false);
+    }
+
+    if (invalidNodes.length) {
+      let [title, body] = PlacesUIUtils.promptLocalization.formatValuesSync([
+        "places-bookmarks-paste-error-title",
+        "places-bookmarks-paste-error-message-header",
+      ]);
+
+      const MAX_URI_LENGTH = 100;
+      const MAX_URI_COUNT = 20;
+
+      let invalidUrlList = invalidNodes
+        .slice(0, MAX_URI_COUNT)
+        .map(item => {
+          let encodedUri = encodeURI(item.uri);
+          if (encodedUri.length > MAX_URI_LENGTH) {
+            encodedUri = encodedUri.slice(0, MAX_URI_LENGTH) + "…";
+          }
+          return "\n  • " + encodedUri;
+        })
+        .join("");
+
+      if (invalidNodes.length > MAX_URI_COUNT) {
+        invalidUrlList += "\n  • …";
+      }
+
+      body = `${body}${invalidUrlList}`;
+      Services.prompt.alert(window, title, body);
     }
   },
 
@@ -1414,11 +1438,7 @@ PlacesController.prototype = {
       return;
     }
 
-    if (this.forgetSiteClearByBaseDomain) {
-      await this.ForgetAboutSite.removeDataFromBaseDomain(host);
-    } else {
-      await this.ForgetAboutSite.removeDataFromDomain(host);
-    }
+    await this.ForgetAboutSite.removeDataFromBaseDomain(host);
   },
 
   showInFolder(aBookmarkGuid) {
@@ -1547,14 +1567,14 @@ var PlacesControllerDragHelper = {
       }
 
       let data = dt.mozGetDataAt(flavor, i);
-      let nodes;
+      let validNodes;
       try {
-        nodes = PlacesUtils.unwrapNodes(data, flavor);
+        ({ validNodes } = PlacesUtils.unwrapNodes(data, flavor));
       } catch (e) {
         return false;
       }
 
-      for (let dragged of nodes) {
+      for (let dragged of validNodes) {
         // Only bookmarks and urls can be dropped into tag containers.
         if (
           ip.isTag &&
@@ -1605,8 +1625,8 @@ var PlacesControllerDragHelper = {
         // a javascript: bookmarklet
         if (
           !flavor.startsWith("text/x-moz-place") &&
-          (nodes.length > 1 || dropCount > 1) &&
-          nodes.some(n => n.uri?.startsWith("javascript:"))
+          (validNodes.length > 1 || dropCount > 1) &&
+          validNodes.some(n => n.uri?.startsWith("javascript:"))
         ) {
           return false;
         }
@@ -1660,7 +1680,7 @@ var PlacesControllerDragHelper = {
       }
 
       if (flavor != TAB_DROP_TYPE) {
-        nodes = [...nodes, ...PlacesUtils.unwrapNodes(data, flavor)];
+        nodes = [...nodes, ...PlacesUtils.unwrapNodes(data, flavor).validNodes];
       } else if (
         XULElement.isInstance(data) &&
         data.localName == "tab" &&

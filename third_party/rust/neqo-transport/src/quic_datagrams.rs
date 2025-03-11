@@ -144,17 +144,17 @@ impl QuicDatagrams {
     /// # Error
     ///
     /// The function returns `TooMuchData` if the supply buffer is bigger than
-    /// the allowed remote datagram size. The funcion does not check if the
+    /// the allowed remote datagram size. The function does not check if the
     /// datagram can fit into a packet (i.e. MTU limit). This is checked during
     /// creation of an actual packet and the datagram will be dropped if it does
     /// not fit into the packet.
     pub fn add_datagram(
         &mut self,
-        buf: &[u8],
+        data: Vec<u8>,
         tracking: DatagramTracking,
         stats: &mut Stats,
     ) -> Res<()> {
-        if u64::try_from(buf.len())? > self.remote_datagram_size {
+        if u64::try_from(data.len())? > self.remote_datagram_size {
             return Err(Error::TooMuchData);
         }
         if self.datagrams.len() == self.max_queued_outgoing_datagrams {
@@ -167,10 +167,7 @@ impl QuicDatagrams {
             );
             stats.datagram_tx.dropped_queue_full += 1;
         }
-        self.datagrams.push_back(QuicDatagram {
-            data: buf.to_vec(),
-            tracking,
-        });
+        self.datagrams.push_back(QuicDatagram { data, tracking });
         Ok(())
     }
 

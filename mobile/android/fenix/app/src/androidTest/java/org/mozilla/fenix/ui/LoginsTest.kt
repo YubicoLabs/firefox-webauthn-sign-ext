@@ -25,9 +25,9 @@ import org.mozilla.fenix.helpers.TestHelper.restartApp
 import org.mozilla.fenix.helpers.TestHelper.scrollToElementByText
 import org.mozilla.fenix.helpers.TestHelper.verifySnackBarText
 import org.mozilla.fenix.helpers.TestHelper.waitForAppWindowToBeUpdated
+import org.mozilla.fenix.helpers.TestHelper.waitUntilSnackbarGone
 import org.mozilla.fenix.helpers.TestSetup
 import org.mozilla.fenix.ui.robots.browserScreen
-import org.mozilla.fenix.ui.robots.clearTextFieldItem
 import org.mozilla.fenix.ui.robots.clickPageObject
 import org.mozilla.fenix.ui.robots.homeScreen
 import org.mozilla.fenix.ui.robots.navigationToolbar
@@ -155,7 +155,9 @@ class LoginsTest : TestSetup() {
         navigationToolbar {
         }.enterURLAndEnterToBrowser(loginPage.toUri()) {
             setPageObjectText(itemWithResId("username"), userName)
+            waitForAppWindowToBeUpdated()
             setPageObjectText(itemWithResId("password"), password)
+            waitForAppWindowToBeUpdated()
             clickPageObject(itemWithResId("submit"))
             verifySaveLoginPromptIsDisplayed()
             clickPageObject(itemWithText("Save"))
@@ -262,7 +264,11 @@ class LoginsTest : TestSetup() {
             clickPageObject(itemWithResId("submit"))
             verifySaveLoginPromptIsDisplayed()
             clickPageObject(itemWithText("Save"))
-            clearTextFieldItem(itemWithResId("username"))
+            waitUntilSnackbarGone()
+        }
+        navigationToolbar {
+        }.enterURLAndEnterToBrowser(loginPage.toUri()) {
+            clickPageObject(itemWithResId("username"))
             clickSuggestedLoginsButton()
             verifySuggestedUserName(activityTestRule, firstUser)
             verifySuggestedUserName(activityTestRule, secondUser)
@@ -311,8 +317,11 @@ class LoginsTest : TestSetup() {
 
         navigationToolbar {
         }.enterURLAndEnterToBrowser(loginPage.toUri()) {
+            waitForPageToLoad(pageLoadWaitingTime = waitingTimeLong)
             setPageObjectText(itemWithResId("username"), "mozilla")
+            waitForAppWindowToBeUpdated()
             setPageObjectText(itemWithResId("password"), "firefox")
+            waitForAppWindowToBeUpdated()
             clickPageObject(itemWithResId("submit"))
             verifySaveLoginPromptIsDisplayed()
             clickPageObject(itemWithText("Save"))
@@ -382,7 +391,9 @@ class LoginsTest : TestSetup() {
         navigationToolbar {
         }.enterURLAndEnterToBrowser(loginPage.toUri()) {
             setPageObjectText(itemWithResId("username"), "mozilla")
+            waitForAppWindowToBeUpdated()
             setPageObjectText(itemWithResId("password"), "firefox")
+            waitForAppWindowToBeUpdated()
             clickPageObject(itemWithResId("submit"))
             verifySaveLoginPromptIsDisplayed()
             clickPageObject(itemWithText("Save"))
@@ -413,7 +424,9 @@ class LoginsTest : TestSetup() {
         navigationToolbar {
         }.enterURLAndEnterToBrowser(loginPage.toUri()) {
             setPageObjectText(itemWithResId("username"), "mozilla")
+            waitForAppWindowToBeUpdated()
             setPageObjectText(itemWithResId("password"), "firefox")
+            waitForAppWindowToBeUpdated()
             clickPageObject(itemWithResId("submit"))
             verifySaveLoginPromptIsDisplayed()
             clickPageObject(itemWithText("Save"))
@@ -560,7 +573,7 @@ class LoginsTest : TestSetup() {
             waitForAppWindowToBeUpdated()
             clickPageObject(itemWithResId("submit"))
             verifySaveLoginPromptIsDisplayed()
-            clickPageObject(itemWithText("Don’t update"))
+            clickPageObject(itemWithText("Not now"))
         }.openThreeDotMenu {
         }.openSettings {
         }.openLoginsAndPasswordSubMenu {

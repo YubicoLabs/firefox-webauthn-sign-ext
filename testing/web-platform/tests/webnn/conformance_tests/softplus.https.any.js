@@ -1,5 +1,5 @@
 // META: title=test WebNN API softplus operation
-// META: global=window,dedicatedworker
+// META: global=window
 // META: variant=?cpu
 // META: variant=?gpu
 // META: variant=?npu
@@ -282,7 +282,7 @@ const softplusTests = [
 
 if (navigator.ml) {
   softplusTests.forEach((test) => {
-    webnn_conformance_test(buildGraphAndCompute, getPrecisionTolerance, test);
+    webnn_conformance_test(buildAndExecuteGraph, getPrecisionTolerance, test);
   });
 } else {
   test(() => assert_implements(navigator.ml, 'missing navigator.ml'));

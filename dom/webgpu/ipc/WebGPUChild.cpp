@@ -25,7 +25,6 @@
 #include "PipelineLayout.h"
 #include "Sampler.h"
 #include "CompilationInfo.h"
-#include "mozilla/ipc/RawShmem.h"
 #include "Utility.h"
 
 #include <utility>
@@ -160,26 +159,38 @@ ipc::IPCResult WebGPUChild::RecvDropAction(const ipc::ByteBuf& aByteBuf) {
   return IPC_OK();
 }
 
-ipc::IPCResult WebGPUChild::RecvDeviceLost(RawId aDeviceId,
-                                           Maybe<uint8_t> aReason,
-                                           const nsACString& aMessage) {
+bool WebGPUChild::ResolveLostForDeviceId(RawId aDeviceId,
+                                         Maybe<uint8_t> aReason,
+                                         const nsAString& aMessage) {
   RefPtr<Device> device;
   const auto itr = mDeviceMap.find(aDeviceId);
   if (itr != mDeviceMap.end()) {
     device = itr->second.get();
     MOZ_ASSERT(device);
   }
-
-  if (device) {
-    auto message = NS_ConvertUTF8toUTF16(aMessage);
-    if (aReason.isSome()) {
-      dom::GPUDeviceLostReason reason =
-          static_cast<dom::GPUDeviceLostReason>(*aReason);
-      device->ResolveLost(Some(reason), message);
-    } else {
-      device->ResolveLost(Nothing(), message);
-    }
+  if (!device) {
+    // We must have unregistered the device already.
+    return false;
   }
+
+  if (aReason.isSome()) {
+    dom::GPUDeviceLostReason reason =
+        static_cast<dom::GPUDeviceLostReason>(*aReason);
+    MOZ_ASSERT(reason == dom::GPUDeviceLostReason::Destroyed,
+               "There is only one valid GPUDeviceLostReason value.");
+    device->ResolveLost(Some(reason), aMessage);
+  } else {
+    device->ResolveLost(Nothing(), aMessage);
+  }
+
+  return true;
+}
+
+ipc::IPCResult WebGPUChild::RecvDeviceLost(RawId aDeviceId,
+                                           Maybe<uint8_t> aReason,
+                                           const nsACString& aMessage) {
+  auto message = NS_ConvertUTF8toUTF16(aMessage);
+  ResolveLostForDeviceId(aDeviceId, aReason, message);
   return IPC_OK();
 }
 
@@ -211,8 +222,11 @@ void WebGPUChild::SwapChainPresent(RawId aTextureId,
                                    const RemoteTextureOwnerId& aOwnerId) {
   // Hack: the function expects `DeviceId`, but it only uses it for `backend()`
   // selection.
+  // The parent side needs to create a command encoder which will be submitted
+  // and dropped right away so we create and release an encoder ID here.
   RawId encoderId = ffi::wgpu_client_make_encoder_id(mClient.get());
   SendSwapChainPresent(aTextureId, encoderId, aRemoteTextureId, aOwnerId);
+  ffi::wgpu_client_free_command_encoder_id(mClient.get(), encoderId);
 }
 
 void WebGPUChild::RegisterDevice(Device* const aDevice) {
@@ -240,13 +254,8 @@ void WebGPUChild::ActorDestroy(ActorDestroyReason) {
 
   for (const auto& targetIter : deviceMap) {
     RefPtr<Device> device = targetIter.second.get();
-    if (!device) {
-      // The Device may have gotten freed when we resolved the Promise for
-      // another Device in the map.
-      continue;
-    }
-
-    device->ResolveLost(Nothing(), u"WebGPUChild destroyed"_ns);
+    MOZ_ASSERT(device);
+    ResolveLostForDeviceId(device->mId, Nothing(), u"WebGPUChild destroyed"_ns);
   }
 }
 

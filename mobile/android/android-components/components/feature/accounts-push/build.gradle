@@ -32,10 +32,6 @@ android {
     namespace 'mozilla.components.feature.accounts.push'
 }
 
-tasks.withType(KotlinCompile).configureEach {
-    kotlinOptions.freeCompilerArgs += "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi"
-}
-
 dependencies {
     implementation project(':browser-state')
     implementation project(':service-firefox-accounts')
@@ -44,21 +40,21 @@ dependencies {
     implementation project(':concept-push')
     implementation project(':feature-push')
 
-    implementation ComponentsDependencies.androidx_work_runtime
-    implementation ComponentsDependencies.androidx_lifecycle_process
-    implementation ComponentsDependencies.kotlin_coroutines
+    implementation libs.androidx.work.runtime
+    implementation libs.androidx.lifecycle.process
+    implementation libs.kotlin.coroutines
 
     testImplementation project(':concept-engine')
     testImplementation project(':support-test')
     testImplementation project(':support-test-libstate')
 
-    testImplementation ComponentsDependencies.androidx_test_core
-    testImplementation ComponentsDependencies.androidx_test_junit
-    testImplementation ComponentsDependencies.junit_vintage
-    testImplementation ComponentsDependencies.testing_robolectric
-    testImplementation ComponentsDependencies.testing_coroutines
+    testImplementation libs.androidx.test.core
+    testImplementation libs.androidx.test.junit
+    testImplementation libs.junit.vintage
+    testImplementation libs.testing.robolectric
+    testImplementation libs.testing.coroutines
 }
 
 apply from: '../../../android-lint.gradle'
 apply from: '../../../publish.gradle'
-ext.configurePublish(config.componentsGroupId, archivesBaseName, project.ext.description)
+ext.configurePublish(config.componentsGroupId, project.name, project.ext.description)

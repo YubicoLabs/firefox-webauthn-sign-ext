@@ -28,13 +28,14 @@ namespace xsimd
      *
      * @defgroup batch_arithmetic Arithmetic operators
      * @defgroup batch_constant Constant batches
+     * @defgroup batch_cond Conditional operators
      * @defgroup batch_data_transfer Memory operators
      * @defgroup batch_math Basic math operators
      * @defgroup batch_math_extra Extra math operators
      * @defgroup batch_fp Floating point manipulation
      * @defgroup batch_rounding Rounding operators
      * @defgroup batch_conversion Conversion operators
-     * @defgroup batch_complex_op Complex operators
+     * @defgroup batch_complex Complex operators
      * @defgroup batch_logical Logical operators
      * @defgroup batch_bitwise Bitwise operators
      * @defgroup batch_reducers Reducers
@@ -235,7 +236,7 @@ namespace xsimd
     /**
      * @ingroup batch_conversion
      *
-     * Perform a static_cast from \c T_in to \c T_out on \c \c x.
+     * Perform a static_cast from \c T_in to \c T_out on \c x.
      * @param x batch_bool of \c T_in
      * @return \c x cast to \c T_out
      */
@@ -251,7 +252,7 @@ namespace xsimd
     /**
      * @ingroup batch_conversion
      *
-     * Perform a static_cast from \c T_in to \c T_out on \c \c x.
+     * Perform a static_cast from \c T_in to \c T_out on \c x.
      * @param x batch of \c T_in
      * @return \c x cast to \c T_out
      */
@@ -485,15 +486,17 @@ namespace xsimd
     /**
      * @ingroup batch_data_transfer
      *
-     * Creates a batch from the single value \c v.
+     * Creates a batch from the single value \c v. If \c v is a boolean,
+     * this function returns a batch_bool<uint8_t>. If you need another type
+     * of batch_bool, please use \c broadcast_as instead.
      * @param v the value used to initialize the batch
      * @return a new batch instance
      */
     template <class T, class A = default_arch>
-    XSIMD_INLINE batch<T, A> broadcast(T v) noexcept
+    XSIMD_INLINE typename kernel::detail::broadcaster<T, A>::return_type broadcast(T v) noexcept
     {
         detail::static_check_supported_config<T, A>();
-        return batch<T, A>::broadcast(v);
+        return kernel::detail::broadcaster<T, A>::run(v);
     }
 
     /**
@@ -629,6 +632,20 @@ namespace xsimd
     {
         detail::static_check_supported_config<T, A>();
         return kernel::cosh<A>(x, A {});
+    }
+
+    /**
+     * @ingroup batch_reducers
+     *
+     * Count the number of values set to true in the batch \c x
+     * @param x boolean or batch of boolean
+     * @return the result of the counting.
+     */
+    template <class T, class A>
+    XSIMD_INLINE size_t count(batch_bool<T, A> const& x) noexcept
+    {
+        detail::static_check_supported_config<T, A>();
+        return kernel::count<A>(x, A {});
     }
 
     /**
@@ -1876,13 +1893,13 @@ namespace xsimd
     }
 
     /**
-     * @ingroup rotate_left
+     * @ingroup batch_data_transfer
      *
-     * Slide the whole batch to the left by \c n bytes, and reintroduce the
+     * Slide the whole batch to the left by \c n elements, and reintroduce the
      * slided out elements from the right. This is different from
-     * \c rol that rotates each batch element to the left.
+     * \c rotl that rotates each batch element to the left.
      *
-     * @tparam N Amount of bytes to rotated to the left.
+     * @tparam N Amount of elements to rotate to the left.
      * @param x batch of integer values.
      * @return rotated batch.
      */
@@ -1894,13 +1911,13 @@ namespace xsimd
     }
 
     /**
-     * @ingroup rotate_right
+     * @ingroup batch_data_transfer
      *
-     * Slide the whole batch to the right by \c n bytes, and reintroduce the
+     * Slide the whole batch to the right by \c n elements, and reintroduce the
      * slided out elements from the left. This is different from
-     * \c rol that rotates each batch element to the left.
+     * \c rotr that rotates each batch element to the right.
      *
-     * @tparam N Amount of bytes to rotate to the right.
+     * @tparam N Amount of elements to rotate to the right.
      * @param x batch of integer values.
      * @return rotated batch.
      */
@@ -2007,7 +2024,7 @@ namespace xsimd
     }
 
     /**
-     * @ingroup batch_miscellaneous
+     * @ingroup batch_cond
      *
      * Ternary operator for batches: selects values from the batches \c true_br or \c false_br
      * depending on the boolean values in the constant batch \c cond. Equivalent to
@@ -2028,7 +2045,7 @@ namespace xsimd
     }
 
     /**
-     * @ingroup batch_miscellaneous
+     * @ingroup batch_cond
      *
      * Ternary operator for batches: selects values from the batches \c true_br or \c false_br
      * depending on the boolean values in the constant batch \c cond. Equivalent to
@@ -2049,7 +2066,7 @@ namespace xsimd
     }
 
     /**
-     * @ingroup batch_miscellaneous
+     * @ingroup batch_cond
      *
      * Ternary operator for batches: selects values from the batches \c true_br or \c false_br
      * depending on the boolean values in the constant batch \c cond. Equivalent to
@@ -2499,6 +2516,23 @@ namespace xsimd
     {
         detail::static_check_supported_config<T, A>();
         return batch_cast<as_integer_t<T>>(x);
+    }
+
+    /**
+     * @ingroup batch_data_transfer
+     *
+     * Transposes in place the matrix whose line are each of the batch passed as
+     * argument.
+     * @param matrix_begin pointer to the first line of the matrix to transpose
+     * @param matrix_end pointer to one element after the last line of the matrix to transpose
+     *
+     */
+    template <class T, class A>
+    XSIMD_INLINE void transpose(batch<T, A>* matrix_begin, batch<T, A>* matrix_end) noexcept
+    {
+        assert((matrix_end - matrix_begin == batch<T, A>::size) && "correctly sized matrix");
+        detail::static_check_supported_config<T, A>();
+        return kernel::transpose(matrix_begin, matrix_end, A {});
     }
 
     /**

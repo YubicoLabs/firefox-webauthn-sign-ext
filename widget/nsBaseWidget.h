@@ -168,13 +168,7 @@ class nsBaseWidget : public nsIWidget, public nsSupportsWeakReference {
   nsIWidgetListener* GetWidgetListener() const override;
   void SetWidgetListener(nsIWidgetListener* alistener) override;
   void Destroy() override;
-  void SetParent(nsIWidget* aNewParent) override {};
-  nsIWidget* GetParent() override;
-  nsIWidget* GetTopLevelWidget() override;
-  nsIWidget* GetSheetWindowParent(void) override;
   float GetDPI() override;
-  void AddChild(nsIWidget* aChild) override;
-  void RemoveChild(nsIWidget* aChild) override;
 
   void GetWorkspaceID(nsAString& workspaceID) override;
   void MoveToWorkspace(const nsAString& workspaceID) override;
@@ -206,6 +200,7 @@ class nsBaseWidget : public nsIWidget, public nsSupportsWeakReference {
   nsresult MakeFullScreen(bool aFullScreen) override;
   void InfallibleMakeFullScreen(bool aFullScreen);
 
+  LayersId GetLayersId() const override;
   WindowRenderer* GetWindowRenderer() override;
   bool HasWindowRenderer() const final { return !!mWindowRenderer; }
 
@@ -251,6 +246,10 @@ class nsBaseWidget : public nsIWidget, public nsSupportsWeakReference {
       override;
 
   void ConstrainPosition(DesktopIntPoint&) override {}
+  // Utility function for derived-class overrides of ConstrainPosition.
+  static DesktopIntPoint ConstrainPositionToBounds(
+      const DesktopIntPoint&, const mozilla::DesktopIntSize&,
+      const DesktopIntRect&);
   void MoveClient(const DesktopPoint& aOffset) override;
   void ResizeClient(const DesktopSize& aSize, bool aRepaint) override;
   void ResizeClient(const DesktopRect& aRect, bool aRepaint) override;
@@ -258,11 +257,9 @@ class nsBaseWidget : public nsIWidget, public nsSupportsWeakReference {
   LayoutDeviceIntRect GetClientBounds() override;
   LayoutDeviceIntRect GetScreenBounds() override;
   [[nodiscard]] nsresult GetRestoredBounds(LayoutDeviceIntRect& aRect) override;
-  nsresult SetNonClientMargins(const LayoutDeviceIntMargin&) override;
   LayoutDeviceIntPoint GetClientOffset() override;
   void EnableDragDrop(bool aEnable) override {};
   nsresult AsyncEnableDragDrop(bool aEnable) override;
-  void SetResizeMargin(mozilla::LayoutDeviceIntCoord aResizeMargin) override;
   [[nodiscard]] nsresult GetAttention(int32_t aCycleCount) override {
     return NS_OK;
   }
@@ -283,13 +280,13 @@ class nsBaseWidget : public nsIWidget, public nsSupportsWeakReference {
   }
   bool ComputeShouldAccelerate();
   virtual bool WidgetTypeSupportsAcceleration() { return true; }
+  virtual bool WidgetTypeSupportsNativeCompositing() { return true; }
   [[nodiscard]] nsresult OnDefaultButtonLoaded(
       const LayoutDeviceIntRect& aButtonRect) override {
     return NS_ERROR_NOT_IMPLEMENTED;
   }
-  already_AddRefed<nsIWidget> CreateChild(
-      const LayoutDeviceIntRect& aRect, InitData* aInitData = nullptr,
-      bool aForceUseIWidgetParent = false) override;
+  already_AddRefed<nsIWidget> CreateChild(const LayoutDeviceIntRect& aRect,
+                                          InitData&) final;
   void AttachViewToTopLevel(bool aUseAttachedEvents) override;
   nsIWidgetListener* GetAttachedWidgetListener() const override;
   void SetAttachedWidgetListener(nsIWidgetListener* aListener) override;
@@ -364,8 +361,6 @@ class nsBaseWidget : public nsIWidget, public nsSupportsWeakReference {
 
   PopupLevel GetPopupLevel() { return mPopupLevel; }
 
-  void ReparentNativeWidget(nsIWidget* aNewParent) override {}
-
   const SizeConstraints GetSizeConstraints() override;
   void SetSizeConstraints(const SizeConstraints& aConstraints) override;
 
@@ -416,7 +411,7 @@ class nsBaseWidget : public nsIWidget, public nsSupportsWeakReference {
   void NotifyLiveResizeStopped();
 
 #if defined(MOZ_WIDGET_ANDROID)
-  void RecvToolbarAnimatorMessageFromCompositor(int32_t) override{};
+  void RecvToolbarAnimatorMessageFromCompositor(int32_t) override {};
   void UpdateRootFrameMetrics(const ScreenPoint& aScrollOffset,
                               const CSSToScreenScale& aZoom) override {};
   void RecvScreenPixels(mozilla::ipc::Shmem&& aMem, const ScreenIntSize& aSize,
@@ -579,9 +574,8 @@ class nsBaseWidget : public nsIWidget, public nsSupportsWeakReference {
    */
   void ConstrainSize(int32_t* aWidth, int32_t* aHeight) override {
     SizeConstraints c = GetSizeConstraints();
-    *aWidth = std::max(c.mMinSize.width, std::min(c.mMaxSize.width, *aWidth));
-    *aHeight =
-        std::max(c.mMinSize.height, std::min(c.mMaxSize.height, *aHeight));
+    *aWidth = std::clamp(*aWidth, c.mMinSize.width, c.mMaxSize.width);
+    *aHeight = std::clamp(*aHeight, c.mMinSize.height, c.mMaxSize.height);
   }
 
   CompositorBridgeChild* GetRemoteRenderer() override;
@@ -605,7 +599,7 @@ class nsBaseWidget : public nsIWidget, public nsSupportsWeakReference {
   // Notify the compositor that a device reset has occurred.
   void OnRenderingDeviceReset();
 
-  bool UseAPZ();
+  bool UseAPZ() const;
 
   bool AllowWebRenderForThisWindow();
 
@@ -628,10 +622,7 @@ class nsBaseWidget : public nsIWidget, public nsSupportsWeakReference {
    * be called from the main thread, and if APZ is enabled, that must also be
    * the APZ controller thread.
    */
-  void DispatchTouchInput(
-      mozilla::MultiTouchInput& aInput,
-      uint16_t aInputSource =
-          mozilla::dom::MouseEvent_Binding::MOZ_SOURCE_TOUCH);
+  void DispatchTouchInput(mozilla::MultiTouchInput& aInput);
 
   /**
    * Dispatch the given PanGestureInput through APZ to Gecko (if APZ is enabled)
@@ -743,9 +734,6 @@ class nsBaseWidget : public nsIWidget, public nsSupportsWeakReference {
 
 #ifdef DEBUG
  protected:
-  static nsAutoString debug_GuiEventToString(
-      mozilla::WidgetGUIEvent* aGuiEvent);
-
   static void debug_DumpInvalidate(FILE* aFileOut, nsIWidget* aWidget,
                                    const LayoutDeviceIntRect* aRect,
                                    const char* aWidgetName, int32_t aWindowID);

@@ -90,10 +90,9 @@ VCMEncodedFrame* VCMReceiver::FrameForDecoding(uint16_t max_wait_time_ms,
   }
   uint32_t frame_timestamp = found_frame->RtpTimestamp();
 
-  if (absl::optional<VideoPlayoutDelay> playout_delay =
+  if (std::optional<VideoPlayoutDelay> playout_delay =
           found_frame->EncodedImage().PlayoutDelay()) {
-    timing_->set_min_playout_delay(playout_delay->min());
-    timing_->set_max_playout_delay(playout_delay->max());
+    timing_->set_playout_delay(*playout_delay);
   }
 
   // We have a frame - Set timing and render timestamp.

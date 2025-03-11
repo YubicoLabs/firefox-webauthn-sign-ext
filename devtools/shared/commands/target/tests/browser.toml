@@ -10,6 +10,7 @@ support-files = [
   "incremental-js-value-script.sjs",
   "fission_document.html",
   "fission_iframe.html",
+  "helper_service_workers_navigation.js",
   "test_service_worker.js",
   "test_sw_page.html",
   "test_sw_page_worker.js",
@@ -19,6 +20,11 @@ support-files = [
 ["browser_target_command_bfcache.js"]
 
 ["browser_target_command_browser_workers.js"]
+skip-if = [
+  "os == 'linux' && os_version == '18.04' && processor == 'x86_64' && tsan", # Bug 1767778
+]
+
+["browser_target_command_content_scripts.js"]
 
 ["browser_target_command_detach.js"]
 
@@ -30,6 +36,7 @@ support-files = [
 skip-if = [
   "os == 'linux' && !fission" # Bug 1855067
 ]
+
 ["browser_target_command_getAllTargets.js"]
 
 ["browser_target_command_invalid_api_usage.js"]
@@ -47,9 +54,13 @@ skip-if = [
 ]
 
 ["browser_target_command_service_workers_navigation.js"]
+
+["browser_target_command_service_workers_navigation_stopped.js"]
 skip-if = [
   "os == 'linux'", # Bug 1767781
   "win11_2009", # Bug 1767781
+  "os == 'win' && os_version == '11.26100' && processor == 'x86_64'", # Bug 1767781
+  "os == 'mac' && os_version == '14.70' && processor == 'x86_64'", # Bug 1929449
 ]
 
 ["browser_target_command_switchToTarget.js"]

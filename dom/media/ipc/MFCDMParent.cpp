@@ -90,11 +90,12 @@ DEFINE_PROPERTYKEY(EME_CONTENTDECRYPTIONMODULE_ORIGIN_ID, 0x1218a3e2, 0xcfb0,
   } while (false)
 
 StaticMutex sFactoryMutex;
-static nsTHashMap<nsStringHashKey, ComPtr<IMFContentDecryptionModuleFactory>>
+MOZ_RUNINIT static nsTHashMap<nsStringHashKey,
+                              ComPtr<IMFContentDecryptionModuleFactory>>
     sFactoryMap;
-static CopyableTArray<MFCDMCapabilitiesIPDL> sCapabilities;
+MOZ_RUNINIT static CopyableTArray<MFCDMCapabilitiesIPDL> sCapabilities;
 StaticMutex sCapabilitesMutex;
-static ComPtr<IUnknown> sMediaEngineClassFactory;
+MOZ_RUNINIT static ComPtr<IUnknown> sMediaEngineClassFactory;
 
 // RAIIized PROPVARIANT. See
 // third_party/libwebrtc/modules/audio_device/win/core_audio_utility_win.h
@@ -861,7 +862,7 @@ void MFCDMParent::GetCapabilities(const nsString& aKeySystem,
   if (aFlags.contains(CapabilitesFlag::NeedClearLeadCheck)) {
     for (const auto& codec : kVideoCodecs) {
       if (codec == KeySystemConfig::EME_CODEC_HEVC &&
-          !StaticPrefs::media_wmf_hevc_enabled()) {
+          !StaticPrefs::media_hevc_enabled()) {
         continue;
       }
       CryptoSchemeSet supportedScheme;
@@ -926,7 +927,7 @@ void MFCDMParent::GetCapabilities(const nsString& aKeySystem,
     // Non clearlead situation for video codecs
     for (const auto& codec : kVideoCodecs) {
       if (codec == KeySystemConfig::EME_CODEC_HEVC &&
-          !StaticPrefs::media_wmf_hevc_enabled()) {
+          !StaticPrefs::media_hevc_enabled()) {
         continue;
       }
       if (FactorySupports(factory, aKeySystem, convertCodecToFourCC(codec),

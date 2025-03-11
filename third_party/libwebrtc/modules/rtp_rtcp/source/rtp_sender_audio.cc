@@ -13,11 +13,11 @@
 #include <string.h>
 
 #include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
 
 #include "absl/strings/match.h"
-#include "absl/types/optional.h"
 #include "api/audio_codecs/audio_format.h"
 #include "api/rtp_headers.h"
 #include "modules/audio_coding/include/audio_coding_module_typedefs.h"
@@ -47,8 +47,8 @@ RTPSenderAudio::~RTPSenderAudio() {}
 int32_t RTPSenderAudio::RegisterAudioPayload(absl::string_view payload_name,
                                              const int8_t payload_type,
                                              const uint32_t frequency,
-                                             const size_t channels,
-                                             const uint32_t rate) {
+                                             const size_t /* channels */,
+                                             const uint32_t /* rate */) {
   if (absl::EqualsIgnoreCase(payload_name, "cn")) {
     MutexLock lock(&send_audio_mutex_);
     //  we can have multiple CNG payload types
@@ -137,7 +137,7 @@ bool RTPSenderAudio::SendAudio(const RtpAudioFrame& frame) {
   // updates, with a value of 50 ms RECOMMENDED.
   constexpr int kDtmfIntervalTimeMs = 50;
   uint32_t dtmf_payload_freq = 0;
-  absl::optional<AbsoluteCaptureTime> absolute_capture_time;
+  std::optional<AbsoluteCaptureTime> absolute_capture_time;
   {
     MutexLock lock(&send_audio_mutex_);
     dtmf_payload_freq = dtmf_payload_freq_;

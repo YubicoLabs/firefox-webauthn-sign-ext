@@ -26,6 +26,11 @@ export class SidebarHistory extends SidebarPage {
     searchTextbox: "fxview-search-textbox",
   };
 
+  constructor() {
+    super();
+    this.handlePopupEvent = this.handlePopupEvent.bind(this);
+  }
+
   controller = new lazy.HistoryController(this, {
     component: "sidebar",
   });
@@ -37,6 +42,7 @@ export class SidebarHistory extends SidebarPage {
     this._menuSortByDate = doc.getElementById("sidebar-history-sort-by-date");
     this._menuSortBySite = doc.getElementById("sidebar-history-sort-by-site");
     this._menu.addEventListener("command", this);
+    this._menu.addEventListener("popuphidden", this.handlePopupEvent);
     this.addContextMenuListeners();
     this.addSidebarFocusedListeners();
     this.controller.updateCache();
@@ -45,6 +51,7 @@ export class SidebarHistory extends SidebarPage {
   disconnectedCallback() {
     super.disconnectedCallback();
     this._menu.removeEventListener("command", this);
+    this._menu.removeEventListener("popuphidden", this.handlePopupEvent);
     this.removeContextMenuListeners();
     this.removeSidebarFocusedListeners();
   }
@@ -73,6 +80,13 @@ export class SidebarHistory extends SidebarPage {
       default:
         super.handleCommandEvent(e);
         break;
+    }
+  }
+
+  // We should let moz-button handle this, see bug 1875374.
+  handlePopupEvent(e) {
+    if (e.type == "popuphidden") {
+      this.menuButton.setAttribute("aria-expanded", false);
     }
   }
 
@@ -140,10 +154,9 @@ export class SidebarHistory extends SidebarPage {
     let descriptionLink;
     if (Services.prefs.getBoolPref(NEVER_REMEMBER_HISTORY_PREF, false)) {
       // History pref set to never remember history
-      descriptionHeader = "firefoxview-dont-remember-history-empty-header";
+      descriptionHeader = "firefoxview-dont-remember-history-empty-header-2";
       descriptionLabels = [
-        "firefoxview-dont-remember-history-empty-description",
-        "firefoxview-dont-remember-history-empty-description-two",
+        "firefoxview-dont-remember-history-empty-description-one",
       ];
       descriptionLink = {
         url: "about:preferences#privacy",
@@ -189,9 +202,9 @@ export class SidebarHistory extends SidebarPage {
             html`<h3
               slot="secondary-header"
               data-l10n-id="firefoxview-search-results-count"
-              data-l10n-args="${JSON.stringify({
+              data-l10n-args=${JSON.stringify({
                 count: this.controller.searchResults.length,
-              })}"
+              })}
             ></h3>`
         )}
         ${this.#tabListTemplate(
@@ -231,6 +244,7 @@ export class SidebarHistory extends SidebarPage {
       ? "after_start" // Sidebar is on the left. Open menu to the right.
       : "after_end"; // Sidebar is on the right. Open menu to the left.
     this._menu.openPopup(e.target, menuPos, 0, 0, false, false, e);
+    this.menuButton.setAttribute("aria-expanded", true);
   }
 
   willUpdate() {
@@ -268,9 +282,12 @@ export class SidebarHistory extends SidebarPage {
           <moz-button
             class="menu-button"
             @click=${this.openMenu}
+            data-l10n-id="sidebar-options-menu-button"
+            aria-haspopup="menu"
+            aria-expanded="false"
             view=${this.view}
-            size="small"
             type="icon ghost"
+            iconsrc="chrome://global/skin/icons/more.svg"
           >
           </moz-button>
         </div>

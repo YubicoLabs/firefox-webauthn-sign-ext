@@ -9,11 +9,11 @@
 import("//third_party/libaom/options.gni")
 import("../webrtc.gni")
 if (is_ios) {
-  import("//build/config/ios/ios_sdk.gni")
-  import("//build/config/ios/rules.gni")
+  import("//chromium/build/config/ios/ios_sdk.gni")
+  import("//chromium/build/config/ios/rules.gni")
 }
 if (is_mac) {
-  import("//build/config/mac/rules.gni")
+  import("//chromium/build/config/mac/rules.gni")
 }
 
 group("sdk") {
@@ -36,7 +36,6 @@ rtc_library("media_constraints") {
   deps = [
     "../api:audio_options_api",
     "../api:libjingle_peerconnection_api",
-    "//third_party/abseil-cpp/absl/types:optional",
   ]
 }
 
@@ -65,7 +64,7 @@ if (is_ios || is_mac) {
     ]
 
     if (use_clang_coverage) {
-      configs = [ "//build/config/coverage:default_coverage" ]
+      configs = [ "//chromium/build/config/coverage:default_coverage" ]
     }
   }
 
@@ -111,6 +110,7 @@ if (is_ios || is_mac) {
       "objc/base/RTCVideoDecoderFactory.h",
       "objc/base/RTCVideoEncoder.h",
       "objc/base/RTCVideoEncoderFactory.h",
+      "objc/base/RTCVideoEncoderFactory.mm",
       "objc/base/RTCVideoEncoderQpThresholds.h",
       "objc/base/RTCVideoEncoderQpThresholds.m",
       "objc/base/RTCVideoEncoderSettings.h",
@@ -231,6 +231,7 @@ if (is_ios || is_mac) {
 
         deps = [
           ":audio_device",
+          ":audio_device_module_error_handler",
           "../api:make_ref_counted",
           "../api/audio:audio_device",
           "../modules/audio_device:audio_device_generic",
@@ -290,6 +291,7 @@ if (is_ios || is_mac) {
         ]
 
         deps = [
+          ":audio_device_module_error_handler",
           ":audio_objc",
           ":audio_session_observer",
           ":base_objc",
@@ -453,7 +455,6 @@ if (is_ios || is_mac) {
           "../media:rtc_media_base",
           "../rtc_base:checks",
           "../rtc_base:logging",
-          "//third_party/abseil-cpp/absl/types:optional",
         ]
 
         configs += [
@@ -506,6 +507,16 @@ if (is_ios || is_mac) {
       if (is_mac) {
         frameworks = [ "AudioUnit.framework" ]
       }
+    }
+
+    rtc_source_set("audio_device_module_error_handler") {
+      visibility = [ ":*" ]
+
+      sources = [ "objc/native/api/audio_device_module_error_handler.h" ]
+
+      public_configs = [ ":common_config_objc" ]
+
+      deps = []
     }
 
     rtc_library("objc_audio_device_module") {
@@ -589,6 +600,20 @@ if (is_ios || is_mac) {
         "CoreGraphics.framework",
         "CoreVideo.framework",
       ]
+      if (build_with_mozilla) {
+        deps -= [
+          "//api/video:video_frame",
+          "//api/video:video_rtp_headers",
+          "//common_video",
+          "//rtc_base:checks",
+        ]
+        deps += [
+          "../api/video:video_frame",
+          "../api/video:video_rtp_headers",
+          "../common_video",
+          "../rtc_base:checks",
+        ]
+      }
     }
 
     if (!build_with_mozilla) {
@@ -768,8 +793,11 @@ if (is_ios || is_mac) {
 
       deps = [
         ":base_objc",
+        ":helpers_objc",
         ":wrapped_native_codec_objc",
+        "../api/video_codecs:scalability_mode",
         "../modules/video_coding:webrtc_vp8",
+        "../modules/video_coding:webrtc_vp8_scalability",
       ]
     }
 
@@ -785,7 +813,9 @@ if (is_ios || is_mac) {
 
       deps = [
         ":base_objc",
+        ":helpers_objc",
         ":wrapped_native_codec_objc",
+        "../api/video_codecs:scalability_mode",
         "../modules/video_coding:webrtc_vp9",
       ]
     }
@@ -816,7 +846,10 @@ if (is_ios || is_mac) {
 
       deps = [
         ":base_objc",
+        ":helpers_objc",
         ":wrapped_native_codec_objc",
+        "../api/video_codecs:scalability_mode",
+        "../modules/video_coding/codecs/av1:av1_svc_config",
         "../modules/video_coding/codecs/av1:libaom_av1_encoder",
       ]
     }
@@ -907,6 +940,8 @@ if (is_ios || is_mac) {
         ":base_objc",
         ":helpers_objc",
         "../api/video:encoded_image",
+        "../api/video_codecs:scalability_mode",
+        "../api/video_codecs:scalability_mode_helper",
         "../api/video_codecs:video_codecs_api",
         "../modules/video_coding:video_codec_interface",
         "../rtc_base:refcount",
@@ -1062,6 +1097,7 @@ if (is_ios || is_mac) {
         ":videotoolbox_objc",
         "../api:dtmf_sender_interface",
         "../api:enable_media",
+        "../api:field_trials_view",
         "../api:libjingle_peerconnection_api",
         "../api:media_stream_interface",
         "../api:rtc_event_log_output_file",
@@ -1071,6 +1107,7 @@ if (is_ios || is_mac) {
         "../api:scoped_refptr",
         "../api/audio:audio_device",
         "../api/audio:audio_processing",
+        "../api/audio:builtin_audio_processing_builder",
         "../api/audio_codecs:audio_codecs_api",
         "../api/audio_codecs:builtin_audio_decoder_factory",
         "../api/audio_codecs:builtin_audio_encoder_factory",
@@ -1087,7 +1124,6 @@ if (is_ios || is_mac) {
         "../common_video",
         "../media:media_constants",
         "../media:rtc_media_base",
-        "../modules/audio_processing",
         "../modules/video_coding:video_codec_interface",
         "../pc:peer_connection_factory",
         "../pc:webrtc_sdp",
@@ -1177,6 +1213,8 @@ if (is_ios || is_mac) {
             ":videoframebuffer_objc",
             ":videosource_objc",
             ":videotoolbox_objc",
+            "../api:libjingle_peerconnection_api",
+            "../api:rtc_error_matchers",
             "../api:scoped_refptr",
             "../api/audio:audio_device",
             "../api/audio:audio_processing",
@@ -1197,6 +1235,8 @@ if (is_ios || is_mac) {
             "../rtc_base:rtc_event",
             "../rtc_base/system:unused",
             "../system_wrappers",
+            "../test:test_support",
+            "../test:wait_until",
             "//third_party/libyuv",
           ]
 
@@ -1205,7 +1245,7 @@ if (is_ios || is_mac) {
           }
 
           public_deps = [
-            "//build/config/ios:xctest",
+            "//chromium/build/config/ios:xctest",
             "//third_party/ocmock",
           ]
         }

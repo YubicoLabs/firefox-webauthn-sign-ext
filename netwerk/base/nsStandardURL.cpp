@@ -79,8 +79,7 @@ static NS_DEFINE_CID(kThisImplCID, NS_THIS_STANDARDURL_IMPL_CID);
 // can be safely used on other threads.
 StaticRefPtr<nsIIDNService> nsStandardURL::gIDN;
 
-// This value will only be updated on the main thread once.
-static Atomic<bool, Relaxed> gInitialized{false};
+Atomic<bool, Relaxed> nsStandardURL::gInitialized{false};
 
 const char nsStandardURL::gHostLimitDigits[] = {'/', '\\', '?', '#', 0};
 
@@ -202,7 +201,7 @@ const nsACString& nsStandardURL::nsSegmentEncoder::EncodeSegment(
 
 #ifdef DEBUG_DUMP_URLS_AT_SHUTDOWN
 static StaticMutex gAllURLsMutex MOZ_UNANNOTATED;
-static LinkedList<nsStandardURL> gAllURLs;
+MOZ_RUNINIT static LinkedList<nsStandardURL> gAllURLs;
 #endif
 
 nsStandardURL::nsStandardURL(bool aSupportsFileURL, bool aTrackURL)
@@ -422,8 +421,8 @@ nsresult nsStandardURL::NormalizeIDN(const nsACString& aHost,
   return NS_OK;
 }
 
-void nsStandardURL::CoalescePath(netCoalesceFlags coalesceFlag, char* path) {
-  auto resultCoalesceDirs = net_CoalesceDirs(coalesceFlag, path);
+void nsStandardURL::CoalescePath(char* path) {
+  auto resultCoalesceDirs = net_CoalesceDirs(path);
   int32_t newLen = strlen(path);
   if (newLen < mPath.mLen && resultCoalesceDirs) {
     // Obtain indices for the last slash and the end of the basename
@@ -580,6 +579,7 @@ nsresult nsStandardURL::BuildNormalizedSpec(const char* spec,
     nsDependentCSubstring tempHost(spec + mHost.mPos, mHost.mLen);
     nsresult rv;
     bool allowIp = !SegmentIs(spec, mScheme, "resource") &&
+                   !SegmentIs(spec, mScheme, "moz-src") &&
                    !SegmentIs(spec, mScheme, "chrome");
     if (tempHost.First() == '[' && allowIp) {
       mCheckedIfHostA = true;
@@ -776,13 +776,7 @@ nsresult nsStandardURL::BuildNormalizedSpec(const char* spec,
   }
 
   if (mDirectory.mLen > 0) {
-    netCoalesceFlags coalesceFlag = NET_COALESCE_NORMAL;
-    if (SegmentIs(buf, mScheme, "ftp")) {
-      coalesceFlag =
-          (netCoalesceFlags)(coalesceFlag | NET_COALESCE_ALLOW_RELATIVE_ROOT |
-                             NET_COALESCE_DOUBLE_SLASH_IS_ROOT);
-    }
-    CoalescePath(coalesceFlag, buf + mDirectory.mPos);
+    CoalescePath(buf + mDirectory.mPos);
   }
   mSpec.Truncate(strlen(buf));
   NS_ASSERTION(mSpec.Length() <= approxLen,
@@ -1545,6 +1539,16 @@ nsresult nsStandardURL::SetUserPass(const nsACString& input) {
     NS_WARNING("uninitialized");
     return NS_ERROR_NOT_INITIALIZED;
   }
+  if (mAuthority.mLen == 0) {
+    // If the URL doesn't have a hostname then setting the userpass to
+    // empty string is a no-op. But setting it to anything else should
+    // return an error.
+    if (input.Length() == 0) {
+      return NS_OK;
+    } else {
+      return NS_ERROR_UNEXPECTED;
+    }
+  }
 
   if (mSpec.Length() + input.Length() - Userpass(true).Length() >
       StaticPrefs::network_standard_url_max_length()) {
@@ -1645,6 +1649,16 @@ nsresult nsStandardURL::SetUsername(const nsACString& input) {
     NS_WARNING("cannot set username on no-auth url");
     return NS_ERROR_UNEXPECTED;
   }
+  if (mAuthority.mLen == 0) {
+    // If the URL doesn't have a hostname then setting the username to
+    // empty string is a no-op. But setting it to anything else should
+    // return an error.
+    if (input.Length() == 0) {
+      return NS_OK;
+    } else {
+      return NS_ERROR_UNEXPECTED;
+    }
+  }
 
   if (mSpec.Length() + input.Length() - Username().Length() >
       StaticPrefs::network_standard_url_max_length()) {
@@ -1716,6 +1730,16 @@ nsresult nsStandardURL::SetPassword(const nsACString& input) {
     }
     NS_WARNING("cannot set password on no-auth url");
     return NS_ERROR_UNEXPECTED;
+  }
+  if (mAuthority.mLen == 0) {
+    // If the URL doesn't have a hostname then setting the password to
+    // empty string is a no-op. But setting it to anything else should
+    // return an error.
+    if (input.Length() == 0) {
+      return NS_OK;
+    } else {
+      return NS_ERROR_UNEXPECTED;
+    }
   }
 
   if (mSpec.Length() + input.Length() - Password().Length() >
@@ -1874,9 +1898,9 @@ nsresult nsStandardURL::SetHost(const nsACString& input) {
     NS_WARNING("cannot set host on no-auth url");
     return NS_ERROR_UNEXPECTED;
   }
-  if (flat.IsEmpty()) {
-    // Setting an empty hostname is not allowed for
-    // URLTYPE_STANDARD and URLTYPE_AUTHORITY.
+
+  if (mURLType == URLTYPE_AUTHORITY && flat.IsEmpty()) {
+    // Setting an empty hostname is not allowed for URLTYPE_AUTHORITY.
     return NS_ERROR_UNEXPECTED;
   }
 
@@ -1917,7 +1941,8 @@ nsresult nsStandardURL::SetHost(const nsACString& input) {
   // NormalizeIDN always copies if the call was successful
   len = hostBuf.Length();
 
-  if (!len) {
+  if (!len && (mURLType == URLTYPE_AUTHORITY || mPort != -1 ||
+               Userpass(true).Length() > 0)) {
     return NS_ERROR_MALFORMED_URI;
   }
 
@@ -1965,6 +1990,16 @@ nsresult nsStandardURL::SetPort(int32_t port) {
   if (mURLType == URLTYPE_NO_AUTHORITY) {
     NS_WARNING("cannot set port on no-auth url");
     return NS_ERROR_UNEXPECTED;
+  }
+  if (mAuthority.mLen == 0) {
+    // If the URL doesn't have a hostname then setting the port to
+    // -1 is a no-op. But setting it to anything else should
+    // return an error.
+    if (port == -1) {
+      return NS_OK;
+    } else {
+      return NS_ERROR_UNEXPECTED;
+    }
   }
 
   auto onExitGuard = MakeScopeExit([&] { SanityCheck(); });
@@ -2145,8 +2180,12 @@ nsresult nsStandardURL::EqualsInternal(
 
     rv = EnsureFile();
     nsresult rv2 = other->EnsureFile();
-    // special case for resource:// urls that don't resolve to files
-    if (rv == NS_ERROR_NO_INTERFACE && rv == rv2) {
+
+    // Special case for resource:// urls that don't resolve to files,
+    // and for moz-extension://UUID/_generated_background_page.html
+    // because it doesn't resolve to a file (instead it resolves to a data: URI,
+    // see ExtensionProtocolHandler::ResolveSpecialCases, see Bug 1926106).
+    if (rv == NS_ERROR_NO_INTERFACE || rv2 == NS_ERROR_NO_INTERFACE) {
       return NS_OK;
     }
 
@@ -2156,6 +2195,7 @@ nsresult nsStandardURL::EqualsInternal(
       return rv;
     }
     NS_ASSERTION(mFile, "EnsureFile() lied!");
+
     rv = rv2;
     if (NS_FAILED(rv)) {
       LOG(
@@ -2286,7 +2326,6 @@ nsStandardURL::Resolve(const nsACString& in, nsACString& out) {
   char* resultPath = nullptr;
   bool relative = false;
   uint32_t offset = 0;
-  netCoalesceFlags coalesceFlag = NET_COALESCE_NORMAL;
 
   nsAutoCString baseProtocol(Scheme());
   nsAutoCString protocol;
@@ -2352,13 +2391,6 @@ nsStandardURL::Resolve(const nsACString& in, nsACString& out) {
   }
 
   if (scheme.mLen >= 0) {
-    // add some flags to coalesceFlag if it is an ftp-url
-    // need this later on when coalescing the resulting URL
-    if (SegmentIs(relpath, scheme, "ftp", true)) {
-      coalesceFlag =
-          (netCoalesceFlags)(coalesceFlag | NET_COALESCE_ALLOW_RELATIVE_ROOT |
-                             NET_COALESCE_DOUBLE_SLASH_IS_ROOT);
-    }
     // this URL appears to be absolute
     // but try to find out more
     if (SegmentIs(mScheme, relpath, scheme, true)) {
@@ -2381,13 +2413,6 @@ nsStandardURL::Resolve(const nsACString& in, nsACString& out) {
       result = NS_xstrdup(relpath);
     }
   } else {
-    // add some flags to coalesceFlag if it is an ftp-url
-    // need this later on when coalescing the resulting URL
-    if (SegmentIs(mScheme, "ftp")) {
-      coalesceFlag =
-          (netCoalesceFlags)(coalesceFlag | NET_COALESCE_ALLOW_RELATIVE_ROOT |
-                             NET_COALESCE_DOUBLE_SLASH_IS_ROOT);
-    }
     if (relpath[0] == '/' && relpath[1] == '/') {
       // this URL //host/path is almost absolute
       result = AppendToSubstring(mScheme.mPos, mScheme.mLen + 1, relpath);
@@ -2430,16 +2455,6 @@ nsStandardURL::Resolve(const nsACString& in, nsACString& out) {
           // Treat tmp/mock/C|/foo/bar as /C|/foo/bar
           // + 1 should account for '/' at the beginning
           len = mAuthority.mPos + mAuthority.mLen + 1;
-        } else if (coalesceFlag & NET_COALESCE_DOUBLE_SLASH_IS_ROOT) {
-          if (Filename().Equals("%2F"_ns, nsCaseInsensitiveCStringComparator)) {
-            // if ftp URL ends with %2F then simply
-            // append relative part because %2F also
-            // marks the root directory with ftp-urls
-            len = mFilepath.mPos + mFilepath.mLen;
-          } else {
-            // overwrite everything after the directory
-            len = mDirectory.mPos + mDirectory.mLen;
-          }
         } else {
           // overwrite everything after the directory
           len = mDirectory.mPos + mDirectory.mLen;
@@ -2467,7 +2482,7 @@ nsStandardURL::Resolve(const nsACString& in, nsACString& out) {
 
     // Edge case: <C|> against <file:///tmp/mock/path>
     if (resultPath && resultPath[0] == '/') {
-      net_CoalesceDirs(coalesceFlag, resultPath);
+      net_CoalesceDirs(resultPath);
     }
   } else {
     // locate result path
@@ -2483,7 +2498,7 @@ nsStandardURL::Resolve(const nsACString& in, nsACString& out) {
       }
       resultPath = strchr(resultPath, '/');
       if (resultPath) {
-        net_CoalesceDirs(coalesceFlag, resultPath);
+        net_CoalesceDirs(resultPath);
       }
     }
   }

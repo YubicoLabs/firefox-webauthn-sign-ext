@@ -846,6 +846,7 @@ struct ParamTraits<mozilla::widget::InputContext> {
     WriteParam(aWriter, aParam.mHTMLInputMode);
     WriteParam(aWriter, aParam.mActionHint);
     WriteParam(aWriter, aParam.mAutocapitalize);
+    WriteParam(aWriter, aParam.mAutocorrect);
     WriteParam(aWriter, aParam.mOrigin);
     WriteParam(aWriter, aParam.mHasHandledUserInput);
     WriteParam(aWriter, aParam.mInPrivateBrowsing);
@@ -858,6 +859,7 @@ struct ParamTraits<mozilla::widget::InputContext> {
            ReadParam(aReader, &aResult->mHTMLInputMode) &&
            ReadParam(aReader, &aResult->mActionHint) &&
            ReadParam(aReader, &aResult->mAutocapitalize) &&
+           ReadParam(aReader, &aResult->mAutocorrect) &&
            ReadParam(aReader, &aResult->mOrigin) &&
            ReadParam(aReader, &aResult->mHasHandledUserInput) &&
            ReadParam(aReader, &aResult->mInPrivateBrowsing) &&
@@ -995,23 +997,6 @@ struct ParamTraits<mozilla::ContentCache> {
   }
 };
 
-template <>
-struct ParamTraits<mozilla::widget::CandidateWindowPosition> {
-  using paramType = mozilla::widget::CandidateWindowPosition;
-
-  static void Write(MessageWriter* aWriter, const paramType& aParam) {
-    WriteParam(aWriter, aParam.mPoint);
-    WriteParam(aWriter, aParam.mRect);
-    WriteParam(aWriter, aParam.mExcludeRect);
-  }
-
-  static bool Read(MessageReader* aReader, paramType* aResult) {
-    return ReadParam(aReader, &aResult->mPoint) &&
-           ReadParam(aReader, &aResult->mRect) &&
-           ReadParam(aReader, &aResult->mExcludeRect);
-  }
-};
-
 // InputData.h
 
 template <>
@@ -1114,6 +1099,7 @@ struct ParamTraits<mozilla::MultiTouchInput> {
     WriteParam(aWriter, aParam.mScreenOffset);
     WriteParam(aWriter, aParam.mButton);
     WriteParam(aWriter, aParam.mButtons);
+    WriteParam(aWriter, aParam.mInputSource);
   }
 
   static bool Read(MessageReader* aReader, paramType* aResult) {
@@ -1123,7 +1109,8 @@ struct ParamTraits<mozilla::MultiTouchInput> {
            ReadParam(aReader, &aResult->mHandledByAPZ) &&
            ReadParam(aReader, &aResult->mScreenOffset) &&
            ReadParam(aReader, &aResult->mButton) &&
-           ReadParam(aReader, &aResult->mButtons);
+           ReadParam(aReader, &aResult->mButtons) &&
+           ReadParam(aReader, &aResult->mInputSource);
   }
 };
 

@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -23,8 +24,9 @@
 #include "absl/memory/memory.h"
 #include "absl/strings/str_replace.h"
 #include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
 #include "api/array_view.h"
+#include "api/candidate.h"
+#include "api/jsep.h"
 #include "api/jsep_session_description.h"
 #include "api/media_types.h"
 #include "api/rtp_parameters.h"
@@ -74,6 +76,7 @@ using cricket::TransportInfo;
 using cricket::VideoContentDescription;
 using ::testing::ElementsAre;
 using ::testing::Field;
+using ::testing::Property;
 using webrtc::IceCandidateCollection;
 using webrtc::IceCandidateInterface;
 using webrtc::IceCandidateType;
@@ -1415,7 +1418,7 @@ class WebRtcSdpTest : public ::testing::Test {
       const cricket::ContentInfo& c1 = desc1.contents().at(i);
       const cricket::ContentInfo& c2 = desc2.contents().at(i);
       // ContentInfo properties.
-      EXPECT_EQ(c1.name, c2.name);
+      EXPECT_EQ(c1.mid(), c2.mid());
       EXPECT_EQ(c1.type, c2.type);
       EXPECT_EQ(c1.rejected, c2.rejected);
       EXPECT_EQ(c1.bundle_only, c2.bundle_only);
@@ -2281,6 +2284,8 @@ TEST_F(WebRtcSdpTest, ParseSslTcpCandidate) {
 
 TEST_F(WebRtcSdpTest, SerializeSessionDescriptionWithH264) {
   cricket::Codec h264_codec = cricket::CreateVideoCodec("H264");
+  // Id must be valid, but value doesn't matter.
+  h264_codec.id = 123;
   h264_codec.SetParam("profile-level-id", "42e01f");
   h264_codec.SetParam("level-asymmetry-allowed", "1");
   h264_codec.SetParam("packetization-mode", "1");
@@ -3352,11 +3357,11 @@ TEST_F(WebRtcSdpTest, DeserializePacketizationAttributeWithIllegalValue) {
   cricket::Codec vp9 = vcd->codecs()[1];
   EXPECT_EQ(vp9.name, "VP9");
   EXPECT_EQ(vp9.id, 121);
-  EXPECT_EQ(vp9.packetization, absl::nullopt);
+  EXPECT_EQ(vp9.packetization, std::nullopt);
   cricket::Codec h264 = vcd->codecs()[2];
   EXPECT_EQ(h264.name, "H264");
   EXPECT_EQ(h264.id, 122);
-  EXPECT_EQ(h264.packetization, absl::nullopt);
+  EXPECT_EQ(h264.packetization, std::nullopt);
 }
 
 TEST_F(WebRtcSdpTest, SerializeAudioFmtpWithUnknownParameter) {
@@ -4734,8 +4739,8 @@ TEST_F(WebRtcSdpTest, ParseNoMid) {
   ASSERT_TRUE(webrtc::SdpDeserialize(sdp, &output, &error));
 
   EXPECT_THAT(output.description()->contents(),
-              ElementsAre(Field("name", &cricket::ContentInfo::name, ""),
-                          Field("name", &cricket::ContentInfo::name, "")));
+              ElementsAre(Property("name", &cricket::ContentInfo::mid, ""),
+                          Property("name", &cricket::ContentInfo::mid, "")));
 }
 
 TEST_F(WebRtcSdpTest, SerializeWithDefaultSctpProtocol) {
@@ -4839,8 +4844,8 @@ TEST_F(WebRtcSdpTest, DeserializeSdpWithUnsupportedMediaType) {
   EXPECT_TRUE(jdesc_output.description()->contents()[0].rejected);
   EXPECT_TRUE(jdesc_output.description()->contents()[1].rejected);
 
-  EXPECT_EQ(jdesc_output.description()->contents()[0].name, "bogusmid");
-  EXPECT_EQ(jdesc_output.description()->contents()[1].name, "somethingmid");
+  EXPECT_EQ(jdesc_output.description()->contents()[0].mid(), "bogusmid");
+  EXPECT_EQ(jdesc_output.description()->contents()[1].mid(), "somethingmid");
 }
 
 TEST_F(WebRtcSdpTest, MediaTypeProtocolMismatch) {

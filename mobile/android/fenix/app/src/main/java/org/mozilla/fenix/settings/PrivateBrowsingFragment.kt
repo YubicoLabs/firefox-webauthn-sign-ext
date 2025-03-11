@@ -9,6 +9,7 @@ import android.view.WindowManager
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.SwitchPreference
+import org.mozilla.fenix.Config
 import org.mozilla.fenix.HomeActivity
 import org.mozilla.fenix.R
 import org.mozilla.fenix.components.PrivateShortcutCreateManager
@@ -54,6 +55,13 @@ class PrivateBrowsingFragment : PreferenceFragmentCompat() {
                     }
                     return super.onPreferenceChange(preference, newValue)
                 }
+            }
+        }
+
+        if (Config.channel.isDebug) {
+            requirePreference<SwitchPreference>(R.string.pref_key_private_browsing_biometrics_enabled).apply {
+                onPreferenceChangeListener = SharedPreferenceUpdater()
+                isChecked = context.settings().privateBrowsingBiometricsEnabled
             }
         }
     }

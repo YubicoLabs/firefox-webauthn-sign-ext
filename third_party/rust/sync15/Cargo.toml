@@ -19,6 +19,7 @@ exclude = [
     "/android",
     "/ios",
 ]
+autolib = false
 autobins = false
 autoexamples = false
 autotests = false
@@ -26,13 +27,29 @@ autobenches = false
 readme = "README.md"
 license = "MPL-2.0"
 
+[features]
+crypto = [
+    "rc_crypto",
+    "base16",
+    "base64",
+]
+default = ["sync-engine"]
+random-guid = ["sync-guid/random"]
+standalone-sync = ["sync-client"]
+sync-client = [
+    "sync-engine",
+    "crypto",
+    "viaduct",
+    "url",
+]
+sync-engine = ["random-guid"]
+
 [lib]
 name = "sync15"
 path = "src/lib.rs"
 
 [dependencies]
 anyhow = "1.0"
-ffi-support = "0.4"
 lazy_static = "1.4"
 log = "0.4"
 serde_derive = "1"
@@ -71,10 +88,10 @@ path = "../support/guid"
 features = ["random"]
 
 [dependencies.uniffi]
-version = "0.28.0"
+version = "0.28.2"
 
 [dependencies.url]
-version = "2.1"
+version = "2"
 optional = true
 
 [dependencies.viaduct]
@@ -86,22 +103,8 @@ version = "0.10"
 default-features = false
 
 [build-dependencies.uniffi]
-version = "0.28.0"
+version = "0.28.2"
 features = ["build"]
 
-[features]
-crypto = [
-    "rc_crypto",
-    "base16",
-    "base64",
-]
-default = ["sync-engine"]
-random-guid = ["sync-guid/random"]
-standalone-sync = ["sync-client"]
-sync-client = [
-    "sync-engine",
-    "crypto",
-    "viaduct",
-    "url",
-]
-sync-engine = ["random-guid"]
+[lints.clippy]
+empty-line-after-doc-comments = "allow"

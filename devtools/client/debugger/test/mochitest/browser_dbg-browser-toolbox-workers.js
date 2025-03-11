@@ -37,7 +37,6 @@ add_task(async function () {
     createDebuggerContext,
     isWasmBinarySource,
     DEBUGGER_L10N,
-    getCM,
     waitForState,
     waitForSelectedSource,
     createLocation,
@@ -46,6 +45,8 @@ add_task(async function () {
     selectSource,
     assertTextContentOnLine,
     getEditorContent,
+    isCm6Enabled,
+    getCMEditor,
   });
 
   await addTab(`${EXAMPLE_URL}doc-all-workers.html`);
@@ -74,11 +75,15 @@ add_task(async function () {
 
     await waitForAllTargetsToBeAttached(gToolbox.commands.targetCommand);
 
+    await waitUntil(() => findSource(dbg, "worker-esm.mjs", { silent: true }));
     await selectSource(dbg, "worker-esm.mjs");
     assertTextContentOnLine(
       dbg,
       7,
       'console.log("Worker ESM main script", foo);'
+    );
+    await waitUntil(() =>
+      findSource(dbg, "worker-esm-dep.mjs", { silent: true })
     );
     await selectSource(dbg, "worker-esm-dep.mjs");
     assertTextContentOnLine(dbg, 1, 'console.log("Worker ESM dependency");');

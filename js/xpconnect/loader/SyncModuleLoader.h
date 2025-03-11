@@ -10,8 +10,6 @@
 #include "js/loader/LoadContextBase.h"
 #include "js/loader/ModuleLoaderBase.h"
 
-#include "SkipCheckForBrokenURLOrZeroSized.h"
-
 class mozJSModuleLoader;
 
 namespace mozilla {
@@ -55,8 +53,8 @@ class SyncModuleLoader : public JS::loader::ModuleLoaderBase {
   ~SyncModuleLoader();
 
   already_AddRefed<ModuleLoadRequest> CreateStaticImport(
-      nsIURI* aURI, JS::ModuleType aModuleType,
-      ModuleLoadRequest* aParent) override;
+      nsIURI* aURI, JS::ModuleType aModuleType, ModuleLoadRequest* aParent,
+      const mozilla::dom::SRIMetadata& aSriMetadata) override;
 
   already_AddRefed<ModuleLoadRequest> CreateDynamicImport(
       JSContext* aCx, nsIURI* aURI, JS::ModuleType aModuleType,
@@ -93,8 +91,6 @@ class SyncLoadContext : public JS::loader::LoadContextBase {
   // The result of compiling a module script. These fields are used temporarily
   // before being passed to the module loader.
   nsresult mRv;
-
-  SkipCheckForBrokenURLOrZeroSized mSkipCheck;
 
   // The exception thrown during compiling a module script. These fields are
   // used temporarily before being passed to the module loader.

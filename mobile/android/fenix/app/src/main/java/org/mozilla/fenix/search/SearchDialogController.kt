@@ -25,12 +25,13 @@ import org.mozilla.fenix.GleanMetrics.Events
 import org.mozilla.fenix.GleanMetrics.UnifiedSearch
 import org.mozilla.fenix.HomeActivity
 import org.mozilla.fenix.R
-import org.mozilla.fenix.components.Core
 import org.mozilla.fenix.components.metrics.MetricsUtils
+import org.mozilla.fenix.components.search.BOOKMARKS_SEARCH_ENGINE_ID
+import org.mozilla.fenix.components.search.HISTORY_SEARCH_ENGINE_ID
+import org.mozilla.fenix.components.search.TABS_SEARCH_ENGINE_ID
 import org.mozilla.fenix.crashes.CrashListActivity
 import org.mozilla.fenix.ext.components
 import org.mozilla.fenix.ext.navigateSafe
-import org.mozilla.fenix.ext.settings
 import org.mozilla.fenix.ext.telemetryName
 import org.mozilla.fenix.search.toolbar.SearchSelectorInteractor
 import org.mozilla.fenix.search.toolbar.SearchSelectorMenu
@@ -94,13 +95,16 @@ class SearchDialogController(
                 navController.navigateSafe(R.id.searchDialogFragment, directions)
                 store.dispatch(AwesomeBarAction.EngagementFinished(abandoned = false))
             }
+            "about:glean" -> {
+                val directions = SearchDialogFragmentDirections.actionGleanDebugToolsFragment()
+                navController.navigate(directions)
+            }
             "moz://a" -> openSearchOrUrl(
                 SupportUtils.getMozillaPageUrl(SupportUtils.MozillaPage.MANIFESTO),
-                fromHomeScreen,
             )
             else ->
                 if (url.isNotBlank()) {
-                    openSearchOrUrl(url, fromHomeScreen)
+                    openSearchOrUrl(url)
                 } else {
                     store.dispatch(AwesomeBarAction.EngagementFinished(abandoned = true))
                 }
@@ -108,7 +112,7 @@ class SearchDialogController(
         dismissDialog()
     }
 
-    private fun openSearchOrUrl(url: String, fromHomeScreen: Boolean) {
+    private fun openSearchOrUrl(url: String) {
         clearToolbarFocus()
 
         val searchEngine = fragmentStore.state.searchEngineSource.searchEngine
@@ -125,7 +129,6 @@ class SearchDialogController(
             from = BrowserDirection.FromSearchDialog,
             engine = searchEngine,
             forceSearch = !isDefaultEngine,
-            requestDesktopMode = fromHomeScreen && activity.settings().openNextTabInDesktopMode,
         )
 
         if (url.isUrl() || searchEngine == null) {
@@ -231,14 +234,14 @@ class SearchDialogController(
         focusToolbar()
 
         when {
-            searchEngine.type == SearchEngine.Type.APPLICATION && searchEngine.id == Core.HISTORY_SEARCH_ENGINE_ID -> {
+            searchEngine.type == SearchEngine.Type.APPLICATION && searchEngine.id == HISTORY_SEARCH_ENGINE_ID -> {
                 fragmentStore.dispatch(SearchFragmentAction.SearchHistoryEngineSelected(searchEngine))
             }
             searchEngine.type == SearchEngine.Type.APPLICATION &&
-                searchEngine.id == Core.BOOKMARKS_SEARCH_ENGINE_ID -> {
+                searchEngine.id == BOOKMARKS_SEARCH_ENGINE_ID -> {
                 fragmentStore.dispatch(SearchFragmentAction.SearchBookmarksEngineSelected(searchEngine))
             }
-            searchEngine.type == SearchEngine.Type.APPLICATION && searchEngine.id == Core.TABS_SEARCH_ENGINE_ID -> {
+            searchEngine.type == SearchEngine.Type.APPLICATION && searchEngine.id == TABS_SEARCH_ENGINE_ID -> {
                 fragmentStore.dispatch(SearchFragmentAction.SearchTabsEngineSelected(searchEngine))
             }
             searchEngine == store.state.search.selectedOrDefaultSearchEngine -> {

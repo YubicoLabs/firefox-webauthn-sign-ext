@@ -43,12 +43,16 @@ class ServiceWorkerRegistrationParent final
   mozilla::ipc::IPCResult RecvGetNavigationPreloadState(
       GetNavigationPreloadStateResolver&& aResolver) override;
 
+  mozilla::ipc::IPCResult RecvGetNotifications(
+      const nsAString& aTag, GetNotificationsResolver&& aResolver) override;
+
  public:
   NS_INLINE_DECL_REFCOUNTING(ServiceWorkerRegistrationParent, override);
 
   ServiceWorkerRegistrationParent();
 
-  void Init(const IPCServiceWorkerRegistrationDescriptor& aDescriptor);
+  void Init(const IPCServiceWorkerRegistrationDescriptor& aDescriptor,
+            const IPCClientInfo& aForClient);
 
   void MaybeSendDelete();
 };

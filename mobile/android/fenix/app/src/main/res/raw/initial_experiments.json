@@ -2,30 +2,55 @@
   "data": [
     {
       "schemaVersion": "1.12.0",
-      "slug": "android-default-toolbar-placement-treatment-a-rollout",
-      "id": "android-default-toolbar-placement-treatment-a-rollout",
+      "slug": "encourage-use-of-search-bar-on-mobile",
+      "id": "encourage-use-of-search-bar-on-mobile",
       "arguments": {},
       "application": "org.mozilla.firefox",
       "appName": "fenix",
       "appId": "org.mozilla.firefox",
       "channel": "release",
-      "userFacingName": "Android default toolbar placement - Treatment A Rollout",
-      "userFacingDescription": "Testing default position of toolbar.",
+      "userFacingName": "Encourage Use of Search Bar on Mobile",
+      "userFacingDescription": "Encourage Use of Search Bar on Mobile",
       "isEnrollmentPaused": false,
-      "isRollout": true,
+      "isRollout": false,
       "bucketConfig": {
         "randomizationUnit": "nimbus_id",
-        "namespace": "fenix-toolbar-release-mobile_first_run-rollout-1",
+        "namespace": "fenix-encourage-search-cfr-release-1",
         "start": 0,
         "count": 10000,
         "total": 10000
       },
       "featureIds": [
-        "toolbar"
+        "encourage-search-cfr"
       ],
       "probeSets": [],
-      "outcomes": [],
+      "outcomes": [
+        {
+          "slug": "awesomebar",
+          "priority": "primary"
+        },
+        {
+          "slug": "default-browser",
+          "priority": "secondary"
+        }
+      ],
       "branches": [
+        {
+          "slug": "control",
+          "ratio": 1,
+          "feature": {
+            "featureId": "this-is-included-for-mobile-pre-96-support",
+            "enabled": false,
+            "value": {}
+          },
+          "features": [
+            {
+              "featureId": "encourage-search-cfr",
+              "enabled": true,
+              "value": {}
+            }
+          ]
+        },
         {
           "slug": "treatment-a",
           "ratio": 1,
@@ -36,43 +61,107 @@
           },
           "features": [
             {
-              "featureId": "toolbar",
+              "featureId": "encourage-search-cfr",
               "enabled": true,
               "value": {
-                "toolbar-position-top": true
+                "enabled": true,
+                "cfrText": "Try your first search here and discover something new."
+              }
+            }
+          ]
+        },
+        {
+          "slug": "treatment-b",
+          "ratio": 1,
+          "feature": {
+            "featureId": "this-is-included-for-mobile-pre-96-support",
+            "enabled": false,
+            "value": {}
+          },
+          "features": [
+            {
+              "featureId": "encourage-search-cfr",
+              "enabled": true,
+              "value": {
+                "enabled": true,
+                "cfrText": "Try your first search. Look for movies to stream, shopping deals, news stories to read, or any topic you can think of."
+              }
+            }
+          ]
+        },
+        {
+          "slug": "treatment-c",
+          "ratio": 1,
+          "feature": {
+            "featureId": "this-is-included-for-mobile-pre-96-support",
+            "enabled": false,
+            "value": {}
+          },
+          "features": [
+            {
+              "featureId": "encourage-search-cfr",
+              "enabled": true,
+              "value": {
+                "enabled": true,
+                "cfrText": "Try your first search. We’re automatically blocking known trackers to give you speedier results."
+              }
+            }
+          ]
+        },
+        {
+          "slug": "treatment-d",
+          "ratio": 1,
+          "feature": {
+            "featureId": "this-is-included-for-mobile-pre-96-support",
+            "enabled": false,
+            "value": {}
+          },
+          "features": [
+            {
+              "featureId": "encourage-search-cfr",
+              "enabled": true,
+              "value": {
+                "enabled": true,
+                "cfrText": "Search with peace of mind. Firefox automatically blocks known trackers that follow you from site to site."
               }
             }
           ]
         }
       ],
-      "targeting": "((is_already_enrolled) || ((isFirstRun == 'true') && (app_version|versionCompare('116.!') >= 0)))",
-      "startDate": "2023-08-09",
+      "targeting": "((is_already_enrolled) || ((isFirstRun == 'true') && (app_version|versionCompare('136.!') >= 0) && (language in ['en']) && (enrollments_map['long-term-holdback-2025-h1-growth-android'] == 'delivery')))",
+      "startDate": "2025-02-18",
       "enrollmentEndDate": null,
       "endDate": null,
-      "proposedDuration": 28,
-      "proposedEnrollment": 7,
-      "referenceBranch": "treatment-a",
+      "proposedDuration": 42,
+      "proposedEnrollment": 32,
+      "referenceBranch": "control",
       "featureValidationOptOut": false,
       "localizations": null,
       "locales": null,
-      "publishedDate": null
+      "publishedDate": "2025-02-18T16:18:52.507098Z",
+      "isFirefoxLabsOptIn": false,
+      "firefoxLabsTitle": null,
+      "firefoxLabsDescription": null,
+      "firefoxLabsDescriptionLinks": null,
+      "firefoxLabsGroup": null,
+      "requiresRestart": false
     },
     {
       "schemaVersion": "1.12.0",
-      "slug": "long-term-holdback-2024-h2-velocity-android",
-      "id": "long-term-holdback-2024-h2-velocity-android",
+      "slug": "long-term-holdback-2025-h1-growth-android",
+      "id": "long-term-holdback-2025-h1-growth-android",
       "arguments": {},
       "application": "org.mozilla.firefox",
       "appName": "fenix",
       "appId": "org.mozilla.firefox",
       "channel": "release",
-      "userFacingName": "Long term holdback 2024 H2 Velocity Android",
-      "userFacingDescription": "Long-term holdback for H2 Velocity experiments",
+      "userFacingName": "Long term holdback 2025 H1 Growth Android",
+      "userFacingDescription": "Long-term holdback for growth experiments",
       "isEnrollmentPaused": false,
       "isRollout": false,
       "bucketConfig": {
         "randomizationUnit": "nimbus_id",
-        "namespace": "fenix-no-feature-fenix-release-3",
+        "namespace": "fenix-no-feature-fenix-release-4",
         "start": 0,
         "count": 10000,
         "total": 10000
@@ -117,7 +206,7 @@
         }
       ],
       "targeting": "((is_already_enrolled) || ((app_version|versionCompare('123.!') >= 0)))",
-      "startDate": "2024-09-19",
+      "startDate": "2024-12-12",
       "enrollmentEndDate": null,
       "endDate": null,
       "proposedDuration": 100,
@@ -126,7 +215,469 @@
       "featureValidationOptOut": false,
       "localizations": null,
       "locales": null,
-      "publishedDate": "2024-09-19T17:57:21.676623Z"
+      "publishedDate": "2024-12-12T20:20:50.686475Z",
+      "isFirefoxLabsOptIn": false,
+      "firefoxLabsTitle": null,
+      "firefoxLabsDescription": null,
+      "firefoxLabsDescriptionLinks": null,
+      "firefoxLabsGroup": null,
+      "requiresRestart": false
+    },
+    {
+      "schemaVersion": "1.12.0",
+      "slug": "new-onboarding-experience-experiment-phase-1-android",
+      "id": "new-onboarding-experience-experiment-phase-1-android",
+      "arguments": {},
+      "application": "org.mozilla.firefox",
+      "appName": "fenix",
+      "appId": "org.mozilla.firefox",
+      "channel": "release",
+      "userFacingName": "New Onboarding Experience experiment phase 1 (Android)",
+      "userFacingDescription": "Rolling out new onboarding experience pointing to more information about data use.",
+      "isEnrollmentPaused": false,
+      "isRollout": false,
+      "bucketConfig": {
+        "randomizationUnit": "nimbus_id",
+        "namespace": "fenix-juno-onboarding-release-12",
+        "start": 2000,
+        "count": 1000,
+        "total": 10000
+      },
+      "featureIds": [
+        "juno-onboarding"
+      ],
+      "probeSets": [],
+      "outcomes": [
+        {
+          "slug": "onboarding",
+          "priority": "primary"
+        },
+        {
+          "slug": "default-browser",
+          "priority": "secondary"
+        }
+      ],
+      "branches": [
+        {
+          "slug": "control",
+          "ratio": 9,
+          "feature": {
+            "featureId": "this-is-included-for-mobile-pre-96-support",
+            "enabled": false,
+            "value": {}
+          },
+          "features": [
+            {
+              "featureId": "juno-onboarding",
+              "enabled": true,
+              "value": {
+                "cards": {}
+              }
+            }
+          ]
+        },
+        {
+          "slug": "treatment-a",
+          "ratio": 1,
+          "feature": {
+            "featureId": "this-is-included-for-mobile-pre-96-support",
+            "enabled": false,
+            "value": {}
+          },
+          "features": [
+            {
+              "featureId": "juno-onboarding",
+              "enabled": true,
+              "value": {
+                "cards": {
+                  "terms-of-service": {
+                    "card-type": "terms-of-service",
+                    "title": "onboarding_welcome_to_firefox",
+                    "body": "onboarding_terms_of_service_sub_header_2",
+                    "ordering": 1,
+                    "image-res": "ic_firefox",
+                    "primary-button-label": "onboarding_term_of_service_agree_and_continue_button_label",
+                    "extra-data": {
+                      "term-of-service-data": {
+                        "line-one-text": "onboarding_term_of_service_line_one_2",
+                        "line-one-link-text": "onboarding_term_of_service_line_one_link_text_2",
+                        "line-two-text": "onboarding_term_of_service_line_two_2",
+                        "line-two-link-text": "onboarding_term_of_service_line_two_link_text",
+                        "line-three-text": "onboarding_term_of_service_line_three",
+                        "line-three-link-text": "onboarding_term_of_service_line_three_link_text"
+                      }
+                    }
+                  },
+                  "marketing": {
+                    "card-type": "marketing-data",
+                    "title": "onboarding_marketing_title",
+                    "body": "onboarding_marketing_body",
+                    "ordering": 40,
+                    "image-res": "ic_onboarding_welcome",
+                    "primary-button-label": "onboarding_marketing_positive_button",
+                    "extra-data": {
+                      "marketing-data": {
+                        "body-line-one-text": "onboarding_marketing_learn_more",
+                        "body-line-one-link-text": "onboarding_marketing_learn_more",
+                        "body-line-two-text": "onboarding_marketing_opt_in_checkbox"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "targeting": "((is_already_enrolled) || ((isFirstRun == 'true') && (app_version|versionCompare('136.!') >= 0)))",
+      "startDate": "2025-02-26",
+      "enrollmentEndDate": null,
+      "endDate": null,
+      "proposedDuration": 14,
+      "proposedEnrollment": 14,
+      "referenceBranch": "control",
+      "featureValidationOptOut": false,
+      "localizations": null,
+      "locales": null,
+      "publishedDate": "2025-02-26T17:51:18.948322Z",
+      "isFirefoxLabsOptIn": false,
+      "firefoxLabsTitle": null,
+      "firefoxLabsDescription": null,
+      "firefoxLabsDescriptionLinks": null,
+      "firefoxLabsGroup": null,
+      "requiresRestart": false
+    },
+    {
+      "schemaVersion": "1.12.0",
+      "slug": "onboarding-customisation-options-release",
+      "id": "onboarding-customisation-options-release",
+      "arguments": {},
+      "application": "org.mozilla.firefox",
+      "appName": "fenix",
+      "appId": "org.mozilla.firefox",
+      "channel": "release",
+      "userFacingName": "Onboarding customisation options Release",
+      "userFacingDescription": "Test customisation options in Onboarding v2",
+      "isEnrollmentPaused": true,
+      "isRollout": false,
+      "bucketConfig": {
+        "randomizationUnit": "nimbus_id",
+        "namespace": "fenix-juno-onboarding-release-11",
+        "start": 0,
+        "count": 10000,
+        "total": 10000
+      },
+      "featureIds": [
+        "juno-onboarding"
+      ],
+      "probeSets": [],
+      "outcomes": [
+        {
+          "slug": "onboarding",
+          "priority": "primary"
+        },
+        {
+          "slug": "default-browser",
+          "priority": "secondary"
+        }
+      ],
+      "branches": [
+        {
+          "slug": "control",
+          "ratio": 1,
+          "feature": {
+            "featureId": "this-is-included-for-mobile-pre-96-support",
+            "enabled": false,
+            "value": {}
+          },
+          "features": [
+            {
+              "featureId": "juno-onboarding",
+              "enabled": true,
+              "value": {}
+            }
+          ]
+        },
+        {
+          "slug": "treatment-a",
+          "ratio": 1,
+          "feature": {
+            "featureId": "this-is-included-for-mobile-pre-96-support",
+            "enabled": false,
+            "value": {}
+          },
+          "features": [
+            {
+              "featureId": "juno-onboarding",
+              "enabled": true,
+              "value": {
+                "cards": {
+                  "theme-selection": {
+                    "card-type": "theme-selection",
+                    "title": "onboarding_customize_theme_title",
+                    "body": "onboarding_customize_theme_description",
+                    "image-res": "ic_pick_a_theme",
+                    "ordering": 40,
+                    "primary-button-label": "onboarding_save_and_continue_button",
+                    "extra-data": {
+                      "customization-theme-data": [
+                        {
+                          "theme-type": "theme-system",
+                          "label": "onboarding_customize_theme_system_option",
+                          "image-res": "ic_pick_a_theme_system_auto"
+                        },
+                        {
+                          "theme-type": "theme-light",
+                          "label": "onboarding_customize_theme_light_option",
+                          "image-res": "ic_pick_a_theme_light"
+                        },
+                        {
+                          "theme-type": "theme-dark",
+                          "label": "onboarding_customize_theme_dark_option",
+                          "image-res": "ic_pick_a_theme_dark"
+                        }
+                      ]
+                    }
+                  },
+                  "toolbar-placement": {
+                    "card-type": "toolbar-placement",
+                    "title": "onboarding_customize_toolbar_title",
+                    "body": "onboarding_customize_toolbar_description",
+                    "image-res": "ic_onboarding_customize_toolbar",
+                    "ordering": 50,
+                    "primary-button-label": "onboarding_save_and_start_button",
+                    "extra-data": {
+                      "customization-toolbar-data": [
+                        {
+                          "toolbar-type": "toolbar-top",
+                          "label": "onboarding_customize_toolbar_top_option",
+                          "image-res": "ic_onboarding_top_toolbar"
+                        },
+                        {
+                          "toolbar-type": "toolbar-bottom",
+                          "label": "onboarding_customize_toolbar_bottom_option",
+                          "image-res": "ic_onboarding_bottom_toolbar"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "slug": "treatment-b",
+          "ratio": 1,
+          "feature": {
+            "featureId": "this-is-included-for-mobile-pre-96-support",
+            "enabled": false,
+            "value": {}
+          },
+          "features": [
+            {
+              "featureId": "juno-onboarding",
+              "enabled": true,
+              "value": {
+                "cards": {
+                  "theme-selection": {
+                    "card-type": "theme-selection",
+                    "title": "onboarding_customize_theme_title",
+                    "body": "onboarding_customize_theme_description",
+                    "image-res": "ic_pick_a_theme",
+                    "ordering": 40,
+                    "primary-button-label": "onboarding_save_and_continue_button",
+                    "extra-data": {
+                      "customization-theme-data": [
+                        {
+                          "theme-type": "theme-system",
+                          "label": "onboarding_customize_theme_system_option",
+                          "image-res": "ic_pick_a_theme_system_auto"
+                        },
+                        {
+                          "theme-type": "theme-light",
+                          "label": "onboarding_customize_theme_light_option",
+                          "image-res": "ic_pick_a_theme_light"
+                        },
+                        {
+                          "theme-type": "theme-dark",
+                          "label": "onboarding_customize_theme_dark_option",
+                          "image-res": "ic_pick_a_theme_dark"
+                        }
+                      ]
+                    }
+                  },
+                  "toolbar-placement": {
+                    "card-type": "toolbar-placement",
+                    "title": "onboarding_customize_toolbar_title",
+                    "body": "onboarding_customize_toolbar_description",
+                    "image-res": "ic_onboarding_customize_toolbar",
+                    "ordering": 50,
+                    "primary-button-label": "onboarding_save_and_continue_button",
+                    "extra-data": {
+                      "customization-toolbar-data": [
+                        {
+                          "toolbar-type": "toolbar-top",
+                          "label": "onboarding_customize_toolbar_top_option",
+                          "image-res": "ic_onboarding_top_toolbar"
+                        },
+                        {
+                          "toolbar-type": "toolbar-bottom",
+                          "label": "onboarding_customize_toolbar_bottom_option",
+                          "image-res": "ic_onboarding_bottom_toolbar"
+                        }
+                      ]
+                    }
+                  },
+                  "add-ons": {
+                    "title": "onboarding_add_on_header",
+                    "card-type": "add-ons",
+                    "body": "onboarding_add_on_sub_header",
+                    "image-res": "ic_onboarding_add_ons",
+                    "ordering": 60,
+                    "primary-button-label": "onboarding_add_on_start_browsing_button_2",
+                    "extra-data": {
+                      "add-ons-data": [
+                        {
+                          "id": "jid1-MnnxcxisBPnSXQ@jetpack",
+                          "install-url": "https://addons.mozilla.org/firefox/downloads/file/4321653/privacy_badger17-2024.7.17.xpi",
+                          "name": "onboarding_add_on_privacy_badger_name",
+                          "description": "onboarding_add_on_privacy_badger_description",
+                          "icon-res": "ic_add_on_privacy_badger",
+                          "average-rating": "4.8",
+                          "review-count": "2,545"
+                        },
+                        {
+                          "id": "addon@darkreader.org",
+                          "install-url": "https://addons.mozilla.org/firefox/downloads/file/4359254/darkreader-4.9.94.xpi",
+                          "name": "onboarding_add_on_dark_reader_name",
+                          "description": "onboarding_add_on_dark_reader_description",
+                          "icon-res": "ic_add_on_dark_reader",
+                          "average-rating": "4.50",
+                          "review-count": "5,964"
+                        },
+                        {
+                          "id": "{2e5ff8c8-32fe-46d0-9fc8-6b8986621f3c}",
+                          "install-url": "https://addons.mozilla.org/firefox/downloads/file/4416342/search_by_image-8.1.0.xpi",
+                          "name": "onboarding_add_on_search_by_image_name",
+                          "description": "onboarding_add_on_search_by_image_description",
+                          "icon-res": "ic_add_on_search_by_image",
+                          "average-rating": "4.61",
+                          "review-count": "1,563"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "slug": "treatment-c",
+          "ratio": 1,
+          "feature": {
+            "featureId": "this-is-included-for-mobile-pre-96-support",
+            "enabled": false,
+            "value": {}
+          },
+          "features": [
+            {
+              "featureId": "juno-onboarding",
+              "enabled": true,
+              "value": {
+                "cards": {
+                  "theme-selection": {
+                    "card-type": "theme-selection",
+                    "title": "onboarding_customize_theme_title",
+                    "body": "onboarding_customize_theme_description",
+                    "image-res": "ic_pick_a_theme",
+                    "ordering": 40,
+                    "primary-button-label": "onboarding_save_and_start_button",
+                    "extra-data": {
+                      "customization-theme-data": [
+                        {
+                          "theme-type": "theme-system",
+                          "label": "onboarding_customize_theme_system_option",
+                          "image-res": "ic_pick_a_theme_system_auto"
+                        },
+                        {
+                          "theme-type": "theme-light",
+                          "label": "onboarding_customize_theme_light_option",
+                          "image-res": "ic_pick_a_theme_light"
+                        },
+                        {
+                          "theme-type": "theme-dark",
+                          "label": "onboarding_customize_theme_dark_option",
+                          "image-res": "ic_pick_a_theme_dark"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "slug": "treatment-d",
+          "ratio": 1,
+          "feature": {
+            "featureId": "this-is-included-for-mobile-pre-96-support",
+            "enabled": false,
+            "value": {}
+          },
+          "features": [
+            {
+              "featureId": "juno-onboarding",
+              "enabled": true,
+              "value": {
+                "cards": {
+                  "toolbar-placement": {
+                    "card-type": "toolbar-placement",
+                    "title": "onboarding_customize_toolbar_title",
+                    "body": "onboarding_customize_toolbar_description",
+                    "image-res": "ic_onboarding_customize_toolbar",
+                    "ordering": 40,
+                    "primary-button-label": "onboarding_save_and_start_button",
+                    "extra-data": {
+                      "customization-toolbar-data": [
+                        {
+                          "toolbar-type": "toolbar-top",
+                          "label": "onboarding_customize_toolbar_top_option",
+                          "image-res": "ic_onboarding_top_toolbar"
+                        },
+                        {
+                          "toolbar-type": "toolbar-bottom",
+                          "label": "onboarding_customize_toolbar_bottom_option",
+                          "image-res": "ic_onboarding_bottom_toolbar"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "targeting": "((is_already_enrolled) || ((isFirstRun == 'true') && (app_version|versionCompare('135.!') >= 0) && (enrollments_map['long-term-holdback-2025-h1-growth-android'] == 'delivery')))",
+      "startDate": "2025-01-24",
+      "enrollmentEndDate": "2025-02-18",
+      "endDate": null,
+      "proposedDuration": 35,
+      "proposedEnrollment": 21,
+      "referenceBranch": "control",
+      "featureValidationOptOut": false,
+      "localizations": null,
+      "locales": null,
+      "publishedDate": "2025-01-24T21:43:57.001480Z",
+      "isFirefoxLabsOptIn": false,
+      "firefoxLabsTitle": null,
+      "firefoxLabsDescription": null,
+      "firefoxLabsDescriptionLinks": null,
+      "firefoxLabsGroup": null,
+      "requiresRestart": false
     }
   ]
 }

@@ -37,6 +37,19 @@ In the example below, a text summarization task is performed using the `summariz
   console.log(res[0]["summary_text"]);
 
 
+
+The code sample above executes the LLM and returns the complete output after the computation is finished.
+Alternatively, you can receive the output incrementally by using the asynchronous generator method
+`runWithGenerator` provided by the engine.
+
+.. code-block:: javascript
+
+  let summaryText = "";
+  for await (const chunk of engine.runWithGenerator(request)){
+     summaryText += chunk.text;
+  }
+
+
 You can use the browser console or toolbox to run this example.
 To enable the browser console, flip the following option in `about:config`: **devtools.chrome.enabled**.
 To get access to the full toolbox, set the **devtools.debugger.remote-enabled** option.
@@ -54,8 +67,10 @@ Options passed to the `createEngine` function are verified and converted into a 
 Below are the options available:
 
 - **taskName**: The name of the task the pipeline is configured for.
+- **featureId**: The identifier for the feature to be used by the pipeline.
 - **engineId**:  The identifier for the engine to be used by the pipeline.
-- **timeoutMS**: The maximum amount of time in milliseconds the pipeline should wait for a response.
+- **timeoutMS**: The maximum amount of time in milliseconds the worker will run (-1 to never expire).
+- **modelHub**: The model hub to use, can be `huggingface` or `mozilla`. When used, `modelHubRootUrl` and `modelHubUrlTemplate` are ignored.
 - **modelHubRootUrl**: The root URL of the model hub where models are hosted.
 - **modelHubUrlTemplate**: A template URL for building the full URL for the model.
 - **modelId**: The identifier for the specific model to be used by the pipeline.
@@ -66,6 +81,18 @@ Below are the options available:
 - **processorRevision**: The revision for any processor required by the model, used for additional input processing.
 - **logLevel**: The log level used in the worker
 - **runtimeFilename**: Name of the runtime wasm file.
+- **dtype**: quantization level, can be `fp32`, `fp16`, `q8`, `int8`, `uint8`, `q4`, `bnb4`, `q4f16``. Defaults to `q8`
+- **device**: device to use (`wasm` or `gpu`). Defaults to `wasm`
+- **kvCacheDtype**: quantization level for the wllama backend. It only applies to the wllama backend when flash attention is enabled. Otherwise, it is always `f32`.
+- **numContext**: Maximum context size. Applies only to the wllama backend.
+- **numBatch**: Number of tokens processed in a single forward pass. Applies only to the wllama backend.
+- **numUbatch**: Token batch size. Applies only to the wllama backend.
+- **flashAttn**: Whether to use flash attention. Applies only to the wllama backend.
+- **useMmap**: Whether to use memory mapped for the model. Applies only to the wllama backend.
+- **useMlock**: Whether to lock in memory the full model. Applies only to the wllama backend.
+- **numThreadsDecoding**: Number of threads used during decoding. Applies only to the wllama backend.
+- **modelFile**: The name of model file. Currently, only supported for the wllama backend.
+- **backend**: The backend to use, can be `onnx`, `wllama`. Default to `onnx`.
 
 **taskName** and **modelId** are required, the others are optional and will be filled automatically
 using values pulled from Remote Settings when the task id is recognized.
@@ -73,36 +100,67 @@ using values pulled from Remote Settings when the task id is recognized.
 To learn about the different inference tasks, refer to this Hugging Face
 documentation: `Tasks <https://huggingface.co/tasks>`_
 
+**featureId** is used to uniquely identify the feature that will be used by the pipeline
+and store corresponding options in Remote Settings -- :ref:`See the ml-inference-options collection <inference-remote-settings>`.
+
 **engineId** is used to manage the lifecycle of the engine. When not provided, it defaults to
-`default-engine`. Everytime a new engine is created using `createEngine` the API will ensure that
+`default-engine`. Everytime a new engine is created using `createEngine`, the API will ensure that
 there's a single engine with the given id. If the options of the existing engine are not different,
 the instance is reused. If they differ, the engine is reinitialized with the new options.
 This ensures we don't have too many engines running at once since it takes a lot of resources.
 To make sure your engine is not destroyed or reused elsewhere, set that value with a unique id
 that matches your component.
 
+When an engine is created, an inference process is created if it's not already there, and
+a new worker is launched for that engine. The inference process is unique and shared by all engines.
+
 Some values are also set from the preferences (set in `about:config`):
 
 - **browser.ml.logLevel**: Set to "All" to see all logs, which are useful for debugging.
 - **browser.ml.modelHubRootUrl**: Model hub root URL used to download models
 - **browser.ml.modelHubUrlTemplate**: Model URL template
-- **browser.ml.modelCacheTimeout**: Model cache timeout in ms
-- **browser.ml.modelCacheMaxSizeBytes**: Maximum disk size for ML model cache (in bytes)
+- **browser.ml.modelCacheTimeout**: Worker timeout in ms. Default value used for **timeoutMS**
+- **browser.ml.modelCacheMaxSize**: Maximum disk size for ML model cache (in GiB)
+
+
+URL allow and deny list
+:::::::::::::::::::::::
+
+We keep a Remote Settings collection called `ml-model-allow-deny-list` that contains URL prefixes
+that are allowed or denied.
+
+Each record comes with the following fields:
+
+- urlPrefix: The URL prefix to allow or deny
+- filter: Set to `ALLOW` to allow, `DENY` to deny
+- description: an optional description
+
+When the API is about to fetch a file, its URL is controlled in the allow/deny list.
+
+Examples of patterns:
+
+- ALL models ALL VERSIONS from the mozilla organization on hugging face : https://huggingface.co/Mozilla/
+- ALL models ALL VERSIONS from our hub: https://model-hub.mozilla.org/
+- A specific model ALL VERSIONS https://huggingface.co/typeform/distilbert-base-uncased-mnli/
+- A specific model and a specific version https://huggingface.co/Mozilla/distilvit/blob/v0.5.0/
+
+Each URL is tested and needs to be included in the allowlist and not in the denylist
+
+To bypass this check and allow Firefox to download any file for runnings models,
+you need to use the `MOZ_ALLOW_EXTERNAL_ML_HUB` environment variable.
+
+If you want to add a new hub, organization or a specific model, ask us by
+`opening a ticket <https://bugzilla.mozilla.org/enter_bug.cgi?product=Core&component=Machine%20Learning>`_.
 
 
 Using the Hugging Face model hub
 ::::::::::::::::::::::::::::::::
 
-By default, the engine will use the Mozilla model hub and will error out if you try to use any other hub for security reasons.
+By default, the engine will use the Mozilla model hub. You will need to pass `huggingface` as `modelHub`.
 
-If you want to use the Hugging Face model hub, you will need to run Firefox with the `MOZ_ALLOW_EXTERNAL_ML_HUB` environment variable
-set to `1`, then set in `about:config` these two values:
-
-- `browser.ml.modelHubRootUrl` to `https://huggingface.co`
-- `browser.ml.modelHubUrlTemplate` to `{model}/resolve/{revision}`
-
-The inference engine will then look for models in the Hugging Face model hub.
-
+The inference engine will then look for models in the Hugging Face model hub. If the URL is
+not allowed (see previous section) and you still want to experiment with the model,
+use `MOZ_ALLOW_EXTERNAL_ML_HUB`.
 
 To run against a Hugging Face model, visit `this page <https://huggingface.co/models?library=transformers.js>`_ and select on
 the top left corner `tasks`. You can pick a task and then choose a model.
@@ -119,6 +177,7 @@ Let's say you want to pick the `Xenova/distilbart-cnn-6-6` model. All you have t
   const options = {
     taskName: "summarization",
     modelId: "Xenova/distilbart-cnn-6-6",
+    modelHub: "huggingface"
   };
 
   const engine = await createEngine(options);
@@ -161,7 +220,6 @@ In the example below, an image is converted to text using the `moz-image-to-text
 
   // At this point we are ready to do some inference.
   const res = await engine.run(request);
-
   // The result is a string containing the text extracted from the image
   console.log(res);
 

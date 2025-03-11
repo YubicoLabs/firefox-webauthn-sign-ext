@@ -14,7 +14,6 @@
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/UserActivationIPCUtils.h"
 #include "mozilla/PermissionDelegateIPCUtils.h"
-#include "mozilla/RFPTargetIPCUtils.h"
 #include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/StaticPtr.h"
 #include "mozilla/ClearOnShutdown.h"
@@ -22,6 +21,7 @@
 #include "nsIScriptError.h"
 #include "nsIWebProgressListener.h"
 #include "nsIXULRuntime.h"
+#include "nsRFPTargetSetIDL.h"
 #include "nsRefPtrHashtable.h"
 #include "nsContentUtils.h"
 
@@ -78,6 +78,19 @@ bool WindowContext::IsInBFCache() {
   return TopWindowContext()->GetWindowStateSaved();
 }
 
+already_AddRefed<nsIRFPTargetSetIDL>
+WindowContext::GetOverriddenFingerprintingSettingsWebIDL() const {
+  Maybe<RFPTargetSet> overriddenFingerprintingSettings =
+      GetOverriddenFingerprintingSettings();
+  if (overriddenFingerprintingSettings.isNothing()) {
+    return nullptr;
+  }
+
+  nsCOMPtr<nsIRFPTargetSetIDL> protections =
+      new nsRFPTargetSetIDL(overriddenFingerprintingSettings.ref());
+  return protections.forget();
+}
+
 nsGlobalWindowInner* WindowContext::GetInnerWindow() const {
   return mWindowGlobalChild ? mWindowGlobalChild->GetWindowGlobal() : nullptr;
 }
@@ -124,6 +137,8 @@ void WindowContext::AppendChildBrowsingContext(
                         "Mismatched groups?");
   MOZ_DIAGNOSTIC_ASSERT(!mChildren.Contains(aBrowsingContext));
 
+  ClearLightDOMChildren();
+
   mChildren.AppendElement(aBrowsingContext);
   if (!aBrowsingContext->IsEmbedderTypeObjectOrEmbed()) {
     mNonSyntheticChildren.AppendElement(aBrowsingContext);
@@ -140,6 +155,7 @@ void WindowContext::RemoveChildBrowsingContext(
     BrowsingContext* aBrowsingContext) {
   MOZ_DIAGNOSTIC_ASSERT(Group() == aBrowsingContext->Group(),
                         "Mismatched groups?");
+  ClearLightDOMChildren();
 
   mChildren.RemoveElement(aBrowsingContext);
   mNonSyntheticChildren.RemoveElement(aBrowsingContext);
@@ -162,6 +178,36 @@ void WindowContext::UpdateChildSynthetic(BrowsingContext* aBrowsingContext,
       mNonSyntheticChildren.AppendElement(aBrowsingContext);
     }
   }
+}
+
+void WindowContext::ClearLightDOMChildren() {
+  mNonSyntheticLightDOMChildren.reset();
+}
+
+void WindowContext::EnsureLightDOMChildren() {
+  if (mNonSyntheticLightDOMChildren.isSome()) {
+    return;
+  }
+  mNonSyntheticLightDOMChildren.emplace();
+
+  for (const RefPtr<BrowsingContext>& bc : mNonSyntheticChildren) {
+    if (Element* el = bc->GetEmbedderElement(); el && el->IsInShadowTree()) {
+      continue;
+    }
+    mNonSyntheticLightDOMChildren->AppendElement(bc);
+  }
+}
+
+BrowsingContext* WindowContext::NonSyntheticLightDOMChildAt(uint32_t aIndex) {
+  EnsureLightDOMChildren();
+  return aIndex < mNonSyntheticLightDOMChildren->Length()
+             ? mNonSyntheticLightDOMChildren->ElementAt(aIndex).get()
+             : nullptr;
+}
+
+uint32_t WindowContext::NonSyntheticLightDOMChildrenCount() {
+  EnsureLightDOMChildren();
+  return mNonSyntheticLightDOMChildren->Length();
 }
 
 void WindowContext::SendCommitTransaction(ContentParent* aParent,
@@ -241,7 +287,7 @@ bool WindowContext::CanSet(FieldIndex<IDX_ShouldResistFingerprinting>,
 }
 
 bool WindowContext::CanSet(FieldIndex<IDX_OverriddenFingerprintingSettings>,
-                           const Maybe<RFPTarget>& aValue,
+                           const Maybe<RFPTargetSet>& aValue,
                            ContentParent* aSource) {
   return CheckOnlyOwningProcessCanSet(aSource);
 }
@@ -655,6 +701,7 @@ NS_IMPL_CYCLE_COLLECTION_UNLINK_BEGIN(WindowContext)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mBrowsingContext)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mChildren)
   NS_IMPL_CYCLE_COLLECTION_UNLINK(mNonSyntheticChildren)
+  NS_IMPL_CYCLE_COLLECTION_UNLINK(mNonSyntheticLightDOMChildren);
   NS_IMPL_CYCLE_COLLECTION_UNLINK_PRESERVED_WRAPPER
 NS_IMPL_CYCLE_COLLECTION_UNLINK_END
 
@@ -662,6 +709,7 @@ NS_IMPL_CYCLE_COLLECTION_TRAVERSE_BEGIN(WindowContext)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mBrowsingContext)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mChildren)
   NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mNonSyntheticChildren)
+  NS_IMPL_CYCLE_COLLECTION_TRAVERSE(mNonSyntheticLightDOMChildren)
 NS_IMPL_CYCLE_COLLECTION_TRAVERSE_END
 
 }  // namespace dom

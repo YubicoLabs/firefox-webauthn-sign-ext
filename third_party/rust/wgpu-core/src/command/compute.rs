@@ -1,37 +1,38 @@
+use thiserror::Error;
+use wgt::{BufferAddress, DynamicOffset};
+
+use alloc::{borrow::Cow, boxed::Box, sync::Arc, vec::Vec};
+use core::{fmt, mem::size_of, str};
+
 use crate::{
     binding_model::{
         BindError, BindGroup, LateMinBufferBindingSizeMismatch, PushConstantUploadError,
     },
     command::{
-        bind::Binder,
+        bind::{Binder, BinderError},
         compute_command::ArcComputeCommand,
         end_pipeline_statistics_query,
-        memory_init::{fixup_discarded_surfaces, SurfacesInDiscardState},
+        memory_init::{
+            fixup_discarded_surfaces, CommandBufferTextureMemoryActions, SurfacesInDiscardState,
+        },
         validate_and_begin_pipeline_statistics_query, ArcPassTimestampWrites, BasePass,
-        BindGroupStateChange, CommandBuffer, CommandEncoderError, CommandEncoderStatus, MapPassErr,
-        PassErrorScope, PassTimestampWrites, QueryUseError, StateChange,
+        BindGroupStateChange, CommandBuffer, CommandEncoderError, MapPassErr, PassErrorScope,
+        PassTimestampWrites, QueryUseError, StateChange,
     },
     device::{Device, DeviceError, MissingDownlevelFlags, MissingFeatures},
     global::Global,
     hal_label, id,
     init_tracker::{BufferInitTrackerAction, MemoryInitKind},
     pipeline::ComputePipeline,
+    ray_tracing::TlasAction,
     resource::{
         self, Buffer, DestroyedResourceError, InvalidResourceError, Labeled,
-        MissingBufferUsageError, ParentDevice, Trackable,
+        MissingBufferUsageError, ParentDevice,
     },
     snatch::SnatchGuard,
     track::{ResourceUsageCompatibilityError, Tracker, TrackerIndex, UsageScope},
     Label,
 };
-
-use thiserror::Error;
-use wgt::{BufferAddress, DynamicOffset};
-
-use std::sync::Arc;
-use std::{fmt, mem::size_of, str};
-
-use super::{bind::BinderError, memory_init::CommandBufferTextureMemoryActions};
 
 pub struct ComputePass {
     /// All pass data & records is stored here.
@@ -61,7 +62,7 @@ impl ComputePass {
         } = desc;
 
         Self {
-            base: Some(BasePass::new(label)),
+            base: Some(BasePass::new(&label)),
             parent,
             timestamp_writes,
 
@@ -96,17 +97,14 @@ impl fmt::Debug for ComputePass {
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct ComputePassDescriptor<'a> {
+pub struct ComputePassDescriptor<'a, PTW = PassTimestampWrites> {
     pub label: Label<'a>,
     /// Defines where and when timestamp values will be written for this pass.
-    pub timestamp_writes: Option<&'a PassTimestampWrites>,
+    pub timestamp_writes: Option<PTW>,
 }
 
-struct ArcComputePassDescriptor<'a> {
-    pub label: &'a Label<'a>,
-    /// Defines where and when timestamp values will be written for this pass.
-    pub timestamp_writes: Option<ArcPassTimestampWrites>,
-}
+/// cbindgen:ignore
+type ArcComputePassDescriptor<'a> = ComputePassDescriptor<'a, ArcPassTimestampWrites>;
 
 #[derive(Clone, Debug, Error)]
 #[non_exhaustive]
@@ -136,6 +134,8 @@ pub enum ComputePassErrorInner {
     BindGroupIndexOutOfRange { index: u32, max: u32 },
     #[error(transparent)]
     DestroyedResource(#[from] DestroyedResourceError),
+    #[error("Indirect buffer offset {0:?} is not a multiple of 4")]
+    UnalignedIndirectBufferOffset(BufferAddress),
     #[error("Indirect buffer uses bytes {offset}..{end_offset} which overruns indirect buffer of size {buffer_size}")]
     IndirectBufferOverrun {
         offset: u64,
@@ -208,11 +208,14 @@ struct State<'scope, 'snatch_guard, 'cmd_buf, 'raw_encoder> {
     tracker: &'cmd_buf mut Tracker,
     buffer_memory_init_actions: &'cmd_buf mut Vec<BufferInitTrackerAction>,
     texture_memory_actions: &'cmd_buf mut CommandBufferTextureMemoryActions,
+    tlas_actions: &'cmd_buf mut Vec<TlasAction>,
 
     temp_offsets: Vec<u32>,
     dynamic_offset_count: usize,
     string_offset: usize,
     active_query: Option<(Arc<resource::QuerySet>, u32)>,
+
+    push_constants: Vec<u32>,
 
     intermediate_trackers: Tracker,
 
@@ -277,8 +280,10 @@ impl Global {
     /// If creation fails, an invalid pass is returned.
     /// Any operation on an invalid pass will return an error.
     ///
-    /// If successful, puts the encoder into the [`CommandEncoderStatus::Locked`] state.
-    pub fn command_encoder_create_compute_pass(
+    /// If successful, puts the encoder into the [`Locked`] state.
+    ///
+    /// [`Locked`]: crate::command::CommandEncoderStatus::Locked
+    pub fn command_encoder_begin_compute_pass(
         &self,
         encoder_id: id::CommandEncoderId,
         desc: &ComputePassDescriptor<'_>,
@@ -286,7 +291,7 @@ impl Global {
         let hub = &self.hub;
 
         let mut arc_desc = ArcComputePassDescriptor {
-            label: &desc.label,
+            label: desc.label.as_deref().map(Cow::Borrowed),
             timestamp_writes: None, // Handle only once we resolved the encoder.
         };
 
@@ -294,28 +299,21 @@ impl Global {
 
         let cmd_buf = hub.command_buffers.get(encoder_id.into_command_buffer_id());
 
-        match cmd_buf
-            .try_get()
-            .map_err(|e| e.into())
-            .and_then(|mut cmd_buf_data| cmd_buf_data.lock_encoder())
-        {
+        match cmd_buf.data.lock().lock_encoder() {
             Ok(_) => {}
             Err(e) => return make_err(e, arc_desc),
         };
 
-        arc_desc.timestamp_writes = if let Some(tw) = desc.timestamp_writes {
-            let query_set = match hub.query_sets.get(tw.query_set).get() {
-                Ok(query_set) => query_set,
-                Err(e) => return make_err(e.into(), arc_desc),
-            };
-
-            Some(ArcPassTimestampWrites {
-                query_set,
-                beginning_of_pass_write_index: tw.beginning_of_pass_write_index,
-                end_of_pass_write_index: tw.end_of_pass_write_index,
+        arc_desc.timestamp_writes = match desc
+            .timestamp_writes
+            .as_ref()
+            .map(|tw| {
+                Self::validate_pass_timestamp_writes(&cmd_buf.device, &hub.query_sets.read(), tw)
             })
-        } else {
-            None
+            .transpose()
+        {
+            Ok(ok) => ok,
+            Err(e) => return make_err(e, arc_desc),
         };
 
         (ComputePass::new(Some(cmd_buf), arc_desc), None)
@@ -339,7 +337,8 @@ impl Global {
                 .hub
                 .command_buffers
                 .get(encoder_id.into_command_buffer_id());
-            let mut cmd_buf_data = cmd_buf.try_get().map_pass_err(pass_scope)?;
+            let mut cmd_buf_data = cmd_buf.data.lock();
+            let cmd_buf_data = cmd_buf_data.get_inner().map_pass_err(pass_scope)?;
 
             if let Some(ref mut list) = cmd_buf_data.commands {
                 list.push(crate::device::trace::Command::RunComputePass {
@@ -363,11 +362,11 @@ impl Global {
             push_constant_data,
         } = base;
 
-        let (mut compute_pass, encoder_error) = self.command_encoder_create_compute_pass(
+        let (mut compute_pass, encoder_error) = self.command_encoder_begin_compute_pass(
             encoder_id,
             &ComputePassDescriptor {
-                label: label.as_deref().map(std::borrow::Cow::Borrowed),
-                timestamp_writes,
+                label: label.as_deref().map(Cow::Borrowed),
+                timestamp_writes: timestamp_writes.cloned(),
             },
         );
         if let Some(err) = encoder_error {
@@ -407,20 +406,19 @@ impl Global {
         let device = &cmd_buf.device;
         device.check_is_valid().map_pass_err(pass_scope)?;
 
-        let mut cmd_buf_data = cmd_buf.try_get().map_pass_err(pass_scope)?;
-        cmd_buf_data.unlock_encoder().map_pass_err(pass_scope)?;
-        let cmd_buf_data = &mut *cmd_buf_data;
+        let mut cmd_buf_data = cmd_buf.data.lock();
+        let mut cmd_buf_data_guard = cmd_buf_data.unlock_encoder().map_pass_err(pass_scope)?;
+        let cmd_buf_data = &mut *cmd_buf_data_guard;
 
         let encoder = &mut cmd_buf_data.encoder;
-        let status = &mut cmd_buf_data.status;
 
         // We automatically keep extending command buffers over time, and because
         // we want to insert a command buffer _before_ what we're about to record,
         // we need to make sure to close the previous one.
-        encoder.close(&cmd_buf.device).map_pass_err(pass_scope)?;
-        // will be reset to true if recording is done without errors
-        *status = CommandEncoderStatus::Error;
-        let raw_encoder = encoder.open(&cmd_buf.device).map_pass_err(pass_scope)?;
+        encoder.close_if_open().map_pass_err(pass_scope)?;
+        let raw_encoder = encoder
+            .open_pass(base.label.as_deref())
+            .map_pass_err(pass_scope)?;
 
         let mut state = State {
             binder: Binder::new(),
@@ -435,11 +433,14 @@ impl Global {
             tracker: &mut cmd_buf_data.trackers,
             buffer_memory_init_actions: &mut cmd_buf_data.buffer_memory_init_actions,
             texture_memory_actions: &mut cmd_buf_data.texture_memory_actions,
+            tlas_actions: &mut cmd_buf_data.tlas_actions,
 
             temp_offsets: Vec::new(),
             dynamic_offset_count: 0,
             string_offset: 0,
             active_query: None,
+
+            push_constants: Vec::new(),
 
             intermediate_trackers: Tracker::new(),
 
@@ -495,8 +496,6 @@ impl Global {
             state.raw_encoder.begin_compute_pass(&hal_desc);
         }
 
-        // TODO: We should be draining the commands here, avoiding extra copies in the process.
-        //       (A command encoder can't be executed twice!)
         for command in base.commands {
             match command {
                 ArcComputeCommand::SetBindGroup {
@@ -588,10 +587,6 @@ impl Global {
             state.raw_encoder.end_compute_pass();
         }
 
-        // We've successfully recorded the compute pass, bring the
-        // command buffer out of the error state.
-        *status = CommandEncoderStatus::Recording;
-
         let State {
             snatch_guard,
             tracker,
@@ -601,12 +596,14 @@ impl Global {
         } = state;
 
         // Stop the current command buffer.
-        encoder.close(&cmd_buf.device).map_pass_err(pass_scope)?;
+        encoder.close().map_pass_err(pass_scope)?;
 
         // Create a new command buffer, which we will insert _before_ the body of the compute pass.
         //
         // Use that buffer to insert barriers and clear discarded images.
-        let transit = encoder.open(&cmd_buf.device).map_pass_err(pass_scope)?;
+        let transit = encoder
+            .open_pass(Some("(wgpu internal) Pre Pass"))
+            .map_pass_err(pass_scope)?;
         fixup_discarded_surfaces(
             pending_discard_init_fixups.into_iter(),
             transit,
@@ -621,9 +618,8 @@ impl Global {
             &snatch_guard,
         );
         // Close the command buffer, and swap it with the previous.
-        encoder
-            .close_and_swap(&cmd_buf.device)
-            .map_pass_err(pass_scope)?;
+        encoder.close_and_swap().map_pass_err(pass_scope)?;
+        cmd_buf_data_guard.mark_successful();
 
         Ok(())
     }
@@ -679,6 +675,17 @@ fn set_bind_group(
             .pending_discard_init_fixups
             .extend(state.texture_memory_actions.register_init_action(action));
     }
+
+    let used_resource = bind_group
+        .used
+        .acceleration_structures
+        .into_iter()
+        .map(|tlas| TlasAction {
+            tlas: tlas.clone(),
+            kind: crate::ray_tracing::TlasActionKind::Use,
+        });
+
+    state.tlas_actions.extend(used_resource);
 
     let pipeline_layout = state.binder.pipeline_layout.clone();
     let entries = state
@@ -746,6 +753,21 @@ fn set_pipeline(
             }
         }
 
+        // TODO: integrate this in the code below once we simplify push constants
+        state.push_constants.clear();
+        // Note that can only be one range for each stage. See the `MoreThanOnePushConstantRangePerStage` error.
+        if let Some(push_constant_range) =
+            pipeline.layout.push_constant_ranges.iter().find_map(|pcr| {
+                pcr.stages
+                    .contains(wgt::ShaderStages::COMPUTE)
+                    .then_some(pcr.range.clone())
+            })
+        {
+            // Note that non-0 range start doesn't work anyway https://github.com/gfx-rs/wgpu/issues/4502
+            let len = push_constant_range.len() / wgt::PUSH_CONSTANT_ALIGNMENT as usize;
+            state.push_constants.extend(core::iter::repeat(0).take(len));
+        }
+
         // Clear push constant ranges
         let non_overlapping =
             super::bind::compute_nonoverlapping_ranges(&pipeline.layout.push_constant_ranges);
@@ -780,7 +802,7 @@ fn set_push_constant(
         .binder
         .pipeline_layout
         .as_ref()
-        //TODO: don't error here, lazily update the push constants
+        // TODO: don't error here, lazily update the push constants using `state.push_constants`
         .ok_or(ComputePassErrorInner::Dispatch(
             DispatchError::MissingPipeline,
         ))?;
@@ -790,6 +812,10 @@ fn set_push_constant(
         offset,
         end_offset_bytes,
     )?;
+
+    let offset_in_elements = (offset / wgt::PUSH_CONSTANT_ALIGNMENT) as usize;
+    let size_in_elements = (size_bytes / wgt::PUSH_CONSTANT_ALIGNMENT) as usize;
+    state.push_constants[offset_in_elements..][..size_in_elements].copy_from_slice(data_slice);
 
     unsafe {
         state.raw_encoder.set_push_constants(
@@ -841,11 +867,11 @@ fn dispatch_indirect(
         .device
         .require_downlevel_flags(wgt::DownlevelFlags::INDIRECT_EXECUTION)?;
 
-    state
-        .scope
-        .buffers
-        .merge_single(&buffer, hal::BufferUses::INDIRECT)?;
     buffer.check_usage(wgt::BufferUsages::INDIRECT)?;
+
+    if offset % 4 != 0 {
+        return Err(ComputePassErrorInner::UnalignedIndirectBufferOffset(offset));
+    }
 
     let end_offset = offset + size_of::<wgt::DispatchIndirectArgs>() as u64;
     if end_offset > buffer.size {
@@ -857,7 +883,6 @@ fn dispatch_indirect(
     }
 
     let stride = 3 * 4; // 3 integers, x/y/z group size
-
     state
         .buffer_memory_init_actions
         .extend(buffer.initialization_status.read().create_action(
@@ -866,12 +891,138 @@ fn dispatch_indirect(
             MemoryInitKind::NeedsInitializedMemory,
         ));
 
-    state.flush_states(Some(buffer.tracker_index()))?;
+    #[cfg(feature = "indirect-validation")]
+    {
+        let params = state.device.indirect_validation.as_ref().unwrap().params(
+            &state.device.limits,
+            offset,
+            buffer.size,
+        );
 
-    let buf_raw = buffer.try_raw(&state.snatch_guard)?;
-    unsafe {
-        state.raw_encoder.dispatch_indirect(buf_raw, offset);
+        unsafe {
+            state.raw_encoder.set_compute_pipeline(params.pipeline);
+        }
+
+        unsafe {
+            state.raw_encoder.set_push_constants(
+                params.pipeline_layout,
+                wgt::ShaderStages::COMPUTE,
+                0,
+                &[params.offset_remainder as u32 / 4],
+            );
+        }
+
+        unsafe {
+            state.raw_encoder.set_bind_group(
+                params.pipeline_layout,
+                0,
+                Some(params.dst_bind_group),
+                &[],
+            );
+        }
+        unsafe {
+            state.raw_encoder.set_bind_group(
+                params.pipeline_layout,
+                1,
+                Some(
+                    buffer
+                        .raw_indirect_validation_bind_group
+                        .get(&state.snatch_guard)
+                        .unwrap()
+                        .as_ref(),
+                ),
+                &[params.aligned_offset as u32],
+            );
+        }
+
+        let src_transition = state
+            .intermediate_trackers
+            .buffers
+            .set_single(&buffer, wgt::BufferUses::STORAGE_READ_ONLY);
+        let src_barrier =
+            src_transition.map(|transition| transition.into_hal(&buffer, &state.snatch_guard));
+        unsafe {
+            state.raw_encoder.transition_buffers(src_barrier.as_slice());
+        }
+
+        unsafe {
+            state.raw_encoder.transition_buffers(&[hal::BufferBarrier {
+                buffer: params.dst_buffer,
+                usage: hal::StateTransition {
+                    from: wgt::BufferUses::INDIRECT,
+                    to: wgt::BufferUses::STORAGE_READ_WRITE,
+                },
+            }]);
+        }
+
+        unsafe {
+            state.raw_encoder.dispatch([1, 1, 1]);
+        }
+
+        // reset state
+        {
+            let pipeline = state.pipeline.as_ref().unwrap();
+
+            unsafe {
+                state.raw_encoder.set_compute_pipeline(pipeline.raw());
+            }
+
+            if !state.push_constants.is_empty() {
+                unsafe {
+                    state.raw_encoder.set_push_constants(
+                        pipeline.layout.raw(),
+                        wgt::ShaderStages::COMPUTE,
+                        0,
+                        &state.push_constants,
+                    );
+                }
+            }
+
+            for (i, e) in state.binder.list_valid() {
+                let group = e.group.as_ref().unwrap();
+                let raw_bg = group.try_raw(&state.snatch_guard)?;
+                unsafe {
+                    state.raw_encoder.set_bind_group(
+                        pipeline.layout.raw(),
+                        i as u32,
+                        Some(raw_bg),
+                        &e.dynamic_offsets,
+                    );
+                }
+            }
+        }
+
+        unsafe {
+            state.raw_encoder.transition_buffers(&[hal::BufferBarrier {
+                buffer: params.dst_buffer,
+                usage: hal::StateTransition {
+                    from: wgt::BufferUses::STORAGE_READ_WRITE,
+                    to: wgt::BufferUses::INDIRECT,
+                },
+            }]);
+        }
+
+        state.flush_states(None)?;
+        unsafe {
+            state.raw_encoder.dispatch_indirect(params.dst_buffer, 0);
+        }
+    };
+    #[cfg(not(feature = "indirect-validation"))]
+    {
+        state
+            .scope
+            .buffers
+            .merge_single(&buffer, wgt::BufferUses::INDIRECT)?;
+
+        use crate::resource::Trackable;
+        state.flush_states(Some(buffer.tracker_index()))?;
+
+        let buf_raw = buffer.try_raw(&state.snatch_guard)?;
+        unsafe {
+            state.raw_encoder.dispatch_indirect(buf_raw, offset);
+        }
     }
+
     Ok(())
 }
 

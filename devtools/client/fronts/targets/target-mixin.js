@@ -277,8 +277,26 @@ function TargetMixin(parentClass) {
       return this.typeName === "windowGlobalTarget";
     }
 
+    /**
+     * Return the name to be displayed in the debugger and console context selector.
+     */
     get name() {
-      if (this.isWebExtension || this.isContentProcess) {
+      // When debugging Web Extensions, all documents have moz-extension://${uuid}/... URL
+      // When the developer don't set a custom title, fallback on displaying the pathname
+      // to avoid displaying long URL prefix with the addon internal UUID.
+      if (this.commands.descriptorFront.isWebExtensionDescriptor) {
+        if (this._title) {
+          return this._title;
+        }
+        const parsedURL = URL.parse(this._url);
+        if (parsedURL) {
+          return parsedURL.pathname;
+        }
+        // If document URL can't be parsed, fallback to the raw URL.
+        return this._url;
+      }
+
+      if (this.isContentProcess) {
         return this.targetForm.name;
       }
       return this.title;
@@ -296,15 +314,6 @@ function TargetMixin(parentClass) {
       // XXX Remove the check on `workerDescriptor` as part of Bug 1667404.
       return (
         this.typeName === "workerTarget" || this.typeName === "workerDescriptor"
-      );
-    }
-
-    get isWebExtension() {
-      return !!(
-        this.targetForm &&
-        this.targetForm.actor &&
-        (this.targetForm.actor.match(/conn\d+\.webExtension(Target)?\d+/) ||
-          this.targetForm.actor.match(/child\d+\/webExtension(Target)?\d+/))
       );
     }
 
@@ -328,25 +337,6 @@ function TargetMixin(parentClass) {
         this.targetForm.actor &&
         this.targetForm.actor.match(/conn\d+\.parentProcessTarget\d+/)
       );
-    }
-
-    getExtensionPathName(url) {
-      // Return the url if the target is not a webextension.
-      if (!this.isWebExtension) {
-        throw new Error("Target is not a WebExtension");
-      }
-
-      try {
-        const parsedURL = new URL(url);
-        // Only moz-extension URL should be shortened into the URL pathname.
-        if (parsedURL.protocol !== "moz-extension:") {
-          return url;
-        }
-        return parsedURL.pathname;
-      } catch (e) {
-        // Return the url if unable to resolve the pathname.
-        return url;
-      }
     }
 
     /**

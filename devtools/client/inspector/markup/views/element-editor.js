@@ -5,9 +5,7 @@
 "use strict";
 
 const TextEditor = require("resource://devtools/client/inspector/markup/views/text-editor.js");
-const {
-  truncateString,
-} = require("resource://devtools/shared/inspector/utils.js");
+const { truncateString } = require("resource://devtools/shared/string.js");
 const {
   editableField,
   InplaceEditor,
@@ -235,7 +233,7 @@ ElementEditor.prototype = {
     this.elt.appendChild(close);
 
     this.closeTag = this.doc.createElement("span");
-    this.closeTag.classList.add("tag");
+    this.closeTag.classList.add("tag", "force-color-on-flash");
     this.closeTag.textContent = this.node.displayName;
     close.appendChild(this.closeTag);
 
@@ -1157,10 +1155,7 @@ ElementEditor.prototype = {
       }
     }
 
-    this.markup.telemetry.scalarAdd(
-      "devtools.markup.scrollable.badge.clicked",
-      1
-    );
+    Glean.devtoolsMarkupScrollableBadge.clicked.add(1);
   },
 
   /**

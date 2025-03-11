@@ -3,11 +3,11 @@
 
 module.exports = {
   env: {
-    browser: false,
     "mozilla/privileged": true,
     "mozilla/xpcshell": true,
   },
 
+  name: "mozilla/xpcshell-test",
   plugins: ["mozilla", "@microsoft/sdl"],
 
   rules: {

@@ -72,6 +72,7 @@
 #include "mozilla/PresShell.h"
 #include "mozilla/ProfilerMarkers.h"
 #include "mozilla/ScrollContainerFrame.h"
+#include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/StaticPrefs_ui.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/HTMLLabelElement.h"
@@ -871,13 +872,15 @@ nsresult LocalAccessible::HandleAccEvent(AccEvent* aEvent) {
           break;
 
         case nsIAccessibleEvent::EVENT_HIDE:
-          ipcDoc->SendHideEvent(id, aEvent->IsFromUserInput());
+          ipcDoc->PushMutationEventData(
+              HideEventData{id, aEvent->IsFromUserInput()});
           break;
 
         case nsIAccessibleEvent::EVENT_INNER_REORDER:
         case nsIAccessibleEvent::EVENT_REORDER:
           if (IsTable()) {
-            SendCache(CacheDomain::Table, CacheUpdateType::Update);
+            SendCache(CacheDomain::Table, CacheUpdateType::Update,
+                      /*aAppendEventData*/ true);
           }
 
 #if defined(XP_WIN)
@@ -896,7 +899,8 @@ nsresult LocalAccessible::HandleAccEvent(AccEvent* aEvent) {
           // reorder events on the application acc aren't necessary to tell the
           // parent about new top level documents.
           if (!aEvent->GetAccessible()->IsApplication()) {
-            ipcDoc->SendEvent(id, aEvent->GetEventType());
+            ipcDoc->PushMutationEventData(
+                ReorderEventData{id, aEvent->GetEventType()});
           }
           break;
         case nsIAccessibleEvent::EVENT_STATE_CHANGE: {
@@ -916,10 +920,10 @@ nsresult LocalAccessible::HandleAccEvent(AccEvent* aEvent) {
         case nsIAccessibleEvent::EVENT_TEXT_INSERTED:
         case nsIAccessibleEvent::EVENT_TEXT_REMOVED: {
           AccTextChangeEvent* event = downcast_accEvent(aEvent);
-          const nsString& text = event->ModifiedText();
-          ipcDoc->SendTextChangeEvent(
-              id, text, event->GetStartOffset(), event->GetLength(),
-              event->IsTextInserted(), event->IsFromUserInput());
+          ipcDoc->PushMutationEventData(TextChangeEventData{
+              id, event->ModifiedText(), event->GetStartOffset(),
+              event->GetLength(), event->IsTextInserted(),
+              event->IsFromUserInput()});
           break;
         }
         case nsIAccessibleEvent::EVENT_SELECTION:
@@ -1162,11 +1166,6 @@ already_AddRefed<AccAttributes> LocalAccessible::NativeAttributes() {
     attributes->SetAttribute(nsGkAtoms::explicit_name, true);
   }
 
-  // Group attributes (level/setsize/posinset)
-  GroupPos groupPos = GroupPosition();
-  nsAccUtils::SetAccGroupAttrs(attributes, groupPos.level, groupPos.setSize,
-                               groupPos.posInSet);
-
   bool hierarchical = false;
   uint32_t itemCount = AccGroupInfo::TotalItemCount(this, &hierarchical);
   if (itemCount) {
@@ -1299,6 +1298,7 @@ bool LocalAccessible::AttributeChangesState(nsAtom* aAttribute) {
          aAttribute == nsGkAtoms::aria_busy ||
          aAttribute == nsGkAtoms::aria_multiline ||
          aAttribute == nsGkAtoms::aria_multiselectable ||
+         // We track this for focusable state update
          aAttribute == nsGkAtoms::contenteditable ||
          aAttribute == nsGkAtoms::popovertarget;
 }
@@ -1564,12 +1564,6 @@ void LocalAccessible::DOMAttributeChanged(int32_t aNameSpaceID,
     // If an anchor's name changed, it's possible a LINKS_TO relation
     // also changed. Push a cache update for Relations.
     mDoc->QueueCacheUpdate(this, CacheDomain::Relations);
-  }
-
-  if (aAttribute == nsGkAtoms::slot &&
-      !mContent->GetFlattenedTreeParentNode() && this != mDoc) {
-    // This is inside a shadow host but is no longer slotted.
-    mDoc->ContentRemoved(this);
   }
 }
 
@@ -2287,14 +2281,32 @@ Relation LocalAccessible::RelationByType(RelationType aType) const {
       return Relation();
     }
 
-    case RelationType::CONTROLLED_BY:
-      return Relation(new RelatedAccIterator(Document(), mContent,
-                                             nsGkAtoms::aria_controls));
+    case RelationType::CONTROLLED_BY: {
+      Relation rel(new RelatedAccIterator(Document(), mContent,
+                                          nsGkAtoms::aria_controls));
 
+      RelatedAccIterator owners(Document(), mContent, nsGkAtoms::aria_owns);
+      if (LocalAccessible* owner = owners.Next()) {
+        if (nsAccUtils::IsEditableARIACombobox(owner)) {
+          MOZ_ASSERT(!IsRelocated(),
+                     "Child is not relocated to editable combobox");
+          rel.AppendTarget(owner);
+        }
+      }
+
+      return rel;
+    }
     case RelationType::CONTROLLER_FOR: {
       Relation rel(new AssociatedElementsIterator(mDoc, mContent,
                                                   nsGkAtoms::aria_controls));
       rel.AppendIter(new HTMLOutputIterator(Document(), mContent));
+      if (nsAccUtils::IsEditableARIACombobox(this)) {
+        AssociatedElementsIterator iter(mDoc, mContent, nsGkAtoms::aria_owns);
+        while (Accessible* owned_child = iter.Next()) {
+          MOZ_ASSERT(!owned_child->AsLocal()->IsRelocated());
+          rel.AppendTarget(owned_child->AsLocal());
+        }
+      }
       return rel;
     }
 
@@ -2494,73 +2506,65 @@ Relation LocalAccessible::RelationByType(RelationType aType) const {
 
 void LocalAccessible::GetNativeInterface(void** aNativeAccessible) {}
 
-void LocalAccessible::DoCommand(nsIContent* aContent,
-                                uint32_t aActionIndex) const {
-  class Runnable final : public mozilla::Runnable {
-   public:
-    Runnable(const LocalAccessible* aAcc, nsIContent* aContent, uint32_t aIdx)
-        : mozilla::Runnable("Runnable"),
-          mAcc(aAcc),
-          mContent(aContent),
-          mIdx(aIdx) {}
-
-    // XXX Cannot mark as MOZ_CAN_RUN_SCRIPT because the base class change
-    //     requires too big changes across a lot of modules.
-    MOZ_CAN_RUN_SCRIPT_BOUNDARY NS_IMETHOD Run() override {
-      if (mAcc) {
-        MOZ_KnownLive(mAcc)->DispatchClickEvent(MOZ_KnownLive(mContent), mIdx);
-      }
-      return NS_OK;
-    }
-
-    void Revoke() {
-      mAcc = nullptr;
-      mContent = nullptr;
-    }
-
-   private:
-    RefPtr<const LocalAccessible> mAcc;
-    nsCOMPtr<nsIContent> mContent;
-    uint32_t mIdx;
-  };
-
-  nsIContent* content = aContent ? aContent : mContent.get();
-  nsCOMPtr<nsIRunnable> runnable = new Runnable(this, content, aActionIndex);
-  NS_DispatchToMainThread(runnable);
+void LocalAccessible::DoCommand(uint32_t aActionIndex) const {
+  NS_DispatchToMainThread(NS_NewRunnableFunction(
+      "LocalAccessible::DispatchClickEvent",
+      [aActionIndex, acc = RefPtr{this}]() MOZ_CAN_RUN_SCRIPT_BOUNDARY {
+        acc->DispatchClickEvent(aActionIndex);
+      }));
 }
 
-void LocalAccessible::DispatchClickEvent(nsIContent* aContent,
-                                         uint32_t aActionIndex) const {
+void LocalAccessible::DispatchClickEvent(uint32_t aActionIndex) const {
   if (IsDefunct()) return;
+  MOZ_ASSERT(mContent);
 
   RefPtr<PresShell> presShell = mDoc->PresShellPtr();
 
   // Scroll into view.
-  presShell->ScrollContentIntoView(aContent, ScrollAxis(), ScrollAxis(),
+  presShell->ScrollContentIntoView(mContent, ScrollAxis(), ScrollAxis(),
                                    ScrollFlags::ScrollOverflowHidden);
 
-  AutoWeakFrame frame = aContent->GetPrimaryFrame();
-  if (!frame) return;
+  AutoWeakFrame frame = GetFrame();
+  if (!frame) {
+    return;
+  }
 
-  // Compute x and y coordinates.
-  nsPoint point;
-  nsCOMPtr<nsIWidget> widget = frame->GetNearestWidget(point);
-  if (!widget) return;
+  // We use RelativeBounds rather than querying the frame directly because of
+  // special cases like image map areas which don't have their own frame.
+  // RelativeBounds overrides handle these special cases.
+  nsIFrame* boundingFrame = nullptr;
+  nsRect rect = RelativeBounds(&boundingFrame);
+  MOZ_ASSERT(boundingFrame);
 
-  nsSize size = frame->GetSize();
+  // Compute x and y coordinates in dev pixels relative to the widget.
+  nsPoint offsetToWidget;
+  nsCOMPtr<nsIWidget> widget = boundingFrame->GetNearestWidget(offsetToWidget);
+  if (!widget) {
+    return;
+  }
 
+  rect += offsetToWidget;
   RefPtr<nsPresContext> presContext = presShell->GetPresContext();
-  int32_t x = presContext->AppUnitsToDevPixels(point.x + size.width / 2);
-  int32_t y = presContext->AppUnitsToDevPixels(point.y + size.height / 2);
+  int32_t x = presContext->AppUnitsToDevPixels(rect.x + rect.width / 2);
+  int32_t y = presContext->AppUnitsToDevPixels(rect.y + rect.height / 2);
 
   // Simulate a touch interaction by dispatching touch events with mouse events.
-  nsCoreUtils::DispatchTouchEvent(eTouchStart, x, y, aContent, frame, presShell,
+  // Even though we calculated x and y using the bounding frame, we must use the
+  // primary frame for the event. In most cases, these two frames will be
+  // different, but they are the same for special cases such as image map areas
+  // which don't have their own frame.
+  nsCoreUtils::DispatchTouchEvent(eTouchStart, x, y, mContent, frame, presShell,
                                   widget);
-  nsCoreUtils::DispatchMouseEvent(eMouseDown, x, y, aContent, frame, presShell,
+
+  if (StaticPrefs::dom_popup_experimental()) {
+    // This isn't needed once bug 1924790 is fixed.
+    mContent->OwnerDoc()->NotifyUserGestureActivation();
+  }
+  nsCoreUtils::DispatchMouseEvent(eMouseDown, x, y, mContent, frame, presShell,
                                   widget);
-  nsCoreUtils::DispatchTouchEvent(eTouchEnd, x, y, aContent, frame, presShell,
+  nsCoreUtils::DispatchTouchEvent(eTouchEnd, x, y, mContent, frame, presShell,
                                   widget);
-  nsCoreUtils::DispatchMouseEvent(eMouseUp, x, y, aContent, frame, presShell,
+  nsCoreUtils::DispatchMouseEvent(eMouseUp, x, y, mContent, frame, presShell,
                                   widget);
 }
 
@@ -3335,7 +3339,8 @@ AccGroupInfo* LocalAccessible::GetOrCreateGroupInfo() {
 }
 
 void LocalAccessible::SendCache(uint64_t aCacheDomain,
-                                CacheUpdateType aUpdateType) {
+                                CacheUpdateType aUpdateType,
+                                bool aAppendEventData) {
   if (!IPCAccessibilityActive() || !Document()) {
     return;
   }
@@ -3365,7 +3370,12 @@ void LocalAccessible::SendCache(uint64_t aCacheDomain,
   }
   nsTArray<CacheData> data;
   data.AppendElement(CacheData(ID(), fields));
-  ipcDoc->SendCache(aUpdateType, data);
+  if (aAppendEventData) {
+    ipcDoc->PushMutationEventData(
+        CacheEventData{std::move(aUpdateType), std::move(data)});
+  } else {
+    ipcDoc->SendCache(aUpdateType, data);
+  }
 
   if (profiler_thread_is_being_profiled_for_markers()) {
     nsAutoCString updateTypeStr;
@@ -3522,6 +3532,18 @@ already_AddRefed<AccAttributes> LocalAccessible::BundleFieldsForCache(
       // have on-screen cells.
       LocalAccessible* prevParentRow = nullptr;
       for (nsIFrame* frame : frames) {
+        if (frame->IsInlineFrame() && !frame->IsPrimaryFrame()) {
+          // This is a line other than the first line in an inline element. Even
+          // though there are multiple frames for this element (one per line),
+          // there is only a single Accessible with bounds encompassing all the
+          // frames. We don't have any additional information about the
+          // individual continuation frames in our cache. Thus, we don't want
+          // this Accessible to appear before leaves on other lines which are
+          // later in the `frames` array. Otherwise, when hit testing, this
+          // Accessible will match instead of those leaves. We will add this
+          // Accessible when we get to its primary frame later.
+          continue;
+        }
         nsIContent* content = frame->GetContent();
         if (!content) {
           continue;
@@ -3595,9 +3617,26 @@ already_AddRefed<AccAttributes> LocalAccessible::BundleFieldsForCache(
         }
       }
 
-      if (viewportCache.Length()) {
-        fields->SetAttribute(CacheKey::Viewport, std::move(viewportCache));
-      }
+      // Always send the viewport cache, even if we have no accessibles
+      // in it. We don't want to send a delete entry because the viewport
+      // cache _does_ exist, it is simply representing an empty screen.
+      fields->SetAttribute(CacheKey::Viewport, std::move(viewportCache));
+    }
+  }
+
+  if (aCacheDomain & CacheDomain::APZ && IsDoc()) {
+    PresShell* presShell = AsDoc()->PresShellPtr();
+    MOZ_ASSERT(presShell, "Can't get APZ factor for null presShell");
+    nsPoint viewportOffset =
+        presShell->GetVisualViewportOffsetRelativeToLayoutViewport();
+    if (viewportOffset.x || viewportOffset.y) {
+      nsTArray<int32_t> offsetArray(2);
+      offsetArray.AppendElement(viewportOffset.x);
+      offsetArray.AppendElement(viewportOffset.y);
+      fields->SetAttribute(CacheKey::VisualViewportOffset,
+                           std::move(offsetArray));
+    } else if (IsUpdatePush(CacheDomain::APZ)) {
+      fields->SetAttribute(CacheKey::VisualViewportOffset, DeleteEntry());
     }
   }
 
@@ -3639,7 +3678,10 @@ already_AddRefed<AccAttributes> LocalAccessible::BundleFieldsForCache(
       }
     }
 
-    boundsChanged = IsInitialPush(CacheDomain::Bounds) ||
+    // mBounds should never be Nothing, but sometimes it is (see Bug 1922691).
+    // We null check mBounds here to avoid a crash while we figure out how this
+    // can happen.
+    boundsChanged = IsInitialPush(CacheDomain::Bounds) || !mBounds ||
                     !newBoundsRect.IsEqualEdges(mBounds.value());
     if (boundsChanged) {
       mBounds = Some(newBoundsRect);
@@ -3810,8 +3852,7 @@ already_AddRefed<AccAttributes> LocalAccessible::BundleFieldsForCache(
       // in the coordinate space of `frame`.
       gfx::Matrix4x4 mtx = nsDisplayTransform::GetResultingTransformMatrix(
           frame, nsPoint(0, 0), AppUnitsPerCSSPixel(),
-          nsDisplayTransform::INCLUDE_PERSPECTIVE |
-              nsDisplayTransform::OFFSET_BY_ORIGIN);
+          nsDisplayTransform::INCLUDE_PERSPECTIVE);
       // We might get back the identity matrix. This can happen if there is no
       // actual transform. For example, if an element has
       // will-change: transform, nsIFrame::IsTransformed will return true, but
@@ -4057,11 +4098,17 @@ already_AddRefed<AccAttributes> LocalAccessible::BundleFieldsForCache(
                 dom::HTMLLabelElement::FromNode(mContent)) {
           rel.AppendTarget(mDoc, labelEl->GetControl());
         }
-      } else if (data.mType == RelationType::DETAILS) {
+      } else if (data.mType == RelationType::DETAILS ||
+                 data.mType == RelationType::CONTROLLER_FOR) {
         // We need to use RelationByType for details because it might include
         // popovertarget. Nothing exposes an implicit reverse details
         // relation, so using RelationByType here is fine.
-        rel = RelationByType(RelationType::DETAILS);
+        //
+        // We need to use RelationByType for controls because it might include
+        // failed aria-owned relocations or it may be an output element.
+        // Nothing exposes an implicit reverse controls relation, so using
+        // RelationByType here is fine.
+        rel = RelationByType(data.mType);
       } else {
         // We use an AssociatedElementsIterator here instead of calling
         // RelationByType directly because we only want to cache explicit
@@ -4165,7 +4212,8 @@ already_AddRefed<AccAttributes> LocalAccessible::BundleFieldsForCache(
     }
   }
 
-  if ((aCacheDomain & (CacheDomain::Text | CacheDomain::ScrollPosition) ||
+  if ((aCacheDomain & (CacheDomain::Text | CacheDomain::ScrollPosition |
+                       CacheDomain::APZ) ||
        boundsChanged) &&
       mDoc) {
     mDoc->SetViewportCacheDirty(true);
@@ -4184,21 +4232,37 @@ void LocalAccessible::MaybeQueueCacheUpdateForStyleChanges() {
   if (nsIFrame* frame = GetFrame()) {
     const ComputedStyle* newStyle = frame->Style();
 
-    nsAutoCString oldOverflow, newOverflow;
-    mOldComputedStyle->GetComputedPropertyValue(eCSSProperty_overflow,
-                                                oldOverflow);
-    newStyle->GetComputedPropertyValue(eCSSProperty_overflow, newOverflow);
+    const auto overflowProps =
+        nsCSSPropertyIDSet({eCSSProperty_overflow_x, eCSSProperty_overflow_y});
 
-    if (oldOverflow != newOverflow) {
-      if (oldOverflow.Equals("hidden"_ns) || newOverflow.Equals("hidden"_ns)) {
-        mDoc->QueueCacheUpdate(this, CacheDomain::Style);
-      }
-      if (oldOverflow.Equals("auto"_ns) || newOverflow.Equals("auto"_ns) ||
-          oldOverflow.Equals("scroll"_ns) || newOverflow.Equals("scroll"_ns)) {
-        // We cache a (0,0) scroll position for frames that have overflow
-        // styling which means they _could_ become scrollable, even if the
-        // content within them doesn't currently scroll.
-        mDoc->QueueCacheUpdate(this, CacheDomain::ScrollPosition);
+    for (nsCSSPropertyID overflowProp : overflowProps) {
+      nsAutoCString oldOverflow, newOverflow;
+      mOldComputedStyle->GetComputedPropertyValue(overflowProp, oldOverflow);
+      newStyle->GetComputedPropertyValue(overflowProp, newOverflow);
+
+      if (oldOverflow != newOverflow) {
+        if (oldOverflow.Equals("hidden"_ns) ||
+            newOverflow.Equals("hidden"_ns)) {
+          mDoc->QueueCacheUpdate(this, CacheDomain::Style);
+        }
+        if (oldOverflow.Equals("auto"_ns) || newOverflow.Equals("auto"_ns) ||
+            oldOverflow.Equals("scroll"_ns) ||
+            newOverflow.Equals("scroll"_ns)) {
+          // We cache a (0,0) scroll position for frames that have overflow
+          // styling which means they _could_ become scrollable, even if the
+          // content within them doesn't currently scroll.
+          mDoc->QueueCacheUpdate(this, CacheDomain::ScrollPosition);
+        }
+      } else {
+        ScrollContainerFrame* scrollContainerFrame = do_QueryFrame(frame);
+        if (!scrollContainerFrame && (newOverflow.Equals("auto"_ns) ||
+                                      newOverflow.Equals("scroll"_ns))) {
+          // A document's body element can lose its scroll frame if the root
+          // element (eg. <html>) is restyled to overflow scroll/auto. In that
+          // case we will not get any useful notifications for the body element
+          // except for a reframe to a non-scrolling frame.
+          mDoc->QueueCacheUpdate(this, CacheDomain::ScrollPosition);
+        }
       }
     }
 
@@ -4274,20 +4338,6 @@ void LocalAccessible::MaybeQueueCacheUpdateForStyleChanges() {
 nsAtom* LocalAccessible::TagName() const {
   return mContent && mContent->IsElement() ? mContent->NodeInfo()->NameAtom()
                                            : nullptr;
-}
-
-already_AddRefed<nsAtom> LocalAccessible::InputType() const {
-  if (!IsTextField() && !IsDateTimeField()) {
-    return nullptr;
-  }
-
-  dom::Element* el = mContent->AsElement();
-  if (const nsAttrValue* attr = el->GetParsedAttr(nsGkAtoms::type)) {
-    RefPtr<nsAtom> inputType = attr->GetAsAtom();
-    return inputType.forget();
-  }
-
-  return nullptr;
 }
 
 already_AddRefed<nsAtom> LocalAccessible::DisplayStyle() const {

@@ -293,6 +293,8 @@ class ImageContainerListener final {
   ImageContainer* mImageContainer MOZ_GUARDED_BY(mLock);
 };
 
+enum class ClearImagesType { All, CacheOnly };
+
 /**
  * A class that manages Images for an ImageLayer. The only reason
  * we need a separate class here is that ImageLayers aren't threadsafe
@@ -397,11 +399,11 @@ class ImageContainer final : public SupportsThreadSafeWeakPtr<ImageContainer> {
   void SetCurrentImages(const nsTArray<NonOwningImage>& aImages);
 
   /**
-   * Clear all images. Let ImageClient release all TextureClients. Because we
-   * may release the lock after acquiring it in this method, it cannot be called
-   * with the lock held.
+   * Clear images in host. It could be used only with async ImageContainer.
+   * Because we may release the lock after acquiring it in this method, it
+   * cannot be called with the lock held.
    */
-  void ClearAllImages() MOZ_EXCLUDES(mRecursiveMutex);
+  void ClearImagesInHost(ClearImagesType aType) MOZ_EXCLUDES(mRecursiveMutex);
 
   /**
    * Clear any resources that are not immediately necessary. This may be called
@@ -879,6 +881,10 @@ class PlanarYCbCrImage : public Image {
       SurfaceDescriptorBuffer& aSdBuffer, BuildSdbFlags aFlags,
       const std::function<MemoryOrShmem(uint32_t)>& aAllocate) override;
 
+  void SetColorDepth(gfx::ColorDepth aColorDepth) { mColorDepth = aColorDepth; }
+
+  gfx::ColorDepth GetColorDepth() const override { return mColorDepth; }
+
  protected:
   already_AddRefed<gfx::SourceSurface> GetAsSourceSurface() override;
 
@@ -890,6 +896,7 @@ class PlanarYCbCrImage : public Image {
   Data mData;
   gfx::IntPoint mOrigin;
   gfx::IntSize mSize;
+  gfx::ColorDepth mColorDepth = gfx::ColorDepth::COLOR_8;
   gfxImageFormat mOffscreenFormat;
   RefPtr<gfx::DataSourceSurface> mSourceSurface;
   uint32_t mBufferSize;

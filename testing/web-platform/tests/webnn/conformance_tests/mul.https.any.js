@@ -1,5 +1,5 @@
 // META: title=test WebNN API element-wise mul operation
-// META: global=window,dedicatedworker
+// META: global=window
 // META: variant=?cpu
 // META: variant=?gpu
 // META: variant=?npu
@@ -532,7 +532,7 @@ const mulTests = [
 if (navigator.ml) {
   mulTests.forEach((test) => {
     webnn_conformance_test(
-        buildGraphAndCompute, getMulPrecisionTolerance, test);
+        buildAndExecuteGraph, getMulPrecisionTolerance, test);
   });
 } else {
   test(() => assert_implements(navigator.ml, 'missing navigator.ml'));

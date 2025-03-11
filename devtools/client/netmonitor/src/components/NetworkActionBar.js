@@ -10,7 +10,7 @@ const {
 } = require("resource://devtools/client/shared/vendor/react.js");
 const {
   connect,
-} = require("resource://devtools/client/shared/redux/visibility-handler-connect.js");
+} = require("resource://devtools/client/shared/vendor/react-redux.js");
 const {
   div,
 } = require("resource://devtools/client/shared/vendor/react-dom-factories.js");
@@ -28,7 +28,9 @@ const Tabbar = createFactory(
   require("resource://devtools/client/shared/components/tabs/TabBar.js")
 );
 const TabPanel = createFactory(
-  require("resource://devtools/client/shared/components/tabs/Tabs.js").TabPanel
+  ChromeUtils.importESModule(
+    "resource://devtools/client/shared/components/tabs/Tabs.mjs"
+  ).TabPanel
 );
 
 loader.lazyGetter(this, "SearchPanel", function () {
@@ -71,9 +73,6 @@ class NetworkActionBar extends Component {
     const showBlockingPanel = Services.prefs.getBoolPref(
       "devtools.netmonitor.features.requestBlocking"
     );
-    const showSearchPanel = Services.prefs.getBoolPref(
-      "devtools.netmonitor.features.search"
-    );
     const showNewCustomRequestPanel = Services.prefs.getBoolPref(
       "devtools.netmonitor.features.newEditAndResend"
     );
@@ -102,15 +101,14 @@ class NetworkActionBar extends Component {
             },
             HTTPCustomRequestPanel({ connector })
           ),
-        showSearchPanel &&
-          TabPanel(
-            {
-              id: PANELS.SEARCH,
-              title: L10N.getStr("netmonitor.actionbar.search"),
-              className: "network-action-bar-search",
-            },
-            SearchPanel({ connector })
-          ),
+        TabPanel(
+          {
+            id: PANELS.SEARCH,
+            title: L10N.getStr("netmonitor.actionbar.search"),
+            className: "network-action-bar-search",
+          },
+          SearchPanel({ connector })
+        ),
         showBlockingPanel &&
           TabPanel(
             {

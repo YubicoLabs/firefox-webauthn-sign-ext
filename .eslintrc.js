@@ -4,10 +4,7 @@
 
 "use strict";
 
-const xpcshellTestConfig = require("eslint-plugin-mozilla/lib/configs/xpcshell-test.js");
-const browserTestConfig = require("eslint-plugin-mozilla/lib/configs/browser-test.js");
-const mochitestTestConfig = require("eslint-plugin-mozilla/lib/configs/mochitest-test.js");
-const chromeTestConfig = require("eslint-plugin-mozilla/lib/configs/chrome-test.js");
+const mozilla = require("eslint-plugin-mozilla");
 const globalIgnores = require("./.eslintrc-ignores.js");
 const { testPaths } = require("./.eslintrc-test-paths.js");
 const { rollouts } = require("./.eslintrc-rollouts.js");
@@ -50,10 +47,17 @@ const httpTestingPaths = [
 module.exports = {
   settings: {
     "import/extensions": [".mjs"],
+    "import/resolver": {
+      [path.resolve(__dirname, "srcdir-resolver.js")]: {},
+      node: {},
+    },
   },
   ignorePatterns,
   // Ignore eslint configurations in parent directories.
   root: true,
+  env: {
+    es2024: true,
+  },
   // New rules and configurations should generally be added in
   // tools/lint/eslint/eslint-plugin-mozilla/lib/configs/recommended.js to
   // allow external repositories that use the plugin to pick them up as well.
@@ -62,8 +66,40 @@ module.exports = {
     "plugin:json/recommended-with-comments-legacy",
     "prettier",
   ],
-  plugins: ["mozilla", "html", "import", "json"],
+  plugins: ["mozilla", "html", "import", "json", "promise", "lit"],
+  rules: {
+    "lit/quoted-expressions": ["error", "never"],
+  },
   overrides: [
+    {
+      files: ["*.*"],
+      // The browser environment is not available for system modules, sjs, workers
+      // or any of the xpcshell-test files.
+      excludedFiles: [
+        "*.sys.mjs",
+        "*.sjs",
+        "**/?(*.)worker.?(m)js",
+        ...testPaths.xpcshell.map(filePath => `${filePath}**`),
+      ],
+      env: {
+        browser: true,
+      },
+    },
+    {
+      files: ["*.*"],
+      env: {
+        "mozilla/privileged": true,
+        "mozilla/specific": true,
+      },
+      rules: {
+        // Require braces around blocks that start a new line. This must be
+        // configured after eslint-config-prettier is included (via `extends`
+        // above), as otherwise that configuration disables it. Hence, we do
+        // not include it in
+        // `tools/lint/eslint/eslint-plugin-mozilla/lib/configs/recommended.js`.
+        curly: ["error", "all"],
+      },
+    },
     {
       files: [
         // All .eslintrc.js files are in the node environment, so turn that
@@ -73,6 +109,8 @@ module.exports = {
         // *.config.js files are generally assumed to be configuration files
         // based for node.
         "*.config.?(m)js",
+        // The resolver for moz-src for eslint, vscode etc.
+        "srcdir-resolver.js",
       ],
       env: {
         node: true,
@@ -142,9 +180,9 @@ module.exports = {
       extends: ["plugin:mozilla/general-test"],
     },
     {
-      ...xpcshellTestConfig,
+      ...mozilla.configs["xpcshell-test"],
       files: testPaths.xpcshell.map(filePath => `${filePath}**`),
-      excludedFiles: ["**/*.jsm", "**/*.mjs", "**/*.sjs"],
+      excludedFiles: ["**/*.mjs", "**/*.sjs"],
     },
     {
       // If it is an xpcshell head file, we turn off global unused variable checks, as it
@@ -181,23 +219,22 @@ module.exports = {
       },
     },
     {
-      ...browserTestConfig,
+      ...mozilla.configs["browser-test"],
       files: testPaths.browser.map(filePath => `${filePath}**`),
-      excludedFiles: ["**/*.jsm", "**/*.mjs", "**/*.sjs"],
+      excludedFiles: ["**/*.mjs", "**/*.sjs"],
     },
     {
-      ...mochitestTestConfig,
+      ...mozilla.configs["mochitest-test"],
       files: testPaths.mochitest.map(filePath => `${filePath}**`),
       excludedFiles: [
-        "**/*.jsm",
         "**/*.mjs",
         "security/manager/ssl/tests/mochitest/browser/**",
       ],
     },
     {
-      ...chromeTestConfig,
+      ...mozilla.configs["chrome-test"],
       files: testPaths.chrome.map(filePath => `${filePath}**`),
-      excludedFiles: ["**/*.jsm", "**/*.mjs", "**/*.sjs"],
+      excludedFiles: ["**/*.mjs", "**/*.sjs"],
     },
     {
       env: {
@@ -210,7 +247,7 @@ module.exports = {
         ...testPaths.mochitest.map(filePath => `${filePath}/**/*.js`),
         ...testPaths.chrome.map(filePath => `${filePath}/**/*.js`),
       ],
-      excludedFiles: ["**/*.jsm", "**/*.mjs", "**/*.sjs"],
+      excludedFiles: ["**/*.mjs", "**/*.sjs"],
     },
     {
       // Some directories have multiple kinds of tests, and some rules
@@ -246,8 +283,8 @@ module.exports = {
       files: [
         "browser/components/aboutwelcome/**",
         "browser/components/asrouter/**",
-        "browser/components/newtab/**",
         "browser/components/pocket/**",
+        "browser/extensions/newtab/**",
         "devtools/**",
       ],
       rules: {
@@ -261,40 +298,6 @@ module.exports = {
       files: httpTestingPaths.map(filePath => `${filePath}**`),
       rules: {
         "@microsoft/sdl/no-insecure-url": "off",
-      },
-    },
-    // JSM Handling. This handles the obsolete JSM files whilst we await the
-    // removal of JSM. These reflect some of the rules in recommended.js but
-    // are moved here to simplify reworking the configuration for flat config.
-    {
-      // System mjs files and jsm files are not loaded in the browser scope,
-      // so we turn that off for those. Though we do have our own special
-      // environment for them.
-      env: {
-        browser: false,
-        "mozilla/sysmjs": true,
-      },
-      files: ["**/*.jsm"],
-      rules: {
-        "mozilla/lazy-getter-object-name": "error",
-        "mozilla/mark-exported-symbols-as-used": "error",
-        "mozilla/reject-eager-module-in-lazy-getter": "error",
-        "mozilla/reject-global-this": "error",
-        "mozilla/reject-globalThis-modification": "error",
-        // For all system modules, we expect no properties to need importing,
-        // hence reject everything.
-        "mozilla/reject-importGlobalProperties": ["error", "everything"],
-        "mozilla/reject-mixing-eager-and-lazy": "error",
-        "mozilla/reject-top-level-await": "error",
-        // Modules and workers are far easier to check for no-unused-vars on a
-        // global scope, than our content files. Hence we turn that on here.
-        "no-unused-vars": [
-          "error",
-          {
-            argsIgnorePattern: "^_",
-            vars: "all",
-          },
-        ],
       },
     },
     ...rollouts,

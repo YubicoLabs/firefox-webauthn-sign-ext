@@ -5,7 +5,19 @@
 
 let win;
 
+const lazy = {};
+
+ChromeUtils.defineESModuleGetters(lazy, {
+  GenAI: "resource:///modules/GenAI.sys.mjs",
+});
+
 add_setup(async () => {
+  await SpecialPowers.pushPrefEnv({
+    set: [
+      ["browser.ml.chat.enabled", true],
+      ["sidebar.main.tools", "aichat,syncedtabs,history,bookmarks"],
+    ],
+  });
   win = await BrowserTestUtils.openNewBrowserWindow();
 });
 
@@ -81,15 +93,27 @@ add_task(async function test_menu_items_labeled() {
     () => sidebar.allButtons,
     "All buttons are shown."
   );
+  const dynamicTooltips = Object.keys(SidebarController.sidebarMain.tooltips);
 
+  await SidebarController.initializeUIState({ launcherExpanded: false });
   await sidebar.updateComplete;
   for (const button of allButtons) {
     const view = button.getAttribute("view");
-    ok(button.title, `${view} button has a tooltip.`);
+    const title = button.title;
+    ok(title, `${view} button has a tooltip.`);
+    if (dynamicTooltips.includes(view)) {
+      await SidebarController.show(view);
+      isnot(
+        title,
+        button.title,
+        `${view} button has a different tooltip when the panel is open.`
+      );
+      SidebarController.hide();
+    }
     ok(!button.hasVisibleLabel, `Collapsed ${view} button has no label.`);
   }
 
-  SidebarController.sidebarMain.expanded = true;
+  await SidebarController.initializeUIState({ launcherExpanded: true });
   await sidebar.updateComplete;
   for (const button of allButtons) {
     const view = button.getAttribute("view");
@@ -100,11 +124,45 @@ add_task(async function test_menu_items_labeled() {
   }
 });
 
+add_task(async function test_genai_chat_sidebar_tooltip() {
+  const { document, SidebarController } = win;
+  const chatbotButton = document
+    .querySelector("sidebar-main")
+    .shadowRoot.querySelector("[view=viewGenaiChatSidebar]");
+
+  await SidebarController.initializeUIState({ launcherExpanded: false });
+
+  const view = chatbotButton.getAttribute("view");
+  ok(
+    chatbotButton.title,
+    `${view} chatbot button (${chatbotButton.title}) has a tooltip.`
+  );
+  const sandbox = sinon.createSandbox();
+
+  const mockTooltipName = "test-tooltip-name";
+
+  sandbox.stub(lazy.GenAI, "currentChatProviderInfo").value({
+    name: mockTooltipName,
+    iconUrl: "chrome://global/skin/icons/highlights.svg",
+  });
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.ml.chat.provider", "https://localhost"]],
+  });
+
+  Assert.ok(
+    chatbotButton.title.includes(mockTooltipName),
+    `${chatbotButton.title} should include ${mockTooltipName}.`
+  );
+
+  sandbox.restore();
+});
+
 add_task(async function test_keyboard_navigation_vertical_tabs() {
   const { document } = win;
   SpecialPowers.pushPrefEnv({
     set: [["sidebar.verticalTabs", true]],
   });
+  await waitForTabstripOrientation("vertical");
   const sidebar = document.querySelector("sidebar-main");
   const toolButtons = await TestUtils.waitForCondition(
     () => sidebar.toolButtons,

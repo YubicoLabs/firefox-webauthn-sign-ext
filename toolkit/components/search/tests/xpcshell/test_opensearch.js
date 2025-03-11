@@ -45,7 +45,7 @@ const tests = [
     file: "mozilla-ns.xml",
     name: "mozilla-ns",
     description: "An engine using mozilla namespace",
-    // mozilla-ns.xml also specifies a MozParam. However, they are only
+    // mozilla-ns.xml also specifies a MozParam. However, they were only
     // valid for app-provided engines, and hence the param should not show
     // here.
     searchUrl: "https://example.com/search?q=foo",
@@ -72,11 +72,6 @@ for (const test of tests) {
     Assert.ok(engine, "Should have installed the engine.");
 
     Assert.equal(engine.name, test.name, "Should have the correct name");
-    Assert.equal(
-      engine.description,
-      test.description,
-      "Should have a description"
-    );
 
     Assert.equal(
       engine.wrappedJSObject._loadPath,
@@ -139,7 +134,6 @@ add_task(async function test_telemetry_reporting() {
       displayName: "simple",
       loadPath: "[http]localhost/simple.xml",
       submissionUrl: "blank:",
-      verified: "verified",
     },
   });
 });

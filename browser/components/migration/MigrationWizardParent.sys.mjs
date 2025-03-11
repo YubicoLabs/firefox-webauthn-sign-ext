@@ -43,11 +43,6 @@ let gHasOpenedBefore = false;
  * the associated MigrationWizardChild.
  */
 export class MigrationWizardParent extends JSWindowActorParent {
-  constructor() {
-    super();
-    Services.telemetry.setEventRecordingEnabled("browser.migration", true);
-  }
-
   didDestroy() {
     Services.obs.notifyObservers(this, "MigrationWizard:Destroyed");
     MigrationUtils.finishMigration();
@@ -78,7 +73,9 @@ export class MigrationWizardParent extends JSWindowActorParent {
 
     switch (message.name) {
       case "GetAvailableMigrators": {
-        let start = Cu.now();
+        if (!gHasOpenedBefore) {
+          Glean.migration.timeToProduceMigratorList.start();
+        }
 
         let availableMigrators = [];
         for (const key of MigrationUtils.availableMigratorKeys) {
@@ -103,13 +100,9 @@ export class MigrationWizardParent extends JSWindowActorParent {
             return b.lastModifiedDate - a.lastModifiedDate;
           });
 
-        let elapsed = Cu.now() - start;
         if (!gHasOpenedBefore) {
           gHasOpenedBefore = true;
-          Services.telemetry.scalarSet(
-            "migration.time_to_produce_migrator_list",
-            elapsed
-          );
+          Glean.migration.timeToProduceMigratorList.stop();
         }
 
         return filteredResults;
@@ -346,9 +339,9 @@ export class MigrationWizardParent extends JSWindowActorParent {
    *   updated.
    */
   async #doBrowserMigration(migrationDetails, extraArgs) {
-    Services.telemetry
-      .getHistogramById("FX_MIGRATION_SOURCE_BROWSER")
-      .add(MigrationUtils.getSourceIdForTelemetry(migrationDetails.key));
+    Glean.browserMigration.sourceBrowser.accumulateSingleSample(
+      MigrationUtils.getSourceIdForTelemetry(migrationDetails.key)
+    );
 
     let migrator = await MigrationUtils.getMigrator(migrationDetails.key);
     let availableResourceTypes = await migrator.getMigrateData(
@@ -356,8 +349,7 @@ export class MigrationWizardParent extends JSWindowActorParent {
     );
     let resourceTypesToMigrate = 0;
     let progress = {};
-    let migrationUsageHist =
-      Services.telemetry.getKeyedHistogramById("FX_MIGRATION_USAGE");
+    let gleanMigrationUsage = Glean.browserMigration.usage;
 
     for (let resourceTypeName of migrationDetails.resourceTypes) {
       let resourceType = MigrationUtils.resourceTypes[resourceTypeName];
@@ -369,7 +361,9 @@ export class MigrationWizardParent extends JSWindowActorParent {
         };
 
         if (!migrationDetails.autoMigration) {
-          migrationUsageHist.add(migrationDetails.key, Math.log2(resourceType));
+          gleanMigrationUsage[migrationDetails.key].accumulateSingleSample(
+            Math.log2(resourceType)
+          );
         }
       }
     }
@@ -462,9 +456,9 @@ export class MigrationWizardParent extends JSWindowActorParent {
             );
           } else {
             if (!success) {
-              Services.telemetry
-                .getKeyedHistogramById("FX_MIGRATION_ERRORS")
-                .add(migrationDetails.key, Math.log2(resourceTypeNum));
+              Glean.browserMigration.errors[
+                migrationDetails.key
+              ].accumulateSingleSample(Math.log2(resourceTypeNum));
             }
             if (
               foundResourceTypeName ==
@@ -613,11 +607,7 @@ export class MigrationWizardParent extends JSWindowActorParent {
           return null;
         }
 
-        Services.telemetry.keyedScalarAdd(
-          "migration.discovered_migrators",
-          key,
-          sourceProfiles.length
-        );
+        Glean.migration.discoveredMigrators[key].add(sourceProfiles.length);
 
         let result = [];
         for (let profile of sourceProfiles) {
@@ -628,11 +618,7 @@ export class MigrationWizardParent extends JSWindowActorParent {
         return result;
       }
 
-      Services.telemetry.keyedScalarAdd(
-        "migration.discovered_migrators",
-        key,
-        1
-      );
+      Glean.migration.discoveredMigrators[key].add(1);
       return this.#serializeMigratorAndProfile(migrator, sourceProfiles);
     } catch (e) {
       console.error(`Could not get migrator with key ${key}`, e);
@@ -695,11 +681,7 @@ export class MigrationWizardParent extends JSWindowActorParent {
           profileMigrationData & MigrationUtils.resourceTypes[resourceType] ||
           (migrator.constructor.key == lazy.SafariProfileMigrator?.key &&
             MigrationUtils.resourceTypes[resourceType] ==
-              MigrationUtils.resourceTypes.PASSWORDS &&
-            Services.prefs.getBoolPref(
-              "signon.management.page.fileImport.enabled",
-              false
-            ))
+              MigrationUtils.resourceTypes.PASSWORDS)
         ) {
           availableResourceTypes.push(resourceType);
         }

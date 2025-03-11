@@ -783,8 +783,7 @@ class NavigationDelegateTest : BaseSessionTest() {
     }
 
     @Setting(key = Setting.Key.USE_TRACKING_PROTECTION, value = "true")
-    @Ignore
-    // TODO: Bug 1564373
+    @Ignore // Bug 1564373
     @Test
     fun trackingProtection() {
         val category = ContentBlocking.AntiTracking.TEST
@@ -1775,6 +1774,9 @@ class NavigationDelegateTest : BaseSessionTest() {
         mainSession.loadUri("$TEST_ENDPOINT$HELLO2_HTML_PATH")
         sessionRule.waitForPageStop()
 
+        // disabled for frequent failures - on Bug 1934356
+        assumeThat(sessionRule.env.isX86, equalTo(false))
+
         sessionRule.forCallbacksDuringWait(object : NavigationDelegate {
             @AssertCalled(count = 1)
             override fun onLocationChange(
@@ -2589,12 +2591,17 @@ class NavigationDelegateTest : BaseSessionTest() {
 
         sessionRule.delegateUntilTestEnd(object : WebExtensionController.PromptDelegate {
             @AssertCalled
-            override fun onInstallPrompt(
+            override fun onInstallPromptRequest(
                 extension: WebExtension,
                 permissions: Array<String>,
                 origins: Array<String>,
-            ): GeckoResult<AllowOrDeny> {
-                return GeckoResult.allow()
+            ): GeckoResult<WebExtension.PermissionPromptResponse>? {
+                return GeckoResult.fromValue(
+                    WebExtension.PermissionPromptResponse(
+                        true, // isPermissionsGranted
+                        false, // isPrivateModeGranted
+                    ),
+                )
             }
         })
 
@@ -2639,14 +2646,10 @@ class NavigationDelegateTest : BaseSessionTest() {
 
     @Test
     fun mainProcessSwitching() {
-        processSwitchingTest("about:config")
+        processSwitchingTest("about:about")
     }
 
     private fun processSwitchingTest(url: String) {
-        val settings = sessionRule.runtime.settings
-        val aboutConfigEnabled = settings.aboutConfigEnabled
-        settings.aboutConfigEnabled = true
-
         var currentUrl: String? = null
         mainSession.delegateUntilTestEnd(object : NavigationDelegate {
             override fun onLocationChange(
@@ -2720,8 +2723,6 @@ class NavigationDelegateTest : BaseSessionTest() {
             mainSession.active,
             equalTo(true),
         )
-
-        settings.aboutConfigEnabled = aboutConfigEnabled
     }
 
     @Test fun setLocationHash() {
@@ -2781,9 +2782,6 @@ class NavigationDelegateTest : BaseSessionTest() {
     }
 
     @Test fun purgeHistory() {
-        // TODO: Bug 1837551
-        assumeThat(sessionRule.env.isFission, equalTo(false))
-
         mainSession.loadUri("$TEST_ENDPOINT$HELLO_HTML_PATH")
         sessionRule.waitUntilCalled(object : HistoryDelegate, NavigationDelegate {
             @AssertCalled(count = 1)
@@ -3161,9 +3159,6 @@ class NavigationDelegateTest : BaseSessionTest() {
     }
 
     @Test fun goBackFromHistory() {
-        // TODO: Bug 1837551
-        assumeThat(sessionRule.env.isFission, equalTo(false))
-
         mainSession.loadTestPath(HELLO_HTML_PATH)
 
         mainSession.waitUntilCalled(object : HistoryDelegate, ContentDelegate {

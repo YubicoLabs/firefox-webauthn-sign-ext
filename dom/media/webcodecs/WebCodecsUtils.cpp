@@ -11,6 +11,8 @@
 #include "VideoUtils.h"
 #include "js/experimental/TypedData.h"
 #include "mozilla/Assertions.h"
+#include "mozilla/StaticPrefs_dom.h"
+#include "mozilla/StaticPrefs_media.h"
 #include "mozilla/dom/ImageBitmapBinding.h"
 #include "mozilla/dom/VideoColorSpaceBinding.h"
 #include "mozilla/dom/VideoFrameBinding.h"
@@ -55,6 +57,10 @@ nsTArray<nsCString> GuessContainers(const nsAString& aCodec) {
 
   if (IsH264CodecString(aCodec)) {
     return {"mp4"_ns, "3gpp"_ns, "3gpp2"_ns, "3gp2"_ns};
+  }
+
+  if (IsH265CodecString(aCodec)) {
+    return {"mp4"_ns};
   }
 
   if (IsAACCodecString(aCodec)) {
@@ -455,30 +461,6 @@ nsCString WebCodecsConfigurationChangeList::ToString() const {
   return rv;
 }
 
-using CodecChange = StrongTypedef<nsString, struct CodecChangeTypeWebCodecs>;
-using DimensionsChange =
-    StrongTypedef<gfx::IntSize, struct DimensionsChangeTypeWebCodecs>;
-using DisplayDimensionsChange =
-    StrongTypedef<Maybe<gfx::IntSize>,
-                  struct DisplayDimensionsChangeTypeWebCodecs>;
-using BitrateChange =
-    StrongTypedef<Maybe<uint32_t>, struct BitrateChangeTypeWebCodecs>;
-using FramerateChange =
-    StrongTypedef<Maybe<double>, struct FramerateChangeTypeWebCodecs>;
-using HardwareAccelerationChange =
-    StrongTypedef<dom::HardwareAcceleration,
-                  struct HardwareAccelerationChangeTypeWebCodecs>;
-using AlphaChange =
-    StrongTypedef<dom::AlphaOption, struct AlphaChangeTypeWebCodecs>;
-using ScalabilityModeChange =
-    StrongTypedef<Maybe<nsString>, struct ScalabilityModeChangeTypeWebCodecs>;
-using BitrateModeChange = StrongTypedef<dom::VideoEncoderBitrateMode,
-                                        struct BitrateModeChangeTypeWebCodecs>;
-using LatencyModeChange =
-    StrongTypedef<dom::LatencyMode, struct LatencyModeTypeChangeTypeWebCodecs>;
-using ContentHintChange =
-    StrongTypedef<Maybe<nsString>, struct ContentHintTypeTypeWebCodecs>;
-
 bool WebCodecsConfigurationChangeList::CanAttemptReconfigure() const {
   for (const auto& change : mChanges) {
     if (change.is<CodecChange>() || change.is<HardwareAccelerationChange>() ||
@@ -602,6 +584,10 @@ Maybe<CodecType> CodecStringToCodecType(const nsAString& aCodecString) {
       StringBeginsWith(aCodecString, u"avc3"_ns)) {
     return Some(CodecType::H264);
   }
+  if (StringBeginsWith(aCodecString, u"hev1"_ns) ||
+      StringBeginsWith(aCodecString, u"hvc1"_ns)) {
+    return Some(CodecType::H265);
+  }
   return Nothing();
 }
 
@@ -618,6 +604,11 @@ bool IsSupportedVideoCodec(const nsAString& aCodec) {
   // The only codec string accepted for vp8 is "vp8"
   if (!IsVP9CodecString(aCodec) && !IsH264CodecString(aCodec) &&
       !IsAV1CodecString(aCodec) && !aCodec.EqualsLiteral("vp8")) {
+    if (IsH265CodecString(aCodec)) {
+      // H265 is supported only on MacOS in Nightly for now.
+      return StaticPrefs::dom_media_webcodecs_h265_enabled() &&
+             StaticPrefs::media_hevc_enabled() && (IsOnMacOS() || IsOnLinux());
+    }
     return false;
   }
 

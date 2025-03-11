@@ -141,7 +141,7 @@
 #endif
 
 #if defined(MOZ_TELEMETRY_REPORTING)
-#  include "mozilla/Telemetry.h"
+#  include "mozilla/glean/DomMetrics.h"
 #endif  // defined(MOZ_TELEMETRY_REPORTING)
 
 using namespace mozilla;
@@ -195,6 +195,7 @@ nsFrameLoader::nsFrameLoader(Element* aOwner, BrowsingContext* aBrowsingContext,
       mHideCalled(false),
       mNetworkCreated(aNetworkCreated),
       mLoadingOriginalSrc(false),
+      mShouldCheckForRecursion(false),
       mRemoteBrowserShown(false),
       mRemoteBrowserSized(false),
       mIsRemoteFrame(aIsRemoteFrame),
@@ -343,6 +344,7 @@ static already_AddRefed<BrowsingContext> CreateBrowsingContext(
       options.topLevelCreatedByWebContent =
           aOpenWindowInfo->GetIsTopLevelCreatedByWebContent();
     }
+    options.windowless = parentBC->Windowless();
 
     // Create toplevel context without a parent & as Type::Content.
     return BrowsingContext::CreateDetached(
@@ -357,7 +359,8 @@ static already_AddRefed<BrowsingContext> CreateBrowsingContext(
              "Can't force BrowsingContextGroup for non-toplevel context");
   return BrowsingContext::CreateDetached(
       parentInner, nullptr, nullptr, frameName, parentBC->GetType(),
-      {.createdDynamically = !aNetworkCreated});
+      {.createdDynamically = !aNetworkCreated,
+       .windowless = parentBC->Windowless()});
 }
 
 static bool InitialLoadIsRemote(Element* aOwner) {
@@ -498,7 +501,8 @@ already_AddRefed<nsFrameLoader> nsFrameLoader::Recreate(
   return fl.forget();
 }
 
-void nsFrameLoader::LoadFrame(bool aOriginalSrc) {
+void nsFrameLoader::LoadFrame(bool aOriginalSrc,
+                              bool aShouldCheckForRecursion) {
   if (NS_WARN_IF(!mOwnerContent)) {
     return;
   }
@@ -554,7 +558,7 @@ void nsFrameLoader::LoadFrame(bool aOriginalSrc) {
   }
 
   if (NS_SUCCEEDED(rv)) {
-    rv = LoadURI(uri, principal, csp, aOriginalSrc);
+    rv = LoadURI(uri, principal, csp, aOriginalSrc, aShouldCheckForRecursion);
   }
 
   if (NS_FAILED(rv)) {
@@ -586,7 +590,8 @@ void nsFrameLoader::FireErrorEvent() {
 nsresult nsFrameLoader::LoadURI(nsIURI* aURI,
                                 nsIPrincipal* aTriggeringPrincipal,
                                 nsIContentSecurityPolicy* aCsp,
-                                bool aOriginalSrc) {
+                                bool aOriginalSrc,
+                                bool aShouldCheckForRecursion) {
   if (!aURI) return NS_ERROR_INVALID_POINTER;
   NS_ENSURE_STATE(!mDestroyCalled && mOwnerContent);
   MOZ_ASSERT(
@@ -594,6 +599,7 @@ nsresult nsFrameLoader::LoadURI(nsIURI* aURI,
       "Must have an explicit triggeringPrincipal to nsFrameLoader::LoadURI.");
 
   mLoadingOriginalSrc = aOriginalSrc;
+  mShouldCheckForRecursion = aShouldCheckForRecursion;
 
   nsCOMPtr<Document> doc = mOwnerContent->OwnerDoc();
 
@@ -626,6 +632,7 @@ void nsFrameLoader::ResumeLoad(uint64_t aPendingSwitchID) {
   }
 
   mLoadingOriginalSrc = false;
+  mShouldCheckForRecursion = false;
   mURIToLoad = nullptr;
   mPendingSwitchID = aPendingSwitchID;
   mTriggeringPrincipal = mOwnerContent->NodePrincipal();
@@ -659,6 +666,7 @@ nsresult nsFrameLoader::ReallyStartLoadingInternal() {
   if (!mPendingSwitchID) {
     loadState = new nsDocShellLoadState(mURIToLoad);
     loadState->SetOriginalFrameSrc(mLoadingOriginalSrc);
+    loadState->SetShouldCheckForRecursion(mShouldCheckForRecursion);
 
     // The triggering principal could be null if the frame is loaded other
     // than the src attribute, for example, the frame is sandboxed. In that
@@ -764,6 +772,7 @@ nsresult nsFrameLoader::ReallyStartLoadingInternal() {
   NS_ENSURE_SUCCESS(rv, rv);
 
   mLoadingOriginalSrc = false;
+  mShouldCheckForRecursion = false;
 
   // Kick off the load...
   bool tmpState = mNeedsAsyncDestroy;
@@ -956,7 +965,7 @@ bool nsFrameLoader::Show(nsSubDocumentFrame* aFrame) {
   if (IsRemoteFrame()) {
     return ShowRemoteFrame(aFrame);
   }
-  const ScreenIntSize size = aFrame->GetSubdocumentSize();
+  const LayoutDeviceIntSize size = aFrame->GetInitialSubdocumentSize();
   nsresult rv = MaybeCreateDocShell();
   if (NS_FAILED(rv)) {
     return false;
@@ -1004,8 +1013,7 @@ bool nsFrameLoader::Show(nsSubDocumentFrame* aFrame) {
   }
 
   RefPtr<nsDocShell> baseWindow = GetDocShell();
-  baseWindow->InitWindow(nullptr, view->GetWidget(), 0, 0, size.width,
-                         size.height);
+  baseWindow->InitWindow(view->GetWidget(), 0, 0, size.width, size.height);
   baseWindow->SetVisibility(true);
   NS_ENSURE_TRUE(GetDocShell(), false);
 
@@ -1124,7 +1132,8 @@ bool nsFrameLoader::ShowRemoteFrame(nsSubDocumentFrame* aFrame) {
     baseWindow->GetMainWidget(getter_AddRefs(mainWidget));
     nsSizeMode sizeMode =
         mainWidget ? mainWidget->SizeMode() : nsSizeMode_Normal;
-    const auto size = hasSize ? aFrame->GetSubdocumentSize() : ScreenIntSize();
+    const auto size =
+        hasSize ? aFrame->GetSubdocumentSize() : LayoutDeviceIntSize();
     OwnerShowInfo info(size, GetScrollbarPreference(mOwnerContent), sizeMode);
     if (!mRemoteBrowser->Show(info)) {
       return false;
@@ -2365,7 +2374,7 @@ nsresult nsFrameLoader::CheckForRecursiveLoad(nsIURI* aURI) {
   return NS_OK;
 }
 
-nsresult nsFrameLoader::GetWindowDimensions(nsIntRect& aRect) {
+nsresult nsFrameLoader::GetWindowDimensions(LayoutDeviceIntRect& aRect) {
   if (!mOwnerContent) {
     return NS_ERROR_FAILURE;
   }
@@ -2395,8 +2404,8 @@ nsresult nsFrameLoader::GetWindowDimensions(nsIntRect& aRect) {
   }
 
   nsCOMPtr<nsIBaseWindow> treeOwnerAsWin(do_GetInterface(parentOwner));
-  treeOwnerAsWin->GetPosition(&aRect.x, &aRect.y);
-  treeOwnerAsWin->GetSize(&aRect.width, &aRect.height);
+  aRect.MoveTo(treeOwnerAsWin->GetPosition());
+  aRect.SizeTo(treeOwnerAsWin->GetSize());
   return NS_OK;
 }
 
@@ -2411,8 +2420,8 @@ nsresult nsFrameLoader::UpdatePositionAndSize(nsSubDocumentFrame* aFrame) {
       if (!mRemoteBrowserShown) {
         ShowRemoteFrame(aFrame);
       }
-      nsIntRect dimensions;
-      NS_ENSURE_SUCCESS(GetWindowDimensions(dimensions), NS_ERROR_FAILURE);
+      LayoutDeviceIntRect dimensions;
+      MOZ_TRY(GetWindowDimensions(dimensions));
       mRemoteBrowser->UpdateDimensions(dimensions, size);
       mRemoteBrowserSized = true;
     }
@@ -3621,6 +3630,13 @@ static mozilla::Result<bool, nsresult> BuildIDMismatchMemoryAndDisk() {
   nsresult rv;
   nsCOMPtr<nsIFile> file;
 
+  if (const char* forceMismatch = PR_GetEnv("MOZ_FORCE_BUILDID_MISMATCH")) {
+    if (forceMismatch[0] == '1') {
+      NS_WARNING("Forcing a buildid mismatch");
+      return true;
+    }
+  }
+
 #if defined(ANDROID)
   // Android packages on installation will stop existing instance, so we
   // cannot run into this problem.
@@ -3693,7 +3709,10 @@ void nsFrameLoader::MaybeNotifyCrashed(BrowsingContext* aBrowsingContext,
   }
 
 #if defined(MOZ_TELEMETRY_REPORTING)
-  bool sendTelemetry = false;
+  bool sendTelemetryFalsePositive = false, sendTelemetryTrueMismatch = false;
+
+  static bool haveSentTelemetryFalsePositive = false,
+              haveSentTelemetryTrueMismatch = false;
 #endif  // defined(MOZ_TELEMETRY_REPORTING)
 
   // Fire the actual crashed event.
@@ -3702,17 +3721,20 @@ void nsFrameLoader::MaybeNotifyCrashed(BrowsingContext* aBrowsingContext,
     auto changedOrError = BuildIDMismatchMemoryAndDisk();
     if (changedOrError.isErr()) {
       NS_WARNING("Error while checking buildid mismatch");
-      eventName = u"oop-browser-buildid-mismatch"_ns;
+      eventName = u"oop-browser-crashed"_ns;
     } else {
       bool aChanged = changedOrError.unwrap();
       if (aChanged) {
         NS_WARNING("True build ID mismatch");
         eventName = u"oop-browser-buildid-mismatch"_ns;
+#if defined(MOZ_TELEMETRY_REPORTING)
+        sendTelemetryTrueMismatch = true;
+#endif  // defined(MOZ_TELEMETRY_REPORTING)
       } else {
         NS_WARNING("build ID mismatch false alarm");
         eventName = u"oop-browser-crashed"_ns;
 #if defined(MOZ_TELEMETRY_REPORTING)
-        sendTelemetry = true;
+        sendTelemetryFalsePositive = true;
 #endif  // defined(MOZ_TELEMETRY_REPORTING)
       }
     }
@@ -3722,10 +3744,14 @@ void nsFrameLoader::MaybeNotifyCrashed(BrowsingContext* aBrowsingContext,
   }
 
 #if defined(MOZ_TELEMETRY_REPORTING)
-  if (sendTelemetry) {
-    Telemetry::ScalarAdd(
-        Telemetry::ScalarID::DOM_CONTENTPROCESS_BUILDID_MISMATCH_FALSE_POSITIVE,
-        1);
+  if (sendTelemetryFalsePositive && !haveSentTelemetryFalsePositive) {
+    glean::dom_contentprocess::build_id_mismatch_false_positive.Add(1);
+    haveSentTelemetryFalsePositive = true;
+  }
+
+  if (sendTelemetryTrueMismatch && !haveSentTelemetryTrueMismatch) {
+    glean::dom_contentprocess::build_id_mismatch.Add(1);
+    haveSentTelemetryTrueMismatch = true;
   }
 #endif  // defined(MOZ_TELEMETRY_REPORTING)
 

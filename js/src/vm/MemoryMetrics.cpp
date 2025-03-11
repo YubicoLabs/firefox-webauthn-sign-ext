@@ -10,6 +10,7 @@
 
 #include <algorithm>
 
+#include "gc/BufferAllocator.h"
 #include "gc/GC.h"
 #include "gc/Memory.h"
 #include "gc/Nursery.h"
@@ -190,12 +191,8 @@ struct StatsClosure {
 static void DecommittedPagesChunkCallback(JSRuntime* rt, void* data,
                                           gc::ArenaChunk* chunk,
                                           const JS::AutoRequireNoGC& nogc) {
-  size_t n = 0;
-  for (uint32_t word : chunk->decommittedPages.Storage()) {
-    n += mozilla::CountPopulation32(word);
-  }
-
-  *static_cast<size_t*>(data) += n * gc::PageSize;
+  auto* gcHeapDecommittedPages = static_cast<size_t*>(data);
+  *gcHeapDecommittedPages += chunk->decommittedPages.Count() * gc::PageSize;
 }
 
 static void StatsZoneCallback(JSRuntime* rt, void* data, Zone* zone,
@@ -217,6 +214,9 @@ static void StatsZoneCallback(JSRuntime* rt, void* data, Zone* zone,
       &rtStats->runtime.atomsMarkBitmaps, &zStats.compartmentObjects,
       &zStats.crossCompartmentWrappersTables, &zStats.compartmentsPrivateData,
       &zStats.scriptCountsMap);
+  zone->bufferAllocator.addSizeOfExcludingThis(&zStats.gcBuffers.usedBytes,
+                                               &zStats.gcBuffers.freeBytes,
+                                               &zStats.gcBuffers.adminBytes);
 }
 
 static void StatsRealmCallback(JSContext* cx, void* data, Realm* realm,
@@ -523,6 +523,13 @@ static void StatsCellCallback(JSRuntime* rt, void* data, JS::GCCellPtr cellptr,
       zStats->regExpSharedsGCHeap += thingSize;
       zStats->regExpSharedsMallocHeap +=
           regexp->sizeOfExcludingThis(rtStats->mallocSizeOf_);
+      break;
+    }
+
+    case JS::TraceKind::SmallBuffer: {
+      // Note that this overlaps with memory that is also reported as part of
+      // the owning cell.
+      zStats->smallBuffersGCHeap += thingSize;
       break;
     }
 

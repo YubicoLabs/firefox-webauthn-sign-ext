@@ -34,13 +34,6 @@ android {
     namespace 'mozilla.components.feature.search'
 }
 
-tasks.withType(KotlinCompile).configureEach {
-    kotlinOptions.freeCompilerArgs += [
-        "-opt-in=kotlinx.coroutines.FlowPreview",
-        "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi"
-    ]
-}
-
 dependencies {
     implementation project(":feature-tabs")
     implementation project(':browser-state')
@@ -52,17 +45,17 @@ dependencies {
     implementation project(':support-base')
     implementation project(':support-remotesettings')
 
-    implementation ComponentsDependencies.androidx_activity
-    implementation ComponentsDependencies.androidx_core_ktx
+    implementation libs.androidx.activity
+    implementation libs.androidx.core.ktx
     implementation ComponentsDependencies.mozilla_remote_settings
 
     testImplementation project(':support-test')
     testImplementation project(':support-test-fakes')
     testImplementation project(':support-test-libstate')
-    testImplementation ComponentsDependencies.androidx_test_core
-    testImplementation ComponentsDependencies.androidx_test_junit
-    testImplementation ComponentsDependencies.testing_robolectric
-    testImplementation ComponentsDependencies.testing_coroutines
+    testImplementation libs.androidx.test.core
+    testImplementation libs.androidx.test.junit
+    testImplementation libs.testing.robolectric
+    testImplementation libs.testing.coroutines
 }
 
 tasks.register("updateAdsExtensionVersion", Copy) { task ->
@@ -78,4 +71,4 @@ preBuild.dependsOn "updateCookiesExtensionVersion"
 
 apply from: '../../../android-lint.gradle'
 apply from: '../../../publish.gradle'
-ext.configurePublish(config.componentsGroupId, archivesBaseName, project.ext.description)
+ext.configurePublish(config.componentsGroupId, project.name, project.ext.description)

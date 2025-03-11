@@ -75,7 +75,7 @@ class nsGlobalWindowObserver;
 class nsGlobalWindowInner;
 class nsDOMWindowUtils;
 struct nsRect;
-
+class nsWindowRoot;
 class nsWindowSizes;
 
 namespace mozilla {
@@ -308,6 +308,9 @@ class nsGlobalWindowOuter final : public mozilla::dom::EventTarget,
 
   void DetachFromDocShell(bool aIsBeingDiscarded);
 
+  // aState is only non-null if we are restoring from the bfcache.
+  // aForceReuseInnerWindow is only true if we are being triggered via XSLT.
+  // aActor is only non-null if the new document is about:blank.
   virtual nsresult SetNewDocument(
       Document* aDocument, nsISupports* aState, bool aForceReuseInnerWindow,
       mozilla::dom::WindowGlobalChild* aActor = nullptr) override;
@@ -938,11 +941,6 @@ class nsGlobalWindowOuter final : public mozilla::dom::EventTarget,
       nsGlobalWindowInner** aCallerInnerWindow, nsIURI** aCallerURI,
       mozilla::Maybe<nsID>* aCallerAgentClusterId, nsACString* aScriptLocation,
       mozilla::ErrorResult& aError);
-
-  // Ask the user if further dialogs should be blocked, if dialogs are currently
-  // being abused. This is used in the cases where we have no modifiable UI to
-  // show, in that case we show a separate dialog to ask this question.
-  bool ConfirmDialogIfNeeded();
 
   // Helper called after moving/resizing, to update docShell's presContext
   // if we have caused a resolution change by moving across monitors.

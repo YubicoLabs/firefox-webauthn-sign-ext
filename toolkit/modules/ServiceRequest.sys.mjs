@@ -48,7 +48,6 @@ const PROXY_CONFIG_TYPES = [
 
 function recordEvent(service, source = {}) {
   try {
-    Services.telemetry.setEventRecordingEnabled("service_request", true);
     source.value = service;
     Glean.serviceRequest.bypassProxyInfo.record(source);
   } catch (err) {
@@ -69,9 +68,8 @@ async function getControllingExtension() {
     return undefined;
   }
   // Is this proxied by an extension that set proxy prefs?
-  let setting = await lazy.ExtensionPreferencesManager.getSetting(
-    "proxy.settings"
-  );
+  let setting =
+    await lazy.ExtensionPreferencesManager.getSetting("proxy.settings");
   return setting?.id;
 }
 

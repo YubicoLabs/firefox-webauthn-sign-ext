@@ -16,7 +16,7 @@ add_setup(async function () {
   await gCUITestUtils.addSearchBar();
   win = await BrowserTestUtils.openNewBrowserWindow();
 
-  searchBar = win.BrowserSearch.searchBar;
+  searchBar = win.document.getElementById("searchbar");
   searchPopup = win.document.getElementById("PopupSearchAutoComplete");
   searchIcon = searchBar.querySelector(".searchbar-search-button");
 
@@ -72,12 +72,16 @@ add_task(async function emptySearchShift() {
 
   let promise = BrowserTestUtils.browserLoaded(
     win.gBrowser.selectedBrowser,
-    false,
-    "http://mochi.test:8888/"
+    false
   );
   EventUtils.synthesizeMouseAtCenter(engineNameBox, { shiftKey: true }, win);
-  await promise;
-  info("Opening search form successful");
+  let url = await promise;
+
+  Assert.equal(
+    url,
+    "http://mochi.test:8888/browser/browser/components/search/test/browser/",
+    "Opening search form successful"
+  );
 });
 
 async function openPopup(searchBarValue) {

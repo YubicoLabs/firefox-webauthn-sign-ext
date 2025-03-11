@@ -7,6 +7,8 @@ const { topChromeWindow } = window.browsingContext;
 const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
   GenAI: "resource:///modules/GenAI.sys.mjs",
+  LightweightThemeConsumer:
+    "resource://gre/modules/LightweightThemeConsumer.sys.mjs",
   SpecialMessageActions:
     "resource://messaging-system/lib/SpecialMessageActions.sys.mjs",
 });
@@ -25,6 +27,11 @@ XPCOMUtils.defineLazyPreferenceGetter(
   lazy,
   "shortcutsPref",
   "browser.ml.chat.shortcuts"
+);
+XPCOMUtils.defineLazyPreferenceGetter(
+  lazy,
+  "sidebarRevampPref",
+  "sidebar.revamp"
 );
 
 ChromeUtils.defineLazyGetter(
@@ -60,8 +67,11 @@ function request(url = lazy.providerPref) {
 
 function renderChat() {
   const browser = document.createXULElement("browser");
-  browser.setAttribute("type", "content");
+  browser.setAttribute("disableglobalhistory", "true");
+  browser.setAttribute("maychangeremoteness", "true");
+  browser.setAttribute("nodefaultsrc", "true");
   browser.setAttribute("remote", "true");
+  browser.setAttribute("type", "content");
   return document.body.appendChild(browser);
 }
 
@@ -103,7 +113,7 @@ async function renderProviders() {
   }
 
   // Add extra controls after the providers
-  addOption("---").disabled = true;
+  select.appendChild(document.createElement("hr"));
   document.l10n.setAttributes(addOption(), "genai-provider-view-details");
 
   // Update provider telemetry
@@ -134,10 +144,14 @@ function renderMore() {
         .appendChild(topDoc.createXULElement("menupopup"));
       menu.id = "chatbot-menupopup";
       node.menu = menu;
+      menu.addEventListener("popuphidden", () => {
+        button.setAttribute("aria-expanded", false);
+      });
     }
     menu.innerHTML = "";
 
     const provider = lazy.GenAI.chatProviders.get(lazy.providerPref)?.name;
+    const providerId = lazy.GenAI.getProviderId();
     [
       [
         "menuitem",
@@ -147,38 +161,54 @@ function renderMore() {
             : "genai-options-reload-generic",
           { provider },
         ],
-        () => request(),
+        function reload() {
+          request();
+        },
       ],
       ["menuseparator"],
       [
         "menuitem",
         ["genai-options-show-shortcut"],
-        () => Services.prefs.setBoolPref("browser.ml.chat.shortcuts", true),
+        function show_shortcuts() {
+          Services.prefs.setBoolPref("browser.ml.chat.shortcuts", true);
+        },
         lazy.shortcutsPref,
       ],
       [
         "menuitem",
         ["genai-options-hide-shortcut"],
-        () => Services.prefs.setBoolPref("browser.ml.chat.shortcuts", false),
+        function hide_shortcuts() {
+          Services.prefs.setBoolPref("browser.ml.chat.shortcuts", false);
+        },
         !lazy.shortcutsPref,
       ],
       ["menuseparator"],
       [
         "menuitem",
         ["genai-options-about-chatbot"],
-        () => openLink(lazy.supportLink),
+        function about() {
+          openLink(lazy.supportLink);
+        },
       ],
     ].forEach(([type, l10n, command, checked]) => {
       const item = menu.appendChild(topDoc.createXULElement(type));
       if (type == "menuitem") {
         document.l10n.setAttributes(item, ...l10n);
-        item.addEventListener("command", command);
+        item.addEventListener("command", () => {
+          command();
+          Glean.genaiChatbot.sidebarMoreMenuClick.record({
+            action: command.name,
+            provider: providerId,
+          });
+        });
         if (checked) {
           item.setAttribute("checked", true);
         }
       }
     });
     menu.openPopup(button, "after_start");
+    button.setAttribute("aria-expanded", true);
+    Glean.genaiChatbot.sidebarMoreMenuDisplay.record({ provider: providerId });
   });
 }
 
@@ -190,6 +220,10 @@ function handleChange({ target }) {
       if (value == "") {
         target.value = lazy.providerPref;
         showOnboarding(1);
+        Glean.genaiChatbot.sidebarProviderMenuClick.record({
+          action: "details",
+          provider: lazy.GenAI.getProviderId(),
+        });
       } else {
         Services.prefs.setStringPref("browser.ml.chat.provider", value);
       }
@@ -201,14 +235,18 @@ addEventListener("change", handleChange);
 // Expose a promise for loading and rendering the chat browser element
 var browserPromise = new Promise((resolve, reject) => {
   addEventListener("load", async () => {
+    new lazy.LightweightThemeConsumer(document);
     try {
       node.chat = renderChat();
       node.provider = await renderProviders();
       renderMore();
       resolve(node.chat);
-      document
-        .getElementById("header-close")
-        .addEventListener("click", closeSidebar);
+      document.getElementById("header-close").addEventListener("click", () => {
+        closeSidebar();
+        Glean.genaiChatbot.sidebarCloseClick.record({
+          provider: lazy.GenAI.getProviderId(),
+        });
+      });
     } catch (ex) {
       console.error("Failed to render on load", ex);
       reject(ex);
@@ -218,6 +256,7 @@ var browserPromise = new Promise((resolve, reject) => {
       opened: true,
       provider: lazy.GenAI.getProviderId(),
       reason: "load",
+      version: lazy.sidebarRevampPref ? "new" : "old",
     });
   });
 });
@@ -228,6 +267,7 @@ addEventListener("unload", () => {
     opened: false,
     provider: lazy.GenAI.getProviderId(),
     reason: "unload",
+    version: lazy.sidebarRevampPref ? "new" : "old",
   });
 });
 
@@ -237,6 +277,13 @@ addEventListener("unload", () => {
  * @param {number} length optional show fewer screens
  */
 function showOnboarding(length) {
+  const ACTIONS = Object.freeze({
+    OPEN_URL: "OPEN_URL",
+    CHATBOT_SELECT: "chatbot:select",
+    CHATBOT_PERSIST: "chatbot:persist",
+    CHATBOT_REVERT: "chatbot:revert",
+  });
+
   // Insert onboarding container and render with script
   const root = document.createElement("div");
   root.id = "multi-stage-message-root";
@@ -293,13 +340,13 @@ function showOnboarding(length) {
                     args: lazy.supportLink,
                     where: "tabshifted",
                   },
-                  type: "OPEN_URL",
+                  type: ACTIONS.OPEN_URL,
                 },
               },
               tiles: {
                 action: { picker: "<event>" },
                 data: [...providerConfigs.values()].map(config => ({
-                  action: config.id,
+                  action: { type: ACTIONS.CHATBOT_SELECT, config },
                   id: config.id,
                   label: config.name,
                   tooltip: { string_id: config.tooltipId },
@@ -318,13 +365,12 @@ function showOnboarding(length) {
               primary_button: {
                 action: {
                   navigate: true,
-                  // Handle with AWSelectTheme
-                  theme: true,
+                  type: ACTIONS.CHATBOT_PERSIST,
                 },
                 label: { string_id: "genai-onboarding-primary" },
               },
               additional_button: {
-                action: { dismiss: true },
+                action: { dismiss: true, type: ACTIONS.CHATBOT_REVERT },
                 label: { string_id: "genai-onboarding-secondary" },
                 style: "link",
               },
@@ -397,52 +443,116 @@ function showOnboarding(length) {
           const a = div.appendChild(document.createElement("a"));
           a.href = config.learnLink;
           a.tabIndex = -1;
-          a.addEventListener("click", handleLink);
+          a.addEventListener("click", ev => {
+            handleLink(ev);
+            Glean.genaiChatbot.onboardingProviderLearn.record({
+              provider: config.id,
+              step: 1,
+            });
+          });
           document.l10n.setAttributes(a, config.learnId);
         }
       });
     },
-    AWSelectTheme() {
-      const { value } = document.querySelector("label:has(.selected) input");
-      Services.prefs.setStringPref(
-        "browser.ml.chat.provider",
-        providerConfigs.get(value).url
-      );
+    AWSendEventTelemetry({ event, event_context: { source }, message_id }) {
+      const { provider } = window.AWSendEventTelemetry;
+      const step = message_id.match(/chat_pick/) ? 1 : 2;
+      switch (true) {
+        case step == 1 && event == "IMPRESSION":
+          Glean.genaiChatbot.onboardingProviderChoiceDisplayed.record({
+            provider: lazy.GenAI.getProviderId(lazy.providerPref),
+            step,
+          });
+          break;
+        case step == 1 && source == "cta_paragraph":
+          Glean.genaiChatbot.onboardingLearnMore.record({ provider, step });
+          break;
+        case step == 1 && source == "primary_button":
+          Glean.genaiChatbot.onboardingContinue.record({ provider, step });
+          break;
+        case step == 1 && source == "additional_button":
+          Glean.genaiChatbot.onboardingClose.record({ provider, step });
+          break;
+        case step == 1 && source.startsWith("link"):
+          Glean.genaiChatbot.onboardingProviderTerms.record({
+            provider,
+            step,
+            text: source,
+          });
+          break;
+        // Assume generic click not yet handled above single select of provider
+        case step == 1 && event == "CLICK_BUTTON":
+          window.AWSendEventTelemetry.provider = source;
+          Glean.genaiChatbot.onboardingProviderSelection.record({
+            provider: source,
+            step,
+          });
+          break;
+        case step == 2 && event == "IMPRESSION":
+          Glean.genaiChatbot.onboardingTextHighlightDisplayed.record({
+            provider,
+            step,
+          });
+          break;
+        case step == 2 && source == "primary_button":
+          Glean.genaiChatbot.onboardingFinish.record({ provider, step });
+          break;
+      }
     },
-    AWSendEventTelemetry() {},
-    AWSendToParent(message, action) {
+    AWSendToParent(_message, action) {
       switch (action.type) {
-        case "OPEN_URL":
+        case ACTIONS.OPEN_URL:
           lazy.SpecialMessageActions.handleAction(action, topChromeWindow);
           return;
-      }
-
-      // Handle single select provider choice
-      const config = providerConfigs.get(action);
-      if (config) {
-        document.querySelector(".primary").disabled = false;
-
-        // Set max-height to trigger transition
-        document.querySelectorAll("label .text div").forEach(div => {
-          const selected =
-            div.closest("label").querySelector("input").value == action;
-          div.style.maxHeight = selected ? div.scrollHeight + "px" : 0;
-          const a = div.querySelector("a");
-          if (a) {
-            a.tabIndex = selected ? 0 : -1;
+        case ACTIONS.CHATBOT_PERSIST: {
+          const { value } = document.querySelector(
+            "label:has(.selected) input"
+          );
+          Services.prefs.setStringPref(
+            "browser.ml.chat.provider",
+            providerConfigs.get(value).url
+          );
+          break;
+        }
+        case ACTIONS.CHATBOT_REVERT: {
+          request();
+          break;
+        }
+        // Handle single select provider choice
+        case ACTIONS.CHATBOT_SELECT: {
+          const { config } = action;
+          if (!config) {
+            break;
           }
-        });
 
-        // Update potentially multiple links for the provider
-        const links = document.querySelector(".link-paragraph");
-        if (links.dataset.l10nId != config.linksId) {
-          links.innerHTML = "";
-          for (let i = 1; i <= 3; i++) {
-            const link = links.appendChild(document.createElement("a"));
-            const name = (link.dataset.l10nName = `link${i}`);
-            link.href = config[name];
+          request(config.url);
+          document.querySelector(".primary").disabled = false;
+
+          // Set max-height to trigger transition
+          document.querySelectorAll("label .text div").forEach(div => {
+            const selected =
+              div.closest("label").querySelector("input").value == config.id;
+            div.style.maxHeight = selected ? div.scrollHeight + "px" : 0;
+            const a = div.querySelector("a");
+            if (a) {
+              a.tabIndex = selected ? 0 : -1;
+            }
+          });
+
+          // Update potentially multiple links for the provider
+          const links = document.querySelector(".link-paragraph");
+          if (links.dataset.l10nId != config.linksId) {
+            links.innerHTML = "";
+            for (let i = 1; i <= 3; i++) {
+              const link = links.appendChild(document.createElement("a"));
+              const name = (link.dataset.l10nName = `link${i}`);
+              link.href = config[name];
+              link.setAttribute("value", name);
+            }
+            document.l10n.setAttributes(links, config.linksId);
           }
-          document.l10n.setAttributes(links, config.linksId);
+
+          break;
         }
       }
     },

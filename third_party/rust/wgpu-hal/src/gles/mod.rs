@@ -95,9 +95,10 @@ mod adapter;
 mod command;
 mod conv;
 mod device;
+mod fence;
 mod queue;
 
-use crate::{CopyExtent, TextureDescriptor};
+pub use fence::Fence;
 
 #[cfg(not(any(windows, webgl)))]
 pub use self::egl::{AdapterContext, AdapterContextLock};
@@ -114,14 +115,19 @@ use self::wgl::AdapterContext;
 #[cfg(windows)]
 use self::wgl::{Instance, Surface};
 
-use arrayvec::ArrayVec;
-
-use glow::HasContext;
-
-use naga::FastHashMap;
+use alloc::{boxed::Box, string::String, string::ToString as _, sync::Arc, vec::Vec};
+use core::{
+    fmt,
+    ops::Range,
+    sync::atomic::{AtomicU32, AtomicU8},
+};
 use parking_lot::Mutex;
-use std::sync::atomic::{AtomicU32, AtomicU8};
-use std::{fmt, ops::Range, sync::Arc};
+
+use arrayvec::ArrayVec;
+use glow::HasContext;
+use naga::FastHashMap;
+
+use crate::{CopyExtent, TextureDescriptor};
 
 #[derive(Clone, Debug)]
 pub struct Api;
@@ -271,7 +277,9 @@ struct AdapterShared {
     context: AdapterContext,
     private_caps: PrivateCapabilities,
     features: wgt::Features,
+    limits: wgt::Limits,
     workarounds: Workarounds,
+    options: wgt::GlBackendOptions,
     shading_language_version: naga::back::glsl::Version,
     next_shader_id: AtomicU32,
     program_cache: Mutex<ProgramCache>,
@@ -292,7 +300,14 @@ pub struct Device {
     main_vao: glow::VertexArray,
     #[cfg(all(native, feature = "renderdoc"))]
     render_doc: crate::auxil::renderdoc::RenderDoc,
-    counters: wgt::HalCounters,
+    counters: Arc<wgt::HalCounters>,
+}
+
+impl Drop for Device {
+    fn drop(&mut self) {
+        let gl = &self.shared.context.lock();
+        unsafe { gl.delete_vertex_array(self.main_vao) };
+    }
 }
 
 pub struct ShaderClearProgram {
@@ -314,6 +329,15 @@ pub struct Queue {
     temp_query_results: Mutex<Vec<u64>>,
     draw_buffer_count: AtomicU8,
     current_index_buffer: Mutex<Option<glow::Buffer>>,
+}
+
+impl Drop for Queue {
+    fn drop(&mut self) {
+        let gl = &self.shared.context.lock();
+        unsafe { gl.delete_framebuffer(self.draw_fbo) };
+        unsafe { gl.delete_framebuffer(self.copy_fbo) };
+        unsafe { gl.delete_buffer(self.zero_buffer) };
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -382,7 +406,7 @@ pub struct Texture {
 impl crate::DynTexture for Texture {}
 impl crate::DynSurfaceTexture for Texture {}
 
-impl std::borrow::Borrow<dyn crate::DynTexture> for Texture {
+impl core::borrow::Borrow<dyn crate::DynTexture> for Texture {
     fn borrow(&self) -> &dyn crate::DynTexture {
         self
     }
@@ -457,11 +481,24 @@ impl Texture {
         };
 
         log::error!(
-            "wgpu-hal heuristics assumed that the view dimension will be equal to `{got}` rather than `{view_dimension:?}`.\n{}\n{}\n{}\n{}",
-            "`D2` textures with `depth_or_array_layers == 1` are assumed to have view dimension `D2`",
-            "`D2` textures with `depth_or_array_layers > 1` are assumed to have view dimension `D2Array`",
-            "`D2` textures with `depth_or_array_layers == 6` are assumed to have view dimension `Cube`",
-            "`D2` textures with `depth_or_array_layers > 6 && depth_or_array_layers % 6 == 0` are assumed to have view dimension `CubeArray`",
+            concat!(
+                "wgpu-hal heuristics assumed that ",
+                "the view dimension will be equal to `{}` rather than `{:?}`.\n",
+                "`D2` textures with ",
+                "`depth_or_array_layers == 1` ",
+                "are assumed to have view dimension `D2`\n",
+                "`D2` textures with ",
+                "`depth_or_array_layers > 1` ",
+                "are assumed to have view dimension `D2Array`\n",
+                "`D2` textures with ",
+                "`depth_or_array_layers == 6` ",
+                "are assumed to have view dimension `Cube`\n",
+                "`D2` textures with ",
+                "`depth_or_array_layers > 6 && depth_or_array_layers % 6 == 0` ",
+                "are assumed to have view dimension `CubeArray`\n",
+            ),
+            got,
+            view_dimension,
         );
     }
 }
@@ -704,57 +741,6 @@ pub struct QuerySet {
 impl crate::DynQuerySet for QuerySet {}
 
 #[derive(Debug)]
-pub struct Fence {
-    last_completed: crate::FenceValue,
-    pending: Vec<(crate::FenceValue, glow::Fence)>,
-}
-
-impl crate::DynFence for Fence {}
-
-#[cfg(any(
-    not(target_arch = "wasm32"),
-    all(
-        feature = "fragile-send-sync-non-atomic-wasm",
-        not(target_feature = "atomics")
-    )
-))]
-unsafe impl Send for Fence {}
-#[cfg(any(
-    not(target_arch = "wasm32"),
-    all(
-        feature = "fragile-send-sync-non-atomic-wasm",
-        not(target_feature = "atomics")
-    )
-))]
-unsafe impl Sync for Fence {}
-
-impl Fence {
-    fn get_latest(&self, gl: &glow::Context) -> crate::FenceValue {
-        let mut max_value = self.last_completed;
-        for &(value, sync) in self.pending.iter() {
-            let status = unsafe { gl.get_sync_status(sync) };
-            if status == glow::SIGNALED {
-                max_value = value;
-            }
-        }
-        max_value
-    }
-
-    fn maintain(&mut self, gl: &glow::Context) {
-        let latest = self.get_latest(gl);
-        for &(value, sync) in self.pending.iter() {
-            if value <= latest {
-                unsafe {
-                    gl.delete_sync(sync);
-                }
-            }
-        }
-        self.pending.retain(|&(value, _)| value > latest);
-        self.last_completed = latest;
-    }
-}
-
-#[derive(Debug)]
 pub struct AccelerationStructure;
 
 impl crate::DynAccelerationStructure for AccelerationStructure {}
@@ -870,7 +856,7 @@ enum Command {
     },
     #[cfg(webgl)]
     CopyExternalImageToTexture {
-        src: wgt::ImageCopyExternalImage,
+        src: wgt::CopyExternalImageSourceInfo,
         dst: glow::Texture,
         dst_target: BindTarget,
         dst_format: wgt::TextureFormat,
@@ -940,8 +926,8 @@ enum Command {
     // It is also more efficient to emit a single command instead of two for
     // this.
     ClearDepthAndStencil(f32, u32),
-    BufferBarrier(glow::Buffer, crate::BufferUses),
-    TextureBarrier(crate::TextureUses),
+    BufferBarrier(glow::Buffer, wgt::BufferUses),
+    TextureBarrier(wgt::TextureUses),
     SetViewport {
         rect: crate::Rect<i32>,
         depth: Range<f32>,
@@ -1042,6 +1028,7 @@ pub struct CommandEncoder {
     cmd_buffer: CommandBuffer,
     state: command::State,
     private_caps: PrivateCapabilities,
+    counters: Arc<wgt::HalCounters>,
 }
 
 impl fmt::Debug for CommandEncoder {

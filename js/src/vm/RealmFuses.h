@@ -41,12 +41,42 @@ class InvalidatingRealmFuse : public InvalidatingFuse {
   }
 };
 
+// Fuse guarding against changes to `Array.prototype[@@iterator]` and
+// `%ArrayIteratorPrototype%` that affect the iterator protocol for packed
+// arrays.
+//
+// Popped when one of the following fuses is popped:
+// - ArrayPrototypeIteratorFuse (for `Array.prototype[@@iterator]`)
+// - OptimizeArrayIteratorPrototypeFuse (for `%ArrayIteratorPrototype%`)
 struct OptimizeGetIteratorFuse final : public InvalidatingRealmFuse {
   virtual const char* name() override { return "OptimizeGetIteratorFuse"; }
   virtual bool checkInvariant(JSContext* cx) override;
+  virtual void popFuse(JSContext* cx, RealmFuses& realmFuses) override;
 };
 
 struct PopsOptimizedGetIteratorFuse : public RealmFuse {
+  virtual void popFuse(JSContext* cx, RealmFuses& realmFuses) override;
+};
+
+// Fuse guarding against changes to `%ArrayIteratorPrototype%` (and its
+// prototype chain) that affect the iterator protocol.
+//
+// Popped when one of the following fuses is popped:
+// - ArrayPrototypeIteratorNextFuse
+// - ArrayIteratorPrototypeHasNoReturnProperty
+// - ArrayIteratorPrototypeHasIteratorProto
+// - IteratorPrototypeHasNoReturnProperty
+// - IteratorPrototypeHasObjectProto
+// - ObjectPrototypeHasNoReturnProperty
+struct OptimizeArrayIteratorPrototypeFuse final
+    : public PopsOptimizedGetIteratorFuse {
+  virtual const char* name() override {
+    return "OptimizeArrayIteratorPrototypeFuse";
+  }
+  virtual bool checkInvariant(JSContext* cx) override;
+};
+
+struct PopsOptimizedArrayIteratorPrototypeFuse : public RealmFuse {
   virtual void popFuse(JSContext* cx, RealmFuses& realmFuses) override;
 };
 
@@ -56,7 +86,7 @@ struct ArrayPrototypeIteratorFuse final : public PopsOptimizedGetIteratorFuse {
 };
 
 struct ArrayPrototypeIteratorNextFuse final
-    : public PopsOptimizedGetIteratorFuse {
+    : public PopsOptimizedArrayIteratorPrototypeFuse {
   virtual const char* name() override {
     return "ArrayPrototypeIteratorNextFuse";
   }
@@ -66,7 +96,7 @@ struct ArrayPrototypeIteratorNextFuse final
 // This fuse covers ArrayIteratorPrototype not having a return property;
 // however the fuse doesn't pop if a prototype acquires the return property.
 struct ArrayIteratorPrototypeHasNoReturnProperty final
-    : public PopsOptimizedGetIteratorFuse {
+    : public PopsOptimizedArrayIteratorPrototypeFuse {
   virtual const char* name() override {
     return "ArrayIteratorPrototypeHasNoReturnProperty";
   }
@@ -76,7 +106,7 @@ struct ArrayIteratorPrototypeHasNoReturnProperty final
 // This fuse covers IteratorPrototype not having a return property;
 // however the fuse doesn't pop if a prototype acquires the return property.
 struct IteratorPrototypeHasNoReturnProperty final
-    : public PopsOptimizedGetIteratorFuse {
+    : public PopsOptimizedArrayIteratorPrototypeFuse {
   virtual const char* name() override {
     return "IteratorPrototypeHasNoReturnProperty";
   }
@@ -84,7 +114,7 @@ struct IteratorPrototypeHasNoReturnProperty final
 };
 
 struct ArrayIteratorPrototypeHasIteratorProto final
-    : public PopsOptimizedGetIteratorFuse {
+    : public PopsOptimizedArrayIteratorPrototypeFuse {
   virtual const char* name() override {
     return "ArrayIteratorPrototypeHasIteratorProto";
   }
@@ -92,7 +122,7 @@ struct ArrayIteratorPrototypeHasIteratorProto final
 };
 
 struct IteratorPrototypeHasObjectProto final
-    : public PopsOptimizedGetIteratorFuse {
+    : public PopsOptimizedArrayIteratorPrototypeFuse {
   virtual const char* name() override {
     return "IteratorPrototypeHasObjectProto";
   }
@@ -100,25 +130,40 @@ struct IteratorPrototypeHasObjectProto final
 };
 
 struct ObjectPrototypeHasNoReturnProperty final
-    : public PopsOptimizedGetIteratorFuse {
+    : public PopsOptimizedArrayIteratorPrototypeFuse {
   virtual const char* name() override {
     return "ObjectPrototypeHasNoReturnProperty";
   }
   virtual bool checkInvariant(JSContext* cx) override;
 };
 
-#define FOR_EACH_REALM_FUSE(FUSE)                                        \
-  FUSE(OptimizeGetIteratorFuse, optimizeGetIteratorFuse)                 \
-  FUSE(ArrayPrototypeIteratorFuse, arrayPrototypeIteratorFuse)           \
-  FUSE(ArrayPrototypeIteratorNextFuse, arrayPrototypeIteratorNextFuse)   \
-  FUSE(ArrayIteratorPrototypeHasNoReturnProperty,                        \
-       arrayIteratorPrototypeHasNoReturnProperty)                        \
-  FUSE(IteratorPrototypeHasNoReturnProperty,                             \
-       iteratorPrototypeHasNoReturnProperty)                             \
-  FUSE(ArrayIteratorPrototypeHasIteratorProto,                           \
-       arrayIteratorPrototypeHasIteratorProto)                           \
-  FUSE(IteratorPrototypeHasObjectProto, iteratorPrototypeHasObjectProto) \
-  FUSE(ObjectPrototypeHasNoReturnProperty, objectPrototypeHasNoReturnProperty)
+// Fuse used to optimize @@species lookups for arrays. If this fuse is intact,
+// the following invariants must hold:
+//
+// - The builtin `Array.prototype` object has a `constructor` property that's
+//   the builtin `Array` constructor.
+// - This `Array` constructor has a `Symbol.species` property that's the
+//   original accessor.
+struct OptimizeArraySpeciesFuse final : public InvalidatingRealmFuse {
+  virtual const char* name() override { return "OptimizeArraySpeciesFuse"; }
+  virtual bool checkInvariant(JSContext* cx) override;
+  virtual void popFuse(JSContext* cx, RealmFuses& realmFuses) override;
+};
+
+#define FOR_EACH_REALM_FUSE(FUSE)                                              \
+  FUSE(OptimizeGetIteratorFuse, optimizeGetIteratorFuse)                       \
+  FUSE(OptimizeArrayIteratorPrototypeFuse, optimizeArrayIteratorPrototypeFuse) \
+  FUSE(ArrayPrototypeIteratorFuse, arrayPrototypeIteratorFuse)                 \
+  FUSE(ArrayPrototypeIteratorNextFuse, arrayPrototypeIteratorNextFuse)         \
+  FUSE(ArrayIteratorPrototypeHasNoReturnProperty,                              \
+       arrayIteratorPrototypeHasNoReturnProperty)                              \
+  FUSE(IteratorPrototypeHasNoReturnProperty,                                   \
+       iteratorPrototypeHasNoReturnProperty)                                   \
+  FUSE(ArrayIteratorPrototypeHasIteratorProto,                                 \
+       arrayIteratorPrototypeHasIteratorProto)                                 \
+  FUSE(IteratorPrototypeHasObjectProto, iteratorPrototypeHasObjectProto)       \
+  FUSE(ObjectPrototypeHasNoReturnProperty, objectPrototypeHasNoReturnProperty) \
+  FUSE(OptimizeArraySpeciesFuse, optimizeArraySpeciesFuse)
 
 struct RealmFuses {
   RealmFuses() = default;
@@ -164,6 +209,23 @@ struct RealmFuses {
 
   static int32_t offsetOfFuseWordRelativeToRealm(FuseIndex index);
   static const char* getFuseName(FuseIndex index);
+
+#ifdef DEBUG
+  static bool isInvalidatingFuse(FuseIndex index) {
+    switch (index) {
+#  define FUSE(Name, LowerName)                                      \
+    case FuseIndex::Name:                                            \
+      static_assert(std::is_base_of_v<RealmFuse, Name> ||            \
+                    std::is_base_of_v<InvalidatingRealmFuse, Name>); \
+      return std::is_base_of_v<InvalidatingRealmFuse, Name>;
+      FOR_EACH_REALM_FUSE(FUSE)
+#  undef FUSE
+      default:
+        break;
+    }
+    MOZ_CRASH("Fuse Not Found");
+  }
+#endif
 };
 
 }  // namespace js

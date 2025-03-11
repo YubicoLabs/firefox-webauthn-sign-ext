@@ -12,6 +12,7 @@
 #include "frontend/BytecodeCompiler.h"  // frontend::CompileEvalScript
 #include "gc/HashUtil.h"
 #include "js/CompilationAndEvaluation.h"
+#include "js/EnvironmentChain.h"       // JS::EnvironmentChain
 #include "js/friend/ErrorMessages.h"   // js::GetErrorMessage, JSMSG_*
 #include "js/friend/JSMEnvironment.h"  // JS::NewJSMEnvironment, JS::ExecuteInJSMEnvironment, JS::GetJSMEnvironmentOfScriptedCaller, JS::IsJSMEnvironment
 #include "js/friend/WindowProxy.h"     // js::IsWindowProxy
@@ -238,21 +239,41 @@ static bool EvalKernel(JSContext* cx, HandleValue v, EvalType evalType,
                 env->is<GlobalLexicalEnvironmentObject>());
   AssertInnerizedEnvironmentChain(cx, *env);
 
-  // Step 2.
-  if (!v.isString()) {
+  // "Dynamic Code Brand Checks" adds support for Object values.
+  // https://tc39.es/proposal-dynamic-code-brand-checks/#sec-performeval
+  // Steps 2-4.
+  RootedString str(cx);
+  if (v.isString()) {
+    str = v.toString();
+  } else if (v.isObject()) {
+    RootedObject obj(cx, &v.toObject());
+    if (!cx->getCodeForEval(obj, &str)) {
+      return false;
+    }
+  }
+  if (!str) {
     vp.set(v);
     return true;
   }
 
-  // Steps 3-4.
-  RootedString str(cx, v.toString());
-  if (!cx->isRuntimeCodeGenEnabled(JS::RuntimeCode::JS, str)) {
+  // Steps 6-8.
+  JS::RootedVector<JSString*> parameterStrings(cx);
+  JS::RootedVector<Value> parameterArgs(cx);
+  bool canCompileStrings = false;
+  if (!cx->isRuntimeCodeGenEnabled(
+          JS::RuntimeCode::JS, str,
+          evalType == DIRECT_EVAL ? JS::CompilationType::DirectEval
+                                  : JS::CompilationType::IndirectEval,
+          parameterStrings, str, parameterArgs, v, &canCompileStrings)) {
+    return false;
+  }
+  if (!canCompileStrings) {
     JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
                               JSMSG_CSP_BLOCKED_EVAL);
     return false;
   }
 
-  // Step 5 ff.
+  // Step 9 ff.
 
   // Per ES5, indirect eval runs in the global scope. (eval is specified this
   // way so that the compiler can make assumptions about what bindings may or
@@ -410,7 +431,7 @@ JS_PUBLIC_API bool js::ExecuteInFrameScriptEnvironment(
     return false;
   }
 
-  RootedObjectVector envChain(cx);
+  JS::EnvironmentChain envChain(cx, JS::SupportUnscopables::No);
   if (!envChain.append(objArg)) {
     return false;
   }
@@ -461,14 +482,13 @@ JS_PUBLIC_API JSObject* JS::NewJSMEnvironment(JSContext* cx) {
 JS_PUBLIC_API bool JS::ExecuteInJSMEnvironment(JSContext* cx,
                                                HandleScript scriptArg,
                                                HandleObject varEnv) {
-  RootedObjectVector emptyChain(cx);
+  JS::EnvironmentChain emptyChain(cx, JS::SupportUnscopables::No);
   return ExecuteInJSMEnvironment(cx, scriptArg, varEnv, emptyChain);
 }
 
-JS_PUBLIC_API bool JS::ExecuteInJSMEnvironment(JSContext* cx,
-                                               HandleScript scriptArg,
-                                               HandleObject varEnv,
-                                               HandleObjectVector targetObj) {
+JS_PUBLIC_API bool JS::ExecuteInJSMEnvironment(
+    JSContext* cx, HandleScript scriptArg, HandleObject varEnv,
+    const EnvironmentChain& targetObj) {
   cx->check(varEnv);
   MOZ_ASSERT(
       ObjectRealm::get(varEnv).getNonSyntacticLexicalEnvironment(varEnv));
@@ -481,7 +501,7 @@ JS_PUBLIC_API bool JS::ExecuteInJSMEnvironment(JSContext* cx,
   // them to the environment. These are added after the NSVO environment.
   if (!targetObj.empty()) {
     // The environment chain will be as follows:
-    //      GlobalObject / BackstagePass
+    //      GlobalObject / SystemGlobal
     //      GlobalLexicalEnvironmentObject[this=global]
     //      NonSyntacticVariablesObject (the JSMEnvironment)
     //      NonSyntacticLexicalEnvironmentObject[this=nsvo]

@@ -49,12 +49,8 @@
 #include "nsTArray.h"
 #include "nsThreadUtils.h"
 
-#define HTTP_BASE_CHANNEL_IID                        \
-  {                                                  \
-    0x9d5cde03, 0xe6e9, 0x4612, {                    \
-      0xbf, 0xef, 0xbb, 0x66, 0xf3, 0xbb, 0x74, 0x46 \
-    }                                                \
-  }
+#define HTTP_BASE_CHANNEL_IID \
+  {0x9d5cde03, 0xe6e9, 0x4612, {0xbf, 0xef, 0xbb, 0x66, 0xf3, 0xbb, 0x74, 0x46}}
 
 class nsIProgressEventSink;
 class nsISecurityConsoleMessage;
@@ -229,7 +225,7 @@ class HttpBaseChannel : public nsHashPropertyBag,
   NS_IMETHOD GetResponseStatusText(nsACString& aValue) override;
   NS_IMETHOD GetRequestSucceeded(bool* aValue) override;
   NS_IMETHOD RedirectTo(nsIURI* newURI) override;
-  NS_IMETHOD InternalRedirectTo(nsIURI* newURI) override;
+  NS_IMETHOD TransparentRedirectTo(nsIURI* newURI) override;
   NS_IMETHOD UpgradeToSecure() override;
   NS_IMETHOD GetRequestObserversCalled(bool* aCalled) override;
   NS_IMETHOD SetRequestObserversCalled(bool aCalled) override;
@@ -263,7 +259,8 @@ class HttpBaseChannel : public nsHashPropertyBag,
   NS_IMETHOD SetDocumentURI(nsIURI* aDocumentURI) override;
   NS_IMETHOD GetRequestVersion(uint32_t* major, uint32_t* minor) override;
   NS_IMETHOD GetResponseVersion(uint32_t* major, uint32_t* minor) override;
-  NS_IMETHOD SetCookie(const nsACString& aCookieHeader) override;
+  NS_IMETHOD SetCookieHeaders(
+      const nsTArray<nsCString>& aCookieHeaders) override;
   NS_IMETHOD GetThirdPartyFlags(uint32_t* aForce) override;
   NS_IMETHOD SetThirdPartyFlags(uint32_t aForce) override;
   NS_IMETHOD GetForceAllowThirdPartyCookie(bool* aForce) override;
@@ -350,6 +347,7 @@ class HttpBaseChannel : public nsHashPropertyBag,
   NS_IMETHOD GetResponseEmbedderPolicy(
       bool aIsOriginTrialCoepCredentiallessEnabled,
       nsILoadInfo::CrossOriginEmbedderPolicy* aOutPolicy) override;
+  NS_IMETHOD GetOriginAgentClusterHeader(bool* aValue) override;
 
   inline void CleanRedirectCacheChainIfNecessary() {
     auto redirectedCachekeys = mRedirectedCachekeys.Lock();
@@ -485,7 +483,17 @@ class HttpBaseChannel : public nsHashPropertyBag,
     return mResponseTrailers.get();
   }
 
-  void SetDummyChannelForCachedResource();
+  // Return the cloned HTTP Headers if available.
+  // The returned headers can be passed to SetDummyChannelForCachedResource
+  // to create a dummy channel with the same HTTP headers.
+  UniquePtr<nsHttpResponseHead> MaybeCloneResponseHeadForCachedResource();
+
+  // Set this channel as a dummy channel for cached resources.
+  //
+  // If aMaybeResponseHead is provided, this uses the given HTTP headers.
+  // Otherwise this uses an empty HTTP headers.
+  void SetDummyChannelForCachedResource(
+      const nsHttpResponseHead* aMaybeResponseHead = nullptr);
 
   const NetAddr& GetSelfAddr() { return mSelfAddr; }
   const NetAddr& GetPeerAddr() { return mPeerAddr; }
@@ -732,7 +740,7 @@ class HttpBaseChannel : public nsHashPropertyBag,
   nsCOMPtr<nsIProgressEventSink> mProgressSink;
   nsCOMPtr<nsIReferrerInfo> mReferrerInfo;
   // The first parameter is the URI we would like to redirect to
-  // The second parameter should be true if internal redirect otherwise false
+  // The second parameter should be true if trasparent redirect otherwise false
   // mAPIRedirectTo is Nothing if and only if the URI is null.
   mozilla::Maybe<mozilla::CompactPair<nsCOMPtr<nsIURI>, bool>> mAPIRedirectTo;
   nsCOMPtr<nsIURI> mProxyURI;
@@ -914,8 +922,6 @@ class HttpBaseChannel : public nsHashPropertyBag,
     (uint32_t, UploadStreamHasHeaders, 1),
     (uint32_t, ChannelIsForDownload, 1),
     (uint32_t, TracingEnabled, 1),
-    // True if timing collection is enabled
-    (uint32_t, TimingEnabled, 1),
     (uint32_t, ReportTiming, 1),
     (uint32_t, AllowSpdy, 1),
     (uint32_t, AllowHttp3, 1),

@@ -109,10 +109,9 @@
 #include "mozilla/Casting.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/StaticPrefs_security.h"
-#include "mozilla/Telemetry.h"
 #include "mozilla/UniquePtr.h"
 #include "mozilla/Unused.h"
-#include "mozilla/glean/GleanMetrics.h"
+#include "mozilla/glean/SecurityManagerSslMetrics.h"
 #include "nsComponentManagerUtils.h"
 #include "nsContentUtils.h"
 #include "nsICertOverrideService.h"
@@ -228,6 +227,9 @@ uint32_t MapOverridableErrorToProbeValue(PRErrorCode errorCode) {
       return 19;
     case mozilla::pkix::MOZILLA_PKIX_ERROR_MITM_DETECTED:
       return 20;
+    case mozilla::pkix::
+        MOZILLA_PKIX_ERROR_INSUFFICIENT_CERTIFICATE_TRANSPARENCY:
+      return 21;
   }
   NS_WARNING(
       "Unknown certificate error code. Does MapOverridableErrorToProbeValue "
@@ -271,14 +273,16 @@ static uint32_t MapCertErrorToProbeValue(PRErrorCode errorCode) {
 Maybe<nsITransportSecurityInfo::OverridableErrorCategory>
 CategorizeCertificateError(PRErrorCode certificateError) {
   switch (certificateError) {
+    case SEC_ERROR_CA_CERT_INVALID:
     case SEC_ERROR_CERT_SIGNATURE_ALGORITHM_DISABLED:
     case SEC_ERROR_EXPIRED_ISSUER_CERTIFICATE:
     case SEC_ERROR_UNKNOWN_ISSUER:
-    case SEC_ERROR_CA_CERT_INVALID:
     case mozilla::pkix::MOZILLA_PKIX_ERROR_ADDITIONAL_POLICY_CONSTRAINT_FAILED:
     case mozilla::pkix::MOZILLA_PKIX_ERROR_CA_CERT_USED_AS_END_ENTITY:
     case mozilla::pkix::MOZILLA_PKIX_ERROR_EMPTY_ISSUER_NAME:
     case mozilla::pkix::MOZILLA_PKIX_ERROR_INADEQUATE_KEY_SIZE:
+    case mozilla::pkix::
+        MOZILLA_PKIX_ERROR_INSUFFICIENT_CERTIFICATE_TRANSPARENCY:
     case mozilla::pkix::MOZILLA_PKIX_ERROR_MITM_DETECTED:
     case mozilla::pkix::MOZILLA_PKIX_ERROR_NOT_YET_VALID_ISSUER_CERTIFICATE:
     case mozilla::pkix::MOZILLA_PKIX_ERROR_SELF_SIGNED_CERT:
@@ -290,8 +294,8 @@ CategorizeCertificateError(PRErrorCode certificateError) {
       return Some(
           nsITransportSecurityInfo::OverridableErrorCategory::ERROR_DOMAIN);
 
-    case SEC_ERROR_INVALID_TIME:
     case SEC_ERROR_EXPIRED_CERTIFICATE:
+    case SEC_ERROR_INVALID_TIME:
     case mozilla::pkix::MOZILLA_PKIX_ERROR_NOT_YET_VALID_CERTIFICATE:
       return Some(
           nsITransportSecurityInfo::OverridableErrorCategory::ERROR_TIME);
@@ -438,7 +442,7 @@ static SECStatus BlockServerCertChangeForSpdy(
 }
 
 void GatherTelemetryForSingleSCT(const ct::VerifiedSCT& verifiedSct) {
-  // See SSL_SCTS_VERIFICATION_STATUS in Histograms.json.
+  // See scts_verification_status in metrics.yaml.
   uint32_t verificationStatus = 0;
   switch (verifiedSct.logState) {
     case ct::CTLogState::Admissible:
@@ -448,12 +452,12 @@ void GatherTelemetryForSingleSCT(const ct::VerifiedSCT& verifiedSct) {
       verificationStatus = 5;
       break;
   }
-  Telemetry::Accumulate(Telemetry::SSL_SCTS_VERIFICATION_STATUS,
-                        verificationStatus);
+  glean::ssl::scts_verification_status.AccumulateSingleSample(
+      verificationStatus);
 }
 
 void GatherCertificateTransparencyTelemetry(
-    const nsTArray<uint8_t>& rootCert, bool isEV,
+    const nsTArray<uint8_t>& rootCert,
     const CertificateTransparencyInfo& info) {
   if (!info.enabled) {
     // No telemetry is gathered when CT is disabled.
@@ -464,29 +468,29 @@ void GatherCertificateTransparencyTelemetry(
     GatherTelemetryForSingleSCT(sct);
   }
 
-  // See SSL_SCTS_VERIFICATION_STATUS in Histograms.json.
+  // See scts_verification_status in metrics.yaml.
   for (size_t i = 0; i < info.verifyResult.decodingErrors; ++i) {
-    Telemetry::Accumulate(Telemetry::SSL_SCTS_VERIFICATION_STATUS, 0);
+    glean::ssl::scts_verification_status.AccumulateSingleSample(0);
   }
   for (size_t i = 0; i < info.verifyResult.sctsFromUnknownLogs; ++i) {
-    Telemetry::Accumulate(Telemetry::SSL_SCTS_VERIFICATION_STATUS, 2);
+    glean::ssl::scts_verification_status.AccumulateSingleSample(2);
   }
   for (size_t i = 0; i < info.verifyResult.sctsWithInvalidSignatures; ++i) {
-    Telemetry::Accumulate(Telemetry::SSL_SCTS_VERIFICATION_STATUS, 3);
+    glean::ssl::scts_verification_status.AccumulateSingleSample(3);
   }
   for (size_t i = 0; i < info.verifyResult.sctsWithInvalidTimestamps; ++i) {
-    Telemetry::Accumulate(Telemetry::SSL_SCTS_VERIFICATION_STATUS, 4);
+    glean::ssl::scts_verification_status.AccumulateSingleSample(4);
   }
 
-  // See SSL_SCTS_ORIGIN in Histograms.json.
+  // See scts_origin in metrics.yaml.
   for (size_t i = 0; i < info.verifyResult.embeddedSCTs; ++i) {
-    Telemetry::Accumulate(Telemetry::SSL_SCTS_ORIGIN, 1);
+    glean::ssl::scts_origin.AccumulateSingleSample(1);
   }
   for (size_t i = 0; i < info.verifyResult.sctsFromTLSHandshake; ++i) {
-    Telemetry::Accumulate(Telemetry::SSL_SCTS_ORIGIN, 2);
+    glean::ssl::scts_origin.AccumulateSingleSample(2);
   }
   for (size_t i = 0; i < info.verifyResult.sctsFromOCSP; ++i) {
-    Telemetry::Accumulate(Telemetry::SSL_SCTS_ORIGIN, 3);
+    glean::ssl::scts_origin.AccumulateSingleSample(3);
   }
 
   // Handle the histogram of SCTs counts.
@@ -494,13 +498,16 @@ void GatherCertificateTransparencyTelemetry(
       static_cast<uint32_t>(info.verifyResult.verifiedScts.size());
   // Note that sctsCount can also be 0 in case we've received SCT binary data,
   // but it failed to parse (e.g. due to unsupported CT protocol version).
-  Telemetry::Accumulate(Telemetry::SSL_SCTS_PER_CONNECTION, sctsCount);
+  glean::ssl::scts_per_connection.AccumulateSingleSample(sctsCount);
 
   // Report CT Policy compliance by CA.
   if (info.policyCompliance.isSome() &&
       *info.policyCompliance != ct::CTPolicyCompliance::Compliant) {
-    AccumulateTelemetryForRootCA(
-        Telemetry::SSL_CT_POLICY_NON_COMPLIANT_CONNECTIONS_BY_CA_2, rootCert);
+    int32_t binId = RootCABinNumber(rootCert);
+    if (binId != ROOT_CERTIFICATE_HASH_FAILURE) {
+      glean::ssl::ct_policy_non_compliant_connections_by_ca
+          .AccumulateSingleSample(binId);
+    }
   }
 }
 
@@ -518,35 +525,52 @@ static void CollectCertTelemetry(
   uint32_t evStatus = (aCertVerificationResult != Success) ? 0  // 0 = Failure
                       : (aEVStatus != EVStatus::EV)        ? 1  // 1 = DV
                                                            : 2;        // 2 = EV
-  Telemetry::Accumulate(Telemetry::CERT_EV_STATUS, evStatus);
+  glean::cert::ev_status.AccumulateSingleSample(evStatus);
 
   if (aOcspStaplingStatus != CertVerifier::OCSP_STAPLING_NEVER_CHECKED) {
-    Telemetry::Accumulate(Telemetry::SSL_OCSP_STAPLING, aOcspStaplingStatus);
+    glean::ssl::ocsp_stapling.AccumulateSingleSample(aOcspStaplingStatus);
   }
 
   if (aKeySizeStatus != KeySizeStatus::NeverChecked) {
-    Telemetry::Accumulate(Telemetry::CERT_CHAIN_KEY_SIZE_STATUS,
-                          static_cast<uint32_t>(aKeySizeStatus));
+    glean::cert::chain_key_size_status.AccumulateSingleSample(
+        static_cast<uint32_t>(aKeySizeStatus));
   }
 
   if (aPinningTelemetryInfo.accumulateForRoot) {
-    Telemetry::Accumulate(Telemetry::CERT_PINNING_FAILURES_BY_CA_2,
-                          aPinningTelemetryInfo.rootBucket);
+    glean::cert_pinning::failures_by_ca.AccumulateSingleSample(
+        aPinningTelemetryInfo.rootBucket);
   }
 
   if (aPinningTelemetryInfo.accumulateResult) {
-    MOZ_ASSERT(aPinningTelemetryInfo.certPinningResultHistogram.isSome());
-    Telemetry::Accumulate(
-        aPinningTelemetryInfo.certPinningResultHistogram.value(),
-        aPinningTelemetryInfo.certPinningResultBucket);
+    if (aPinningTelemetryInfo.isMoz) {
+      if (aPinningTelemetryInfo.testMode) {
+        glean::cert_pinning::moz_test_results_by_host.AccumulateSingleSample(
+            aPinningTelemetryInfo.certPinningResultBucket);
+      } else {
+        glean::cert_pinning::moz_results_by_host.AccumulateSingleSample(
+            aPinningTelemetryInfo.certPinningResultBucket);
+      }
+    } else {
+      if (aPinningTelemetryInfo.testMode) {
+        glean::cert_pinning::test_results
+            .EnumGet(static_cast<glean::cert_pinning::TestResultsLabel>(
+                aPinningTelemetryInfo.certPinningResultBucket))
+            .Add();
+      } else {
+        glean::cert_pinning::results
+            .EnumGet(static_cast<glean::cert_pinning::ResultsLabel>(
+                aPinningTelemetryInfo.certPinningResultBucket))
+            .Add();
+      }
+    }
   }
 
   if (aCertVerificationResult == Success && aBuiltCertChain.Length() > 0) {
     const nsTArray<uint8_t>& rootCert = aBuiltCertChain.LastElement();
-    AccumulateTelemetryForRootCA(Telemetry::CERT_VALIDATION_SUCCESS_BY_CA_2,
-                                 rootCert);
-    GatherCertificateTransparencyTelemetry(rootCert, aEVStatus == EVStatus::EV,
-                                           aCertificateTransparencyInfo);
+    int32_t binId = RootCABinNumber(rootCert);
+    if (binId != ROOT_CERTIFICATE_HASH_FAILURE) {
+      glean::cert::validation_success_by_ca.AccumulateSingleSample(binId);
+    }
 
     mozilla::glean::tls::certificate_verifications.Add(1);
     if (issuerSources.contains(IssuerSource::TLSHandshake)) {
@@ -569,6 +593,15 @@ static void CollectCertTelemetry(
       mozilla::glean::verification_used_cert_from::built_in_roots_module
           .AddToNumerator(1);
     }
+  }
+
+  if ((aCertVerificationResult == Success ||
+       aCertVerificationResult ==
+           Result::ERROR_INSUFFICIENT_CERTIFICATE_TRANSPARENCY) &&
+      aBuiltCertChain.Length() > 0) {
+    const nsTArray<uint8_t>& rootCert = aBuiltCertChain.LastElement();
+    GatherCertificateTransparencyTelemetry(rootCert,
+                                           aCertificateTransparencyInfo);
   }
 }
 
@@ -626,7 +659,7 @@ PRErrorCode AuthCertificateParseResults(
     nsITransportSecurityInfo::OverridableErrorCategory&
         aOverridableErrorCategory) {
   uint32_t probeValue = MapCertErrorToProbeValue(aCertVerificationError);
-  Telemetry::Accumulate(Telemetry::SSL_CERT_VERIFICATION_ERRORS, probeValue);
+  glean::ssl::cert_verification_errors.AccumulateSingleSample(probeValue);
 
   Maybe<nsITransportSecurityInfo::OverridableErrorCategory>
       maybeOverridableErrorCategory =
@@ -669,7 +702,7 @@ PRErrorCode AuthCertificateParseResults(
   if (haveOverride) {
     uint32_t probeValue =
         MapOverridableErrorToProbeValue(aCertVerificationError);
-    Telemetry::Accumulate(Telemetry::SSL_CERT_ERROR_OVERRIDES, probeValue);
+    glean::ssl::cert_error_overrides.AccumulateSingleSample(probeValue);
     MOZ_LOG(gPIPNSSLog, LogLevel::Debug,
             ("[0x%" PRIx64 "] certificate error overridden", aPtrForLog));
     return 0;
@@ -770,7 +803,7 @@ SSLServerCertVerificationJob::Run() {
   if (result == Success) {
     mozilla::glean::cert_verification_time::success.AccumulateRawDuration(
         elapsed);
-    Telemetry::Accumulate(Telemetry::SSL_CERT_ERROR_OVERRIDES, 1);
+    glean::ssl::cert_error_overrides.AccumulateSingleSample(1);
 
     nsresult rv = mResultTask->Dispatch(
         std::move(builtChainBytesArray), std::move(mPeerCertChain),
@@ -801,10 +834,11 @@ SSLServerCertVerificationJob::Run() {
   // NB: finalError may be 0 here, in which the connection will continue.
   nsresult rv = mResultTask->Dispatch(
       std::move(builtChainBytesArray), std::move(mPeerCertChain),
-      nsITransportSecurityInfo::CERTIFICATE_TRANSPARENCY_NOT_APPLICABLE,
+      TransportSecurityInfo::ConvertCertificateTransparencyInfoToStatus(
+          certificateTransparencyInfo),
       EVStatus::NotEV, false, finalError, overridableErrorCategory,
-      // If the certificate verifier returned Result::ERROR_BAD_CERT_DOMAIN, a
-      // chain was built, so isCertChainRootBuiltInRoot is valid and
+      // If the certificate verifier returned Result::ERROR_BAD_CERT_DOMAIN,
+      // a chain was built, so isCertChainRootBuiltInRoot is valid and
       // potentially useful. Otherwise, assume no chain was built.
       result == Result::ERROR_BAD_CERT_DOMAIN ? isCertChainRootBuiltInRoot
                                               : false,
@@ -1109,6 +1143,8 @@ SSLServerCertVerificationResult::Run() {
   mSocketControl->SetMadeOCSPRequests(mMadeOCSPRequests);
   mSocketControl->SetIsBuiltCertChainRootBuiltInRoot(
       mIsBuiltCertChainRootBuiltInRoot);
+  mSocketControl->SetCertificateTransparencyStatus(
+      mCertificateTransparencyStatus);
 
   if (mSucceeded) {
     MOZ_LOG(gPIPNSSLog, LogLevel::Debug,
@@ -1117,21 +1153,21 @@ SSLServerCertVerificationResult::Run() {
     nsCOMPtr<nsIX509Cert> cert(new nsNSSCertificate(std::move(certBytes)));
     mSocketControl->SetServerCert(cert, mEVStatus);
     mSocketControl->SetSucceededCertChain(std::move(mBuiltChain));
-    mSocketControl->SetCertificateTransparencyStatus(
-        mCertificateTransparencyStatus);
   } else {
     nsTArray<uint8_t> certBytes(mPeerCertChain.ElementAt(0).Clone());
     nsCOMPtr<nsIX509Cert> cert(new nsNSSCertificate(std::move(certBytes)));
-    // Certificate validation failed; store the peer certificate chain on
-    // mSocketControl so it can be used for error reporting.
+    mSocketControl->SetServerCert(cert, EVStatus::NotEV);
     mSocketControl->SetFailedCertChain(std::move(mPeerCertChain));
     if (mOverridableErrorCategory !=
         nsITransportSecurityInfo::OverridableErrorCategory::ERROR_UNSET) {
-      mSocketControl->SetStatusErrorBits(cert, mOverridableErrorCategory);
+      mSocketControl->SetStatusErrorBits(mOverridableErrorCategory);
     }
   }
 
   mSocketControl->SetCertVerificationResult(mFinalError);
+  // Release this reference to the socket control so that it will be freed on
+  // the socket thread.
+  mSocketControl = nullptr;
   return NS_OK;
 }
 

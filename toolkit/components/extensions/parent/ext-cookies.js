@@ -4,8 +4,6 @@
 
 "use strict";
 
-/* globals DEFAULT_STORE, PRIVATE_STORE */
-
 var { ExtensionError } = ExtensionUtils;
 
 const SAME_SITE_STATUSES = [
@@ -22,9 +20,12 @@ const isIPv4 = host => {
   }
   return false;
 };
+
 const isIPv6 = host => host.includes(":");
+
 const addBracketIfIPv6 = host =>
   isIPv6(host) && !host.startsWith("[") ? `[${host}]` : host;
+
 const dropBracketIfIPv6 = host =>
   isIPv6(host) && host.startsWith("[") && host.endsWith("]")
     ? host.slice(1, -1)
@@ -49,13 +50,13 @@ function fromExtPartitionKey(extPartitionKey, cookieUrl) {
     try {
       // This is subtle! We define the ancestor bit in our code in a different
       // way than the extension API, but they are isomorphic.
-      //   If we have cookieUrl (which is guaranteed to be the case in get, set,
-      //   and remove) this will return the topLevelSite parsed partition key,
-      //   and include the foreign ancestor bit iff the details.url is
-      //   same-site and a truthy value was passed in the hasCrossSiteAncestor
-      //   property. If we don't have cookieUrl, we handle the difference in
-      //   ancestor bit definition by returning a OA pattern that matches both
-      //   values and filtering them later on in matches.
+      // If we have cookieUrl (which is guaranteed to be the case in get, set,
+      // and remove) this will return the topLevelSite parsed partition key,
+      // and include the foreign ancestor bit iff the details.url is
+      // same-site and a truthy value was passed in the hasCrossSiteAncestor
+      // property. If we don't have cookieUrl, we handle the difference in
+      // ancestor bit definition by returning a OA pattern that matches both
+      // values and filtering them later on in matches.
       if (cookieUrl == null) {
         let topLevelSiteURI = Services.io.newURI(topLevelSite);
         let topLevelSiteFilter = Services.eTLD.getSite(topLevelSiteURI);
@@ -401,11 +402,11 @@ const query = function* (detailsIn, props, context, allowPattern) {
   let host;
   let url;
   if ("url" in details) {
-    try {
-      url = new URL(details.url);
+    url = URL.parse(details.url);
+    if (url) {
       host = dropBracketIfIPv6(url.hostname);
-    } catch (ex) {
-      // This often happens for about: URLs
+    } else {
+      // The url could not be parsed successfully
       return;
     }
   } else if ("domain" in details) {
@@ -415,11 +416,16 @@ const query = function* (detailsIn, props, context, allowPattern) {
   if (host && !isPattern) {
     // getCookiesFromHost is more efficient than getCookiesWithOriginAttributes
     // if the host and all origin attributes are known.
-    cookies = Services.cookies.getCookiesFromHost(host, originAttributes);
+    cookies = Services.cookies.getCookiesFromHost(
+      host,
+      originAttributes,
+      /* sorted: */ true
+    );
   } else {
     cookies = Services.cookies.getCookiesWithOriginAttributes(
       JSON.stringify(originAttributes),
-      host
+      host,
+      /* sorted: */ true
     );
   }
 
@@ -617,7 +623,6 @@ this.cookies = class extends ExtensionAPIPersistent {
         get: function (details) {
           validateFirstPartyDomain(details);
 
-          // TODO bug 1818968: We don't sort by length of path and creation time.
           let allowed = ["url", "name"];
           for (let cookie of query(details, allowed, context)) {
             return Promise.resolve(convertCookie(cookie));
@@ -700,6 +705,8 @@ this.cookies = class extends ExtensionAPIPersistent {
             schemeType = Ci.nsICookie.SCHEME_FILE;
           }
 
+          let isPartitioned = originAttributes.partitionKey?.length > 0;
+
           // The permission check may have modified the domain, so use
           // the new value instead.
           Services.cookies.add(
@@ -713,7 +720,8 @@ this.cookies = class extends ExtensionAPIPersistent {
             expiry,
             originAttributes,
             sameSite,
-            schemeType
+            schemeType,
+            isPartitioned
           );
 
           return self.cookies.get(details);

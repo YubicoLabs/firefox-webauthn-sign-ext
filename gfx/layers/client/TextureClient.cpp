@@ -26,7 +26,6 @@
 #include "mozilla/gfx/Logging.h"             // for gfxDebug
 #include "mozilla/gfx/gfxVars.h"
 #include "mozilla/ipc/CrossProcessSemaphore.h"
-#include "mozilla/ipc/SharedMemory.h"  // for SharedMemory, etc
 #include "mozilla/layers/CanvasRenderer.h"
 #include "mozilla/layers/CompositableForwarder.h"
 #include "mozilla/layers/ISurfaceAllocator.h"
@@ -1768,8 +1767,8 @@ already_AddRefed<TextureReadLock> TextureReadLock::Deserialize(
       return nullptr;
     }
     default: {
-      // Invalid descriptor.
-      MOZ_DIAGNOSTIC_ASSERT(false);
+      MOZ_DIAGNOSTIC_CRASH(
+          "Invalid descriptor in TextureReadLock::Deserialize");
     }
   }
   return nullptr;

@@ -25,7 +25,9 @@ rtc_library("agc") {
     "..:audio_buffer",
     "..:audio_frame_view",
     "../../../api:array_view",
+    "../../../api:field_trials_view",
     "../../../api/audio:audio_processing",
+    "../../../api/environment",
     "../../../common_audio",
     "../../../common_audio:common_audio_c",
     "../../../rtc_base:checks",
@@ -38,7 +40,6 @@ rtc_library("agc") {
     "../agc2:gain_map",
     "../agc2:input_volume_stats_reporter",
     "../vad",
-    "//third_party/abseil-cpp/absl/types:optional",
   ]
 }
 
@@ -85,7 +86,7 @@ rtc_library("legacy_agc") {
   if (rtc_build_with_neon) {
     if (target_cpu != "arm64") {
       # Enable compilation for the NEON instruction set.
-      suppressed_configs += [ "//build/config/compiler:compiler_arm_fpu" ]
+      suppressed_configs += [ "//chromium/build/config/compiler:compiler_arm_fpu" ]
       cflags = [ "-mfpu=neon" ]
     }
   }
@@ -107,13 +108,15 @@ if (rtc_include_tests) {
       ":level_estimation",
       "..:mocks",
       "../../../api:array_view",
+      "../../../api:field_trials",
+      "../../../api/environment",
+      "../../../api/environment:environment_factory",
       "../../../rtc_base:checks",
       "../../../rtc_base:random",
       "../../../rtc_base:safe_conversions",
       "../../../rtc_base:safe_minmax",
       "../../../rtc_base:stringutils",
       "../../../system_wrappers:metrics",
-      "../../../test:field_trial",
       "../../../test:fileutils",
       "../../../test:test_support",
       "//testing/gtest",

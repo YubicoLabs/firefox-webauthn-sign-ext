@@ -1301,8 +1301,8 @@ sftk_handlePrivateKeyObject(SFTKSession *session, SFTKObject *object, CK_KEY_TYP
                 return CKR_TEMPLATE_INCOMPLETE;
             }
             /* for ECDSA and EDDSA. Change if the structure of any of them is modified. */
-            derive = (key_type == CKK_EC_EDWARDS) ? CK_FALSE : CK_TRUE;    /* CK_TRUE for ECDH */
-            sign = (key_type == CKK_EC_MONTGOMERY) ? CK_FALSE : CK_TRUE;   /* for ECDSA and EDDSA */
+            derive = (key_type == CKK_EC_EDWARDS) ? CK_FALSE : CK_TRUE;  /* CK_TRUE for ECDH */
+            sign = (key_type == CKK_EC_MONTGOMERY) ? CK_FALSE : CK_TRUE; /* for ECDSA and EDDSA */
             encrypt = CK_FALSE;
             recover = CK_FALSE;
             wrap = CK_FALSE;
@@ -2153,11 +2153,22 @@ sftk_mkPrivKey(SFTKObject *object, CK_KEY_TYPE key_type, CK_RV *crvp)
             if (sftk_hasAttribute(object, CKA_NSS_DB)) {
                 crv = sftk_Attribute2SSecItem(arena, &privKey->u.ec.publicValue,
                                               object, CKA_NSS_DB);
-                if (crv != CKR_OK)
+                if (crv != CKR_OK) {
                     break;
+                }
                 /* privKey was zero'd so public value is already set to NULL, 0
                  * if we don't set it explicitly */
+            } else if (key_type == CKK_EC) {
+                /* as no public key was provided during the import, we need to derive it here.
+                 See: PK11_ImportAndReturnPrivateKey*/
+                (void)SECITEM_AllocItem(arena, &privKey->u.ec.publicValue, EC_GetPointSize(&privKey->u.ec.ecParams));
+                rv = EC_DerivePublicKey(&privKey->u.ec.privateValue, &privKey->u.ec.ecParams, &privKey->u.ec.publicValue);
+                if (rv != SECSuccess) {
+                    break;
+                }
+                sftk_forceAttribute(object, CKA_NSS_DB, privKey->u.ec.publicValue.data, privKey->u.ec.publicValue.len);
             }
+
             rv = DER_SetUInteger(privKey->arena, &privKey->u.ec.version,
                                  NSSLOWKEY_EC_PRIVATE_KEY_VERSION);
             if (rv != SECSuccess) {
@@ -3200,14 +3211,15 @@ SFTK_DestroySlotData(SFTKSlot *slot)
 char **
 NSC_ModuleDBFunc(unsigned long function, char *parameters, void *args)
 {
-#ifndef NSS_DISABLE_DBM
+#ifdef NSS_DISABLE_DBM
+    return NSSUTIL_DoModuleDBFunction(function, parameters, args);
+#else
     char *secmod = NULL;
     char *appName = NULL;
     char *filename = NULL;
     NSSDBType dbType = NSS_DB_TYPE_NONE;
     PRBool rw;
     static char *success = "Success";
-#endif /* NSS_DISABLE_DBM */
     char **rvstr = NULL;
 
     rvstr = NSSUTIL_DoModuleDBFunction(function, parameters, args);
@@ -3219,7 +3231,6 @@ NSC_ModuleDBFunc(unsigned long function, char *parameters, void *args)
         return NULL;
     }
 
-#ifndef NSS_DISABLE_DBM
     /* The legacy database uses the old dbm, which is only linked with the
      * legacy DB handler, which is only callable from softoken */
 
@@ -3311,8 +3322,8 @@ loser:
         PORT_Free(appName);
     if (filename)
         PORT_Free(filename);
-#endif /* NSS_DISABLE_DBM */
     return rvstr;
+#endif /* NSS_DISABLE_DBM */
 }
 
 static void
@@ -3475,12 +3486,13 @@ nsc_CommonInitialize(CK_VOID_PTR pReserved, PRBool isFIPS)
         return crv;
     }
 
-    rv = RNG_RNGInit(); /* initialize random number generator */
+    rv = BL_Init(); /* initialize freebl engine */
     if (rv != SECSuccess) {
         crv = CKR_DEVICE_ERROR;
         return crv;
     }
-    rv = BL_Init(); /* initialize freebl engine */
+
+    rv = RNG_RNGInit(); /* initialize random number generator */
     if (rv != SECSuccess) {
         crv = CKR_DEVICE_ERROR;
         return crv;

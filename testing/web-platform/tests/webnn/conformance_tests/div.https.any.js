@@ -1,5 +1,5 @@
 // META: title=test WebNN API element-wise div operation
-// META: global=window,dedicatedworker
+// META: global=window
 // META: variant=?cpu
 // META: variant=?gpu
 // META: variant=?npu
@@ -528,7 +528,7 @@ const divTests = [
 if (navigator.ml) {
   divTests.forEach((test) => {
     webnn_conformance_test(
-        buildGraphAndCompute, getDivPrecisionTolerance, test);
+        buildAndExecuteGraph, getDivPrecisionTolerance, test);
   });
 } else {
   test(() => assert_implements(navigator.ml, 'missing navigator.ml'));

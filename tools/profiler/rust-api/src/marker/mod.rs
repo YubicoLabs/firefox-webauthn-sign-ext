@@ -129,8 +129,9 @@ use crate::json_writer::JSONWriter;
 use crate::marker::deserializer_tags_state::get_or_insert_deserializer_tag;
 use crate::ProfilerTime;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use smallvec::SmallVec;
 use std::borrow::Cow;
-use std::os::raw::c_char;
+use std::ffi::c_char;
 
 /// Can be serialized/deserialized but does not allocate if built from
 /// a `&'static str`.
@@ -319,9 +320,19 @@ pub fn add_marker<T>(
         return;
     }
 
-    let encoded_payload: Vec<u8> = bincode::serialize(&payload).unwrap();
-    let payload_size = encoded_payload.len();
     let marker_tag = get_or_insert_deserializer_tag::<T>();
+    // Use a SmallVec instead of a Vec to reduce the overhead of heap
+    // allocations for marker payloads. Performance profiles have shown that
+    // repeatedly allocating and deallocating a Vec can impact the performance.
+    // Especially given that most marker payloads are under 64 bytes today,
+    // it's fine to keep them on the stack. This will still allocate if the
+    // payload is larger than 64 bytes.
+    // Note: This 64 byte is quite arbitrarily set after some manual testing.
+    // We may need to re-evaluate this approach if marker payloads from Rust
+    // grow larger in the future.
+    let mut encoded_payload = SmallVec::<[u8; 64]>::new();
+    bincode::serialize_into(&mut encoded_payload, &payload)
+        .expect("Failed to serialize marker payload");
 
     unsafe {
         bindings::gecko_profiler_add_marker(
@@ -332,9 +343,77 @@ pub fn add_marker<T>(
             options.stack,
             marker_tag,
             encoded_payload.as_ptr(),
-            payload_size,
-        )
+            encoded_payload.len(),
+        );
     }
+}
+
+/// Record a marker using the Rust `add_marker` API, but delay evaluation of
+/// arguments until we're sure that the profiler can accept markers.
+///
+/// This macro is equivalent to testing `gecko_profiler::can_accept_markers`
+/// before calling `gecko_profiler::add_marker`. Note that
+/// `gecko_profiler::add_marker` already performs this check, but after
+/// arguments to the function have already been evaluated, which is too late
+/// if constructing the payload is expensive.
+///
+/// This macro is equivalent in interface to `add_marker`, but with two
+/// additional overloads which allow for the `options` and `category`
+/// arguments to be optional:
+///
+/// lazy_add_marker!(name, category, options, payload)
+///
+/// lazy_add_marker!(name, category, payload)
+///
+/// lazy_add_marker!(name, payload)
+///
+/// In the latter two overloads, the `options` are set to Default::default,
+/// and in the last the category is set to `Other`. Note that eliding the
+/// category but *not* the options is not possible, due to how we're able to
+/// define macros in Rust.
+///
+#[cfg(feature = "enabled")]
+#[macro_export]
+macro_rules! lazy_add_marker {
+    ($name:expr, $category:expr, $options:expr, $payload:expr) => {
+        if gecko_profiler::can_accept_markers() {
+            gecko_profiler::add_marker($name, $category, $options, $payload);
+        }
+    };
+    // Macros are one of the few places that let us do "overloading" in rust,
+    // so take advantage of that to provide a version that drops the
+    // `options` argument, and gives a default value instead.
+    ($name: expr, $category:expr, $payload:expr) => {
+        if gecko_profiler::can_accept_markers() {
+            gecko_profiler::add_marker($name, $category, Default::default(), $payload);
+        }
+    };
+    // Take advantage of overloading to provide a version that drops the
+    // category as well.
+    ($name: expr, $payload:expr) => {
+        if gecko_profiler::can_accept_markers() {
+            gecko_profiler::add_marker(
+                $name,
+                gecko_profiler::ProfilingCategoryPair::Other(None),
+                Default::default(),
+                $payload,
+            );
+        }
+    };
+}
+
+#[cfg(not(feature = "enabled"))]
+#[macro_export]
+macro_rules! lazy_add_marker {
+    ($name:expr, $category:expr, $options:expr, $text:expr) => {
+        // Do nothing if the profiler is not enabled
+    };
+    ($name: expr, $category:expr, $payload:expr) => {
+        // Do nothing if the profiler is not enabled
+    };
+    ($name: expr, $payload:expr) => {
+        // Do nothing if the profiler is not enabled
+    };
 }
 
 /// Tracing marker type for Rust code.

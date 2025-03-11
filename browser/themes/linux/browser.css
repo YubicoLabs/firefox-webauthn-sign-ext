@@ -34,14 +34,8 @@
  * (in X11) or the compositor (in Wayland) does draw the shadow corners
  * already.
  */
-:root[tabsintitlebar] {
+:root[customtitlebar] {
   background-color: transparent;
-
-  /* When temporarily showing the menu bar, make it at least as tall as the tab
-   * bar such that the window controls don't appear to move up. */
-  #toolbar-menubar[autohide="true"] {
-    height: calc(var(--tab-min-height) + 2 * var(--tab-block-margin));
-  }
 
   &[sizemode="normal"]:not([gtktiledwindow="true"]) {
     /* This takes care of drawing our window decorations on X11 */
@@ -55,7 +49,7 @@
     }
 
     /* stylelint-disable-next-line media-query-no-invalid */
-    @media (-moz-bool-pref: "widget.gtk.rounded-bottom-corners.enabled") {
+    @media -moz-pref("widget.gtk.rounded-bottom-corners.enabled") {
       #navigator-toolbox {
         /* The body clip below covers this. */
         border-radius: 0;
@@ -107,7 +101,7 @@
 }
 
 /* stylelint-disable-next-line media-query-no-invalid */
-@media (-moz-bool-pref: "browser.urlbar.experimental.expandTextOnFocus") {
+@media -moz-pref("browser.urlbar.experimental.expandTextOnFocus") {
   #urlbar[breakout-extend] {
     font-size: 1.14em;
   }
@@ -122,7 +116,7 @@
 /* Content area */
 
 /* stylelint-disable-next-line media-query-no-invalid */
-@media not (-moz-bool-pref: "sidebar.revamp") {
+@media not -moz-pref("sidebar.revamp") {
   .sidebar-splitter {
     appearance: none;
     width: 6px;
@@ -143,10 +137,8 @@
   min-height: 0;
 }
 
-#TabsToolbar,
-#toolbar-menubar,
-#main-menubar,
-#titlebar {
+.browser-titlebar,
+#main-menubar {
   appearance: none;
   background-color: transparent;
   color: inherit;
@@ -213,7 +205,7 @@
   }
 
   /* stylelint-disable-next-line media-query-no-invalid */
-  @media (-moz-bool-pref: "widget.gtk.non-native-titlebar-buttons.enabled") {
+  @media -moz-pref("widget.gtk.non-native-titlebar-buttons.enabled") {
     /* When using lightweight themes, use our own buttons since native ones might
      * assume a native background in order to be visible. */
     :root[lwtheme] & {

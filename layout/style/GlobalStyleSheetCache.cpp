@@ -9,6 +9,7 @@
 #include "nsAppDirectoryServiceDefs.h"
 #include "nsExceptionHandler.h"
 #include "mozilla/MemoryReporting.h"
+#include "mozilla/NeverDestroyed.h"
 #include "mozilla/Preferences.h"
 #include "mozilla/StaticPrefs_layout.h"
 #include "mozilla/StyleSheet.h"
@@ -16,7 +17,8 @@
 #include "mozilla/css/Loader.h"
 #include "mozilla/dom/ReferrerInfo.h"
 #include "mozilla/dom/SRIMetadata.h"
-#include "mozilla/ipc/SharedMemory.h"
+#include "mozilla/ipc/SharedMemoryHandle.h"
+#include "mozilla/ipc/SharedMemoryMapping.h"
 #include "MainThreadUtils.h"
 #include "nsContentUtils.h"
 #include "nsIConsoleService.h"
@@ -104,6 +106,11 @@ namespace mozilla {
 using namespace mozilla;
 using namespace css;
 
+mozilla::ipc::ReadOnlySharedMemoryHandle& sSharedMemoryHandle() {
+  static NeverDestroyed<mozilla::ipc::ReadOnlySharedMemoryHandle> handle;
+  return *handle;
+}
+
 #define PREF_LEGACY_STYLESHEET_CUSTOMIZATION \
   "toolkit.legacyUserProfileCustomizations.stylesheets"
 
@@ -173,7 +180,7 @@ GlobalStyleSheetCache::CollectReports(nsIHandleReportCallback* aHandleReport,
   if (XRE_IsParentProcess()) {
     MOZ_COLLECT_REPORT(
         "explicit/layout/style-sheet-cache/shared", KIND_NONHEAP, UNITS_BYTES,
-        sSharedMemory ? sUsedSharedMemory : 0,
+        sSharedMemory.IsEmpty() ? 0 : sUsedSharedMemory,
         "Memory used for built-in style sheets that are shared to "
         "child processes.");
   }
@@ -236,10 +243,10 @@ GlobalStyleSheetCache::GlobalStyleSheetCache() {
     if (XRE_IsParentProcess()) {
       // Load the style sheets and store them in a new shared memory buffer.
       InitSharedSheetsInParent();
-    } else if (sSharedMemory) {
-      // Use the shared memory handle that was given to us by a SetSharedMemory
-      // call under ContentChild::InitXPCOM.
-      MOZ_ASSERT(sSharedMemory->memory(),
+    } else if (!sSharedMemory.IsEmpty()) {
+      // Use the shared memory that was given to us by a SetSharedMemory call
+      // under ContentChild::InitXPCOM.
+      MOZ_ASSERT(sSharedMemory.data(),
                  "GlobalStyleSheetCache::SetSharedMemory should have mapped "
                  "the shared memory");
     }
@@ -258,8 +265,9 @@ GlobalStyleSheetCache::GlobalStyleSheetCache() {
   // In the parent process, this means we'll just leave our eagerly loaded
   // non-shared sheets in the mFooSheet fields.  In a content process, we'll
   // lazily load our own copies of the sheets later.
-  if (sSharedMemory) {
-    if (auto* header = static_cast<Header*>(sSharedMemory->memory())) {
+  if (!sSharedMemory.IsEmpty()) {
+    if (const auto* header =
+            reinterpret_cast<const Header*>(sSharedMemory.data())) {
       MOZ_RELEASE_ASSERT(header->mMagic == Header::kMagic);
 
 #define STYLE_SHEET(identifier_, url_, shared_)                    \
@@ -276,7 +284,7 @@ GlobalStyleSheetCache::GlobalStyleSheetCache() {
 
 void GlobalStyleSheetCache::LoadSheetFromSharedMemory(
     const char* aURL, RefPtr<StyleSheet>* aSheet, SheetParsingMode aParsingMode,
-    Header* aHeader, UserAgentStyleSheetID aSheetID) {
+    const Header* aHeader, UserAgentStyleSheetID aSheetID) {
   auto i = size_t(aSheetID);
 
   auto sheet =
@@ -299,10 +307,10 @@ void GlobalStyleSheetCache::LoadSheetFromSharedMemory(
 
 void GlobalStyleSheetCache::InitSharedSheetsInParent() {
   MOZ_ASSERT(XRE_IsParentProcess());
-  MOZ_RELEASE_ASSERT(!sSharedMemory);
+  MOZ_RELEASE_ASSERT(sSharedMemory.IsEmpty());
 
-  auto shm = MakeUnique<base::SharedMemory>();
-  if (NS_WARN_IF(!shm->CreateFreezeable(kSharedMemorySize))) {
+  auto handle = ipc::shared_memory::CreateFreezable(kSharedMemorySize);
+  if (NS_WARN_IF(!handle)) {
     return;
   }
 
@@ -334,19 +342,22 @@ void GlobalStyleSheetCache::InitSharedSheetsInParent() {
 #endif
 
   void* address = nullptr;
-  if (void* p = base::SharedMemory::FindFreeAddressSpace(2 * kOffset)) {
+  if (void* p = ipc::shared_memory::FindFreeAddressSpace(2 * kOffset)) {
     address = reinterpret_cast<void*>(uintptr_t(p) + kOffset);
   }
 
-  if (!shm->Map(kSharedMemorySize, address)) {
+  auto mapping = std::move(handle).Map(address);
+  if (!mapping) {
     // Failed to map at the address we computed for some reason.  Fall back
     // to just allocating at a location of the OS's choosing, and hope that
     // it works in the content process.
-    if (NS_WARN_IF(!shm->Map(kSharedMemorySize))) {
+    auto handle = std::move(mapping).Unmap();
+    mapping = std::move(handle).Map();
+    if (NS_WARN_IF(!mapping)) {
       return;
     }
   }
-  address = shm->memory();
+  address = mapping.Address();
 
   auto* header = static_cast<Header*>(address);
   header->mMagic = Header::kMagic;
@@ -382,16 +393,12 @@ void GlobalStyleSheetCache::InitSharedSheetsInParent() {
 
   // Finished writing into the shared memory.  Freeze it, so that a process
   // can't confuse other processes by changing the UA style sheet contents.
-  if (NS_WARN_IF(!shm->Freeze())) {
+  auto [_, readOnlyHandle] = std::move(mapping).Freeze();
+  if (NS_WARN_IF(!readOnlyHandle)) {
     return;
   }
 
-  // The Freeze() call unmaps the shared memory.  Re-map it again as read only.
-  // If this fails, due to something else being mapped into the same place
-  // between the Freeze() and Map() call, we can just fall back to keeping our
-  // own copy of the UA style sheets in the parent, and still try sending the
-  // shared memory to the content processes.
-  shm->Map(kSharedMemorySize, address);
+  auto roMapping = readOnlyHandle.Map(address);
 
   // Record how must of the shared memory we have used, for memory reporting
   // later.  We round up to the nearest page since the free space at the end
@@ -400,12 +407,13 @@ void GlobalStyleSheetCache::InitSharedSheetsInParent() {
   // TODO(heycam): This won't be true on Windows unless we allow creating the
   // shared memory with SEC_RESERVE so that the pages are reserved but not
   // committed.
-  size_t pageSize = ipc::SharedMemory::SystemPageSize();
+  size_t pageSize = ipc::shared_memory::SystemPageSize();
   sUsedSharedMemory =
       (Servo_SharedMemoryBuilder_GetLength(builder.get()) + pageSize - 1) &
       ~(pageSize - 1);
 
-  sSharedMemory = shm.release();
+  sSharedMemory = std::move(roMapping).Release();
+  sSharedMemoryHandle() = std::move(readOnlyHandle);
 }
 
 GlobalStyleSheetCache::~GlobalStyleSheetCache() {
@@ -445,7 +453,9 @@ void GlobalStyleSheetCache::InitFromProfile() {
   if (appInfo) {
     bool inSafeMode = false;
     appInfo->GetInSafeMode(&inSafeMode);
-    if (inSafeMode) return;
+    if (inSafeMode) {
+      return;
+    }
   }
   nsCOMPtr<nsIFile> contentFile;
   nsCOMPtr<nsIFile> chromeFile;
@@ -457,7 +467,9 @@ void GlobalStyleSheetCache::InitFromProfile() {
   }
 
   contentFile->Clone(getter_AddRefs(chromeFile));
-  if (!chromeFile) return;
+  if (!chromeFile) {
+    return;
+  }
 
   contentFile->Append(u"userContent.css"_ns);
   chromeFile->Append(u"userChrome.css"_ns);
@@ -528,25 +540,24 @@ RefPtr<StyleSheet> GlobalStyleSheetCache::LoadSheet(
 }
 
 /* static */ void GlobalStyleSheetCache::SetSharedMemory(
-    base::SharedMemoryHandle aHandle, uintptr_t aAddress) {
+    ipc::ReadOnlySharedMemoryHandle aHandle, uintptr_t aAddress) {
   MOZ_ASSERT(!XRE_IsParentProcess());
   MOZ_ASSERT(!gStyleCache, "Too late, GlobalStyleSheetCache already created!");
-  MOZ_ASSERT(!sSharedMemory, "Shouldn't call this more than once");
+  MOZ_ASSERT(sSharedMemory.IsEmpty(), "Shouldn't call this more than once");
 
-  auto shm = MakeUnique<base::SharedMemory>();
-  if (!shm->SetHandle(std::move(aHandle), /* read_only */ true)) {
+  auto mapping = aHandle.Map(reinterpret_cast<void*>(aAddress));
+  if (!mapping) {
     return;
   }
 
-  if (shm->Map(kSharedMemorySize, reinterpret_cast<void*>(aAddress))) {
-    sSharedMemory = shm.release();
-  }
+  sSharedMemory = std::move(mapping).Release();
+  sSharedMemoryHandle() = std::move(aHandle);
 }
 
-base::SharedMemoryHandle GlobalStyleSheetCache::CloneHandle() {
+ipc::ReadOnlySharedMemoryHandle GlobalStyleSheetCache::CloneHandle() {
   MOZ_ASSERT(XRE_IsParentProcess());
-  if (sSharedMemory) {
-    return sSharedMemory->CloneHandle();
+  if (sSharedMemoryHandle().IsValid()) {
+    return sSharedMemoryHandle().Clone();
   }
   return nullptr;
 }
@@ -555,7 +566,7 @@ StaticRefPtr<GlobalStyleSheetCache> GlobalStyleSheetCache::gStyleCache;
 StaticRefPtr<css::Loader> GlobalStyleSheetCache::gCSSLoader;
 StaticRefPtr<nsIURI> GlobalStyleSheetCache::gUserContentSheetURL;
 
-StaticAutoPtr<base::SharedMemory> GlobalStyleSheetCache::sSharedMemory;
+ipc::shared_memory::LeakedReadOnlyMapping GlobalStyleSheetCache::sSharedMemory;
 size_t GlobalStyleSheetCache::sUsedSharedMemory;
 
 }  // namespace mozilla

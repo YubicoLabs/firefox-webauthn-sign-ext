@@ -24,7 +24,7 @@ import org.mozilla.fenix.components.toolbar.ToolbarPosition
 import org.mozilla.fenix.components.toolbar.navbar.shouldAddNavigationBar
 import org.mozilla.fenix.databinding.FragmentHomeBinding
 import org.mozilla.fenix.ext.increaseTapAreaVertically
-import org.mozilla.fenix.ext.isTablet
+import org.mozilla.fenix.ext.isLargeWindow
 import org.mozilla.fenix.ext.settings
 import org.mozilla.fenix.home.toolbar.ToolbarInteractor
 import org.mozilla.fenix.utils.ToolbarPopupWindow
@@ -79,26 +79,33 @@ class ToolbarView(
 
         binding.toolbarWrapper.increaseTapAreaVertically(TOOLBAR_WRAPPER_INCREASE_HEIGHT_DPS)
 
-        updateButtonVisibility(browserState)
+        updateButtonVisibility(browserState, context.shouldAddNavigationBar())
     }
 
     /**
      * Updates the visibility of the tab counter and menu buttons.
      *
      * @param browserState [BrowserState] is used to update tab counter's state.
+     * @param shouldAddNavigationBar [Boolean] is used to update menu button's and tab counter's state.
      */
-    fun updateButtonVisibility(browserState: BrowserState) {
-        val showTabCounterAndMenu = !context.shouldAddNavigationBar()
-        binding.menuButton.isVisible = showTabCounterAndMenu
-        binding.tabButton.isVisible = showTabCounterAndMenu
+    fun updateButtonVisibility(browserState: BrowserState, shouldAddNavigationBar: Boolean) {
+        val showMenu = !shouldAddNavigationBar
+        val showTabCounter = !(shouldAddNavigationBar || context.isTabStripEnabled())
+        binding.menuButton.isVisible = showMenu
+        binding.tabButton.isVisible = showTabCounter
 
-        if (showTabCounterAndMenu) {
-            homeMenuView = buildHomeMenu()
-            tabCounterView = buildTabCounter()
-            tabCounterView?.update(browserState)
+        tabCounterView = if (showTabCounter) {
+            buildTabCounter().also {
+                it.update(browserState)
+            }
         } else {
-            homeMenuView = null
-            tabCounterView = null
+            null
+        }
+
+        homeMenuView = if (showMenu) {
+            buildHomeMenu()
+        } else {
+            null
         }
     }
 
@@ -118,7 +125,7 @@ class ToolbarView(
         browsingModeManager = homeActivity.browsingModeManager,
         navController = homeFragment.findNavController(),
         tabCounter = binding.tabButton,
-        showLongPressMenu = !(context.settings().navigationToolbarEnabled && context.isTablet()),
+        showLongPressMenu = !(context.settings().navigationToolbarEnabled && context.isLargeWindow()),
     )
 
     /**
@@ -206,7 +213,7 @@ class ToolbarView(
     private fun updateMargins() {
         if (context.settings().navigationToolbarEnabled) {
             val marginStart = context.resources.getDimensionPixelSize(R.dimen.toolbar_horizontal_margin)
-            val marginEnd = if (context.isLandscape() || context.isTablet()) {
+            val marginEnd = if (context.isLandscape() || context.isLargeWindow()) {
                 context.resources.getDimensionPixelSize(R.dimen.home_item_horizontal_short_margin)
             } else {
                 context.resources.getDimensionPixelSize(R.dimen.home_item_horizontal_margin)
@@ -220,6 +227,6 @@ class ToolbarView(
     }
 
     companion object {
-        const val TOOLBAR_WRAPPER_INCREASE_HEIGHT_DPS = 4
+        const val TOOLBAR_WRAPPER_INCREASE_HEIGHT_DPS = 5
     }
 }

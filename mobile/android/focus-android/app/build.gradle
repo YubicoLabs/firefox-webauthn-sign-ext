@@ -1,4 +1,6 @@
 plugins {
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.compose)
     id "com.jetbrains.python.envs" version "$python_envs_plugin"
 }
 
@@ -7,7 +9,6 @@ if (findProject(":geckoview") != null) {
 }
 
 apply plugin: 'com.android.application'
-apply plugin: 'kotlin-android'
 apply plugin: 'kotlin-parcelize'
 apply plugin: 'jacoco'
 apply plugin: 'com.google.android.gms.oss-licenses-plugin'
@@ -20,8 +21,6 @@ apply from: versionCodeGradle
 
 import com.android.build.api.variant.FilterConfiguration
 import groovy.json.JsonOutput
-import org.gradle.internal.logging.text.StyledTextOutput.Style
-import org.gradle.internal.logging.text.StyledTextOutputFactory
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 import static org.gradle.api.tasks.testing.TestResult.ResultType
@@ -78,7 +77,7 @@ android {
             if (gradle.ext.vcsHashFileContent) {
                 buildConfigField "String", "VCS_HASH", "\"hg-${gradle.ext.vcsHashFileContent}\""
             } else {
-                buildConfigField "String", "VCS_HASH", "\"${Config.vcsHash}\""
+                buildConfigField "String", "VCS_HASH", "\"${Config.getVcsHash(project)}\""
             }
 
             if (gradle.hasProperty("localProperties.autosignReleaseWithDebugKey")) {
@@ -120,10 +119,6 @@ android {
         compose true
         viewBinding true
         buildConfig true
-    }
-
-    composeOptions {
-        kotlinCompilerExtensionVersion = Versions.compose_compiler
     }
 
     flavorDimensions.add("product")
@@ -192,15 +187,6 @@ android {
     namespace 'org.mozilla.focus'
 }
 
-tasks.withType(KotlinCompile).configureEach {
-    kotlinOptions.allWarningsAsErrors = true
-    kotlinOptions.freeCompilerArgs += [
-            "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
-            "-opt-in=kotlin.RequiresOptIn",
-            "-Xjvm-default=all"
-    ]
-}
-
 // -------------------------------------------------------------------------------------------------
 // Generate Kotlin code for the Focus Glean metrics.
 // -------------------------------------------------------------------------------------------------
@@ -235,44 +221,48 @@ nimbus {
     experimenterManifest = ".experimenter.yaml"
 }
 
+tasks.withType(KotlinCompile).configureEach {
+    kotlinOptions.freeCompilerArgs += "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi"
+}
+
 dependencies {
-    implementation ComponentsDependencies.androidx_activity
-    implementation ComponentsDependencies.androidx_appcompat
-    implementation ComponentsDependencies.androidx_browser
-    implementation ComponentsDependencies.androidx_cardview
-    implementation ComponentsDependencies.androidx_collection
+    implementation libs.androidx.activity
+    implementation libs.androidx.appcompat
+    implementation libs.androidx.browser
+    implementation libs.androidx.cardview
+    implementation libs.androidx.collection
 
-    implementation platform(ComponentsDependencies.androidx_compose_bom)
-    androidTestImplementation platform(ComponentsDependencies.androidx_compose_bom)
-    implementation ComponentsDependencies.androidx_compose_foundation
-    implementation ComponentsDependencies.androidx_compose_material
-    implementation ComponentsDependencies.androidx_compose_material_icons
-    implementation ComponentsDependencies.androidx_compose_runtime_livedata
-    implementation ComponentsDependencies.androidx_compose_ui
-    implementation ComponentsDependencies.androidx_compose_ui_tooling
+    implementation platform(libs.androidx.compose.bom)
+    androidTestImplementation platform(libs.androidx.compose.bom)
+    implementation libs.androidx.compose.foundation
+    implementation libs.androidx.compose.material
+    implementation libs.androidx.compose.material.icons
+    implementation libs.androidx.compose.runtime.livedata
+    implementation libs.androidx.compose.ui
+    implementation libs.androidx.compose.ui.tooling
 
-    implementation ComponentsDependencies.androidx_constraintlayout
-    implementation ComponentsDependencies.androidx_constraintlayout_compose
-    implementation ComponentsDependencies.androidx_core_ktx
-    implementation ComponentsDependencies.androidx_core_splashscreen
-    implementation ComponentsDependencies.androidx_datastore_preferences
-    implementation ComponentsDependencies.androidx_fragment
-    implementation ComponentsDependencies.androidx_lifecycle_process
-    implementation ComponentsDependencies.androidx_lifecycle_viewmodel
-    implementation ComponentsDependencies.androidx_palette
-    implementation ComponentsDependencies.androidx_preferences
-    implementation ComponentsDependencies.androidx_recyclerview
-    implementation ComponentsDependencies.androidx_savedstate
-    implementation ComponentsDependencies.androidx_transition
-    implementation ComponentsDependencies.androidx_work_runtime
+    implementation libs.androidx.constraintlayout
+    implementation libs.androidx.constraintlayout.compose
+    implementation libs.androidx.core.ktx
+    implementation libs.androidx.core.splashscreen
+    implementation libs.androidx.datastore.preferences
+    implementation libs.androidx.fragment
+    implementation libs.androidx.lifecycle.process
+    implementation libs.androidx.lifecycle.viewmodel
+    implementation libs.androidx.palette
+    implementation libs.androidx.preferences
+    implementation libs.androidx.recyclerview
+    implementation libs.androidx.savedstate
+    implementation libs.androidx.transition
+    implementation libs.androidx.work.runtime
 
     // Required for in-app reviews
-    implementation ComponentsDependencies.play_review
-    implementation ComponentsDependencies.play_review_ktx
+    implementation libs.play.review
+    implementation libs.play.review.ktx
 
-    implementation ComponentsDependencies.google_material
+    implementation libs.google.material
 
-    implementation ComponentsDependencies.thirdparty_sentry
+    implementation libs.thirdparty.sentry
 
     implementation project(':browser-engine-gecko')
     implementation project(':browser-domains')
@@ -331,56 +321,45 @@ dependencies {
     implementation project(':compose-cfr')
 
     implementation project(":service-glean")
-    implementation ComponentsDependencies.mozilla_glean, {
+    implementation libs.mozilla.glean, {
         exclude group: 'org.mozilla.telemetry', module: 'glean-native'
     }
 
-    implementation ComponentsDependencies.kotlin_coroutines
-    debugImplementation ComponentsDependencies.leakcanary
-
-    focusImplementation FocusDependencies.adjust
-    focusImplementation FocusDependencies.install_referrer // Required by Adjust
+    implementation libs.kotlin.coroutines
+    debugImplementation libs.leakcanary
 
     testImplementation "org.mozilla.telemetry:glean-native-forUnitTests:${project.ext.glean_version}"
 
-    testImplementation ComponentsDependencies.junit_api
-    testImplementation ComponentsDependencies.junit_params
-    testRuntimeOnly ComponentsDependencies.junit_engine
+    testImplementation libs.junit.api
+    testImplementation libs.junit.params
+    testRuntimeOnly libs.junit.engine
 
-    testImplementation ComponentsDependencies.testing_robolectric
-    testImplementation ComponentsDependencies.testing_mockito
-    testImplementation ComponentsDependencies.testing_coroutines
-    testImplementation ComponentsDependencies.androidx_work_testing
-    testImplementation ComponentsDependencies.androidx_arch_core_testing
+    testImplementation libs.testing.robolectric
+    testImplementation libs.testing.mockito
+    testImplementation libs.testing.coroutines
+    testImplementation libs.androidx.work.testing
+    testImplementation libs.androidx.arch.core.testing
     testImplementation project(':support-test')
     testImplementation project(':support-test-libstate')
 
-    androidTestImplementation ComponentsDependencies.testing_mockwebserver
-    testImplementation ComponentsDependencies.testing_mockwebserver
+    androidTestImplementation libs.testing.mockwebserver
+    testImplementation libs.testing.mockwebserver
     testImplementation project(':lib-fetch-okhttp')
 
-    androidTestImplementation FocusDependencies.fastlane
-    androidTestImplementation FocusDependencies.falcon // Required by fastlane
+    testImplementation libs.androidx.test.core
+    testImplementation libs.androidx.test.runner
+    testImplementation libs.androidx.test.rules
 
-    constraints {
-        implementation (ComponentsDependencies.androidx_tracing) {
-            because 'AndroidX Test gets force-downgraded to 1.0.0 and breaks otherwise'
-        }
-    }
-
-    testImplementation ComponentsDependencies.androidx_test_core
-    testImplementation ComponentsDependencies.androidx_test_runner
-    testImplementation ComponentsDependencies.androidx_test_rules
-
-    androidTestImplementation ComponentsDependencies.androidx_espresso_core
-    androidTestImplementation ComponentsDependencies.androidx_espresso_idling_resource
-    androidTestImplementation ComponentsDependencies.androidx_espresso_intents
-    androidTestImplementation ComponentsDependencies.androidx_espresso_web
-    androidTestImplementation ComponentsDependencies.androidx_test_core
-    androidTestImplementation ComponentsDependencies.androidx_test_junit
-    androidTestImplementation ComponentsDependencies.androidx_test_uiautomator
-    androidTestImplementation ComponentsDependencies.androidx_test_runner
-    androidTestUtil ComponentsDependencies.androidx_test_orchestrator
+    androidTestImplementation libs.androidx.espresso.core
+    androidTestImplementation libs.androidx.espresso.idling.resource
+    androidTestImplementation libs.androidx.espresso.intents
+    androidTestImplementation libs.androidx.espresso.web
+    androidTestImplementation libs.androidx.test.core
+    androidTestImplementation libs.androidx.test.junit
+    androidTestImplementation libs.androidx.test.monitor
+    androidTestImplementation libs.androidx.test.runner
+    androidTestImplementation libs.androidx.test.uiautomator
+    androidTestUtil libs.androidx.test.orchestrator
 
     lintChecks project(':tooling-lint')
 }
@@ -391,18 +370,18 @@ dependencies {
 android.applicationVariants.configureEach { variant ->
     def buildType = variant.buildType.name
 
-    println("----------------------------------------------")
-    println("Variant name:      " + variant.name)
-    println("Application ID:    " + [variant.applicationId, variant.buildType.applicationIdSuffix].findAll().join())
-    println("Build type:        " + variant.buildType.name)
-    println("Flavor:            " + variant.flavorName)
+    project.logger.debug("----------------------------------------------")
+    project.logger.debug("Variant name:      " + variant.name)
+    project.logger.debug("Application ID:    " + [variant.applicationId, variant.buildType.applicationIdSuffix].findAll().join())
+    project.logger.debug("Build type:        " + variant.buildType.name)
+    project.logger.debug("Flavor:            " + variant.flavorName)
 
     if (buildType == "release" || buildType == "nightly" || buildType == "beta") {
         def baseVersionCode = generatedVersionCode
         def versionName = buildType == "nightly" ?
                 "${Config.nightlyVersionName(project)}" :
                 "${Config.releaseVersionName(project)}"
-        println("versionName override: $versionName")
+        project.logger.debug("versionName override: $versionName")
 
         // The Google Play Store does not allow multiple APKs for the same app that all have the
         // same version code. Therefore we need to have different version codes for our ARM and x86
@@ -433,7 +412,7 @@ android.applicationVariants.configureEach { variant ->
             if (aab) {
                 // AAB version code is odd
                 versionCodeOverride = versionCodeOverride + 1
-                println("versionCode for AAB = $versionCodeOverride")
+                project.logger.debug("versionCode for AAB = $versionCodeOverride")
             } else {
                 if (abi == "x86_64") {
                     versionCodeOverride = versionCodeOverride + 6
@@ -446,7 +425,7 @@ android.applicationVariants.configureEach { variant ->
                 } else {
                     throw new RuntimeException("Unknown ABI: " + abi)
                 }
-                println("versionCode for $abi = $versionCodeOverride")
+                project.logger.debug("versionCode for $abi = $versionCodeOverride")
             }
 
             if (versionName != null) {
@@ -464,43 +443,14 @@ android.applicationVariants.configureEach { variant ->
 // -------------------------------------------------------------------------------------------------
 
 android.applicationVariants.configureEach {
-    print("MLS token: ")
+    project.logger.debug("MLS token: ")
     try {
         def token = new File("${rootDir}/.mls_token").text.trim()
         buildConfigField 'String', 'MLS_TOKEN', '"' + token + '"'
-        println "(Added from .mls_token file)"
+        project.logger.debug("(Added from .mls_token file)")
     } catch (FileNotFoundException ignored) {
         buildConfigField 'String', 'MLS_TOKEN', '""'
-        println("X_X")
-    }
-}
-
-// -------------------------------------------------------------------------------------------------
-// Adjust: Read token from local file if it exists (Only release builds)
-// -------------------------------------------------------------------------------------------------
-
-android.applicationVariants.configureEach { variant ->
-    def variantName = variant.getName()
-
-    print("Adjust token: ")
-
-    if (variantName.contains("Release") && variantName.contains("focus")) {
-        try {
-            def token = new File("${rootDir}/.adjust_token").text.trim()
-            buildConfigField 'String', 'ADJUST_TOKEN', '"' + token + '"'
-            println "(Added from .adjust_token file)"
-        } catch (FileNotFoundException ignored) {
-            if (gradle.hasProperty("localProperties.autosignReleaseWithDebugKey")) {
-                buildConfigField 'String', 'ADJUST_TOKEN', '"fake"'
-                println("fake - only for local development")
-            } else {
-                buildConfigField 'String', 'ADJUST_TOKEN', 'null'
-                println("X_X")
-            }
-        }
-    } else {
-        buildConfigField 'String', 'ADJUST_TOKEN', 'null'
-        println("--")
+        project.logger.debug("X_X")
     }
 }
 
@@ -509,14 +459,14 @@ android.applicationVariants.configureEach { variant ->
 // -------------------------------------------------------------------------------------------------
 
 android.applicationVariants.configureEach {
-    print("Sentry token: ")
+    project.logger.debug("Sentry token: ")
     try {
         def token = new File("${rootDir}/.sentry_token").text.trim()
         buildConfigField 'String', 'SENTRY_TOKEN', '"' + token + '"'
-        println "(Added from .sentry_token file)"
+        project.logger.debug("(Added from .sentry_token file)")
     } catch (FileNotFoundException ignored) {
         buildConfigField 'String', 'SENTRY_TOKEN', '""'
-        println("X_X")
+        project.logger.debug("X_X")
     }
 }
 
@@ -569,7 +519,7 @@ def getEnabledLocales() {
 // Nimbus: Read endpoint from local.properties of a local file if it exists
 // -------------------------------------------------------------------------------------------------
 
-print("Nimbus endpoint: ")
+project.logger.debug("Nimbus endpoint: ")
 android.applicationVariants.configureEach { variant ->
     def variantName = variant.getName()
 
@@ -577,30 +527,30 @@ android.applicationVariants.configureEach { variant ->
         try {
             def url = new File("${rootDir}/.nimbus").text.trim()
             buildConfigField 'String', 'NIMBUS_ENDPOINT', '"' + url + '"'
-            println "(Added from .nimbus file)"
+            project.logger.debug("(Added from .nimbus file)")
         } catch (FileNotFoundException ignored) {
             buildConfigField 'String', 'NIMBUS_ENDPOINT', 'null'
-            println("X_X")
+            project.logger.debug("X_X")
         }
     } else if (gradle.hasProperty("localProperties.nimbus.remote-settings.url")) {
         def url = gradle.getProperty("localProperties.nimbus.remote-settings.url")
         buildConfigField 'String', 'NIMBUS_ENDPOINT', '"' + url + '"'
-        println "(Added from local.properties file)"
+        project.logger.debug("(Added from local.properties file)")
     } else {
         buildConfigField 'String', 'NIMBUS_ENDPOINT', 'null'
-        println("--")
+        project.logger.debug("--")
     }
 }
 
-def generatedLocaleListDir = 'src/main/java/org/mozilla/focus/generated'
+def generatedLocaleListDir = file('src/main/java/org/mozilla/focus/generated')
 def generatedLocaleListFilename = 'LocalesList.kt'
 
-tasks.register('generateLocaleList') {
-    doLast {
-        def dir = file(generatedLocaleListDir)
-        dir.mkdir()
-        def localeList = file(new File(dir, generatedLocaleListFilename))
+def enabledLocales = project.provider { getEnabledLocales() }
 
+tasks.register('generateLocaleList') {
+    def localeList = file(new File(generatedLocaleListDir, generatedLocaleListFilename))
+    doLast {
+        generatedLocaleListDir.mkdir()
         localeList.delete()
         localeList.createNewFile()
         localeList << "package org.mozilla.focus.generated" << "\n" << "\n"
@@ -618,7 +568,7 @@ tasks.register('generateLocaleList') {
         localeList << "        " << "listOf("
         localeList << "\n"
         localeList << "            "
-        localeList << getEnabledLocales().join(",\n" + "            ")
+        localeList << enabledLocales.get().join(",\n" + "            ")
         localeList << ",\n"
         localeList << "        )," << "\n"
         localeList << "    )" << "\n"
@@ -633,7 +583,7 @@ tasks.configureEach { task ->
 }
 
 clean.doLast {
-    file(generatedLocaleListDir).deleteDir()
+    generatedLocaleListDir.deleteDir()
 }
 
 if (project.hasProperty("coverage")) {
@@ -680,17 +630,17 @@ if (project.hasProperty("coverage")) {
 // Taskgraph Usage: "./gradlew printVariants
 // -------------------------------------------------------------------------------------------------
 tasks.register('printVariants') {
-    doLast {
-        def variants = android.applicationVariants.collect { variant -> [
+    def variants = project.provider { android.applicationVariants.collect { variant -> [
             apks: variant.outputs.collect { output -> [
-                abi: output.getFilter(FilterConfiguration.FilterType.ABI.name()),
-                fileName: output.outputFile.name
+                    abi: output.getFilter(FilterConfiguration.FilterType.ABI.name()),
+                    fileName: output.outputFile.name
             ]},
             build_type: variant.buildType.name,
             name: variant.name,
-        ]}
+    ]}}
+    doLast {
         // AndroidTest is a special case not included above
-        variants.add([
+        variants.get().add([
             apks: [[
                 abi: 'noarch',
                 fileName: 'app-debug-androidTest.apk',
@@ -698,7 +648,7 @@ tasks.register('printVariants') {
             build_type: 'androidTest',
             name: 'androidTest',
         ])
-        println 'variants: ' + JsonOutput.toJson(variants)
+        println 'variants: ' + JsonOutput.toJson(variants.get())
     }
 }
 
@@ -711,38 +661,36 @@ afterEvaluate {
 
         testLogging.events = []
 
-        def out = services.get(StyledTextOutputFactory).create("tests")
-
         beforeSuite { descriptor ->
             if (descriptor.getClassName() != null) {
-                out.style(Style.Header).println("\nSUITE: " + descriptor.getClassName())
+                println("\nSUITE: " + descriptor.getClassName())
             }
         }
 
         beforeTest { descriptor ->
-            out.style(Style.Description).println("  TEST: " + descriptor.getName())
+            println("  TEST: " + descriptor.getName())
         }
 
         onOutput { descriptor, event ->
-            logger.lifecycle("    " + event.message.trim())
+            it.logger.lifecycle("    " + event.message.trim())
         }
 
         afterTest { descriptor, result ->
             switch (result.getResultType()) {
                 case ResultType.SUCCESS:
-                    out.style(Style.Success).println("  SUCCESS")
+                    println("  SUCCESS")
                     break
 
                 case ResultType.FAILURE:
                     def testId = descriptor.getClassName() + "." + descriptor.getName()
-                    out.style(Style.Failure).println("  TEST-UNEXPECTED-FAIL | " + testId + " | " + result.getException())
+                    println("  TEST-UNEXPECTED-FAIL | " + testId + " | " + result.getException())
                     break
 
                 case ResultType.SKIPPED:
-                    out.style(Style.Info).println("  SKIPPED")
+                    println("  SKIPPED")
                     break
             }
-            logger.lifecycle("")
+            it.logger.lifecycle("")
         }
     }
 }

@@ -98,9 +98,9 @@ interface nsIHttpChannelInternal : nsISupports
      * (URI's, prompters, date headers etc).
      *
      * @param aCookieHeader
-     *        The cookie header to be parsed.
+     *        The cookie header values to be parsed.
      */
-    [must_use] void setCookie(in ACString aCookieHeader);
+    [must_use] void setCookieHeaders(in Array<ACString> aCookieHeaders);
 
     /**
      * Returns true in case this channel is used for auth;
@@ -468,6 +468,12 @@ interface nsIHttpChannelInternal : nsISupports
     [noscript]
     nsILoadInfo_CrossOriginEmbedderPolicy getResponseEmbedderPolicy(in boolean aIsOriginTrialCoepCredentiallessEnabled);
 
+    /**
+     * Returns the parsed boolean value of the "Origin-Agent-Cluster" header.
+     * @throws NS_ERROR_NOT_AVAILABLE if the header is not present.
+     */
+    [noscript] boolean getOriginAgentClusterHeader();
+
     [noscript, notxpcom, nostdcall]
     void DoDiagnosticAssertWhenOnStopNotCalledOnDestroy();
 
@@ -542,9 +548,9 @@ interface nsIHttpChannelInternal : nsISupports
 
     /**
      * Same as redirectTo in nsIHttpChannel, but handles internal redirect
-     * so that we add REDIRECT_INTERNAL to the flag.
+     * so that we add REDIRECT_TRANSPARENT to the flag.
      */
-    [must_use] void internalRedirectTo(in nsIURI aTargetURI);
+    [must_use] void transparentRedirectTo(in nsIURI aTargetURI);
 
 
     /**

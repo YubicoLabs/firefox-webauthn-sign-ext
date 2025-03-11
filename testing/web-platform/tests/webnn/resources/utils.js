@@ -26,7 +26,7 @@ const getSoftmaxPrecisionTolerance =
       if (inputs[inputIndex]) {
         inputShape = inputs[inputIndex].descriptor.shape;
       } else {
-        inputShape = intermediateOperands[inputIndex].shape();
+        inputShape = intermediateOperands[inputIndex].shape;
       }
       const axis = args.length === 2 ? args[1][Object.keys(args[1])[0]] : 1;
       const tolerance = inputShape[axis] * 3 + 3;
@@ -85,17 +85,25 @@ const TypedArrayDict = {
   uint32: Uint32Array,
   int8: Int8Array,
   uint8: Uint8Array,
+  int4: Uint8Array,
+  uint4: Uint8Array,
 };
 
-const kIntTypes = ['uint8', 'int8', 'uint32', 'int32', 'uint64', 'int64'];
+const kIntTypes =
+    ['uint4', 'int4', 'uint8', 'int8', 'uint32', 'int32', 'uint64', 'int64'];
 const kFloatTypes = ['float16', 'float32'];
 
-const findCompatibleType = (dataType, supportedTypes) => {
+const findCompatibleType = (dataType, supportedTypes, castOpSupportLimits) => {
+  if (!castOpSupportLimits.input.dataTypes.includes(dataType)) {
+    // Cannot cast from `dataType` to any other type.
+    return null;
+  }
+
   for (let supportedType of supportedTypes) {
-    if (kIntTypes.includes(dataType)) {
-      if (kIntTypes.indexOf(supportedType) > kIntTypes.indexOf(dataType)) {
-        return supportedType;
-      }
+    if (kIntTypes.includes(dataType) &&
+        castOpSupportLimits.output.dataTypes.includes(dataType) &&
+        kIntTypes.indexOf(supportedType) > kIntTypes.indexOf(dataType)) {
+      return supportedType;
     }
 
     if (kFloatTypes.includes(dataType)) {
@@ -129,10 +137,10 @@ const assertDescriptorsEquals = (outputOperand, expected) => {
   const dataType =
       expected.castedType ? expected.castedType : expected.dataType;
   assert_true(
-      outputOperand.dataType() === dataType,
+      outputOperand.dataType === dataType,
       'actual output dataType should be equal to expected output dataType');
   assert_array_equals(
-      outputOperand.shape(), expected.shape,
+      outputOperand.shape, expected.shape,
       'actual output shape should be equal to expected output shape');
 };
 
@@ -204,6 +212,27 @@ const getTypedArrayData = (type, size, data) => {
     for (let i = 0; i < data.length; i++) {
       outData[i] = BigInt(data[i]);
     }
+  } else if (type === 'uint4' || type === 'int4') {
+    // The first nybble is stored in the first bits 0-3, and later bits 4-7
+    // store the later nybble. The data is packed, without any padding between
+    // dimensions. For example: an array of uint4:
+    //   size = [2,5]
+    //   values = [1,2,3,4,5,6,7,8,9,10]
+    // Would yield 5 hex bytes:
+    //   Uint8Array.of(0x21, 0x43, 0x65, 0x87, 0xA9);
+    const array = new TypedArrayDict[type](Math.ceil(size / 2));
+    let i = 0;
+    while (i < size - 1) {
+      const packedByte = ((data[i + 1] & 0xF) << 4) | (data[i] & 0xF);
+      array[Math.floor(i / 2)] = packedByte;
+      i = i + 2;
+    }
+    // Handle the odd size.
+    if (i === size - 1) {
+      const packedByte = data[i] & 0xF;
+      array[Math.floor(i / 2)] = packedByte;
+    }
+    return array;
   } else {
     if (typeof (data) === 'number' && size > 1) {
       return new TypedArrayDict[type](size).fill(data);
@@ -282,7 +311,8 @@ const assert_array_approx_equals_ulp = (actual, expected, nulp, dataType, descri
         expectedBitwise = BigUint64Array(expected[i]);
       } else if (
           dataType === 'int8' || dataType === 'uint8' || dataType === 'int32' ||
-          dataType === 'uint32') {
+          dataType === 'uint32' || dataType === 'int4' ||
+          dataType === 'uint4') {
         actualBitwise = actual[i];
         expectedBitwise = expected[i];
       }
@@ -303,6 +333,33 @@ const assert_array_approx_equals_ulp = (actual, expected, nulp, dataType, descri
     }
   }
 };
+
+/**
+ * This function converts a Float16 stored as the bits of a Uint16 into a
+ * JavaScript Number.
+ * @param {Number} uint16 - a Float16 stored as the bits of a Uint16
+ * @returns An emulated Float16 number.
+ */
+function float16AsUint16ToNumber(uint16) {
+  const sign = (uint16 >> 15) & 0x1;
+  const exponent = (uint16 >> 10) & 0x1F;
+  const mantissa = uint16 & 0x3FF;
+  let float16;
+
+  if (exponent === 0) {
+    // Subnormal number
+    float16 = (mantissa / 1024) * Math.pow(2, -14);
+  } else if (exponent === 0x1F) {
+    // NaN or Infinity
+    float16 = mantissa ? NaN : Infinity;
+  } else {
+    // Normalized number
+    float16 = (1 + mantissa / 1024) * Math.pow(2, exponent - 15);
+  }
+
+  // Apply the sign
+  return sign ? -float16 : float16;
+}
 
 /**
  * Assert actual results with expected results.
@@ -326,8 +383,17 @@ const doAssert =
         assert_array_approx_equals_ulp(
             actual, expected, toleranceValue, dataType, description);
       } else if (metricType === 'ATOL') {
+        let actualData;
+        if (dataType === 'float16') {
+          // workaround for float16
+          actualData = new Array(actual.length);
+          actual.forEach(
+              (x, index) => actualData[index] = float16AsUint16ToNumber(x));
+        } else {
+          actualData = actual;
+        }
         assert_array_approx_equals(
-            actual, expected, toleranceValue, description);
+            actualData, expected, toleranceValue, description);
       } else {
         throw new AssertionError(
             `Tolerance Metric type '${metricType}' is not supported`);
@@ -337,8 +403,8 @@ const doAssert =
 /**
  * Assert computed results be equal to expected data.
  * @param {Object} toleranceFunc
- * @param {Object.<MLNamedArrayBufferViews> |
- *     Array[Object.<MLNamedArrayBufferViews>]} actual
+ * @param {Map<String, ArrayBufferView> |
+ *     Array[Map<String, ArrayBufferView>]} actual
  * @param {Object} graphResources - Resources used for building a graph
  */
 const assertResultsEquals =
@@ -365,6 +431,44 @@ const assertResultsEquals =
               kMaximumIndexToValidate, sizeOfShape(expectedDescriptor.shape));
           expectedData = new Array(size).fill(expectedData);
           outputData = outputData.subarray(0, kMaximumIndexToValidate);
+        } else if (
+            expectedDescriptor.dataType === 'uint4' ||
+            expectedDescriptor.dataType === 'int4') {
+          // The int4/uint4 data were packed in Uint8Array.
+          // The first nybble and later nybble of one int8/uint8 value store two
+          // consecutive 4-bits values separately. After unpacking each 4-bits
+          // value, the unpacked int4 value is stored in an element of
+          // Int8Array, and the unpacked uint4 value is stored in an element of
+          // Uint8Array. For example: an array of uint4:
+          //   size = [1, 5]
+          //   Uint8Array.of(0x21, 0x43, 0x65, 0x87, 0xA9)
+          // Would yield 5 * 2 uint4 data:
+          //   Uint8Array.of(1,2,3,4,5,6,7,8,9,10);
+          // Another example: an array of int4:
+          //   size = [1, 5]
+          //   Uint8Array.of(0xA9, 0xCB, 0xED, 0x0F, 0x21)
+          // Would yield 5 * 2 int4 data:
+          //   Int8Array.of(-7, -6, -5, -4, -3, -2, -1, 0, 1, 2);
+          let newOutputData;
+          if (expectedDescriptor.dataType === 'uint4') {
+            newOutputData =
+                new Uint8Array(sizeOfShape(expectedDescriptor.shape));
+          } else {
+            newOutputData =
+                new Int8Array(sizeOfShape(expectedDescriptor.shape));
+          }
+          const signMask =
+              (expectedDescriptor.dataType === 'int4') ? 0x08 : 0x00;
+          for (let i = 0; i < sizeOfShape(expectedDescriptor.shape); i++) {
+            const byteIndex = Math.floor(i / 2);
+            let value = (outputData[byteIndex] >> ((i & 1) << 2)) & 0xF;
+            // Handle the negative numbers.
+            if (value & signMask) {
+              value |= 0xF0;
+            }
+            newOutputData[i] = value;
+          }
+          outputData = newOutputData;
         }
         doAssert(
             operatorName, outputData, expectedData, metricType, toleranceValue,
@@ -377,11 +481,15 @@ const createOperand = (context, builder, operandName, resources) => {
   const descriptor = resources.descriptor;
   const dataType = descriptor.dataType;
 
+  const supportedDataTypes = resources.constant ?
+      context.opSupportLimits().constant.dataTypes :
+      context.opSupportLimits().input.dataTypes;
+
   // If input data type is not supported on current platform, attempt to use
   // a supported type to pass the data, then cast back to original type.
-  if (!context.opSupportLimits().input.dataTypes.includes(dataType)) {
-    const compatibleType =
-        findCompatibleType(dataType, context.opSupportLimits().input.dataTypes);
+  if (!supportedDataTypes.includes(dataType)) {
+    const compatibleType = findCompatibleType(
+        dataType, supportedDataTypes, context.opSupportLimits().cast);
     if (compatibleType) {
       descriptor.castedType = compatibleType;
       descriptor.dataType = compatibleType;
@@ -403,32 +511,229 @@ const createOperand = (context, builder, operandName, resources) => {
   return operand;
 };
 
-const prepareInputsForGraph = (inputs, resources) => {
-  for (let operandName of Object.keys(resources)) {
+/**
+ * Create inputs or outputs tensor.
+ * @param {MLContext} context - the context used to create inputs or outputs
+ *     tensor.
+ * @param {String} dataType - dataType of inputs / outputs operands
+ * @param {Array} shape - dimensions of inputs / outputs operands
+ * @param {Object} [data] - optional data for inputs tensor
+ * @returns {MLTensor}
+ */
+async function createTensorWithData(context, dataType, shape, data) {
+  const tensorDesc = {dataType, shape};
+  if (data) {
+    tensorDesc.writable = true;
+  } else {
+    tensorDesc.readable = true;
+  }
+  let tensor = await context.createTensor(tensorDesc);
+  if (data) {
+    context.writeTensor(tensor, data);
+  }
+  return tensor;
+}
+
+async function prepareInputsForGraph(context, resources) {
+  const inputOperandNameArray = Object.keys(resources).filter(
+      operandName => !resources[operandName].constant);
+  const tensors = await Promise.all(inputOperandNameArray.map((operandName) => {
     const inputOperandResources = resources[operandName];
-    if (!inputOperandResources.constant) {
-      inputs[operandName] = getTypedArrayData(
-          inputOperandResources.descriptor.castedType ?
-              inputOperandResources.descriptor.castedType :
-              inputOperandResources.descriptor.dataType,
-          sizeOfShape(inputOperandResources.descriptor.shape),
-          inputOperandResources.data);
+    const descriptor = inputOperandResources.descriptor;
+    const targetDataType =
+        descriptor.castedType ? descriptor.castedType : descriptor.dataType;
+    const inputBuffer = getTypedArrayData(
+        targetDataType, sizeOfShape(descriptor.shape),
+        inputOperandResources.data);
+    return createTensorWithData(
+        context, targetDataType, descriptor.shape, inputBuffer);
+  }));
+
+  const inputs = {};
+  inputOperandNameArray.forEach((name, index) => inputs[name] = tensors[index]);
+  return inputs;
+}
+
+async function prepareOutputsForGraph(context, resources) {
+  const outputOperandNameArray = Object.keys(resources);
+  const tensors =
+      await Promise.all(outputOperandNameArray.map((operandName) => {
+        const descriptor = resources[operandName].descriptor;
+        const dataType =
+            descriptor.castedType ? descriptor.castedType : descriptor.dataType;
+        return createTensorWithData(context, dataType, descriptor.shape);
+      }));
+
+  const outputs = {};
+  outputOperandNameArray.forEach(
+      (name, index) => outputs[name] = tensors[index]);
+  return outputs;
+}
+
+function getInputName(operatorArguments, operandName) {
+  for (let argument of operatorArguments) {
+    const name = Object.keys(argument)[0];
+    if (name === operandName) {
+      return argument[operandName];
+    } else if (name === 'options') {
+      if (Object.keys(argument[name]).includes(operandName)) {
+        return argument[name][operandName];
+      }
     }
   }
-};
+  return null;
+}
 
-const prepareOutputsForGraph = (outputs, resources) => {
-  for (let operandName of Object.keys(resources)) {
-    const descriptor = resources[operandName].descriptor;
-    const dataType =
-        descriptor.castedType ? descriptor.castedType : descriptor.dataType;
-    outputs[operandName] =
-        new TypedArrayDict[dataType](sizeOfShape(descriptor.shape));
+// This assert() function is to check whether configurations of test case are
+// set correctly.
+function assert(condition, message) {
+  if (!condition) {
+    throw new Error(`Wrong test case, ${message}`);
   }
-};
+}
+
+function validateContextSupportsGraph(context, graph) {
+  const supportLimits = context.opSupportLimits();
+  const inputDataTypes = supportLimits.input.dataTypes;
+  const constantDataTypes = supportLimits.constant.dataTypes;
+  const outputDataTypes = supportLimits.output.dataTypes;
+
+  function validateInputOrConstantDataType(
+      inputName, operatorSupportLimits, operand) {
+    const inputDataType = graph.inputs[inputName].descriptor.dataType;
+    if (graph.inputs[inputName].constant) {
+      if (!constantDataTypes.includes(inputDataType)) {
+        throw new TypeError(
+            `Unsupported data type, constant '${operand}' data type ${
+                inputDataType} must be one of [${constantDataTypes}].`);
+      }
+    } else {
+      if (!inputDataTypes.includes(inputDataType)) {
+        throw new TypeError(
+            `Unsupported data type, input '${operand}' data type ${
+                inputDataType} must be one of [${inputDataTypes}].`);
+      }
+    }
+
+    if (!operatorSupportLimits[operand].dataTypes.includes(inputDataType)) {
+      throw new TypeError(`Unsupported data type, input '${
+          operand}' data type ${inputDataType} must be one of [${
+          operatorSupportLimits[operand].dataTypes}].`);
+    }
+  }
+
+  function validateOutputDataType(outputName, operatorSupportLimits, operand) {
+    const outputDataType =
+        graph.expectedOutputs[outputName].descriptor.dataType;
+    if (!outputDataTypes.includes(outputDataType)) {
+      throw new TypeError(
+          `Unsupported data type, output '${operand}' data type ${
+              outputDataType} must be one of [${outputDataTypes}].`);
+    }
+
+    if (!operatorSupportLimits[operand].dataTypes.includes(outputDataType)) {
+      throw new TypeError(`Unsupported data type, output '${
+          operand}' data type ${outputDataType} must be one of [${
+          operatorSupportLimits[operand].dataTypes}].`);
+    }
+  }
+
+  for (let operator of graph.operators) {
+    const operatorName = operator.name;
+    const operatorSupportLimits = supportLimits[operatorName];
+    for (let operand of Object.keys(operatorSupportLimits)) {
+      if (operand === 'output') {
+        // single output operand
+        assert(
+            typeof operator.outputs === 'string',
+            `the outputs of ${operatorName} should be a string.`);
+        if (!graph.expectedOutputs[operator.outputs]) {
+          // intermediate output
+          continue;
+        }
+        validateOutputDataType(
+            operator.outputs, operatorSupportLimits, 'output');
+      } else if (operand === 'outputs') {
+        // multiples output operands
+        assert(
+            Array.isArray(operator.outputs),
+            `the outputs of ${operatorName} should be a string array.`);
+        for (const outputName of operator.outputs) {
+          assert(
+              typeof outputName === 'string',
+              `the outputs' item of ${operatorName} should be a string.`);
+          if (!graph.expectedOutputs[outputName]) {
+            // intermediate output
+            continue;
+          }
+          validateOutputDataType(outputName, operatorSupportLimits, 'outputs');
+        }
+      } else {
+        // input operand(s)
+        if (operatorName === 'concat') {
+          const inputNameArray = operator.arguments[0][operand];
+          assert(
+              Array.isArray(inputNameArray),
+              `the inputs of ${operatorName} should be a string array.`);
+          for (const inputName of inputNameArray) {
+            assert(
+                typeof inputName === 'string',
+                `the inputs' item of ${operatorName} should be a string.`);
+            validateInputOrConstantDataType(
+                inputName, operatorSupportLimits, 'inputs');
+          }
+        } else {
+          const inputName = getInputName(operator.arguments, operand);
+          if (inputName === null || !graph.inputs[inputName]) {
+            // default options argument or intermediate input
+            continue;
+          }
+          validateInputOrConstantDataType(
+              inputName, operatorSupportLimits, operand);
+        }
+      }
+    }
+  }
+}
 
 /**
- * This function is to compile the constructed graph and compute.
+ * This function is to execute the compiled graph.
+ * @param {MLContext} context
+ * @param {MLGraph} graph
+ * @param {Map<String, {
+ *                       data: Array.<Number>|Number,
+ *                       descriptor: MLOperandDescriptor,
+ *                       constant?: Boolean
+ *                     }>} graphInputs
+ * @param {Map<String, {
+ *                      data: Array.<Number>|Number,
+ *                      descriptor: MLOperandDescriptor,
+ *                     }>} expectedOutputs
+ * @returns A result object.
+ */
+async function computeGraph(context, graph, graphInputs, expectedOutputs) {
+  const inputs = await prepareInputsForGraph(context, graphInputs);
+  const outputs = await prepareOutputsForGraph(context, expectedOutputs);
+
+  // Execute the compiled graph.
+  context.dispatch(graph, inputs, outputs);
+
+  const result = {};
+  const outputNameArray = Object.keys(expectedOutputs);
+  const outputBuffers = await Promise.all(Object.values(outputs).map(
+      (tensor) => {return context.readTensor(tensor)}));
+  outputNameArray.forEach((name, index) => {
+    const dataType = expectedOutputs[name].descriptor.castedType ?
+        expectedOutputs[name].descriptor.castedType :
+        expectedOutputs[name].descriptor.dataType;
+    result[name] = new TypedArrayDict[dataType](outputBuffers[index])
+  });
+
+  return result;
+}
+
+/**
+ * This function is to compile and execute the constructed graph.
  * @param {MLContext} context
  * @param {MLGraphBuilder} builder
  * @param {{
@@ -449,7 +754,7 @@ const prepareOutputsForGraph = (outputs, resources) => {
  *        }} graphResources - Resources used for building a graph
  * @returns A Promise of MLComputeResult.
  */
-const buildGraphAndCompute = async (context, builder, graphResources) => {
+const buildAndExecuteGraph = async (context, builder, graphResources) => {
   const outputOperands = [];
   const graphInputs = graphResources.inputs;
   const graphOperators = graphResources.operators;
@@ -521,7 +826,8 @@ const buildGraphAndCompute = async (context, builder, graphResources) => {
             expectedDescriptor.dataType)) {
       const compatibleType = findCompatibleType(
           expectedDescriptor.dataType,
-          context.opSupportLimits().output.dataTypes);
+          context.opSupportLimits().output.dataTypes,
+          context.opSupportLimits().cast);
       outputOperands[i] = builder.cast(outputOperands[i], compatibleType);
       expectedDescriptor.castedType = compatibleType;
     }
@@ -541,14 +847,10 @@ const buildGraphAndCompute = async (context, builder, graphResources) => {
   // Compile the constructed graph.
   const graph = await builder.build(namedOutputOperand);
 
-  const inputs = {};
-  prepareInputsForGraph(inputs, graphInputs);
-
-  const outputs = {};
-  prepareOutputsForGraph(outputs, graphResources.expectedOutputs);
-
   // Execute the compiled graph.
-  const result = await context.compute(graph, inputs, outputs);
+  const result = await computeGraph(
+      context, graph, graphInputs, graphResources.expectedOutputs);
+
   return {result, intermediateOperands};
 };
 
@@ -566,7 +868,7 @@ const getGemmPrecisionTolerance =
   if (inputs[indexA]) {
     ShapeA = inputs[indexA].descriptor.shape;
   } else {
-    ShapeA = intermediateOperands[indexA].shape();
+    ShapeA = intermediateOperands[indexA].shape;
   }
   const options =
       args.length === 3 ? {...args[2][Object.keys(args[2])[0]]} : {};
@@ -603,13 +905,13 @@ const getConv2dPrecisionTolerance =
   if (inputs[inputIndex]) {
     inputShape = inputs[inputIndex].descriptor.shape;
   } else {
-    inputShape = intermediateOperands[inputIndex].shape();
+    inputShape = intermediateOperands[inputIndex].shape;
   }
   let filterShape;
   if (inputs[filterIndex]) {
     filterShape = inputs[filterIndex].descriptor.shape;
   } else {
-    filterShape = intermediateOperands[filterIndex].shape();
+    filterShape = intermediateOperands[filterIndex].shape;
   }
   const options =
       args.length === 3 ? {...args[2][Object.keys(args[2])[0]]} : {};
@@ -692,10 +994,14 @@ const getReducedElementCount =
           sizes.reduce(
               (accumulator, currentValue) => accumulator * currentValue) :
           1;
-    }
+    };
 
+// `cast_to_supported_type` will check if the graph input/output is
+// supported by current context, if not, it will try to find a compatible
+// type that's supported and use that type, then cast back to original type.
 const webnn_conformance_test =
-    (buildGraphAndComputeFunc, toleranceFunc, testResources) => {
+    (buildAndExecuteGraphFunc, toleranceFunc, testResources,
+     cast_to_supported_type = false) => {
       promise_test(async () => {
         let context;
         try {
@@ -704,11 +1010,13 @@ const webnn_conformance_test =
           throw new AssertionError(
               `Unable to create context for ${variant} variant. ${e}`);
         }
+        if (!cast_to_supported_type) {
+          validateContextSupportsGraph(context, testResources.graph);
+        }
         const builder = new MLGraphBuilder(context);
-        const {result, intermediateOperands} = await buildGraphAndComputeFunc(
+        const {result, intermediateOperands} = await buildAndExecuteGraphFunc(
             context, builder, testResources.graph);
         assertResultsEquals(
-            toleranceFunc, result.outputs, testResources.graph,
-            intermediateOperands);
+            toleranceFunc, result, testResources.graph, intermediateOperands);
       }, testResources.name);
     };

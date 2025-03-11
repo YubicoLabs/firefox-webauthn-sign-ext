@@ -2,10 +2,14 @@
 prefs = ["browser.ml.modelHubRootUrl='chrome://mochitests/content/browser/toolkit/components/ml/tests/browser/data'"]
 support-files = [
   "head.js",
+  "shared-head.js",
   "data/**/*.*"
 ]
 
+
 ["browser_ml_cache.js"]
+
+["browser_ml_cluster_algos.js"]
 
 ["browser_ml_end_to_end.js"]
 skip-if = [
@@ -15,8 +19,11 @@ skip-if = [
 ]
 
 ["browser_ml_engine.js"]
-skip-if = ["os == 'linux'"]    # see bug 1911083
 
 ["browser_ml_engine_process.js"]
+
+["browser_ml_nlp_utils.js"]
+
+["browser_ml_telemetry.js"]
 
 ["browser_ml_utils.js"]

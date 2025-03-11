@@ -14,12 +14,14 @@
 #include "MediaElementEventRunners.h"
 #include "MediaPlaybackDelayPolicy.h"
 #include "MediaPromiseDefs.h"
+#include "MediaTimer.h"
 #include "TelemetryProbesReporter.h"
 #include "nsCycleCollectionParticipant.h"
 #include "Visibility.h"
 #include "mozilla/CORSMode.h"
 #include "DecoderTraits.h"
 #include "mozilla/Attributes.h"
+#include "mozilla/AwakeTimeStamp.h"
 #include "mozilla/StateWatching.h"
 #include "mozilla/WeakPtr.h"
 #include "mozilla/dom/DecoderDoctorNotificationBinding.h"
@@ -559,6 +561,8 @@ class HTMLMediaElement : public nsGenericHTMLElement,
 
 #ifdef MOZ_WMF_CDM
   bool IsUsingWMFCDM() const override;
+
+  CDMProxy* GetCDMProxy() const override;
 #endif
 
   bool Paused() const { return mPaused; }
@@ -796,8 +800,6 @@ class HTMLMediaElement : public nsGenericHTMLElement,
 
   void DispatchAsyncTestingEvent(const nsAString& aName) override;
 
-  AbstractThread* AbstractMainThread() const final;
-
   // Log the usage of a {visible / invisible} video element as
   // the source of {drawImage(), createPattern(), createImageBitmap() and
   // captureStream()} APIs. This function can be used to collect telemetries for
@@ -881,6 +883,7 @@ class HTMLMediaElement : public nsGenericHTMLElement,
 
   void CreateAudioWakeLockIfNeeded();
   void ReleaseAudioWakeLockIfExists();
+  void ReleaseAudioWakeLockInternal();
   RefPtr<WakeLock> mWakeLock;
 
   /**
@@ -1245,7 +1248,7 @@ class HTMLMediaElement : public nsGenericHTMLElement,
    * aErrorCode must be one of WebIDL HTMLMediaElement error codes.
    */
   void Error(uint16_t aErrorCode,
-             const nsACString& aErrorDetails = nsCString());
+             const Maybe<MediaResult>& aResult = Nothing());
 
   /**
    * Returns the URL spec of the currentSrc.
@@ -1938,6 +1941,8 @@ class HTMLMediaElement : public nsGenericHTMLElement,
   // It's used to record telemetry probe for WMFCDM playback.
   bool mIsUsingWMFCDM = false;
 #endif
+
+  Maybe<DelayedScheduler<AwakeTimeStamp>> mAudioWakelockReleaseScheduler;
 };
 
 // Check if the context is chrome or has the debugger or tabs permission

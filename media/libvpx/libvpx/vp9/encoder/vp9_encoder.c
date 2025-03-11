@@ -78,6 +78,7 @@
 #include "vp9/encoder/vp9_multi_thread.h"
 #include "vp9/encoder/vp9_noise_estimate.h"
 #include "vp9/encoder/vp9_picklpf.h"
+#include "vp9/encoder/vp9_quantize.h"
 #include "vp9/encoder/vp9_ratectrl.h"
 #include "vp9/encoder/vp9_rd.h"
 #include "vp9/encoder/vp9_resize.h"
@@ -1021,6 +1022,9 @@ static void dealloc_compressor_data(VP9_COMP *cpi) {
   vpx_free(cpi->mb_wiener_variance);
   cpi->mb_wiener_variance = NULL;
 
+  vpx_free(cpi->sb_mul_scale);
+  cpi->sb_mul_scale = NULL;
+
   vpx_free(cpi->mi_ssim_rdmult_scaling_factors);
   cpi->mi_ssim_rdmult_scaling_factors = NULL;
 
@@ -1540,7 +1544,7 @@ void vp9_check_reset_rc_flag(VP9_COMP *cpi) {
     if (cpi->use_svc) {
       vp9_svc_check_reset_layer_rc_flag(cpi);
     } else {
-      if (rc->avg_frame_bandwidth > (3 * rc->last_avg_frame_bandwidth >> 1) ||
+      if (rc->avg_frame_bandwidth / 3 > (rc->last_avg_frame_bandwidth >> 1) ||
           rc->avg_frame_bandwidth < (rc->last_avg_frame_bandwidth >> 1)) {
         rc->rc_1_frame = 0;
         rc->rc_2_frame = 0;
@@ -2065,6 +2069,24 @@ static void free_copy_partition_data(VP9_COMP *cpi) {
   cpi->copied_frame_cnt = NULL;
 }
 
+#if CONFIG_VP9_TEMPORAL_DENOISING
+static void setup_denoiser_buffer(VP9_COMP *cpi) {
+  VP9_COMMON *const cm = &cpi->common;
+  if (cpi->oxcf.noise_sensitivity > 0 &&
+      !cpi->denoiser.frame_buffer_initialized) {
+    if (vp9_denoiser_alloc(cm, &cpi->svc, &cpi->denoiser, cpi->use_svc,
+                           cpi->oxcf.noise_sensitivity, cm->width, cm->height,
+                           cm->subsampling_x, cm->subsampling_y,
+#if CONFIG_VP9_HIGHBITDEPTH
+                           cm->use_highbitdepth,
+#endif
+                           VP9_ENC_BORDER_IN_PIXELS))
+      vpx_internal_error(&cm->error, VPX_CODEC_MEM_ERROR,
+                         "Failed to allocate denoiser");
+  }
+}
+#endif
+
 void vp9_change_config(struct VP9_COMP *cpi, const VP9EncoderConfig *oxcf) {
   VP9_COMMON *const cm = &cpi->common;
   RATE_CONTROL *const rc = &cpi->rc;
@@ -2172,9 +2194,46 @@ void vp9_change_config(struct VP9_COMP *cpi, const VP9EncoderConfig *oxcf) {
         &cm->error, cpi->skin_map,
         vpx_calloc(cm->mi_rows * cm->mi_cols, sizeof(*cpi->skin_map)));
 
+    if (cpi->svc.number_spatial_layers > 1) {
+#if CONFIG_VP9_TEMPORAL_DENOISING
+      // Reset the denoiser for svc on the resize change.
+      if (cpi->oxcf.noise_sensitivity > 0) {
+        vp9_denoiser_free(&cpi->denoiser);
+        setup_denoiser_buffer(cpi);
+      }
+#endif
+      if (cpi->oxcf.aq_mode == CYCLIC_REFRESH_AQ) {
+        for (int sl = 0; sl < cpi->svc.number_spatial_layers; ++sl) {
+          const int layer =
+              LAYER_IDS_TO_IDX(sl, 0, cpi->svc.number_temporal_layers);
+          LAYER_CONTEXT *const lc = &cpi->svc.layer_context[layer];
+          lc->sb_index = 0;
+          lc->actual_num_seg1_blocks = 0;
+          lc->actual_num_seg2_blocks = 0;
+          lc->counter_encode_maxq_scene_change = 0;
+          vpx_free(lc->map);
+          CHECK_MEM_ERROR(
+              &cm->error, lc->map,
+              vpx_calloc(cm->mi_rows * cm->mi_cols, sizeof(*lc->map)));
+          vpx_free(lc->last_coded_q_map);
+          CHECK_MEM_ERROR(&cm->error, lc->last_coded_q_map,
+                          vpx_malloc(cm->mi_rows * cm->mi_cols *
+                                     sizeof(*lc->last_coded_q_map)));
+          memset(lc->last_coded_q_map, MAXQ, cm->mi_rows * cm->mi_cols);
+          vpx_free(lc->consec_zero_mv);
+          CHECK_MEM_ERROR(&cm->error, lc->consec_zero_mv,
+                          vpx_calloc(cm->mi_rows * cm->mi_cols,
+                                     sizeof(*lc->consec_zero_mv)));
+        }
+        cpi->refresh_golden_frame = 1;
+        cpi->refresh_alt_ref_frame = 1;
+      }
+    }
+
     free_copy_partition_data(cpi);
     alloc_copy_partition_data(cpi);
-    if (cpi->oxcf.aq_mode == CYCLIC_REFRESH_AQ)
+    if (cpi->oxcf.aq_mode == CYCLIC_REFRESH_AQ &&
+        cpi->svc.number_spatial_layers == 1)
       vp9_cyclic_refresh_reset_resize(cpi);
     rc->rc_1_frame = 0;
     rc->rc_2_frame = 0;
@@ -2306,8 +2365,17 @@ static void update_initial_width(VP9_COMP *cpi, int use_highbitdepth,
     cm->use_highbitdepth = use_highbitdepth;
 #endif
     alloc_util_frame_buffers(cpi);
-    cpi->initial_width = cm->width;
-    cpi->initial_height = cm->height;
+    // The initial_width/height is used to clamp the encoding width/height in
+    // vp9_set_size_literal(). The check below is added to avoid setting the
+    // initial_width/height to a smaller resolution than the one configured.
+    // This can happen when the user passes in a lower resolution on the very
+    // first frame (after creating the encoder with a larger resolution). For
+    // spatial layers this will prevent user from going back up in resolution
+    // (i.e., the top layer will get stuck at the lower resolution).
+    if (cm->width > cpi->initial_width || cm->height > cpi->initial_height) {
+      cpi->initial_width = cm->width;
+      cpi->initial_height = cm->height;
+    }
     cpi->initial_mbs = cm->MBs;
   }
 }
@@ -2341,24 +2409,6 @@ static INLINE void vpx_img_chroma_subsampling(vpx_img_fmt_t fmt,
 static INLINE int vpx_img_use_highbitdepth(vpx_img_fmt_t fmt) {
   return fmt & VPX_IMG_FMT_HIGHBITDEPTH;
 }
-
-#if CONFIG_VP9_TEMPORAL_DENOISING
-static void setup_denoiser_buffer(VP9_COMP *cpi) {
-  VP9_COMMON *const cm = &cpi->common;
-  if (cpi->oxcf.noise_sensitivity > 0 &&
-      !cpi->denoiser.frame_buffer_initialized) {
-    if (vp9_denoiser_alloc(cm, &cpi->svc, &cpi->denoiser, cpi->use_svc,
-                           cpi->oxcf.noise_sensitivity, cm->width, cm->height,
-                           cm->subsampling_x, cm->subsampling_y,
-#if CONFIG_VP9_HIGHBITDEPTH
-                           cm->use_highbitdepth,
-#endif
-                           VP9_ENC_BORDER_IN_PIXELS))
-      vpx_internal_error(&cm->error, VPX_CODEC_MEM_ERROR,
-                         "Failed to allocate denoiser");
-  }
-}
-#endif
 
 void vp9_update_compressor_with_img_fmt(VP9_COMP *cpi, vpx_img_fmt_t img_fmt) {
   const VP9EncoderConfig *oxcf = &cpi->oxcf;
@@ -2427,6 +2477,8 @@ VP9_COMP *vp9_create_compressor(const VP9EncoderConfig *oxcf,
   vp9_init_rd_parameters(cpi);
 
   init_frame_indexes(cm);
+  cpi->initial_width = cpi->oxcf.width;
+  cpi->initial_height = cpi->oxcf.height;
   cpi->tile_data = NULL;
 
   realloc_segmentation_maps(cpi);
@@ -4213,7 +4265,7 @@ static int encode_without_recode_loop(VP9_COMP *cpi, size_t *size,
                                  cpi->oxcf.rc_mode == VPX_CBR &&
                                  cm->frame_type != KEY_FRAME;
 
-  vp9_set_quantizer(cpi, q);
+  vp9_set_quantizer(cpi, q, 0);
   vp9_set_variance_partition_thresholds(cpi, q, 0);
 
   setup_frame(cpi);
@@ -4242,7 +4294,7 @@ static int encode_without_recode_loop(VP9_COMP *cpi, size_t *size,
       (cpi->rc.high_source_sad ||
        (cpi->use_svc && svc->high_source_sad_superframe))) {
     if (vp9_encodedframe_overshoot(cpi, -1, &q)) {
-      vp9_set_quantizer(cpi, q);
+      vp9_set_quantizer(cpi, q, 0);
       vp9_set_variance_partition_thresholds(cpi, q, 0);
     }
   }
@@ -4303,7 +4355,7 @@ static int encode_without_recode_loop(VP9_COMP *cpi, size_t *size,
     // adjust some rate control parameters, and return to re-encode the frame.
     if (vp9_encodedframe_overshoot(cpi, frame_size, &q)) {
       vpx_clear_system_state();
-      vp9_set_quantizer(cpi, q);
+      vp9_set_quantizer(cpi, q, 0);
       vp9_set_variance_partition_thresholds(cpi, q, 0);
       suppress_active_map(cpi);
       // Turn-off cyclic refresh for re-encoded frame.
@@ -4638,22 +4690,37 @@ static void encode_with_recode_loop(VP9_COMP *cpi, size_t *size, uint8_t *dest,
     }
 #endif  // CONFIG_RATE_CTRL
     const GF_GROUP *gf_group = &cpi->twopass.gf_group;
+    int ext_rc_delta_q_uv = 0;
     if (cpi->ext_ratectrl.ready &&
         (cpi->ext_ratectrl.funcs.rc_type & VPX_RC_QP) != 0 &&
         cpi->ext_ratectrl.funcs.get_encodeframe_decision != NULL) {
       vpx_codec_err_t codec_status;
       vpx_rc_encodeframe_decision_t encode_frame_decision;
+      int sb_size = num_8x8_blocks_wide_lookup[BLOCK_64X64] * MI_SIZE;
+      int frame_height_sb = (cm->height + sb_size - 1) / sb_size;
+      int frame_width_sb = (cm->width + sb_size - 1) / sb_size;
+      CHECK_MEM_ERROR(&cm->error, encode_frame_decision.sb_params_list,
+                      (sb_params *)vpx_calloc(
+                          frame_height_sb * frame_width_sb,
+                          sizeof(*encode_frame_decision.sb_params_list)));
       codec_status = vp9_extrc_get_encodeframe_decision(
           &cpi->ext_ratectrl, gf_group->index, &encode_frame_decision);
       if (codec_status != VPX_CODEC_OK) {
         vpx_internal_error(&cm->error, codec_status,
                            "vp9_extrc_get_encodeframe_decision() failed");
       }
+      for (int idx = 0; idx < frame_height_sb * frame_width_sb; ++idx) {
+        cpi->sb_mul_scale[idx] =
+            (((int64_t)encode_frame_decision.sb_params_list[idx].rdmult * 256) /
+             (encode_frame_decision.rdmult + 1));
+      }
+      vpx_free(encode_frame_decision.sb_params_list);
       // If the external model recommends a reserved value, we use
       // libvpx's default q.
       if (encode_frame_decision.q_index != VPX_DEFAULT_Q) {
         q = encode_frame_decision.q_index;
       }
+      ext_rc_delta_q_uv = encode_frame_decision.delta_q_uv;
     }
 
     if (cpi->ext_ratectrl.ready && cpi->ext_ratectrl.log_file) {
@@ -4662,7 +4729,7 @@ static void encode_with_recode_loop(VP9_COMP *cpi, size_t *size, uint8_t *dest,
               gf_group->index, gf_group->update_type[gf_group->index], q);
     }
 
-    vp9_set_quantizer(cpi, q);
+    vp9_set_quantizer(cpi, q, ext_rc_delta_q_uv);
 
     if (loop_count == 0) setup_frame(cpi);
 
@@ -5332,6 +5399,23 @@ static void init_mb_wiener_var_buffer(VP9_COMP *cpi) {
   cpi->mb_wiener_var_cols = cm->mb_cols;
 }
 
+static void init_sb_mul_scale_buffer(VP9_COMP *cpi) {
+  VP9_COMMON *cm = &cpi->common;
+
+  if (cpi->mb_wiener_var_rows >= cm->mb_rows &&
+      cpi->mb_wiener_var_cols >= cm->mb_cols)
+    return;
+
+  vpx_free(cpi->sb_mul_scale);
+  cpi->sb_mul_scale = NULL;
+
+  CHECK_MEM_ERROR(
+      &cm->error, cpi->sb_mul_scale,
+      vpx_calloc(cm->mb_rows * cm->mb_cols, sizeof(*cpi->sb_mul_scale)));
+  cpi->mb_wiener_var_rows = cm->mb_rows;
+  cpi->mb_wiener_var_cols = cm->mb_cols;
+}
+
 static void set_mb_wiener_variance(VP9_COMP *cpi) {
   VP9_COMMON *cm = &cpi->common;
   uint8_t *buffer = cpi->Source->y_buffer;
@@ -5587,6 +5671,8 @@ static void encode_frame_to_data_rate(
     init_mb_wiener_var_buffer(cpi);
     set_mb_wiener_variance(cpi);
   }
+
+  init_sb_mul_scale_buffer(cpi);
 
   vpx_clear_system_state();
 

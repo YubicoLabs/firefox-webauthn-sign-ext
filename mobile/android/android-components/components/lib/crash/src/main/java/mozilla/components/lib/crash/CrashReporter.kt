@@ -4,8 +4,6 @@
 
 package mozilla.components.lib.crash
 
-import android.app.ActivityOptions
-import android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
@@ -33,7 +31,6 @@ import mozilla.components.lib.crash.service.CrashReporterService
 import mozilla.components.lib.crash.service.CrashTelemetryService
 import mozilla.components.lib.crash.service.SendCrashReportService
 import mozilla.components.lib.crash.service.SendCrashTelemetryService
-import mozilla.components.support.base.android.NotificationsDelegate
 import mozilla.components.support.base.log.logger.Logger
 
 /**
@@ -57,6 +54,15 @@ private class BreadcrumbList(val maxBreadCrumbs: Int) {
         breadcrumbs.add(breadcrumb)
     }
 }
+
+/**
+ * When we turned on the new crash reporting dialog flow, the number of old unsent crashes being sent
+ * in on nightly was unexpectedly high. In order to avoid an unmanageable volume when we turned the
+ * feature on in the Release channel, we decided to only send crashes that were as new as the feature
+ * itself.
+ * This timestamp is equivalent to October 28th, 2024 00:00:00 GMT
+ */
+private const val START_OF_134_NIGHTLY_TIMESTAMP = 1730073600000L
 
 /**
  *
@@ -96,7 +102,6 @@ class CrashReporter internal constructor(
     private val nonFatalCrashIntent: PendingIntent? = null,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO),
     private val maxBreadCrumbs: Int = 30,
-    private val notificationsDelegate: NotificationsDelegate,
     private val runtimeTagProviders: List<RuntimeTagProvider> = emptyList(),
     databaseProvider: () -> CrashDatabase,
     private val useLegacyReporting: Boolean = true,
@@ -112,7 +117,6 @@ class CrashReporter internal constructor(
         nonFatalCrashIntent: PendingIntent? = null,
         scope: CoroutineScope = CoroutineScope(Dispatchers.IO),
         maxBreadCrumbs: Int = 30,
-        notificationsDelegate: NotificationsDelegate,
         runtimeTagProviders: List<RuntimeTagProvider> = emptyList(),
         useLegacyReporting: Boolean = true,
     ) : this(
@@ -124,7 +128,6 @@ class CrashReporter internal constructor(
         nonFatalCrashIntent = nonFatalCrashIntent,
         scope = scope,
         maxBreadCrumbs = maxBreadCrumbs,
-        notificationsDelegate = notificationsDelegate,
         runtimeTagProviders = runtimeTagProviders,
         databaseProvider = { CrashDatabase.get(context) },
         useLegacyReporting = useLegacyReporting,
@@ -143,8 +146,8 @@ class CrashReporter internal constructor(
         get() = runtimeTagProviders.fold(emptyMap()) { acc, provider -> acc + provider() }
 
     init {
-        if (services.isEmpty() and telemetryServices.isEmpty()) {
-            throw IllegalArgumentException("No crash reporter services defined")
+        require(services.isNotEmpty() || telemetryServices.isNotEmpty()) {
+            "No crash reporter services defined"
         }
     }
 
@@ -166,17 +169,24 @@ class CrashReporter internal constructor(
     }
 
     /**
-     * Checks to see if there are any unsent crash reports
+     * Checks to see if there are any unsent crash reports since the provided [timestampMillis].
+     *
+     * @param timestampMillis Timestamp in milliseconds to retrieve reports after. Defaults to the start
+     * of the Fenix 134 cycle when this feature went live.
      */
-    suspend fun hasUnsentCrashReports(): Boolean {
-        return database.crashDao().numberOfUnsentCrashes() > 0
+    suspend fun hasUnsentCrashReportsSince(timestampMillis: Long = START_OF_134_NIGHTLY_TIMESTAMP): Boolean {
+        return database.crashDao().numberOfUnsentCrashesSince(timestampMillis) > 0
     }
 
     /**
-     * Fetches unsent crash reports from the crash reporter.
+     * Fetches crash reports that were created after [timestampMillis] from the crash reporter that
+     * have not been sent.
+     *
+     * @param timestampMillis Timestamp in milliseconds to retrieve reports after. Defaults to the start
+     * of the Fenix 134 cycle when this feature went live.
      */
-    suspend fun unsentCrashReports(): List<Crash> {
-        return database.crashDao().getCrashesWithoutReports()
+    suspend fun unsentCrashReportsSince(timestampMillis: Long = START_OF_134_NIGHTLY_TIMESTAMP): List<Crash> {
+        return database.crashDao().getCrashesWithoutReportsSince(timestampMillis)
             .map { it.toCrash() }
     }
 
@@ -319,9 +329,6 @@ class CrashReporter internal constructor(
             val onFinished = null
             val handler = null
             val requiredPermission = null
-            val activityOptions = ActivityOptions.makeBasic()
-            activityOptions.pendingIntentBackgroundActivityStartMode =
-                MODE_BACKGROUND_ACTIVITY_START_ALLOWED
 
             nonFatalCrashIntent?.send(
                 context,
@@ -330,7 +337,6 @@ class CrashReporter internal constructor(
                 onFinished,
                 handler,
                 requiredPermission,
-                activityOptions.toBundle(),
             )
         } else {
             nonFatalCrashIntent?.send(context, 0, additionalIntent)
@@ -357,7 +363,7 @@ class CrashReporter internal constructor(
 
     @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
     internal fun showNotification(context: Context, crash: Crash) {
-        val notification = CrashNotification(context, crash, promptConfiguration, notificationsDelegate)
+        val notification = CrashNotification(context, crash, promptConfiguration)
         notification.show()
     }
 
@@ -422,6 +428,8 @@ class CrashReporter internal constructor(
     )
 
     companion object {
+        const val RELEASE_RUNTIME_TAG = "release"
+
         @Volatile
         private var instance: CrashReporter? = null
 

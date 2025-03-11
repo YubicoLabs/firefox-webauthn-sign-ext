@@ -23,6 +23,8 @@ enum CanvasFontStretch { "ultra-condensed", "extra-condensed", "condensed", "sem
 enum CanvasFontVariantCaps { "normal", "small-caps", "all-small-caps", "petite-caps", "all-petite-caps", "unicase", "titling-caps" };
 enum CanvasTextRendering { "auto", "optimizeSpeed", "optimizeLegibility", "geometricPrecision" };
 
+enum CanvasContextProperties { "none", "fill", "stroke", "both" };
+
 [GenerateInit]
 dictionary CanvasRenderingContext2DSettings {
   // signal if the canvas contains an alpha channel
@@ -35,8 +37,19 @@ dictionary CanvasRenderingContext2DSettings {
   // whether or not we're planning to do a lot of readback operations
   boolean willReadFrequently = false;
 
-  [Func="nsRFPService::IsSoftwareRenderingOptionExposed"]
+  [Func="nsRFPService::IsSystemPrincipalOrAboutFingerprintingProtection"]
   boolean forceSoftwareRendering = false;
+};
+
+[GenerateInit]
+dictionary CanvasRenderingContext2DDebugInfo {
+  required boolean isAccelerated;
+
+  required boolean isShared;
+
+  required byte backendType;
+
+  required byte drawTargetType;
 };
 
 dictionary HitRegionOptions {
@@ -63,6 +76,9 @@ interface CanvasRenderingContext2D {
   readonly attribute HTMLCanvasElement? canvas;
 
   CanvasRenderingContext2DSettings getContextAttributes();
+
+  [Throws, Func="nsRFPService::IsSystemPrincipalOrAboutFingerprintingProtection"]
+  CanvasRenderingContext2DDebugInfo getDebugInfo(optional boolean ensureTarget = false);
 
   // Show the caret if appropriate when drawing
   [Func="CanvasUtils::HasDrawWindowPrivilege"]
@@ -263,6 +279,9 @@ interface mixin CanvasText {
 };
 
 interface mixin CanvasDrawImage {
+  [ChromeOnly]
+  attribute CanvasContextProperties contextProperties;
+
   [Throws, LenientFloat]
   undefined drawImage(CanvasImageSource image, double dx, double dy);
   [Throws, LenientFloat]

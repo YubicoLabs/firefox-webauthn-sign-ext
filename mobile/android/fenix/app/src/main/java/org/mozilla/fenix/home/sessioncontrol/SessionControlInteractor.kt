@@ -15,7 +15,7 @@ import org.mozilla.fenix.home.bookmarks.Bookmark
 import org.mozilla.fenix.home.bookmarks.controller.BookmarksController
 import org.mozilla.fenix.home.interactor.HomepageInteractor
 import org.mozilla.fenix.home.pocket.PocketRecommendedStoriesCategory
-import org.mozilla.fenix.home.pocket.PocketStoriesController
+import org.mozilla.fenix.home.pocket.controller.PocketStoriesController
 import org.mozilla.fenix.home.privatebrowsing.controller.PrivateBrowsingController
 import org.mozilla.fenix.home.recentsyncedtabs.RecentSyncedTab
 import org.mozilla.fenix.home.recentsyncedtabs.controller.RecentSyncedTabController
@@ -164,6 +164,14 @@ interface TopSiteInteractor {
     fun onSelectTopSite(topSite: TopSite, position: Int)
 
     /**
+     * Called when a user sees a provided top site.
+     *
+     * @param topSite The provided top site that was seen by the user.
+     * @param position The position of the top site.
+     */
+    fun onTopSiteImpression(topSite: TopSite.Provided, position: Int)
+
+    /**
      * Navigates to the Homepage Settings. Called when an user clicks on the "Settings" top site
      * menu item.
      */
@@ -271,6 +279,10 @@ class SessionControlInteractor(
 
     override fun onSelectTopSite(topSite: TopSite, position: Int) {
         controller.handleSelectTopSite(topSite, position)
+    }
+
+    override fun onTopSiteImpression(topSite: TopSite.Provided, position: Int) {
+        controller.handleTopSiteImpression(topSite, position)
     }
 
     override fun onSettingsClicked() {
@@ -383,7 +395,7 @@ class SessionControlInteractor(
         controller.handleCustomizeHomeTapped()
     }
 
-    override fun onStoryShown(storyShown: PocketStory, storyPosition: Pair<Int, Int>) {
+    override fun onStoryShown(storyShown: PocketStory, storyPosition: Triple<Int, Int, Int>) {
         pocketStoriesController.handleStoryShown(storyShown, storyPosition)
     }
 
@@ -395,7 +407,7 @@ class SessionControlInteractor(
         pocketStoriesController.handleCategoryClick(categoryClicked)
     }
 
-    override fun onStoryClicked(storyClicked: PocketStory, storyPosition: Pair<Int, Int>) {
+    override fun onStoryClicked(storyClicked: PocketStory, storyPosition: Triple<Int, Int, Int>) {
         pocketStoriesController.handleStoryClicked(storyClicked, storyPosition)
     }
 

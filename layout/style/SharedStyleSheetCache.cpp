@@ -110,9 +110,14 @@ void SharedStyleSheetCache::LoadCompletedInternal(
 
   // Go through and deal with the whole linked list.
   auto* data = &aData;
+  auto* networkMetadata = aData.GetNetworkMetadata();
   do {
     MOZ_RELEASE_ASSERT(!data->mSheetCompleteCalled);
     data->mSheetCompleteCalled = true;
+
+    if (!data->mNetworkMetadata) {
+      data->mNetworkMetadata = networkMetadata;
+    }
 
     if (!data->mSheetAlreadyComplete) {
       // If mSheetAlreadyComplete, then the sheet could well be modified between
@@ -200,20 +205,20 @@ SharedStyleSheetCache::CollectReports(nsIHandleReportCallback* aHandleReport,
 }
 
 void SharedStyleSheetCache::Clear(
-    const Maybe<nsCOMPtr<nsIPrincipal>>& aPrincipal,
+    const Maybe<bool>& aChrome, const Maybe<nsCOMPtr<nsIPrincipal>>& aPrincipal,
     const Maybe<nsCString>& aSchemelessSite,
     const Maybe<OriginAttributesPattern>& aPattern) {
   using ContentParent = dom::ContentParent;
 
   if (XRE_IsParentProcess()) {
     for (auto* cp : ContentParent::AllProcesses(ContentParent::eLive)) {
-      Unused << cp->SendClearStyleSheetCache(aPrincipal, aSchemelessSite,
-                                             aPattern);
+      Unused << cp->SendClearStyleSheetCache(aChrome, aPrincipal,
+                                             aSchemelessSite, aPattern);
     }
   }
 
   if (sSingleton) {
-    sSingleton->ClearInProcess(aPrincipal, aSchemelessSite, aPattern);
+    sSingleton->ClearInProcess(aChrome, aPrincipal, aSchemelessSite, aPattern);
   }
 }
 

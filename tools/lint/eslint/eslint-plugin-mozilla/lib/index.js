@@ -8,19 +8,15 @@
 
 "use strict";
 
-// ------------------------------------------------------------------------------
-// Plugin Definition
-// ------------------------------------------------------------------------------
-module.exports = {
+const path = require("path");
+const globals = require("globals");
+
+const { name, version } = require(path.join(__dirname, "..", "package.json"));
+
+const plugin = {
+  meta: { name, version },
   configs: {
-    "browser-test": require("./configs/browser-test"),
-    "chrome-test": require("./configs/chrome-test"),
-    "general-test": require("./configs/general-test"),
-    "mochitest-test": require("./configs/mochitest-test"),
-    recommended: require("./configs/recommended"),
-    "require-jsdoc": require("./configs/require-jsdoc"),
-    "valid-jsdoc": require("./configs/valid-jsdoc"),
-    "xpcshell-test": require("./configs/xpcshell-test"),
+    // Filled in below.
   },
   environments: {
     "browser-window": require("./environments/browser-window.js"),
@@ -42,13 +38,11 @@ module.exports = {
     "avoid-removeChild": require("./rules/avoid-removeChild"),
     "balanced-listeners": require("./rules/balanced-listeners"),
     "balanced-observers": require("./rules/balanced-observers"),
-    "consistent-if-bracing": require("./rules/consistent-if-bracing"),
     "import-browser-window-globals": require("./rules/import-browser-window-globals"),
     "import-content-task-globals": require("./rules/import-content-task-globals"),
     "import-globals": require("./rules/import-globals"),
     "import-headjs-globals": require("./rules/import-headjs-globals"),
     "lazy-getter-object-name": require("./rules/lazy-getter-object-name"),
-    "mark-exported-symbols-as-used": require("./rules/mark-exported-symbols-as-used"),
     "mark-test-function-used": require("./rules/mark-test-function-used"),
     "no-aArgs": require("./rules/no-aArgs"),
     "no-addtask-setup": require("./rules/no-addtask-setup"),
@@ -67,10 +61,7 @@ module.exports = {
     "prefer-boolean-length-check": require("./rules/prefer-boolean-length-check"),
     "prefer-formatValues": require("./rules/prefer-formatValues"),
     "reject-addtask-only": require("./rules/reject-addtask-only"),
-    "reject-chromeutils-import": require("./rules/reject-chromeutils-import"),
-    "reject-chromeutils-import-params": require("./rules/reject-chromeutils-import-params"),
     "reject-eager-module-in-lazy-getter": require("./rules/reject-eager-module-in-lazy-getter"),
-    "reject-global-this": require("./rules/reject-global-this"),
     "reject-globalThis-modification": require("./rules/reject-globalThis-modification"),
     "reject-import-system-module-from-non-system": require("./rules/reject-import-system-module-from-non-system"),
     "reject-importGlobalProperties": require("./rules/reject-importGlobalProperties"),
@@ -84,9 +75,7 @@ module.exports = {
     "reject-top-level-await": require("./rules/reject-top-level-await"),
     "rejects-requires-await": require("./rules/rejects-requires-await"),
     "use-cc-etc": require("./rules/use-cc-etc"),
-    "use-chromeutils-definelazygetter": require("./rules/use-chromeutils-definelazygetter"),
     "use-chromeutils-generateqi": require("./rules/use-chromeutils-generateqi"),
-    "use-chromeutils-import": require("./rules/use-chromeutils-import"),
     "use-console-createInstance": require("./rules/use-console-createInstance"),
     "use-default-preference-values": require("./rules/use-default-preference-values"),
     "use-ownerGlobal": require("./rules/use-ownerGlobal"),
@@ -102,3 +91,125 @@ module.exports = {
     "var-only-at-top-level": require("./rules/var-only-at-top-level"),
   },
 };
+
+const configurations = [
+  "browser-test",
+  "chrome-test",
+  "general-test",
+  "mochitest-test",
+  "recommended",
+  "require-jsdoc",
+  "valid-jsdoc",
+  "xpcshell-test",
+];
+
+/**
+ * Clones a legacy configuration section, adjusting fields so that ESLint won't
+ * fail.
+ *
+ * @param {object} section
+ *   The section to clone.
+ * @returns {object}
+ *   The cloned section.
+ */
+function cloneLegacySection(section) {
+  let config = structuredClone(section);
+
+  // The legacy config doesn't support names, so get rid of those.
+  delete config.name;
+
+  if (config.overrides) {
+    for (let overridesSection of config.overrides) {
+      // The legacy config doesn't support names in sections, so get rid of those.
+      delete overridesSection.name;
+      // Also, the legacy config supports "excludedFiles" rather than "ignores".
+      if (overridesSection.ignores) {
+        overridesSection.excludedFiles = overridesSection.ignores;
+        delete overridesSection.ignores;
+      }
+    }
+  }
+
+  return config;
+}
+
+/**
+ * Clones a flat configuration section, adjusting fields so that ESLint won't
+ * fail.
+ *
+ * @param {object} section
+ *   The section to clone.
+ * @returns {object}
+ *   The cloned section.
+ */
+function cloneFlatSection(section) {
+  let config = structuredClone(section);
+
+  // We assume all parts of the flat config need the plugins defined. In
+  // practice, they only need to be defined where they are used, but for
+  // now this is simpler.
+  config.plugins = {
+    mozilla: plugin,
+    "no-unsanitized": require("eslint-plugin-no-unsanitized"),
+    "@microsoft/sdl": require("@microsoft/eslint-plugin-sdl"),
+    promise: require("eslint-plugin-promise"),
+    jsdoc: require("eslint-plugin-jsdoc"),
+  };
+  if (!config.languageOptions) {
+    config.languageOptions = {};
+  }
+
+  if (config.globals) {
+    config.languageOptions.globals = { ...config.globals };
+    delete config.globals;
+  }
+
+  // Handle changing the location of the sourceType.
+  if (config.parserOptions?.sourceType) {
+    config.languageOptions.sourceType = config.parserOptions.sourceType;
+    delete config.parserOptions;
+  }
+
+  // Convert any environments into a list of globals.
+  for (let [key, value] of Object.entries(config.env ?? {})) {
+    if (!value) {
+      throw new Error(
+        "Removing environments is not supported by eslint-plugin-mozilla"
+      );
+    }
+    if (!config.languageOptions.globals) {
+      config.languageOptions.globals = {};
+    }
+    if (key.startsWith("mozilla/")) {
+      config.languageOptions.globals = {
+        ...config.languageOptions.globals,
+        ...plugin.environments[key.substring("mozilla/".length)].globals,
+      };
+    } else {
+      config.languageOptions.globals = {
+        ...config.languageOptions.globals,
+        ...globals[key],
+      };
+    }
+  }
+  delete config.env;
+
+  return config;
+}
+
+for (let configName of configurations) {
+  let config = require(`./configs/${configName}`);
+
+  if (configName == "recommended") {
+    plugin.configs[configName] = cloneLegacySection(config.getConfig("legacy"));
+    plugin.configs[`flat/${configName}`] = config
+      .getConfig("flat")
+      .map(section => cloneFlatSection(section));
+    continue;
+  }
+
+  plugin.configs[configName] = cloneLegacySection(config);
+  plugin.configs[`flat/${configName}`] = cloneFlatSection(config);
+}
+
+module.exports = plugin;

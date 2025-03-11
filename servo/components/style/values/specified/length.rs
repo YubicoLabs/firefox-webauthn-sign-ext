@@ -19,7 +19,7 @@ use crate::values::generics::length::{
     GenericMargin, GenericMaxSize, GenericSize,
 };
 use crate::values::generics::NonNegative;
-use crate::values::specified::calc::{self, CalcNode};
+use crate::values::specified::calc::{self, AllowAnchorPositioningFunctions, CalcNode};
 use crate::values::specified::NonNegativeNumber;
 use crate::values::CSSFloat;
 use crate::{Zero, ZeroNoPercent};
@@ -51,6 +51,7 @@ pub const PX_PER_PC: CSSFloat = PX_PER_PT * 12.;
 /// added here, `custom_properties::NonCustomReferences::from_unit`
 /// must also be updated. Consult the comment in that function as to why.
 #[derive(Clone, Copy, Debug, MallocSizeOf, PartialEq, ToCss, ToShmem)]
+#[repr(u8)]
 pub enum FontRelativeLength {
     /// A "em" value: https://drafts.csswg.org/css-values/#em
     #[css(dimension)]
@@ -458,6 +459,7 @@ enum ViewportUnit {
 ///
 /// <https://drafts.csswg.org/css-values/#viewport-relative-lengths>
 #[derive(Clone, Copy, Debug, MallocSizeOf, PartialEq, ToCss, ToShmem)]
+#[repr(u8)]
 pub enum ViewportPercentageLength {
     /// <https://drafts.csswg.org/css-values/#valdef-length-vw>
     #[css(dimension)]
@@ -713,6 +715,7 @@ impl ViewportPercentageLength {
 
 /// HTML5 "character width", as defined in HTML5 § 14.5.4.
 #[derive(Clone, Copy, Debug, MallocSizeOf, PartialEq, ToCss, ToShmem)]
+#[repr(C)]
 pub struct CharacterWidth(pub i32);
 
 impl CharacterWidth {
@@ -730,6 +733,7 @@ impl CharacterWidth {
 
 /// Represents an absolute length with its unit
 #[derive(Clone, Copy, Debug, MallocSizeOf, PartialEq, ToCss, ToShmem)]
+#[repr(u8)]
 pub enum AbsoluteLength {
     /// An absolute length in pixels (px)
     #[css(dimension)]
@@ -831,6 +835,7 @@ impl PartialOrd for AbsoluteLength {
 ///
 /// <https://drafts.csswg.org/css-contain-3/#container-lengths>
 #[derive(Clone, Copy, Debug, MallocSizeOf, PartialEq, ToCss, ToShmem)]
+#[repr(u8)]
 pub enum ContainerRelativeLength {
     /// 1% of query container's width
     #[css(dimension)]
@@ -958,6 +963,7 @@ impl ContainerRelativeLength {
 ///
 /// <https://drafts.csswg.org/css-values/#lengths>
 #[derive(Clone, Copy, Debug, MallocSizeOf, PartialEq, ToShmem)]
+#[repr(u8)]
 pub enum NoCalcLength {
     /// An absolute length
     ///
@@ -1054,14 +1060,14 @@ impl NoCalcLength {
             "pt" => Self::Absolute(AbsoluteLength::Pt(value)),
             "pc" => Self::Absolute(AbsoluteLength::Pc(value)),
             // font-relative
-            "em" if context.parsing_mode.allows_font_relative_lengths() => Self::FontRelative(FontRelativeLength::Em(value)),
-            "ex" if context.parsing_mode.allows_font_relative_lengths() => Self::FontRelative(FontRelativeLength::Ex(value)),
-            "ch" if context.parsing_mode.allows_font_relative_lengths() => Self::FontRelative(FontRelativeLength::Ch(value)),
-            "cap" if context.parsing_mode.allows_font_relative_lengths() => Self::FontRelative(FontRelativeLength::Cap(value)),
-            "ic" if context.parsing_mode.allows_font_relative_lengths() => Self::FontRelative(FontRelativeLength::Ic(value)),
-            "rem" if context.parsing_mode.allows_font_relative_lengths() => Self::FontRelative(FontRelativeLength::Rem(value)),
-            "lh" if context.parsing_mode.allows_font_relative_lengths() => Self::FontRelative(FontRelativeLength::Lh(value)),
-            "rlh" if context.parsing_mode.allows_font_relative_lengths() => Self::FontRelative(FontRelativeLength::Rlh(value)),
+            "em" if context.allows_computational_dependence() => Self::FontRelative(FontRelativeLength::Em(value)),
+            "ex" if context.allows_computational_dependence() => Self::FontRelative(FontRelativeLength::Ex(value)),
+            "ch" if context.allows_computational_dependence() => Self::FontRelative(FontRelativeLength::Ch(value)),
+            "cap" if context.allows_computational_dependence() => Self::FontRelative(FontRelativeLength::Cap(value)),
+            "ic" if context.allows_computational_dependence() => Self::FontRelative(FontRelativeLength::Ic(value)),
+            "rem" if context.allows_computational_dependence() => Self::FontRelative(FontRelativeLength::Rem(value)),
+            "lh" if context.allows_computational_dependence() => Self::FontRelative(FontRelativeLength::Lh(value)),
+            "rlh" if context.allows_computational_dependence() => Self::FontRelative(FontRelativeLength::Rlh(value)),
             // viewport percentages
             "vw" if !context.in_page_rule() => {
                 Self::ViewportPercentage(ViewportPercentageLength::Vw(value))
@@ -1686,6 +1692,7 @@ impl LengthPercentage {
         input: &mut Parser<'i, 't>,
         num_context: AllowedNumericType,
         allow_quirks: AllowQuirks,
+        allow_anchor: AllowAnchorPositioningFunctions,
     ) -> Result<Self, ParseError<'i>> {
         let location = input.current_source_location();
         let token = input.next()?;
@@ -1716,8 +1723,7 @@ impl LengthPercentage {
             },
             Token::Function(ref name) => {
                 let function = CalcNode::math_function(context, name, location)?;
-                let calc =
-                    CalcNode::parse_length_or_percentage(context, input, num_context, function)?;
+                let calc = CalcNode::parse_length_or_percentage(context, input, num_context, function, allow_anchor)?;
                 Ok(LengthPercentage::Calc(Box::new(calc)))
             },
             _ => return Err(location.new_unexpected_token_error(token.clone())),
@@ -1732,7 +1738,63 @@ impl LengthPercentage {
         input: &mut Parser<'i, 't>,
         allow_quirks: AllowQuirks,
     ) -> Result<Self, ParseError<'i>> {
-        Self::parse_internal(context, input, AllowedNumericType::All, allow_quirks)
+        Self::parse_internal(
+            context,
+            input,
+            AllowedNumericType::All,
+            allow_quirks,
+            AllowAnchorPositioningFunctions::No,
+        )
+    }
+
+    /// Parses allowing the unitless length quirk, as well as allowing
+    /// anchor-positioning related function, `anchor-size()`.
+    #[inline]
+    fn parse_quirky_with_anchor_size_function<'i, 't>(
+        context: &ParserContext,
+        input: &mut Parser<'i, 't>,
+        allow_quirks: AllowQuirks,
+    ) -> Result<Self, ParseError<'i>> {
+        Self::parse_internal(
+            context,
+            input,
+            AllowedNumericType::All,
+            allow_quirks,
+            AllowAnchorPositioningFunctions::AllowAnchorSize,
+        )
+    }
+
+    /// Parses allowing the unitless length quirk, as well as allowing
+    /// anchor-positioning related functions, `anchor()` and `anchor-size()`.
+    #[inline]
+    pub fn parse_quirky_with_anchor_functions<'i, 't>(
+        context: &ParserContext,
+        input: &mut Parser<'i, 't>,
+        allow_quirks: AllowQuirks,
+    ) -> Result<Self, ParseError<'i>> {
+        Self::parse_internal(
+            context,
+            input,
+            AllowedNumericType::All,
+            allow_quirks,
+            AllowAnchorPositioningFunctions::AllowAnchorAndAnchorSize,
+        )
+    }
+
+    /// Parses non-negative length, allowing the unitless length quirk,
+    /// as well as allowing `anchor-size()`.
+    pub fn parse_non_negative_with_anchor_size<'i, 't>(
+        context: &ParserContext,
+        input: &mut Parser<'i, 't>,
+        allow_quirks: AllowQuirks,
+    ) -> Result<Self, ParseError<'i>> {
+        Self::parse_internal(
+            context,
+            input,
+            AllowedNumericType::NonNegative,
+            allow_quirks,
+            AllowAnchorPositioningFunctions::AllowAnchorSize,
+        )
     }
 
     /// Parse a non-negative length.
@@ -1759,6 +1821,7 @@ impl LengthPercentage {
             input,
             AllowedNumericType::NonNegative,
             allow_quirks,
+            AllowAnchorPositioningFunctions::No,
         )
     }
 
@@ -1904,6 +1967,18 @@ impl NonNegativeLengthPercentage {
     ) -> Result<Self, ParseError<'i>> {
         LengthPercentage::parse_non_negative_quirky(context, input, allow_quirks).map(NonNegative)
     }
+
+    /// Parses a length or a percentage, allowing the unitless length quirk,
+    /// as well as allowing `anchor-size()`.
+    #[inline]
+    pub fn parse_non_negative_with_anchor_size<'i, 't>(
+        context: &ParserContext,
+        input: &mut Parser<'i, 't>,
+        allow_quirks: AllowQuirks,
+    ) -> Result<Self, ParseError<'i>> {
+        LengthPercentage::parse_non_negative_with_anchor_size(context, input, allow_quirks).map(NonNegative)
+    }
+
 }
 
 /// Either a `<length>` or the `auto` keyword.
@@ -2014,10 +2089,14 @@ impl Size {
         parse_size_non_length!(Size, input, "auto" => Auto);
         parse_fit_content_function!(Size, input, context, allow_quirks);
 
-        if let Ok(length) = input.try_parse(|i| NonNegativeLengthPercentage::parse_quirky(context, i, allow_quirks)) {
+        if let Ok(length) =
+            input.try_parse(|i| NonNegativeLengthPercentage::parse_non_negative_with_anchor_size(context, i, allow_quirks))
+        {
             return Ok(GenericSize::LengthPercentage(length));
         }
-        Ok(Self::AnchorSizeFunction(Box::new(GenericAnchorSizeFunction::parse(context, input)?)))
+        Ok(Self::AnchorSizeFunction(Box::new(
+            GenericAnchorSizeFunction::parse(context, input)?,
+        )))
     }
 
     /// Returns `0%`.
@@ -2049,10 +2128,14 @@ impl MaxSize {
         parse_size_non_length!(MaxSize, input, "none" => None);
         parse_fit_content_function!(MaxSize, input, context, allow_quirks);
 
-        if let Ok(length) = input.try_parse(|i| NonNegativeLengthPercentage::parse_quirky(context, i, allow_quirks)) {
+        if let Ok(length) =
+            input.try_parse(|i| NonNegativeLengthPercentage::parse_non_negative_with_anchor_size(context, i, allow_quirks))
+        {
             return Ok(GenericMaxSize::LengthPercentage(length));
         }
-        Ok(Self::AnchorSizeFunction(Box::new(GenericAnchorSizeFunction::parse(context, input)?)))
+        Ok(Self::AnchorSizeFunction(Box::new(
+            GenericAnchorSizeFunction::parse(context, input)?,
+        )))
     }
 }
 
@@ -2074,8 +2157,9 @@ impl Margin {
         input: &mut Parser<'i, 't>,
         allow_quirks: AllowQuirks,
     ) -> Result<Self, ParseError<'i>> {
-        if let Ok(l) = input.try_parse(|i| LengthPercentage::parse_quirky(context, i, allow_quirks))
-        {
+        if let Ok(l) = input.try_parse(|i| {
+            LengthPercentage::parse_quirky_with_anchor_size_function(context, i, allow_quirks)
+        }) {
             return Ok(Self::LengthPercentage(l));
         }
         if input.try_parse(|i| i.expect_ident_matching("auto")).is_ok() {

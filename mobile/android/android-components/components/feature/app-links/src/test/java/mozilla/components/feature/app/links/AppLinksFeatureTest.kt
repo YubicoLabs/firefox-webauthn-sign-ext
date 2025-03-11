@@ -223,7 +223,7 @@ class AppLinksFeatureTest {
     }
 
     @Test
-    fun `WHEN tab have action view and caller is the same as external app THEN an external app dialog is shown`() {
+    fun `WHEN tab have action view and caller is the same as external app THEN an external app dialog is not shown`() {
         feature = spy(
             AppLinksFeature(
                 context = mockContext,
@@ -393,13 +393,13 @@ class AppLinksFeatureTest {
         val tab = createTab(webUrl, private = true)
 
         feature.loadUrlIfSchemeSupported(tab, intentUrl)
-        verify(mockLoadUrlUseCase, never()).invoke(anyString(), anyString(), any(), any())
+        verify(mockLoadUrlUseCase, never()).invoke(anyString(), anyString(), any(), any(), any())
 
         feature.loadUrlIfSchemeSupported(tab, webUrl)
-        verify(mockLoadUrlUseCase, times(1)).invoke(anyString(), anyString(), any(), any())
+        verify(mockLoadUrlUseCase, times(1)).invoke(anyString(), anyString(), any(), any(), any())
 
         feature.loadUrlIfSchemeSupported(tab, aboutUrl)
-        verify(mockLoadUrlUseCase, times(2)).invoke(anyString(), anyString(), any(), any())
+        verify(mockLoadUrlUseCase, times(2)).invoke(anyString(), anyString(), any(), any(), any())
     }
 
     @Test

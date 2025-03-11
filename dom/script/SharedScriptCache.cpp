@@ -90,7 +90,8 @@ ScriptLoadData::ScriptLoadData(ScriptLoader* aLoader,
     : mExpirationTime(aRequest->ExpirationTime()),
       mLoader(aLoader),
       mKey(aLoader, aRequest),
-      mLoadedScript(aRequest->getLoadedScript()) {}
+      mLoadedScript(aRequest->getLoadedScript()),
+      mNetworkMetadata(aRequest->mNetworkMetadata) {}
 
 NS_IMPL_ISUPPORTS(SharedScriptCache, nsIMemoryReporter, nsIObserver)
 
@@ -138,19 +139,21 @@ SharedScriptCache::Observe(nsISupports* aSubject, const char* aTopic,
   return NS_OK;
 }
 
-void SharedScriptCache::Clear(const Maybe<nsCOMPtr<nsIPrincipal>>& aPrincipal,
+void SharedScriptCache::Clear(const Maybe<bool>& aChrome,
+                              const Maybe<nsCOMPtr<nsIPrincipal>>& aPrincipal,
                               const Maybe<nsCString>& aSchemelessSite,
                               const Maybe<OriginAttributesPattern>& aPattern) {
   using ContentParent = dom::ContentParent;
 
   if (XRE_IsParentProcess()) {
     for (auto* cp : ContentParent::AllProcesses(ContentParent::eLive)) {
-      Unused << cp->SendClearScriptCache(aPrincipal, aSchemelessSite, aPattern);
+      Unused << cp->SendClearScriptCache(aChrome, aPrincipal, aSchemelessSite,
+                                         aPattern);
     }
   }
 
   if (sSingleton) {
-    sSingleton->ClearInProcess(aPrincipal, aSchemelessSite, aPattern);
+    sSingleton->ClearInProcess(aChrome, aPrincipal, aSchemelessSite, aPattern);
   }
 }
 

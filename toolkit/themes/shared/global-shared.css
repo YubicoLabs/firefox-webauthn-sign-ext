@@ -19,11 +19,18 @@
   --default-focusring-width: 2px;
   --default-focusring: var(--default-focusring-width) dotted;
 
+  --animation-easing-function: cubic-bezier(.07, .95, 0, 1);
+
   --arrowpanel-background: Field;
   --arrowpanel-color: FieldText;
   --arrowpanel-border-color: ThreeDShadow;
   --arrowpanel-border-radius: 8px;
   --arrowpanel-padding: 16px;
+  --arrowpanel-shadow-margin: 4px;
+  @media (-moz-platform: macos) {
+    /* On macOS we use native shadows via -moz-window-shadow */
+    --arrowpanel-shadow-margin: 0px;
+  }
 
   --arrowpanel-dimmed: color-mix(in srgb, currentColor 17%, transparent);
   --arrowpanel-dimmed-further: color-mix(in srgb, currentColor 30%, transparent);
@@ -35,6 +42,8 @@
   --input-border-color: color-mix(in srgb, currentColor 46%, transparent);
 
   --toolbarbutton-icon-fill: currentColor;
+  --toolbarbutton-icon-fill-attention: AccentColor;
+  --toolbarbutton-icon-fill-attention-text: AccentColorText;
   --toolbarbutton-disabled-opacity: 0.4;
 
   --toolbar-field-background-color: Field;
@@ -44,10 +53,8 @@
   --toolbar-field-focus-color: FieldText;
   --toolbar-field-focus-border-color: color-mix(in srgb, var(--focus-outline-color) 50%, transparent);
 
-  --toolbar-non-lwt-bgcolor: color-mix(in srgb, -moz-dialog 85%, white);
-  --toolbar-non-lwt-textcolor: -moz-dialogtext;
-  --toolbar-bgcolor: var(--toolbar-non-lwt-bgcolor);
-  --toolbar-color: var(--toolbar-non-lwt-textcolor);
+  --toolbar-bgcolor: color-mix(in srgb, -moz-dialog 85%, white);
+  --toolbar-color: -moz-dialogtext;
 
   /* Override some toolbar colors when not under prefers-contrast. Note that
    * for the browser window these might be overridden by
@@ -63,13 +70,27 @@
     --toolbar-field-color: inherit;
 
     @media (prefers-color-scheme: light) {
-      --toolbar-non-lwt-bgcolor: white;
+      --toolbar-bgcolor: white;
     }
   }
 
   &[lwtheme] {
     --toolbar-bgcolor: rgba(255,255,255,.4);
     --toolbar-color: var(--lwt-text-color, inherit);
+
+    --toolbarbutton-icon-fill-attention: light-dark(rgb(0, 97, 224), rgb(0, 221, 255));
+    --toolbarbutton-icon-fill-attention-text-light: rgb(240, 240, 244);
+    --toolbarbutton-icon-fill-attention-text-dark: rgb(28, 27, 34);
+    --toolbarbutton-icon-fill-attention-text: light-dark(
+      var(--toolbarbutton-icon-fill-attention-text-light),
+      var(--toolbarbutton-icon-fill-attention-text-dark)
+    );
+    &[lwt-icon-fill-attention="dark"] {
+      --toolbarbutton-icon-fill-attention-text: var(--toolbarbutton-icon-fill-attention-text-light);
+    }
+    &[lwt-icon-fill-attention="light"] {
+      --toolbarbutton-icon-fill-attention-text: var(--toolbarbutton-icon-fill-attention-text-dark);
+    }
   }
 
   /* This color scheme should match --toolbar-color. However, note that
@@ -101,6 +122,7 @@
   background-color: -moz-Dialog;
   color: -moz-DialogText;
   font: message-box;
+  -moz-box-collapse: legacy;
 
   &[dialogroot] {
     font: menu;
@@ -113,6 +135,7 @@
   --panel-border-color: var(--arrowpanel-border-color);
   --panel-border-radius: var(--arrowpanel-border-radius);
   --panel-padding: var(--arrowpanel-padding);
+  --panel-shadow-margin: var(--arrowpanel-shadow-margin);
 }
 
 /* Lightweight theme roots */
@@ -134,6 +157,18 @@
 
 :root[lwtheme-image][lwtheme-brighttext] {
   text-shadow: 1px 1px 1.5px black;
+}
+
+/* Rules for 'hiding' portions of the chrome for special
+   kinds of windows with toolbars (not just browser windows) */
+:root[chromehidden~="menubar"] .chromeclass-menubar,
+:root[chromehidden~="directories"] .chromeclass-directories,
+:root[chromehidden~="status"] .chromeclass-status,
+:root[chromehidden~="extrachrome"] .chromeclass-extrachrome,
+:root[chromehidden~="location"] .chromeclass-location,
+:root[chromehidden~="location"][chromehidden~="toolbar"] .chromeclass-toolbar,
+:root[chromehidden~="toolbar"] .chromeclass-toolbar-additional {
+  display: none;
 }
 
 /* General styles */
@@ -332,9 +367,11 @@ button.text-link .button-text {
 
   &:not([disabled]) {
     &:hover {
+      color: var(--button-text-color-hover);
       background-color: var(--button-background-color-hover);
     }
     &:hover:active {
+      color: var(--button-text-color-active);
       background-color: var(--button-background-color-active);
     }
     &[default],
@@ -343,6 +380,7 @@ button.text-link .button-text {
       background-color: var(--color-accent-primary);
 
       &:hover {
+        color: var(--button-text-color-primary-hover);
         background-color: var(--color-accent-primary-hover);
       }
       &:hover:active {
@@ -374,26 +412,28 @@ button.text-link .button-text {
   --panel-border-color: rgba(0,0,0,.4);
   --panel-padding: 0;
   --panel-background: rgba(249,249,250,.8) no-repeat center var(--autoscroll-background-image);
+  --panel-shadow: 0 0 var(--panel-shadow-margin) rgba(0,0,0,.2);
   --panel-shadow-margin: 4px;
+  --panel-border-radius: 100%;
+
   /* Set pointer-events: none; so that mousemove events can be handled by AutoScrollChild.sys.mjs. */
   pointer-events: none;
+
+  &::part(content) {
+    background-clip: padding-box;
+    width: 100%;
+    height: 100%;
+  }
+
+  &[scrolldir="NS"] {
+    --autoscroll-background-image: url("chrome://global/skin/icons/autoscroll-vertical.svg");
+  }
+
+  &[scrolldir="EW"] {
+    --autoscroll-background-image: url("chrome://global/skin/icons/autoscroll-horizontal.svg");
+  }
 }
 
-.autoscroller::part(content) {
-  border-radius: 100%;
-  background-clip: padding-box;
-  box-shadow: 0 0 var(--panel-shadow-margin) rgba(0,0,0,.2);
-  width: 100%;
-  height: 100%;
-}
-
-.autoscroller[scrolldir="NS"] {
-  --autoscroll-background-image: url("chrome://global/skin/icons/autoscroll-vertical.svg");
-}
-
-.autoscroller[scrolldir="EW"] {
-  --autoscroll-background-image: url("chrome://global/skin/icons/autoscroll-horizontal.svg");
-}
 
 /* Combobox dropdown renderer */
 #ContentSelectDropdown > menupopup {

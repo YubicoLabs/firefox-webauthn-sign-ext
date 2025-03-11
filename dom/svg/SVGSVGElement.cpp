@@ -130,7 +130,8 @@ float SVGSVGElement::CurrentScale() const { return mCurrentScale; }
 
 void SVGSVGElement::SetCurrentScale(float aCurrentScale) {
   // Prevent bizarre behaviour and maxing out of CPU and memory by clamping
-  aCurrentScale = clamped(aCurrentScale, CURRENT_SCALE_MIN, CURRENT_SCALE_MAX);
+  aCurrentScale =
+      std::clamp(aCurrentScale, CURRENT_SCALE_MIN, CURRENT_SCALE_MAX);
 
   if (aCurrentScale == mCurrentScale) {
     return;
@@ -387,6 +388,31 @@ bool SVGSVGElement::IsEventAttributeNameInternal(nsAtom* aName) {
 LengthPercentage SVGSVGElement::GetIntrinsicWidthOrHeight(int aAttr) {
   MOZ_ASSERT(aAttr == ATTR_WIDTH || aAttr == ATTR_HEIGHT);
 
+  int otherAttr = (aAttr == ATTR_HEIGHT) ? ATTR_WIDTH : ATTR_HEIGHT;
+
+  if (!mLengthAttributes[aAttr].IsExplicitlySet() &&
+      mLengthAttributes[otherAttr].IsExplicitlySet()) {
+    const auto& viewBox = GetViewBoxInternal();
+    if (viewBox.HasRect()) {
+      auto aspectRatio = AspectRatio::FromSize(viewBox.GetAnimValue().width,
+                                               viewBox.GetAnimValue().height);
+      if (aAttr == ATTR_HEIGHT && aspectRatio) {
+        aspectRatio = aspectRatio.Inverted();
+      }
+      if (aspectRatio) {
+        if (mLengthAttributes[otherAttr].IsPercentage()) {
+          float rawSize = aspectRatio.ApplyToFloat(
+              mLengthAttributes[otherAttr].GetAnimValInSpecifiedUnits());
+          return LengthPercentage::FromPercentage(rawSize);
+        }
+
+        float rawSize = aspectRatio.ApplyToFloat(
+            mLengthAttributes[otherAttr].GetAnimValueWithZoom(this));
+        return LengthPercentage::FromPixels(rawSize);
+      }
+    }
+  }
+
   if (mLengthAttributes[aAttr].IsPercentage()) {
     float rawSize = mLengthAttributes[aAttr].GetAnimValInSpecifiedUnits();
     return LengthPercentage::FromPercentage(rawSize);
@@ -460,7 +486,7 @@ void SVGSVGElement::InvalidateTransformNotifyFrame() {
 }
 
 SVGElement::EnumAttributesInfo SVGSVGElement::GetEnumInfo() {
-  return EnumAttributesInfo(mEnumAttributes, sEnumInfo, ArrayLength(sEnumInfo));
+  return EnumAttributesInfo(mEnumAttributes, sEnumInfo, std::size(sEnumInfo));
 }
 
 void SVGSVGElement::SetImageOverridePreserveAspectRatio(

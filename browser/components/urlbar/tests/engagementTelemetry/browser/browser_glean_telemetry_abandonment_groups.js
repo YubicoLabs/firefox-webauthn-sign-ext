@@ -170,9 +170,9 @@ add_task(async function general() {
     assert: () =>
       assertAbandonmentTelemetry([
         {
-          groups: "heuristic,general",
-          results: "search_engine,bookmark",
-          n_results: 2,
+          groups: "heuristic,suggested_index,general",
+          results: "search_engine,action,bookmark",
+          n_results: 3,
         },
       ]),
   });
@@ -209,15 +209,16 @@ add_task(async function restrict_keywords() {
 });
 
 add_task(async function suggest() {
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.urlbar.suggest.engines", false]],
+  });
   await doSuggestTest({
     trigger: () => doBlur(),
     assert: () =>
       assertAbandonmentTelemetry([
         {
           groups: "heuristic,suggest",
-          results: UrlbarPrefs.get("quickSuggestRustEnabled")
-            ? "search_engine,rust_adm_nonsponsored"
-            : "search_engine,rs_adm_nonsponsored",
+          results: "search_engine,rust_adm_nonsponsored",
           n_results: 2,
         },
       ]),

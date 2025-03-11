@@ -20,6 +20,7 @@ add_setup(async function () {
     { identifier: "engine1" },
     { identifier: "engine2" },
   ]);
+  await SearchTestUtils.initXPCShellAddonManager();
   await Services.search.init();
 });
 
@@ -91,12 +92,16 @@ async function checkLoadSettingProperties(
   Assert.equal(engines[1].id, "engine2");
 
   // The extra engine is the second in the list.
-  isSubObjectOf(EXPECTED_ENGINE.engine, engines[2]);
+  isSubObjectOf(EXPECTED_ENGINE.engine, engines[2], prop => {
+    return prop == "_iconURL";
+  });
   Assert.ok(engines[2].id, "test-addon-id@mozilla.orgdefault");
 
   let engineFromSS = ss.getEngineByName(EXPECTED_ENGINE.engine.name);
   Assert.ok(!!engineFromSS);
-  isSubObjectOf(EXPECTED_ENGINE.engine, engineFromSS);
+  isSubObjectOf(EXPECTED_ENGINE.engine, engineFromSS, prop => {
+    return prop == "_iconURL";
+  });
 
   Assert.equal(
     engineFromSS.getSubmission("foo").uri.spec,
@@ -472,11 +477,14 @@ add_task(async function test_settings_write() {
   delete settingsTemplate.locale;
 
   for (let engine of settingsTemplate.engines) {
-    // Remove _shortName from the settings template, as it is no longer supported,
-    // but older settings used to have it, so we keep it in the template as an
-    // example.
+    // Remove _shortName and description from the settings template, as they are
+    // no longer supported, but older settings used to have them. We keep them
+    // in the template as an example.
     if ("_shortName" in engine) {
       delete engine._shortName;
+    }
+    if ("description" in engine) {
+      delete engine.description;
     }
     if ("_urls" in engine) {
       // Only app-provided engines support purpose, others do not,
@@ -563,7 +571,6 @@ var EXPECTED_ENGINE = {
   engine: {
     name: "Test search engine",
     alias: "",
-    description: "A test search engine (based on Google search)",
     wrappedJSObject: {
       _extensionID: "test-addon-id@mozilla.org",
       _iconURL:

@@ -56,24 +56,23 @@ webext-perms-host-description-all-urls = Access your data for all websites
 webext-perms-host-description-wildcard = Access your data for sites in the { $domain } domain
 
 # Variables:
-#   $domainCount (Number): Integer indicating the number of additional
-#     hosts for which this webextension is requesting permission.
-webext-perms-host-description-too-many-wildcards =
-    { $domainCount ->
-        [one] Access your data in { $domainCount } other domain
-       *[other] Access your data in { $domainCount } other domains
-    }
-# Variables:
 #   $domain (String): will be replaced by the DNS host name for which a webextension is requesting access (e.g., www.mozilla.org)
 webext-perms-host-description-one-site = Access your data for { $domain }
 
 # Variables:
-#   $domainCount (Number): Integer indicating the number of additional
-#     hosts for which this webextension is requesting permission.
-webext-perms-host-description-too-many-sites =
+#   $domain (String): will be replaced by the DNS host name for which a webextension is requesting access (e.g., mozilla.org),
+#     $domain should be treated as plural (because it may also include all subdomains, e.g www.mozilla.org, ftp.mozilla.org).
+webext-perms-host-description-one-domain = Access your data for sites in { $domain } domains
+
+# Permission string used for webextensions requesting access to 2 or more domains (and so $domainCount is expected to always
+# be >= 2, for webextensions requesting access to only one domain the `webext-perms-host-description-one-domain` string is
+# used instead).
+# Variables:
+#   $domainCount (Number): Integer indicating the number of websites domains for which this webextension is requesting permission
+#     (the list of domains will follow this string).
+webext-perms-host-description-multiple-domains =
     { $domainCount ->
-        [one] Access your data on { $domainCount } other site
-       *[other] Access your data on { $domainCount } other sites
+       *[other] Access your data for sites in { $domainCount } domains
     }
 
 ## Headers used in the webextension permissions dialog for synthetic add-ons.

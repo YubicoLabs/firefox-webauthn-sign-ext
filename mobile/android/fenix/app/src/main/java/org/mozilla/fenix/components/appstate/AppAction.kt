@@ -4,7 +4,6 @@
 
 package org.mozilla.fenix.components.appstate
 
-import mozilla.components.browser.state.state.TabSessionState
 import mozilla.components.concept.storage.BookmarkNode
 import mozilla.components.concept.sync.TabData
 import mozilla.components.feature.tab.collections.TabCollection
@@ -14,13 +13,16 @@ import mozilla.components.lib.crash.store.CrashAction
 import mozilla.components.lib.state.Action
 import mozilla.components.service.nimbus.messaging.Message
 import mozilla.components.service.nimbus.messaging.MessageSurfaceId
-import mozilla.components.service.pocket.PocketStory
+import mozilla.components.service.pocket.PocketStory.ContentRecommendation
 import mozilla.components.service.pocket.PocketStory.PocketSponsoredStory
+import mozilla.components.service.pocket.PocketStory.SponsoredContent
 import org.mozilla.fenix.browser.StandardSnackbarError
 import org.mozilla.fenix.browser.browsingmode.BrowsingMode
 import org.mozilla.fenix.components.AppStore
 import org.mozilla.fenix.components.appstate.shopping.ShoppingState
+import org.mozilla.fenix.components.appstate.webcompat.WebCompatState
 import org.mozilla.fenix.home.bookmarks.Bookmark
+import org.mozilla.fenix.home.pocket.PocketImpression
 import org.mozilla.fenix.home.pocket.PocketRecommendedStoriesCategory
 import org.mozilla.fenix.home.pocket.PocketRecommendedStoriesSelectedCategory
 import org.mozilla.fenix.home.recentsyncedtabs.RecentSyncedTab
@@ -42,6 +44,14 @@ sealed class AppAction : Action {
      * @property expanded The updated boolean to [AppState.inactiveTabsExpanded]
      */
     data class UpdateInactiveExpanded(val expanded: Boolean) : AppAction()
+
+    /**
+     * Updates whether the native default browser prompt was shown to the user during this session.
+     *
+     * @property wasShown The updated boolean to [AppState.wasNativeDefaultBrowserPromptShown]
+     * This will be true if the prompt was shown, otherwise false.
+     */
+    data class UpdateWasNativeDefaultBrowserPromptShown(val wasShown: Boolean) : AppAction()
 
     /**
      * Updates whether the first frame of the homescreen has been [drawn].
@@ -96,31 +106,6 @@ sealed class AppAction : Action {
     data class DisbandSearchGroupAction(val searchTerm: String) : AppAction()
 
     /**
-     * Indicates the given [categoryName] was selected by the user.
-     */
-    data class SelectPocketStoriesCategory(val categoryName: String) : AppAction()
-
-    /**
-     * Indicates the given [categoryName] was deselected by the user.
-     */
-    data class DeselectPocketStoriesCategory(val categoryName: String) : AppAction()
-
-    /**
-     * Indicates the given [storiesShown] were seen by the user.
-     */
-    data class PocketStoriesShown(val storiesShown: List<PocketStory>) : AppAction()
-
-    /**
-     * Cleans all in-memory data about Pocket stories and categories.
-     */
-    object PocketStoriesClean : AppAction()
-
-    /**
-     * Replaces the current list of Pocket sponsored stories.
-     */
-    data class PocketSponsoredStoriesChange(val sponsoredStories: List<PocketSponsoredStory>) : AppAction()
-
-    /**
      * Adds a set of items marked for removal to the app state, to be hidden in the UI.
      */
     data class AddPendingDeletionSet(val historyItems: Set<PendingDeletionHistory>) : AppAction()
@@ -130,20 +115,7 @@ sealed class AppAction : Action {
      */
     data class UndoPendingDeletionSet(val historyItems: Set<PendingDeletionHistory>) : AppAction()
 
-    /**
-     * Replaces the list of available Pocket recommended stories categories.
-     */
-    data class PocketStoriesCategoriesChange(val storiesCategories: List<PocketRecommendedStoriesCategory>) :
-        AppAction()
-
-    /**
-     * Restores the list of Pocket recommended stories categories selections.
-     */
-    data class PocketStoriesCategoriesSelectionsChange(
-        val storiesCategories: List<PocketRecommendedStoriesCategory>,
-        val categoriesSelected: List<PocketRecommendedStoriesSelectedCategory>,
-    ) : AppAction()
-    object RemoveCollectionsPlaceholder : AppAction()
+    data object RemoveCollectionsPlaceholder : AppAction()
 
     /**
      * Action dispatched when the user has authenticated with their account.
@@ -162,16 +134,14 @@ sealed class AppAction : Action {
     data class RemoveRecentSyncedTab(val syncedTab: RecentSyncedTab) : AppAction()
 
     /**
-     * Action indicating that the selected tab has been changed.
-     *
-     * @property tab The tab that has been selected.
-     */
-    data class SelectedTabChanged(val tab: TabSessionState) : AppAction()
-
-    /**
      * Action dispatched when the browser is deleting its data and quitting.
      */
     data object DeleteAndQuitStarted : AppAction()
+
+    /**
+     * Action dispatched when the current site's data has been cleared.
+     */
+    data object SiteDataCleared : AppAction()
 
     /**
      * Action dispatched when open in firefox action is selected from custom tab.
@@ -441,6 +411,11 @@ sealed class AppAction : Action {
         data object ShareToAppFailed : ShareAction()
 
         /**
+         * [ShareAction] dispatched when sharing to whatsapp.
+         */
+        data object ShareToWhatsApp : ShareAction()
+
+        /**
          * [ShareAction] dispatched when sharing tabs to other connected devices was successful.
          *
          * @property destination List of device IDs with which tabs were shared.
@@ -535,5 +510,115 @@ sealed class AppAction : Action {
          * state.
          */
         data object Reset : ReaderViewAction()
+    }
+
+    /**
+     * [AppAction]s related to the content recommendations feature.
+     */
+    sealed class ContentRecommendationsAction : AppAction() {
+        /**
+         * [ContentRecommendationsAction] dispatched when content recommendations were fetched.
+         *
+         * @property recommendations The new list of [ContentRecommendation] that was fetched.
+         */
+        data class ContentRecommendationsFetched(
+            val recommendations: List<ContentRecommendation>,
+        ) : ContentRecommendationsAction()
+
+        /**
+         * [ContentRecommendationsAction] dispatched when an user clicks on a content
+         * recommendation.
+         *
+         * @property recommendation The [ContentRecommendation] that was clicked.
+         * @property position The position (0-index) of the [ContentRecommendation].
+         */
+        data class ContentRecommendationClicked(
+            val recommendation: ContentRecommendation,
+            val position: Int,
+        ) : ContentRecommendationsAction()
+
+        /**
+         * Indicates the given [categoryName] was selected by the user.
+         */
+        data class SelectPocketStoriesCategory(val categoryName: String) :
+            ContentRecommendationsAction()
+
+        /**
+         * Indicates the given [categoryName] was deselected by the user.
+         */
+        data class DeselectPocketStoriesCategory(val categoryName: String) :
+            ContentRecommendationsAction()
+
+        /**
+         * Indicates the given story [impressions] were seen by the user.
+         *
+         * @property impressions A list of [PocketImpression]s detailing the story shown and
+         * their respective position.
+         */
+        data class PocketStoriesShown(val impressions: List<PocketImpression>) :
+            ContentRecommendationsAction()
+
+        /**
+         * Cleans all in-memory data about Pocket stories and categories.
+         */
+        data object PocketStoriesClean : ContentRecommendationsAction()
+
+        /**
+         * Replaces the current list of Pocket sponsored stories.
+         *
+         * @property sponsoredStories The new list of [PocketSponsoredStory] that was fetched.
+         * @property showContentRecommendations Whether or not to show Merino content
+         * recommendations.
+         */
+        data class PocketSponsoredStoriesChange(
+            val sponsoredStories: List<PocketSponsoredStory>,
+            val showContentRecommendations: Boolean,
+        ) : ContentRecommendationsAction()
+
+        /**
+         * Replaces the current list of [SponsoredContent]s.
+         *
+         * @property sponsoredContents THe new list of [SponsoredContent] that was fetched.
+         * @property showContentRecommendations Whether or not to show Merino content
+         * recommendations.
+         */
+        data class SponsoredContentsChange(
+            val sponsoredContents: List<SponsoredContent>,
+            val showContentRecommendations: Boolean,
+        ) : ContentRecommendationsAction()
+
+        /**
+         * Replaces the list of available Pocket recommended stories categories.
+         */
+        data class PocketStoriesCategoriesChange(val storiesCategories: List<PocketRecommendedStoriesCategory>) :
+            ContentRecommendationsAction()
+
+        /**
+         * Restores the list of Pocket recommended stories categories selections.
+         */
+        data class PocketStoriesCategoriesSelectionsChange(
+            val storiesCategories: List<PocketRecommendedStoriesCategory>,
+            val categoriesSelected: List<PocketRecommendedStoriesSelectedCategory>,
+        ) : ContentRecommendationsAction()
+    }
+
+    /**
+     * [AppAction]s related to the Web Compat feature.
+     */
+    sealed class WebCompatAction : AppAction() {
+        /**
+         * Dispatched when the [WebCompatState] has been updated.
+         */
+        data class WebCompatStateUpdated(val newState: WebCompatState) : WebCompatAction()
+
+        /**
+         * Dispatched when the [WebCompatState] has been cleared.
+         */
+        data object WebCompatStateReset : WebCompatAction()
+
+        /**
+         * Dispatched when the WebCompat reporter has been submitted successfully.
+         */
+        data object WebCompatReportSent : WebCompatAction()
     }
 }

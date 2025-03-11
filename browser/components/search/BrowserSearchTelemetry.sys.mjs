@@ -6,7 +6,8 @@ const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
   PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.sys.mjs",
-  SearchSERPTelemetry: "resource:///modules/SearchSERPTelemetry.sys.mjs",
+  SearchSERPTelemetry:
+    "moz-src:///browser/components/search/SearchSERPTelemetry.sys.mjs",
   UrlbarSearchUtils: "resource:///modules/UrlbarSearchUtils.sys.mjs",
 });
 
@@ -92,12 +93,6 @@ class BrowserSearchTelemetryHandler {
     if (source == "searchbar" && userSelectionBehavior != "none") {
       throw new Error("Did not expect a selection behavior for the searchbar.");
     }
-
-    let histogram = Services.telemetry.getHistogramById(
-      source == "urlbar"
-        ? "FX_URLBAR_SELECTED_RESULT_METHOD"
-        : "FX_SEARCHBAR_SELECTED_RESULT_METHOD"
-    );
     // command events are from the one-off context menu.  Treat them as clicks.
     // Note that we only care about MouseEvent subclasses here when the
     // event type is "click", or else the subclasses are associated with
@@ -128,7 +123,11 @@ class BrowserSearchTelemetryHandler {
     } else {
       category = "enter";
     }
-    histogram.add(category);
+    if (source == "searchbar") {
+      Services.telemetry
+        .getHistogramById("FX_SEARCHBAR_SELECTED_RESULT_METHOD")
+        .add(category);
+    }
   }
 
   /**
@@ -148,12 +147,9 @@ class BrowserSearchTelemetryHandler {
       return;
     }
 
-    let scalarKey = lazy.UrlbarSearchUtils.getSearchModeScalarKey(searchMode);
-    Services.telemetry.keyedScalarAdd(
-      "urlbar.searchmode." + searchMode.entry,
-      scalarKey,
-      1
-    );
+    let label = lazy.UrlbarSearchUtils.getSearchModeScalarKey(searchMode);
+    let name = searchMode.entry.replace(/_([a-z])/g, (m, p) => p.toUpperCase());
+    Glean.urlbarSearchmode[name]?.[label].add(1);
   }
 
   /**
@@ -279,15 +275,11 @@ class BrowserSearchTelemetryHandler {
 
   _recordSearch(browser, engine, source, action = null) {
     let scalarSource = KNOWN_SEARCH_SOURCES.get(source);
-
     lazy.SearchSERPTelemetry.recordBrowserSource(browser, scalarSource);
 
-    let scalarKey = action ? "search_" + action : "search";
-    Services.telemetry.keyedScalarAdd(
-      "browser.engagement.navigation." + scalarSource,
-      scalarKey,
-      1
-    );
+    let label = action ? "search_" + action : "search";
+    let name = scalarSource.replace(/_([a-z])/g, (m, p) => p.toUpperCase());
+    Glean.browserEngagementNavigation[name][label].add(1);
   }
 
   /**

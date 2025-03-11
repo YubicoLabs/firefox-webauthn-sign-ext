@@ -23,7 +23,7 @@
 #include "mozilla/Telemetry.h"
 #include "mozilla/Tokenizer.h"
 #include "mozilla/dom/ContentParent.h"
-#include "mozilla/glean/GleanMetrics.h"
+#include "mozilla/glean/NetwerkMetrics.h"
 #include "mozilla/net/NeckoParent.h"
 #include "mozilla/net/TRRServiceChild.h"
 // Put DNSLogging.h at the end to avoid LOG being overwritten by other headers.
@@ -164,12 +164,6 @@ bool TRRService::CheckCaptivePortalIsPassed() {
   return result;
 }
 
-static void EventTelemetryPrefChanged(const char* aPref, void* aData) {
-  Telemetry::SetEventRecordingEnabled(
-      "network.dns"_ns,
-      StaticPrefs::network_trr_confirmation_telemetry_enabled());
-}
-
 nsresult TRRService::Init(bool aNativeHTTPSQueryEnabled) {
   MOZ_ASSERT(NS_IsMainThread(), "wrong thread");
   if (mInitialized) {
@@ -214,10 +208,6 @@ nsresult TRRService::Init(bool aNativeHTTPSQueryEnabled) {
 
     sTRRBackgroundThread = thread;
   }
-
-  Preferences::RegisterCallbackAndCall(
-      EventTelemetryPrefChanged,
-      "network.trr.confirmation_telemetry_enabled"_ns);
 
   LOG(("Initialized TRRService\n"));
   return NS_OK;

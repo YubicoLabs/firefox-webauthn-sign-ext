@@ -206,7 +206,7 @@ enum nsSelectionAmount {
 class nsReflowStatus final {
  public:
   nsReflowStatus()
-      : mFloatClearType(mozilla::StyleClear::None),
+      : mFloatClearType(mozilla::UsedClear::None),
         mInlineBreak(InlineBreak::None),
         mCompletion(Completion::FullyComplete),
         mNextInFlowNeedsReflow(false),
@@ -214,7 +214,7 @@ class nsReflowStatus final {
 
   // Reset all the member variables.
   void Reset() {
-    mFloatClearType = mozilla::StyleClear::None;
+    mFloatClearType = mozilla::UsedClear::None;
     mInlineBreak = InlineBreak::None;
     mCompletion = Completion::FullyComplete;
     mNextInFlowNeedsReflow = false;
@@ -307,7 +307,7 @@ class nsReflowStatus final {
     return mInlineBreak == InlineBreak::Before;
   }
   bool IsInlineBreakAfter() const { return mInlineBreak == InlineBreak::After; }
-  mozilla::StyleClear FloatClearType() const { return mFloatClearType; }
+  mozilla::UsedClear FloatClearType() const { return mFloatClearType; }
 
   // Set the inline line-break-before status, and reset other bit flags. Note
   // that other frame completion status isn't expected to matter after calling
@@ -320,14 +320,14 @@ class nsReflowStatus final {
   // column/page where it will hopefully fit.
   void SetInlineLineBreakBeforeAndReset() {
     Reset();
-    mFloatClearType = mozilla::StyleClear::None;
+    mFloatClearType = mozilla::UsedClear::None;
     mInlineBreak = InlineBreak::Before;
   }
 
   // Set the inline line-break-after status. The clear type can be changed
   // via the optional aClearType param.
   void SetInlineLineBreakAfter(
-      mozilla::StyleClear aClearType = mozilla::StyleClear::None) {
+      mozilla::UsedClear aClearType = mozilla::UsedClear::None) {
     mFloatClearType = aClearType;
     mInlineBreak = InlineBreak::After;
   }
@@ -338,7 +338,7 @@ class nsReflowStatus final {
   void SetFirstLetterComplete() { mFirstLetterComplete = true; }
 
  private:
-  mozilla::StyleClear mFloatClearType;
+  mozilla::UsedClear mFloatClearType;
   InlineBreak mInlineBreak;
   Completion mCompletion;
   bool mNextInFlowNeedsReflow : 1;
@@ -448,6 +448,11 @@ struct MOZ_STACK_CLASS IntrinsicSizeInput final {
   // contribution, so the inline component of the percentage basis should be set
   // to NS_UNCONSTRAINEDSIZE.
   Maybe<LogicalSize> mPercentageBasisForChildren;
+
+  bool HasSomePercentageBasisForChildren() const {
+    return mPercentageBasisForChildren &&
+           !mPercentageBasisForChildren->IsAllValues(NS_UNCONSTRAINEDSIZE);
+  }
 
   IntrinsicSizeInput(gfxContext* aContext,
                      const Maybe<LogicalSize>& aContainingBlockSize,
@@ -768,9 +773,6 @@ class nsIFrame : public nsQueryFrame {
    * If the frame is a continuing frame, then aPrevInFlow indicates the previous
    * frame (the frame that was split).
    *
-   * Each subclass that need a view should override this method and call
-   * CreateView() after calling its base class Init().
-   *
    * @param   aContent the content object associated with the frame
    * @param   aParent the parent frame
    * @param   aPrevInFlow the prev-in-flow frame
@@ -984,7 +986,7 @@ class nsIFrame : public nsQueryFrame {
 
   /** Also forward GetVisitedDependentColor to the style */
   template <typename T, typename S>
-  nscolor GetVisitedDependentColor(T S::*aField) {
+  nscolor GetVisitedDependentColor(T S::* aField) {
     return mComputedStyle->GetVisitedDependentColor(aField);
   }
 
@@ -1792,6 +1794,17 @@ class nsIFrame : public nsQueryFrame {
   virtual nscoord GetCaretBaseline() const {
     return GetLogicalBaseline(GetWritingMode());
   }
+
+  // Gets a caret baseline suitable for the frame if the frame doesn't have one.
+  //
+  // @param aBSize the content box block size of the line container. Needed to
+  // resolve line-height: -moz-block-height. NS_UNCONSTRAINEDSIZE is fine
+  // otherwise.
+  //
+  // TODO(emilio): Now we support align-content on blocks it seems we could
+  // get rid of line-height: -moz-block-height.
+  nscoord GetFontMetricsDerivedCaretBaseline(
+      nscoord aBSize = NS_UNCONSTRAINEDSIZE) const;
 
   /**
    * Subclasses can call this method to enable visibility tracking for this
@@ -2608,6 +2621,11 @@ class nsIFrame : public nsQueryFrame {
   virtual nsIFrame* LastInFlow() const { return const_cast<nsIFrame*>(this); }
 
   /**
+   * Useful for line participants. Find the line container frame for this line.
+   */
+  nsIFrame* FindLineContainer() const;
+
+  /**
    * Mark any stored intrinsic inline size information as dirty (requiring
    * re-calculation).  Note that this should generally not be called
    * directly; PresShell::FrameNeedsReflow() will call it instead.
@@ -2763,7 +2781,7 @@ class nsIFrame : public nsQueryFrame {
      *    side that are prior to a float on the given side that has a
      *    'clear' property that clears them.
      */
-    void ForceBreak(mozilla::StyleClear aClearType = mozilla::StyleClear::Both);
+    void ForceBreak(mozilla::UsedClear aClearType = mozilla::UsedClear::Both);
 
     // The default implementation for nsIFrame::AddInlinePrefISize.
     void DefaultAddInlinePrefISize(nscoord aISize);
@@ -2957,6 +2975,28 @@ class nsIFrame : public nsQueryFrame {
       const mozilla::LogicalSize& aBorderPadding,
       const mozilla::StyleSizeOverrides& aSizeOverrides,
       mozilla::ComputeSizeFlags aFlags);
+
+  /**
+   * A helper used by |nsIFrame::ComputeAutoSize|, computing auto sizes of
+   * frames that are absolutely positioned. Any class that overrides
+   * `ComputeAutoSize` may use this function to maintain the standard absolute
+   * size computation specified in [1].
+   *
+   * [1]: https://drafts.csswg.org/css-position-3/#abspos-auto-size
+   */
+  mozilla::LogicalSize ComputeAbsolutePosAutoSize(
+      gfxContext* aRenderingContext, mozilla::WritingMode aWM,
+      const mozilla::LogicalSize& aCBSize, nscoord aAvailableISize,
+      const mozilla::LogicalSize& aMargin,
+      const mozilla::LogicalSize& aBorderPadding,
+      const mozilla::StyleSizeOverrides& aSizeOverrides,
+      const mozilla::ComputeSizeFlags& aFlags);
+
+  /**
+   * Precondition helper function to determine if
+   * |nsIFrame::ComputeAbsolutePosAutoSize| can be called on this frame.
+   */
+  bool IsAbsolutelyPositionedWithDefiniteContainingBlock() const;
 
   /**
    * Utility function for ComputeAutoSize implementations.  Return
@@ -3244,12 +3284,6 @@ class nsIFrame : public nsQueryFrame {
     return IsIntrinsicKeyword(bSize);
   }
 
-  /**
-   * Helper method to create a view for a frame.  Only used by a few sub-classes
-   * that need a view.
-   */
-  void CreateView();
-
  protected:
   virtual nsView* GetViewInternal() const {
     MOZ_ASSERT_UNREACHABLE("method should have been overridden by subclass");
@@ -3276,11 +3310,6 @@ class nsIFrame : public nsQueryFrame {
    * from the returned view.
    */
   nsView* GetClosestView(nsPoint* aOffset = nullptr) const;
-
-  /**
-   * Find the closest ancestor (excluding |this| !) that has a view
-   */
-  nsIFrame* GetAncestorWithView() const;
 
   /**
    * Sets the view's attributes from the frame style.
@@ -3463,7 +3492,7 @@ class nsIFrame : public nsQueryFrame {
    * @see mozilla::LayoutFrameType
    */
   mozilla::LayoutFrameType Type() const {
-    MOZ_ASSERT(uint8_t(mClass) < mozilla::ArrayLength(sLayoutFrameTypes));
+    MOZ_ASSERT(uint8_t(mClass) < std::size(sLayoutFrameTypes));
     return sLayoutFrameTypes[uint8_t(mClass)];
   }
 
@@ -3476,7 +3505,7 @@ class nsIFrame : public nsQueryFrame {
    * @see mozilla::LayoutFrameType
    */
   ClassFlags GetClassFlags() const {
-    MOZ_ASSERT(uint8_t(mClass) < mozilla::ArrayLength(sLayoutFrameClassFlags));
+    MOZ_ASSERT(uint8_t(mClass) < std::size(sLayoutFrameClassFlags));
     return sLayoutFrameClassFlags[uint8_t(mClass)];
   }
 
@@ -4475,6 +4504,9 @@ class nsIFrame : public nsQueryFrame {
                                     const nsStyleEffects* aEffects,
                                     const nsSize& aSize) const;
 
+  /** Whether this frame is a stacking context for view transitions purposes */
+  bool ForcesStackingContextForViewTransition() const;
+
   /**
    * Check if this frame is focusable and in the current tab order.
    * Tabbable is indicated by a nonnegative tabindex & is a subset of focusable.
@@ -4773,8 +4805,7 @@ class nsIFrame : public nsQueryFrame {
   bool IsScrolledOutOfView() const;
 
   /**
-   * Computes a 2D matrix from the -moz-window-transform and
-   * -moz-window-transform-origin properties on aFrame.
+   * Computes a 2D matrix from the -moz-window-transform property on aFrame.
    * Values that don't result in a 2D matrix will be ignored and an identity
    * matrix will be returned instead.
    */
@@ -5529,12 +5560,18 @@ class nsIFrame : public nsQueryFrame {
 #ifdef DEBUG_FRAME_DUMP
  public:
   static void IndentBy(FILE* out, int32_t aIndent) {
-    while (--aIndent >= 0) fputs("  ", out);
+    while (--aIndent >= 0) {
+      fputs("  ", out);
+    }
   }
   void ListTag(FILE* out) const { fputs(ListTag().get(), out); }
-  nsAutoCString ListTag() const;
+  nsAutoCString ListTag(bool aListOnlyDeterministic = false) const;
 
-  enum class ListFlag{TraverseSubdocumentFrames, DisplayInCSSPixels};
+  enum class ListFlag {
+    TraverseSubdocumentFrames,
+    DisplayInCSSPixels,
+    OnlyListDeterministicInfo
+  };
   using ListFlags = mozilla::EnumSet<ListFlag>;
 
   template <typename T>
@@ -5551,6 +5588,22 @@ class nsIFrame : public nsQueryFrame {
                                      const mozilla::WritingMode aWM,
                                      ListFlags aFlags);
 
+  template <typename T>
+  static void ListPtr(nsACString& aTo, const ListFlags& aFlags, const T* aPtr,
+                      const char* aPrefix = "=") {
+    ListPtr(aTo, aFlags.contains(ListFlag::OnlyListDeterministicInfo), aPtr,
+            aPrefix);
+  }
+
+  template <typename T>
+  static void ListPtr(nsACString& aTo, bool aSkip, const T* aPtr,
+                      const char* aPrefix = "=") {
+    if (aSkip) {
+      return;
+    }
+    aTo += nsPrintfCString("%s%p", aPrefix, static_cast<const void*>(aPtr));
+  }
+
   void ListGeneric(nsACString& aTo, const char* aPrefix = "",
                    ListFlags aFlags = ListFlags()) const;
   virtual void List(FILE* out = stderr, const char* aPrefix = "",
@@ -5566,8 +5619,8 @@ class nsIFrame : public nsQueryFrame {
   /**
    * Dump the frame tree beginning from the root frame.
    */
-  void DumpFrameTree() const;
-  void DumpFrameTreeInCSSPixels() const;
+  void DumpFrameTree(bool aListOnlyDeterministic = false) const;
+  void DumpFrameTreeInCSSPixels(bool aListOnlyDeterministic = false) const;
 
   /**
    * Dump the frame tree beginning from ourselves.
@@ -5627,7 +5680,7 @@ MOZ_MAKE_ENUM_CLASS_BITWISE_OPERATORS(nsIFrame::ReflowChildFlags)
 class WeakFrame;
 class MOZ_NONHEAP_CLASS AutoWeakFrame {
  public:
-  explicit AutoWeakFrame() : mPrev(nullptr), mFrame(nullptr) {}
+  explicit constexpr AutoWeakFrame() : mPrev(nullptr), mFrame(nullptr) {}
 
   AutoWeakFrame(const AutoWeakFrame& aOther) : mPrev(nullptr), mFrame(nullptr) {
     Init(aOther.GetFrame());

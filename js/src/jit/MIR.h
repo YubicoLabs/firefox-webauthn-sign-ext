@@ -13,6 +13,7 @@
 #define jit_MIR_h
 
 #include "mozilla/Array.h"
+#include "mozilla/EnumSet.h"
 #include "mozilla/HashFunctions.h"
 #ifdef JS_JITSPEW
 #  include "mozilla/Attributes.h"  // MOZ_STACK_CLASS
@@ -724,24 +725,18 @@ class MDefinition : public MNode {
   // is MIRType::Int32.
   MIRType type() const { return resultType_; }
 
-  bool mightBeType(MIRType type) const {
-    MOZ_ASSERT(type != MIRType::Value);
+  // Default EnumSet serialization is based on the enum's underlying type, which
+  // means uint8_t for MIRType. To store all possible MIRType values we need at
+  // least uint32_t.
+  using MIRTypeEnumSet = mozilla::EnumSet<MIRType, uint32_t>;
+  static_assert(static_cast<size_t>(MIRType::Last) <
+                sizeof(MIRTypeEnumSet::serializedType) * CHAR_BIT);
 
-    if (type == this->type()) {
-      return true;
-    }
-
-    if (this->type() == MIRType::Value) {
-      return true;
-    }
-
-    return false;
+  // Return true if the result type is a member of the given types.
+  bool typeIsOneOf(MIRTypeEnumSet types) const {
+    MOZ_ASSERT(!types.isEmpty());
+    return types.contains(type());
   }
-
-  bool mightBeMagicType() const;
-
-  // Return true if the result-set types are a subset of the given types.
-  bool definitelyType(std::initializer_list<MIRType> types) const;
 
   // Float32 specialization operations (see big comment in IonAnalysis before
   // the Float32 specialization algorithm).
@@ -1345,6 +1340,42 @@ class MLimitedTruncate : public MUnaryInstruction,
   TruncateKind operandTruncateKind(size_t index) const override;
   TruncateKind truncateKind() const { return truncate_; }
   void setTruncateKind(TruncateKind kind) { truncate_ = kind; }
+};
+
+// Truncation barrier. This is intended for protecting its input against
+// follow-up truncation optimizations.
+class MIntPtrLimitedTruncate : public MUnaryInstruction,
+                               public NoTypePolicy::Data {
+  explicit MIntPtrLimitedTruncate(MDefinition* input)
+      : MUnaryInstruction(classOpcode, input) {
+    MOZ_ASSERT(input->type() == MIRType::IntPtr);
+    setResultType(MIRType::IntPtr);
+    setMovable();
+  }
+
+ public:
+  INSTRUCTION_HEADER(IntPtrLimitedTruncate)
+  TRIVIAL_NEW_WRAPPERS
+
+  AliasSet getAliasSet() const override { return AliasSet::None(); }
+};
+
+// Truncation barrier. This is intended for protecting its input against
+// follow-up truncation optimizations.
+class MInt64LimitedTruncate : public MUnaryInstruction,
+                              public NoTypePolicy::Data {
+  explicit MInt64LimitedTruncate(MDefinition* input)
+      : MUnaryInstruction(classOpcode, input) {
+    MOZ_ASSERT(input->type() == MIRType::Int64);
+    setResultType(MIRType::Int64);
+    setMovable();
+  }
+
+ public:
+  INSTRUCTION_HEADER(Int64LimitedTruncate)
+  TRIVIAL_NEW_WRAPPERS
+
+  AliasSet getAliasSet() const override { return AliasSet::None(); }
 };
 
 // A constant js::Value.
@@ -2308,7 +2339,8 @@ class MCall : public MCallBase {
   static MCall* New(TempAllocator& alloc, WrappedFunction* target,
                     size_t maxArgc, size_t numActualArgs, bool construct,
                     bool ignoresReturnValue, bool isDOMCall,
-                    mozilla::Maybe<DOMObjectKind> objectKind);
+                    mozilla::Maybe<DOMObjectKind> objectKind,
+                    mozilla::Maybe<gc::Heap> initialHeap);
 
   bool needsClassCheck() const { return needsClassCheck_; }
   void disableClassCheck() { needsClassCheck_ = false; }
@@ -2351,9 +2383,14 @@ class MCallDOMNative : public MCall {
 
   DOMObjectKind objectKind_;
 
+  // Allow wrapper pre-tenuring
+  gc::Heap initialHeap_ = gc::Heap::Default;
+
   MCallDOMNative(WrappedFunction* target, uint32_t numActualArgs,
-                 DOMObjectKind objectKind)
-      : MCall(target, numActualArgs, false, false), objectKind_(objectKind) {
+                 DOMObjectKind objectKind, gc::Heap initialHeap)
+      : MCall(target, numActualArgs, false, false),
+        objectKind_(objectKind),
+        initialHeap_(initialHeap) {
     MOZ_ASSERT(getJitInfo()->type() != JSJitInfo::InlinableNative);
 
     // If our jitinfo is not marked eliminatable, that means that our C++
@@ -2370,7 +2407,8 @@ class MCallDOMNative : public MCall {
   friend MCall* MCall::New(TempAllocator& alloc, WrappedFunction* target,
                            size_t maxArgc, size_t numActualArgs, bool construct,
                            bool ignoresReturnValue, bool isDOMCall,
-                           mozilla::Maybe<DOMObjectKind> objectKind);
+                           mozilla::Maybe<DOMObjectKind> objectKind,
+                           mozilla::Maybe<gc::Heap> initalHeap);
 
   const JSJitInfo* getJitInfo() const;
 
@@ -2384,6 +2422,8 @@ class MCallDOMNative : public MCall {
   virtual bool isCallDOMNative() const override { return true; }
 
   virtual void computeMovable() override;
+
+  gc::Heap initialHeap() { return initialHeap_; }
 };
 
 // Used to invoke a JSClass call/construct hook.
@@ -2784,7 +2824,6 @@ class MCompare : public MBinaryInstruction, public ComparePolicy::Data {
   bool isNumericComparison() const {
     return isInt32Comparison() || isDoubleComparison() || isFloat32Comparison();
   }
-  MIRType inputType();
 
   JSOp jsop() const { return jsop_; }
   bool operandsAreNeverNaN() const { return operandsAreNeverNaN_; }
@@ -3289,9 +3328,9 @@ class MToFPInstruction : public MUnaryInstruction, public ToDoublePolicy::Data {
     setMovable();
 
     // Guard unless the conversion is known to be non-effectful & non-throwing.
-    if (!def->definitelyType({MIRType::Undefined, MIRType::Null,
-                              MIRType::Boolean, MIRType::Int32, MIRType::Double,
-                              MIRType::Float32, MIRType::String})) {
+    if (!def->typeIsOneOf({MIRType::Undefined, MIRType::Null, MIRType::Boolean,
+                           MIRType::Int32, MIRType::Double, MIRType::Float32,
+                           MIRType::String})) {
       setGuard();
     }
   }
@@ -3324,10 +3363,6 @@ class MToDouble : public MToFPInstruction {
 #ifdef DEBUG
   bool isConsistentFloat32Use(MUse* use) const override { return true; }
 #endif
-
-  bool canProduceFloat32() const override {
-    return input()->canProduceFloat32();
-  }
 
   TruncateKind truncateKind() const { return implicitTruncate_; }
   void setTruncateKind(TruncateKind kind) {
@@ -3677,9 +3712,9 @@ class MToNumberInt32 : public MUnaryInstruction, public ToInt32Policy::Data {
     setMovable();
 
     // Guard unless the conversion is known to be non-effectful & non-throwing.
-    if (!def->definitelyType({MIRType::Undefined, MIRType::Null,
-                              MIRType::Boolean, MIRType::Int32, MIRType::Double,
-                              MIRType::Float32, MIRType::String})) {
+    if (!def->typeIsOneOf({MIRType::Undefined, MIRType::Null, MIRType::Boolean,
+                           MIRType::Int32, MIRType::Double, MIRType::Float32,
+                           MIRType::String})) {
       setGuard();
     }
   }
@@ -3722,12 +3757,11 @@ class MToNumberInt32 : public MUnaryInstruction, public ToInt32Policy::Data {
 // Converts a value or typed input to a truncated int32, for use with bitwise
 // operations. This is an infallible ValueToECMAInt32.
 class MTruncateToInt32 : public MUnaryInstruction, public ToInt32Policy::Data {
-  wasm::BytecodeOffset bytecodeOffset_;
+  wasm::TrapSiteDesc trapSiteDesc_;
 
   explicit MTruncateToInt32(
-      MDefinition* def,
-      wasm::BytecodeOffset bytecodeOffset = wasm::BytecodeOffset())
-      : MUnaryInstruction(classOpcode, def), bytecodeOffset_(bytecodeOffset) {
+      MDefinition* def, wasm::TrapSiteDesc trapSiteDesc = wasm::TrapSiteDesc())
+      : MUnaryInstruction(classOpcode, def), trapSiteDesc_(trapSiteDesc) {
     setResultType(MIRType::Int32);
     setMovable();
 
@@ -3742,9 +3776,9 @@ class MTruncateToInt32 : public MUnaryInstruction, public ToInt32Policy::Data {
   TRIVIAL_NEW_WRAPPERS
 
   static bool mightHaveSideEffects(MDefinition* def) {
-    return !def->definitelyType(
-        {MIRType::Undefined, MIRType::Null, MIRType::Boolean, MIRType::Int32,
-         MIRType::Double, MIRType::Float32, MIRType::String});
+    return !def->typeIsOneOf({MIRType::Undefined, MIRType::Null,
+                              MIRType::Boolean, MIRType::Int32, MIRType::Double,
+                              MIRType::Float32, MIRType::String});
   }
 
   MDefinition* foldsTo(TempAllocator& alloc) override;
@@ -3766,7 +3800,7 @@ class MTruncateToInt32 : public MUnaryInstruction, public ToInt32Policy::Data {
     return input()->type() < MIRType::Symbol;
   }
 
-  wasm::BytecodeOffset bytecodeOffset() const { return bytecodeOffset_; }
+  const wasm::TrapSiteDesc& trapSiteDesc() const { return trapSiteDesc_; }
 
   ALLOW_CLONE(MTruncateToInt32)
 };
@@ -3780,7 +3814,7 @@ class MToBigInt : public MUnaryInstruction, public ToBigIntPolicy::Data {
     setMovable();
 
     // Guard unless the conversion is known to be non-effectful & non-throwing.
-    if (!def->definitelyType({MIRType::Boolean, MIRType::BigInt})) {
+    if (!def->typeIsOneOf({MIRType::Boolean, MIRType::BigInt})) {
       setGuard();
     }
   }
@@ -3805,7 +3839,7 @@ class MToInt64 : public MUnaryInstruction, public ToInt64Policy::Data {
     setMovable();
 
     // Guard unless the conversion is known to be non-effectful & non-throwing.
-    if (!def->definitelyType(
+    if (!def->typeIsOneOf(
             {MIRType::Boolean, MIRType::BigInt, MIRType::Int64})) {
       setGuard();
     }
@@ -3853,12 +3887,11 @@ class MTruncateBigIntToInt64 : public MUnaryInstruction,
 
 // Takes an Int64 and returns a fresh BigInt pointer.
 class MInt64ToBigInt : public MUnaryInstruction, public NoTypePolicy::Data {
-  Scalar::Type elementType_;
+  bool isSigned_;
 
-  MInt64ToBigInt(MDefinition* def, Scalar::Type elementType)
-      : MUnaryInstruction(classOpcode, def), elementType_(elementType) {
+  MInt64ToBigInt(MDefinition* def, bool isSigned)
+      : MUnaryInstruction(classOpcode, def), isSigned_(isSigned) {
     MOZ_ASSERT(def->type() == MIRType::Int64);
-    MOZ_ASSERT(Scalar::isBigIntType(elementType));
     setResultType(MIRType::BigInt);
     setMovable();
   }
@@ -3869,12 +3902,12 @@ class MInt64ToBigInt : public MUnaryInstruction, public NoTypePolicy::Data {
 
   bool congruentTo(const MDefinition* ins) const override {
     return congruentIfOperandsEqual(ins) &&
-           ins->toInt64ToBigInt()->elementType() == elementType();
+           ins->toInt64ToBigInt()->isSigned() == isSigned();
   }
 
   AliasSet getAliasSet() const override { return AliasSet::None(); }
 
-  Scalar::Type elementType() const { return elementType_; }
+  bool isSigned() const { return isSigned_; }
 
   [[nodiscard]] bool writeRecoverData(
       CompactBufferWriter& writer) const override;
@@ -3885,12 +3918,11 @@ class MInt64ToBigInt : public MUnaryInstruction, public NoTypePolicy::Data {
 
 // Takes an Int64 and returns a IntPtr.
 class MInt64ToIntPtr : public MUnaryInstruction, public NoTypePolicy::Data {
-  Scalar::Type elementType_;
+  bool isSigned_;
 
-  MInt64ToIntPtr(MDefinition* def, Scalar::Type elementType)
-      : MUnaryInstruction(classOpcode, def), elementType_(elementType) {
+  MInt64ToIntPtr(MDefinition* def, bool isSigned)
+      : MUnaryInstruction(classOpcode, def), isSigned_(isSigned) {
     MOZ_ASSERT(def->type() == MIRType::Int64);
-    MOZ_ASSERT(Scalar::isBigIntType(elementType));
     setResultType(MIRType::IntPtr);
     setMovable();
   }
@@ -3901,12 +3933,12 @@ class MInt64ToIntPtr : public MUnaryInstruction, public NoTypePolicy::Data {
 
   bool congruentTo(const MDefinition* ins) const override {
     return congruentIfOperandsEqual(ins) &&
-           ins->toInt64ToIntPtr()->elementType() == elementType();
+           ins->toInt64ToIntPtr()->isSigned() == isSigned();
   }
 
   AliasSet getAliasSet() const override { return AliasSet::None(); }
 
-  Scalar::Type elementType() const { return elementType_; }
+  bool isSigned() const { return isSigned_; }
 
   ALLOW_CLONE(MInt64ToIntPtr)
 };
@@ -3950,10 +3982,9 @@ class MToString : public MUnaryInstruction, public ToStringPolicy::Data {
       : MUnaryInstruction(classOpcode, def), sideEffects_(sideEffects) {
     setResultType(MIRType::String);
 
-    if (!def->definitelyType({MIRType::Undefined, MIRType::Null,
-                              MIRType::Boolean, MIRType::Int32, MIRType::Double,
-                              MIRType::Float32, MIRType::String,
-                              MIRType::BigInt})) {
+    if (!def->typeIsOneOf({MIRType::Undefined, MIRType::Null, MIRType::Boolean,
+                           MIRType::Int32, MIRType::Double, MIRType::Float32,
+                           MIRType::String, MIRType::BigInt})) {
       mightHaveSideEffects_ = true;
     }
 
@@ -4007,11 +4038,10 @@ class MToString : public MUnaryInstruction, public ToStringPolicy::Data {
 };
 
 class MBitNot : public MUnaryInstruction, public BitwisePolicy::Data {
-  explicit MBitNot(MDefinition* input) : MUnaryInstruction(classOpcode, input) {
-    setResultType(MIRType::Int32);
-    if (input->type() == MIRType::Int64) {
-      setResultType(MIRType::Int64);
-    }
+  MBitNot(MDefinition* input, MIRType type)
+      : MUnaryInstruction(classOpcode, input) {
+    MOZ_ASSERT(type == MIRType::Int32 || type == MIRType::Int64);
+    setResultType(type);
     setMovable();
   }
 
@@ -4029,7 +4059,7 @@ class MBitNot : public MUnaryInstruction, public BitwisePolicy::Data {
 
   [[nodiscard]] bool writeRecoverData(
       CompactBufferWriter& writer) const override;
-  bool canRecoverOnBailout() const override { return true; }
+  bool canRecoverOnBailout() const override { return type() != MIRType::Int64; }
 
   ALLOW_CLONE(MBitNot)
 };
@@ -4158,7 +4188,7 @@ class MBitAnd : public MBinaryBitwiseInstruction {
 
   [[nodiscard]] bool writeRecoverData(
       CompactBufferWriter& writer) const override;
-  bool canRecoverOnBailout() const override { return true; }
+  bool canRecoverOnBailout() const override { return type() != MIRType::Int64; }
 
   ALLOW_CLONE(MBitAnd)
 };
@@ -4187,7 +4217,7 @@ class MBitOr : public MBinaryBitwiseInstruction {
   void computeRange(TempAllocator& alloc) override;
   [[nodiscard]] bool writeRecoverData(
       CompactBufferWriter& writer) const override;
-  bool canRecoverOnBailout() const override { return true; }
+  bool canRecoverOnBailout() const override { return type() != MIRType::Int64; }
 
   ALLOW_CLONE(MBitOr)
 };
@@ -4212,7 +4242,7 @@ class MBitXor : public MBinaryBitwiseInstruction {
 
   [[nodiscard]] bool writeRecoverData(
       CompactBufferWriter& writer) const override;
-  bool canRecoverOnBailout() const override { return true; }
+  bool canRecoverOnBailout() const override { return type() != MIRType::Int64; }
 
   ALLOW_CLONE(MBitXor)
 };
@@ -4246,7 +4276,7 @@ class MLsh : public MShiftInstruction {
   void computeRange(TempAllocator& alloc) override;
   [[nodiscard]] bool writeRecoverData(
       CompactBufferWriter& writer) const override;
-  bool canRecoverOnBailout() const override { return true; }
+  bool canRecoverOnBailout() const override { return type() != MIRType::Int64; }
 
   ALLOW_CLONE(MLsh)
 };
@@ -4268,7 +4298,7 @@ class MRsh : public MShiftInstruction {
 
   [[nodiscard]] bool writeRecoverData(
       CompactBufferWriter& writer) const override;
-  bool canRecoverOnBailout() const override { return true; }
+  bool canRecoverOnBailout() const override { return type() != MIRType::Int64; }
 
   MDefinition* foldsTo(TempAllocator& alloc) override;
 
@@ -4307,7 +4337,7 @@ class MUrsh : public MShiftInstruction {
 
   [[nodiscard]] bool writeRecoverData(
       CompactBufferWriter& writer) const override;
-  bool canRecoverOnBailout() const override { return true; }
+  bool canRecoverOnBailout() const override { return type() != MIRType::Int64; }
 
   ALLOW_CLONE(MUrsh)
 };
@@ -4321,6 +4351,7 @@ class MSignExtendInt32 : public MUnaryInstruction, public NoTypePolicy::Data {
 
   MSignExtendInt32(MDefinition* op, Mode mode)
       : MUnaryInstruction(classOpcode, op), mode_(mode) {
+    MOZ_ASSERT(op->type() == MIRType::Int32);
     setResultType(MIRType::Int32);
     setMovable();
   }
@@ -4336,7 +4367,7 @@ class MSignExtendInt32 : public MUnaryInstruction, public NoTypePolicy::Data {
     if (!congruentIfOperandsEqual(ins)) {
       return false;
     }
-    return ins->isSignExtendInt32() && ins->toSignExtendInt32()->mode_ == mode_;
+    return ins->toSignExtendInt32()->mode_ == mode_;
   }
   AliasSet getAliasSet() const override { return AliasSet::None(); }
 
@@ -4356,6 +4387,7 @@ class MSignExtendInt64 : public MUnaryInstruction, public NoTypePolicy::Data {
 
   MSignExtendInt64(MDefinition* op, Mode mode)
       : MUnaryInstruction(classOpcode, op), mode_(mode) {
+    MOZ_ASSERT(op->type() == MIRType::Int64);
     setResultType(MIRType::Int64);
     setMovable();
   }
@@ -4371,11 +4403,43 @@ class MSignExtendInt64 : public MUnaryInstruction, public NoTypePolicy::Data {
     if (!congruentIfOperandsEqual(ins)) {
       return false;
     }
-    return ins->isSignExtendInt64() && ins->toSignExtendInt64()->mode_ == mode_;
+    return ins->toSignExtendInt64()->mode_ == mode_;
   }
   AliasSet getAliasSet() const override { return AliasSet::None(); }
 
   ALLOW_CLONE(MSignExtendInt64)
+};
+
+class MSignExtendIntPtr : public MUnaryInstruction, public NoTypePolicy::Data {
+ public:
+  enum Mode { Byte, Half, Word };
+
+ private:
+  Mode mode_;
+
+  MSignExtendIntPtr(MDefinition* op, Mode mode)
+      : MUnaryInstruction(classOpcode, op), mode_(mode) {
+    MOZ_ASSERT(op->type() == MIRType::IntPtr);
+    setResultType(MIRType::IntPtr);
+    setMovable();
+  }
+
+ public:
+  INSTRUCTION_HEADER(SignExtendIntPtr)
+  TRIVIAL_NEW_WRAPPERS
+
+  Mode mode() const { return mode_; }
+
+  MDefinition* foldsTo(TempAllocator& alloc) override;
+  bool congruentTo(const MDefinition* ins) const override {
+    if (!congruentIfOperandsEqual(ins)) {
+      return false;
+    }
+    return ins->toSignExtendIntPtr()->mode_ == mode_;
+  }
+  AliasSet getAliasSet() const override { return AliasSet::None(); }
+
+  ALLOW_CLONE(MSignExtendIntPtr)
 };
 
 class MBinaryArithInstruction : public MBinaryInstruction,
@@ -4940,7 +5004,7 @@ class MAdd : public MBinaryArithInstruction {
 
   [[nodiscard]] bool writeRecoverData(
       CompactBufferWriter& writer) const override;
-  bool canRecoverOnBailout() const override { return true; }
+  bool canRecoverOnBailout() const override { return type() != MIRType::Int64; }
 
   ALLOW_CLONE(MAdd)
 };
@@ -4977,7 +5041,7 @@ class MSub : public MBinaryArithInstruction {
 
   [[nodiscard]] bool writeRecoverData(
       CompactBufferWriter& writer) const override;
-  bool canRecoverOnBailout() const override { return true; }
+  bool canRecoverOnBailout() const override { return type() != MIRType::Int64; }
 
   ALLOW_CLONE(MSub)
 };
@@ -5070,7 +5134,7 @@ class MMul : public MBinaryArithInstruction {
 
   [[nodiscard]] bool writeRecoverData(
       CompactBufferWriter& writer) const override;
-  bool canRecoverOnBailout() const override { return true; }
+  bool canRecoverOnBailout() const override { return type() != MIRType::Int64; }
 
   ALLOW_CLONE(MMul)
 };
@@ -5082,7 +5146,7 @@ class MDiv : public MBinaryArithInstruction {
   bool canBeNegativeDividend_;
   bool unsigned_;  // If false, signedness will be derived from operands
   bool trapOnError_;
-  wasm::BytecodeOffset bytecodeOffset_;
+  wasm::TrapSiteDesc trapSiteDesc_;
 
   MDiv(MDefinition* left, MDefinition* right, MIRType type)
       : MBinaryArithInstruction(classOpcode, left, right, type),
@@ -5102,12 +5166,12 @@ class MDiv : public MBinaryArithInstruction {
   }
   static MDiv* New(TempAllocator& alloc, MDefinition* left, MDefinition* right,
                    MIRType type, bool unsignd, bool trapOnError = false,
-                   wasm::BytecodeOffset bytecodeOffset = wasm::BytecodeOffset(),
+                   wasm::TrapSiteDesc trapSiteDesc = wasm::TrapSiteDesc(),
                    bool mustPreserveNaN = false) {
     auto* div = new (alloc) MDiv(left, right, type);
     div->unsigned_ = unsignd;
     div->trapOnError_ = trapOnError;
-    div->bytecodeOffset_ = bytecodeOffset;
+    div->trapSiteDesc_ = trapSiteDesc;
     if (trapOnError) {
       div->setGuard();  // not removable because of possible side-effects.
       div->setNotMovable();
@@ -5125,7 +5189,11 @@ class MDiv : public MBinaryArithInstruction {
 
   double getIdentity() override { MOZ_CRASH("not used"); }
 
-  bool canBeNegativeZero() const { return canBeNegativeZero_; }
+  bool canBeNegativeZero() const {
+    // This flag is only valid for integer division.
+    MOZ_ASSERT(type() == MIRType::Int32);
+    return canBeNegativeZero_;
+  }
   void setCanBeNegativeZero(bool negativeZero) {
     canBeNegativeZero_ = negativeZero;
   }
@@ -5164,9 +5232,9 @@ class MDiv : public MBinaryArithInstruction {
   }
 
   bool trapOnError() const { return trapOnError_; }
-  wasm::BytecodeOffset bytecodeOffset() const {
-    MOZ_ASSERT(bytecodeOffset_.isValid());
-    return bytecodeOffset_;
+  const wasm::TrapSiteDesc& trapSiteDesc() const {
+    MOZ_ASSERT(trapSiteDesc_.isValid());
+    return trapSiteDesc_;
   }
 
   bool isFloat32Commutative() const override { return true; }
@@ -5180,7 +5248,7 @@ class MDiv : public MBinaryArithInstruction {
 
   [[nodiscard]] bool writeRecoverData(
       CompactBufferWriter& writer) const override;
-  bool canRecoverOnBailout() const override { return true; }
+  bool canRecoverOnBailout() const override { return type() != MIRType::Int64; }
 
   bool congruentTo(const MDefinition* ins) const override {
     if (!MBinaryArithInstruction::congruentTo(ins)) {
@@ -5200,7 +5268,7 @@ class MMod : public MBinaryArithInstruction {
   bool canBePowerOfTwoDivisor_;
   bool canBeDivideByZero_;
   bool trapOnError_;
-  wasm::BytecodeOffset bytecodeOffset_;
+  wasm::TrapSiteDesc trapSiteDesc_;
 
   MMod(MDefinition* left, MDefinition* right, MIRType type)
       : MBinaryArithInstruction(classOpcode, left, right, type),
@@ -5217,14 +5285,13 @@ class MMod : public MBinaryArithInstruction {
                    MIRType type) {
     return new (alloc) MMod(left, right, type);
   }
-  static MMod* New(
-      TempAllocator& alloc, MDefinition* left, MDefinition* right, MIRType type,
-      bool unsignd, bool trapOnError = false,
-      wasm::BytecodeOffset bytecodeOffset = wasm::BytecodeOffset()) {
+  static MMod* New(TempAllocator& alloc, MDefinition* left, MDefinition* right,
+                   MIRType type, bool unsignd, bool trapOnError = false,
+                   wasm::TrapSiteDesc trapSiteDesc = wasm::TrapSiteDesc()) {
     auto* mod = new (alloc) MMod(left, right, type);
     mod->unsigned_ = unsignd;
     mod->trapOnError_ = trapOnError;
-    mod->bytecodeOffset_ = bytecodeOffset;
+    mod->trapSiteDesc_ = trapSiteDesc;
     if (trapOnError) {
       mod->setGuard();  // not removable because of possible side-effects.
       mod->setNotMovable();
@@ -5260,14 +5327,14 @@ class MMod : public MBinaryArithInstruction {
   bool isUnsigned() const { return unsigned_; }
 
   bool trapOnError() const { return trapOnError_; }
-  wasm::BytecodeOffset bytecodeOffset() const {
-    MOZ_ASSERT(bytecodeOffset_.isValid());
-    return bytecodeOffset_;
+  const wasm::TrapSiteDesc& trapSiteDesc() const {
+    MOZ_ASSERT(trapSiteDesc_.isValid());
+    return trapSiteDesc_;
   }
 
   [[nodiscard]] bool writeRecoverData(
       CompactBufferWriter& writer) const override;
-  bool canRecoverOnBailout() const override { return true; }
+  bool canRecoverOnBailout() const override { return type() != MIRType::Int64; }
 
   bool fallible() const;
 
@@ -6527,7 +6594,7 @@ class MGuardNumberToIntPtrIndex : public MUnaryInstruction,
 
   MGuardNumberToIntPtrIndex(MDefinition* def, bool supportOOB)
       : MUnaryInstruction(classOpcode, def), supportOOB_(supportOOB) {
-    MOZ_ASSERT(def->type() == MIRType::Double);
+    MOZ_ASSERT(IsNumberType(def->type()));
     setResultType(MIRType::IntPtr);
     setMovable();
     if (!supportOOB) {
@@ -6603,7 +6670,9 @@ class MNot : public MUnaryInstruction, public TestPolicy::Data {
   }
   [[nodiscard]] bool writeRecoverData(
       CompactBufferWriter& writer) const override;
-  bool canRecoverOnBailout() const override { return true; }
+  bool canRecoverOnBailout() const override {
+    return type() == MIRType::Boolean;
+  }
 };
 
 // Bailout if index + minimum < 0 or index + maximum >= length. The length used
@@ -9360,6 +9429,43 @@ class MRotate : public MBinaryInstruction, public NoTypePolicy::Data {
   bool isLeftRotate() const { return isLeftRotate_; }
 
   ALLOW_CLONE(MRotate)
+};
+
+class MReinterpretCast : public MUnaryInstruction, public NoTypePolicy::Data {
+  MReinterpretCast(MDefinition* val, MIRType toType)
+      : MUnaryInstruction(classOpcode, val) {
+    switch (val->type()) {
+      case MIRType::Int32:
+        MOZ_ASSERT(toType == MIRType::Float32);
+        break;
+      case MIRType::Float32:
+        MOZ_ASSERT(toType == MIRType::Int32);
+        break;
+      case MIRType::Double:
+        MOZ_ASSERT(toType == MIRType::Int64);
+        break;
+      case MIRType::Int64:
+        MOZ_ASSERT(toType == MIRType::Double);
+        break;
+      default:
+        MOZ_CRASH("unexpected reinterpret conversion");
+    }
+    setMovable();
+    setResultType(toType);
+  }
+
+ public:
+  INSTRUCTION_HEADER(ReinterpretCast)
+  TRIVIAL_NEW_WRAPPERS
+
+  AliasSet getAliasSet() const override { return AliasSet::None(); }
+  bool congruentTo(const MDefinition* ins) const override {
+    // No need to check type() here, because congruentIfOperandsEqual will
+    // check it.
+    return congruentIfOperandsEqual(ins);
+  }
+
+  ALLOW_CLONE(MReinterpretCast)
 };
 
 // Used by MIR building to represent the bytecode result of an operation for

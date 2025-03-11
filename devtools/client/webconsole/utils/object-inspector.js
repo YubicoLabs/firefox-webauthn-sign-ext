@@ -10,16 +10,20 @@ const {
 } = require("resource://devtools/client/shared/vendor/react.js");
 
 loader.lazyGetter(this, "REPS", function () {
-  return require("resource://devtools/client/shared/components/reps/index.js")
-    .REPS;
+  return ChromeUtils.importESModule(
+    "resource://devtools/client/shared/components/reps/index.mjs",
+    { global: "current" }
+  ).REPS;
 });
 loader.lazyGetter(this, "MODE", function () {
-  return require("resource://devtools/client/shared/components/reps/index.js")
-    .MODE;
+  return ChromeUtils.importESModule(
+    "resource://devtools/client/shared/components/reps/index.mjs",
+    { global: "current" }
+  ).MODE;
 });
 loader.lazyGetter(this, "ObjectInspector", function () {
-  const reps = require("resource://devtools/client/shared/components/reps/index.js");
-  return createFactory(reps.objectInspector.ObjectInspector);
+  const objectInspector = require("resource://devtools/client/shared/components/object-inspector/index.js");
+  return createFactory(objectInspector.ObjectInspector);
 });
 
 loader.lazyRequireGetter(

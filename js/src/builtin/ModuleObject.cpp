@@ -280,7 +280,9 @@ bool ModuleRequestObject::hasFirstUnsupportedAttributeKey() const {
 }
 
 JSAtom* ModuleRequestObject::getFirstUnsupportedAttributeKey() const {
-  MOZ_ASSERT(hasFirstUnsupportedAttributeKey());
+  if (!hasFirstUnsupportedAttributeKey()) {
+    return nullptr;
+  }
   return &getReservedSlot(FirstUnsupportedAttributeKeySlot)
               .toString()
               ->asAtom();
@@ -356,7 +358,8 @@ bool IndirectBindingMap::lookup(jsid name, ModuleEnvironmentObject** envOut,
 // ModuleNamespaceObject
 
 /* static */
-const ModuleNamespaceObject::ProxyHandler ModuleNamespaceObject::proxyHandler;
+constexpr ModuleNamespaceObject::ProxyHandler
+    ModuleNamespaceObject::proxyHandler;
 
 /* static */
 bool ModuleNamespaceObject::isInstance(HandleValue value) {
@@ -435,10 +438,7 @@ bool ModuleNamespaceObject::addBinding(JSContext* cx,
   return bindings().put(cx, exportedNameId, environment, targetNameId);
 }
 
-const char ModuleNamespaceObject::ProxyHandler::family = 0;
-
-ModuleNamespaceObject::ProxyHandler::ProxyHandler()
-    : BaseProxyHandler(&family, false) {}
+constexpr char ModuleNamespaceObject::ProxyHandler::family = 0;
 
 bool ModuleNamespaceObject::ProxyHandler::getPrototype(
     JSContext* cx, HandleObject proxy, MutableHandleObject protop) const {
@@ -918,6 +918,7 @@ bool ModuleObject::hasCyclicModuleFields() const {
 }
 
 CyclicModuleFields* ModuleObject::cyclicModuleFields() {
+  MOZ_ASSERT(hasCyclicModuleFields());
   void* ptr = getReservedSlot(CyclicModuleFieldsSlot).toPrivate();
   MOZ_ASSERT(ptr);
   return static_cast<CyclicModuleFields*>(ptr);
@@ -1316,6 +1317,10 @@ bool ModuleObject::hasTopLevelCapability() const {
 }
 
 bool ModuleObject::hadEvaluationError() const {
+  if (hasSyntheticModuleFields()) {
+    return false;
+  }
+
   ModuleStatus fullStatus = cyclicModuleFields()->status;
   return fullStatus == ModuleStatus::Evaluated_Error;
 }
@@ -1484,7 +1489,7 @@ bool ModuleObject::createEnvironment(JSContext* cx,
 /*static*/
 bool ModuleObject::createSyntheticEnvironment(JSContext* cx,
                                               Handle<ModuleObject*> self,
-                                              Handle<GCVector<Value>> values) {
+                                              JS::HandleVector<Value> values) {
   Rooted<ModuleEnvironmentObject*> env(
       cx, ModuleEnvironmentObject::createSynthetic(cx, self));
   if (!env) {
@@ -1509,7 +1514,7 @@ ModuleBuilder::ModuleBuilder(FrontendContext* fc,
                              const frontend::EitherParser& eitherParser)
     : fc_(fc),
       eitherParser_(eitherParser),
-      requestedModuleSpecifiers_(fc),
+      requestedModuleIndexes_(fc),
       importEntries_(fc),
       exportEntries_(fc),
       exportNames_(fc) {}
@@ -2225,8 +2230,13 @@ frontend::MaybeModuleRequestIndex ModuleBuilder::appendModuleRequest(
     return MaybeModuleRequestIndex();
   }
 
+  if (auto ptr = moduleRequestIndexes_.lookup(request)) {
+    return MaybeModuleRequestIndex(ptr->value());
+  }
+
   uint32_t index = moduleRequests_.length();
-  if (!moduleRequests_.append(request)) {
+  if (!moduleRequests_.append(request) ||
+      !moduleRequestIndexes_.put(request, index)) {
     js::ReportOutOfMemory(fc_);
     return MaybeModuleRequestIndex();
   }
@@ -2236,8 +2246,8 @@ frontend::MaybeModuleRequestIndex ModuleBuilder::appendModuleRequest(
 
 bool ModuleBuilder::maybeAppendRequestedModule(
     MaybeModuleRequestIndex moduleRequest, frontend::ParseNode* node) {
-  auto specifier = moduleRequests_[moduleRequest.value()].specifier;
-  if (requestedModuleSpecifiers_.has(specifier)) {
+  uint32_t index = moduleRequest.value();
+  if (requestedModuleIndexes_.has(index)) {
     return true;
   }
 
@@ -2253,7 +2263,7 @@ bool ModuleBuilder::maybeAppendRequestedModule(
     return false;
   }
 
-  return requestedModuleSpecifiers_.put(specifier);
+  return requestedModuleIndexes_.put(index);
 }
 
 void ModuleBuilder::markUsedByStencil(frontend::TaggedParserAtomIndex name) {
