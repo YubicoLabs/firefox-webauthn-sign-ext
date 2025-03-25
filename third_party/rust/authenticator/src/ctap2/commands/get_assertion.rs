@@ -257,26 +257,27 @@ impl Serialize for GetAssertionSignExtensionInput {
     where
         S: Serializer,
     {
-        const PH_DATA: u8 = 0;
-        const KEY_REFS: u8 = 5;
-        serialize_map!(
-            serializer,
-            &PH_DATA => &self.ph_data,
-            &KEY_REFS => &self.key_handle_by_credential.iter().map(|(_, kh)| kh).collect::<Vec<_>>(),
-        )
+        if self.key_handle_by_credential.len() > 1 {
+            Err(serde::ser::Error::custom(
+                "key_handle_by_credential must be reduced to size 0 or 1 before serializing",
+            ))
+        } else {
+            const PH_DATA: u8 = 0;
+            const KEY_REF: u8 = 5;
+            serialize_map_optional!(
+                serializer,
+                &PH_DATA => Some(&self.ph_data),
+                &KEY_REF => &self.key_handle_by_credential.iter().next().map(|(_, kh)| kh),
+            )
+        }
     }
 }
 
 impl GetAssertionSignExtensionInput {
-    pub fn filter_and_order_key_handles(&mut self, allow_list: &[PublicKeyCredentialDescriptor]) {
+    pub fn select_key_handle(&mut self, allow_list: &[PublicKeyCredentialDescriptor]) {
         self.key_handle_by_credential
             .retain(|(id, _)| allow_list.iter().any(|pkcd| &pkcd.id == id.as_slice()));
-        self.key_handle_by_credential.sort_by_cached_key(|(id, _)| {
-            allow_list
-                .iter()
-                .take_while(|pkcd| pkcd.id == id.as_slice())
-                .count()
-        });
+        self.key_handle_by_credential.truncate(1);
     }
 }
 
