@@ -389,11 +389,11 @@ dictionary AuthenticationExtensionsSignInputs {
 
 dictionary AuthenticationExtensionsSignGenerateKeyInputs {
     required sequence<COSEAlgorithmIdentifier> algorithms;
-    BufferSource phData;
+    BufferSource tbs;
 };
 
 dictionary AuthenticationExtensionsSignSignInputs {
-    required BufferSource phData;
+    required BufferSource tbs;
     required record<USVString, COSEKeyRef> keyHandleByCredential;
 };
 typedef BufferSource COSEKeyRef;

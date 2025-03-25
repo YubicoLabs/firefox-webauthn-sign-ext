@@ -497,13 +497,13 @@ pub struct AuthenticationExtensionsSignInputs {
 
 #[derive(Clone, Debug, Default)]
 pub struct AuthenticationExtensionsSignGenerateKeyInputs {
-    pub ph_data: Option<Vec<u8>>,
+    pub tbs: Option<Vec<u8>>,
     pub algorithms: Vec<i32>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct AuthenticationExtensionsSignSignInputs {
-    pub ph_data: Vec<u8>,
+    pub tbs: Vec<u8>,
     pub key_handle_by_credential: HashMap<Vec<u8>, Vec<u8>>,
 }
 

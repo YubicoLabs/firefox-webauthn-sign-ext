@@ -296,7 +296,7 @@ impl MakeCredentialsExtensions {
                 .sign
                 .and_then(|sign| sign.generate_key)
                 .map(|generate_key| MakeCredentialsSignExtensionInput {
-                    ph_data: generate_key.ph_data.map(serde_bytes::ByteBuf::from),
+                    tbs: generate_key.tbs.map(serde_bytes::ByteBuf::from),
                     algorithms: generate_key.algorithms,
                     flags: uv_req.into(),
                 }),
@@ -306,7 +306,7 @@ impl MakeCredentialsExtensions {
 
 #[derive(Clone, Debug)]
 pub struct MakeCredentialsSignExtensionInput {
-    pub ph_data: Option<serde_bytes::ByteBuf>,
+    pub tbs: Option<serde_bytes::ByteBuf>,
     pub algorithms: Vec<i32>,
     pub flags: Option<MakeCredentialsSignExtensionGenerateKeyFlags>,
 }
@@ -343,7 +343,7 @@ impl Serialize for MakeCredentialsSignExtensionInput {
     where
         S: Serializer,
     {
-        const PH_DATA: u8 = 0;
+        const TBS: u8 = 0;
         const ALG: u8 = 3;
         const FLAGS: u8 = 4;
         let flags = self
@@ -352,7 +352,7 @@ impl Serialize for MakeCredentialsSignExtensionInput {
             .map(|f| f as u8);
         serialize_map_optional!(
             serializer,
-            &PH_DATA => &self.ph_data,
+            &TBS => &self.tbs,
             &ALG => Some(&self.algorithms),
             &FLAGS => flags,
         )

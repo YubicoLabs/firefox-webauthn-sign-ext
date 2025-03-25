@@ -68,12 +68,12 @@ struct WebAuthnExtensionSign {
 
 struct WebAuthnExtensionSignGenerateKeyInputs {
     int32_t[] algorithms;
-    bool phDataMaybe;
-    uint8_t[] phData;
+    bool tbsMaybe;
+    uint8_t[] tbs;
 };
 
 struct WebAuthnExtensionSignSignInputs {
-    uint8_t[] phData;
+    uint8_t[] tbs;
     WebAuthnExtensionSignSignInputsKeyHandleByCredentialEntry[] keyHandleByCredential;
 };
 

@@ -249,7 +249,7 @@ impl Serialize for HmacSecretExtension {
 #[derive(Clone, Debug)]
 pub struct GetAssertionSignExtensionInput {
     pub key_handle_by_credential: Vec<(serde_bytes::ByteBuf, serde_bytes::ByteBuf)>,
-    pub ph_data: serde_bytes::ByteBuf,
+    pub tbs: serde_bytes::ByteBuf,
 }
 
 impl Serialize for GetAssertionSignExtensionInput {
@@ -262,11 +262,11 @@ impl Serialize for GetAssertionSignExtensionInput {
                 "key_handle_by_credential must be reduced to size 0 or 1 before serializing",
             ))
         } else {
-            const PH_DATA: u8 = 0;
+            const TBS: u8 = 0;
             const KEY_REF: u8 = 5;
             serialize_map_optional!(
                 serializer,
-                &PH_DATA => Some(&self.ph_data),
+                &TBS => Some(&self.tbs),
                 &KEY_REF => &self.key_handle_by_credential.iter().next().map(|(_, kh)| kh),
             )
         }
@@ -313,7 +313,7 @@ impl From<AuthenticationExtensionsClientInputs> for GetAssertionExtensions {
                             )
                         })
                         .collect(),
-                    ph_data: serde_bytes::ByteBuf::from(sign_input.ph_data),
+                    tbs: serde_bytes::ByteBuf::from(sign_input.tbs),
                 }),
             hmac_secret: input
                 .hmac_get_secret
