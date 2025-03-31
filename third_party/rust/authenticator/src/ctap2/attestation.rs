@@ -137,7 +137,10 @@ impl Serialize for SignExtensionOutput {
                 &6 => sig,
                 &7 => att_obj,
             ),
-            Self::Inner { flags } => serializer.serialize_u8(*flags),
+            Self::Inner { flags } => serialize_map!(
+                serializer,
+                &4 => flags,
+            ),
         }
     }
 }
@@ -150,9 +153,7 @@ impl<'de> Deserialize<'de> for SignExtensionOutput {
             type Value = SignExtensionOutput;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str(
-                    "a map (outer extension output) or an integer (in nested attestation object)",
-                )
+                formatter.write_str("a map")
             }
 
             fn visit_map<A: serde::de::MapAccess<'de>>(
@@ -161,33 +162,39 @@ impl<'de> Deserialize<'de> for SignExtensionOutput {
             ) -> Result<Self::Value, A::Error> {
                 // Outer extension output case
                 let mut att_obj = None;
+                let mut flags = None;
                 let mut sig = None;
 
-                while let Some((key, bytes)) = map.next_entry::<u64, _>()? {
+                while let Some(key) = map.next_key::<u64>()? {
                     match key {
+                        4 => {
+                            flags = Some(map.next_value()?);
+                        }
                         6 => {
-                            sig = Some(bytes);
+                            sig = Some(map.next_value()?);
                         }
                         7 => {
-                            att_obj = Some(bytes);
+                            att_obj = Some(map.next_value()?);
                         }
                         _ => {
                             return Err(serde::de::Error::unknown_field(
                                 &key.to_string(),
-                                &["sig (6)", "att_obj (7)"],
+                                &["flags (4)", "sig (6)", "att_obj (7)"],
                             ));
                         }
                     };
                 }
 
-                Ok(SignExtensionOutput::Outer { att_obj, sig })
-            }
-
-            fn visit_u8<E>(self, v: u8) -> Result<Self::Value, E>
-            where
-                E: SerdeError,
-            {
-                Ok(SignExtensionOutput::Inner { flags: v })
+                match (att_obj, sig, flags) {
+                    (att_obj, sig, None) => Ok(SignExtensionOutput::Outer { att_obj, sig }),
+                    (None, None, Some(flags)) => Ok(SignExtensionOutput::Inner { flags  }),
+                    (att_obj, sig, flags) => Err(serde::de::Error::custom(
+                        format!(
+                            "Fields [{fields}] do not match: {{ att_obj? (7): int, sig? (6): bstr }} (if outer) or {{ flags (4): u8 }} (if registration inner)",
+                            fields=[att_obj.map(|_| "att_obj (7)"), sig.map(|_| "sig (6)"), flags.map(|_| "flags (4)")].iter().copied().flatten().collect::<Vec<_>>().join(", "),
+                        ),
+                    )),
+                }
             }
         }
         deserializer.deserialize_any(SignExtensionOutputVisitor)
