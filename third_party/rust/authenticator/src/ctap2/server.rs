@@ -1,3 +1,4 @@
+use super::attestation::SignExtensionUnsignedOutput;
 use super::commands::get_assertion::HmacSecretExtension;
 use crate::crypto::{COSEAlgorithm, CryptoError, PinUvAuthToken, SharedSecret};
 use crate::{errors::AuthenticatorError, AuthenticatorTransports, KeyHandle};
@@ -527,6 +528,11 @@ pub struct AuthenticationExtensionsClientOutputs {
     pub hmac_get_secret: Option<HMACGetSecretOutput>,
     pub prf: Option<AuthenticationExtensionsPRFOutputs>,
     pub sign: Option<AuthenticationExtensionsSignOutputs>,
+}
+
+#[derive(Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct AuthenticationExtensionsUnsignedAuthenticatorOutputs {
+    pub sign: Option<SignExtensionUnsignedOutput>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

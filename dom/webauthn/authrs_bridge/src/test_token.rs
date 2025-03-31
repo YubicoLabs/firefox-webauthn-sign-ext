@@ -660,6 +660,7 @@ impl VirtualFidoDevice for TestToken {
                 auth_data,
             },
             extensions: Default::default(),
+            unsigned_extensions: Default::default(),
         };
         Ok(result)
     }

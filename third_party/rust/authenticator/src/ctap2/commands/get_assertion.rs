@@ -488,7 +488,7 @@ impl GetAssertion {
             None => {}
         }
 
-        if let Some(SignExtensionOutput::Outer { att_obj: _, sig }) =
+        if let Some(SignExtensionOutput::RegistrationOuter { alg: _, sig }) =
             &result.assertion.auth_data.extensions.sign
         {
             result.extensions.sign = Some(AuthenticationExtensionsSignOutputs {

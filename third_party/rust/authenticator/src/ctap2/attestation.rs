@@ -114,32 +114,47 @@ impl<'de> Deserialize<'de> for HmacSecretResponse {
 #[derive(Debug, Eq, PartialEq)]
 pub enum SignExtensionOutput {
     /// The top-level extension output.
-    Outer {
-        /// Attestation object for generated signing public key
-        att_obj: Option<serde_bytes::ByteBuf>,
+    RegistrationOuter {
+        /// COSEAlgorithmIdentifier chosen for the generated signing public key
+        alg: i64,
 
         /// Signature over tbs input (if requested)
         sig: Option<serde_bytes::ByteBuf>,
     },
 
     /// The extension output in the attestation object embedded inside the top-level extension output.
-    Inner {
+    RegistrationInner {
         /// Flags byte for the generated signing key
         flags: u8,
     },
+
+    Authentication {
+        /// Signature over tbs input
+        sig: serde_bytes::ByteBuf,
+    },
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct SignExtensionUnsignedOutput {
+    /// Attestation object for generated signing public key
+    pub att_obj: Option<serde_bytes::ByteBuf>,
 }
 
 impl Serialize for SignExtensionOutput {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {
-            Self::Outer { att_obj, sig } => serialize_map_optional!(
+            Self::RegistrationOuter { alg, sig } => serialize_map_optional!(
                 serializer,
+                &3 => Some(alg),
                 &6 => sig,
-                &7 => att_obj,
             ),
-            Self::Inner { flags } => serialize_map!(
+            Self::RegistrationInner { flags } => serialize_map!(
                 serializer,
                 &4 => flags,
+            ),
+            Self::Authentication { sig } => serialize_map!(
+                serializer,
+                &6 => sig,
             ),
         }
     }
@@ -161,43 +176,82 @@ impl<'de> Deserialize<'de> for SignExtensionOutput {
                 mut map: A,
             ) -> Result<Self::Value, A::Error> {
                 // Outer extension output case
-                let mut att_obj = None;
+                let mut alg = None;
                 let mut flags = None;
                 let mut sig = None;
 
                 while let Some(key) = map.next_key::<u64>()? {
                     match key {
+                        3 => {
+                            alg = Some(map.next_value()?);
+                        }
                         4 => {
                             flags = Some(map.next_value()?);
                         }
                         6 => {
                             sig = Some(map.next_value()?);
                         }
-                        7 => {
-                            att_obj = Some(map.next_value()?);
-                        }
                         _ => {
                             return Err(serde::de::Error::unknown_field(
                                 &key.to_string(),
-                                &["flags (4)", "sig (6)", "att_obj (7)"],
+                                &["alg (3)", "flags (4)", "sig (6)"],
                             ));
                         }
                     };
                 }
 
-                match (att_obj, sig, flags) {
-                    (att_obj, sig, None) => Ok(SignExtensionOutput::Outer { att_obj, sig }),
-                    (None, None, Some(flags)) => Ok(SignExtensionOutput::Inner { flags  }),
-                    (att_obj, sig, flags) => Err(serde::de::Error::custom(
+                match (alg, sig, flags) {
+                    (Some(alg), sig, None) => Ok(SignExtensionOutput::RegistrationOuter { alg, sig }),
+                    (None, None, Some(flags)) => Ok(SignExtensionOutput::RegistrationInner { flags  }),
+                    (None, Some(sig), None) => Ok(SignExtensionOutput::Authentication { sig }),
+                    (alg, sig, flags) => Err(serde::de::Error::custom(
                         format!(
-                            "Fields [{fields}] do not match: {{ att_obj? (7): int, sig? (6): bstr }} (if outer) or {{ flags (4): u8 }} (if registration inner)",
-                            fields=[att_obj.map(|_| "att_obj (7)"), sig.map(|_| "sig (6)"), flags.map(|_| "flags (4)")].iter().copied().flatten().collect::<Vec<_>>().join(", "),
+                            "Fields [{fields}] do not match: {{ alg (3): int, sig? (6): bstr }} (if registration) or {{ flags (4): u8 }} (if registration inner) or {{ sig (6): bstr }} (if authentication)",
+                            fields=[alg.map(|_| "alg (3)"), sig.map(|_| "sig (6)"), flags.map(|_| "flags (4)")].iter().copied().flatten().collect::<Vec<_>>().join(", "),
                         ),
                     )),
                 }
             }
         }
         deserializer.deserialize_any(SignExtensionOutputVisitor)
+    }
+}
+
+impl<'de> Deserialize<'de> for SignExtensionUnsignedOutput {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct SignExtensionUnsignedOutputVisitor;
+
+        impl<'de> Visitor<'de> for SignExtensionUnsignedOutputVisitor {
+            type Value = SignExtensionUnsignedOutput;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a map")
+            }
+
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<Self::Value, A::Error> {
+                let mut att_obj = None;
+
+                while let Some((key, bytes)) = map.next_entry::<u64, _>()? {
+                    match key {
+                        7 => {
+                            att_obj = Some(bytes);
+                        }
+                        _ => {
+                            return Err(serde::de::Error::unknown_field(
+                                &key.to_string(),
+                                &["att_obj (7)"],
+                            ));
+                        }
+                    };
+                }
+
+                Ok(SignExtensionUnsignedOutput { att_obj })
+            }
+        }
+        deserializer.deserialize_any(SignExtensionUnsignedOutputVisitor)
     }
 }
 
