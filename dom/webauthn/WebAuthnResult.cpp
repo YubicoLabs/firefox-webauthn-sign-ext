@@ -124,6 +124,12 @@ WebAuthnRegisterResult::GetSignGeneratedKeyKeyHandle(nsTArray<uint8_t>& aSignGen
 }
 
 NS_IMETHODIMP
+WebAuthnRegisterResult::GetSignGeneratedKeyAttestationObject(nsTArray<uint8_t>& aSignGeneratedKeyAttestationObject) {
+  // Implemented in authrs_bridge
+  return NS_ERROR_NOT_IMPLEMENTED;
+}
+
+NS_IMETHODIMP
 WebAuthnRegisterResult::GetSignSignature(nsTArray<uint8_t>& aSignSignature) {
   // Implemented in authrs_bridge
   return NS_ERROR_NOT_IMPLEMENTED;

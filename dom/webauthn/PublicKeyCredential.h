@@ -80,6 +80,7 @@ class PublicKeyCredential final : public Credential {
 
   void SetClientExtensionResultSignGeneratedKeyPublicKey(const nsTArray<uint8_t>& aSignGeneratedKeyPublicKey);
   void SetClientExtensionResultSignGeneratedKeyKeyHandle(const nsTArray<uint8_t>& aSignGeneratedKeyKeyHandle);
+  void SetClientExtensionResultSignGeneratedKeyAttestationObject(const nsTArray<uint8_t>& aSignGeneratedKeyAttestationObject);
   void SetClientExtensionResultSignSignature(const nsTArray<uint8_t>& aSignSignature);
 
   static void ParseCreationOptionsFromJSON(
@@ -107,6 +108,7 @@ class PublicKeyCredential final : public Credential {
   Maybe<nsTArray<uint8_t>> mPrfResultsSecond;
   Maybe<nsTArray<uint8_t>> mSignGeneratedKeyPublicKey;
   Maybe<nsTArray<uint8_t>> mSignGeneratedKeyKeyHandle;
+  Maybe<nsTArray<uint8_t>> mSignGeneratedKeyAttestationObject;
   Maybe<nsTArray<uint8_t>> mSignSignature;
 };
 

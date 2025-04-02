@@ -304,16 +304,19 @@ void PublicKeyCredential::GetClientExtensionResults(
     }
   }
 
-  if (mClientExtensionOutputs.mSign.WasPassed() || mSignGeneratedKeyPublicKey.isSome() || mSignGeneratedKeyKeyHandle.isSome() || mSignSignature.isSome()) {
+  if (mClientExtensionOutputs.mSign.WasPassed() || mSignGeneratedKeyPublicKey.isSome() || mSignGeneratedKeyKeyHandle.isSome() || mSignGeneratedKeyAttestationObject.isSome() || mSignSignature.isSome()) {
     AuthenticationExtensionsSignOutputs& dest = aResult.mSign.Construct();
 
-    if (mSignGeneratedKeyPublicKey.isSome() || mSignGeneratedKeyKeyHandle.isSome()) {
+    if (mSignGeneratedKeyPublicKey.isSome() || mSignGeneratedKeyKeyHandle.isSome() || mSignGeneratedKeyAttestationObject.isSome()) {
       AuthenticationExtensionsSignGeneratedKey& destGeneratedKey = dest.mGeneratedKey.Construct();
       if (mSignGeneratedKeyPublicKey.isSome()) {
         destGeneratedKey.mPublicKey.Init(TypedArrayCreator<ArrayBuffer>(mSignGeneratedKeyPublicKey.ref()).Create(cx));
       }
       if (mSignGeneratedKeyKeyHandle.isSome()) {
         destGeneratedKey.mKeyHandle.Init(TypedArrayCreator<ArrayBuffer>(mSignGeneratedKeyKeyHandle.ref()).Create(cx));
+      }
+      if (mSignGeneratedKeyAttestationObject.isSome()) {
+        destGeneratedKey.mAttestationObject.Init(TypedArrayCreator<ArrayBuffer>(mSignGeneratedKeyAttestationObject.ref()).Create(cx));
       }
     }
 
@@ -436,6 +439,11 @@ void PublicKeyCredential::SetClientExtensionResultSignGeneratedKeyPublicKey(cons
 void PublicKeyCredential::SetClientExtensionResultSignGeneratedKeyKeyHandle(const nsTArray<uint8_t>& aSignGeneratedKeyKeyHandle) {
   mSignGeneratedKeyKeyHandle.emplace(aSignGeneratedKeyKeyHandle.Length());
   mSignGeneratedKeyKeyHandle->Assign(aSignGeneratedKeyKeyHandle);
+}
+
+void PublicKeyCredential::SetClientExtensionResultSignGeneratedKeyAttestationObject(const nsTArray<uint8_t>& aSignGeneratedKeyAttestationObject) {
+  mSignGeneratedKeyAttestationObject.emplace(aSignGeneratedKeyAttestationObject.Length());
+  mSignGeneratedKeyAttestationObject->Assign(aSignGeneratedKeyAttestationObject);
 }
 
 void PublicKeyCredential::SetClientExtensionResultSignSignature(const nsTArray<uint8_t>& aSignSignature) {

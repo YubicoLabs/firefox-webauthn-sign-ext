@@ -497,7 +497,7 @@ impl MakeCredentials {
         if let Some((
             SignExtensionOutput::RegistrationOuter { alg, sig },
             SignExtensionUnsignedOutput {
-                att_obj: Some(att_obj),
+                att_obj: Some(attestation_object),
             },
         )) = &result
             .att_obj
@@ -511,9 +511,10 @@ impl MakeCredentials {
                 Some(AuthenticationExtensionsSignOutputs {
                     signature: sig.as_ref().map(|v| v.to_vec()),
                     generated_key: {
-                        let att_obj = serde_cbor::from_slice::<MakeCredentialsResult>(att_obj)
-                            .ok()?
-                            .att_obj;
+                        let att_obj =
+                            serde_cbor::from_slice::<MakeCredentialsResult>(attestation_object)
+                                .ok()?
+                                .att_obj;
                         let public_key = att_obj.auth_data.credential_data?.credential_public_key;
                         let serde_cbor::Value::Map(key_handle) =
                             serde_cbor::from_slice::<serde_cbor::Value>(
@@ -537,6 +538,7 @@ impl MakeCredentials {
                         Some(AuthenticationExtensionsSignGeneratedKey {
                             public_key: serde_cbor::to_vec(&public_key).ok()?,
                             key_handle,
+                            attestation_object: attestation_object.to_vec(),
                         })
                     },
                 })

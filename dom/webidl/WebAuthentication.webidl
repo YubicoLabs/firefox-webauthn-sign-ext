@@ -410,4 +410,5 @@ dictionary AuthenticationExtensionsSignOutputs {
 dictionary AuthenticationExtensionsSignGeneratedKey {
     required ArrayBuffer publicKey;
     required ArrayBuffer keyHandle;
+    required ArrayBuffer attestationObject;
 };
