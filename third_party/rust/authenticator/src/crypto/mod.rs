@@ -892,6 +892,7 @@ pub enum COSEKeyType {
     ARKG {
         blinding_pk: Box<COSEKey>,
         kem_pk: Box<COSEKey>,
+        dkalg: Option<COSEAlgorithm>,
     },
 }
 
@@ -968,6 +969,7 @@ impl<'de> Deserialize<'de> for COSEKey {
                 // ARKG specific
                 let mut arkg_blinding_pk: Option<COSEKey> = None;
                 let mut arkg_kem_pk: Option<COSEKey> = None;
+                let mut arkg_dkalg: Option<COSEAlgorithm> = None;
 
                 while let Some(key) = map.next_key()? {
                     // See https://www.iana.org/assignments/cose/cose.xhtml#key-type-parameters
@@ -1048,13 +1050,22 @@ impl<'de> Deserialize<'de> for COSEKey {
                                 arkg_kem_pk = Some(map.next_value()?);
                             }
                         },
-                        -3 if key_type == Some(COSEKeyTypeId::EC2) => {
-                            if y.is_some() {
-                                return Err(SerdeError::duplicate_field("y"));
+                        -3 => match key_type {
+                            Some(COSEKeyTypeId::EC2) => {
+                                if y.is_some() {
+                                    return Err(SerdeError::duplicate_field("y"));
+                                }
+                                let value: ByteBuf = map.next_value()?;
+                                y = Some(value.to_vec());
                             }
-                            let value: ByteBuf = map.next_value()?;
-                            y = Some(value.to_vec());
-                        }
+                            Some(COSEKeyTypeId::ARKG) => {
+                                if arkg_dkalg.is_some() {
+                                    return Err(SerdeError::duplicate_field("arkg_dkalg"));
+                                }
+                                arkg_dkalg = Some(map.next_value()?);
+                            }
+                            _ => {}
+                        },
                         other => {
                             return Err(SerdeError::custom(format!("unexpected field: {other}")));
                         }
@@ -1090,6 +1101,7 @@ impl<'de> Deserialize<'de> for COSEKey {
                                 arkg_kem_pk
                                     .ok_or_else(|| SerdeError::missing_field("arkg_kem_pk (-2)"))?,
                             ),
+                            dkalg: arkg_dkalg,
                         }
                     }
                 };
@@ -1143,6 +1155,7 @@ impl Serialize for COSEKey {
             COSEKeyType::ARKG {
                 blinding_pk,
                 kem_pk,
+                dkalg,
             } => {
                 serialize_map_optional!(
                     serializer,
@@ -1151,6 +1164,7 @@ impl Serialize for COSEKey {
                     &3 => alg,
                     &-1 => Some(blinding_pk),
                     &-2 => Some(kem_pk),
+                    &-3 => dkalg,
                 )
             }
         }
