@@ -516,28 +516,9 @@ impl MakeCredentials {
                                 .ok()?
                                 .att_obj;
                         let public_key = att_obj.auth_data.credential_data?.credential_public_key;
-                        let serde_cbor::Value::Map(key_handle) =
-                            serde_cbor::from_slice::<serde_cbor::Value>(
-                                &serde_cbor::to_vec(&public_key).ok()?,
-                            )
-                            .ok()?
-                        else {
-                            return None;
-                        };
-                        let key_handle = serde_cbor::to_vec(&serde_cbor::Value::Map(
-                            key_handle
-                                .into_iter()
-                                .filter_map(|(k, v)| match k {
-                                    serde_cbor::Value::Integer(1 | 2) => Some((k, v)),
-                                    serde_cbor::Value::Integer(3) => Some((k, (*alg).into())),
-                                    _ => None,
-                                })
-                                .collect(),
-                        ))
-                        .ok()?;
                         Some(AuthenticationExtensionsSignGeneratedKey {
                             public_key: serde_cbor::to_vec(&public_key).ok()?,
-                            key_handle,
+                            algorithm: *alg,
                             attestation_object: attestation_object.to_vec(),
                         })
                     },

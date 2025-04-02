@@ -824,7 +824,7 @@ void WebAuthnHandler::FinishMakeCredential(
       const Maybe<WebAuthnExtensionResultSignGeneratedKey>& generatedKey = sign.generatedKey();
       if (generatedKey.isSome()) {
         credential->SetClientExtensionResultSignGeneratedKeyPublicKey(generatedKey.value().publicKey());
-        credential->SetClientExtensionResultSignGeneratedKeyKeyHandle(generatedKey.value().keyHandle());
+        credential->SetClientExtensionResultSignGeneratedKeyAlgorithm(generatedKey.value().algorithm());
         credential->SetClientExtensionResultSignGeneratedKeyAttestationObject(generatedKey.value().attestationObject());
       }
       if (sign.signatureMaybe()) {

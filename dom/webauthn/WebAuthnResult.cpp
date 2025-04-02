@@ -118,7 +118,7 @@ WebAuthnRegisterResult::GetSignGeneratedKeyPublicKey(nsTArray<uint8_t>& aSignGen
 }
 
 NS_IMETHODIMP
-WebAuthnRegisterResult::GetSignGeneratedKeyKeyHandle(nsTArray<uint8_t>& aSignGeneratedKeyKeyHandle) {
+WebAuthnRegisterResult::GetSignGeneratedKeyAlgorithm(COSEAlgorithmIdentifier *aSignGeneratedKeyAlgorithm) {
   // Implemented in authrs_bridge
   return NS_ERROR_NOT_IMPLEMENTED;
 }

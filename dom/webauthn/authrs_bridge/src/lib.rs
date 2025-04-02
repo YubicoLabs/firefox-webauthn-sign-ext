@@ -274,8 +274,8 @@ impl WebAuthnRegisterResult {
             .ok_or(NS_ERROR_NOT_AVAILABLE)
     }
 
-    xpcom_method!(get_sign_generated_key_key_handle => GetSignGeneratedKeyKeyHandle() -> ThinVec<u8>);
-    fn get_sign_generated_key_key_handle(&self) -> Result<ThinVec<u8>, nsresult> {
+    xpcom_method!(get_sign_generated_key_algorithm => GetSignGeneratedKeyAlgorithm() -> i32);
+    fn get_sign_generated_key_algorithm(&self) -> Result<i32, nsresult> {
         self.result
             .try_borrow()
             .ok()
@@ -285,7 +285,7 @@ impl WebAuthnRegisterResult {
                     .sign
                     .as_ref()
                     .and_then(|sign| sign.generated_key.as_ref())
-                    .map(|generated_key| generated_key.key_handle.as_slice().into())
+                    .map(|generated_key| generated_key.algorithm as i32)
             })
             .ok_or(NS_ERROR_NOT_AVAILABLE)
     }

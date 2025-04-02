@@ -115,7 +115,7 @@ struct WebAuthnExtensionResultSign {
 
 struct WebAuthnExtensionResultSignGeneratedKey {
   uint8_t[] publicKey;
-  uint8_t[] keyHandle;
+  int32_t algorithm;
   uint8_t[] attestationObject;
 };
 

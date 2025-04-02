@@ -4,6 +4,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "nsISupports.idl"
+#include "nsIWebAuthnArgs.idl"
 
 [uuid(0567c384-a728-11ed-85f7-030324a370f0)]
 interface nsIWebAuthnRegisterResult : nsISupports {
@@ -32,7 +33,7 @@ interface nsIWebAuthnRegisterResult : nsISupports {
     readonly attribute Array<octet> prfResultsSecond;
 
     readonly attribute Array<octet> signGeneratedKeyPublicKey;
-    readonly attribute Array<octet> signGeneratedKeyKeyHandle;
+    readonly attribute COSEAlgorithmIdentifier signGeneratedKeyAlgorithm;
     readonly attribute Array<octet> signGeneratedKeyAttestationObject;
     readonly attribute Array<octet> signSignature;
 

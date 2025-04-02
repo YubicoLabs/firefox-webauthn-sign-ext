@@ -549,6 +549,7 @@ pub enum COSEAlgorithm {
     Direct_HKDF_AES128 = -12,          //     Shared secret w/ AES-MAC 128-bit key
     Direct_HKDF_SHA512 = -11,          //     Shared secret w/ HKDF and SHA-512
     Direct_HKDF_SHA256 = -10,          //     Shared secret w/ HKDF and SHA-256
+    ESP256 = -9,                       //  ECDSA w/ SHA-256 and secp256r1
     EDDSA = -8,                        //  EdDSA
     ES256 = -7,                        //  ECDSA w/ SHA-256
     Direct = -6,                       //  Direct use of CEK
@@ -577,7 +578,9 @@ pub enum COSEAlgorithm {
     AES_CCM_64_128_256 = 33,           //  AES-CCM mode 256-bit key, 128-bit tag, 7-byte nonce
     IV_GENERATION = 34,                //  For doing IV generation for symmetric algorithms.
 
-    ESP256_ARKG = -65539,
+    ESP256_2P_WITH_ARKG_P256 = -65539,
+    ARKG_P256 = -65540,
+    ESP256_2P = -70009,
 }
 
 impl Serialize for COSEAlgorithm {
@@ -670,6 +673,7 @@ impl TryFrom<i64> for COSEAlgorithm {
             i if i == COSEAlgorithm::Direct_HKDF_SHA256 as i64 => {
                 Ok(COSEAlgorithm::Direct_HKDF_SHA256)
             }
+            i if i == COSEAlgorithm::ESP256 as i64 => Ok(COSEAlgorithm::ESP256),
             i if i == COSEAlgorithm::EDDSA as i64 => Ok(COSEAlgorithm::EDDSA),
             i if i == COSEAlgorithm::ES256 as i64 => Ok(COSEAlgorithm::ES256),
             i if i == COSEAlgorithm::Direct as i64 => Ok(COSEAlgorithm::Direct),
@@ -716,7 +720,11 @@ impl TryFrom<i64> for COSEAlgorithm {
             }
             i if i == COSEAlgorithm::IV_GENERATION as i64 => Ok(COSEAlgorithm::IV_GENERATION),
             i if i == COSEAlgorithm::INSECURE_RS1 as i64 => Ok(COSEAlgorithm::INSECURE_RS1),
-            i if i == COSEAlgorithm::ESP256_ARKG as i64 => Ok(COSEAlgorithm::ESP256_ARKG),
+            i if i == COSEAlgorithm::ESP256_2P_WITH_ARKG_P256 as i64 => {
+                Ok(COSEAlgorithm::ESP256_2P_WITH_ARKG_P256)
+            }
+            i if i == COSEAlgorithm::ARKG_P256 as i64 => Ok(COSEAlgorithm::ARKG_P256),
+            i if i == COSEAlgorithm::ESP256_2P as i64 => Ok(COSEAlgorithm::ESP256_2P),
             _ => Err(CryptoError::UnknownAlgorithm),
         }
     }
