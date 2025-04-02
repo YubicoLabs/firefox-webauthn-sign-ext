@@ -304,23 +304,19 @@ void PublicKeyCredential::GetClientExtensionResults(
     }
   }
 
-  if (mClientExtensionOutputs.mSign.WasPassed() || mSignGeneratedKeyPublicKey.isSome() || mSignGeneratedKeyKeyHandle.isSome() || mSignGeneratedKeyAttestationObject.isSome() || mSignSignature.isSome()) {
+  const bool signGeneratedKeyPresent = mSignGeneratedKeyPublicKey.isSome() && mSignGeneratedKeyKeyHandle.isSome() && mSignGeneratedKeyAttestationObject.isSome();
+  const bool signSignaturePresent = mSignSignature.isSome();
+  if (signGeneratedKeyPresent || signSignaturePresent) {
     AuthenticationExtensionsSignOutputs& dest = aResult.mSign.Construct();
 
-    if (mSignGeneratedKeyPublicKey.isSome() || mSignGeneratedKeyKeyHandle.isSome() || mSignGeneratedKeyAttestationObject.isSome()) {
+    if (signGeneratedKeyPresent) {
       AuthenticationExtensionsSignGeneratedKey& destGeneratedKey = dest.mGeneratedKey.Construct();
-      if (mSignGeneratedKeyPublicKey.isSome()) {
-        destGeneratedKey.mPublicKey.Init(TypedArrayCreator<ArrayBuffer>(mSignGeneratedKeyPublicKey.ref()).Create(cx));
-      }
-      if (mSignGeneratedKeyKeyHandle.isSome()) {
-        destGeneratedKey.mKeyHandle.Init(TypedArrayCreator<ArrayBuffer>(mSignGeneratedKeyKeyHandle.ref()).Create(cx));
-      }
-      if (mSignGeneratedKeyAttestationObject.isSome()) {
-        destGeneratedKey.mAttestationObject.Init(TypedArrayCreator<ArrayBuffer>(mSignGeneratedKeyAttestationObject.ref()).Create(cx));
-      }
+      destGeneratedKey.mPublicKey.Init(TypedArrayCreator<ArrayBuffer>(mSignGeneratedKeyPublicKey.ref()).Create(cx));
+      destGeneratedKey.mKeyHandle.Init(TypedArrayCreator<ArrayBuffer>(mSignGeneratedKeyKeyHandle.ref()).Create(cx));
+      destGeneratedKey.mAttestationObject.Init(TypedArrayCreator<ArrayBuffer>(mSignGeneratedKeyAttestationObject.ref()).Create(cx));
     }
 
-    if (mSignSignature.isSome()) {
+    if (signSignaturePresent) {
       dest.mSignature.Construct().Init(TypedArrayCreator<ArrayBuffer>(mSignSignature.ref()).Create(cx));
     }
   }
