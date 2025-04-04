@@ -1,3 +1,4 @@
+use super::attestation::SignExtensionUnsignedOutput;
 use super::commands::get_assertion::HmacSecretExtension;
 use crate::crypto::{COSEAlgorithm, CryptoError, PinUvAuthToken, SharedSecret};
 use crate::{errors::AuthenticatorError, AuthenticatorTransports, KeyHandle};
@@ -497,13 +498,13 @@ pub struct AuthenticationExtensionsSignInputs {
 
 #[derive(Clone, Debug, Default)]
 pub struct AuthenticationExtensionsSignGenerateKeyInputs {
-    pub ph_data: Option<Vec<u8>>,
+    pub tbs: Option<Vec<u8>>,
     pub algorithms: Vec<i32>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct AuthenticationExtensionsSignSignInputs {
-    pub ph_data: Vec<u8>,
+    pub tbs: Vec<u8>,
     pub key_handle_by_credential: HashMap<Vec<u8>, Vec<u8>>,
 }
 
@@ -516,7 +517,8 @@ pub struct AuthenticationExtensionsSignOutputs {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct AuthenticationExtensionsSignGeneratedKey {
     pub public_key: Vec<u8>,
-    pub key_handle: Vec<u8>,
+    pub algorithm: i64,
+    pub attestation_object: Vec<u8>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -527,6 +529,11 @@ pub struct AuthenticationExtensionsClientOutputs {
     pub hmac_get_secret: Option<HMACGetSecretOutput>,
     pub prf: Option<AuthenticationExtensionsPRFOutputs>,
     pub sign: Option<AuthenticationExtensionsSignOutputs>,
+}
+
+#[derive(Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct AuthenticationExtensionsUnsignedAuthenticatorOutputs {
+    pub sign: Option<SignExtensionUnsignedOutput>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

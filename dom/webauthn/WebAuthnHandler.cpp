@@ -308,8 +308,8 @@ already_AddRefed<Promise> WebAuthnHandler::MakeCredential(
     if (sign.mGenerateKey.WasPassed()) {
       const AuthenticationExtensionsSignGenerateKeyInputs& gk = sign.mGenerateKey.Value();
       CryptoBuffer tbs;
-      if (gk.mPhData.WasPassed()) {
-        tbs.Assign(gk.mPhData.Value());
+      if (gk.mTbs.WasPassed()) {
+        tbs.Assign(gk.mTbs.Value());
       }
 
       nsTArray<COSEAlgorithmIdentifier> algorithms;
@@ -317,7 +317,7 @@ already_AddRefed<Promise> WebAuthnHandler::MakeCredential(
         algorithms.AppendElement(algorithm);
       }
 
-      generateKey = Some(WebAuthnExtensionSignGenerateKeyInputs(algorithms, gk.mPhData.WasPassed(), tbs));
+      generateKey = Some(WebAuthnExtensionSignGenerateKeyInputs(algorithms, gk.mTbs.WasPassed(), tbs));
     }
 
     WebAuthnExtensionSign el(generateKey, Nothing());
@@ -626,7 +626,7 @@ already_AddRefed<Promise> WebAuthnHandler::GetAssertion(
     if (sign.mSign.WasPassed()) {
       const AuthenticationExtensionsSignSignInputs& si = sign.mSign.Value();
       CryptoBuffer tbs;
-      tbs.Assign(si.mPhData);
+      tbs.Assign(si.mTbs);
       nsTArray<WebAuthnExtensionSignSignInputsKeyHandleByCredentialEntry> keyHandleByCredential;
       for (const auto& entry : si.mKeyHandleByCredential.Entries()) {
         CryptoBuffer keyHandle;
@@ -824,7 +824,8 @@ void WebAuthnHandler::FinishMakeCredential(
       const Maybe<WebAuthnExtensionResultSignGeneratedKey>& generatedKey = sign.generatedKey();
       if (generatedKey.isSome()) {
         credential->SetClientExtensionResultSignGeneratedKeyPublicKey(generatedKey.value().publicKey());
-        credential->SetClientExtensionResultSignGeneratedKeyKeyHandle(generatedKey.value().keyHandle());
+        credential->SetClientExtensionResultSignGeneratedKeyAlgorithm(generatedKey.value().algorithm());
+        credential->SetClientExtensionResultSignGeneratedKeyAttestationObject(generatedKey.value().attestationObject());
       }
       if (sign.signatureMaybe()) {
         credential->SetClientExtensionResultSignSignature(sign.signature());

@@ -278,14 +278,25 @@ mozilla::ipc::IPCResult WebAuthnTransactionParent::RecvRequestRegister(
                   return;
                 }
 
-                nsTArray<uint8_t> signGeneratedKeyKeyHandle;
-                rv = registerResult->GetSignGeneratedKeyKeyHandle(signGeneratedKeyKeyHandle);
-                if (rv != NS_ERROR_NOT_AVAILABLE) {
-                  if (NS_WARN_IF(NS_FAILED(rv))) {
-                    return;
-                  }
-                  signGeneratedKey = Some(WebAuthnExtensionResultSignGeneratedKey(signGeneratedKeyPublicKey, signGeneratedKeyKeyHandle));
+                COSEAlgorithmIdentifier signGeneratedKeyAlgorithm;
+                rv = registerResult->GetSignGeneratedKeyAlgorithm(&signGeneratedKeyAlgorithm);
+                if (rv == NS_ERROR_NOT_AVAILABLE) {
+                  return;
                 }
+                if (NS_WARN_IF(NS_FAILED(rv))) {
+                  return;
+                }
+
+                nsTArray<uint8_t> signGeneratedKeyAttestationObject;
+                rv = registerResult->GetSignGeneratedKeyAttestationObject(signGeneratedKeyAttestationObject);
+                if (rv == NS_ERROR_NOT_AVAILABLE) {
+                  return;
+                }
+                if (NS_WARN_IF(NS_FAILED(rv))) {
+                  return;
+                }
+
+                signGeneratedKey = Some(WebAuthnExtensionResultSignGeneratedKey(signGeneratedKeyPublicKey, signGeneratedKeyAlgorithm, signGeneratedKeyAttestationObject));
               }
 
               nsTArray<uint8_t> signSignature;

@@ -274,8 +274,8 @@ impl WebAuthnRegisterResult {
             .ok_or(NS_ERROR_NOT_AVAILABLE)
     }
 
-    xpcom_method!(get_sign_generated_key_key_handle => GetSignGeneratedKeyKeyHandle() -> ThinVec<u8>);
-    fn get_sign_generated_key_key_handle(&self) -> Result<ThinVec<u8>, nsresult> {
+    xpcom_method!(get_sign_generated_key_algorithm => GetSignGeneratedKeyAlgorithm() -> i32);
+    fn get_sign_generated_key_algorithm(&self) -> Result<i32, nsresult> {
         self.result
             .try_borrow()
             .ok()
@@ -285,7 +285,23 @@ impl WebAuthnRegisterResult {
                     .sign
                     .as_ref()
                     .and_then(|sign| sign.generated_key.as_ref())
-                    .map(|generated_key| generated_key.key_handle.as_slice().into())
+                    .map(|generated_key| generated_key.algorithm as i32)
+            })
+            .ok_or(NS_ERROR_NOT_AVAILABLE)
+    }
+
+    xpcom_method!(get_sign_generated_key_attestation_object => GetSignGeneratedKeyAttestationObject() -> ThinVec<u8>);
+    fn get_sign_generated_key_attestation_object(&self) -> Result<ThinVec<u8>, nsresult> {
+        self.result
+            .try_borrow()
+            .ok()
+            .and_then(|result| {
+                result
+                    .extensions
+                    .sign
+                    .as_ref()
+                    .and_then(|sign| sign.generated_key.as_ref())
+                    .map(|generated_key| generated_key.attestation_object.as_slice().into())
             })
             .ok_or(NS_ERROR_NOT_AVAILABLE)
     }
@@ -921,7 +937,7 @@ impl AuthrsService {
                 debug!("sign_extension: {sign_extension}");
                 if sign_extension {
                     let mut sign_extension_input = AuthenticationExtensionsSignGenerateKeyInputs {
-                        ph_data: None,
+                        tbs: None,
                         algorithms: Vec::new(),
                     };
 
@@ -937,14 +953,12 @@ impl AuthrsService {
                         _ => {}
                     }
 
-                    let mut sign_extension_ph_data: ThinVec<u8> = ThinVec::new();
-                    match unsafe {
-                        args.GetSignExtensionGenerateKeyPhData(&mut sign_extension_ph_data)
-                    }
-                    .to_result()
+                    let mut sign_extension_tbs: ThinVec<u8> = ThinVec::new();
+                    match unsafe { args.GetSignExtensionGenerateKeyTbs(&mut sign_extension_tbs) }
+                        .to_result()
                     {
                         Ok(_) => {
-                            sign_extension_input.ph_data = Some(sign_extension_ph_data.to_vec());
+                            sign_extension_input.tbs = Some(sign_extension_tbs.to_vec());
                         }
                         _ => {}
                     }
@@ -1221,15 +1235,14 @@ impl AuthrsService {
                 Ok(_) => {
                     debug!("sign_extension: {sign_extension}");
                     if sign_extension {
-                        let mut sign_extension_ph_data: ThinVec<u8> = ThinVec::new();
-                        let ph_data: Vec<u8> = match unsafe {
-                            args.GetSignExtensionSignPhData(&mut sign_extension_ph_data)
-                        }
-                        .to_result()
-                        {
-                            Ok(_) => Ok(sign_extension_ph_data.to_vec()),
-                            _ => Err(NS_ERROR_DOM_NOT_SUPPORTED_ERR),
-                        }?;
+                        let mut sign_extension_tbs: ThinVec<u8> = ThinVec::new();
+                        let tbs: Vec<u8> =
+                            match unsafe { args.GetSignExtensionSignTbs(&mut sign_extension_tbs) }
+                                .to_result()
+                            {
+                                Ok(_) => Ok(sign_extension_tbs.to_vec()),
+                                _ => Err(NS_ERROR_DOM_NOT_SUPPORTED_ERR),
+                            }?;
 
                         let mut sign_extension_credential_ids: ThinVec<nsCString> = ThinVec::new();
                         let mut sign_extension_key_handles: ThinVec<ThinVec<u8>> = ThinVec::new();
@@ -1264,7 +1277,7 @@ impl AuthrsService {
                         let sign_extension_input = AuthenticationExtensionsSignInputs {
                             generate_key: None,
                             sign: Some(AuthenticationExtensionsSignSignInputs {
-                                ph_data,
+                                tbs,
                                 key_handle_by_credential,
                             }),
                         };

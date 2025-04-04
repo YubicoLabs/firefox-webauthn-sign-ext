@@ -178,12 +178,12 @@ WebAuthnRegisterArgs::GetSignExtensionGenerateKeyAlgorithms(nsTArray<int32_t>& a
 }
 
 NS_IMETHODIMP
-WebAuthnRegisterArgs::GetSignExtensionGenerateKeyPhData(nsTArray<uint8_t>& aPhData) {
+WebAuthnRegisterArgs::GetSignExtensionGenerateKeyTbs(nsTArray<uint8_t>& aTbs) {
   for (const WebAuthnExtension& ext : mInfo.Extensions()) {
     if (ext.type() == WebAuthnExtension::TWebAuthnExtensionSign) {
       Maybe<WebAuthnExtensionSignGenerateKeyInputs> generateKey = ext.get_WebAuthnExtensionSign().generateKey();
-      if (generateKey.isSome() && generateKey->phDataMaybe()) {
-        aPhData.Assign(generateKey->phData());
+      if (generateKey.isSome() && generateKey->tbsMaybe()) {
+        aTbs.Assign(generateKey->tbs());
         return NS_OK;
       }
       break;
@@ -460,12 +460,12 @@ WebAuthnSignArgs::GetSignExtension(bool* aSignExtension) {
 }
 
 NS_IMETHODIMP
-WebAuthnSignArgs::GetSignExtensionSignPhData(nsTArray<uint8_t>& aPhData) {
+WebAuthnSignArgs::GetSignExtensionSignTbs(nsTArray<uint8_t>& aTbs) {
   for (const WebAuthnExtension& ext : mInfo.Extensions()) {
     if (ext.type() == WebAuthnExtension::TWebAuthnExtensionSign) {
       Maybe<WebAuthnExtensionSignSignInputs> sign = ext.get_WebAuthnExtensionSign().sign();
       if (sign.isSome()) {
-        aPhData.Assign(sign->phData());
+        aTbs.Assign(sign->tbs());
         return NS_OK;
       }
       break;

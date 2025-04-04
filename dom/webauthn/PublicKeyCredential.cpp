@@ -304,20 +304,19 @@ void PublicKeyCredential::GetClientExtensionResults(
     }
   }
 
-  if (mClientExtensionOutputs.mSign.WasPassed() || mSignGeneratedKeyPublicKey.isSome() || mSignGeneratedKeyKeyHandle.isSome() || mSignSignature.isSome()) {
+  const bool signGeneratedKeyPresent = mSignGeneratedKeyPublicKey.isSome() && mSignGeneratedKeyAlgorithm.isSome() && mSignGeneratedKeyAttestationObject.isSome();
+  const bool signSignaturePresent = mSignSignature.isSome();
+  if (signGeneratedKeyPresent || signSignaturePresent) {
     AuthenticationExtensionsSignOutputs& dest = aResult.mSign.Construct();
 
-    if (mSignGeneratedKeyPublicKey.isSome() || mSignGeneratedKeyKeyHandle.isSome()) {
+    if (signGeneratedKeyPresent) {
       AuthenticationExtensionsSignGeneratedKey& destGeneratedKey = dest.mGeneratedKey.Construct();
-      if (mSignGeneratedKeyPublicKey.isSome()) {
-        destGeneratedKey.mPublicKey.Init(TypedArrayCreator<ArrayBuffer>(mSignGeneratedKeyPublicKey.ref()).Create(cx));
-      }
-      if (mSignGeneratedKeyKeyHandle.isSome()) {
-        destGeneratedKey.mKeyHandle.Init(TypedArrayCreator<ArrayBuffer>(mSignGeneratedKeyKeyHandle.ref()).Create(cx));
-      }
+      destGeneratedKey.mPublicKey.Init(TypedArrayCreator<ArrayBuffer>(mSignGeneratedKeyPublicKey.ref()).Create(cx));
+      destGeneratedKey.mAlgorithm = mSignGeneratedKeyAlgorithm.ref();
+      destGeneratedKey.mAttestationObject.Init(TypedArrayCreator<ArrayBuffer>(mSignGeneratedKeyAttestationObject.ref()).Create(cx));
     }
 
-    if (mSignSignature.isSome()) {
+    if (signSignaturePresent) {
       dest.mSignature.Construct().Init(TypedArrayCreator<ArrayBuffer>(mSignSignature.ref()).Create(cx));
     }
   }
@@ -433,9 +432,13 @@ void PublicKeyCredential::SetClientExtensionResultSignGeneratedKeyPublicKey(cons
   mSignGeneratedKeyPublicKey->Assign(aSignGeneratedKeyPublicKey);
 }
 
-void PublicKeyCredential::SetClientExtensionResultSignGeneratedKeyKeyHandle(const nsTArray<uint8_t>& aSignGeneratedKeyKeyHandle) {
-  mSignGeneratedKeyKeyHandle.emplace(aSignGeneratedKeyKeyHandle.Length());
-  mSignGeneratedKeyKeyHandle->Assign(aSignGeneratedKeyKeyHandle);
+void PublicKeyCredential::SetClientExtensionResultSignGeneratedKeyAlgorithm(const COSEAlgorithmIdentifier aSignGeneratedKeyAlgorithm) {
+  mSignGeneratedKeyAlgorithm = Some(aSignGeneratedKeyAlgorithm);
+}
+
+void PublicKeyCredential::SetClientExtensionResultSignGeneratedKeyAttestationObject(const nsTArray<uint8_t>& aSignGeneratedKeyAttestationObject) {
+  mSignGeneratedKeyAttestationObject.emplace(aSignGeneratedKeyAttestationObject.Length());
+  mSignGeneratedKeyAttestationObject->Assign(aSignGeneratedKeyAttestationObject);
 }
 
 void PublicKeyCredential::SetClientExtensionResultSignSignature(const nsTArray<uint8_t>& aSignSignature) {

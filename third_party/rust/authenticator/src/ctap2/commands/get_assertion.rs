@@ -249,7 +249,7 @@ impl Serialize for HmacSecretExtension {
 #[derive(Clone, Debug)]
 pub struct GetAssertionSignExtensionInput {
     pub key_handle_by_credential: Vec<(serde_bytes::ByteBuf, serde_bytes::ByteBuf)>,
-    pub ph_data: serde_bytes::ByteBuf,
+    pub tbs: serde_bytes::ByteBuf,
 }
 
 impl Serialize for GetAssertionSignExtensionInput {
@@ -257,26 +257,27 @@ impl Serialize for GetAssertionSignExtensionInput {
     where
         S: Serializer,
     {
-        const PH_DATA: u8 = 0;
-        const KEY_REFS: u8 = 5;
-        serialize_map!(
-            serializer,
-            &PH_DATA => &self.ph_data,
-            &KEY_REFS => &self.key_handle_by_credential.iter().map(|(_, kh)| kh).collect::<Vec<_>>(),
-        )
+        if self.key_handle_by_credential.len() > 1 {
+            Err(serde::ser::Error::custom(
+                "key_handle_by_credential must be reduced to size 0 or 1 before serializing",
+            ))
+        } else {
+            const TBS: u8 = 0;
+            const KEY_REF: u8 = 5;
+            serialize_map_optional!(
+                serializer,
+                &TBS => Some(&self.tbs),
+                &KEY_REF => &self.key_handle_by_credential.iter().next().map(|(_, kh)| kh),
+            )
+        }
     }
 }
 
 impl GetAssertionSignExtensionInput {
-    pub fn filter_and_order_key_handles(&mut self, allow_list: &[PublicKeyCredentialDescriptor]) {
+    pub fn select_key_handle(&mut self, allow_list: &[PublicKeyCredentialDescriptor]) {
         self.key_handle_by_credential
             .retain(|(id, _)| allow_list.iter().any(|pkcd| &pkcd.id == id.as_slice()));
-        self.key_handle_by_credential.sort_by_cached_key(|(id, _)| {
-            allow_list
-                .iter()
-                .take_while(|pkcd| pkcd.id == id.as_slice())
-                .count()
-        });
+        self.key_handle_by_credential.truncate(1);
     }
 }
 
@@ -312,7 +313,7 @@ impl From<AuthenticationExtensionsClientInputs> for GetAssertionExtensions {
                             )
                         })
                         .collect(),
-                    ph_data: serde_bytes::ByteBuf::from(sign_input.ph_data),
+                    tbs: serde_bytes::ByteBuf::from(sign_input.tbs),
                 }),
             hmac_secret: input
                 .hmac_get_secret
@@ -487,7 +488,7 @@ impl GetAssertion {
             None => {}
         }
 
-        if let Some(SignExtensionOutput::Outer { att_obj: _, sig }) =
+        if let Some(SignExtensionOutput::RegistrationOuter { alg: _, sig }) =
             &result.assertion.auth_data.extensions.sign
         {
             result.extensions.sign = Some(AuthenticationExtensionsSignOutputs {
