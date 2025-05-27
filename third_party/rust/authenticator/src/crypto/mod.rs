@@ -580,6 +580,8 @@ pub enum COSEAlgorithm {
 
     ESP256_2P_WITH_ARKG_P256 = -65539,
     ARKG_P256 = -65540,
+    ESBLS256 = -65600,
+    SplitBBS256 = -65602,
     ESP256_2P = -70009,
 }
 
