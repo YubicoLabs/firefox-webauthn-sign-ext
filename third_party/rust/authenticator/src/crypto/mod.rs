@@ -730,6 +730,8 @@ impl TryFrom<i64> for COSEAlgorithm {
             i if i == COSEAlgorithm::ESP256_2P_WITH_ARKG_P256 as i64 => {
                 Ok(COSEAlgorithm::ESP256_2P_WITH_ARKG_P256)
             }
+            i if i == COSEAlgorithm::ESBLS256 as i64 => Ok(COSEAlgorithm::ESBLS256),
+            i if i == COSEAlgorithm::SplitBBS256 as i64 => Ok(COSEAlgorithm::SplitBBS256),
             _ => Err(CryptoError::UnknownAlgorithm),
         }
     }
