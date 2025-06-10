@@ -163,6 +163,7 @@ impl TryFrom<&AuthenticatorInfo> for PinUvAuthProtocol {
                 AuthenticatorVersion::FIDO_2_1_PRE | AuthenticatorVersion::FIDO_2_1 => {
                     Ok(PinUvAuthProtocol(Box::new(PinUvAuth2 {})))
                 }
+                AuthenticatorVersion::Unknown => Err(CommandError::UnsupportedPinProtocol),
             }
         }
     }
