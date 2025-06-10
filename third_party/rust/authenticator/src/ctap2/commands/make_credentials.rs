@@ -515,11 +515,15 @@ impl MakeCredentials {
                             serde_cbor::from_slice::<MakeCredentialsResult>(attestation_object)
                                 .ok()?
                                 .att_obj;
-                        let public_key = att_obj.auth_data.credential_data?.credential_public_key;
+                        let public_key = &att_obj
+                            .auth_data
+                            .credential_data
+                            .as_ref()?
+                            .credential_public_key;
                         Some(AuthenticationExtensionsSignGeneratedKey {
                             public_key: serde_cbor::to_vec(&public_key).ok()?,
                             algorithm: *alg,
-                            attestation_object: attestation_object.to_vec(),
+                            attestation_object: serde_cbor::to_vec(&att_obj).ok()?,
                         })
                     },
                 })
