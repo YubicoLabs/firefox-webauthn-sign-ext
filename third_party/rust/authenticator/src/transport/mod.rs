@@ -165,18 +165,30 @@ where
     fn init(&mut self) -> Result<(), HIDError> {
         self.pre_init()?;
 
+        debug!("FidoDevice init {:?}, {:?}", self, self.should_try_ctap2());
         if self.should_try_ctap2() {
             let command = GetInfo::default();
-            if let Ok(info) = self.send_cbor(&command) {
-                debug!("{:?}", info);
-                if info.max_supported_version() == AuthenticatorVersion::U2F_V2 {
-                    self.downgrade_to_ctap1();
+            match self.send_cbor(&command) {
+                Ok(info) => {
+                    debug!("{:?}", info);
+                    if info.max_supported_version() == AuthenticatorVersion::U2F_V2 {
+                        debug!(
+                            "Downgrading {:?} to CTAP1 due to max_supported_version: {:?}",
+                            self,
+                            info.max_supported_version()
+                        );
+                        self.downgrade_to_ctap1();
+                    }
+                    self.set_authenticator_info(info);
+                    return Ok(());
                 }
-                self.set_authenticator_info(info);
-                return Ok(());
+                Err(e) => {
+                    debug!("Failed to get info from {:?}: {:?}", self, e);
+                }
             }
         }
 
+        debug!("Downgrading {:?} to CTAP1 due to CTAP2 failure?", self);
         self.downgrade_to_ctap1();
         // We want to return an error here if this device doesn't support CTAP1,
         // so we send a U2F_VERSION command.

@@ -176,6 +176,7 @@ impl FidoDevice for Device {
     }
 
     fn downgrade_to_ctap1(&mut self) {
+        debug!("downgrading {:?} to CTAP1", self);
         self.protocol = FidoProtocol::CTAP1;
     }
 }

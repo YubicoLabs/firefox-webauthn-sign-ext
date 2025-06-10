@@ -138,7 +138,9 @@ impl StateMachine {
                     return;
                 };
 
+                info!("Checking whether to downgrade {:?} to CTAP1", dev);
                 if args.use_ctap1_fallback {
+                    info!("Downgrading {:?} to CTAP1", dev);
                     dev.downgrade_to_ctap1();
                 }
 
