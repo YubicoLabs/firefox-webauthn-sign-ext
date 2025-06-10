@@ -494,6 +494,8 @@ impl MakeCredentials {
             None | Some(HmacCreateSecretOrPrf::HmacCreateSecret(false)) => {}
         }
 
+        debug!("MakeCredentialsResult so far: {:?}", result);
+
         if let Some((
             SignExtensionOutput::RegistrationOuter { alg, sig },
             SignExtensionUnsignedOutput {
@@ -507,19 +509,26 @@ impl MakeCredentials {
             .as_ref()
             .zip(result.unsigned_extensions.sign.as_ref())
         {
+            debug!(
+                "sign ext alg: {:?}, sig: {:?}, attestation_object: {:?}",
+                alg, sig, attestation_object
+            );
             result.extensions.sign = (|| -> Option<AuthenticationExtensionsSignOutputs> {
                 Some(AuthenticationExtensionsSignOutputs {
                     signature: sig.as_ref().map(|v| v.to_vec()),
                     generated_key: {
-                        let att_obj =
-                            serde_cbor::from_slice::<MakeCredentialsResult>(attestation_object)
-                                .ok()?
-                                .att_obj;
+                        debug!("generated_key about to parse att_obj...");
+                        let att_obj_result =
+                            serde_cbor::from_slice::<MakeCredentialsResult>(attestation_object);
+                        debug!("generated_key att_obj_result: {:?}", att_obj_result);
+                        let att_obj = att_obj_result.ok()?.att_obj;
+                        debug!("generated_key att_obj: {:?}", att_obj);
                         let public_key = &att_obj
                             .auth_data
                             .credential_data
                             .as_ref()?
                             .credential_public_key;
+                        debug!("generated_key public_key: {:?}", public_key);
                         Some(AuthenticationExtensionsSignGeneratedKey {
                             public_key: serde_cbor::to_vec(&public_key).ok()?,
                             algorithm: *alg,
@@ -529,6 +538,11 @@ impl MakeCredentials {
                 })
             })();
         }
+
+        debug!(
+            "MakeCredentialsResult after sign ext processing: {:?}",
+            result
+        );
     }
 }
 
