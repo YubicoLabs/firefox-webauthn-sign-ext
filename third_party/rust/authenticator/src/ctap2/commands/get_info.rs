@@ -311,6 +311,7 @@ pub enum AuthenticatorVersion {
     FIDO_2_0,
     FIDO_2_1_PRE,
     FIDO_2_1,
+    FIDO_2_2,
     #[serde(other)]
     Unknown,
 }
@@ -1096,7 +1097,7 @@ pub mod tests {
                 versions: vec![
                     AuthenticatorVersion::U2F_V2,
                     AuthenticatorVersion::FIDO_2_0,
-                    AuthenticatorVersion::Unknown,
+                    AuthenticatorVersion::FIDO_2_2,
                 ],
                 aaguid: AAGuid(AAGUID_RAW),
                 ..Default::default()
