@@ -262,12 +262,12 @@ impl Serialize for GetAssertionSignExtensionInput {
                 "key_handle_by_credential must be reduced to size 0 or 1 before serializing",
             ))
         } else {
-            const TBS: u8 = 0;
             const KEY_REF: u8 = 5;
+            const TBS: u8 = 6;
             serialize_map_optional!(
                 serializer,
-                &TBS => Some(&self.tbs),
                 &KEY_REF => &self.key_handle_by_credential.iter().next().map(|(_, kh)| kh),
+                &TBS => Some(&self.tbs),
             )
         }
     }
