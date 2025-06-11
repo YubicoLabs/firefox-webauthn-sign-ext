@@ -128,6 +128,13 @@ pub enum SignExtensionOutput {
         flags: u8,
     },
 
+    /// Incorrect implementation in an authenticator prototype, but needs to be
+    /// maintained to preserve validity of the attestation signature.
+    RegistrationInnerUnwrapped(
+        /// Flags byte for the generated signing key
+        u8,
+    ),
+
     Authentication {
         /// Signature over tbs input
         sig: serde_bytes::ByteBuf,
@@ -152,6 +159,7 @@ impl Serialize for SignExtensionOutput {
                 serializer,
                 &4 => flags,
             ),
+            Self::RegistrationInnerUnwrapped(flags) => serializer.serialize_u8(*flags),
             Self::Authentication { sig } => serialize_map!(
                 serializer,
                 &6 => sig,
@@ -212,7 +220,15 @@ impl<'de> Deserialize<'de> for SignExtensionOutput {
                     )),
                 }
             }
+
+            fn visit_u8<E>(self, flags: u8) -> Result<Self::Value, E>
+            where
+                E: SerdeError,
+            {
+                Ok(SignExtensionOutput::RegistrationInnerUnwrapped(flags))
+            }
         }
+
         deserializer.deserialize_any(SignExtensionOutputVisitor)
     }
 }
