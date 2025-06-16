@@ -488,11 +488,11 @@ impl GetAssertion {
             None => {}
         }
 
-        if let Some(SignExtensionOutput::RegistrationOuter { alg: _, sig }) =
+        if let Some(SignExtensionOutput::Authentication { sig }) =
             &result.assertion.auth_data.extensions.sign
         {
             result.extensions.sign = Some(AuthenticationExtensionsSignOutputs {
-                signature: sig.as_ref().map(|v| v.to_vec()),
+                signature: Some(sig.to_vec()),
                 generated_key: None,
             });
         }
