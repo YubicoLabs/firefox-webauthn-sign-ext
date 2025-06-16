@@ -456,6 +456,8 @@ pub enum Curve {
     Ed25519 = 6,
     /// Identifieds this as OKP Ed448 for use w/ EdDSA only
     Ed448 = 7,
+    /// Identifies this as BLS12-381 (placeholder value)
+    Bls12_381 = -65601,
 }
 
 impl Serialize for Curve {
@@ -478,6 +480,7 @@ impl TryFrom<i64> for Curve {
             i if i == Curve::X448 as i64 => Ok(Curve::X448),
             i if i == Curve::Ed25519 as i64 => Ok(Curve::Ed25519),
             i if i == Curve::Ed448 as i64 => Ok(Curve::Ed448),
+            i if i == Curve::Bls12_381 as i64 => Ok(Curve::Bls12_381),
             _ => Err(CryptoError::UnknownKeyType),
         }
     }
