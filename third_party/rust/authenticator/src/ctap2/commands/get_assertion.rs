@@ -14,9 +14,9 @@ use crate::ctap2::commands::get_next_assertion::GetNextAssertion;
 use crate::ctap2::commands::make_credentials::UserVerification;
 use crate::ctap2::server::{
     AuthenticationExtensionsClientInputs, AuthenticationExtensionsClientOutputs,
-    AuthenticationExtensionsPRFInputs, AuthenticationExtensionsPRFOutputs,
-    AuthenticationExtensionsPRFValues, AuthenticatorAttachment, PublicKeyCredentialDescriptor,
-    PublicKeyCredentialUserEntity, RelyingParty, RpIdHash, UserVerificationRequirement,
+    AuthenticationExtensionsPRFInputs, AuthenticationExtensionsPRFOutputs, AuthenticatorAttachment,
+    PublicKeyCredentialDescriptor, PublicKeyCredentialUserEntity, RelyingParty, RpIdHash,
+    UserVerificationRequirement,
 };
 use crate::ctap2::utils::{read_be_u32, read_byte};
 use crate::errors::AuthenticatorError;
@@ -875,8 +875,8 @@ pub mod test {
     };
     use crate::ctap2::commands::client_pin::PinUvAuthTokenPermission;
     use crate::ctap2::commands::get_assertion::{
-        CalculatedHmacSecretExtension, GetAssertionExtensions, HmacGetSecretOrPrf,
-        HmacSecretExtension,
+        CalculatedHmacSecretExtension, GetAssertionExtensions, GetAssertionSignExtensionInput,
+        HmacGetSecretOrPrf, HmacSecretExtension,
     };
     use crate::ctap2::commands::get_info::tests::AAGUID_RAW;
     use crate::ctap2::commands::get_info::{
@@ -1099,6 +1099,11 @@ pub mod test {
                         None,
                     ),
                 )),
+                sign: Some(GetAssertionSignExtensionInput {
+                    key_handle_kid_by_credential: vec![(vec![9; 9], vec![10; 10])],
+                    data_tbs: vec![11; 11],
+                    key_handle_args_by_credential: vec![(vec![9; 9], Some(vec![12; 12]))],
+                }),
             },
             options: GetAssertionOptions {
                 user_presence: Some(true),
@@ -1120,7 +1125,10 @@ pub mod test {
                 43, 156, 92, 239, 23, 54, 195, 113, 125, 164, 133, 52, 200, 198, 182, 84, 215, 255,
                 148, 95, 80, 181, 204, 78, 120, 5, 91, 221, 57, 107, 100, 247, 141, 162, 197, 249,
                 98, 0, 204, 212, 21, 205, 8, 254, 66, 0, 56, 100, 116, 121, 112, 101, 106, 112,
-                117, 98, 108, 105, 99, 45, 107, 101, 121, 4, 161, 107, 104, 109, 97, 99, 45, 115,
+                117, 98, 108, 105, 99, 45, 107, 101, 121, 4, 162, 100, 115, 105, 103, 110, 163, 99,
+                107, 105, 100, 129, 74, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 99, 116, 98, 115,
+                75, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 100, 97, 114, 103, 115, 129, 76,
+                12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 107, 104, 109, 97, 99, 45, 115,
                 101, 99, 114, 101, 116, 163, 1, 165, 1, 2, 3, 56, 24, 32, 1, 33, 64, 34, 64, 2, 88,
                 32, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
                 7, 7, 7, 7, 7, 7, 3, 80, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 5, 161,
@@ -1156,6 +1164,11 @@ pub mod test {
                         Some(2),
                     ),
                 )),
+                sign: Some(GetAssertionSignExtensionInput {
+                    key_handle_kid_by_credential: vec![(vec![9; 9], vec![10; 10])],
+                    data_tbs: vec![11; 11],
+                    key_handle_args_by_credential: vec![(vec![9; 9], Some(vec![12; 12]))],
+                }),
             },
             options: GetAssertionOptions {
                 user_presence: None,
@@ -1176,7 +1189,10 @@ pub mod test {
                 // Value copied from test failure output as regression test snapshot
                 165, 1, 107, 101, 120, 97, 109, 112, 108, 101, 46, 99, 111, 109, 2, 88, 32, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 4, 161, 107, 104, 109, 97, 99, 45, 115, 101, 99, 114, 101, 116, 164, 1, 165, 1,
+                0, 4, 162, 100, 115, 105, 103, 110, 163, 99, 107, 105, 100, 129, 74, 10, 10, 10,
+                10, 10, 10, 10, 10, 10, 10, 99, 116, 98, 115, 75, 11, 11, 11, 11, 11, 11, 11, 11,
+                11, 11, 11, 100, 97, 114, 103, 115, 129, 76, 12, 12, 12, 12, 12, 12, 12, 12, 12,
+                12, 12, 12, 107, 104, 109, 97, 99, 45, 115, 101, 99, 114, 101, 116, 164, 1, 165, 1,
                 2, 3, 56, 24, 32, 1, 33, 64, 34, 64, 2, 88, 32, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
                 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 3, 80, 8, 8, 8, 8, 8,
                 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 4, 2, 6, 68, 9, 9, 9, 9, 7, 2
@@ -1201,6 +1217,7 @@ pub mod test {
                         eval_by_credential: None,
                     },
                 )),
+                sign: None,
             },
             options: GetAssertionOptions {
                 user_presence: None,
@@ -1222,6 +1239,7 @@ pub mod test {
             extensions: GetAssertionExtensions {
                 app_id: None,
                 hmac_secret: Some(HmacGetSecretOrPrf::PrfUnmatched),
+                sign: None,
             },
             options: GetAssertionOptions {
                 user_presence: None,
@@ -2879,6 +2897,7 @@ pub mod test {
                             cred_protect: None,
                             hmac_secret: hmac_secret_response,
                             min_pin_length: None,
+                            sign: None,
                         },
                     },
                     signature: vec![],
