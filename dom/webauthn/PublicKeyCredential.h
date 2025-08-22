@@ -78,6 +78,7 @@ class PublicKeyCredential final : public Credential {
   void SetClientExtensionResultPrfResultsSecond(
       const nsTArray<uint8_t>& aPrfResultsSecond);
 
+  void SetClientExtensionResultSignGeneratedKeyKeyHandle(const nsTArray<uint8_t>& aSignGeneratedKeyKeyHandle);
   void SetClientExtensionResultSignGeneratedKeyPublicKey(const nsTArray<uint8_t>& aSignGeneratedKeyPublicKey);
   void SetClientExtensionResultSignGeneratedKeyAlgorithm(const COSEAlgorithmIdentifier aSignGeneratedKeyAlgorithm);
   void SetClientExtensionResultSignGeneratedKeyAttestationObject(const nsTArray<uint8_t>& aSignGeneratedKeyAttestationObject);
@@ -106,6 +107,7 @@ class PublicKeyCredential final : public Credential {
   // defer the conversion until the GetClientExtensionResults call.
   Maybe<nsTArray<uint8_t>> mPrfResultsFirst;
   Maybe<nsTArray<uint8_t>> mPrfResultsSecond;
+  Maybe<nsTArray<uint8_t>> mSignGeneratedKeyKeyHandle;
   Maybe<nsTArray<uint8_t>> mSignGeneratedKeyPublicKey;
   Maybe<COSEAlgorithmIdentifier> mSignGeneratedKeyAlgorithm;
   Maybe<nsTArray<uint8_t>> mSignGeneratedKeyAttestationObject;

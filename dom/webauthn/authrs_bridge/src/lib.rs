@@ -258,6 +258,22 @@ impl WebAuthnRegisterResult {
         }
     }
 
+    xpcom_method!(get_sign_generated_key_key_handle => GetSignGeneratedKeyKeyHandle() -> ThinVec<u8>);
+    fn get_sign_generated_key_key_handle(&self) -> Result<ThinVec<u8>, nsresult> {
+        self.result
+            .try_borrow()
+            .ok()
+            .and_then(|result| {
+                result
+                    .extensions
+                    .sign
+                    .as_ref()
+                    .and_then(|sign| sign.generated_key.as_ref())
+                    .map(|generated_key| generated_key.key_handle.as_slice().into())
+            })
+            .ok_or(NS_ERROR_NOT_AVAILABLE)
+    }
+
     xpcom_method!(get_sign_generated_key_public_key => GetSignGeneratedKeyPublicKey() -> ThinVec<u8>);
     fn get_sign_generated_key_public_key(&self) -> Result<ThinVec<u8>, nsresult> {
         self.result

@@ -519,14 +519,15 @@ impl MakeCredentials {
                         debug!("generated_key att_obj_result: {:?}", att_obj_result);
                         let att_obj = att_obj_result.ok()?.att_obj;
                         debug!("generated_key att_obj: {:?}", att_obj);
-                        let public_key = &att_obj
-                            .auth_data
-                            .credential_data
-                            .as_ref()?
-                            .credential_public_key;
+                        let AttestedCredentialData {
+                            credential_id: key_handle,
+                            credential_public_key: public_key,
+                            aaguid: _,
+                        } = att_obj.auth_data.credential_data.as_ref()?;
                         debug!("generated_key public_key: {:?}", public_key);
                         Some(AuthenticationExtensionsSignGeneratedKey {
-                            public_key: serde_cbor::to_vec(&public_key).ok()?,
+                            key_handle: serde_cbor::to_vec(key_handle).ok()?,
+                            public_key: serde_cbor::to_vec(public_key).ok()?,
                             algorithm: *alg,
                             attestation_object: serde_cbor::to_vec(&att_obj).ok()?,
                         })

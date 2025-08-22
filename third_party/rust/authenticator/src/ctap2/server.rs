@@ -515,6 +515,7 @@ pub struct AuthenticationExtensionsSignOutputs {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct AuthenticationExtensionsSignGeneratedKey {
+    pub key_handle: Vec<u8>,
     pub public_key: Vec<u8>,
     pub algorithm: i64,
     pub attestation_object: Vec<u8>,

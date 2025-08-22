@@ -427,6 +427,11 @@ void PublicKeyCredential::SetClientExtensionResultPrfResultsSecond(
   mPrfResultsSecond->Assign(aPrfResultsSecond);
 }
 
+void PublicKeyCredential::SetClientExtensionResultSignGeneratedKeyKeyHandle(const nsTArray<uint8_t>& aSignGeneratedKeyKeyHandle) {
+  mSignGeneratedKeyKeyHandle.emplace(aSignGeneratedKeyKeyHandle.Length());
+  mSignGeneratedKeyKeyHandle->Assign(aSignGeneratedKeyKeyHandle);
+}
+
 void PublicKeyCredential::SetClientExtensionResultSignGeneratedKeyPublicKey(const nsTArray<uint8_t>& aSignGeneratedKeyPublicKey) {
   mSignGeneratedKeyPublicKey.emplace(aSignGeneratedKeyPublicKey.Length());
   mSignGeneratedKeyPublicKey->Assign(aSignGeneratedKeyPublicKey);

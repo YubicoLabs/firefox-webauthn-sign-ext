@@ -407,6 +407,7 @@ dictionary AuthenticationExtensionsSignOutputs {
 };
 
 dictionary AuthenticationExtensionsSignGeneratedKey {
+    required ArrayBuffer keyHandle;
     required ArrayBuffer publicKey;
     required COSEAlgorithmIdentifier algorithm;
     required ArrayBuffer attestationObject;

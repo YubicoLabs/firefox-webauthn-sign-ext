@@ -32,6 +32,7 @@ interface nsIWebAuthnRegisterResult : nsISupports {
     readonly attribute Array<octet> prfResultsFirst;
     readonly attribute Array<octet> prfResultsSecond;
 
+    readonly attribute Array<octet> signGeneratedKeyKeyHandle;
     readonly attribute Array<octet> signGeneratedKeyPublicKey;
     readonly attribute COSEAlgorithmIdentifier signGeneratedKeyAlgorithm;
     readonly attribute Array<octet> signGeneratedKeyAttestationObject;

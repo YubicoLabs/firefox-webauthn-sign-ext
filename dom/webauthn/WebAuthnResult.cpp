@@ -112,6 +112,12 @@ WebAuthnRegisterResult::GetPrfResultsSecond(
 }
 
 NS_IMETHODIMP
+WebAuthnRegisterResult::GetSignGeneratedKeyKeyHandle(nsTArray<uint8_t>& aSignGeneratedKeyKeyHandle) {
+  // Implemented in authrs_bridge
+  return NS_ERROR_NOT_IMPLEMENTED;
+}
+
+NS_IMETHODIMP
 WebAuthnRegisterResult::GetSignGeneratedKeyPublicKey(nsTArray<uint8_t>& aSignGeneratedKeyPublicKey) {
   // Implemented in authrs_bridge
   return NS_ERROR_NOT_IMPLEMENTED;

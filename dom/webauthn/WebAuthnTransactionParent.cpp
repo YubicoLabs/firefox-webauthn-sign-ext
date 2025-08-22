@@ -270,9 +270,18 @@ mozilla::ipc::IPCResult WebAuthnTransactionParent::RecvRequestRegister(
             {
               Maybe<WebAuthnExtensionResultSignGeneratedKey> signGeneratedKey = Nothing();
 
-              nsTArray<uint8_t> signGeneratedKeyPublicKey;
-              rv = registerResult->GetSignGeneratedKeyPublicKey(signGeneratedKeyPublicKey);
+              nsTArray<uint8_t> signGeneratedKeyKeyHandle;
+              rv = registerResult->GetSignGeneratedKeyKeyHandle(signGeneratedKeyKeyHandle);
               if (rv != NS_ERROR_NOT_AVAILABLE) {
+                if (NS_WARN_IF(NS_FAILED(rv))) {
+                  return;
+                }
+
+                nsTArray<uint8_t> signGeneratedKeyPublicKey;
+                rv = registerResult->GetSignGeneratedKeyPublicKey(signGeneratedKeyPublicKey);
+                if (rv == NS_ERROR_NOT_AVAILABLE) {
+                  return;
+                }
                 if (NS_WARN_IF(NS_FAILED(rv))) {
                   return;
                 }
@@ -295,7 +304,7 @@ mozilla::ipc::IPCResult WebAuthnTransactionParent::RecvRequestRegister(
                   return;
                 }
 
-                signGeneratedKey = Some(WebAuthnExtensionResultSignGeneratedKey(signGeneratedKeyPublicKey, signGeneratedKeyAlgorithm, signGeneratedKeyAttestationObject));
+                signGeneratedKey = Some(WebAuthnExtensionResultSignGeneratedKey(signGeneratedKeyKeyHandle, signGeneratedKeyPublicKey, signGeneratedKeyAlgorithm, signGeneratedKeyAttestationObject));
               }
 
               const bool signSignatureMaybe = false;
