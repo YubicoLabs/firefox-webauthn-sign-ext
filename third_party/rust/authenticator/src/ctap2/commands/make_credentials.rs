@@ -712,7 +712,8 @@ pub mod test {
     };
     use crate::ctap2::client_data::{Challenge, CollectedClientData, TokenBinding, WebauthnType};
     use crate::ctap2::commands::make_credentials::{
-        HmacCreateSecretOrPrf, MakeCredentialsExtensions, MakeCredentialsSignExtensionInput,
+        HmacCreateSecretOrPrf, MakeCredentialsExtensions,
+        MakeCredentialsSignExtensionGenerateKeyFlags, MakeCredentialsSignExtensionInput,
     };
     use crate::ctap2::commands::{RequestCtap1, RequestCtap2};
     use crate::ctap2::server::{
@@ -828,8 +829,8 @@ pub mod test {
                 min_pin_length: Some(true),
                 sign: Some(MakeCredentialsSignExtensionInput {
                     algorithms: vec![-7, -8],
-                    num_keys: Some([(-7, 2)].into()),
-                    data_tbs: Some(vec![12; 12]),
+                    ph_data: Some(serde_bytes::ByteBuf::from(vec![12; 12])),
+                    flags: Some(MakeCredentialsSignExtensionGenerateKeyFlags::RequireUv),
                 }),
             },
             options: MakeCredentialsOptions {
@@ -868,11 +869,11 @@ pub mod test {
                 99, 97, 108, 103, 57, 1, 0, 100, 116, 121, 112, 101, 106, 112, 117, 98, 108, 105,
                 99, 45, 107, 101, 121, 5, 129, 162, 98, 105, 100, 68, 4, 5, 6, 7, 100, 116, 121,
                 112, 101, 106, 112, 117, 98, 108, 105, 99, 45, 107, 101, 121, 6, 164, 100, 115,
-                105, 103, 110, 163, 99, 97, 108, 103, 130, 38, 39, 99, 110, 117, 109, 161, 38, 2,
-                99, 116, 98, 115, 76, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 107, 99, 114,
-                101, 100, 80, 114, 111, 116, 101, 99, 116, 3, 107, 104, 109, 97, 99, 45, 115, 101,
-                99, 114, 101, 116, 245, 108, 109, 105, 110, 80, 105, 110, 76, 101, 110, 103, 116,
-                104, 245, 7, 162, 98, 114, 107, 245, 98, 117, 118, 245, 8, 64, 9, 2, 10, 7
+                105, 103, 110, 163, 0, 76, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 3, 130,
+                38, 39, 4, 5, 107, 99, 114, 101, 100, 80, 114, 111, 116, 101, 99, 116, 3, 107, 104,
+                109, 97, 99, 45, 115, 101, 99, 114, 101, 116, 245, 108, 109, 105, 110, 80, 105,
+                110, 76, 101, 110, 103, 116, 104, 245, 7, 162, 98, 114, 107, 245, 98, 117, 118,
+                245, 8, 64, 9, 2, 10, 7
             ]
         );
     }
