@@ -498,7 +498,6 @@ pub struct AuthenticationExtensionsSignInputs {
 
 #[derive(Clone, Debug, Default)]
 pub struct AuthenticationExtensionsSignGenerateKeyInputs {
-    pub tbs: Option<Vec<u8>>,
     pub algorithms: Vec<i32>,
 }
 

@@ -117,9 +117,6 @@ pub enum SignExtensionOutput {
     RegistrationOuter {
         /// COSEAlgorithmIdentifier chosen for the generated signing public key
         alg: i64,
-
-        /// Signature over tbs input (if requested)
-        sig: Option<serde_bytes::ByteBuf>,
     },
 
     /// The extension output in the attestation object embedded inside the top-level extension output.
@@ -150,10 +147,9 @@ pub struct SignExtensionUnsignedOutput {
 impl Serialize for SignExtensionOutput {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {
-            Self::RegistrationOuter { alg, sig } => serialize_map_optional!(
+            Self::RegistrationOuter { alg } => serialize_map_optional!(
                 serializer,
                 &3 => Some(alg),
-                &6 => sig,
             ),
             Self::RegistrationInner { flags } => serialize_map!(
                 serializer,
@@ -209,12 +205,12 @@ impl<'de> Deserialize<'de> for SignExtensionOutput {
                 }
 
                 match (alg, sig, flags) {
-                    (Some(alg), sig, None) => Ok(SignExtensionOutput::RegistrationOuter { alg, sig }),
+                    (Some(alg), None, None) => Ok(SignExtensionOutput::RegistrationOuter { alg }),
                     (None, None, Some(flags)) => Ok(SignExtensionOutput::RegistrationInner { flags  }),
                     (None, Some(sig), None) => Ok(SignExtensionOutput::Authentication { sig }),
                     (alg, sig, flags) => Err(serde::de::Error::custom(
                         format!(
-                            "Fields [{fields}] do not match: {{ alg (3): int, sig? (6): bstr }} (if registration) or {{ flags (4): u8 }} (if registration inner) or {{ sig (6): bstr }} (if authentication)",
+                            "Fields [{fields}] do not match: {{ alg (3): int }} (if registration) or {{ flags (4): u8 }} (if registration inner) or {{ sig (6): bstr }} (if authentication)",
                             fields=[alg.map(|_| "alg (3)"), sig.map(|_| "sig (6)"), flags.map(|_| "flags (4)")].iter().copied().flatten().collect::<Vec<_>>().join(", "),
                         ),
                     )),

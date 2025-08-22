@@ -307,17 +307,13 @@ already_AddRefed<Promise> WebAuthnHandler::MakeCredential(
     Maybe<WebAuthnExtensionSignGenerateKeyInputs> generateKey = Nothing();
     if (sign.mGenerateKey.WasPassed()) {
       const AuthenticationExtensionsSignGenerateKeyInputs& gk = sign.mGenerateKey.Value();
-      CryptoBuffer tbs;
-      if (gk.mTbs.WasPassed()) {
-        tbs.Assign(gk.mTbs.Value());
-      }
 
       nsTArray<COSEAlgorithmIdentifier> algorithms;
       for (const COSEAlgorithmIdentifier& algorithm : gk.mAlgorithms) {
         algorithms.AppendElement(algorithm);
       }
 
-      generateKey = Some(WebAuthnExtensionSignGenerateKeyInputs(algorithms, gk.mTbs.WasPassed(), tbs));
+      generateKey = Some(WebAuthnExtensionSignGenerateKeyInputs(algorithms));
     }
 
     WebAuthnExtensionSign el(generateKey, Nothing());

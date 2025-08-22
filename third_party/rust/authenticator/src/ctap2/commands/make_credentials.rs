@@ -308,7 +308,6 @@ impl MakeCredentialsExtensions {
                 .map(|generate_key| MakeCredentialsSignExtensionInput {
                     algorithms: generate_key.algorithms,
                     flags: uv_req.into(),
-                    tbs: generate_key.tbs.map(serde_bytes::ByteBuf::from),
                 }),
         }
     }
@@ -318,7 +317,6 @@ impl MakeCredentialsExtensions {
 pub struct MakeCredentialsSignExtensionInput {
     pub algorithms: Vec<i32>,
     pub flags: Option<MakeCredentialsSignExtensionGenerateKeyFlags>,
-    pub tbs: Option<serde_bytes::ByteBuf>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -355,7 +353,6 @@ impl Serialize for MakeCredentialsSignExtensionInput {
     {
         const ALG: u8 = 3;
         const FLAGS: u8 = 4;
-        const TBS: u8 = 6;
         let flags = self
             .flags
             .and_then(MakeCredentialsSignExtensionGenerateKeyFlags::filter_default)
@@ -364,7 +361,6 @@ impl Serialize for MakeCredentialsSignExtensionInput {
             serializer,
             &ALG => Some(&self.algorithms),
             &FLAGS => flags,
-            &TBS => &self.tbs,
         )
     }
 }
@@ -497,7 +493,7 @@ impl MakeCredentials {
         debug!("MakeCredentialsResult so far: {:?}", result);
 
         if let Some((
-            SignExtensionOutput::RegistrationOuter { alg, sig },
+            SignExtensionOutput::RegistrationOuter { alg },
             SignExtensionUnsignedOutput {
                 att_obj: Some(attestation_object),
             },
@@ -510,12 +506,12 @@ impl MakeCredentials {
             .zip(result.unsigned_extensions.sign.as_ref())
         {
             debug!(
-                "sign ext alg: {:?}, sig: {:?}, attestation_object: {:?}",
-                alg, sig, attestation_object
+                "sign ext alg: {:?}, attestation_object: {:?}",
+                alg, attestation_object
             );
             result.extensions.sign = (|| -> Option<AuthenticationExtensionsSignOutputs> {
                 Some(AuthenticationExtensionsSignOutputs {
-                    signature: sig.as_ref().map(|v| v.to_vec()),
+                    signature: None,
                     generated_key: {
                         debug!("generated_key about to parse att_obj...");
                         let att_obj_result =
@@ -893,7 +889,6 @@ pub mod test {
                 min_pin_length: Some(true),
                 sign: Some(MakeCredentialsSignExtensionInput {
                     algorithms: vec![-7, -8],
-                    tbs: Some(serde_bytes::ByteBuf::from(vec![12; 12])),
                     flags: Some(MakeCredentialsSignExtensionGenerateKeyFlags::RequireUv),
                 }),
             },
@@ -935,9 +930,8 @@ pub mod test {
                 112, 101, 106, 112, 117, 98, 108, 105, 99, 45, 107, 101, 121, 6, 164, 107, 99, 114,
                 101, 100, 80, 114, 111, 116, 101, 99, 116, 3, 107, 104, 109, 97, 99, 45, 115, 101,
                 99, 114, 101, 116, 245, 107, 112, 114, 101, 118, 105, 101, 119, 83, 105, 103, 110,
-                163, 3, 130, 38, 39, 4, 5, 6, 76, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12,
-                108, 109, 105, 110, 80, 105, 110, 76, 101, 110, 103, 116, 104, 245, 7, 162, 98,
-                114, 107, 245, 98, 117, 118, 245, 8, 64, 9, 2, 10, 7
+                162, 3, 130, 38, 39, 4, 5, 108, 109, 105, 110, 80, 105, 110, 76, 101, 110, 103,
+                116, 104, 245, 7, 162, 98, 114, 107, 245, 98, 117, 118, 245, 8, 64, 9, 2, 10, 7
             ]
         );
     }

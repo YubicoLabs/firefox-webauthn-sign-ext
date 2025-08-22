@@ -130,12 +130,6 @@ WebAuthnRegisterResult::GetSignGeneratedKeyAttestationObject(nsTArray<uint8_t>& 
 }
 
 NS_IMETHODIMP
-WebAuthnRegisterResult::GetSignSignature(nsTArray<uint8_t>& aSignSignature) {
-  // Implemented in authrs_bridge
-  return NS_ERROR_NOT_IMPLEMENTED;
-}
-
-NS_IMETHODIMP
 WebAuthnRegisterResult::GetAuthenticatorAttachment(
     nsAString& aAuthenticatorAttachment) {
   if (mAuthenticatorAttachment.isSome()) {

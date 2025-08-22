@@ -178,22 +178,6 @@ WebAuthnRegisterArgs::GetSignExtensionGenerateKeyAlgorithms(nsTArray<int32_t>& a
 }
 
 NS_IMETHODIMP
-WebAuthnRegisterArgs::GetSignExtensionGenerateKeyTbs(nsTArray<uint8_t>& aTbs) {
-  for (const WebAuthnExtension& ext : mInfo.Extensions()) {
-    if (ext.type() == WebAuthnExtension::TWebAuthnExtensionSign) {
-      Maybe<WebAuthnExtensionSignGenerateKeyInputs> generateKey = ext.get_WebAuthnExtensionSign().generateKey();
-      if (generateKey.isSome() && generateKey->tbsMaybe()) {
-        aTbs.Assign(generateKey->tbs());
-        return NS_OK;
-      }
-      break;
-    }
-  }
-
-  return NS_ERROR_NOT_AVAILABLE;
-}
-
-NS_IMETHODIMP
 WebAuthnRegisterArgs::GetMinPinLength(bool* aMinPinLength) {
   *aMinPinLength = mMinPinLength;
 

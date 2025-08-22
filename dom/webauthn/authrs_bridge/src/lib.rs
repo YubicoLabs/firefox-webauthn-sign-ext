@@ -306,22 +306,6 @@ impl WebAuthnRegisterResult {
             .ok_or(NS_ERROR_NOT_AVAILABLE)
     }
 
-    xpcom_method!(get_sign_signature => GetSignSignature() -> ThinVec<u8>);
-    fn get_sign_signature(&self) -> Result<ThinVec<u8>, nsresult> {
-        self.result
-            .try_borrow()
-            .ok()
-            .and_then(|result| {
-                result
-                    .extensions
-                    .sign
-                    .as_ref()
-                    .and_then(|sign| sign.signature.as_ref())
-                    .map(|signature| signature.as_slice().into())
-            })
-            .ok_or(NS_ERROR_NOT_AVAILABLE)
-    }
-
     xpcom_method!(get_cred_props_rk => GetCredPropsRk() -> bool);
     fn get_cred_props_rk(&self) -> Result<bool, nsresult> {
         let Some(cred_props) = &self.result.borrow().extensions.cred_props else {
@@ -937,7 +921,6 @@ impl AuthrsService {
                 debug!("sign_extension: {sign_extension}");
                 if sign_extension {
                     let mut sign_extension_input = AuthenticationExtensionsSignGenerateKeyInputs {
-                        tbs: None,
                         algorithms: Vec::new(),
                     };
 
@@ -949,16 +932,6 @@ impl AuthrsService {
                     {
                         Ok(_) => {
                             sign_extension_input.algorithms = sign_extension_algorithms.into();
-                        }
-                        _ => {}
-                    }
-
-                    let mut sign_extension_tbs: ThinVec<u8> = ThinVec::new();
-                    match unsafe { args.GetSignExtensionGenerateKeyTbs(&mut sign_extension_tbs) }
-                        .to_result()
-                    {
-                        Ok(_) => {
-                            sign_extension_input.tbs = Some(sign_extension_tbs.to_vec());
                         }
                         _ => {}
                     }

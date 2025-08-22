@@ -389,7 +389,6 @@ dictionary AuthenticationExtensionsSignInputs {
 
 dictionary AuthenticationExtensionsSignGenerateKeyInputs {
     required sequence<COSEAlgorithmIdentifier> algorithms;
-    BufferSource tbs;
 };
 
 dictionary AuthenticationExtensionsSignSignInputs {

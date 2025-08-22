@@ -35,7 +35,6 @@ interface nsIWebAuthnRegisterResult : nsISupports {
     readonly attribute Array<octet> signGeneratedKeyPublicKey;
     readonly attribute COSEAlgorithmIdentifier signGeneratedKeyAlgorithm;
     readonly attribute Array<octet> signGeneratedKeyAttestationObject;
-    readonly attribute Array<octet> signSignature;
 
     [must_use] readonly attribute AString authenticatorAttachment;
 
