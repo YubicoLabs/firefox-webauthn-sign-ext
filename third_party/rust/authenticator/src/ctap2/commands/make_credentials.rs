@@ -842,6 +842,7 @@ pub mod test {
             att_obj: create_attestation_obj(),
             attachment: AuthenticatorAttachment::Unknown,
             extensions: Default::default(),
+            unsigned_extensions: Default::default(),
         };
 
         assert_eq!(make_cred_result, expected);
@@ -1097,6 +1098,7 @@ pub mod test {
             att_obj,
             attachment: AuthenticatorAttachment::Unknown,
             extensions: Default::default(),
+            unsigned_extensions: Default::default(),
         };
 
         assert_eq!(make_cred_result, expected);
