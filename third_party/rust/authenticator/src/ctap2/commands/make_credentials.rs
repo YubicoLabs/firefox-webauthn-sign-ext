@@ -249,12 +249,12 @@ impl UserVerification for MakeCredentialsOptions {
 pub struct MakeCredentialsExtensions {
     #[serde(skip_serializing)]
     pub cred_props: Option<bool>,
-    #[serde(rename = "sign", skip_serializing_if = "Option::is_none")]
-    pub sign: Option<MakeCredentialsSignExtensionInput>,
     #[serde(rename = "credProtect", skip_serializing_if = "Option::is_none")]
     pub cred_protect: Option<CredentialProtectionPolicy>,
     #[serde(rename = "hmac-secret", skip_serializing_if = "Option::is_none")]
     pub hmac_secret: Option<HmacCreateSecretOrPrf>,
+    #[serde(rename = "previewSign", skip_serializing_if = "Option::is_none")]
+    pub sign: Option<MakeCredentialsSignExtensionInput>,
     #[serde(rename = "minPinLength", skip_serializing_if = "Option::is_none")]
     pub min_pin_length: Option<bool>,
 }
@@ -932,12 +932,12 @@ pub mod test {
                 100, 116, 121, 112, 101, 106, 112, 117, 98, 108, 105, 99, 45, 107, 101, 121, 162,
                 99, 97, 108, 103, 57, 1, 0, 100, 116, 121, 112, 101, 106, 112, 117, 98, 108, 105,
                 99, 45, 107, 101, 121, 5, 129, 162, 98, 105, 100, 68, 4, 5, 6, 7, 100, 116, 121,
-                112, 101, 106, 112, 117, 98, 108, 105, 99, 45, 107, 101, 121, 6, 164, 100, 115,
-                105, 103, 110, 163, 3, 130, 38, 39, 4, 5, 6, 76, 12, 12, 12, 12, 12, 12, 12, 12,
-                12, 12, 12, 12, 107, 99, 114, 101, 100, 80, 114, 111, 116, 101, 99, 116, 3, 107,
-                104, 109, 97, 99, 45, 115, 101, 99, 114, 101, 116, 245, 108, 109, 105, 110, 80,
-                105, 110, 76, 101, 110, 103, 116, 104, 245, 7, 162, 98, 114, 107, 245, 98, 117,
-                118, 245, 8, 64, 9, 2, 10, 7
+                112, 101, 106, 112, 117, 98, 108, 105, 99, 45, 107, 101, 121, 6, 164, 107, 99, 114,
+                101, 100, 80, 114, 111, 116, 101, 99, 116, 3, 107, 104, 109, 97, 99, 45, 115, 101,
+                99, 114, 101, 116, 245, 107, 112, 114, 101, 118, 105, 101, 119, 83, 105, 103, 110,
+                163, 3, 130, 38, 39, 4, 5, 6, 76, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12,
+                108, 109, 105, 110, 80, 105, 110, 76, 101, 110, 103, 116, 104, 245, 7, 162, 98,
+                114, 107, 245, 98, 117, 118, 245, 8, 64, 9, 2, 10, 7
             ]
         );
     }

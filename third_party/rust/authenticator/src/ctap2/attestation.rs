@@ -275,12 +275,12 @@ impl<'de> Deserialize<'de> for SignExtensionUnsignedOutput {
 pub struct Extension {
     // These fields MUST be ordered in CTAP2 canonical CBOR order (ordering
     // first by length, then content) in order to maintain signature validity
-    #[serde(rename = "sign", skip_serializing_if = "Option::is_none")]
-    pub sign: Option<SignExtensionOutput>,
     #[serde(rename = "credProtect", skip_serializing_if = "Option::is_none")]
     pub cred_protect: Option<CredentialProtectionPolicy>,
     #[serde(rename = "hmac-secret", skip_serializing_if = "Option::is_none")]
     pub hmac_secret: Option<HmacSecretResponse>,
+    #[serde(rename = "previewSign", skip_serializing_if = "Option::is_none")]
+    pub sign: Option<SignExtensionOutput>,
     #[serde(rename = "minPinLength", skip_serializing_if = "Option::is_none")]
     pub min_pin_length: Option<u64>,
 }

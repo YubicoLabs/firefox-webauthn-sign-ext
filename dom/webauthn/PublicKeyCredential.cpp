@@ -307,7 +307,7 @@ void PublicKeyCredential::GetClientExtensionResults(
   const bool signGeneratedKeyPresent = mSignGeneratedKeyPublicKey.isSome() && mSignGeneratedKeyAlgorithm.isSome() && mSignGeneratedKeyAttestationObject.isSome();
   const bool signSignaturePresent = mSignSignature.isSome();
   if (signGeneratedKeyPresent || signSignaturePresent) {
-    AuthenticationExtensionsSignOutputs& dest = aResult.mSign.Construct();
+    AuthenticationExtensionsSignOutputs& dest = aResult.mPreviewSign.Construct();
 
     if (signGeneratedKeyPresent) {
       AuthenticationExtensionsSignGeneratedKey& destGeneratedKey = dest.mGeneratedKey.Construct();

@@ -301,8 +301,8 @@ already_AddRefed<Promise> WebAuthnHandler::MakeCredential(
         WebAuthnExtensionPrf(eval, evalByCredentialMaybe, evalByCredential));
   }
 
-  if (aOptions.mExtensions.mSign.WasPassed()) {
-    const AuthenticationExtensionsSignInputs& sign = aOptions.mExtensions.mSign.Value();
+  if (aOptions.mExtensions.mPreviewSign.WasPassed()) {
+    const AuthenticationExtensionsSignInputs& sign = aOptions.mExtensions.mPreviewSign.Value();
 
     Maybe<WebAuthnExtensionSignGenerateKeyInputs> generateKey = Nothing();
     if (sign.mGenerateKey.WasPassed()) {
@@ -620,8 +620,8 @@ already_AddRefed<Promise> WebAuthnHandler::GetAssertion(
         WebAuthnExtensionPrf(eval, evalByCredentialMaybe, evalByCredential));
   }
 
-  if (aOptions.mExtensions.mSign.WasPassed()) {
-    const AuthenticationExtensionsSignInputs& sign = aOptions.mExtensions.mSign.Value();
+  if (aOptions.mExtensions.mPreviewSign.WasPassed()) {
+    const AuthenticationExtensionsSignInputs& sign = aOptions.mExtensions.mPreviewSign.Value();
 
     if (sign.mSign.WasPassed()) {
       const AuthenticationExtensionsSignSignInputs& si = sign.mSign.Value();

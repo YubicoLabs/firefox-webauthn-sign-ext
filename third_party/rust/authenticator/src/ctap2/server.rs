@@ -533,6 +533,7 @@ pub struct AuthenticationExtensionsClientOutputs {
 
 #[derive(Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct AuthenticationExtensionsUnsignedAuthenticatorOutputs {
+    #[serde(rename = "previewSign")]
     pub sign: Option<SignExtensionUnsignedOutput>,
 }
 

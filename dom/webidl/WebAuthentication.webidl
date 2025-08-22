@@ -379,7 +379,7 @@ partial dictionary AuthenticationExtensionsClientOutputsJSON {
 };
 
 partial dictionary AuthenticationExtensionsClientInputs {
-    AuthenticationExtensionsSignInputs sign;
+    AuthenticationExtensionsSignInputs previewSign;
 };
 
 dictionary AuthenticationExtensionsSignInputs {
@@ -399,7 +399,7 @@ dictionary AuthenticationExtensionsSignSignInputs {
 typedef BufferSource COSEKeyRef;
 
 partial dictionary AuthenticationExtensionsClientOutputs {
-    AuthenticationExtensionsSignOutputs sign;
+    AuthenticationExtensionsSignOutputs previewSign;
 };
 
 dictionary AuthenticationExtensionsSignOutputs {
