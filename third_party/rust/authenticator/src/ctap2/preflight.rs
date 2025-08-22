@@ -277,6 +277,7 @@ pub mod tests {
             aaguid: AAGuid::default(),
             credential_id: cred.id.clone(),
             credential_public_key: COSEKey {
+                kid: None,
                 alg: COSEAlgorithm::RS256,
                 key: COSEKeyType::EC2(COSEEC2Key {
                     curve: Curve::SECP256R1,
