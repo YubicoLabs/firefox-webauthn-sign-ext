@@ -1087,6 +1087,7 @@ pub mod test {
                         None,
                         CalculatedHmacSecretExtension {
                             public_key: COSEKey {
+                                kid: None,
                                 alg: COSEAlgorithm::ECDH_ES_HKDF256,
                                 key: COSEKeyType::EC2(COSEEC2Key {
                                     curve: Curve::SECP256R1,
@@ -1152,6 +1153,7 @@ pub mod test {
                         None,
                         CalculatedHmacSecretExtension {
                             public_key: COSEKey {
+                                kid: None,
                                 alg: COSEAlgorithm::ECDH_ES_HKDF256,
                                 key: COSEKeyType::EC2(COSEEC2Key {
                                     curve: Curve::SECP256R1,
@@ -1996,6 +1998,7 @@ pub mod test {
             pin_protocol: u64,
         ) -> Result<(SharedSecret, COSEKey), CommandError> {
             let fake_client_key = COSEKey {
+                kid: None,
                 alg: COSEAlgorithm::ECDH_ES_HKDF256,
                 key: COSEKeyType::EC2(COSEEC2Key {
                     curve: Curve::SECP256R1,
@@ -2004,6 +2007,7 @@ pub mod test {
                 }),
             };
             let fake_peer_key = COSEKey {
+                kid: None,
                 alg: COSEAlgorithm::ECDH_ES_HKDF256,
                 key: COSEKeyType::EC2(COSEEC2Key {
                     curve: Curve::SECP256R1,

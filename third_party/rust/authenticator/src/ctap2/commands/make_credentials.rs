@@ -953,6 +953,7 @@ pub mod test {
                         0xFE, 0x42, 0x00, 0x38,
                     ],
                     credential_public_key: COSEKey {
+                        kid: None,
                         alg: COSEAlgorithm::ES256,
                         key: COSEKeyType::EC2(COSEEC2Key {
                             curve: Curve::SECP256R1,
