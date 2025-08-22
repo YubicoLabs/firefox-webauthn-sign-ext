@@ -982,6 +982,7 @@ pub mod test {
                         0xd9, 0x43, 0x5c, 0x6f,
                     ],
                     credential_public_key: COSEKey {
+                        kid: None,
                         alg: COSEAlgorithm::ES256,
                         key: COSEKeyType::EC2(COSEEC2Key {
                             curve: Curve::SECP256R1,
@@ -1662,6 +1663,7 @@ pub mod test {
 
         fn make_test_secret(pin_protocol: u64) -> Result<SharedSecret, CommandError> {
             let fake_unused_key = COSEKey {
+                kid: None,
                 alg: COSEAlgorithm::ECDH_ES_HKDF256,
                 key: COSEKeyType::EC2(COSEEC2Key {
                     curve: Curve::SECP256R1,
