@@ -776,6 +776,7 @@ pub mod test {
     use crate::ctap2::client_data::{Challenge, CollectedClientData, TokenBinding, WebauthnType};
     use crate::ctap2::commands::make_credentials::{
         HmacCreateSecretOrPrf, MakeCredentialsExtensions,
+        MakeCredentialsSignExtensionGenerateKeyFlags, MakeCredentialsSignExtensionInput,
     };
     use crate::ctap2::commands::{RequestCtap1, RequestCtap2};
     use crate::ctap2::server::{
@@ -842,6 +843,7 @@ pub mod test {
             att_obj: create_attestation_obj(),
             attachment: AuthenticatorAttachment::Unknown,
             extensions: Default::default(),
+            unsigned_extensions: Default::default(),
         };
 
         assert_eq!(make_cred_result, expected);
@@ -889,6 +891,11 @@ pub mod test {
                 ),
                 hmac_secret: Some(HmacCreateSecretOrPrf::HmacCreateSecret(true)),
                 min_pin_length: Some(true),
+                sign: Some(MakeCredentialsSignExtensionInput {
+                    algorithms: vec![-7, -8],
+                    tbs: Some(serde_bytes::ByteBuf::from(vec![12; 12])),
+                    flags: Some(MakeCredentialsSignExtensionGenerateKeyFlags::RequireUv),
+                }),
             },
             options: MakeCredentialsOptions {
                 resident_key: Some(true),
@@ -925,10 +932,12 @@ pub mod test {
                 100, 116, 121, 112, 101, 106, 112, 117, 98, 108, 105, 99, 45, 107, 101, 121, 162,
                 99, 97, 108, 103, 57, 1, 0, 100, 116, 121, 112, 101, 106, 112, 117, 98, 108, 105,
                 99, 45, 107, 101, 121, 5, 129, 162, 98, 105, 100, 68, 4, 5, 6, 7, 100, 116, 121,
-                112, 101, 106, 112, 117, 98, 108, 105, 99, 45, 107, 101, 121, 6, 163, 107, 99, 114,
-                101, 100, 80, 114, 111, 116, 101, 99, 116, 3, 107, 104, 109, 97, 99, 45, 115, 101,
-                99, 114, 101, 116, 245, 108, 109, 105, 110, 80, 105, 110, 76, 101, 110, 103, 116,
-                104, 245, 7, 162, 98, 114, 107, 245, 98, 117, 118, 245, 8, 64, 9, 2, 10, 7
+                112, 101, 106, 112, 117, 98, 108, 105, 99, 45, 107, 101, 121, 6, 164, 100, 115,
+                105, 103, 110, 163, 3, 130, 38, 39, 4, 5, 6, 76, 12, 12, 12, 12, 12, 12, 12, 12,
+                12, 12, 12, 12, 107, 99, 114, 101, 100, 80, 114, 111, 116, 101, 99, 116, 3, 107,
+                104, 109, 97, 99, 45, 115, 101, 99, 114, 101, 116, 245, 108, 109, 105, 110, 80,
+                105, 110, 76, 101, 110, 103, 116, 104, 245, 7, 162, 98, 114, 107, 245, 98, 117,
+                118, 245, 8, 64, 9, 2, 10, 7
             ]
         );
     }
@@ -1007,6 +1016,7 @@ pub mod test {
                         0xFE, 0x42, 0x00, 0x38,
                     ],
                     credential_public_key: COSEKey {
+                        kid: None,
                         alg: COSEAlgorithm::ES256,
                         key: COSEKeyType::EC2(COSEEC2Key {
                             curve: Curve::SECP256R1,
@@ -1089,6 +1099,7 @@ pub mod test {
             att_obj,
             attachment: AuthenticatorAttachment::Unknown,
             extensions: Default::default(),
+            unsigned_extensions: Default::default(),
         };
 
         assert_eq!(make_cred_result, expected);

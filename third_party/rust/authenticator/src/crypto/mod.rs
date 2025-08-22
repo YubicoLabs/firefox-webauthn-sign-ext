@@ -1388,6 +1388,7 @@ mod test {
             n: SAMPLE_RSA_MODULUS.to_vec(),
         };
         let cose_key: COSEKey = COSEKey {
+            kid: None,
             alg: COSEAlgorithm::RS256,
             key: COSEKeyType::RSA(rsa_key),
         };
@@ -1402,6 +1403,7 @@ mod test {
             n: SAMPLE_RSA_MODULUS.to_vec(),
         };
         let cose_key: COSEKey = COSEKey {
+            kid: None,
             alg: COSEAlgorithm::RS256,
             key: COSEKeyType::RSA(key),
         };
@@ -1437,6 +1439,7 @@ mod test {
             y: SAMPLE_P256_Y.to_vec(),
         };
         let cose_key = COSEKey {
+            kid: None,
             alg: COSEAlgorithm::EDDSA,
             key: COSEKeyType::EC2(ec2_key),
         };
@@ -1452,6 +1455,7 @@ mod test {
             y: SAMPLE_P256_Y.to_vec(),
         };
         let cose_key = COSEKey {
+            kid: None,
             alg: COSEAlgorithm::EDDSA,
             key: COSEKeyType::EC2(ec2_key),
         };
@@ -1474,6 +1478,7 @@ mod test {
             x: SAMPLE_ED25519_KEY.to_vec(),
         };
         let cose_key = COSEKey {
+            kid: None,
             alg: COSEAlgorithm::EDDSA,
             key: COSEKeyType::OKP(okp_key),
         };
@@ -1488,6 +1493,7 @@ mod test {
             x: SAMPLE_ED25519_KEY.to_vec(),
         };
         let cose_key = COSEKey {
+            kid: None,
             alg: COSEAlgorithm::EDDSA,
             key: COSEKeyType::OKP(okp_key),
         };
@@ -1561,10 +1567,12 @@ mod test {
             key: sha256(&shared_point).unwrap(),
             inputs: PublicInputs {
                 client: COSEKey {
+                    kid: None,
                     alg: COSEAlgorithm::ES256,
                     key: COSEKeyType::EC2(client_ec2_key),
                 },
                 peer: COSEKey {
+                    kid: None,
                     alg: COSEAlgorithm::ES256,
                     key: COSEKeyType::EC2(peer_ec2_key),
                 },

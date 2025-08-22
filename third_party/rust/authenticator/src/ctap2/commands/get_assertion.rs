@@ -888,8 +888,8 @@ pub mod test {
     };
     use crate::ctap2::commands::client_pin::PinUvAuthTokenPermission;
     use crate::ctap2::commands::get_assertion::{
-        CalculatedHmacSecretExtension, GetAssertionExtensions, HmacGetSecretOrPrf,
-        HmacSecretExtension,
+        CalculatedHmacSecretExtension, GetAssertionExtensions, GetAssertionSignExtensionInput,
+        HmacGetSecretOrPrf, HmacSecretExtension,
     };
     use crate::ctap2::commands::get_info::tests::AAGUID_RAW;
     use crate::ctap2::commands::get_info::{
@@ -1099,6 +1099,7 @@ pub mod test {
                         None,
                         CalculatedHmacSecretExtension {
                             public_key: COSEKey {
+                                kid: None,
                                 alg: COSEAlgorithm::ECDH_ES_HKDF256,
                                 key: COSEKeyType::EC2(COSEEC2Key {
                                     curve: Curve::SECP256R1,
@@ -1112,6 +1113,13 @@ pub mod test {
                         None,
                     ),
                 )),
+                sign: Some(GetAssertionSignExtensionInput {
+                    key_handle_by_credential: vec![(
+                        serde_bytes::ByteBuf::from(vec![9; 9]),
+                        serde_bytes::ByteBuf::from(vec![10; 10]),
+                    )],
+                    tbs: serde_bytes::ByteBuf::from(vec![11; 11]),
+                }),
             },
             options: GetAssertionOptions {
                 user_presence: Some(true),
@@ -1133,11 +1141,12 @@ pub mod test {
                 43, 156, 92, 239, 23, 54, 195, 113, 125, 164, 133, 52, 200, 198, 182, 84, 215, 255,
                 148, 95, 80, 181, 204, 78, 120, 5, 91, 221, 57, 107, 100, 247, 141, 162, 197, 249,
                 98, 0, 204, 212, 21, 205, 8, 254, 66, 0, 56, 100, 116, 121, 112, 101, 106, 112,
-                117, 98, 108, 105, 99, 45, 107, 101, 121, 4, 161, 107, 104, 109, 97, 99, 45, 115,
-                101, 99, 114, 101, 116, 163, 1, 165, 1, 2, 3, 56, 24, 32, 1, 33, 64, 34, 64, 2, 88,
-                32, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
-                7, 7, 7, 7, 7, 7, 3, 80, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 5, 161,
-                98, 117, 112, 245, 6, 64, 7, 1
+                117, 98, 108, 105, 99, 45, 107, 101, 121, 4, 162, 100, 115, 105, 103, 110, 162, 5,
+                74, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 6, 75, 11, 11, 11, 11, 11, 11, 11, 11,
+                11, 11, 11, 107, 104, 109, 97, 99, 45, 115, 101, 99, 114, 101, 116, 163, 1, 165, 1,
+                2, 3, 56, 24, 32, 1, 33, 64, 34, 64, 2, 88, 32, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+                7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 3, 80, 8, 8, 8, 8, 8,
+                8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 5, 161, 98, 117, 112, 245, 6, 64, 7, 1
             ]
         );
     }
@@ -1156,6 +1165,7 @@ pub mod test {
                         None,
                         CalculatedHmacSecretExtension {
                             public_key: COSEKey {
+                                kid: None,
                                 alg: COSEAlgorithm::ECDH_ES_HKDF256,
                                 key: COSEKeyType::EC2(COSEEC2Key {
                                     curve: Curve::SECP256R1,
@@ -1169,6 +1179,13 @@ pub mod test {
                         Some(2),
                     ),
                 )),
+                sign: Some(GetAssertionSignExtensionInput {
+                    key_handle_by_credential: vec![(
+                        serde_bytes::ByteBuf::from(vec![9; 9]),
+                        serde_bytes::ByteBuf::from(vec![10; 10]),
+                    )],
+                    tbs: serde_bytes::ByteBuf::from(vec![11; 11]),
+                }),
             },
             options: GetAssertionOptions {
                 user_presence: None,
@@ -1189,10 +1206,12 @@ pub mod test {
                 // Value copied from test failure output as regression test snapshot
                 165, 1, 107, 101, 120, 97, 109, 112, 108, 101, 46, 99, 111, 109, 2, 88, 32, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 4, 161, 107, 104, 109, 97, 99, 45, 115, 101, 99, 114, 101, 116, 164, 1, 165, 1,
-                2, 3, 56, 24, 32, 1, 33, 64, 34, 64, 2, 88, 32, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
-                7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 3, 80, 8, 8, 8, 8, 8,
-                8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 4, 2, 6, 68, 9, 9, 9, 9, 7, 2
+                0, 4, 162, 100, 115, 105, 103, 110, 162, 5, 74, 10, 10, 10, 10, 10, 10, 10, 10, 10,
+                10, 6, 75, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 107, 104, 109, 97, 99, 45,
+                115, 101, 99, 114, 101, 116, 164, 1, 165, 1, 2, 3, 56, 24, 32, 1, 33, 64, 34, 64,
+                2, 88, 32, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+                7, 7, 7, 7, 7, 7, 7, 7, 3, 80, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 4,
+                2, 6, 68, 9, 9, 9, 9, 7, 2
             ]
         );
     }
@@ -1214,6 +1233,7 @@ pub mod test {
                         eval_by_credential: None,
                     },
                 )),
+                sign: None,
             },
             options: GetAssertionOptions {
                 user_presence: None,
@@ -1235,6 +1255,7 @@ pub mod test {
             extensions: GetAssertionExtensions {
                 app_id: None,
                 hmac_secret: Some(HmacGetSecretOrPrf::PrfUnmatched),
+                sign: None,
             },
             options: GetAssertionOptions {
                 user_presence: None,
@@ -1989,6 +2010,7 @@ pub mod test {
             pin_protocol: u64,
         ) -> Result<(SharedSecret, COSEKey), CommandError> {
             let fake_client_key = COSEKey {
+                kid: None,
                 alg: COSEAlgorithm::ECDH_ES_HKDF256,
                 key: COSEKeyType::EC2(COSEEC2Key {
                     curve: Curve::SECP256R1,
@@ -1997,6 +2019,7 @@ pub mod test {
                 }),
             };
             let fake_peer_key = COSEKey {
+                kid: None,
                 alg: COSEAlgorithm::ECDH_ES_HKDF256,
                 key: COSEKeyType::EC2(COSEEC2Key {
                     curve: Curve::SECP256R1,
@@ -2892,6 +2915,7 @@ pub mod test {
                             cred_protect: None,
                             hmac_secret: hmac_secret_response,
                             min_pin_length: None,
+                            sign: None,
                         },
                     },
                     signature: vec![],

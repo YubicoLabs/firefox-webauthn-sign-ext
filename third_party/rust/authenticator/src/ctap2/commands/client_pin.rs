@@ -686,6 +686,7 @@ mod test {
         ];
         let expected = ClientPinResponse {
             key_agreement: Some(COSEKey {
+                kid: None,
                 alg: COSEAlgorithm::ECDH_ES_HKDF256,
                 key: COSEKeyType::EC2(COSEEC2Key {
                     curve: Curve::SECP256R1,
@@ -820,6 +821,7 @@ mod test {
             ),
             subcommand: PINSubcommand::GetPinRetries,
             key_agreement: Some(COSEKey {
+                kid: None,
                 alg: COSEAlgorithm::ECDH_ES_HKDF256,
                 key: COSEKeyType::EC2(COSEEC2Key {
                     curve: Curve::SECP256R1,
