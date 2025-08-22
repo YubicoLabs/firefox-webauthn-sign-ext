@@ -870,7 +870,7 @@ pub mod test {
                 min_pin_length: Some(true),
                 sign: Some(MakeCredentialsSignExtensionInput {
                     algorithms: vec![-7, -8],
-                    ph_data: Some(serde_bytes::ByteBuf::from(vec![12; 12])),
+                    tbs: Some(serde_bytes::ByteBuf::from(vec![12; 12])),
                     flags: Some(MakeCredentialsSignExtensionGenerateKeyFlags::RequireUv),
                 }),
             },

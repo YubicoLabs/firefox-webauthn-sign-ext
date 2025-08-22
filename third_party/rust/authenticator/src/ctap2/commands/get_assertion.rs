@@ -1118,7 +1118,7 @@ pub mod test {
                         serde_bytes::ByteBuf::from(vec![9; 9]),
                         serde_bytes::ByteBuf::from(vec![10; 10]),
                     )],
-                    ph_data: serde_bytes::ByteBuf::from(vec![11; 11]),
+                    tbs: serde_bytes::ByteBuf::from(vec![11; 11]),
                 }),
             },
             options: GetAssertionOptions {
@@ -1184,7 +1184,7 @@ pub mod test {
                         serde_bytes::ByteBuf::from(vec![9; 9]),
                         serde_bytes::ByteBuf::from(vec![10; 10]),
                     )],
-                    ph_data: serde_bytes::ByteBuf::from(vec![11; 11]),
+                    tbs: serde_bytes::ByteBuf::from(vec![11; 11]),
                 }),
             },
             options: GetAssertionOptions {
