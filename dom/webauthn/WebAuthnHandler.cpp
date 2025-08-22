@@ -316,7 +316,10 @@ already_AddRefed<Promise> WebAuthnHandler::MakeCredential(
       generateKey = Some(WebAuthnExtensionSignGenerateKeyInputs(algorithms));
     }
 
-    WebAuthnExtensionSign el(generateKey, Nothing());
+    const bool signByCredentialMaybe = false;
+    const nsTArray<WebAuthnExtensionSignSignByCredentialEntry> signByCredential;
+
+    WebAuthnExtensionSign el(generateKey, signByCredentialMaybe, signByCredential);
     extensions.AppendElement(el);
   }
 
@@ -619,24 +622,33 @@ already_AddRefed<Promise> WebAuthnHandler::GetAssertion(
   if (aOptions.mExtensions.mPreviewSign.WasPassed()) {
     const AuthenticationExtensionsSignInputs& sign = aOptions.mExtensions.mPreviewSign.Value();
 
-    if (sign.mSign.WasPassed()) {
-      const AuthenticationExtensionsSignSignInputs& si = sign.mSign.Value();
-      CryptoBuffer tbs;
-      tbs.Assign(si.mTbs);
-      nsTArray<WebAuthnExtensionSignSignInputsKeyHandleByCredentialEntry> keyHandleByCredential;
-      for (const auto& entry : si.mKeyHandleByCredential.Entries()) {
+    if (sign.mSignByCredential.WasPassed()) {
+      nsTArray<WebAuthnExtensionSignSignByCredentialEntry> signByCredential;
+      for (const auto& entry : sign.mSignByCredential.Value().Entries()) {
         CryptoBuffer keyHandle;
-        keyHandle.Assign(entry.mValue);
-        keyHandleByCredential.AppendElement(
-          WebAuthnExtensionSignSignInputsKeyHandleByCredentialEntry(
+        keyHandle.Assign(entry.mValue.mKeyHandle);
+
+        CryptoBuffer tbs;
+        tbs.Assign(entry.mValue.mTbs);
+
+        bool additionalArgsMaybe = false;
+        CryptoBuffer additionalArgs;
+        if (entry.mValue.mAdditionalArgs.WasPassed()) {
+          additionalArgsMaybe = true;
+          additionalArgs.Assign(entry.mValue.mAdditionalArgs.Value());
+        }
+
+        signByCredential.AppendElement(
+          WebAuthnExtensionSignSignByCredentialEntry(
             NS_ConvertUTF16toUTF8(entry.mKey),
-            keyHandle
+            keyHandle,
+            tbs,
+            additionalArgsMaybe,
+            additionalArgs
         ));
       }
 
-      WebAuthnExtensionSignSignInputs sii(tbs, keyHandleByCredential);
-
-      WebAuthnExtensionSign el(Nothing(), Some(sii));
+      WebAuthnExtensionSign el(Nothing(), true, signByCredential);
       extensions.AppendElement(el);
     }
   }

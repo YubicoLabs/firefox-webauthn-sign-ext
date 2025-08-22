@@ -384,7 +384,7 @@ partial dictionary AuthenticationExtensionsClientInputs {
 
 dictionary AuthenticationExtensionsSignInputs {
     AuthenticationExtensionsSignGenerateKeyInputs generateKey;
-    AuthenticationExtensionsSignSignInputs sign;
+    record<USVString, AuthenticationExtensionsSignSignInputs> signByCredential;
 };
 
 dictionary AuthenticationExtensionsSignGenerateKeyInputs {
@@ -392,10 +392,11 @@ dictionary AuthenticationExtensionsSignGenerateKeyInputs {
 };
 
 dictionary AuthenticationExtensionsSignSignInputs {
+    required BufferSource keyHandle;
     required BufferSource tbs;
-    required record<USVString, COSEKeyRef> keyHandleByCredential;
+    COSESignArgs additionalArgs;
 };
-typedef BufferSource COSEKeyRef;
+typedef BufferSource COSESignArgs;
 
 partial dictionary AuthenticationExtensionsClientOutputs {
     AuthenticationExtensionsSignOutputs previewSign;

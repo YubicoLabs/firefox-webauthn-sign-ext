@@ -304,13 +304,14 @@ void PublicKeyCredential::GetClientExtensionResults(
     }
   }
 
-  const bool signGeneratedKeyPresent = mSignGeneratedKeyPublicKey.isSome() && mSignGeneratedKeyAlgorithm.isSome() && mSignGeneratedKeyAttestationObject.isSome();
+  const bool signGeneratedKeyPresent = mSignGeneratedKeyKeyHandle.isSome() && mSignGeneratedKeyPublicKey.isSome() && mSignGeneratedKeyAlgorithm.isSome() && mSignGeneratedKeyAttestationObject.isSome();
   const bool signSignaturePresent = mSignSignature.isSome();
   if (signGeneratedKeyPresent || signSignaturePresent) {
     AuthenticationExtensionsSignOutputs& dest = aResult.mPreviewSign.Construct();
 
     if (signGeneratedKeyPresent) {
       AuthenticationExtensionsSignGeneratedKey& destGeneratedKey = dest.mGeneratedKey.Construct();
+      destGeneratedKey.mKeyHandle.Init(TypedArrayCreator<ArrayBuffer>(mSignGeneratedKeyKeyHandle.ref()).Create(cx));
       destGeneratedKey.mPublicKey.Init(TypedArrayCreator<ArrayBuffer>(mSignGeneratedKeyPublicKey.ref()).Create(cx));
       destGeneratedKey.mAlgorithm = mSignGeneratedKeyAlgorithm.ref();
       destGeneratedKey.mAttestationObject.Init(TypedArrayCreator<ArrayBuffer>(mSignGeneratedKeyAttestationObject.ref()).Create(cx));

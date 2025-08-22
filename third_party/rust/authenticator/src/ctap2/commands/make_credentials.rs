@@ -526,8 +526,8 @@ impl MakeCredentials {
                         } = att_obj.auth_data.credential_data.as_ref()?;
                         debug!("generated_key public_key: {:?}", public_key);
                         Some(AuthenticationExtensionsSignGeneratedKey {
-                            key_handle: serde_cbor::to_vec(key_handle).ok()?,
-                            public_key: serde_cbor::to_vec(public_key).ok()?,
+                            key_handle: key_handle.clone(),
+                            public_key: serde_cbor::to_vec(&public_key).ok()?,
                             algorithm: *alg,
                             attestation_object: serde_cbor::to_vec(&att_obj).ok()?,
                         })

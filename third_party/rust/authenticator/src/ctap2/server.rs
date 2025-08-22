@@ -493,7 +493,7 @@ pub struct AuthenticationExtensionsPRFOutputs {
 #[derive(Clone, Debug, Default)]
 pub struct AuthenticationExtensionsSignInputs {
     pub generate_key: Option<AuthenticationExtensionsSignGenerateKeyInputs>,
-    pub sign: Option<AuthenticationExtensionsSignSignInputs>,
+    pub sign_by_credential: Option<HashMap<Vec<u8>, AuthenticationExtensionsSignSignInputs>>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -503,8 +503,9 @@ pub struct AuthenticationExtensionsSignGenerateKeyInputs {
 
 #[derive(Clone, Debug, Default)]
 pub struct AuthenticationExtensionsSignSignInputs {
+    pub key_handle: Vec<u8>,
     pub tbs: Vec<u8>,
-    pub key_handle_by_credential: HashMap<Vec<u8>, Vec<u8>>,
+    pub additional_args: Option<Vec<u8>>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]

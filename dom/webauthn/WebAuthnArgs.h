@@ -102,7 +102,7 @@ class WebAuthnSignArgs final : public nsIWebAuthnSignArgs {
                  ext.get_WebAuthnExtensionPrf().evalByCredentialMaybe();
           break;
         case WebAuthnExtension::TWebAuthnExtensionSign:
-          mSignExtension = ext.get_WebAuthnExtensionSign().sign().isSome();
+          mSignExtension = ext.get_WebAuthnExtensionSign().signByCredentialMaybe();
           break;
         case WebAuthnExtension::T__None:
           break;

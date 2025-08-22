@@ -63,21 +63,20 @@ struct WebAuthnExtensionPrfEvalByCredentialEntry {
 
 struct WebAuthnExtensionSign {
   WebAuthnExtensionSignGenerateKeyInputs? generateKey;
-  WebAuthnExtensionSignSignInputs? sign;
+  bool signByCredentialMaybe;
+  WebAuthnExtensionSignSignByCredentialEntry[] signByCredential;
 };
 
 struct WebAuthnExtensionSignGenerateKeyInputs {
     int32_t[] algorithms;
 };
 
-struct WebAuthnExtensionSignSignInputs {
-    uint8_t[] tbs;
-    WebAuthnExtensionSignSignInputsKeyHandleByCredentialEntry[] keyHandleByCredential;
-};
-
-struct WebAuthnExtensionSignSignInputsKeyHandleByCredentialEntry {
+struct WebAuthnExtensionSignSignByCredentialEntry {
     nsCString credentialId;
     uint8_t[] keyHandle;
+    uint8_t[] tbs;
+    bool additionalArgsMaybe;
+    uint8_t[] additionalArgs;
 };
 
 union WebAuthnExtension {

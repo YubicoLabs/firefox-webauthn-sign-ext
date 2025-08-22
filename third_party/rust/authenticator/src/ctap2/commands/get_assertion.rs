@@ -248,8 +248,14 @@ impl Serialize for HmacSecretExtension {
 
 #[derive(Clone, Debug)]
 pub struct GetAssertionSignExtensionInput {
-    pub key_handle_by_credential: Vec<(serde_bytes::ByteBuf, serde_bytes::ByteBuf)>,
+    pub sign_by_credential: Vec<(serde_bytes::ByteBuf, GetAssertionSignExtensionInputValues)>,
+}
+
+#[derive(Clone, Debug)]
+pub struct GetAssertionSignExtensionInputValues {
+    pub key_handle: serde_bytes::ByteBuf,
     pub tbs: serde_bytes::ByteBuf,
+    pub additional_args: Option<serde_bytes::ByteBuf>,
 }
 
 impl Serialize for GetAssertionSignExtensionInput {
@@ -257,17 +263,20 @@ impl Serialize for GetAssertionSignExtensionInput {
     where
         S: Serializer,
     {
-        if self.key_handle_by_credential.len() > 1 {
+        if self.sign_by_credential.len() > 1 {
             Err(serde::ser::Error::custom(
-                "key_handle_by_credential must be reduced to size 0 or 1 before serializing",
+                "sign_by_credential must be reduced to size 0 or 1 before serializing",
             ))
         } else {
-            const KEY_REF: u8 = 5;
+            const KEY_HANDLE: u8 = 2;
             const TBS: u8 = 6;
+            const ADDITIONAL_ARGS: u8 = 7;
+            let input = self.sign_by_credential.iter().next();
             serialize_map_optional!(
                 serializer,
-                &KEY_REF => &self.key_handle_by_credential.iter().next().map(|(_, kh)| kh),
-                &TBS => Some(&self.tbs),
+                &KEY_HANDLE => input.map(|(_, ipt)| &ipt.key_handle),
+                &TBS => input.map(|(_, ipt)| &ipt.tbs),
+                &ADDITIONAL_ARGS => input.and_then(|(_, ipt)| ipt.additional_args.as_ref()),
             )
         }
     }
@@ -275,9 +284,9 @@ impl Serialize for GetAssertionSignExtensionInput {
 
 impl GetAssertionSignExtensionInput {
     pub fn select_key_handle(&mut self, allow_list: &[PublicKeyCredentialDescriptor]) {
-        self.key_handle_by_credential
+        self.sign_by_credential
             .retain(|(id, _)| allow_list.iter().any(|pkcd| &pkcd.id == id.as_slice()));
-        self.key_handle_by_credential.truncate(1);
+        self.sign_by_credential.truncate(1);
     }
 }
 
@@ -301,19 +310,23 @@ impl From<AuthenticationExtensionsClientInputs> for GetAssertionExtensions {
             app_id: input.app_id,
             sign: input
                 .sign
-                .and_then(|sign_input| sign_input.sign)
-                .map(|sign_input| GetAssertionSignExtensionInput {
-                    key_handle_by_credential: sign_input
-                        .key_handle_by_credential
+                .and_then(|sign_input| sign_input.sign_by_credential)
+                .map(|sign_by_credential| GetAssertionSignExtensionInput {
+                    sign_by_credential: sign_by_credential
                         .into_iter()
-                        .map(|(id, kh)| {
+                        .map(|(id, inpt)| {
                             (
                                 serde_bytes::ByteBuf::from(id),
-                                serde_bytes::ByteBuf::from(kh),
+                                GetAssertionSignExtensionInputValues {
+                                    key_handle: serde_bytes::ByteBuf::from(inpt.key_handle),
+                                    tbs: serde_bytes::ByteBuf::from(inpt.tbs),
+                                    additional_args: inpt
+                                        .additional_args
+                                        .map(serde_bytes::ByteBuf::from),
+                                },
                             )
                         })
                         .collect(),
-                    tbs: serde_bytes::ByteBuf::from(sign_input.tbs),
                 }),
             hmac_secret: input
                 .hmac_get_secret
@@ -889,7 +902,7 @@ pub mod test {
     use crate::ctap2::commands::client_pin::PinUvAuthTokenPermission;
     use crate::ctap2::commands::get_assertion::{
         CalculatedHmacSecretExtension, GetAssertionExtensions, GetAssertionSignExtensionInput,
-        HmacGetSecretOrPrf, HmacSecretExtension,
+        GetAssertionSignExtensionInputValues, HmacGetSecretOrPrf, HmacSecretExtension,
     };
     use crate::ctap2::commands::get_info::tests::AAGUID_RAW;
     use crate::ctap2::commands::get_info::{
@@ -1114,11 +1127,14 @@ pub mod test {
                     ),
                 )),
                 sign: Some(GetAssertionSignExtensionInput {
-                    key_handle_by_credential: vec![(
+                    sign_by_credential: vec![(
                         serde_bytes::ByteBuf::from(vec![9; 9]),
-                        serde_bytes::ByteBuf::from(vec![10; 10]),
+                        GetAssertionSignExtensionInputValues {
+                            key_handle: serde_bytes::ByteBuf::from(vec![10; 10]),
+                            tbs: serde_bytes::ByteBuf::from(vec![11; 11]),
+                            additional_args: Some(serde_bytes::ByteBuf::from(vec![12; 12])),
+                        },
                     )],
-                    tbs: serde_bytes::ByteBuf::from(vec![11; 11]),
                 }),
             },
             options: GetAssertionOptions {
@@ -1145,9 +1161,9 @@ pub mod test {
                 101, 99, 114, 101, 116, 163, 1, 165, 1, 2, 3, 56, 24, 32, 1, 33, 64, 34, 64, 2, 88,
                 32, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
                 7, 7, 7, 7, 7, 7, 3, 80, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 107, 112,
-                114, 101, 118, 105, 101, 119, 83, 105, 103, 110, 162, 5, 74, 10, 10, 10, 10, 10,
-                10, 10, 10, 10, 10, 6, 75, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 5, 161, 98,
-                117, 112, 245, 6, 64, 7, 1
+                114, 101, 118, 105, 101, 119, 83, 105, 103, 110, 163, 2, 74, 10, 10, 10, 10, 10,
+                10, 10, 10, 10, 10, 6, 75, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 7, 76, 12,
+                12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 5, 161, 98, 117, 112, 245, 6, 64, 7, 1
             ]
         );
     }
@@ -1181,11 +1197,14 @@ pub mod test {
                     ),
                 )),
                 sign: Some(GetAssertionSignExtensionInput {
-                    key_handle_by_credential: vec![(
+                    sign_by_credential: vec![(
                         serde_bytes::ByteBuf::from(vec![9; 9]),
-                        serde_bytes::ByteBuf::from(vec![10; 10]),
+                        GetAssertionSignExtensionInputValues {
+                            key_handle: serde_bytes::ByteBuf::from(vec![10; 10]),
+                            tbs: serde_bytes::ByteBuf::from(vec![11; 11]),
+                            additional_args: None,
+                        },
                     )],
-                    tbs: serde_bytes::ByteBuf::from(vec![11; 11]),
                 }),
             },
             options: GetAssertionOptions {
@@ -1211,7 +1230,7 @@ pub mod test {
                 2, 3, 56, 24, 32, 1, 33, 64, 34, 64, 2, 88, 32, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
                 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 3, 80, 8, 8, 8, 8, 8,
                 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 4, 2, 107, 112, 114, 101, 118, 105, 101, 119, 83,
-                105, 103, 110, 162, 5, 74, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 6, 75, 11, 11,
+                105, 103, 110, 162, 2, 74, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 6, 75, 11, 11,
                 11, 11, 11, 11, 11, 11, 11, 11, 11, 6, 68, 9, 9, 9, 9, 7, 2
             ]
         );

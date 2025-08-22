@@ -954,7 +954,7 @@ impl AuthrsService {
 
                     Some(AuthenticationExtensionsSignInputs {
                         generate_key: Some(sign_extension_input),
-                        sign: None,
+                        sign_by_credential: None,
                     })
                 } else {
                     None
@@ -1224,40 +1224,74 @@ impl AuthrsService {
                 Ok(_) => {
                     debug!("sign_extension: {sign_extension}");
                     if sign_extension {
-                        let mut sign_extension_tbs: ThinVec<u8> = ThinVec::new();
-                        let tbs: Vec<u8> =
-                            match unsafe { args.GetSignExtensionSignTbs(&mut sign_extension_tbs) }
-                                .to_result()
-                            {
-                                Ok(_) => Ok(sign_extension_tbs.to_vec()),
-                                _ => Err(NS_ERROR_DOM_NOT_SUPPORTED_ERR),
-                            }?;
-
                         let mut sign_extension_credential_ids: ThinVec<nsCString> = ThinVec::new();
                         let mut sign_extension_key_handles: ThinVec<ThinVec<u8>> = ThinVec::new();
-                        let key_handle_by_credential = match (
+                        let mut sign_extension_tbss: ThinVec<ThinVec<u8>> = ThinVec::new();
+                        let mut sign_extension_additional_args_maybes: ThinVec<bool> =
+                            ThinVec::new();
+                        let mut sign_extension_additional_argss: ThinVec<ThinVec<u8>> =
+                            ThinVec::new();
+                        let sign_by_credential = match (
                             unsafe {
-                                args.GetSignExtensionSignKeyHandleByCredentialCredentialIdBase64url(
+                                args.GetSignExtensionSignByCredentialCredentialIdBase64url(
                                     &mut sign_extension_credential_ids,
                                 )
                             }
                             .to_result(),
                             unsafe {
-                                args.GetSignExtensionSignKeyHandleByCredentialKeyHandle(
+                                args.GetSignExtensionSignByCredentialKeyHandle(
                                     &mut sign_extension_key_handles,
                                 )
                             }
                             .to_result(),
+                            unsafe {
+                                args.GetSignExtensionSignByCredentialTbs(&mut sign_extension_tbss)
+                            }
+                            .to_result(),
+                            unsafe {
+                                args.GetSignExtensionSignByCredentialAdditionalArgsMaybe(
+                                    &mut sign_extension_additional_args_maybes,
+                                )
+                            }
+                            .to_result(),
+                            unsafe {
+                                args.GetSignExtensionSignByCredentialAdditionalArgs(
+                                    &mut sign_extension_additional_argss,
+                                )
+                            }
+                            .to_result(),
                         ) {
-                            (Ok(_), Ok(_)) => sign_extension_credential_ids
+                            (Ok(_), Ok(_), Ok(_), Ok(_), Ok(_)) => sign_extension_credential_ids
                                 .into_iter()
                                 .zip(sign_extension_key_handles.into_iter().map(|v| v.to_vec()))
-                                .map(|(credential_id, key_handle)| {
-                                    base64::engine::general_purpose::URL_SAFE_NO_PAD
-                                        .decode(credential_id)
-                                        .map(|credential_id| (credential_id, key_handle))
-                                        .or(Err(NS_ERROR_INVALID_ARG))
-                                })
+                                .zip(sign_extension_tbss.into_iter().map(|v| v.to_vec()))
+                                .zip(sign_extension_additional_args_maybes)
+                                .zip(
+                                    sign_extension_additional_argss
+                                        .into_iter()
+                                        .map(|v| v.to_vec()),
+                                )
+                                .map(
+                                    |(
+                                        (((credential_id, key_handle), tbs), additional_args_maybe),
+                                        additional_args,
+                                    )| {
+                                        base64::engine::general_purpose::URL_SAFE_NO_PAD
+                                            .decode(credential_id)
+                                            .map(|credential_id| {
+                                                (
+                                                    credential_id,
+                                                    AuthenticationExtensionsSignSignInputs {
+                                                        key_handle,
+                                                        tbs,
+                                                        additional_args: additional_args_maybe
+                                                            .then_some(additional_args),
+                                                    },
+                                                )
+                                            })
+                                            .or(Err(NS_ERROR_INVALID_ARG))
+                                    },
+                                )
                                 .collect(),
                             _ => Err(NS_ERROR_DOM_NOT_SUPPORTED_ERR),
                         }?;
@@ -1265,10 +1299,7 @@ impl AuthrsService {
 
                         let sign_extension_input = AuthenticationExtensionsSignInputs {
                             generate_key: None,
-                            sign: Some(AuthenticationExtensionsSignSignInputs {
-                                tbs,
-                                key_handle_by_credential,
-                            }),
+                            sign_by_credential: Some(sign_by_credential),
                         };
                         Some(sign_extension_input)
                     } else {

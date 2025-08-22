@@ -444,28 +444,13 @@ WebAuthnSignArgs::GetSignExtension(bool* aSignExtension) {
 }
 
 NS_IMETHODIMP
-WebAuthnSignArgs::GetSignExtensionSignTbs(nsTArray<uint8_t>& aTbs) {
+WebAuthnSignArgs::GetSignExtensionSignByCredentialCredentialIdBase64url(nsTArray<nsCString>& aCredentialIds) {
   for (const WebAuthnExtension& ext : mInfo.Extensions()) {
     if (ext.type() == WebAuthnExtension::TWebAuthnExtensionSign) {
-      Maybe<WebAuthnExtensionSignSignInputs> sign = ext.get_WebAuthnExtensionSign().sign();
-      if (sign.isSome()) {
-        aTbs.Assign(sign->tbs());
-        return NS_OK;
-      }
-      break;
-    }
-  }
-
-  return NS_ERROR_NOT_AVAILABLE;
-}
-
-NS_IMETHODIMP
-WebAuthnSignArgs::GetSignExtensionSignKeyHandleByCredentialCredentialIdBase64url(nsTArray<nsCString>& aCredentialIds) {
-  for (const WebAuthnExtension& ext : mInfo.Extensions()) {
-    if (ext.type() == WebAuthnExtension::TWebAuthnExtensionSign) {
-      Maybe<WebAuthnExtensionSignSignInputs> sign = ext.get_WebAuthnExtensionSign().sign();
-      if (sign.isSome()) {
-        for (const WebAuthnExtensionSignSignInputsKeyHandleByCredentialEntry& entry : sign->keyHandleByCredential()) {
+      const bool signByCredentialMaybe = ext.get_WebAuthnExtensionSign().signByCredentialMaybe();
+      if (signByCredentialMaybe) {
+        const nsTArray<WebAuthnExtensionSignSignByCredentialEntry>& signByCredential = ext.get_WebAuthnExtensionSign().signByCredential();
+        for (const WebAuthnExtensionSignSignByCredentialEntry& entry : signByCredential) {
           aCredentialIds.AppendElement(entry.credentialId());
         }
         return NS_OK;
@@ -478,13 +463,75 @@ WebAuthnSignArgs::GetSignExtensionSignKeyHandleByCredentialCredentialIdBase64url
 }
 
 NS_IMETHODIMP
-WebAuthnSignArgs::GetSignExtensionSignKeyHandleByCredentialKeyHandle(nsTArray<nsTArray<uint8_t>>& aKeyHandles) {
+WebAuthnSignArgs::GetSignExtensionSignByCredentialKeyHandle(nsTArray<nsTArray<uint8_t>>& aKeyHandles) {
   for (const WebAuthnExtension& ext : mInfo.Extensions()) {
     if (ext.type() == WebAuthnExtension::TWebAuthnExtensionSign) {
-      Maybe<WebAuthnExtensionSignSignInputs> sign = ext.get_WebAuthnExtensionSign().sign();
-      if (sign.isSome()) {
-        for (const WebAuthnExtensionSignSignInputsKeyHandleByCredentialEntry& entry : sign->keyHandleByCredential()) {
+      const bool signByCredentialMaybe = ext.get_WebAuthnExtensionSign().signByCredentialMaybe();
+      if (signByCredentialMaybe) {
+        const nsTArray<WebAuthnExtensionSignSignByCredentialEntry>& signByCredential = ext.get_WebAuthnExtensionSign().signByCredential();
+        for (const WebAuthnExtensionSignSignByCredentialEntry& entry : signByCredential) {
           aKeyHandles.AppendElement(entry.keyHandle().Clone());
+        }
+        return NS_OK;
+      }
+      break;
+    }
+  }
+
+  return NS_ERROR_NOT_AVAILABLE;
+}
+
+NS_IMETHODIMP
+WebAuthnSignArgs::GetSignExtensionSignByCredentialTbs(nsTArray<nsTArray<uint8_t>>& aTbss) {
+  for (const WebAuthnExtension& ext : mInfo.Extensions()) {
+    if (ext.type() == WebAuthnExtension::TWebAuthnExtensionSign) {
+      const bool signByCredentialMaybe = ext.get_WebAuthnExtensionSign().signByCredentialMaybe();
+      if (signByCredentialMaybe) {
+        const nsTArray<WebAuthnExtensionSignSignByCredentialEntry>& signByCredential = ext.get_WebAuthnExtensionSign().signByCredential();
+        for (const WebAuthnExtensionSignSignByCredentialEntry& entry : signByCredential) {
+          aTbss.AppendElement(entry.tbs().Clone());
+        }
+        return NS_OK;
+      }
+      break;
+    }
+  }
+
+  return NS_ERROR_NOT_AVAILABLE;
+}
+
+NS_IMETHODIMP
+WebAuthnSignArgs::GetSignExtensionSignByCredentialAdditionalArgsMaybe(nsTArray<bool>& aAdditionalArgsMaybes) {
+  for (const WebAuthnExtension& ext : mInfo.Extensions()) {
+    if (ext.type() == WebAuthnExtension::TWebAuthnExtensionSign) {
+      const bool signByCredentialMaybe = ext.get_WebAuthnExtensionSign().signByCredentialMaybe();
+      if (signByCredentialMaybe) {
+        const nsTArray<WebAuthnExtensionSignSignByCredentialEntry>& signByCredential = ext.get_WebAuthnExtensionSign().signByCredential();
+        for (const WebAuthnExtensionSignSignByCredentialEntry& entry : signByCredential) {
+          aAdditionalArgsMaybes.AppendElement(entry.additionalArgsMaybe());
+        }
+        return NS_OK;
+      }
+      break;
+    }
+  }
+
+  return NS_ERROR_NOT_AVAILABLE;
+}
+
+NS_IMETHODIMP
+WebAuthnSignArgs::GetSignExtensionSignByCredentialAdditionalArgs(nsTArray<nsTArray<uint8_t>>& aAdditionalArgss) {
+  for (const WebAuthnExtension& ext : mInfo.Extensions()) {
+    if (ext.type() == WebAuthnExtension::TWebAuthnExtensionSign) {
+      const bool signByCredentialMaybe = ext.get_WebAuthnExtensionSign().signByCredentialMaybe();
+      if (signByCredentialMaybe) {
+        const nsTArray<WebAuthnExtensionSignSignByCredentialEntry>& signByCredential = ext.get_WebAuthnExtensionSign().signByCredential();
+        for (const WebAuthnExtensionSignSignByCredentialEntry& entry : signByCredential) {
+          if (entry.additionalArgsMaybe()) {
+            aAdditionalArgss.AppendElement(entry.additionalArgs().Clone());
+          } else {
+            aAdditionalArgss.AppendElement();
+          }
         }
         return NS_OK;
       }

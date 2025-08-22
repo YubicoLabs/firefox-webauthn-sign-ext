@@ -100,9 +100,11 @@ interface nsIWebAuthnSignArgs : nsISupports {
     [must_use] readonly attribute Array<boolean> prfEvalByCredentialEvalSecondMaybe;
     [must_use] readonly attribute Array<Array<octet> > prfEvalByCredentialEvalSecond;
     [must_use] readonly attribute boolean signExtension;
-    [must_use] readonly attribute Array<octet> signExtensionSignTbs;
-    [must_use] readonly attribute Array<ACString> signExtensionSignKeyHandleByCredentialCredentialIdBase64url;
-    [must_use] readonly attribute Array<Array<octet> > signExtensionSignKeyHandleByCredentialKeyHandle;
+    [must_use] readonly attribute Array<ACString> signExtensionSignByCredentialCredentialIdBase64url;
+    [must_use] readonly attribute Array<Array<octet> > signExtensionSignByCredentialKeyHandle;
+    [must_use] readonly attribute Array<Array<octet> > signExtensionSignByCredentialTbs;
+    [must_use] readonly attribute Array<boolean> signExtensionSignByCredentialAdditionalArgsMaybe;
+    [must_use] readonly attribute Array<Array<octet> > signExtensionSignByCredentialAdditionalArgs;
 
     // Options
     [must_use] readonly attribute AString userVerification;
