@@ -48,6 +48,9 @@ const PREF_MEMORIES = "browser.aiwindow.memories";
 
 /**
  * A custom element for managing AI Window
+ *
+ * @todo Bug2007583
+ * Tests follow up for re-opening conversations
  */
 export class AIWindow extends MozLitElement {
   static properties = {
@@ -60,6 +63,14 @@ export class AIWindow extends MozLitElement {
   #memoriesButton = null;
   #memoriesToggled = null;
   #visibilityChangeHandler;
+
+  /**
+   * Flags whether the #conversation reference has been updated but the messages
+   * have not been delivered via the actor.
+   *
+   * @type {bool}
+   */
+  #pendingMessageDelivery;
 
   #detectModeFromContext() {
     return window.browsingContext?.embedderElement?.id === "ai-window-browser"
@@ -100,6 +111,7 @@ export class AIWindow extends MozLitElement {
       () => this.#syncMemoriesButtonUI()
     );
 
+    this.userPrompt = "";
     this.#browser = null;
     this.#smartbar = null;
     this.#conversation = new lazy.ChatConversation({});
@@ -108,6 +120,14 @@ export class AIWindow extends MozLitElement {
 
   connectedCallback() {
     super.connectedCallback();
+
+    this.ownerDocument.addEventListener("OpenConversation", this);
+
+    this.#loadPendingConversation();
+  }
+
+  handleEvent(event) {
+    this.openConversation(event.detail);
   }
 
   disconnectedCallback() {
@@ -144,7 +164,27 @@ export class AIWindow extends MozLitElement {
     // Clean up conversation
     this.#conversation = null;
 
+    this.ownerDocument.removeEventListener("OpenConversation", this);
+
     super.disconnectedCallback();
+  }
+
+  /**
+   * Loads a conversation if one is set on the data-conversation-id attribute
+   * on connectedCallback()
+   */
+  async #loadPendingConversation() {
+    const hostBrowser = window.browsingContext?.embedderElement;
+    const conversationId = hostBrowser?.getAttribute("data-conversation-id");
+    if (!conversationId) {
+      return;
+    }
+
+    const conversation =
+      await lazy.AIWindow.chatStore.findConversationById(conversationId);
+    if (conversation) {
+      this.openConversation(conversation);
+    }
   }
 
   firstUpdated() {
@@ -156,8 +196,8 @@ export class AIWindow extends MozLitElement {
     browser.setAttribute("type", "content");
     browser.setAttribute("maychangeremoteness", "true");
     browser.setAttribute("disableglobalhistory", "true");
-    browser.setAttribute("src", "about:aichatcontent");
     browser.setAttribute("transparent", "true");
+    browser.setAttribute("src", "about:aichatcontent");
 
     const container = this.renderRoot.querySelector("#browser-container");
     container.appendChild(browser);
@@ -278,6 +318,17 @@ export class AIWindow extends MozLitElement {
   }
 
   /**
+   * Adds the chat-active class to the browser-container so that the
+   * chat input moves to active chat position.
+   *
+   * @private
+   */
+  #applyChatActive() {
+    const container = this.renderRoot.querySelector("#browser-container");
+    container.classList.add("chat-active");
+  }
+
+  /**
    * Processes tokens from the AI response stream and updates the message.
    * Adds all tokens to their respective arrays in the tokens object and
    * builds the memoriesApplied array for existing_memory tokens.
@@ -310,10 +361,7 @@ export class AIWindow extends MozLitElement {
       return;
     }
 
-    const container = this.renderRoot.querySelector("#browser-container");
-    if (container && !container.classList.contains("chat-active")) {
-      container.classList.add("chat-active");
-    }
+    this.#applyChatActive();
 
     // Handle User Prompt
     this.#dispatchMessageToChatContent({
@@ -412,7 +460,6 @@ export class AIWindow extends MozLitElement {
       lazy.log.warn("No window global found for AI browser");
       return null;
     }
-
     try {
       return windowGlobal.getActor("AIChatContent");
     } catch (error) {
@@ -428,20 +475,76 @@ export class AIWindow extends MozLitElement {
    * @returns
    */
 
-  #dispatchMessageToChatContent(message) {
-    const actor = this.#getAIChatContentActor();
-
+  #dispatchMessageToActor(actor, message) {
     const newMessage = { ...message };
     if (typeof message.role !== "string") {
       const roleLabel = lazy.getRoleLabel(newMessage.role).toLowerCase();
       newMessage.role = roleLabel;
     }
 
-    if (!actor) {
-      return null;
+    return actor.dispatchMessageToChatContent(newMessage);
+  }
+
+  #dispatchMessageToChatContent(message) {
+    const actor = this.#getAIChatContentActor();
+    return actor ? this.#dispatchMessageToActor(actor, message) : null;
+  }
+
+  /**
+   * Delivers messages to the child process if there are some pending when the
+   * parent actor receives AIChatContent:Ready event from the child process.
+   */
+  onContentReady() {
+    if (!this.#pendingMessageDelivery) {
+      return;
     }
 
-    return actor.dispatchMessageToChatContent(newMessage);
+    const actor = this.#getAIChatContentActor();
+    if (actor) {
+      this.#deliverConversationMessages(actor);
+    }
+  }
+
+  /**
+   * Delivers all of the messages of a conversation to the child process
+   *
+   * @param {JSActor} actor
+   */
+  #deliverConversationMessages(actor) {
+    this.#pendingMessageDelivery = false;
+
+    if (!this.#conversation || !this.#conversation.messages.length) {
+      return;
+    }
+
+    this.#applyChatActive();
+
+    // @todo Bug2013096
+    // Add way to batch these messages to the actor in one message
+    this.#conversation.messages.forEach(message => {
+      if (
+        message.role === lazy.MESSAGE_ROLE.USER ||
+        message.role === lazy.MESSAGE_ROLE.ASSISTANT
+      ) {
+        this.#dispatchMessageToActor(actor, message);
+      }
+    });
+  }
+
+  /**
+   * Opens a new conversation and renders the conversation in the child process.
+   *
+   * @param {ChatConversation} conversation
+   */
+  openConversation(conversation) {
+    this.#conversation = conversation;
+
+    const actor = this.#getAIChatContentActor();
+    if (this.#browser && actor) {
+      this.#deliverConversationMessages(actor);
+    } else {
+      this.#pendingMessageDelivery = true;
+    }
   }
 
   render() {

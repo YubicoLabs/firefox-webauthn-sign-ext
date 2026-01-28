@@ -24,6 +24,10 @@ export class AIChatContent extends MozLitElement {
   connectedCallback() {
     super.connectedCallback();
     this.#initEventListeners();
+
+    this.dispatchEvent(
+      new CustomEvent("AIChatContent:Ready", { bubbles: true })
+    );
   }
 
   /**
@@ -39,6 +43,18 @@ export class AIChatContent extends MozLitElement {
 
   messageEvent(event) {
     const message = event.detail;
+    const lastMessage = this.conversationState.at(-1);
+    const firstMessage = this.conversationState.at(0);
+    const isReloadingSameConvo =
+      firstMessage &&
+      firstMessage.convId === message.convId &&
+      firstMessage.ordinal === message.ordinal;
+    const convIdChanged = message.convId !== lastMessage?.convId;
+
+    if (convIdChanged || isReloadingSameConvo) {
+      this.conversationState = [];
+    }
+
     if (message.role === "assistant") {
       this.handleAIResponseEvent(event);
       return;
@@ -53,11 +69,13 @@ export class AIChatContent extends MozLitElement {
    */
 
   handleUserPromptEvent(event) {
-    const { content } = event.detail;
-    this.conversationState.push({
+    const { convId, content, ordinal } = event.detail;
+    this.conversationState[ordinal] = {
       role: "user",
       body: content.body,
-    });
+      convId,
+      ordinal,
+    };
     this.requestUpdate();
     this.#scrollToBottom();
   }
@@ -69,8 +87,8 @@ export class AIChatContent extends MozLitElement {
    */
 
   handleAIResponseEvent(event) {
-    // TODO (bug 2009434): update reference to insights
     const {
+      convId,
       ordinal,
       id: messageId,
       content,
@@ -80,6 +98,7 @@ export class AIChatContent extends MozLitElement {
 
     this.conversationState[ordinal] = {
       role: "assistant",
+      convId,
       messageId,
       body: content.body,
       appliedMemories: memoriesApplied ?? [],

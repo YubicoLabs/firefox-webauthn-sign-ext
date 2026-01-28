@@ -230,6 +230,7 @@ let JSWINDOWACTORS = {
         "moz-src:///browser/components/aiwindow/ui/actors/AIChatContentChild.sys.mjs",
       events: {
         "AIChatContent:DispatchSearch": { wantUntrusted: true },
+        "AIChatContent:Ready": { wantUntrusted: true },
       },
     },
     allFrames: true,
