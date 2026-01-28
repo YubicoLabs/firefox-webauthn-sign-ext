@@ -24,8 +24,8 @@ import androidx.compose.ui.tooling.preview.PreviewParameter
 import mozilla.components.compose.base.button.TextButton
 import org.mozilla.fenix.R
 import org.mozilla.fenix.theme.FirefoxTheme
+import org.mozilla.fenix.theme.PreviewThemeProvider
 import org.mozilla.fenix.theme.Theme
-import org.mozilla.fenix.theme.ThemeProvider
 import java.io.File
 
 /**
@@ -120,7 +120,7 @@ internal fun enableConfirmButton(
 @Preview
 @Composable
 private fun RenameDownloadFileDialogPreview(
-    @PreviewParameter(ThemeProvider::class) theme: Theme,
+    @PreviewParameter(PreviewThemeProvider::class) theme: Theme,
 ) {
     FirefoxTheme(theme) {
         DownloadRenameDialog(
@@ -134,7 +134,7 @@ private fun RenameDownloadFileDialogPreview(
 @Preview
 @Composable
 private fun RenameDownloadFileDialogMultipleExtensionsPreview(
-    @PreviewParameter(ThemeProvider::class) theme: Theme,
+    @PreviewParameter(PreviewThemeProvider::class) theme: Theme,
 ) {
     FirefoxTheme(theme) {
         DownloadRenameDialog(
