@@ -123,13 +123,13 @@ export const FEATURE_MAJOR_VERSIONS = Object.freeze({
  */
 
 /**
- * Parses a version string in the format "v{major}.{minor}".
+ * Parses a version string in the format "{major}.{minor}".
  *
- * @param {string} versionString - Version string to parse (e.g., "v1.2")
+ * @param {string} versionString - Version string to parse (e.g., "1.2")
  * @returns {object|null} Parsed version with major and minor numbers, or null if invalid
  */
 function parseVersion(versionString) {
-  const match = /^v(\d+)\.(\d+)$/.exec(versionString || "");
+  const match = /^v?(\d+)\.(\d+)$/.exec(versionString || "");
   if (!match) {
     return null;
   }
@@ -164,6 +164,7 @@ function selectMainConfig(featureConfigs, { majorVersion, userModel }) {
   });
 
   if (sameMajor.length === 0) {
+    console.warn(`Missing featureConfigs for major version ${majorVersion}`);
     return null;
   }
 
