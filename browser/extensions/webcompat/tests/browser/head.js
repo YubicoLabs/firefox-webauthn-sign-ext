@@ -57,8 +57,6 @@ const WebCompatExtension = new (class WebCompatExtension {
   async resetInterventionsAndShimsToDefaults() {
     return this.#run(async function () {
       await content.wrappedJSObject._downgradeForTesting();
-      await content.wrappedJSObject.interventions.resetToDefaultInterventions();
-      await content.wrappedJSObject.shims._resetToDefaultShims();
     }).catch(_ => {});
   }
 
