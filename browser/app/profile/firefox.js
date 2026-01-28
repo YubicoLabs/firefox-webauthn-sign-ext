@@ -2700,6 +2700,8 @@ pref("browser.tabs.fadeOutUnloadedTabs", false);
   pref("browser.tabs.splitView.enabled", false);
 #endif
 
+pref("browser.tabs.splitview.hasUsed", false);
+
 // Whether SVG favicons should be safely re-encoded using the moz-remote-image:// protocol.
 pref("browser.tabs.remoteSVGIconDecoding", true);
 

@@ -751,3 +751,44 @@ add_task(async function test_ipprotection_ready() {
   IPProtection.uninit();
   sandbox.restore();
 });
+
+add_task(async function test_tabSwitch() {
+  const sandbox = sinon.createSandbox();
+
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.tabs.splitview.hasUsed", false]],
+  });
+
+  const receivedTrigger = new Promise(resolve => {
+    sandbox.stub(ASRouter, "sendTriggerMessage").callsFake(({ id }) => {
+      if (id === "tabSwitch") {
+        resolve(true);
+      }
+    });
+  });
+
+  let tab1 = await BrowserTestUtils.openNewForegroundTab(
+    gBrowser,
+    "https://example.com"
+  );
+  let tab2 = await BrowserTestUtils.openNewForegroundTab(
+    gBrowser,
+    "https://example.org"
+  );
+
+  await BrowserTestUtils.switchTab(gBrowser, tab1);
+  await BrowserTestUtils.switchTab(gBrowser, tab2);
+  await BrowserTestUtils.switchTab(gBrowser, tab1);
+
+  let tabSwitchTrigger = await receivedTrigger;
+  Assert.ok(
+    tabSwitchTrigger,
+    "tabSwitch trigger sent after switching between tabs 3 times"
+  );
+
+  BrowserTestUtils.removeTab(tab1);
+  BrowserTestUtils.removeTab(tab2);
+
+  await SpecialPowers.popPrefEnv();
+  sandbox.restore();
+});

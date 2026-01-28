@@ -452,3 +452,14 @@ Fires to keep multi-profile feature users informed of changes to data collection
   frequency: { lifetime: 1 }
 }
 ```
+
+### `tabSwitch`
+
+Happens when the user switches between two tabs 2 times within one minute
+
+```js
+{
+  trigger: { id: "tabSwitch" },
+  targeting: `!'browser.tab.splitview.hasUsed'|preferenceValue`
+}
+```

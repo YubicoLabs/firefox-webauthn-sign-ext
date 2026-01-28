@@ -103,6 +103,7 @@
       this.splitViewCommandSet = document.getElementById("splitViewCommands");
 
       ChromeUtils.defineESModuleGetters(this, {
+        ASRouter: "resource:///modules/asrouter/ASRouter.sys.mjs",
         AsyncTabSwitcher:
           "moz-src:///browser/components/tabbrowser/AsyncTabSwitcher.sys.mjs",
         PictureInPicture: "resource://gre/modules/PictureInPicture.sys.mjs",
@@ -423,6 +424,11 @@
     _soundPlayingAttrRemovalTimer = 0;
 
     _hoverTabTimer = null;
+
+    /**
+     * @type {Array<{count: number, uris: [string, string], timestamp: number}>}
+     */
+    _tabSelectTimestamps = [];
 
     get tabs() {
       return this.tabContainer.allTabs;
@@ -1640,6 +1646,9 @@
         });
         newTab.dispatchEvent(event);
 
+        // Check if switched between tabs 3 times in last minute
+        this._checkIfShouldTriggerTabSelectMessage(oldTab, newTab);
+
         this._tabAttrModified(oldTab, ["selected"]);
         this._tabAttrModified(newTab, ["selected"]);
 
@@ -1688,6 +1697,47 @@
 
       if (!aForceUpdate) {
         Glean.browserTabswitch.update.stopAndAccumulate(timerId);
+      }
+    }
+
+    async _checkIfShouldTriggerTabSelectMessage(oldTab, newTab) {
+      const ONE_MINUTE_MS = 60000;
+      const LIMIT_FOR_TRIGGER = 2;
+      const now = Date.now();
+
+      const oldTabSpec = oldTab.linkedBrowser.currentURI.spec;
+      const newTabSpec = newTab.linkedBrowser.currentURI.spec;
+
+      // Only look at entries from the last minute
+      this._tabSelectTimestamps = this._tabSelectTimestamps.filter(
+        entry => now - entry.timestamp < ONE_MINUTE_MS
+      );
+
+      const sortedUris = [oldTabSpec, newTabSpec].sort();
+      const existingEntry = this._tabSelectTimestamps.find(
+        entry =>
+          entry.uris[0] === sortedUris[0] && entry.uris[1] === sortedUris[1]
+      );
+
+      if (existingEntry) {
+        existingEntry.count++;
+        existingEntry.timestamp = now;
+        if (existingEntry.count === LIMIT_FOR_TRIGGER) {
+          await this.ASRouter.waitForInitialized;
+          this.ASRouter.sendTriggerMessage({
+            browser: newTab.linkedBrowser,
+            id: "tabSwitch",
+          });
+          this._tabSelectTimestamps = this._tabSelectTimestamps.filter(
+            entry => entry !== existingEntry
+          );
+        }
+      } else {
+        this._tabSelectTimestamps.push({
+          timestamp: now,
+          uris: sortedUris,
+          count: 1,
+        });
       }
     }
 

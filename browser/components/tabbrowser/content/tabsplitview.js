@@ -86,6 +86,12 @@
 
     constructor() {
       super();
+      XPCOMUtils.defineLazyPreferenceGetter(
+        this,
+        "_hasUsedSplitView",
+        "browser.tabs.splitview.hasUsed",
+        false
+      );
     }
 
     connectedCallback() {
@@ -102,6 +108,10 @@
 
       if (this._initialized) {
         return;
+      }
+
+      if (!this._hasUsedSplitView) {
+        Services.prefs.setBoolPref("browser.tabs.splitview.hasUsed", true);
       }
 
       this._initialized = true;
