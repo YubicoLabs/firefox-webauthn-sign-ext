@@ -1099,6 +1099,7 @@ dialog > .sync-engines-list + hbox {
   text-overflow: ellipsis;
 }
 
+.setting-hidden,
 .visually-hidden {
   display: none !important;
 }
