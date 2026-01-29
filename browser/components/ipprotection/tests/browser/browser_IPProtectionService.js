@@ -22,9 +22,6 @@ const { TelemetryTestUtils } = ChromeUtils.importESModule(
 
 AddonTestUtils.initMochitest(this);
 
-// Don't add an experiment so we can test adding and removing it.
-DEFAULT_EXPERIMENT = null;
-
 /**
  * Tests getting eligibility from a Nimbus experiment and
  * creating and destroying the widget.
@@ -64,6 +61,7 @@ add_task(async function test_IPProtectionService_updateEligibility() {
  * Tests a user who was previously enrolled will be shown the widget.
  */
 add_task(async function test_IPProtectionService_updateEnrollment() {
+  Services.prefs.clearUserPref("browser.ipProtection.enabled");
   setupService({
     isSignedIn: true,
     isEnrolledAndEntitled: true,
@@ -132,6 +130,7 @@ add_task(async function test_IPProtectionService_enroll() {
  */
 add_task(
   async function test_IPProtectionService_enroll_when_enrolled_in_experiment() {
+    Services.prefs.clearUserPref("browser.ipProtection.enabled");
     setupService({
       isEnrolledAndEntitled: false,
       isSignedIn: true,
@@ -210,6 +209,7 @@ add_task(
  * Tests the entitlement updates when not in the experiment.
  */
 add_task(async function test_IPProtectionService_updateEntitlement() {
+  Services.prefs.clearUserPref("browser.ipProtection.enabled");
   setupService({
     isSignedIn: true,
     isEnrolledAndEntitled: true,
@@ -232,6 +232,7 @@ add_task(async function test_IPProtectionService_updateEntitlement() {
 });
 
 add_task(async function test_ipprotection_ready() {
+  Services.prefs.clearUserPref("browser.ipProtection.enabled");
   setupService({
     isSignedIn: true,
     isEnrolledAndEntitled: true,

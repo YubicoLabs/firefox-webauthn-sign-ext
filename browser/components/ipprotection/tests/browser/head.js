@@ -295,17 +295,15 @@ add_setup(async function setupVPN() {
   setupService();
 
   await putServerInRemoteSettings(DEFAULT_SERVICE_STATUS.serverList);
-  await IPProtectionService.init();
 
-  if (DEFAULT_EXPERIMENT) {
-    await setupExperiment();
-  }
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.ipProtection.enabled", true]],
+  });
 
   registerCleanupFunction(async () => {
     cleanupService();
-    IPProtectionService.uninit();
+    Services.prefs.clearUserPref("browser.ipProtection.enabled");
     setupSandbox.restore();
-    cleanupExperiment();
     CustomizableUI.reset();
     Services.prefs.clearUserPref(IPProtectionWidget.ADDED_PREF);
     Services.prefs.clearUserPref("browser.ipProtection.panelOpenCount");

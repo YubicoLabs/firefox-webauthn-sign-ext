@@ -36,12 +36,14 @@ add_task(async function toolbar_added_and_removed() {
     "IP Protection widget added in the correct position"
   );
   // Disable the feature
-  await cleanupExperiment();
+  Services.prefs.clearUserPref("browser.ipProtection.enabled");
   widget = document.getElementById(IPProtectionWidget.WIDGET_ID);
   Assert.equal(widget, null, "IP Protection widget is removed");
 
   // Reenable the feature
-  await setupExperiment();
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.ipProtection.enabled", true]],
+  });
   widget = document.getElementById(IPProtectionWidget.WIDGET_ID);
   Assert.ok(
     BrowserTestUtils.isVisible(widget),
@@ -232,7 +234,8 @@ add_task(async function toolbar_placement_customized() {
   );
 
   // Disable the feature
-  await cleanupExperiment();
+  Services.prefs.clearUserPref("browser.ipProtection.enabled");
+
   let widget = document.getElementById(IPProtectionWidget.WIDGET_ID);
   Assert.equal(widget, null, "IP Protection widget is removed");
 
@@ -244,7 +247,9 @@ add_task(async function toolbar_placement_customized() {
   );
 
   // Reenable the feature
-  await setupExperiment();
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.ipProtection.enabled", true]],
+  });
 
   await waitForStateChange;
 
@@ -287,7 +292,7 @@ add_task(async function toolbar_removed() {
   Assert.equal(end, null, "IP Protection widget is removed");
 
   // Disable the feature
-  await cleanupExperiment();
+  Services.prefs.clearUserPref("browser.ipProtection.enabled");
 
   const waitForStateChange = BrowserTestUtils.waitForEvent(
     lazy.IPProtectionService,
@@ -297,7 +302,9 @@ add_task(async function toolbar_removed() {
   );
 
   // Reenable the feature
-  await setupExperiment();
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.ipProtection.enabled", true]],
+  });
 
   await waitForStateChange;
 
