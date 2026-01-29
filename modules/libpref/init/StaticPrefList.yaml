@@ -5850,6 +5850,12 @@
   value: false
   mirror: always
 
+# Block notifications and revoke permission for sites on Safe Browsing lists.
+- name: dom.webnotifications.block_if_on_safebrowsing
+  type: RelaxedAtomicBool
+  value: @IS_NIGHTLY_BUILD@
+  mirror: always
+
 - name: dom.worker.canceling.timeoutMilliseconds
   type: RelaxedAtomicUint32
   value: 30000    # 30 seconds
