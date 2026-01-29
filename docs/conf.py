@@ -6,6 +6,8 @@ import os
 import sys
 from pathlib import Path
 
+import yaml
+
 # Set up Python environment to load build system packages.
 OUR_DIR = Path(__file__).parent
 topsrcdir = OUR_DIR.parent
@@ -58,47 +60,12 @@ myst_enable_extensions = [
     "fieldlist",
 ]
 
-# JSDoc must run successfully for dirs specified, so running
-# tree-wide (the default) will not work currently.
-# When adding more paths to this list, please ensure that they are not
-# excluded from the valid-jsdoc and require-jsdoc sections in the top-level
-# eslint-rollouts.config.mjs.
-js_source_path = [
-    "../browser/components/backup",
-    "../browser/components/backup/actors",
-    "../browser/components/backup/resources",
-    "../browser/components/customizableui",
-    "../browser/components/extensions",
-    "../browser/components/migration",
-    "../browser/components/migration/content",
-    "../browser/components/mozcachedohttp",
-    "../browser/components/mozcachedohttp/actors",
-    "../browser/components/uitour",
-    "../browser/components/urlbar",
-    "../browser/components/urlbar/content",
-    "../js/xpconnect/loader",
-    "../remote/marionette",
-    "../testing/mochitest/BrowserTestUtils",
-    "../testing/mochitest/tests/SimpleTest/SimpleTest.js",
-    "../testing/mochitest/tests/SimpleTest/EventUtils.js",
-    "../testing/modules/Assert.sys.mjs",
-    "../testing/modules/TestUtils.sys.mjs",
-    "../toolkit/actors",
-    "../toolkit/components/extensions",
-    "../toolkit/components/extensions/parent",
-    "../toolkit/components/ml/content/backends/ONNXPipeline.mjs",
-    "../toolkit/modules/BrowserUtils.sys.mjs",
-    "../toolkit/mozapps/extensions",
-    "../toolkit/components/prompts/src",
-    "../toolkit/components/pictureinpicture",
-    "../toolkit/components/pictureinpicture/content",
-    # This is limited to SearchService.sys.mjs for now, as we only need to
-    # generate docs for that file currently. Other search files
-    # (e.g. SearchEngineSelector) are failing due to
-    # https://github.com/pyodide/sphinx-js/issues/242 or a variant of it.
-    "../toolkit/components/search/SearchService.sys.mjs",
-    "../toolkit/components/uniffi-bindgen-gecko-js/components/generated",
-]
+# The paths are loaded from config.yml so they can be shared with a CI
+# optimization strategy that ensures the doc task runs when these files change.
+with open(OUR_DIR / "config.yml") as fh:
+    config = yaml.safe_load(fh)
+    js_source_path = [f"../{path}" for path in config["js_source_paths"]]
+
 root_for_relative_js_paths = ".."
 jsdoc_config_path = "jsdoc.json"
 
