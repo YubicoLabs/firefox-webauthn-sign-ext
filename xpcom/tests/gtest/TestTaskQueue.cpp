@@ -465,7 +465,7 @@ TEST(TaskQueue, ShutdownOnThreadPoolShutdown)
 TEST(TaskQueue, ShutdownOnSharedThreadPoolShutdown)
 {
   RefPtr<SharedThreadPool> sharedThreadPool =
-      SharedThreadPool::Get("TaskQueue SharedThreadPool Shutdown Test"_ns, 4);
+      SharedThreadPool::Get("TaskQueue SharedThreadPool Shutdown Test", 4);
 
   RefPtr<nsIEventTarget> eventTarget(sharedThreadPool);
   TestShutdownOnEventTargetShutdown(

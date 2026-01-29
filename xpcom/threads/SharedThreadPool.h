@@ -28,10 +28,6 @@ namespace mozilla {
 // during xpcom-shutdown-threads. It should not be manually shut down.
 // Idle threads will be cleaned up after a short timeout.
 //
-// Note that you are not supposed to dynamically generate new names but
-// rather use a small fixed set of shared names that are known at compile
-// time.
-//
 // On Windows all threads in the pool have MSCOM initialized with
 // COINIT_MULTITHREADED. Note that not all users of MSCOM use this mode see [1],
 // and mixing MSCOM objects between the two is terrible for performance, and can
@@ -45,7 +41,7 @@ class SharedThreadPool final : public nsIThreadPool {
   // Gets (possibly creating) the shared thread pool singleton instance with
   // thread pool named aName.
   // Infallible, but may return a defunct SharedThreadPool during shutdown.
-  static already_AddRefed<SharedThreadPool> Get(const nsCString& aName,
+  static already_AddRefed<SharedThreadPool> Get(StaticString aName,
                                                 uint32_t aThreadLimit = 4);
 
   NS_DECL_THREADSAFE_ISUPPORTS

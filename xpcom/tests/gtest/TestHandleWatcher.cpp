@@ -93,7 +93,7 @@ class TestHandleWatcher : public testing::Test {
   static already_AddRefed<mozilla::SharedThreadPool> GetPool() {
     AssertIsLive();
     if (!sPool) {
-      sPool = mozilla::SharedThreadPool::Get("Test Pool"_ns);
+      sPool = mozilla::SharedThreadPool::Get("Test Pool");
     }
     return do_AddRef(sPool);
   }

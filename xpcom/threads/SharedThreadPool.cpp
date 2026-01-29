@@ -117,12 +117,13 @@ void SharedThreadPool::InitStatics() {
 }
 
 already_AddRefed<SharedThreadPool> SharedThreadPool::Get(
-    const nsCString& aName, uint32_t aThreadLimit) {
+    StaticString aName, uint32_t aThreadLimit) {
   StaticMutexAutoLock lock(sPoolsMutex);
   MOZ_ASSERT(sPools);
 
+  nsCString name(aName);
   return sPools->WithEntryHandle(
-      aName, [&](auto&& entry) -> already_AddRefed<SharedThreadPool> {
+      name, [&](auto&& entry) -> already_AddRefed<SharedThreadPool> {
         RefPtr<SharedThreadPool> pool;
         if (entry) {
           pool = entry.Data();
@@ -130,7 +131,7 @@ already_AddRefed<SharedThreadPool> SharedThreadPool::Get(
             NS_WARNING("Failed to set limits on thread pool");
           }
           STP_LOG(LogLevel::Debug, "Existing {} found for {}",
-                  fmt::ptr(pool.get()), aName);
+                  fmt::ptr(pool.get()), name);
         } else {
           sPoolsMutex.AssertCurrentThreadOwns();
           if (sPoolsShutdownStarted) {
@@ -138,18 +139,8 @@ already_AddRefed<SharedThreadPool> SharedThreadPool::Get(
             return do_AddRef(new SharedThreadPool(nullptr));
           }
 
-          // If something starts to dynamically generate names, we should warn,
-          // as it would be contrary to the concept of sharing.
-          // Note: We could listen for the last thread being destroyed and
-          // remove pools from the hash table at that point, but only if nobody
-          // else holds a reference to the pool. It seems simpler and less
-          // error prone to just keep them around.
-          // We should generally keep an eye on the maximum number of threads
-          // and pools, anyways.
-          MOZ_DIAGNOSTIC_ASSERT(sPools->Count() < 100);
-
           nsCOMPtr<nsIThreadPool> threadPool(
-              CreateThreadPool(aName, aThreadLimit));
+              CreateThreadPool(name, aThreadLimit));
           if (NS_WARN_IF(!threadPool)) {
             return do_AddRef(new SharedThreadPool(nullptr));
           }
@@ -157,7 +148,7 @@ already_AddRefed<SharedThreadPool> SharedThreadPool::Get(
           // We do AddRef here and keep the pool alive in the hash map.
           entry.Insert(pool.get());
           STP_LOG(LogLevel::Debug, "New {} created for {}",
-                  fmt::ptr(pool.get()), aName);
+                  fmt::ptr(pool.get()), name);
         }
 
         return pool.forget();
