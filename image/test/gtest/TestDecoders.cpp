@@ -747,6 +747,7 @@ IMAGE_GTEST_DECODER_BASE_F(BMP)
 IMAGE_GTEST_DECODER_BASE_F(ICO)
 IMAGE_GTEST_DECODER_BASE_F(Icon)
 IMAGE_GTEST_DECODER_BASE_F(WebP)
+IMAGE_GTEST_DECODER_BASE_F(AVIF)
 #ifdef MOZ_JXL
 IMAGE_GTEST_DECODER_BASE_F(JXL)
 #endif
@@ -769,10 +770,6 @@ TEST_F(ImageDecoders, WebPTransparentSingleChunk) {
 
 TEST_F(ImageDecoders, WebPTransparentNoAlphaHeaderSingleChunk) {
   CheckDecoderSingleChunk(TransparentNoAlphaHeaderWebPTestCase());
-}
-
-TEST_F(ImageDecoders, AVIFSingleChunk) {
-  CheckDecoderSingleChunk(GreenAVIFTestCase());
 }
 
 TEST_F(ImageDecoders, AVIFSingleChunkNonzeroReserved) {
@@ -926,20 +923,8 @@ TEST_F(ImageDecoders, AVIFStackCheck) {
   CheckDecoderSingleChunk(StackCheckAVIFTestCase(), /* aUseDecodePool */ true);
 }
 
-TEST_F(ImageDecoders, AVIFDelayedChunk) {
-  CheckDecoderDelayedChunk(GreenAVIFTestCase());
-}
-
-TEST_F(ImageDecoders, AVIFMultiChunk) {
-  CheckDecoderMultiChunk(GreenAVIFTestCase());
-}
-
 TEST_F(ImageDecoders, AVIFLargeMultiChunk) {
   CheckDecoderMultiChunk(LargeAVIFTestCase(), /* aChunkSize */ 64);
-}
-
-TEST_F(ImageDecoders, AVIFDownscaleDuringDecode) {
-  CheckDownscaleDuringDecode(DownscaledAVIFTestCase());
 }
 
 #ifdef MOZ_JXL
