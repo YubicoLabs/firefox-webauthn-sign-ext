@@ -1,6 +1,6 @@
 [package]
 name = "askama_parser"
-version = "0.13.0"
+version = "0.14.0"
 description = "Parser for Askama templates"
 documentation = "https://docs.rs/askama"
 keywords = ["markup", "template", "jinja2", "html"]
@@ -10,7 +10,7 @@ repository = "https://github.com/askama-rs/askama"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 edition = "2021"
-rust-version = "1.81"
+rust-version = "1.83"
 
 [package.metadata.docs.rs]
 all-features = true
