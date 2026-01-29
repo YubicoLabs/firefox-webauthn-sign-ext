@@ -159,14 +159,7 @@ class Interventions {
   constructor(availableInterventions, customFunctions) {
     this.#customFunctions = customFunctions;
     this.#originalInterventions = availableInterventions;
-    let interventions = availableInterventions;
-    if (browser.appConstants.isInAutomation()) {
-      const override = browser.aboutConfigPrefs.getPref("test_interventions");
-      if (override) {
-        interventions = JSON.parse(override);
-      }
-    }
-    this.#onSourceJSONChanged(interventions);
+    this.#onSourceJSONChanged(availableInterventions);
   }
 
   #onSourceJSONChanged(availableInterventions) {
@@ -198,9 +191,7 @@ class Interventions {
       this.#stopListenersForTogglingIndividualInterventions();
       await this.#disableInterventionsInternal();
       this.#onSourceJSONChanged(newInterventions);
-      await this.#enableInterventionsInternal({
-        alsoClearObsoleteContentScripts: true,
-      });
+      await this.#enableInterventionsInternal();
       await this.#signalInterventionChangesToAboutCompat(
         this.#availableInterventions
       );
@@ -239,7 +230,7 @@ class Interventions {
       });
     }, ENABLE_INTERVENTIONS_PREF);
 
-    this.#checkInterventionPref(true).then(doneBootingUp);
+    this.#checkInterventionPref().then(doneBootingUp);
   }
 
   async updateInterventions(_data) {
@@ -257,22 +248,20 @@ class Interventions {
           this.#availableInterventions.push(intervention);
         }
       }
-      await this.#enableInterventionsInternal({ whichInterventions: data });
+      await this.#enableInterventionsInternal(data);
       await this.#signalInterventionChangesToAboutCompat(data ?? false);
       return data;
     });
   }
 
-  #checkInterventionPref(alsoClearObsoleteContentScripts = false) {
+  #checkInterventionPref() {
     const value = browser.aboutConfigPrefs.getPref(
       ENABLE_INTERVENTIONS_PREF,
       true
     );
     this.#interventionsEnabledByPref = value;
     if (value) {
-      return this.#enableInterventionsInternal({
-        alsoClearObsoleteContentScripts,
-      });
+      return this.#enableInterventionsInternal();
     }
     return this.#disableInterventionsInternal();
   }
@@ -292,7 +281,7 @@ class Interventions {
   async enableInterventions(ids, force = false) {
     await this.#postStartupAtomicOperation(async () => {
       const whichInterventions = this.getInterventionsByIds(ids);
-      await this.#enableInterventionsInternal({ force, whichInterventions });
+      await this.#enableInterventionsInternal(whichInterventions, force);
       await this.#signalInterventionChangesToAboutCompat(
         whichInterventions ?? false
       );
@@ -438,9 +427,7 @@ class Interventions {
       if (prefValue === true) {
         await this.#disableInterventionsInternal([config]);
       } else {
-        await this.#enableInterventionsInternal({
-          whichInterventions: [config],
-        });
+        await this.#enableInterventionsInternal([config]);
       }
       return this.#signalInterventionChangesToAboutCompat([config]);
     });
@@ -488,13 +475,10 @@ class Interventions {
     this.#individualDisablingPrefListeners = new Map();
   }
 
-  #enableInterventionsInternal(options) {
-    const {
-      alsoClearObsoleteContentScripts = false,
-      force = false,
-      whichInterventions = this.#availableInterventions,
-    } = options ?? {};
-
+  #enableInterventionsInternal(
+    whichInterventions = this.#availableInterventions,
+    force = false
+  ) {
     const enabledUAoverrides = [];
     const enabledRequestBlocks = [];
     const enabledCustomFuncs = [];
@@ -660,25 +644,10 @@ class Interventions {
       this.#uaOverridesListener.restartListener();
     }
 
-    return Promise.resolve().then(async () => {
-      // If we're still booting up, we need to clean out any persisted content
-      // scripts for which the intervention has been removed, before we register
-      // the ones we have chosen to activate above.
-      if (alsoClearObsoleteContentScripts) {
-        const info = await InterventionHelpers.ensureOnlyTheseContentScripts(
-          contentScriptsToRegister,
-          "webcompat intervention"
-        );
-        if (browser.appConstants.isInAutomation()) {
-          this._lastEnabledInfo = info;
-        }
-      } else {
-        await InterventionHelpers.registerContentScripts(
-          contentScriptsToRegister,
-          "webcompat"
-        );
-      }
-
+    return InterventionHelpers.registerContentScripts(
+      contentScriptsToRegister,
+      "webcompat"
+    ).then(() => {
       if (enabledUAoverrides.length) {
         debugLog(
           "Enabled",
@@ -796,20 +765,10 @@ class Interventions {
         ids: contentScripts.map(s => s.id),
       })
     )?.map(script => script.id);
-    try {
-      await browser.scripting.unregisterContentScripts({ ids });
-    } catch (_) {
-      for (const id of ids) {
-        try {
-          await browser.scripting.unregisterContentScripts({ ids: [id] });
-        } catch (e) {
-          console.error(
-            `Error while unregistering intervention content script`,
-            id,
-            e
-          );
-        }
-      }
+    for (const id of ids) {
+      try {
+        await browser.scripting.unregisterContentScripts({ ids: [id] });
+      } catch (_) {}
     }
   }
 
@@ -817,7 +776,7 @@ class Interventions {
     const registration = {
       id: `webcompat intervention for ${label}: ${JSON.stringify(intervention.content_scripts)}`,
       matches,
-      persistAcrossSessions: true,
+      persistAcrossSessions: false,
     };
 
     let { all_frames, css, js, run_at } = intervention.content_scripts;
