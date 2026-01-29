@@ -21,8 +21,8 @@
  */
 
 /**
- * pdfjsVersion = 5.4.569
- * pdfjsBuild = 6a4a3b060
+ * pdfjsVersion = 5.4.590
+ * pdfjsBuild = 550520193
  */
 /******/ // The require scope
 /******/ var __webpack_require__ = {};
@@ -85,6 +85,7 @@ const {
   normalizeUnicode,
   OPS,
   OutputScale,
+  PagesMapper,
   PasswordResponses,
   PDFDataRangeTransport,
   PDFDateString,
@@ -597,65 +598,6 @@ function toggleExpandedBtn(button, toggle, view = null) {
   view?.classList.toggle("hidden", !toggle);
 }
 const calcRound = Math.fround;
-class PagesMapper {
-  static #idToPageNumber = null;
-  static #pageNumberToId = null;
-  static #pagesNumber = 0;
-  get pagesNumber() {
-    return PagesMapper.#pagesNumber;
-  }
-  set pagesNumber(n) {
-    if (PagesMapper.#pagesNumber === n) {
-      return;
-    }
-    PagesMapper.#pagesNumber = n;
-    const pageNumberToId = PagesMapper.#pageNumberToId = new Uint32Array(2 * n);
-    const idToPageNumber = PagesMapper.#idToPageNumber = pageNumberToId.subarray(n);
-    for (let i = 0; i < n; i++) {
-      pageNumberToId[i] = idToPageNumber[i] = i + 1;
-    }
-  }
-  movePages(selectedPages, pagesToMove, index) {
-    const pageNumberToId = PagesMapper.#pageNumberToId;
-    const idToPageNumber = PagesMapper.#idToPageNumber;
-    const movedCount = pagesToMove.length;
-    const mappedPagesToMove = new Uint32Array(movedCount);
-    let removedBeforeTarget = 0;
-    for (let i = 0; i < movedCount; i++) {
-      const pageIndex = pagesToMove[i] - 1;
-      mappedPagesToMove[i] = pageNumberToId[pageIndex];
-      if (pageIndex < index) {
-        removedBeforeTarget += 1;
-      }
-    }
-    const pagesNumber = PagesMapper.#pagesNumber;
-    let adjustedTarget = index - removedBeforeTarget;
-    const remainingLen = pagesNumber - movedCount;
-    adjustedTarget = MathClamp(adjustedTarget, 0, remainingLen);
-    for (let i = 0, r = 0; i < pagesNumber; i++) {
-      if (!selectedPages.has(i + 1)) {
-        pageNumberToId[r++] = pageNumberToId[i];
-      }
-    }
-    pageNumberToId.copyWithin(adjustedTarget + movedCount, adjustedTarget, remainingLen);
-    pageNumberToId.set(mappedPagesToMove, adjustedTarget);
-    for (let i = 0, ii = pagesNumber; i < ii; i++) {
-      idToPageNumber[pageNumberToId[i] - 1] = i + 1;
-    }
-  }
-  getPageNumber(id) {
-    return PagesMapper.#idToPageNumber?.[id - 1] ?? id;
-  }
-  getPageId(pageNumber) {
-    return PagesMapper.#pageNumberToId?.[pageNumber - 1] ?? pageNumber;
-  }
-  static get instance() {
-    return shadow(this, "instance", new PagesMapper());
-  }
-  getMapping() {
-    return PagesMapper.#pageNumberToId.subarray(0, this.pagesNumber);
-  }
-}
 
 ;// ./web/app_options.js
 const OptionKind = {
@@ -4298,9 +4240,15 @@ class CommentPopup {
           }
         }
       });
-      this.#editor.comment = null;
-      this.#editor.focus();
+      const editor = this.#editor;
+      const savedData = editor.comment;
       this.destroy();
+      if (savedData?.text) {
+        editor._uiManager.deleteComment(editor, savedData);
+      } else {
+        editor.comment = null;
+      }
+      editor.focus();
     });
     del.addEventListener("contextmenu", noContextMenu);
     buttons.append(edit, del);
@@ -4512,6 +4460,7 @@ class EditorUndoBar {
     stamp: "pdfjs-editor-undo-bar-message-stamp",
     ink: "pdfjs-editor-undo-bar-message-ink",
     signature: "pdfjs-editor-undo-bar-message-signature",
+    comment: "pdfjs-editor-undo-bar-message-comment",
     _multiple: "pdfjs-editor-undo-bar-message-multiple"
   });
   constructor({
@@ -5618,7 +5567,6 @@ class PDFFindController {
   #state = null;
   #updateMatchesCountOnProgress = true;
   #visitedPagesCount = 0;
-  #pagesMapper = PagesMapper.instance;
   constructor({
     linkService,
     eventBus,
@@ -5875,12 +5823,11 @@ class PDFFindController {
     if (query.length === 0) {
       return;
     }
-    const pageId = this.getPageId(pageIndex);
-    const pageContent = this._pageContents[pageId];
+    const pageContent = this._pageContents[pageIndex];
     const matcherResult = this.match(query, pageContent, pageIndex);
     const matches = this._pageMatches[pageIndex] = [];
     const matchesLength = this._pageMatchesLength[pageIndex] = [];
-    const diffs = this._pageDiffs[pageId];
+    const diffs = this._pageDiffs[pageIndex];
     matcherResult?.forEach(({
       index,
       length
@@ -5909,7 +5856,7 @@ class PDFFindController {
     }
   }
   match(query, pageContent, pageIndex) {
-    const hasDiacritics = this._hasDiacritics[this.getPageId(pageIndex)];
+    const hasDiacritics = this._hasDiacritics[pageIndex];
     let isUnicode = false;
     if (typeof query === "string") {
       [isUnicode, query] = this.#convertToRegExpString(query, hasDiacritics);
@@ -5982,27 +5929,19 @@ class PDFFindController {
       });
     }
   }
-  getPageNumber(idx) {
-    return this.#pagesMapper.getPageNumber(idx + 1) - 1;
-  }
-  getPageId(pageNumber) {
-    return this.#pagesMapper.getPageId(pageNumber + 1) - 1;
-  }
   #updatePage(index) {
     if (this._scrollMatches && this._selected.pageIdx === index) {
       this._linkService.page = index + 1;
     }
     this._eventBus.dispatch("updatetextlayermatches", {
       source: this,
-      pageIndex: index,
-      pageId: this.getPageId(index)
+      pageIndex: index
     });
   }
   #updateAllPages() {
     this._eventBus.dispatch("updatetextlayermatches", {
       source: this,
-      pageIndex: -1,
-      pageId: -1
+      pageIndex: -1
     });
   }
   #nextMatch() {
@@ -6027,7 +5966,7 @@ class PDFFindController {
           continue;
         }
         this._pendingFindMatches.add(i);
-        this._extractTextPromises[this.getPageId(i)].then(() => {
+        this._extractTextPromises[i].then(() => {
           this._pendingFindMatches.delete(i);
           this.#calculateMatch(i);
         });
@@ -6117,12 +6056,23 @@ class PDFFindController {
       this.#updatePage(this._selected.pageIdx);
     }
   }
-  #onPagesEdited() {
+  #onPagesEdited({
+    pagesMapper
+  }) {
     if (this._extractTextPromises.length === 0) {
       return;
     }
     this.#onFindBarClose();
     this._dirtyMatch = true;
+    const prevTextPromises = this._extractTextPromises;
+    const extractTextPromises = this._extractTextPromises.length = [];
+    for (let i = 0, ii = pagesMapper.length; i < ii; i++) {
+      const prevPageIndex = pagesMapper.getPrevPageNumber(i + 1) - 1;
+      if (prevPageIndex === -1) {
+        continue;
+      }
+      extractTextPromises.push(prevTextPromises[prevPageIndex] || Promise.resolve());
+    }
   }
   #onFindBarClose(evt) {
     const pdfDocument = this._pdfDocument;
@@ -8306,6 +8256,161 @@ class PdfTextExtractor {
   }
 }
 
+;// ./web/menu.js
+
+class Menu {
+  #triggeringButton;
+  #menu;
+  #menuItems;
+  #openMenuAC = null;
+  #menuAC = new AbortController();
+  #lastIndex = -1;
+  constructor(menuContainer, triggeringButton, menuItems) {
+    this.#menu = menuContainer;
+    this.#triggeringButton = triggeringButton;
+    if (Array.isArray(menuItems)) {
+      this.#menuItems = menuItems;
+    } else {
+      this.#menuItems = [];
+      for (const button of this.#menu.querySelectorAll("button")) {
+        this.#menuItems.push(button);
+      }
+    }
+    this.#setUpMenu();
+  }
+  #closeMenu() {
+    if (!this.#openMenuAC) {
+      return;
+    }
+    const menu = this.#menu;
+    this.#triggeringButton.ariaExpanded = "false";
+    this.#openMenuAC.abort();
+    this.#openMenuAC = null;
+    if (menu.contains(document.activeElement)) {
+      setTimeout(() => {
+        if (!menu.contains(document.activeElement)) {
+          this.#triggeringButton.focus();
+        }
+      }, 0);
+    }
+    this.#lastIndex = -1;
+  }
+  #setUpMenu() {
+    this.#triggeringButton.addEventListener("click", e => {
+      if (this.#openMenuAC) {
+        this.#closeMenu();
+        return;
+      }
+      const menu = this.#menu;
+      this.#triggeringButton.ariaExpanded = "true";
+      this.#openMenuAC = new AbortController();
+      const signal = AbortSignal.any([this.#menuAC.signal, this.#openMenuAC.signal]);
+      window.addEventListener("pointerdown", ({
+        target
+      }) => {
+        if (target !== this.#triggeringButton && !menu.contains(target)) {
+          this.#closeMenu();
+        }
+      }, {
+        signal
+      });
+      window.addEventListener("blur", this.#closeMenu.bind(this), {
+        signal
+      });
+    });
+    const {
+      signal
+    } = this.#menuAC;
+    this.#menu.addEventListener("keydown", e => {
+      switch (e.key) {
+        case "Escape":
+          this.#closeMenu();
+          stopEvent(e);
+          break;
+        case "ArrowDown":
+        case "Tab":
+          this.#goToNextItem(e.target, true);
+          stopEvent(e);
+          break;
+        case "ArrowUp":
+        case "ShiftTab":
+          this.#goToNextItem(e.target, false);
+          stopEvent(e);
+          break;
+        case "Home":
+          this.#menuItems.find(item => !item.disabled && !item.classList.contains("hidden")).focus();
+          stopEvent(e);
+          break;
+        case "End":
+          this.#menuItems.findLast(item => !item.disabled && !item.classList.contains("hidden")).focus();
+          stopEvent(e);
+          break;
+        default:
+          const char = e.key.toLocaleLowerCase();
+          this.#goToNextItem(e.target, true, item => item.textContent.trim().toLowerCase().startsWith(char));
+          stopEvent(e);
+          break;
+      }
+    }, {
+      signal,
+      capture: true
+    });
+    this.#menu.addEventListener("contextmenu", noContextMenu, {
+      signal
+    });
+    this.#menu.addEventListener("click", this.#closeMenu.bind(this), {
+      signal,
+      capture: true
+    });
+    this.#triggeringButton.addEventListener("keydown", e => {
+      switch (e.key) {
+        case " ":
+        case "Enter":
+        case "ArrowDown":
+        case "Home":
+          if (!this.#openMenuAC) {
+            this.#triggeringButton.click();
+          }
+          this.#menuItems.find(item => !item.disabled && !item.classList.contains("hidden")).focus();
+          stopEvent(e);
+          break;
+        case "ArrowUp":
+        case "End":
+          if (!this.#openMenuAC) {
+            this.#triggeringButton.click();
+          }
+          this.#menuItems.findLast(item => !item.disabled && !item.classList.contains("hidden")).focus();
+          stopEvent(e);
+          break;
+        case "Escape":
+          this.#closeMenu();
+          stopEvent(e);
+          break;
+      }
+    }, {
+      signal
+    });
+  }
+  #goToNextItem(element, forward, check = () => true) {
+    const index = this.#lastIndex === -1 ? this.#menuItems.indexOf(element) : this.#lastIndex;
+    const len = this.#menuItems.length;
+    const increment = forward ? 1 : len - 1;
+    for (let i = (index + increment) % len; i !== index; i = (i + increment) % len) {
+      const menuItem = this.#menuItems[i];
+      if (!menuItem.disabled && !menuItem.classList.contains("hidden") && check(menuItem)) {
+        menuItem.focus();
+        this.#lastIndex = i;
+        break;
+      }
+    }
+  }
+  destroy() {
+    this.#closeMenu();
+    this.#menuAC?.abort();
+    this.#menuAC = null;
+  }
+}
+
 ;// ./web/pdf_thumbnail_view.js
 
 
@@ -8348,7 +8453,7 @@ class PDFThumbnailView {
     enableSplitMerge = false
   }) {
     this.id = id;
-    this.renderingId = "thumbnail" + id;
+    this.renderingId = `thumbnail${id}`;
     this.pageLabel = null;
     this.pdfPage = null;
     this.rotation = 0;
@@ -8383,6 +8488,12 @@ class PDFThumbnailView {
     this.#updateDims();
     imageContainer.append(image);
     container.append(imageContainer);
+  }
+  updateId(newId) {
+    this.id = newId;
+    this.renderingId = `thumbnail${newId}`;
+    this.div.setAttribute("page-number", newId);
+    this.setPageLabel(this.pageLabel);
   }
   #updateDims() {
     const {
@@ -8622,6 +8733,7 @@ class PDFThumbnailView {
 
 
 
+
 const SCROLL_OPTIONS = {
   behavior: "instant",
   block: "nearest",
@@ -8650,7 +8762,7 @@ class PDFThumbnailViewer {
   #currentScrollBottom = 0;
   #currentScrollTop = 0;
   #pagesMapper = PagesMapper.instance;
-  #originalThumbnails = null;
+  #manageSaveAsButton = null;
   constructor({
     container,
     eventBus,
@@ -8661,7 +8773,8 @@ class PDFThumbnailViewer {
     pageColors,
     abortSignal,
     enableHWA,
-    enableSplitMerge
+    enableSplitMerge,
+    manageMenu
   }) {
     this.scrollableContainer = container.parentElement;
     this.container = container;
@@ -8673,6 +8786,26 @@ class PDFThumbnailViewer {
     this.pageColors = pageColors || null;
     this.enableHWA = enableHWA || false;
     this.#enableSplitMerge = enableSplitMerge || false;
+    if (this.#enableSplitMerge && manageMenu) {
+      const {
+        button,
+        menu,
+        copy,
+        cut,
+        delete: del,
+        saveAs
+      } = manageMenu;
+      this._manageMenu = new Menu(menu, button, [copy, cut, del, saveAs]);
+      this.#manageSaveAsButton = saveAs;
+      saveAs.addEventListener("click", () => {
+        this.eventBus.dispatch("savepageseditedpdf", {
+          source: this,
+          data: this.#pagesMapper.getPageMappingForSaving()
+        });
+      });
+    } else {
+      manageMenu.button.hidden = true;
+    }
     this.scroll = watchScroll(this.scrollableContainer, this.#scrollUpdated.bind(this), abortSignal);
     this.#resetView();
     this.#addEventListeners();
@@ -8870,6 +9003,25 @@ class PDFThumbnailViewer {
   static #getScaleFactor(image) {
     return PDFThumbnailViewer.#draggingScaleFactor ||= parseFloat(getComputedStyle(image).getPropertyValue("--thumbnail-dragging-scale"));
   }
+  #updateThumbnails() {
+    const pagesMapper = this.#pagesMapper;
+    this.container.replaceChildren();
+    const prevThumbnails = this._thumbnails;
+    const newThumbnails = this._thumbnails = [];
+    const fragment = document.createDocumentFragment();
+    for (let i = 0, ii = pagesMapper.pagesNumber; i < ii; i++) {
+      const prevPageIndex = pagesMapper.getPrevPageNumber(i + 1) - 1;
+      if (prevPageIndex === -1) {
+        continue;
+      }
+      const newThumbnail = prevThumbnails[prevPageIndex];
+      newThumbnails.push(newThumbnail);
+      newThumbnail.updateId(i + 1);
+      newThumbnail.checkbox.checked = false;
+      fragment.append(newThumbnail.div);
+    }
+    this.container.append(fragment);
+  }
   #onStartDragging(draggedThumbnail) {
     this.#currentScrollTop = this.scrollableContainer.scrollTop;
     this.#currentScrollBottom = this.#currentScrollTop + this.scrollableContainer.clientHeight;
@@ -8919,7 +9071,6 @@ class PDFThumbnailViewer {
     this.#dragMarker = null;
     this.#dragAC.abort();
     this.#dragAC = null;
-    this.#originalThumbnails ||= this._thumbnails;
     this.container.classList.remove("isDragging");
     for (const selected of this.#selectedPages) {
       const thumbnail = this._thumbnails[selected - 1];
@@ -8943,49 +9094,28 @@ class PDFThumbnailViewer {
     if (!isNaN(lastDraggedOverIndex) && isDropping && !(selectedPages.size === 1 && (selectedPages.has(lastDraggedOverIndex + 1) || selectedPages.has(lastDraggedOverIndex + 2)))) {
       const newIndex = lastDraggedOverIndex + 1;
       const pagesToMove = Array.from(selectedPages).sort((a, b) => a - b);
-      const movedCount = pagesToMove.length;
-      const thumbnails = this._thumbnails;
       const pagesMapper = this.#pagesMapper;
-      const N = thumbnails.length;
-      pagesMapper.pagesNumber = N;
       const currentPageId = pagesMapper.getPageId(this._currentPageNumber);
       const newCurrentPageId = pagesMapper.getPageId(isNaN(this.#pageNumberToRemove) ? pagesToMove[0] : this.#pageNumberToRemove);
-      let thumbnail = thumbnails[pagesToMove[0] - 1];
-      thumbnail.checkbox.checked = false;
-      if (newIndex === 0) {
-        thumbnails[0].div.before(thumbnail.div);
-      } else {
-        thumbnails[newIndex - 1].div.after(thumbnail.div);
-      }
-      for (let i = 1; i < movedCount; i++) {
-        const newThumbnail = thumbnails[pagesToMove[i] - 1];
-        newThumbnail.checkbox.checked = false;
-        thumbnail.div.after(newThumbnail.div);
-        thumbnail = newThumbnail;
-      }
       this.eventBus.dispatch("beforepagesedited", {
         source: this,
-        pagesMapper,
-        index: newIndex,
-        pagesToMove
+        pagesMapper
       });
       pagesMapper.movePages(selectedPages, pagesToMove, newIndex);
-      const newThumbnails = this._thumbnails = new Array(N);
-      const originalThumbnails = this.#originalThumbnails;
-      for (let i = 0; i < N; i++) {
-        const newThumbnail = newThumbnails[i] = originalThumbnails[pagesMapper.getPageId(i + 1) - 1];
-        newThumbnail.div.setAttribute("page-number", i + 1);
-      }
+      this.#updateThumbnails();
       this._currentPageNumber = pagesMapper.getPageNumber(currentPageId);
       this.#computeThumbnailsPosition();
       selectedPages.clear();
       this.#pageNumberToRemove = NaN;
-      this.eventBus.dispatch("pagesedited", {
-        source: this,
-        pagesMapper,
-        index: newIndex,
-        pagesToMove
-      });
+      const isIdentity = this.#manageSaveAsButton.disabled = !this.#pagesMapper.hasBeenAltered();
+      if (!isIdentity) {
+        this.eventBus.dispatch("pagesedited", {
+          source: this,
+          pagesMapper,
+          index: newIndex,
+          pagesToMove
+        });
+      }
       const newCurrentPageNumber = pagesMapper.getPageNumber(newCurrentPageId);
       setTimeout(() => {
         this.linkService.goToPage(newCurrentPageNumber);
@@ -9068,6 +9198,9 @@ class PDFThumbnailViewer {
         offsetWidth: w,
         offsetHeight: h
       } = div;
+      if (w === 0) {
+        return;
+      }
       bbox[i * 4] = x;
       bbox[i * 4 + 1] = y;
       bbox[i * 4 + 2] = w;
@@ -10031,18 +10164,13 @@ class BasePDFPageView {
 
 class DrawLayerBuilder {
   #drawLayer = null;
-  constructor(options) {
-    this.pageIndex = options.pageIndex;
-  }
   async render({
     intent = "display"
   }) {
     if (intent !== "display" || this.#drawLayer || this._cancelled) {
       return;
     }
-    this.#drawLayer = new DrawLayer({
-      pageIndex: this.pageIndex
-    });
+    this.#drawLayer = new DrawLayer();
   }
   cancel() {
     this._cancelled = true;
@@ -10741,7 +10869,7 @@ class TextHighlighter {
     if (!this.#eventAbortController) {
       this.#eventAbortController = new AbortController();
       this.eventBus._on("updatetextlayermatches", evt => {
-        if (evt.pageId === this.pageIdx || evt.pageId === -1) {
+        if (evt.pageIndex === this.pageIdx || evt.pageIndex === -1) {
           this._updateMatches();
         }
       }, {
@@ -10810,7 +10938,7 @@ class TextHighlighter {
       textContentItemsStr,
       textDivs
     } = this;
-    const isSelectedPage = findController.getPageNumber(pageIdx) === findController.selected.pageIdx;
+    const isSelectedPage = pageIdx === findController.selected.pageIdx;
     const selectedMatchIdx = findController.selected.matchIdx;
     const highlightAll = findController.state.highlightAll;
     let prevEnd = null;
@@ -10895,7 +11023,7 @@ class TextHighlighter {
         findController.scrollMatchIntoView({
           element: textDivs[begin.divIdx],
           selectedLeft,
-          pageIndex: findController.getPageNumber(pageIdx),
+          pageIndex: pageIdx,
           matchIndex: selectedMatchIdx
         });
       }
@@ -10930,9 +11058,8 @@ class TextHighlighter {
     if (!findController?.highlightMatches || reset) {
       return;
     }
-    const pageNumber = findController.getPageNumber(pageIdx);
-    const pageMatches = findController.pageMatches[pageNumber] || null;
-    const pageMatchesLength = findController.pageMatchesLength[pageNumber] || null;
+    const pageMatches = findController.pageMatches[pageIdx] || null;
+    const pageMatchesLength = findController.pageMatchesLength[pageIdx] || null;
     this.matches = this._convertMatches(pageMatches, pageMatchesLength);
     this._renderMatches(this.matches);
   }
@@ -11228,6 +11355,25 @@ class PDFPageView extends BasePDFPageView {
       this.#previousRotation = viewport.rotation;
     }
     setLayerDimensions(div, viewport, true, false);
+  }
+  updatePageNumber(newPageNumber) {
+    if (this.id === newPageNumber) {
+      return;
+    }
+    this.id = newPageNumber;
+    this.renderingId = `page${newPageNumber}`;
+    if (this.pdfPage) {
+      this.pdfPage.pageNumber = newPageNumber;
+    }
+    this.setPageLabel(this.pageLabel);
+    const {
+      div
+    } = this;
+    div.setAttribute("data-page-number", newPageNumber);
+    div.setAttribute("data-l10n-args", JSON.stringify({
+      page: newPageNumber
+    }));
+    this._textHighlighter.pageIdx = newPageNumber - 1;
   }
   setPdfPage(pdfPage) {
     this.pdfPage = pdfPage;
@@ -11803,9 +11949,7 @@ class PDFPageView extends BasePDFPageView {
       if (!annotationEditorUIManager) {
         return;
       }
-      this.drawLayer ||= new DrawLayerBuilder({
-        pageIndex: this.id
-      });
+      this.drawLayer ||= new DrawLayerBuilder();
       await this.#renderDrawLayer();
       this.drawLayer.setParent(canvasWrapper);
       if (this.annotationLayer || this.#annotationMode === AnnotationMode.DISABLE) {
@@ -11962,10 +12106,9 @@ class PDFViewer {
   #supportsPinchToZoom = true;
   #textLayerMode = TextLayerMode.ENABLE;
   #viewerAlert = null;
-  #originalPages = null;
   #pagesMapper = PagesMapper.instance;
   constructor(options) {
-    const viewerVersion = "5.4.569";
+    const viewerVersion = "5.4.590";
     if (version !== viewerVersion) {
       throw new Error(`The API version "${version}" does not match the Viewer version "${viewerVersion}".`);
     }
@@ -12328,6 +12471,7 @@ class PDFViewer {
       this.#annotationEditorUIManager = null;
       this.#annotationEditorMode = AnnotationEditorType.NONE;
       this.#printingAllowed = true;
+      this.#pagesMapper.pagesNumber = 0;
     }
     this.pdfDocument = pdfDocument;
     if (!pdfDocument) {
@@ -12536,36 +12680,43 @@ class PDFViewer {
       this._pagesCapability.reject(reason);
     });
   }
-  onBeforePagesEdited() {
-    this._currentPageId = this.#pagesMapper.getPageId(this._currentPageNumber);
+  async onBeforePagesEdited({
+    pagesMapper
+  }) {
+    await this._pagesCapability.promise;
+    this._currentPageId = pagesMapper.getPageId(this._currentPageNumber);
   }
   onPagesEdited({
-    index,
-    pagesToMove
+    pagesMapper
   }) {
-    const pagesMapper = this.#pagesMapper;
     this._currentPageNumber = pagesMapper.getPageNumber(this._currentPageId);
-    const viewerElement = this._scrollMode === ScrollMode.PAGE ? null : this.viewer;
-    if (viewerElement) {
-      const pages = this._pages;
-      let page = pages[pagesToMove[0] - 1].div;
-      if (index === 0) {
-        pages[0].div.before(page);
-      } else {
-        pages[index - 1].div.after(page);
-      }
-      for (let i = 1, ii = pagesToMove.length; i < ii; i++) {
-        const newPage = pages[pagesToMove[i] - 1].div;
-        page.after(newPage);
-        page = newPage;
-      }
-    }
-    this.#originalPages ||= this._pages;
+    const prevPages = this._pages;
     const newPages = this._pages = [];
     for (let i = 0, ii = pagesMapper.pagesNumber; i < ii; i++) {
-      const pageView = this.#originalPages[pagesMapper.getPageId(i + 1) - 1];
-      newPages.push(pageView);
+      const prevPageNumber = pagesMapper.getPrevPageNumber(i + 1) - 1;
+      if (prevPageNumber === -1) {
+        continue;
+      }
+      const page = prevPages[prevPageNumber];
+      newPages[i] = page;
+      page.updatePageNumber(i + 1);
     }
+    const viewerElement = this._scrollMode === ScrollMode.PAGE ? null : this.viewer;
+    if (viewerElement) {
+      viewerElement.replaceChildren();
+      const fragment = document.createDocumentFragment();
+      for (let i = 0, ii = pagesMapper.pagesNumber; i < ii; i++) {
+        const {
+          div
+        } = newPages[i];
+        div.setAttribute("data-page-number", i + 1);
+        fragment.append(div);
+      }
+      viewerElement.append(fragment);
+    }
+    setTimeout(() => {
+      this.forceRendering();
+    });
   }
   setPageLabels(labels) {
     if (!this.pdfDocument) {
@@ -12677,9 +12828,8 @@ class PDFViewer {
       div,
       id
     } = pageView;
-    const pageNumber = this.#pagesMapper.getPageNumber(id);
-    if (this._currentPageNumber !== pageNumber) {
-      this._setCurrentPageNumber(pageNumber);
+    if (this._currentPageNumber !== id) {
+      this._setCurrentPageNumber(id);
     }
     if (this._scrollMode === ScrollMode.PAGE) {
       this.#ensurePageViewVisible();
@@ -12989,18 +13139,18 @@ class PDFViewer {
     }
     this.renderingQueue.renderHighestPriority(visible);
     const isSimpleLayout = this._spreadMode === SpreadMode.NONE && (this._scrollMode === ScrollMode.PAGE || this._scrollMode === ScrollMode.VERTICAL);
-    const currentId = this.#pagesMapper.getPageId(this._currentPageNumber);
+    const currentPageNumber = this._currentPageNumber;
     let stillFullyVisible = false;
     for (const page of visiblePages) {
       if (page.percent < 100) {
         break;
       }
-      if (page.id === currentId && isSimpleLayout) {
+      if (page.id === currentPageNumber && isSimpleLayout) {
         stillFullyVisible = true;
         break;
       }
     }
-    this._setCurrentPageNumber(stillFullyVisible ? this._currentPageNumber : this.#pagesMapper.getPageNumber(visiblePages[0].id));
+    this._setCurrentPageNumber(stillFullyVisible ? this._currentPageNumber : visiblePages[0].id);
     this._updateLocation(visible.first);
     this.eventBus.dispatch("updateviewarea", {
       source: this,
@@ -15131,152 +15281,6 @@ class ViewHistory {
   }
 }
 
-;// ./web/menu.js
-
-class Menu {
-  #triggeringButton;
-  #menu;
-  #menuItems;
-  #openMenuAC = null;
-  #menuAC = new AbortController();
-  #lastIndex = -1;
-  constructor(menuContainer, triggeringButton, menuItems) {
-    this.#menu = menuContainer;
-    this.#triggeringButton = triggeringButton;
-    if (Array.isArray(menuItems)) {
-      this.#menuItems = menuItems;
-    } else {
-      this.#menuItems = [];
-      for (const button of this.#menu.querySelectorAll("button")) {
-        this.#menuItems.push(button);
-      }
-    }
-    this.#setUpMenu();
-  }
-  #closeMenu() {
-    if (!this.#openMenuAC) {
-      return;
-    }
-    const menu = this.#menu;
-    menu.classList.toggle("hidden", true);
-    this.#triggeringButton.ariaExpanded = "false";
-    this.#openMenuAC.abort();
-    this.#openMenuAC = null;
-    if (menu.contains(document.activeElement)) {
-      setTimeout(() => {
-        if (!menu.contains(document.activeElement)) {
-          this.#triggeringButton.focus();
-        }
-      }, 0);
-    }
-    this.#lastIndex = -1;
-  }
-  #setUpMenu() {
-    this.#triggeringButton.addEventListener("click", e => {
-      if (this.#openMenuAC) {
-        this.#closeMenu();
-        return;
-      }
-      const menu = this.#menu;
-      menu.classList.toggle("hidden", false);
-      this.#triggeringButton.ariaExpanded = "true";
-      this.#openMenuAC = new AbortController();
-      const signal = AbortSignal.any([this.#menuAC.signal, this.#openMenuAC.signal]);
-      window.addEventListener("pointerdown", ({
-        target
-      }) => {
-        if (target !== this.#triggeringButton && !menu.contains(target)) {
-          this.#closeMenu();
-        }
-      }, {
-        signal
-      });
-      window.addEventListener("blur", this.#closeMenu.bind(this), {
-        signal
-      });
-    });
-    const {
-      signal
-    } = this.#menuAC;
-    this.#menu.addEventListener("keydown", e => {
-      switch (e.key) {
-        case "Escape":
-          this.#closeMenu();
-          stopEvent(e);
-          break;
-        case "ArrowDown":
-        case "Tab":
-          this.#goToNextItem(e.target, true);
-          stopEvent(e);
-          break;
-        case "ArrowUp":
-        case "ShiftTab":
-          this.#goToNextItem(e.target, false);
-          stopEvent(e);
-          break;
-        case "Home":
-          this.#menuItems.find(item => !item.disabled && !item.classList.contains("hidden")).focus();
-          stopEvent(e);
-          break;
-        case "End":
-          this.#menuItems.findLast(item => !item.disabled && !item.classList.contains("hidden")).focus();
-          stopEvent(e);
-          break;
-      }
-    }, {
-      signal,
-      capture: true
-    });
-    this.#menu.addEventListener("contextmenu", noContextMenu, {
-      signal
-    });
-    this.#menu.addEventListener("click", this.#closeMenu.bind(this), {
-      signal,
-      capture: true
-    });
-    this.#triggeringButton.addEventListener("keydown", ev => {
-      if (!this.#openMenuAC) {
-        return;
-      }
-      switch (ev.key) {
-        case "ArrowDown":
-        case "Home":
-          this.#menuItems.find(item => !item.disabled && !item.classList.contains("hidden")).focus();
-          stopEvent(ev);
-          break;
-        case "ArrowUp":
-        case "End":
-          this.#menuItems.findLast(item => !item.disabled && !item.classList.contains("hidden")).focus();
-          stopEvent(ev);
-          break;
-        case "Escape":
-          this.#closeMenu();
-          stopEvent(ev);
-      }
-    }, {
-      signal
-    });
-  }
-  #goToNextItem(element, forward) {
-    const index = this.#lastIndex === -1 ? this.#menuItems.indexOf(element) : this.#lastIndex;
-    const len = this.#menuItems.length;
-    const increment = forward ? 1 : len - 1;
-    for (let i = (index + increment) % len; i !== index; i = (i + increment) % len) {
-      const menuItem = this.#menuItems[i];
-      if (!menuItem.disabled && !menuItem.classList.contains("hidden")) {
-        menuItem.focus();
-        this.#lastIndex = i;
-        break;
-      }
-    }
-  }
-  destroy() {
-    this.#closeMenu();
-    this.#menuAC?.abort();
-    this.#menuAC = null;
-  }
-}
-
 ;// ./web/views_manager.js
 
 
@@ -15922,7 +15926,8 @@ const PDFViewerApplication = {
         pageColors,
         abortSignal,
         enableHWA,
-        enableSplitMerge: AppOptions.get("enableSplitMerge")
+        enableSplitMerge: AppOptions.get("enableSplitMerge"),
+        manageMenu: appConfig.viewsManager.manageMenu
       });
       renderingQueue.setThumbnailViewer(this.pdfThumbnailViewer);
     }
@@ -16882,6 +16887,7 @@ const PDFViewerApplication = {
     eventBus._on("setpreference", evt => preferences.set(evt.name, evt.value), opts);
     eventBus._on("pagesedited", this.onPagesEdited.bind(this), opts);
     eventBus._on("beforepagesedited", this.onBeforePagesEdited.bind(this), opts);
+    eventBus._on("savepageseditedpdf", this.onSavePagesEditedPDF.bind(this), opts);
   },
   bindWindowEvents() {
     if (this._windowAbortController) {
@@ -17015,6 +17021,29 @@ const PDFViewerApplication = {
   },
   onPagesEdited(data) {
     this.pdfViewer.onPagesEdited(data);
+  },
+  async onSavePagesEditedPDF({
+    data: {
+      includePages,
+      excludePages,
+      pageIndices
+    }
+  }) {
+    if (!this.pdfDocument) {
+      return;
+    }
+    const pageInfo = {
+      document: null,
+      includePages,
+      excludePages,
+      pageIndices
+    };
+    const modifiedPdfBytes = await this.pdfDocument.extractPages([pageInfo]);
+    if (!modifiedPdfBytes) {
+      console.error("Something wrong happened when saving the edited PDF.\nPlease file a bug.");
+      return;
+    }
+    this.downloadManager.download(modifiedPdfBytes, this._downloadUrl, this._docFilename);
   },
   _accumulateTicks(ticks, prop) {
     if (this[prop] > 0 && ticks < 0 || this[prop] < 0 && ticks > 0) {
@@ -17668,7 +17697,15 @@ function getViewerConfiguration() {
       layersView: document.getElementById("layersView"),
       viewsManagerAddFileButton: document.getElementById("viewsManagerAddFileButton"),
       viewsManagerCurrentOutlineButton: document.getElementById("viewsManagerCurrentOutlineButton"),
-      viewsManagerHeaderLabel: document.getElementById("viewsManagerHeaderLabel")
+      viewsManagerHeaderLabel: document.getElementById("viewsManagerHeaderLabel"),
+      manageMenu: {
+        button: document.getElementById("viewsManagerStatusActionButton"),
+        menu: document.getElementById("viewsManagerStatusActionOptions"),
+        copy: document.getElementById("viewsManagerStatusActionCopy"),
+        cut: document.getElementById("viewsManagerStatusActionCut"),
+        delete: document.getElementById("viewsManagerStatusActionDelete"),
+        saveAs: document.getElementById("viewsManagerStatusActionSaveAs")
+      }
     },
     findBar: {
       bar: document.getElementById("findbar"),

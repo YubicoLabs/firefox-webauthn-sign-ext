@@ -21,8 +21,8 @@
  */
 
 /**
- * pdfjsVersion = 5.4.569
- * pdfjsBuild = 6a4a3b060
+ * pdfjsVersion = 5.4.590
+ * pdfjsBuild = 550520193
  */
 /******/ // The require scope
 /******/ var __webpack_require__ = {};
@@ -85,6 +85,7 @@ const {
   normalizeUnicode,
   OPS,
   OutputScale,
+  PagesMapper,
   PasswordResponses,
   PDFDataRangeTransport,
   PDFDateString,
@@ -597,65 +598,6 @@ function toggleExpandedBtn(button, toggle, view = null) {
   view?.classList.toggle("hidden", !toggle);
 }
 const calcRound = Math.fround;
-class PagesMapper {
-  static #idToPageNumber = null;
-  static #pageNumberToId = null;
-  static #pagesNumber = 0;
-  get pagesNumber() {
-    return PagesMapper.#pagesNumber;
-  }
-  set pagesNumber(n) {
-    if (PagesMapper.#pagesNumber === n) {
-      return;
-    }
-    PagesMapper.#pagesNumber = n;
-    const pageNumberToId = PagesMapper.#pageNumberToId = new Uint32Array(2 * n);
-    const idToPageNumber = PagesMapper.#idToPageNumber = pageNumberToId.subarray(n);
-    for (let i = 0; i < n; i++) {
-      pageNumberToId[i] = idToPageNumber[i] = i + 1;
-    }
-  }
-  movePages(selectedPages, pagesToMove, index) {
-    const pageNumberToId = PagesMapper.#pageNumberToId;
-    const idToPageNumber = PagesMapper.#idToPageNumber;
-    const movedCount = pagesToMove.length;
-    const mappedPagesToMove = new Uint32Array(movedCount);
-    let removedBeforeTarget = 0;
-    for (let i = 0; i < movedCount; i++) {
-      const pageIndex = pagesToMove[i] - 1;
-      mappedPagesToMove[i] = pageNumberToId[pageIndex];
-      if (pageIndex < index) {
-        removedBeforeTarget += 1;
-      }
-    }
-    const pagesNumber = PagesMapper.#pagesNumber;
-    let adjustedTarget = index - removedBeforeTarget;
-    const remainingLen = pagesNumber - movedCount;
-    adjustedTarget = MathClamp(adjustedTarget, 0, remainingLen);
-    for (let i = 0, r = 0; i < pagesNumber; i++) {
-      if (!selectedPages.has(i + 1)) {
-        pageNumberToId[r++] = pageNumberToId[i];
-      }
-    }
-    pageNumberToId.copyWithin(adjustedTarget + movedCount, adjustedTarget, remainingLen);
-    pageNumberToId.set(mappedPagesToMove, adjustedTarget);
-    for (let i = 0, ii = pagesNumber; i < ii; i++) {
-      idToPageNumber[pageNumberToId[i] - 1] = i + 1;
-    }
-  }
-  getPageNumber(id) {
-    return PagesMapper.#idToPageNumber?.[id - 1] ?? id;
-  }
-  getPageId(pageNumber) {
-    return PagesMapper.#pageNumberToId?.[pageNumber - 1] ?? pageNumber;
-  }
-  static get instance() {
-    return shadow(this, "instance", new PagesMapper());
-  }
-  getMapping() {
-    return PagesMapper.#pageNumberToId.subarray(0, this.pagesNumber);
-  }
-}
 
 ;// ./web/app_options.js
 const OptionKind = {
@@ -3441,9 +3383,15 @@ class CommentPopup {
           }
         }
       });
-      this.#editor.comment = null;
-      this.#editor.focus();
+      const editor = this.#editor;
+      const savedData = editor.comment;
       this.destroy();
+      if (savedData?.text) {
+        editor._uiManager.deleteComment(editor, savedData);
+      } else {
+        editor.comment = null;
+      }
+      editor.focus();
     });
     del.addEventListener("contextmenu", noContextMenu);
     buttons.append(edit, del);
@@ -3655,6 +3603,7 @@ class EditorUndoBar {
     stamp: "pdfjs-editor-undo-bar-message-stamp",
     ink: "pdfjs-editor-undo-bar-message-ink",
     signature: "pdfjs-editor-undo-bar-message-signature",
+    comment: "pdfjs-editor-undo-bar-message-comment",
     _multiple: "pdfjs-editor-undo-bar-message-multiple"
   });
   constructor({
@@ -4150,7 +4099,6 @@ class PDFFindController {
   #state = null;
   #updateMatchesCountOnProgress = true;
   #visitedPagesCount = 0;
-  #pagesMapper = PagesMapper.instance;
   constructor({
     linkService,
     eventBus,
@@ -4407,12 +4355,11 @@ class PDFFindController {
     if (query.length === 0) {
       return;
     }
-    const pageId = this.getPageId(pageIndex);
-    const pageContent = this._pageContents[pageId];
+    const pageContent = this._pageContents[pageIndex];
     const matcherResult = this.match(query, pageContent, pageIndex);
     const matches = this._pageMatches[pageIndex] = [];
     const matchesLength = this._pageMatchesLength[pageIndex] = [];
-    const diffs = this._pageDiffs[pageId];
+    const diffs = this._pageDiffs[pageIndex];
     matcherResult?.forEach(({
       index,
       length
@@ -4441,7 +4388,7 @@ class PDFFindController {
     }
   }
   match(query, pageContent, pageIndex) {
-    const hasDiacritics = this._hasDiacritics[this.getPageId(pageIndex)];
+    const hasDiacritics = this._hasDiacritics[pageIndex];
     let isUnicode = false;
     if (typeof query === "string") {
       [isUnicode, query] = this.#convertToRegExpString(query, hasDiacritics);
@@ -4514,27 +4461,19 @@ class PDFFindController {
       });
     }
   }
-  getPageNumber(idx) {
-    return this.#pagesMapper.getPageNumber(idx + 1) - 1;
-  }
-  getPageId(pageNumber) {
-    return this.#pagesMapper.getPageId(pageNumber + 1) - 1;
-  }
   #updatePage(index) {
     if (this._scrollMatches && this._selected.pageIdx === index) {
       this._linkService.page = index + 1;
     }
     this._eventBus.dispatch("updatetextlayermatches", {
       source: this,
-      pageIndex: index,
-      pageId: this.getPageId(index)
+      pageIndex: index
     });
   }
   #updateAllPages() {
     this._eventBus.dispatch("updatetextlayermatches", {
       source: this,
-      pageIndex: -1,
-      pageId: -1
+      pageIndex: -1
     });
   }
   #nextMatch() {
@@ -4559,7 +4498,7 @@ class PDFFindController {
           continue;
         }
         this._pendingFindMatches.add(i);
-        this._extractTextPromises[this.getPageId(i)].then(() => {
+        this._extractTextPromises[i].then(() => {
           this._pendingFindMatches.delete(i);
           this.#calculateMatch(i);
         });
@@ -4649,12 +4588,23 @@ class PDFFindController {
       this.#updatePage(this._selected.pageIdx);
     }
   }
-  #onPagesEdited() {
+  #onPagesEdited({
+    pagesMapper
+  }) {
     if (this._extractTextPromises.length === 0) {
       return;
     }
     this.#onFindBarClose();
     this._dirtyMatch = true;
+    const prevTextPromises = this._extractTextPromises;
+    const extractTextPromises = this._extractTextPromises.length = [];
+    for (let i = 0, ii = pagesMapper.length; i < ii; i++) {
+      const prevPageIndex = pagesMapper.getPrevPageNumber(i + 1) - 1;
+      if (prevPageIndex === -1) {
+        continue;
+      }
+      extractTextPromises.push(prevTextPromises[prevPageIndex] || Promise.resolve());
+    }
   }
   #onFindBarClose(evt) {
     const pdfDocument = this._pdfDocument;
@@ -6609,18 +6559,13 @@ class BasePDFPageView {
 
 class DrawLayerBuilder {
   #drawLayer = null;
-  constructor(options) {
-    this.pageIndex = options.pageIndex;
-  }
   async render({
     intent = "display"
   }) {
     if (intent !== "display" || this.#drawLayer || this._cancelled) {
       return;
     }
-    this.#drawLayer = new DrawLayer({
-      pageIndex: this.pageIndex
-    });
+    this.#drawLayer = new DrawLayer();
   }
   cancel() {
     this._cancelled = true;
@@ -7319,7 +7264,7 @@ class TextHighlighter {
     if (!this.#eventAbortController) {
       this.#eventAbortController = new AbortController();
       this.eventBus._on("updatetextlayermatches", evt => {
-        if (evt.pageId === this.pageIdx || evt.pageId === -1) {
+        if (evt.pageIndex === this.pageIdx || evt.pageIndex === -1) {
           this._updateMatches();
         }
       }, {
@@ -7388,7 +7333,7 @@ class TextHighlighter {
       textContentItemsStr,
       textDivs
     } = this;
-    const isSelectedPage = findController.getPageNumber(pageIdx) === findController.selected.pageIdx;
+    const isSelectedPage = pageIdx === findController.selected.pageIdx;
     const selectedMatchIdx = findController.selected.matchIdx;
     const highlightAll = findController.state.highlightAll;
     let prevEnd = null;
@@ -7473,7 +7418,7 @@ class TextHighlighter {
         findController.scrollMatchIntoView({
           element: textDivs[begin.divIdx],
           selectedLeft,
-          pageIndex: findController.getPageNumber(pageIdx),
+          pageIndex: pageIdx,
           matchIndex: selectedMatchIdx
         });
       }
@@ -7508,9 +7453,8 @@ class TextHighlighter {
     if (!findController?.highlightMatches || reset) {
       return;
     }
-    const pageNumber = findController.getPageNumber(pageIdx);
-    const pageMatches = findController.pageMatches[pageNumber] || null;
-    const pageMatchesLength = findController.pageMatchesLength[pageNumber] || null;
+    const pageMatches = findController.pageMatches[pageIdx] || null;
+    const pageMatchesLength = findController.pageMatchesLength[pageIdx] || null;
     this.matches = this._convertMatches(pageMatches, pageMatchesLength);
     this._renderMatches(this.matches);
   }
@@ -7806,6 +7750,25 @@ class PDFPageView extends BasePDFPageView {
       this.#previousRotation = viewport.rotation;
     }
     setLayerDimensions(div, viewport, true, false);
+  }
+  updatePageNumber(newPageNumber) {
+    if (this.id === newPageNumber) {
+      return;
+    }
+    this.id = newPageNumber;
+    this.renderingId = `page${newPageNumber}`;
+    if (this.pdfPage) {
+      this.pdfPage.pageNumber = newPageNumber;
+    }
+    this.setPageLabel(this.pageLabel);
+    const {
+      div
+    } = this;
+    div.setAttribute("data-page-number", newPageNumber);
+    div.setAttribute("data-l10n-args", JSON.stringify({
+      page: newPageNumber
+    }));
+    this._textHighlighter.pageIdx = newPageNumber - 1;
   }
   setPdfPage(pdfPage) {
     this.pdfPage = pdfPage;
@@ -8381,9 +8344,7 @@ class PDFPageView extends BasePDFPageView {
       if (!annotationEditorUIManager) {
         return;
       }
-      this.drawLayer ||= new DrawLayerBuilder({
-        pageIndex: this.id
-      });
+      this.drawLayer ||= new DrawLayerBuilder();
       await this.#renderDrawLayer();
       this.drawLayer.setParent(canvasWrapper);
       if (this.annotationLayer || this.#annotationMode === AnnotationMode.DISABLE) {
@@ -8540,10 +8501,9 @@ class PDFViewer {
   #supportsPinchToZoom = true;
   #textLayerMode = TextLayerMode.ENABLE;
   #viewerAlert = null;
-  #originalPages = null;
   #pagesMapper = PagesMapper.instance;
   constructor(options) {
-    const viewerVersion = "5.4.569";
+    const viewerVersion = "5.4.590";
     if (version !== viewerVersion) {
       throw new Error(`The API version "${version}" does not match the Viewer version "${viewerVersion}".`);
     }
@@ -8906,6 +8866,7 @@ class PDFViewer {
       this.#annotationEditorUIManager = null;
       this.#annotationEditorMode = AnnotationEditorType.NONE;
       this.#printingAllowed = true;
+      this.#pagesMapper.pagesNumber = 0;
     }
     this.pdfDocument = pdfDocument;
     if (!pdfDocument) {
@@ -9114,36 +9075,43 @@ class PDFViewer {
       this._pagesCapability.reject(reason);
     });
   }
-  onBeforePagesEdited() {
-    this._currentPageId = this.#pagesMapper.getPageId(this._currentPageNumber);
+  async onBeforePagesEdited({
+    pagesMapper
+  }) {
+    await this._pagesCapability.promise;
+    this._currentPageId = pagesMapper.getPageId(this._currentPageNumber);
   }
   onPagesEdited({
-    index,
-    pagesToMove
+    pagesMapper
   }) {
-    const pagesMapper = this.#pagesMapper;
     this._currentPageNumber = pagesMapper.getPageNumber(this._currentPageId);
-    const viewerElement = this._scrollMode === ScrollMode.PAGE ? null : this.viewer;
-    if (viewerElement) {
-      const pages = this._pages;
-      let page = pages[pagesToMove[0] - 1].div;
-      if (index === 0) {
-        pages[0].div.before(page);
-      } else {
-        pages[index - 1].div.after(page);
-      }
-      for (let i = 1, ii = pagesToMove.length; i < ii; i++) {
-        const newPage = pages[pagesToMove[i] - 1].div;
-        page.after(newPage);
-        page = newPage;
-      }
-    }
-    this.#originalPages ||= this._pages;
+    const prevPages = this._pages;
     const newPages = this._pages = [];
     for (let i = 0, ii = pagesMapper.pagesNumber; i < ii; i++) {
-      const pageView = this.#originalPages[pagesMapper.getPageId(i + 1) - 1];
-      newPages.push(pageView);
+      const prevPageNumber = pagesMapper.getPrevPageNumber(i + 1) - 1;
+      if (prevPageNumber === -1) {
+        continue;
+      }
+      const page = prevPages[prevPageNumber];
+      newPages[i] = page;
+      page.updatePageNumber(i + 1);
     }
+    const viewerElement = this._scrollMode === ScrollMode.PAGE ? null : this.viewer;
+    if (viewerElement) {
+      viewerElement.replaceChildren();
+      const fragment = document.createDocumentFragment();
+      for (let i = 0, ii = pagesMapper.pagesNumber; i < ii; i++) {
+        const {
+          div
+        } = newPages[i];
+        div.setAttribute("data-page-number", i + 1);
+        fragment.append(div);
+      }
+      viewerElement.append(fragment);
+    }
+    setTimeout(() => {
+      this.forceRendering();
+    });
   }
   setPageLabels(labels) {
     if (!this.pdfDocument) {
@@ -9255,9 +9223,8 @@ class PDFViewer {
       div,
       id
     } = pageView;
-    const pageNumber = this.#pagesMapper.getPageNumber(id);
-    if (this._currentPageNumber !== pageNumber) {
-      this._setCurrentPageNumber(pageNumber);
+    if (this._currentPageNumber !== id) {
+      this._setCurrentPageNumber(id);
     }
     if (this._scrollMode === ScrollMode.PAGE) {
       this.#ensurePageViewVisible();
@@ -9567,18 +9534,18 @@ class PDFViewer {
     }
     this.renderingQueue.renderHighestPriority(visible);
     const isSimpleLayout = this._spreadMode === SpreadMode.NONE && (this._scrollMode === ScrollMode.PAGE || this._scrollMode === ScrollMode.VERTICAL);
-    const currentId = this.#pagesMapper.getPageId(this._currentPageNumber);
+    const currentPageNumber = this._currentPageNumber;
     let stillFullyVisible = false;
     for (const page of visiblePages) {
       if (page.percent < 100) {
         break;
       }
-      if (page.id === currentId && isSimpleLayout) {
+      if (page.id === currentPageNumber && isSimpleLayout) {
         stillFullyVisible = true;
         break;
       }
     }
-    this._setCurrentPageNumber(stillFullyVisible ? this._currentPageNumber : this.#pagesMapper.getPageNumber(visiblePages[0].id));
+    this._setCurrentPageNumber(stillFullyVisible ? this._currentPageNumber : visiblePages[0].id);
     this._updateLocation(visible.first);
     this.eventBus.dispatch("updateviewarea", {
       source: this,
@@ -10604,7 +10571,8 @@ const PDFViewerApplication = {
         pageColors,
         abortSignal,
         enableHWA,
-        enableSplitMerge: AppOptions.get("enableSplitMerge")
+        enableSplitMerge: AppOptions.get("enableSplitMerge"),
+        manageMenu: appConfig.viewsManager.manageMenu
       });
       renderingQueue.setThumbnailViewer(this.pdfThumbnailViewer);
     }
@@ -11532,6 +11500,7 @@ const PDFViewerApplication = {
     eventBus._on("setpreference", evt => preferences.set(evt.name, evt.value), opts);
     eventBus._on("pagesedited", this.onPagesEdited.bind(this), opts);
     eventBus._on("beforepagesedited", this.onBeforePagesEdited.bind(this), opts);
+    eventBus._on("savepageseditedpdf", this.onSavePagesEditedPDF.bind(this), opts);
   },
   bindWindowEvents() {
     if (this._windowAbortController) {
@@ -11665,6 +11634,29 @@ const PDFViewerApplication = {
   },
   onPagesEdited(data) {
     this.pdfViewer.onPagesEdited(data);
+  },
+  async onSavePagesEditedPDF({
+    data: {
+      includePages,
+      excludePages,
+      pageIndices
+    }
+  }) {
+    if (!this.pdfDocument) {
+      return;
+    }
+    const pageInfo = {
+      document: null,
+      includePages,
+      excludePages,
+      pageIndices
+    };
+    const modifiedPdfBytes = await this.pdfDocument.extractPages([pageInfo]);
+    if (!modifiedPdfBytes) {
+      console.error("Something wrong happened when saving the edited PDF.\nPlease file a bug.");
+      return;
+    }
+    this.downloadManager.download(modifiedPdfBytes, this._downloadUrl, this._docFilename);
   },
   _accumulateTicks(ticks, prop) {
     if (this[prop] > 0 && ticks < 0 || this[prop] < 0 && ticks > 0) {
