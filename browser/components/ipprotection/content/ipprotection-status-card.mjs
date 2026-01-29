@@ -3,11 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 import { MozLitElement } from "chrome://global/content/lit-utils.mjs";
-import {
-  html,
-  classMap,
-  styleMap,
-} from "chrome://global/content/vendor/lit.all.mjs";
+import { html } from "chrome://global/content/vendor/lit.all.mjs";
 
 // eslint-disable-next-line import/no-unassigned-import
 import "chrome://global/content/elements/moz-toggle.mjs";
@@ -22,10 +18,8 @@ export default class IPProtectionStatusCard extends MozLitElement {
   TOGGLE_OFF_EVENT = "ipprotection-status-card:user-toggled-off";
 
   static queries = {
-    statusGroupEl: "#status-card",
-    connectionToggleEl: "#connection-toggle",
-    connectionButtonEl: "#connection-toggle-button",
-    locationEl: "#location-wrapper",
+    statusBoxEl: "ipprotection-status-box",
+    actionButtonEl: 'moz-button[slot="action"]',
   };
 
   static shadowRootOptions = {
@@ -35,12 +29,8 @@ export default class IPProtectionStatusCard extends MozLitElement {
 
   static properties = {
     protectionEnabled: { type: Boolean },
-    canShowTime: { type: Boolean },
     enabledSince: { type: Object },
     location: { type: Object },
-    // Track toggle state separately so that we can tell when the toggle
-    // is enabled because of the existing protection state or because of user action.
-    _toggleEnabled: { type: Boolean, state: true },
     bandwidthUsage: { type: Object },
   };
 
@@ -60,10 +50,8 @@ export default class IPProtectionStatusCard extends MozLitElement {
     this.removeEventListener("keydown", this.keyListener, { capture: true });
   }
 
-  handleToggleConnect(event) {
-    let isEnabled = event.target.pressed;
-
-    if (isEnabled) {
+  handleButtonClick() {
+    if (!this.protectionEnabled) {
       this.dispatchEvent(
         new CustomEvent(this.TOGGLE_ON_EVENT, {
           bubbles: true,
@@ -78,34 +66,11 @@ export default class IPProtectionStatusCard extends MozLitElement {
         })
       );
     }
-
-    this._toggleEnabled = isEnabled;
-  }
-
-  handleOnOffButtonClick() {
-    let isEnabled = !this._toggleEnabled;
-
-    if (isEnabled) {
-      this.dispatchEvent(
-        new CustomEvent(this.TOGGLE_ON_EVENT, {
-          bubbles: true,
-          composed: true,
-        })
-      );
-    } else {
-      this.dispatchEvent(
-        new CustomEvent(this.TOGGLE_OFF_EVENT, {
-          bubbles: true,
-          composed: true,
-        })
-      );
-    }
-
-    this._toggleEnabled = isEnabled;
   }
 
   focus() {
-    this.connectionToggleEl?.focus();
+    const button = this.shadowRoot.querySelector(`moz-button[slot="action"]`);
+    button?.focus();
   }
 
   #keyListener(event) {
@@ -132,105 +97,79 @@ export default class IPProtectionStatusCard extends MozLitElement {
     }
   }
 
-  updated(changedProperties) {
-    super.updated(changedProperties);
-
-    // If the toggle state isn't set, do so now and let it
-    // match the protection state.
-    if (!changedProperties.has("_toggleEnabled")) {
-      this._toggleEnabled = this.protectionEnabled;
-    }
-
-    if (!this.protectionEnabled && this._toggleEnabled) {
-      // After pressing the toggle, if somehow protection was turned off
-      // (eg. error thrown), unset the toggle.
-      this._toggleEnabled = false;
-    }
+  bandwidthUsageTemplate() {
+    return this.bandwidthUsage
+      ? html`<bandwidth-usage
+          slot="bandwidth"
+          value=${this.bandwidthUsage.currentBandwidthUsage}
+          max=${this.bandwidthUsage.maxBandwidth}
+          numeric
+        ></bandwidth-usage>`
+      : null;
   }
 
-  cardContentTemplate() {
-    const statusCardL10nId = this.protectionEnabled
-      ? "ipprotection-connection-status-on"
-      : "ipprotection-connection-status-off";
-    const toggleL10nId = this.protectionEnabled
-      ? "ipprotection-toggle-active"
-      : "ipprotection-toggle-inactive";
-    const toggleButtonType = this.protectionEnabled ? "secondary" : "primary";
-    const toggleButtonL10nId = this.protectionEnabled
-      ? "ipprotection-button-turn-vpn-off"
-      : "ipprotection-button-turn-vpn-on";
-
-    return html` <link
-        rel="stylesheet"
-        href="chrome://browser/content/ipprotection/ipprotection-status-card.css"
-      />
-      <moz-box-group class="vpn-status-group">
-        <moz-box-item
-          id="status-card"
-          class=${classMap({
-            "is-enabled": this.protectionEnabled,
-          })}
-          layout="default"
-          data-l10n-id=${statusCardL10nId}
-          .description=${this.cardDescriptionTemplate()}
-        >
-          <moz-toggle
-            id="connection-toggle"
-            data-l10n-id=${toggleL10nId}
-            @click=${this.handleToggleConnect}
-            ?pressed=${this._toggleEnabled}
-            slot="actions"
-          ></moz-toggle>
-        </moz-box-item>
-      </moz-box-group>
-      <moz-button
-        type=${toggleButtonType}
-        id="connection-toggle-button"
-        data-l10n-id=${toggleButtonL10nId}
-        @click=${this.handleOnOffButtonClick}
-        hidden
-      >
-      </moz-button>`;
+  locationTemplate() {
+    return this.location
+      ? html` <img
+            slot="location-icon"
+            role="presentation"
+            src="chrome://browser/skin/notification-icons/geo.svg"
+          />
+          <span slot="location">${this.location.name}</span>`
+      : null;
   }
 
-  cardDescriptionTemplate() {
-    // To work around mox-box-item description elements being hard to reach because of the shadowDOM,
-    // let's use a lit stylemap to apply style changes directly.
-    let labelStyles = styleMap({
-      display: "flex",
-      gap: "var(--space-small)",
-    });
-    let imgStyles = styleMap({
-      "-moz-context-properties": "fill",
-      fill: "currentColor",
-    });
-
+  statusTemplate({
+    type,
+    headerL10nId,
+    buttonL10nId,
+    buttonType = "default",
+    buttonDisabled = false,
+    iconSrc = null,
+  }) {
     return html`
-      <div id="vpn-details">
-        ${this.bandwidthUsage
-          ? html`<bandwidth-usage
-              value=${this.bandwidthUsage.currentBandwidthUsage}
-              max=${this.bandwidthUsage.maxBandwidth}
-              numeric
-            ></bandwidth-usage>`
+      <ipprotection-status-box .headerL10nId=${headerL10nId} .type=${type}>
+        ${iconSrc
+          ? html`<img
+              slot="icon"
+              role="presentation"
+              class="icon"
+              src=${iconSrc}
+            />`
           : null}
-        ${this.location
-          ? html`<div id="location-label" style=${labelStyles}>
-              <span>${this.location.name}</span>
-              <img
-                src="chrome://global/skin/icons/info.svg"
-                data-l10n-id="ipprotection-location-title"
-                style=${imgStyles}
-              />
-            </div>`
-          : null}
-      </div>
+        ${this.bandwidthUsageTemplate()} ${this.locationTemplate()}
+        <moz-button
+          slot="action"
+          type=${buttonType}
+          data-l10n-id=${buttonL10nId}
+          @click=${this.handleButtonClick}
+          ?disabled=${buttonDisabled}
+        ></moz-button>
+      </ipprotection-status-box>
     `;
   }
 
   render() {
-    let content = this.cardContentTemplate();
-    return html`${content}`;
+    if (this.protectionEnabled) {
+      return html`
+        ${this.statusTemplate({
+          type: "connected",
+          headerL10nId: "ipprotection-connection-status-connected",
+          buttonL10nId: "ipprotection-button-turn-vpn-off",
+          iconSrc:
+            "chrome://browser/content/ipprotection/assets/states/ipprotection-on.svg",
+        })}
+      `;
+    }
+
+    return html`
+      ${this.statusTemplate({
+        type: "disconnected",
+        headerL10nId: "ipprotection-connection-status-disconnected",
+        buttonL10nId: "ipprotection-button-turn-vpn-on",
+        buttonType: "primary",
+      })}
+    `;
   }
 }
 

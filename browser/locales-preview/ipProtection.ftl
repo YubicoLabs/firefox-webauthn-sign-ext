@@ -49,22 +49,8 @@ ipprotection-settings-link =
 
 ## Status card
 
-ipprotection-connection-status-on =
-  .label = VPN is on
-ipprotection-connection-status-off =
-  .label = VPN is off
-
-# The panel status card has a header, as well as VPN server location name displayed under it when the VPN is on.
-# Location refers to the VPN server geographical position.
-ipprotection-location-title =
-  .title = Location selected based on fastest server
-
-# When VPN is toggled on
-ipprotection-toggle-active =
-  .aria-label = Turn VPN off
-# When VPN is toggled off
-ipprotection-toggle-inactive =
-  .aria-label = Turn VPN on
+ipprotection-connection-status-connected = VPN is on
+ipprotection-connection-status-disconnected = VPN is off
 
 # Button to turn off the VPN
 ipprotection-button-turn-vpn-off = Turn off VPN
