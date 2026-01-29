@@ -3446,6 +3446,7 @@
           panels.push(tab.linkedPanel);
         }
       }
+      this.setIsSplitViewActive(true, tabs);
       this.tabpanels.splitViewPanels = panels;
     }
 
@@ -5924,15 +5925,22 @@
       }
       let unloadSelectedTab = false;
       let allTabsUnloaded = false;
-      if (tabs.some(tab => tab.selected)) {
+      if (tabs.some(tab => tab.selected || tab.splitview?.hasActiveTab)) {
         // Unloading the currently selected tab.
         // Need to select a different one before unloading.
         // Avoid selecting any tab we're unloading now or
         // any tab that is already unloaded.
         unloadSelectedTab = true;
-        const tabsToExclude = tabs.concat(
+        let tabsToExclude = tabs.concat(
           this.tabContainer.allTabs.filter(tab => !tab.linkedPanel)
         );
+        for (const tab of tabs) {
+          if (tab.splitview) {
+            tabsToExclude.push(
+              ...tab.splitview.tabs.filter(splitViewTab => splitViewTab != tab)
+            );
+          }
+        }
         let newTab = this._findTabToBlurTo(this.selectedTab, tabsToExclude);
         if (newTab) {
           this.selectedTab = newTab;

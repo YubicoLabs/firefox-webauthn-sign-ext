@@ -58,13 +58,14 @@ const withTabMenu = async function (tab, callback) {
   const moveTabToNewSplitViewItem = document.getElementById(
     "context_moveTabToSplitView"
   );
+  const unloadTabItem = document.getElementById("context_unloadTab");
   const unsplitTabItem = document.getElementById("context_separateSplitView");
 
   let contextMenuHidden = BrowserTestUtils.waitForPopupEvent(
     tabContextMenu,
     "hidden"
   );
-  await callback(moveTabToNewSplitViewItem, unsplitTabItem);
+  await callback(moveTabToNewSplitViewItem, unloadTabItem, unsplitTabItem);
   tabContextMenu.hidePopup();
   info("Hide popup");
   return await contextMenuHidden;
@@ -245,7 +246,7 @@ add_task(async function test_contextMenuMoveTabsToNewSplitView() {
 
   await withTabMenu(
     tabToClick,
-    async (moveTabToNewSplitViewItem, unsplitTabItem) => {
+    async (moveTabToNewSplitViewItem, unloadTabItem, unsplitTabItem) => {
       await BrowserTestUtils.waitForMutationCondition(
         unsplitTabItem,
         { attributes: true },
@@ -404,6 +405,82 @@ add_task(async function test_containerIndicators() {
   );
 
   info("The open tab is marked as a container tab.");
+
+  splitview.unsplitTabs();
+  while (gBrowser.tabs.length > 1) {
+    BrowserTestUtils.removeTab(gBrowser.tabs.at(-1));
+  }
+});
+
+add_task(async function test_splitview_with_unloaded_tab() {
+  const tab1 = await addTab();
+  await addTab();
+
+  // Click the first tab in our test split view to make sure the default tab at the
+  // start of the tab strip is deselected
+  EventUtils.synthesizeMouseAtCenter(tab1, {});
+
+  // Test adding split view with one tab and new tab
+
+  let tabToClick = tab1;
+  let tabContainer = gBrowser.tabContainer;
+  let splitViewCreated = BrowserTestUtils.waitForEvent(
+    tabContainer,
+    "SplitViewCreated"
+  );
+  await withTabMenu(
+    tabToClick,
+    async (moveTabToNewSplitViewItem, unloadTabItem) => {
+      await BrowserTestUtils.waitForMutationCondition(
+        unloadTabItem,
+        { attributes: true },
+        () => !unloadTabItem.hidden && !unloadTabItem.disabled,
+        "unloadTabItem is visible and not disabled"
+      );
+      Assert.ok(
+        !unloadTabItem.hidden && !unloadTabItem.disabled,
+        "unloadTabItem is visible and not disabled"
+      );
+
+      info("Click menu option to unload tab");
+      unloadTabItem.click();
+      await BrowserTestUtils.waitForMutationCondition(
+        tab1,
+        { attributes: true },
+        () => tab1.hasAttribute("discarded"),
+        "tab1 has been unloaded"
+      );
+      info("Tab has been unloaded");
+    }
+  );
+
+  await withTabMenu(tabToClick, async moveTabToNewSplitViewItem => {
+    await BrowserTestUtils.waitForMutationCondition(
+      moveTabToNewSplitViewItem,
+      { attributes: true },
+      () =>
+        !moveTabToNewSplitViewItem.hidden &&
+        !moveTabToNewSplitViewItem.disabled,
+      "moveTabToNewSplitViewItem is visible and not disabled"
+    );
+    Assert.ok(
+      !moveTabToNewSplitViewItem.hidden && !moveTabToNewSplitViewItem.disabled,
+      "moveTabToNewSplitViewItem is visible and not disabled"
+    );
+
+    info("Click menu option to add new split view");
+    moveTabToNewSplitViewItem.click();
+    await splitViewCreated;
+  });
+
+  let splitview = tab1.splitview;
+
+  Assert.equal(tab1.splitview, splitview, `tab1 is in split view`);
+
+  Assert.ok(
+    !tab1.hasAttribute("discarded"),
+    "tab1 is no longer unloaded once added to split view"
+  );
 
   splitview.unsplitTabs();
   while (gBrowser.tabs.length > 1) {
