@@ -4,10 +4,11 @@
 
 import os
 import sys
+from pathlib import Path
 
 # Set up Python environment to load build system packages.
-OUR_DIR = os.path.dirname(__file__)
-topsrcdir = os.path.normpath(os.path.join(OUR_DIR, ".."))
+OUR_DIR = Path(__file__).parent
+topsrcdir = OUR_DIR.parent
 
 # Escapes $, [, ] and 3 dots in copy button
 copybutton_prompt_text = r">>> |\.\.\. |\$ |In \[\d*\]: | {2,5}\.\.\.: | {5,8}: "
@@ -28,9 +29,8 @@ EXTRA_PATHS = (
     "taskcluster/gecko_taskgraph/test",
 )
 
-sys.path[:0] = [os.path.join(topsrcdir, p) for p in EXTRA_PATHS]
-
-sys.path.insert(0, OUR_DIR)
+sys.path[:0] = [str(topsrcdir / p) for p in EXTRA_PATHS]
+sys.path.insert(0, str(OUR_DIR))
 
 extensions = [
     "myst_parser",
@@ -120,10 +120,8 @@ html_sidebars = {
         "searchbox.html",
     ]
 }
-html_logo = os.path.join(
-    topsrcdir, "browser/branding/nightly/content/firefox-wordmark.svg"
-)
-html_favicon = os.path.join(topsrcdir, "browser/branding/nightly/firefox.ico")
+html_logo = str(topsrcdir / "browser/branding/nightly/content/firefox-wordmark.svg")
+html_favicon = str(topsrcdir / "browser/branding/nightly/firefox.ico")
 
 exclude_patterns = ["_build", "_staging", "_venv", "**security/nss/legacy/**"]
 pygments_style = "sphinx"
