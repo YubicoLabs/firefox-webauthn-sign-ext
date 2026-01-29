@@ -221,7 +221,15 @@ extern JS_PUBLIC_API JSObject* CreateDefaultExportSyntheticModule(
  */
 extern JS_PUBLIC_API JSObject* CompileWasmModule(
     JSContext* cx, const ReadOnlyCompileOptions& options,
-    js::Vector<uint8_t, 0, js::MallocAllocPolicy>& srcBuf);
+    SourceText<char16_t>& srcBuf);
+
+/**
+ * Parse the given source buffer as a module in the scope of the current global
+ * of cx and return a source text module record.
+ */
+extern JS_PUBLIC_API JSObject* CompileWasmModule(
+    JSContext* cx, const ReadOnlyCompileOptions& options,
+    SourceText<mozilla::Utf8Unit>& srcBuf);
 
 /**
  * Set a private value associated with a source text module record.
