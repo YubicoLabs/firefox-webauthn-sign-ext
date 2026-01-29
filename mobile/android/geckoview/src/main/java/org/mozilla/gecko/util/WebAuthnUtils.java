@@ -136,6 +136,7 @@ public class WebAuthnUtils {
     public final Boolean prfEnabled;
     public final byte[] prfFirst;
     public final byte[] prfSecond;
+    public final Boolean largeBlobSupported;
 
     public static final class Builder {
       private byte[] mClientDataJson;
@@ -147,6 +148,7 @@ public class WebAuthnUtils {
       private Boolean mPrfEnabled;
       private byte[] mPrfFirst;
       private byte[] mPrfSecond;
+      private Boolean mLargeBlobSupported;
 
       public Builder() {}
 
@@ -195,6 +197,11 @@ public class WebAuthnUtils {
         return this;
       }
 
+      public Builder setLargeBlobSupported(final boolean largeBlobSupported) {
+        this.mLargeBlobSupported = Boolean.valueOf(largeBlobSupported);
+        return this;
+      }
+
       public MakeCredentialResponse build() {
         return new MakeCredentialResponse(this);
       }
@@ -211,6 +218,7 @@ public class WebAuthnUtils {
       this.prfEnabled = builder.mPrfEnabled;
       this.prfFirst = builder.mPrfFirst;
       this.prfSecond = builder.mPrfSecond;
+      this.largeBlobSupported = builder.mLargeBlobSupported;
     }
 
     @WrapForJNI(skip = true)
@@ -251,6 +259,9 @@ public class WebAuthnUtils {
                 Base64.encodeToString(
                     this.prfSecond, Base64.URL_SAFE | Base64.NO_WRAP | Base64.NO_PADDING));
       }
+      if (this.largeBlobSupported != null) {
+        sb.append(", largeBlobSupported=").append(this.largeBlobSupported.booleanValue());
+      }
       sb.append("}");
       return sb.toString();
     }
@@ -266,6 +277,8 @@ public class WebAuthnUtils {
     public final String authenticatorAttachment;
     public final byte[] prfFirst;
     public final byte[] prfSecond;
+    public final byte[] largeBlobBlob;
+    public final Boolean largeBlobWritten;
 
     public static final class Builder {
       private byte[] mClientDataJson;
@@ -276,6 +289,8 @@ public class WebAuthnUtils {
       private String mAuthenticatorAttachment;
       private byte[] mPrfFirst;
       private byte[] mPrfSecond;
+      private byte[] mLargeBlobBlob;
+      private Boolean mLargeBlobWritten;
 
       public Builder() {}
 
@@ -319,6 +334,16 @@ public class WebAuthnUtils {
         return this;
       }
 
+      public Builder setLargeBlobBlob(final byte[] largeBlobBlob) {
+        this.mLargeBlobBlob = largeBlobBlob;
+        return this;
+      }
+
+      public Builder setLargeBlobWritten(final boolean largeBlobWritten) {
+        this.mLargeBlobWritten = Boolean.valueOf(largeBlobWritten);
+        return this;
+      }
+
       public GetAssertionResponse build() {
         return new GetAssertionResponse(this);
       }
@@ -338,6 +363,8 @@ public class WebAuthnUtils {
       this.authenticatorAttachment = builder.mAuthenticatorAttachment;
       this.prfFirst = builder.mPrfFirst;
       this.prfSecond = builder.mPrfSecond;
+      this.largeBlobBlob = builder.mLargeBlobBlob;
+      this.largeBlobWritten = builder.mLargeBlobWritten;
     }
 
     @WrapForJNI(skip = true)
@@ -379,6 +406,15 @@ public class WebAuthnUtils {
             .append(
                 Base64.encodeToString(
                     this.prfSecond, Base64.URL_SAFE | Base64.NO_WRAP | Base64.NO_PADDING));
+      }
+      if (this.largeBlobBlob != null) {
+        sb.append(", largeBlobBlob=")
+            .append(
+                Base64.encodeToString(
+                    this.largeBlobBlob, Base64.URL_SAFE | Base64.NO_WRAP | Base64.NO_PADDING));
+      }
+      if (this.largeBlobWritten != null) {
+        sb.append(", largeBlobWritten=").append(this.largeBlobWritten.booleanValue());
       }
       sb.append("}");
       return sb.toString();
@@ -428,6 +464,14 @@ public class WebAuthnUtils {
       } catch (final JSONException e) {
         // prf is optional
       }
+      try {
+        final JSONObject largeBlob = clientExtensionResults.getJSONObject("largeBlob");
+        if (largeBlob.has("supported")) {
+          builder.setLargeBlobSupported(largeBlob.getBoolean("supported"));
+        }
+      } catch (final JSONException e) {
+        // largeBlob is optional
+      }
     } catch (final JSONException e) {
       // clientExtensionResults is an optional. Ignore exception if nothing.
     }
@@ -462,18 +506,33 @@ public class WebAuthnUtils {
 
     try {
       final JSONObject clientExtensionResults = json.getJSONObject("clientExtensionResults");
-      final JSONObject prf = clientExtensionResults.getJSONObject("prf");
-      if (prf.has("results")) {
-        final JSONObject prfResults = prf.getJSONObject("results");
-        if (prfResults.has("first")) {
-          builder.setPrfFirst(Base64.decode(prfResults.getString("first"), Base64.URL_SAFE));
+      try {
+        final JSONObject prf = clientExtensionResults.getJSONObject("prf");
+        if (prf.has("results")) {
+          final JSONObject prfResults = prf.getJSONObject("results");
+          if (prfResults.has("first")) {
+            builder.setPrfFirst(Base64.decode(prfResults.getString("first"), Base64.URL_SAFE));
+          }
+          if (prfResults.has("second")) {
+            builder.setPrfSecond(Base64.decode(prfResults.getString("second"), Base64.URL_SAFE));
+          }
         }
-        if (prfResults.has("second")) {
-          builder.setPrfSecond(Base64.decode(prfResults.getString("second"), Base64.URL_SAFE));
+      } catch (final JSONException e) {
+        // prf is optional
+      }
+      try {
+        final JSONObject largeBlob = clientExtensionResults.getJSONObject("largeBlob");
+        if (largeBlob.has("blob")) {
+          builder.setLargeBlobBlob(Base64.decode(largeBlob.getString("blob"), Base64.URL_SAFE));
         }
+        if (largeBlob.has("written")) {
+          builder.setLargeBlobWritten(largeBlob.getBoolean("written"));
+        }
+      } catch (final JSONException e) {
+        // largeBlob is optional
       }
     } catch (final JSONException e) {
-      // prf is optional
+      // clientExtensionResults is optional
     }
 
     // This response may have clientDataJson value, but signed hash is generated by request

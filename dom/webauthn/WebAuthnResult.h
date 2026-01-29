@@ -105,6 +105,11 @@ class WebAuthnRegisterResult final : public nsIWebAuthnRegisterResult {
               aResponse->PrfSecond()->GetElements().Elements()),
           aResponse->PrfSecond()->Length());
     }
+    if (aResponse->LargeBlobSupported()) {
+      mLargeBlobSupported =
+          Some(java::sdk::Boolean::Ref::From(aResponse->LargeBlobSupported())
+                   ->BooleanValue());
+    }
   }
 #endif
 
@@ -307,6 +312,19 @@ class WebAuthnSignResult final : public nsIWebAuthnSignResult {
           reinterpret_cast<uint8_t*>(
               aResponse->PrfSecond()->GetElements().Elements()),
           aResponse->PrfSecond()->Length());
+    }
+    if (aResponse->LargeBlobBlob() &&
+        aResponse->LargeBlobBlob()->Length() > 0) {
+      mLargeBlobValue.emplace();
+      mLargeBlobValue->AppendElements(
+          reinterpret_cast<uint8_t*>(
+              aResponse->LargeBlobBlob()->GetElements().Elements()),
+          aResponse->LargeBlobBlob()->Length());
+    }
+    if (aResponse->LargeBlobWritten()) {
+      mLargeBlobWritten =
+          Some(java::sdk::Boolean::Ref::From(aResponse->LargeBlobWritten())
+                   ->BooleanValue());
     }
   }
 #endif

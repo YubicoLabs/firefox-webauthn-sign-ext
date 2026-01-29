@@ -28,7 +28,7 @@ public class WebAuthnUtilsTest {
             + "\"type\": \"public-key\" ,"
             + "\"authenticatorAttachment\": \"platform\", "
             + "\"response\": {\"attestationObject\": \"AQIDBAUGBwgJCgsMDQ4PEA\", \"transports\": [ \"internal\" ]},"
-            + "\"clientExtensionResults\": {\"credProps\": {\"rk\": true }, \"prf\": {\"enabled\": true}}"
+            + "\"clientExtensionResults\": {\"credProps\": {\"rk\": true }, \"prf\": {\"enabled\": true}, \"largeBlob\": {\"supported\": true}}"
             + "}";
     final WebAuthnUtils.MakeCredentialResponse response =
         WebAuthnUtils.getMakeCredentialResponse(responseJSON);
@@ -48,6 +48,7 @@ public class WebAuthnUtilsTest {
     assertTrue("prfEnabled should be true", response.prfEnabled);
     assertEquals("prfFirst should be null", response.prfFirst, null);
     assertEquals("prfSecond should be null", response.prfSecond, null);
+    assertTrue("largeBlobSupported should be true", response.largeBlobSupported);
   }
 
   @Test(expected = JSONException.class)
@@ -72,7 +73,8 @@ public class WebAuthnUtilsTest {
             + "\"id\": \"AAECAwQFBgcICQoLDA0ODw\" ,"
             + "\"rawId\": \"AAECAwQFBgcICQoLDA0ODw\" ,"
             + "\"authenticatorAttachment\": \"platform\", "
-            + "\"response\": {\"authenticatorData\": \"AQIDBAUGBwgJCgsMDQ4PEA\", \"signature\": \"AgMEBQYHCAkKCwwNDg8QEQ\"}"
+            + "\"response\": {\"authenticatorData\": \"AQIDBAUGBwgJCgsMDQ4PEA\", \"signature\": \"AgMEBQYHCAkKCwwNDg8QEQ\"},"
+            + "\"clientExtensionResults\": {\"largeBlob\": {\"blob\": \"AAECAwQFBgcICQoLDA0ODw\"}}"
             + "}";
     final WebAuthnUtils.GetAssertionResponse response =
         WebAuthnUtils.getGetAssertionResponse(responseJSON);
@@ -87,12 +89,17 @@ public class WebAuthnUtilsTest {
         new byte[] {
           0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd, 0xe, 0xf, 0x10, 0x11
         };
+    final byte[] largeBlobBlob =
+        new byte[] {0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd, 0xe, 0xf};
     assertTrue("rawId should be matched", Arrays.equals(response.keyHandle, rawId));
     assertTrue("authenticatorData should be matched", Arrays.equals(response.authData, authData));
     assertTrue("signature should be matched", Arrays.equals(response.signature, signature));
     assertEquals(
         "authenticatorAttachment should be matched", response.authenticatorAttachment, "platform");
     assertEquals("No clientDataJson in response", response.clientDataJson, null);
+    assertTrue(
+        "largeBlobBlob should be matched", Arrays.equals(response.largeBlobBlob, largeBlobBlob));
+    assertEquals("largeBlobWritten should be null", response.largeBlobWritten, null);
   }
 
   @Test(expected = JSONException.class)
@@ -200,5 +207,22 @@ public class WebAuthnUtilsTest {
 
     assertTrue("prfFirst should be matched", Arrays.equals(response.prfFirst, expectedFirst));
     assertEquals("prfSecond should be null", response.prfSecond, null);
+  }
+
+  @Test
+  public void responseJSONForGetAssertionWithLargeBlobWritten() throws Exception {
+    final String responseJSON =
+        "{"
+            + "\"id\": \"AAECAwQFBgcICQoLDA0ODw\" ,"
+            + "\"rawId\": \"AAECAwQFBgcICQoLDA0ODw\" ,"
+            + "\"authenticatorAttachment\": \"platform\", "
+            + "\"response\": {\"authenticatorData\": \"AQIDBAUGBwgJCgsMDQ4PEA\", \"signature\": \"AgMEBQYHCAkKCwwNDg8QEQ\"},"
+            + "\"clientExtensionResults\": {\"largeBlob\": {\"written\": true}}"
+            + "}";
+    final WebAuthnUtils.GetAssertionResponse response =
+        WebAuthnUtils.getGetAssertionResponse(responseJSON);
+
+    assertTrue("largeBlobWritten should be true", response.largeBlobWritten);
+    assertEquals("largeBlobBlob should be null", response.largeBlobBlob, null);
   }
 }
