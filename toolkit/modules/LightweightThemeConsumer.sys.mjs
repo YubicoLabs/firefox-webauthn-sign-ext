@@ -233,6 +233,18 @@ export function LightweightThemeConsumer(aDocument) {
     () => this._update(this._lastData)
   );
 
+  XPCOMUtils.defineLazyPreferenceGetter(
+    this,
+    "_toolbarTheme",
+    "browser.theme.toolbar-theme",
+    2,
+    () => {
+      if (this._isAIWindow) {
+        this._update(this._lastData);
+      }
+    }
+  );
+
   Services.obs.addObserver(this, "lightweight-theme-styling-update");
 
   this.darkThemeMediaQuery = this._win.matchMedia("(-moz-system-dark-theme)");
@@ -266,9 +278,7 @@ LightweightThemeConsumer.prototype = {
       return;
     }
 
-    if (!this._isAIWindow) {
-      this._update(data);
-    }
+    this._update(data);
   },
 
   handleEvent(aEvent) {
@@ -310,14 +320,20 @@ LightweightThemeConsumer.prototype = {
     }
     this._lastData = themeData;
 
-    let supportsDarkTheme =
-      !!themeData.darkTheme ||
-      !themeData.theme ||
-      themeData.theme.id == DEFAULT_THEME_ID;
     let updateGlobalThemeData = true;
     const useDarkTheme = (() => {
+      let supportsDarkTheme =
+        !!themeData.darkTheme ||
+        !themeData.theme ||
+        themeData.theme.id == DEFAULT_THEME_ID;
+
       if (!supportsDarkTheme) {
         return false;
+      }
+
+      // AI windows: use toolbar theme pref (0=dark, 1=light, 2=system)
+      if (this._isAIWindow && this._toolbarTheme != 2) {
+        return this._toolbarTheme == 0;
       }
 
       if (this.darkThemeMediaQuery?.matches) {
