@@ -40,6 +40,7 @@ palette = "1.0.0"
 preferences = "1.2.1"
 profileinstaller = "1.4.0"
 recyclerview = "1.4.0"
+documentfile = "1.0.1"
 room = "2.8.4"
 savedstate = "1.4.0"
 swiperefreshlayout = "1.2.0"
@@ -171,6 +172,7 @@ androidx-palette = { group = "androidx.palette", name = "palette-ktx", version.r
 androidx-preferences = { group = "androidx.preference", name = "preference", version.ref = "preferences" }
 androidx-profileinstaller = { group = "androidx.profileinstaller", name = "profileinstaller", version.ref = "profileinstaller" }
 androidx-recyclerview = { group = "androidx.recyclerview", name = "recyclerview", version.ref = "recyclerview" }
+androidx-documentfile = { group = "androidx.documentfile", name = "documentfile", version.ref = "documentfile" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 androidx-room-runtime = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 androidx-room-testing = { group = "androidx.room", name = "room-testing", version.ref = "room" }
