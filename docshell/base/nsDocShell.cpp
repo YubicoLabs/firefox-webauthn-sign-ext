@@ -443,23 +443,17 @@ nsresult nsDocShell::InitWindow(nsIWidget* aParentWidget, int32_t aX,
                                 mozilla::dom::WindowGlobalChild* aWindowActor) {
   SetParentWidget(aParentWidget);
   SetPositionAndSize(aX, aY, aWidth, aHeight, 0);
-  if (!Initialize(aOpenWindowInfo, aWindowActor)) {
-    // Since bug 543435, Initialize can fail and propagating this would
-    // cause callers to crash when they didn't previously (bug 2003244).
-    NS_WARNING("Failed to initialize docshell");
-  }
-
-  return NS_OK;
+  return Initialize(aOpenWindowInfo, aWindowActor);
 }
 
-bool nsDocShell::Initialize(nsIOpenWindowInfo* aOpenWindowInfo,
-                            mozilla::dom::WindowGlobalChild* aWindowActor) {
+nsresult nsDocShell::Initialize(nsIOpenWindowInfo* aOpenWindowInfo,
+                                mozilla::dom::WindowGlobalChild* aWindowActor) {
   if (mInitialized) {
     // We've already been initialized.
     MOZ_ASSERT(!aOpenWindowInfo,
                "Tried to reinitialize with override principal");
     MOZ_ASSERT(!aWindowActor, "Tried to reinitialize with a window actor");
-    return true;
+    return NS_OK;
   }
 
   MOZ_ASSERT(aOpenWindowInfo,
@@ -468,15 +462,14 @@ bool nsDocShell::Initialize(nsIOpenWindowInfo* aOpenWindowInfo,
   NS_ASSERTION(mItemType == typeContent || mItemType == typeChrome,
                "Unexpected item type in docshell");
 
-  NS_ENSURE_TRUE(Preferences::GetRootBranch(), false);
+  NS_ENSURE_TRUE(Preferences::GetRootBranch(), NS_ERROR_NOT_INITIALIZED);
   mInitialized = true;
 
   mDisableMetaRefreshWhenInactive =
       Preferences::GetBool("browser.meta_refresh_when_inactive.disabled",
                            mDisableMetaRefreshWhenInactive);
 
-  bool succeeded =
-      NS_SUCCEEDED(CreateInitialDocumentViewer(aOpenWindowInfo, aWindowActor));
+  nsresult rv = CreateInitialDocumentViewer(aOpenWindowInfo, aWindowActor);
 
   if (nsCOMPtr<nsIObserverService> serv = services::GetObserverService()) {
     const char* msg = mItemType == typeContent ? NS_WEBNAVIGATION_CREATE
@@ -484,7 +477,7 @@ bool nsDocShell::Initialize(nsIOpenWindowInfo* aOpenWindowInfo,
     serv->NotifyWhenScriptSafe(GetAsSupports(this), msg, nullptr);
   }
 
-  return succeeded;
+  return rv;
 }
 
 /* static */
