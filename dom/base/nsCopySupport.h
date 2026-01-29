@@ -36,14 +36,12 @@ class nsCopySupport {
  public:
   static nsresult ClearSelectionCache();
 
-  enum class UpdateClipboard : bool { No, Yes };
   /**
    * @param aDoc Needs to be not nullptr.
    */
   static nsresult EncodeDocumentWithContextAndPutToClipboard(
       mozilla::dom::Selection* aSel, mozilla::dom::Document* aDoc,
-      nsIClipboard::ClipboardType aClipboardID, bool aWithRubyAnnotation,
-      UpdateClipboard = UpdateClipboard::Yes);
+      nsIClipboard::ClipboardType aClipboardID, bool aWithRubyAnnotation);
 
   // Get the selection, or entire document, in the format specified by the mime
   // type (text/html or text/plain). If aSel is non-null, use it, otherwise get
