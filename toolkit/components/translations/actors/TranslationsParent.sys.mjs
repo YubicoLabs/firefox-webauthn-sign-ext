@@ -30,8 +30,6 @@ const MOST_RECENT_TARGET_LANGS_PREF =
   "browser.translations.mostRecentTargetLanguages";
 const TOPIC_NS_PREF_CHANGED = "nsPref:changed";
 const TOPIC_TRANSLATIONS_PREF_CHANGED = "translations:pref-changed";
-const TOPIC_TRANSLATIONS_ENABLED_STATE_CHANGED =
-  "translations:enabled-state-changed";
 const TOPIC_MAYBE_UPDATE_USER_LANG_TAG =
   "translations:maybe-update-user-lang-tag";
 const TOPIC_APP_LOCALES_CHANGED = "intl:app-locales-changed";
@@ -103,6 +101,12 @@ ChromeUtils.defineLazyGetter(lazy, "console", () => {
     prefix: "Translations",
   });
 });
+
+XPCOMUtils.defineLazyPreferenceGetter(
+  lazy,
+  "translationsEnabledPref",
+  "browser.translations.enable"
+);
 
 /**
  * Returns whether Translations should utilize lexical shortlisting.
@@ -238,72 +242,65 @@ const VERIFY_SIGNATURES_FROM_FS = false;
  */
 
 /**
- * The state that is stored per tab.
+ * The state that is stored per a "top" ChromeWindow. This "top" ChromeWindow is the JS
+ * global associated with a browser window. Some state is unique to a browser window, and
+ * using the top ChromeWindow is a unique key that ensures the state will be unique to
+ * that browser window.
  *
+ * See BrowsingContext.webidl for information on the "top"
  * See the TranslationsParent JSDoc for more information on the state management.
  */
-class StatePerTab {
+class StatePerTopChromeWindow {
   /**
-   * A mapping from the browser element to the state for this tab.
+   * The storage backing for the states.
    *
-   * @type {WeakMap<object, StatePerTab>}
+   * @type {WeakMap<ChromeWindow, StatePerTopChromeWindow>}
    */
   static #states = new WeakMap();
 
   /**
    * When reloading the page, store the language pair that needs translating.
    *
-   * @type {LanguagePair | null}
+   * @type {null | LanguagePair}
    */
   translateOnPageReload = null;
+
+  /**
+   * The page may auto-translate due to user settings. On a page restore, always
+   * skip the page restore logic.
+   *
+   * @type {boolean}
+   */
+  isPageRestored = false;
 
   /**
    * Remember the detected languages on a page reload. This will keep the translations
    * button from disappearing and reappearing, which causes the button to lose focus.
    *
-   * @type {LangTags | null}
+   * @type {LangTags | null} previousDetectedLanguages
    */
-  detectedLanguages = null;
+  previousDetectedLanguages = null;
+
+  static #id = 0;
+  /**
+   * @param {ChromeWindow} topChromeWindow
+   */
+  constructor(topChromeWindow) {
+    this.id = StatePerTopChromeWindow.#id++;
+    StatePerTopChromeWindow.#states.set(topChromeWindow, this);
+  }
 
   /**
-   * The URL of the page where detectedLanguages was captured.
-   *
-   * This is used to ensure that the cached detectedLanguage are only considered
-   * if we are on the same URL that they were captured from, otherwise they are
-   * ignored and discarded.
-   *
-   * @type {string | null}
+   * @param {ChromeWindow} topChromeWindow
+   * @returns {StatePerTopChromeWindow}
    */
-  url = null;
-
-  /**
-   * The page may auto-translate due to user settings. On a page restore, always
-   * skip the logic that would cause an immediate auto re-translation.
-   *
-   * @type {boolean}
-   */
-  skipAutoTranslate = false;
-
-  /**
-   * If a translation was active when the feature was disabled, the page content
-   * is in a partially translated state and needs to be reloaded before allowing
-   * a new translation.
-   *
-   * @type {boolean}
-   */
-  needsReloadBeforeTranslation = false;
-
-  /**
-   * @param {object} browser
-   * @returns {StatePerTab}
-   */
-  static getOrCreate(browser) {
-    let state = StatePerTab.#states.get(browser);
+  static getOrCreate(topChromeWindow) {
+    let state = StatePerTopChromeWindow.#states.get(topChromeWindow);
     if (state) {
       return state;
     }
-    state = new StatePerTab();
-    StatePerTab.#states.set(browser, state);
+    state = new StatePerTopChromeWindow(topChromeWindow);
+    StatePerTopChromeWindow.#states.set(topChromeWindow, state);
     return state;
   }
 }
@@ -316,7 +313,7 @@ class StatePerTab {
  * Care must be taken for the life cycle of the state management and data caching. The
  * following examples use a fictitious `myState` property to show how state can be stored.
  *
- * There is only one TranslationsParent static class in the parent process. At this
+ * There is only 1 TranslationsParent static class in the parent process. At this
  * layer it is safe to store things like translation models and general browser
  * configuration as these don't change across browser windows. This is accessed like
  * `TranslationsParent.myState`
@@ -328,30 +325,26 @@ class StatePerTab {
  * abstraction, like `this.getWindowState().myState`. This layer also consists of a
  * `FullPageTranslationsPanel` instance per top ChromeWindow (at least on Desktop).
  *
- * The final layer consists of the TranslationsParent actor instances, which exist per tab
- * and are recreated on page reload. Data for this layer is safe to store on the
- * TranslationsParent instance, like `this.myState`. However, any data related to the actor
- * instance that needs to persist between page loads or navigation should be stored in the
- * StatePerTab map.
+ * The final layer consists of the multiple tabs and navigation history inside of a
+ * ChromeWindow. Data for this layer is safe to store on the TranslationsParent instance,
+ * like `this.myState`.
  *
  * Below is an ascii diagram of this relationship.
  *
  *   ┌─────────────────────────────────────────────────────────────────────────────┐
  *   │                           static TranslationsParent                         │
  *   └─────────────────────────────────────────────────────────────────────────────┘
- *                    |                                         |
- *                    v                                         v
+ *                  |                                       |
+ *                  v                                       v
  * ┌──────────────────────────────────────┐   ┌──────────────────────────────────────┐
  * │         top ChromeWindow             │   │        top ChromeWindow              │
  * │ (FullPageTranslationsPanel instance) │   │ (FullPageTranslationsPanel instance) │
- * │ + (Translations URL Button instance) │   │ + (Translations URL Button instance) │
  * └──────────────────────────────────────┘   └──────────────────────────────────────┘
  *             |               |       |                |              |       |
  *             v               v       v                v              v       v
  *   ┌────────────────────┐ ┌─────┐ ┌─────┐  ┌────────────────────┐ ┌─────┐ ┌─────┐
  *   │ TranslationsParent │ │ ... │ │ ... │  │ TranslationsParent │ │ ... │ │ ... │
  *   │  (actor instance)  │ │     │ │     │  │  (actor instance)  │ │     │ │     │
- *   │   + StatePerTab    │ │     │ │     │  │   + StatePerTab    │ │     │ │     │
  *   └────────────────────┘ └─────┘ └─────┘  └────────────────────┘ └─────┘ └─────┘
  */
 export class TranslationsParent extends JSWindowActorParent {
@@ -502,27 +495,16 @@ export class TranslationsParent extends JSWindowActorParent {
   static #REACT_TO_PAGE_LANGUAGE_TIMEOUT = 500;
 
   /**
-   * Tracks the language-detection lifecycle for the page associated with this actor.
-   * - null: Detection has not started.
-   * - PromiseWithResolvers: Detection has started.
+   * A race that determines when to react to to the page's language tag.
    *
-   * The promise resolves with the reason that detection started, so that it can be
-   * logged to the console.
+   * Ideally, we want to wait for the page to fully load, but we may have
+   * to take action before that.
    *
-   * Detection may start due to 3 scenarios.
-   *
-   * 1) The page loaded while the Translations feature was disabled, and then the user
-   *    enabled the feature in a different tab via the Firefox AI Settings.
-   *
-   * 2) The page loaded with the Translations feature enabled, and we received the "load"
-   *    event before our timeout, signaling that we are ready to scrape the page content.
-   *
-   * 3) The page is loading with the Translations feature enabled, and we received DOMContentLoaded,
-   *    but have not received the "load" event before our specified timeout.
+   * @see {TranslationsParent#REACT_TO_PAGE_LANGUAGE_TIMEOUT}
    *
    * @type {PromiseWithResolvers<string> | null}
    */
-  #languageDetectionReason = null;
+  #reactToPageLanguageRace = null;
 
   /**
    * Contains the state that would affect UI. Anytime this state is changed, a dispatch
@@ -575,41 +557,39 @@ export class TranslationsParent extends JSWindowActorParent {
     return this.#findBar;
   }
 
+  /**
+   * There is only one static TranslationsParent for all of the top ChromeWindows.
+   * The top ChromeWindow maps to the user's conception of a window such as when you hit
+   * cmd+n or ctrl+n.
+   *
+   * @returns {StatePerTopChromeWindow}
+   */
+  getWindowState() {
+    const state = StatePerTopChromeWindow.getOrCreate(
+      this.browsingContext.top.embedderWindowGlobal
+    );
+    return state;
+  }
+
   actorCreated() {
-    const browser = this.browsingContext?.top?.embedderElement;
-    if (!browser) {
-      lazy.console.warn("Actor created for invalid browser element");
-      return;
-    }
-
-    this.innerWindowId = browser.innerWindowID;
-    const tabState = StatePerTab.getOrCreate(browser);
-
-    const currentUrl = browser.currentURI?.spec;
-    const detectedLanguages =
-      currentUrl === tabState.url ? tabState.detectedLanguages : null;
-
-    tabState.detectedLanguages = null;
-    tabState.url = null;
-
-    this.languageState = new TranslationsLanguageState(this, detectedLanguages);
+    this.innerWindowId = this.browsingContext.top.embedderElement.innerWindowID;
+    const windowState = this.getWindowState();
+    this.languageState = new TranslationsLanguageState(
+      this,
+      windowState.previousDetectedLanguages
+    );
+    windowState.previousDetectedLanguages = null;
 
     this.#boundObserve = this.#observe.bind(this);
     Services.obs.addObserver(
       this.#boundObserve,
       TOPIC_MAYBE_UPDATE_USER_LANG_TAG
     );
-    Services.obs.addObserver(
-      this.#boundObserve,
-      TOPIC_TRANSLATIONS_ENABLED_STATE_CHANGED
-    );
 
-    this.#registerFindBarEventListeners(browser);
-
-    if (tabState.translateOnPageReload) {
+    if (windowState.translateOnPageReload) {
       // The actor was recreated after a page reload, start the translation.
-      const languagePair = tabState.translateOnPageReload;
-      tabState.translateOnPageReload = null;
+      const languagePair = windowState.translateOnPageReload;
+      windowState.translateOnPageReload = null;
 
       lazy.console.log(
         `Translating on a page reload from "${lazy.TranslationsUtils.serializeLanguagePair(languagePair)}".`
@@ -619,92 +599,12 @@ export class TranslationsParent extends JSWindowActorParent {
         languagePair,
         false // reportAsAutoTranslate
       );
-
-      return;
     }
 
-    // On Android there is no gBrowser, but there is effectively only one tab visible
-    // at a time, so treat Android as always having the selected tab.
-    const isSelectedTab =
-      AppConstants.platform === "android" ||
-      browser === browser.ownerGlobal?.gBrowser?.selectedBrowser;
-
-    if (tabState.needsReloadBeforeTranslation && isSelectedTab) {
-      tabState.needsReloadBeforeTranslation = false;
-      browser.reload();
-      return;
+    const browser = this.browsingContext.top.embedderElement;
+    if (browser) {
+      this.#registerFindBarEventListeners(browser);
     }
-
-    this.languageState.dispatch({ reason: "actor-created" });
-    this.#maybeDetectLanguagesIfDocumentReady(isSelectedTab);
-  }
-
-  /**
-   * If the document is already in an interactive or complete state, run language detection.
-   * Otherwise, do nothing, since the language detection will trigger when the page loads.
-   *
-   * This is needed when the feature is re-enabled on pages that are already loaded.
-   *
-   * @param {boolean} isSelectedTab
-   */
-  async #maybeDetectLanguagesIfDocumentReady(isSelectedTab) {
-    if (this.languageState.detectedLanguages || this.#languageDetectionReason) {
-      // Detection already completed or is in progress.
-      return;
-    }
-
-    let isDocumentReady;
-    try {
-      isDocumentReady = await this.sendQuery("Translations:IsDocumentReady");
-    } catch (error) {
-      lazy.console.error("Failed to check document readiness.", error);
-      return;
-    }
-
-    if (this.#isDestroyed) {
-      return;
-    }
-
-    if (!isDocumentReady) {
-      // The document is not ready yet. Language detection will be triggered when the page loads.
-      return;
-    }
-
-    if (this.#languageDetectionReason) {
-      // The document is ready, but the DOMContentLoaded path already triggered language detection.
-      return;
-    }
-
-    this.#languageDetectionReason = Promise.withResolvers();
-    this.#languageDetectionReason.resolve("actor-created");
-
-    await this.#languageDetectionReason.promise.then(async reason => {
-      try {
-        if (this.#isDestroyed) {
-          return;
-        }
-
-        const htmlLangAttribute = await this.queryDocumentElementLang();
-        if (this.#isDestroyed) {
-          return;
-        }
-
-        if (isSelectedTab) {
-          await this.#reactToPageLanguage(htmlLangAttribute, reason);
-        } else {
-          const detectedLanguages =
-            await this.getDetectedLanguages(htmlLangAttribute);
-
-          if (this.#isDestroyed || !detectedLanguages) {
-            return;
-          }
-
-          this.languageState.detectedLanguages = detectedLanguages;
-        }
-      } catch (error) {
-        lazy.console.error("Failed to run language detection.", error);
-      }
-    });
   }
 
   /**
@@ -1220,21 +1120,6 @@ export class TranslationsParent extends JSWindowActorParent {
   }
 
   /**
-   * Notifies observers when the Translations feature enabled state changes.
-   * Called by ActorManagerParent after the actor has been registered or unregistered,
-   * ensuring that actors are available when observers receive the notification.
-   *
-   * @param {boolean} isEnabled
-   */
-  static onIsEnabledChanged(isEnabled) {
-    Services.obs.notifyObservers(
-      null,
-      TOPIC_TRANSLATIONS_ENABLED_STATE_CHANGED,
-      isEnabled ? "enabled" : "disabled"
-    );
-  }
-
-  /**
    * Provide a way for tests to override the system locales.
    *
    * @type {null | string[]}
@@ -1377,7 +1262,7 @@ export class TranslationsParent extends JSWindowActorParent {
    * Initializes static pref observers exactly once the first time this is called.
    * Does nothing on subsequent calls.
    */
-  static ensurePrefObservers() {
+  static #maybeStartObservingPrefs() {
     if (TranslationsParent.#observingPrefs) {
       // We have already initialized the observers.
       return;
@@ -1544,12 +1429,6 @@ export class TranslationsParent extends JSWindowActorParent {
         this.#maybeUpdateUserLangTag();
         break;
       }
-      case TOPIC_TRANSLATIONS_ENABLED_STATE_CHANGED: {
-        this.languageState?.dispatch({
-          reason: "feature-enabled-state-changed",
-        });
-        break;
-      }
       default: {
         lazy.console.error(
           `Unexpected topic observed by TranslationsParent actor: '${topic}'`
@@ -1620,12 +1499,8 @@ export class TranslationsParent extends JSWindowActorParent {
    * Updates the user's language tag if it has changed from the current.
    */
   #maybeUpdateUserLangTag() {
-    if (!this.languageState) {
-      return;
-    }
-    const docLangTag = this.languageState.detectedLanguages?.docLangTag;
     const langTag = TranslationsParent.getPreferredLanguages({
-      excludeLangTags: docLangTag ? [docLangTag] : [],
+      excludeLangTags: [this.languageState.detectedLanguages?.docLangTag],
     })[0];
     this.languageState.maybeUpdateUserLangTag(langTag);
   }
@@ -1653,7 +1528,7 @@ export class TranslationsParent extends JSWindowActorParent {
       );
     }
 
-    TranslationsParent.ensurePrefObservers();
+    TranslationsParent.#maybeStartObservingPrefs();
 
     const preferredLanguages = new Set([
       ...TranslationsParent.#getMostRecentTargetLanguages(),
@@ -1775,22 +1650,17 @@ export class TranslationsParent extends JSWindowActorParent {
 
     switch (name) {
       case "Translations:DOMContentLoaded": {
-        if (
-          this.languageState?.detectedLanguages ||
-          this.#languageDetectionReason
-        ) {
-          return undefined;
-        }
-
         const { htmlLangAttribute } = data;
-        this.#languageDetectionReason = Promise.withResolvers();
-        const { promise, resolve } = this.#languageDetectionReason;
 
-        promise.then(async reason => {
+        this.#reactToPageLanguageRace = Promise.withResolvers();
+        const { promise, resolve } = this.#reactToPageLanguageRace;
+
+        promise.then(reason => {
           if (this.#isDestroyed) {
             return;
           }
-          await this.#reactToPageLanguage(htmlLangAttribute, reason);
+          this.#reactToPageLanguage(htmlLangAttribute, reason);
+          this.#reactToPageLanguageRace = null;
         });
 
         lazy.setTimeout(() => {
@@ -1800,16 +1670,10 @@ export class TranslationsParent extends JSWindowActorParent {
         return undefined;
       }
       case "Translations:Load": {
-        this.#languageDetectionReason?.resolve("load");
+        this.#reactToPageLanguageRace?.resolve("load");
         return undefined;
       }
       case "Translations:RequestPort": {
-        if (!this.languageState) {
-          lazy.console.error(
-            "A port was requested but the actor was not fully initialized"
-          );
-          return undefined;
-        }
         const { requestedLanguagePair } = this.languageState;
         if (!requestedLanguagePair) {
           lazy.console.error(
@@ -1854,9 +1718,7 @@ export class TranslationsParent extends JSWindowActorParent {
         return undefined;
       }
       case "Translations:ReportFirstVisibleChange": {
-        if (this.languageState) {
-          this.languageState.hasVisibleChange = true;
-        }
+        this.languageState.hasVisibleChange = true;
       }
     }
     return undefined;
@@ -1948,11 +1810,10 @@ export class TranslationsParent extends JSWindowActorParent {
    * @returns {boolean}
    */
   #maybeAutoTranslate(langTags) {
-    const browser = this.browsingContext.top.embedderElement;
-    const tabState = StatePerTab.getOrCreate(browser);
-    if (tabState.skipAutoTranslate) {
+    const windowState = this.getWindowState();
+    if (windowState.isPageRestored) {
       // The user clicked the restore button. Respect it for one page load.
-      tabState.skipAutoTranslate = false;
+      windowState.isPageRestored = false;
 
       // Skip this auto-translation.
       return false;
@@ -2546,7 +2407,7 @@ export class TranslationsParent extends JSWindowActorParent {
       return TranslationsParent.#translationModelRecords;
     }
 
-    TranslationsParent.ensurePrefObservers();
+    TranslationsParent.#maybeStartObservingPrefs();
 
     // Load the models. If no data is present, then there will be an initial sync.
     // Rely on Remote Settings for the syncing strategy for receiving updates.
@@ -3569,152 +3430,110 @@ export class TranslationsParent extends JSWindowActorParent {
       );
       return;
     }
-    const browser = this.browsingContext.top.embedderElement;
-    const tabState = StatePerTab.getOrCreate(browser);
-
-    if (tabState.needsReloadBeforeTranslation) {
-      tabState.needsReloadBeforeTranslation = false;
-      tabState.translateOnPageReload = languagePair;
-      browser.reload();
-      return;
-    }
-
-    if (!this.languageState) {
-      lazy.console.error(
-        "Translation requested but actor not fully initialized"
-      );
-      return;
-    }
-
     if (this.languageState.requestedLanguagePair) {
-      tabState.translateOnPageReload = languagePair;
-      this.restorePage();
-      return;
-    }
+      // This page has already been translated, restore it and translate it
+      // again once the actor has been recreated.
+      const windowState = this.getWindowState();
+      windowState.translateOnPageReload = languagePair;
+      this.restorePage(sourceLanguage);
+    } else {
+      const { docLangTag } = this.languageState.detectedLanguages;
 
-    const detectedLanguages =
-      await this.#ensureDetectedLanguagesForTranslation();
-    if (!detectedLanguages) {
-      return;
-    }
+      if (!this.innerWindowId) {
+        throw new Error(
+          "The innerWindowId for the TranslationsParent was not available."
+        );
+      }
 
-    const { docLangTag } = detectedLanguages;
-
-    if (!this.innerWindowId) {
-      throw new Error(
-        "The innerWindowId for the TranslationsParent was not available."
+      // The MessageChannel will be used for communicating directly between the content
+      // process and the engine's process.
+      const port = await TranslationsParent.requestTranslationsPort(
+        languagePair,
+        this
       );
-    }
 
-    // The MessageChannel will be used for communicating directly between the content
-    // process and the engine's process.
-    const port = await TranslationsParent.requestTranslationsPort(
-      languagePair,
-      this
-    );
+      if (!port) {
+        lazy.console.error(
+          `Failed to create a translations port for language pair: (${lazy.TranslationsUtils.serializeLanguagePair(languagePair)})`
+        );
+        return;
+      }
 
-    if (!port) {
-      lazy.console.error(
-        `Failed to create a translations port for language pair: (${lazy.TranslationsUtils.serializeLanguagePair(languagePair)})`
-      );
-      return;
-    }
+      this.languageState.requestedLanguagePair = languagePair;
 
-    this.languageState.requestedLanguagePair = languagePair;
+      const preferredLanguages = TranslationsParent.getPreferredLanguages();
+      const topPreferredLanguage =
+        preferredLanguages && preferredLanguages.length
+          ? preferredLanguages[0]
+          : null;
 
-    const preferredLanguages = TranslationsParent.getPreferredLanguages();
-    const topPreferredLanguage =
-      preferredLanguages && preferredLanguages.length
-        ? preferredLanguages[0]
-        : null;
+      TranslationsParent.telemetry().onTranslate({
+        docLangTag,
+        sourceLanguage,
+        targetLanguage,
+        topPreferredLanguage,
+        autoTranslate: reportAsAutoTranslate,
+        requestTarget: "full_page",
+      });
 
-    TranslationsParent.telemetry().onTranslate({
-      docLangTag,
-      sourceLanguage,
-      targetLanguage,
-      topPreferredLanguage,
-      autoTranslate: reportAsAutoTranslate,
-      requestTarget: "full_page",
-    });
+      TranslationsParent.storeMostRecentTargetLanguage(targetLanguage);
 
-    TranslationsParent.storeMostRecentTargetLanguage(targetLanguage);
+      let isFindBarOpen;
 
-    let isFindBarOpen;
+      if (this.#findBar) {
+        isFindBarOpen = !this.#findBar.hidden;
+      }
 
-    if (this.#findBar) {
-      isFindBarOpen = !this.#findBar.hidden;
-    }
+      if (isFindBarOpen === undefined && AppConstants.platform !== "android") {
+        const browser = this.browsingContext?.top.embedderElement;
+        if (browser) {
+          const tabBrowser = browser.getTabBrowser();
+          const findBar = tabBrowser.getCachedFindBar();
 
-    if (isFindBarOpen === undefined && AppConstants.platform !== "android") {
-      /* eslint-disable-next-line no-shadow */
-      const browser = this.browsingContext?.top.embedderElement;
-      if (browser) {
-        const tabBrowser = browser.getTabBrowser();
-        const findBar = tabBrowser.getCachedFindBar();
-
-        if (findBar) {
-          isFindBarOpen = findBar.hidden;
-        } else {
-          isFindBarOpen = false;
+          if (findBar) {
+            isFindBarOpen = findBar.hidden;
+          } else {
+            isFindBarOpen = false;
+          }
         }
       }
-    }
 
-    this.sendAsyncMessage(
-      "Translations:TranslatePage",
-      {
-        isFindBarOpen,
-        languagePair,
-        port,
-      },
-      // https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Transferable_objects
-      // Mark the MessageChannel port as transferable.
-      [port]
-    );
+      this.sendAsyncMessage(
+        "Translations:TranslatePage",
+        {
+          isFindBarOpen,
+          languagePair,
+          port,
+        },
+        // https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Transferable_objects
+        // Mark the MessageChannel port as transferable.
+        [port]
+      );
+    }
   }
 
   /**
    * Restore the page to the original language by doing a hard reload.
    */
   restorePage() {
-    if (!this.languageState) {
-      lazy.console.error(
-        "Restore page requested but actor not fully initialized"
-      );
-      return;
-    }
     TranslationsParent.telemetry().onRestorePage();
-    const browser = this.browsingContext.embedderElement;
-    const tabState = StatePerTab.getOrCreate(browser);
-    tabState.skipAutoTranslate = true;
-    tabState.needsReloadBeforeTranslation = false;
-    tabState.detectedLanguages = this.languageState.detectedLanguages;
-    tabState.url = browser.currentURI?.spec;
+    // Skip auto-translate for one page load.
+    const windowState = this.getWindowState();
+    windowState.isPageRestored = true;
     this.languageState.hasVisibleChange = false;
     this.languageState.requestedLanguagePair = null;
+    windowState.previousDetectedLanguages =
+      this.languageState.detectedLanguages;
 
+    const browser = this.browsingContext.embedderElement;
     browser.reload();
   }
 
-  /**
-   * Called when the browser's location changes. This is only invoked for location
-   * changes in the currently selected browser, not for background tabs.
-   *
-   * @param {object} browser
-   */
   static onLocationChange(browser) {
-    if (!TranslationsParent.AIFeature.isEnabled) {
+    if (!lazy.translationsEnabledPref) {
       // The pref isn't enabled, so don't attempt to get the actor.
       return;
     }
-
-    const tabState = StatePerTab.getOrCreate(browser);
-    if (tabState.needsReloadBeforeTranslation) {
-      tabState.needsReloadBeforeTranslation = false;
-      browser.reload();
-      return;
-    }
-
     let actor;
     try {
       actor =
@@ -3722,7 +3541,6 @@ export class TranslationsParent extends JSWindowActorParent {
     } catch {
       // The actor may not be supported on this page, which throws an error.
     }
-
     actor?.languageState.locationChanged();
   }
 
@@ -4173,34 +3991,6 @@ export class TranslationsParent extends JSWindowActorParent {
   }
 
   /**
-   * Ensures that detected languages are available for translation, performing detection if necessary.
-   *
-   * @returns {Promise<LangTags | null>} The detected languages, or null if detection failed
-   */
-  async #ensureDetectedLanguagesForTranslation() {
-    if (this.languageState.detectedLanguages) {
-      return this.languageState.detectedLanguages;
-    }
-
-    const htmlLangAttribute = await this.queryDocumentElementLang();
-    const detectedLanguages =
-      await this.getDetectedLanguages(htmlLangAttribute);
-
-    if (!detectedLanguages) {
-      lazy.console.error("Failed to detect languages for translation request.");
-      return null;
-    }
-
-    this.languageState.detectedLanguages = detectedLanguages;
-
-    await this.maybeOfferTranslations(detectedLanguages).catch(error =>
-      lazy.console.error(error)
-    );
-
-    return detectedLanguages;
-  }
-
-  /**
    * The pref for if we can always offer a translation when it's available.
    */
   static shouldAlwaysOfferTranslations() {
@@ -4537,43 +4327,22 @@ export class TranslationsParent extends JSWindowActorParent {
    * are misbehaving.
    */
   #ensureTranslationsDiscarded() {
-    if (this.engineActor && this.languageState?.requestedLanguagePair) {
+    if (this.engineActor && this.languageState.requestedLanguagePair) {
       this.engineActor.discardTranslations(this.innerWindowId);
     }
   }
 
   didDestroy() {
-    if (!TranslationsParent.AIFeature.isEnabled) {
-      // If the actor is getting destroyed due to the feature becoming disabled,
-      // we have a few things we need to cache in case the user re-enables Translations.
-      //
-      // This can occur if someone flips the global Block AI toggle in the settings,
-      // and then individually re-enables the Translations feature.
-      this.languageState?.dispatch({ reason: "feature-disabled" });
-
-      const browser = this.browsingContext?.top?.embedderElement;
-      if (browser) {
-        const tabState = StatePerTab.getOrCreate(browser);
-
-        if (this.languageState?.detectedLanguages) {
-          tabState.detectedLanguages = this.languageState.detectedLanguages;
-          tabState.url = browser.currentURI?.spec;
-        }
-
-        if (this.languageState?.requestedLanguagePair) {
-          tabState.needsReloadBeforeTranslation = true;
-        }
-      }
+    if (!this.innerWindowId) {
+      throw new Error(
+        "The innerWindowId for the TranslationsParent was not available."
+      );
     }
 
     if (this.#boundObserve) {
       Services.obs.removeObserver(
         this.#boundObserve,
         TOPIC_MAYBE_UPDATE_USER_LANG_TAG
-      );
-      Services.obs.removeObserver(
-        this.#boundObserve,
-        TOPIC_TRANSLATIONS_ENABLED_STATE_CHANGED
       );
       this.#boundObserve = null;
     }
@@ -4658,26 +4427,22 @@ class TranslationsLanguageState {
    * Dispatch anytime the language details change, so that any UI can react to it.
    */
   dispatch({ reason } = {}) {
-    try {
-      const browser = this.#actor?.browsingContext?.top?.embedderElement;
-      if (!browser) {
-        return;
-      }
-
-      /* eslint-disable-next-line no-shadow */
-      const { CustomEvent } = browser.ownerGlobal;
-      browser.dispatchEvent(
-        new CustomEvent("TranslationsParent:LanguageState", {
-          bubbles: true,
-          detail: {
-            actor: this.#actor,
-            reason,
-          },
-        })
-      );
-    } catch {
-      // The actor may be destroyed. There is nothing to recover here.
+    const browser = this.#actor.browsingContext.top.embedderElement;
+    if (!browser) {
+      return;
     }
+
+    /* eslint-disable-next-line no-shadow */
+    const { CustomEvent } = browser.ownerGlobal;
+    browser.dispatchEvent(
+      new CustomEvent("TranslationsParent:LanguageState", {
+        bubbles: true,
+        detail: {
+          actor: this.#actor,
+          reason,
+        },
+      })
+    );
   }
 
   /**
