@@ -180,6 +180,7 @@ export interface Modules {
   "chrome://remote/content/webdriver-bidi/WebDriverBiDiConnection.sys.mjs": typeof import("chrome://remote/content/webdriver-bidi/WebDriverBiDiConnection.sys.mjs"),
   "chrome://remote/content/webdriver-bidi/modules/Intercept.sys.mjs": typeof import("chrome://remote/content/webdriver-bidi/modules/Intercept.sys.mjs"),
   "chrome://remote/content/webdriver-bidi/modules/ModuleRegistry.sys.mjs": typeof import("chrome://remote/content/webdriver-bidi/modules/ModuleRegistry.sys.mjs"),
+  "chrome://remote/content/webdriver-bidi/modules/root/_configuration.sys.mjs": typeof import("chrome://remote/content/webdriver-bidi/modules/root/_configuration.sys.mjs"),
   "chrome://remote/content/webdriver-bidi/modules/root/browser.sys.mjs": typeof import("chrome://remote/content/webdriver-bidi/modules/root/browser.sys.mjs"),
   "chrome://remote/content/webdriver-bidi/modules/root/browsingContext.sys.mjs": typeof import("chrome://remote/content/webdriver-bidi/modules/root/browsingContext.sys.mjs"),
   "chrome://remote/content/webdriver-bidi/modules/root/emulation.sys.mjs": typeof import("chrome://remote/content/webdriver-bidi/modules/root/emulation.sys.mjs"),

@@ -19,6 +19,10 @@
   width: 100%;
 }
 
+.smartbar > .urlbar-input-container {
+  overflow: visible;
+}
+
 .smartbar > .urlbar-background {
   background-color: white;
   background-clip: padding-box, border-box;
@@ -47,7 +51,7 @@
 .smartbar moz-multiline-editor {
   --multiline-editor-border: none;
   --multiline-editor-focus-outline: none;
-  padding: var(--space-medium) var(--space-large);
+  padding: var(--space-xsmall);
 }
 
 .smartbar .urlbar-go-button {

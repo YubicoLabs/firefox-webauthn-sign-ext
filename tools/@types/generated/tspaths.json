@@ -80,14 +80,29 @@
       "chrome://browser/content/firefoxview/helpers.mjs": [
         "browser/components/firefoxview/helpers.mjs"
       ],
+      "chrome://browser/content/firefoxview/history.mjs": [
+        "browser/components/firefoxview/history.mjs"
+      ],
       "chrome://browser/content/firefoxview/opentabs-tab-list.mjs": [
         "browser/components/firefoxview/opentabs-tab-list.mjs"
+      ],
+      "chrome://browser/content/firefoxview/opentabs.mjs": [
+        "browser/components/firefoxview/opentabs.mjs"
+      ],
+      "chrome://browser/content/firefoxview/recentbrowsing.mjs": [
+        "browser/components/firefoxview/recentbrowsing.mjs"
+      ],
+      "chrome://browser/content/firefoxview/recentlyclosed.mjs": [
+        "browser/components/firefoxview/recentlyclosed.mjs"
       ],
       "chrome://browser/content/firefoxview/search-helpers.mjs": [
         "browser/components/firefoxview/search-helpers.mjs"
       ],
       "chrome://browser/content/firefoxview/syncedtabs-tab-list.mjs": [
         "browser/components/firefoxview/syncedtabs-tab-list.mjs"
+      ],
+      "chrome://browser/content/firefoxview/syncedtabs.mjs": [
+        "browser/components/firefoxview/syncedtabs.mjs"
       ],
       "chrome://browser/content/genai/content/link-preview-card-onboarding.mjs": [
         "browser/components/genai/content/link-preview-card-onboarding.mjs"
@@ -107,9 +122,6 @@
       "chrome://browser/content/ipprotection/ipprotection-signedout.mjs": [
         "browser/components/ipprotection/content/ipprotection-signedout.mjs"
       ],
-      "chrome://browser/content/ipprotection/ipprotection-site-settings-control.mjs": [
-        "browser/components/ipprotection/content/ipprotection-site-settings-control.mjs"
-      ],
       "chrome://browser/content/ipprotection/ipprotection-status-card.mjs": [
         "browser/components/ipprotection/content/ipprotection-status-card.mjs"
       ],
@@ -121,6 +133,9 @@
       ],
       "chrome://browser/content/multilineeditor/multiline-editor.mjs": [
         "browser/components/multilineeditor/multiline-editor.mjs"
+      ],
+      "chrome://browser/content/multilineeditor/plugins/MentionsPlugin.mjs": [
+        "browser/components/multilineeditor/plugins/MentionsPlugin.mjs"
       ],
       "chrome://browser/content/multilineeditor/prosemirror.bundle.mjs": [
         "third_party/js/prosemirror/prosemirror.bundle.mjs"
@@ -272,6 +287,9 @@
       "chrome://global/content/elements/browser-custom-element.mjs": [
         "toolkit/content/widgets/browser-custom-element.mjs"
       ],
+      "chrome://global/content/elements/moz-badge.mjs": [
+        "toolkit/content/widgets/moz-badge/moz-badge.mjs"
+      ],
       "chrome://global/content/elements/moz-box-group.mjs": [
         "toolkit/content/widgets/moz-box-group/moz-box-group.mjs"
       ],
@@ -304,6 +322,9 @@
       ],
       "chrome://global/content/elements/moz-message-bar.mjs": [
         "toolkit/content/widgets/moz-message-bar/moz-message-bar.mjs"
+      ],
+      "chrome://global/content/elements/moz-page-nav.mjs": [
+        "toolkit/content/widgets/moz-page-nav/moz-page-nav.mjs"
       ],
       "chrome://global/content/elements/moz-support-link.mjs": [
         "toolkit/content/widgets/moz-support-link/moz-support-link.mjs"
@@ -859,6 +880,9 @@
       ],
       "chrome://remote/content/webdriver-bidi/modules/WindowGlobalBiDiModule.sys.mjs": [
         "remote/webdriver-bidi/modules/WindowGlobalBiDiModule.sys.mjs"
+      ],
+      "chrome://remote/content/webdriver-bidi/modules/root/_configuration.sys.mjs": [
+        "remote/webdriver-bidi/modules/root/_configuration.sys.mjs"
       ],
       "chrome://remote/content/webdriver-bidi/modules/root/browser.sys.mjs": [
         "remote/webdriver-bidi/modules/root/browser.sys.mjs"

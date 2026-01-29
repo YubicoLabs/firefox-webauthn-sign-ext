@@ -67,6 +67,36 @@ The editor dispatches input and selection events:
 - `input` - Fired when the text content changes
 - `selectionchange` - Fired when the text selection changes
 
+### Plugins
+
+The editor supports extending functionality with plugins:
+
+#### Native ProseMirror plugins
+
+Native ProseMirror plugins can be used directly and work as documented in the [ProseMirror guide](https://prosemirror.net/docs/guide/).
+
+```js
+import { Plugin } from "chrome://browser/content/multilineeditor/prosemirror.bundle.mjs";
+
+const plugin = new Plugin();
+editor.plugins = [plugin];
+```
+
+#### Custom plugins
+
+Custom plugins can be added to `/plugins`.
+
+```js
+import { createCustomPlugin } from "chrome://browser/content/multilineeditor/plugins/CustomPlugin.mjs";
+
+const customPlugin = createCustomPlugin();
+editor.plugins = [customPlugin];
+```
+
+**Plugin structure:**
+- `schemaExtension` - Extends the ProseMirror schema with custom nodes and marks.
+- `createPlugin(editor)` - Receives the editor instance and returns a ProseMirror Plugin
+
 ### Fluent usage
 
 The `placeholder` attribute of `moz-multiline-editor` will generally be provided via [Fluent attributes](https://mozilla-l10n.github.io/localizer-documentation/tools/fluent/basic_syntax.html#attributes).
