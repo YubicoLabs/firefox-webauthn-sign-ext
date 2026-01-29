@@ -6,7 +6,6 @@ package org.mozilla.fenix.components
 
 import android.content.Context
 import android.content.res.Configuration
-import android.os.Environment
 import androidx.core.content.ContextCompat
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.CoroutineScope
@@ -104,7 +103,6 @@ import mozilla.components.support.base.worker.Frequency
 import mozilla.components.support.ktx.android.content.appVersionName
 import mozilla.components.support.ktx.android.content.res.readJSONObject
 import mozilla.components.support.locale.LocaleManager
-import mozilla.components.support.utils.DefaultDownloadFileUtils
 import mozilla.components.support.utils.RunWhenReadyQueue
 import org.mozilla.fenix.AppRequestInterceptor
 import org.mozilla.fenix.BuildConfig
@@ -235,17 +233,9 @@ class Core(
         }
 
         GeckoEngine(
-            context = context,
-            defaultSettings = defaultSettings,
-            runtime = geckoRuntime,
-            downloadFileUtils = DefaultDownloadFileUtils(
-                context = context,
-                downloadLocationGetter = {
-                    Environment.getExternalStoragePublicDirectory(
-                        Environment.DIRECTORY_DOWNLOADS,
-                    ).path
-                },
-                ),
+            context,
+            defaultSettings,
+            geckoRuntime,
         ).also {
             WebCompatFeature.install(it)
         }
