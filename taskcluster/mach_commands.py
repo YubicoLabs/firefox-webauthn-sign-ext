@@ -301,7 +301,10 @@ def taskgraph_decision(command_context, **options):
                         "name": "decision",
                         "value": end - start,
                         "lowerIsBetter": True,
-                        "shouldAlert": True,
+                        "monitor": True,
+                        "alertNotifyEmails": [
+                            "release+gecko-decision-alerts@mozilla.com"
+                        ],
                         "subtests": [],
                     }
                 ],
