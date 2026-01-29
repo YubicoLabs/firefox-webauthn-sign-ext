@@ -54,6 +54,7 @@
 
 .multiline-editor .ProseMirror .mention {
   cursor: default;
-  display: inline;
+  display: inline-flex;
+  line-height: inherit;
   user-select: all;
 }

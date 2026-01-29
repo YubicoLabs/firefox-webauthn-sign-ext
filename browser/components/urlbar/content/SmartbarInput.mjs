@@ -4,6 +4,8 @@
 
 import { createEditor } from "chrome://browser/content/urlbar/SmartbarInputUtils.mjs";
 // eslint-disable-next-line import/no-unassigned-import
+import "chrome://browser/content/aiwindow/components/ai-website-chip.mjs";
+// eslint-disable-next-line import/no-unassigned-import
 import "chrome://browser/content/aiwindow/components/input-cta.mjs";
 // eslint-disable-next-line import/no-unassigned-import
 import "chrome://browser/content/aiwindow/components/suggestions-panel-list.mjs";

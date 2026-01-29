@@ -113,10 +113,10 @@ async function waitForMentionInserted(browser) {
     await ContentTaskUtils.waitForMutationCondition(
       editor.shadowRoot,
       { childList: true, subtree: true },
-      () => editor.shadowRoot.querySelector("mark") !== null
+      () => editor.shadowRoot.querySelector("ai-website-chip") !== null
     );
 
-    return !!editor.shadowRoot.querySelector("mark");
+    return !!editor.shadowRoot.querySelector("ai-website-chip");
   });
 }
 
@@ -201,6 +201,7 @@ add_task(async function test_mentions_insert_on_click() {
     );
     const panelList = smartbar.querySelector("suggestions-panel-list");
     const panel = panelList.shadowRoot.querySelector("panel-list");
+
     const firstItem = panel.querySelector(
       "panel-item:not(.panel-section-header)"
     );
@@ -237,7 +238,6 @@ add_task(async function test_mentions_insert_on_enter() {
   });
   await BrowserTestUtils.synthesizeKey("KEY_ArrowDown", {}, browser);
   await BrowserTestUtils.synthesizeKey("KEY_Enter", {}, browser);
-
   const hasMention = await waitForMentionInserted(browser);
   Assert.ok(hasMention, "Editor should contain a mention after pressing Enter");
 

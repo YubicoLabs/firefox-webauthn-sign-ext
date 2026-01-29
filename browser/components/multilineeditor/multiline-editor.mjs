@@ -55,13 +55,20 @@ export class MultilineEditor extends MozLitElement {
     plugins: { type: Array, attribute: false },
   };
 
-  static schema = basicSchema;
+  static schema = new Schema({
+    nodes: {
+      doc: basicSchema.spec.nodes.get("doc"),
+      paragraph: basicSchema.spec.nodes.get("paragraph"),
+      text: basicSchema.spec.nodes.get("text"),
+    },
+  });
 
   #pendingValue = "";
   #placeholderPlugin;
   #plugins;
   #suppressInputEvent = false;
   #view;
+  #markdownSerializer;
 
   constructor() {
     super();
@@ -117,6 +124,9 @@ export class MultilineEditor extends MozLitElement {
   get value() {
     if (!this.#view) {
       return this.#pendingValue;
+    }
+    if (this.#markdownSerializer) {
+      return this.#markdownSerializer.serialize(this.#view.state.doc);
     }
     return this.#view.state.doc.textBetween(
       0,
@@ -387,6 +397,7 @@ export class MultilineEditor extends MozLitElement {
         ...filterBySchema(serializers, schema.marks),
       }
     );
+    this.#markdownSerializer = serializer;
 
     return new PmPlugin({
       props: {
@@ -422,6 +433,10 @@ export class MultilineEditor extends MozLitElement {
       attributes: this.#viewAttributes(),
       editable: () => !this.readOnly,
       dispatchTransaction: this.#dispatchTransaction,
+      nodeViews: Object.assign(
+        {},
+        ...this.plugins.map(plugin => plugin.nodeViews).filter(Boolean)
+      ),
     });
 
     if (this.#pendingValue) {

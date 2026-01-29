@@ -3,8 +3,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import {
-  markdownParser,
-  markdownSerializer,
   mentionNodeSpec,
   suggestionsPlugin,
   triggerCharacter,
@@ -98,6 +96,8 @@ class Mentions {
 function createMentionNodeSpec(toDOM) {
   return {
     ...mentionNodeSpec,
+    atom: true,
+    selectable: true,
     toDOM: node => {
       const [tag, attrs = {}, ...children] = toDOM(node);
       const { class: classAttr, ...restAttr } = attrs;
@@ -127,6 +127,19 @@ function createMentionNodeSpec(toDOM) {
 }
 
 /**
+ * Creates a markdown serializer for mentions.
+ *
+ * @returns {Function} Serializer function
+ */
+function markdownSerializer() {
+  return (state, node) => {
+    const label = state.esc(node.attrs.label ?? "");
+    const href = encodeURIComponent(node.attrs.id);
+    state.write(`[${label}](mention:?href=${href})`);
+  };
+}
+
+/**
  * @typedef {object} SuggestionContext
  * @property {Mentions} mentions - Mentions API
  * @property {{from: number, to: number}} range - Text range
@@ -141,6 +154,7 @@ function createMentionNodeSpec(toDOM) {
  * @param {string} [options.triggerChar] - Trigger character
  * @param {boolean} [options.allowSpaces] - Allow spaces in mentions
  * @param {(node: object) => DOMOutputSpec} [options.toDOM] - Render mention to DOM
+ * @param {(node: object) => DOMOutputSpec} [options.nodeView] - Custom rendering for view
  * @param {(ctx: SuggestionContext) => void} [options.onEnter] - Trigger character detected
  * @param {(ctx: SuggestionContext) => void} [options.onChange] - Text changed
  * @param {(ctx: SuggestionContext) => void} [options.onExit] - Exit suggestions
@@ -151,7 +165,8 @@ export function createMentionsPlugin(options = {}) {
   const {
     triggerChar = "@",
     allowSpaces = false,
-    toDOM = node => ["mark", {}, node.attrs.label],
+    toDOM = node => ["span", {}, node.attrs.label],
+    nodeView,
     onEnter,
     onChange,
     onExit,
@@ -166,9 +181,23 @@ export function createMentionsPlugin(options = {}) {
         mention: createMentionNodeSpec(toDOM),
       },
     },
-    parseMarkdown: {
-      mention: markdownParser(),
-    },
+    nodeViews: nodeView
+      ? {
+          mention: node => {
+            const [tag, attrs = {}] = nodeView(node);
+            const dom = document.createElement(tag);
+            // Set properties from nodeView spec
+            Object.assign(dom, attrs);
+            dom.classList.add("mention");
+            return {
+              dom,
+              update: newNode => newNode.type.name === "mention",
+              selectNode: () => dom.setAttribute("selected", ""),
+              deselectNode: () => dom.removeAttribute("selected"),
+            };
+          },
+        }
+      : undefined,
     toMarkdown: {
       mention: markdownSerializer(),
     },

@@ -105,7 +105,24 @@ function setupMentionsPlugin(editorElement, panelList) {
 
   const plugin = createMentionsPlugin({
     triggerChar: "@",
-    toDOM: node => ["mark", {}, node.attrs.label],
+    toDOM: node => [
+      "span",
+      {
+        "data-mention-type": node.attrs.type,
+        "data-mention-id": node.attrs.id,
+        "data-mention-label": node.attrs.label,
+      },
+      node.attrs.label,
+    ],
+    nodeView: node => [
+      "ai-website-chip",
+      {
+        href: node.attrs.id,
+        iconSrc: `page-icon:${node.attrs.id}`,
+        label: node.attrs.label,
+        type: "in-line",
+      },
+    ],
     onEnter: mentionData => {
       isHandlingMentions = true;
       latestMentionData = mentionData;
