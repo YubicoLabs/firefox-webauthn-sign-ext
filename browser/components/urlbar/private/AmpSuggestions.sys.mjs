@@ -118,57 +118,34 @@ export class AmpSuggestions extends SuggestProvider {
     }
 
     let isTopPick =
-      lazy.UrlbarPrefs.get("quickSuggestAmpTopPickCharThreshold") &&
-      lazy.UrlbarPrefs.get("quickSuggestAmpTopPickCharThreshold") <=
-        queryContext.trimmedLowerCaseSearchString.length;
-
-    let { value: title, highlights: titleHighlights } =
-      lazy.QuickSuggest.getFullKeywordTitleAndHighlights({
-        tokens: queryContext.tokens,
-        highlightType: isTopPick
-          ? lazy.UrlbarUtils.HIGHLIGHT.TYPED
-          : lazy.UrlbarUtils.HIGHLIGHT.SUGGESTED,
-        fullKeyword: normalized.fullKeyword,
-        title: normalized.title,
-      });
-
-    let payload = {
-      url: normalized.url,
-      originalUrl: normalized.rawUrl,
-      title,
-      requestId: normalized.requestId,
-      urlTimestampIndex: normalized.urlTimestampIndex,
-      sponsoredImpressionUrl: normalized.impressionUrl,
-      sponsoredClickUrl: normalized.clickUrl,
-      sponsoredBlockId: normalized.blockId,
-      sponsoredAdvertiser: normalized.advertiser,
-      sponsoredIabCategory: normalized.iabCategory,
-    };
-
-    let resultParams = {};
-    if (isTopPick) {
-      resultParams.isBestMatch = true;
-      resultParams.suggestedIndex = 1;
-    } else {
-      if (lazy.UrlbarPrefs.get("quickSuggestSponsoredPriority")) {
-        resultParams.isBestMatch = true;
-        resultParams.suggestedIndex = 1;
-      } else {
-        resultParams.richSuggestionIconSize = 16;
-      }
-      payload.descriptionL10n = {
-        id: "urlbar-result-action-sponsored",
-      };
-    }
+      (lazy.UrlbarPrefs.get("quickSuggestAmpTopPickCharThreshold") &&
+        lazy.UrlbarPrefs.get("quickSuggestAmpTopPickCharThreshold") <=
+          queryContext.trimmedLowerCaseSearchString.length) ||
+      lazy.UrlbarPrefs.get("quickSuggestSponsoredPriority");
 
     return new lazy.UrlbarResult({
       type: lazy.UrlbarUtils.RESULT_TYPE.URL,
       source: lazy.UrlbarUtils.RESULT_SOURCE.SEARCH,
-      isRichSuggestion: true,
-      ...resultParams,
-      payload,
-      highlights: {
-        title: titleHighlights,
+      isNovaSuggestion: true,
+      isBestMatch: isTopPick,
+      // If the result is a top pick, set the icon size to undefined so that
+      // `UrlbarProviderQuickSuggest` sets the default top-pick icon size.
+      richSuggestionIconSize: isTopPick ? undefined : 16,
+      payload: {
+        url: normalized.url,
+        originalUrl: normalized.rawUrl,
+        title: normalized.fullKeyword,
+        subtitle: normalized.title,
+        bottomTextL10n: {
+          id: "urlbar-result-action-sponsored",
+        },
+        requestId: normalized.requestId,
+        urlTimestampIndex: normalized.urlTimestampIndex,
+        sponsoredImpressionUrl: normalized.impressionUrl,
+        sponsoredClickUrl: normalized.clickUrl,
+        sponsoredBlockId: normalized.blockId,
+        sponsoredAdvertiser: normalized.advertiser,
+        sponsoredIabCategory: normalized.iabCategory,
       },
     });
   }

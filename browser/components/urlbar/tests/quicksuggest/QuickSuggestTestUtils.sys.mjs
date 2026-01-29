@@ -470,7 +470,6 @@ class _QuickSuggestTestUtils {
     isBestMatch = false,
     requestId = undefined,
     dismissalKey = undefined,
-    descriptionL10n = { id: "urlbar-result-action-sponsored" },
     categories = [],
   } = {}) {
     let result = {
@@ -481,7 +480,9 @@ class _QuickSuggestTestUtils {
       source: lazy.UrlbarUtils.RESULT_SOURCE.SEARCH,
       heuristic: false,
       payload: {
-        title: fullKeyword ? `${fullKeyword} — ${title}` : title,
+        title: fullKeyword,
+        subtitle: title,
+        bottomTextL10n: { id: "urlbar-result-action-sponsored" },
         url,
         originalUrl,
         requestId,
@@ -496,10 +497,6 @@ class _QuickSuggestTestUtils {
         telemetryType: "adm_sponsored",
       },
     };
-
-    if (descriptionL10n) {
-      result.payload.descriptionL10n = descriptionL10n;
-    }
 
     if (result.payload.source == "rust") {
       result.payload.iconBlob = iconBlob;
@@ -1172,9 +1169,6 @@ class _QuickSuggestTestUtils {
    *   Whether the result is expected to be sponsored.
    * @param {boolean} [options.isBestMatch]
    *   Whether the result is expected to be a best match.
-   * @param {boolean} [options.hasSponsoredLabel]
-   *   Whether the result is expected to show the "Sponsored" label below the
-   *   title.
    * @returns {Promise<object>}
    *   The quick suggest result.
    */
@@ -1185,7 +1179,6 @@ class _QuickSuggestTestUtils {
     index = -1,
     isSponsored = true,
     isBestMatch = false,
-    hasSponsoredLabel = isSponsored || isBestMatch,
   }) {
     this.Assert.ok(
       url || originalUrl,
@@ -1244,18 +1237,18 @@ class _QuickSuggestTestUtils {
 
     let { row } = details.element;
 
-    let sponsoredElement = row._elements.get("description");
-    if (hasSponsoredLabel) {
-      this.Assert.ok(sponsoredElement, "Result sponsored label element exists");
-      this.Assert.equal(
-        sponsoredElement.textContent,
-        isSponsored ? "Sponsored" : "",
-        "Result sponsored label"
+    let bottomLabel = row._elements.get("bottomLabel");
+    if (isSponsored) {
+      this.Assert.ok(bottomLabel, "Result bottom label should exist");
+      this.Assert.deepEqual(
+        window.document.l10n.getAttributes(bottomLabel),
+        { id: "urlbar-result-action-sponsored", args: null },
+        "Result bottom label should have correct l10n"
       );
     } else {
       this.Assert.ok(
-        !sponsoredElement?.textContent,
-        "Result sponsored label element should not exist"
+        !bottomLabel || !window.document.l10n.getAttributes(bottomLabel),
+        "Result bottom label should not exist or if it does it should not have l10n attributes"
       );
     }
 

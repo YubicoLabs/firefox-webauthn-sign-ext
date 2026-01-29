@@ -2614,7 +2614,14 @@ export class UrlbarView {
     this.#setResultTitle(result, title);
 
     let subtitle = item._elements.get("subtitle");
-    this.#l10nCache.setElementL10n(subtitle, result.payload.subtitleL10n);
+    if (result.payload.subtitleL10n) {
+      this.#l10nCache.setElementL10n(subtitle, result.payload.subtitleL10n);
+    } else {
+      this.#l10nCache.removeElementL10n(subtitle);
+      if (result.payload.subtitle) {
+        subtitle.textContent = result.payload.subtitle;
+      }
+    }
 
     let description = item._elements.get("description");
     description.textContent = result.payload.description;
