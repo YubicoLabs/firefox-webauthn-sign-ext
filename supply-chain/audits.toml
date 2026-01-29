@@ -563,7 +563,7 @@ notes = "Maintained by the Glean and Application Services teams"
 [[wildcard-audits.uniffi_internal_macros]]
 who = "Jan-Erik Rediger <jrediger@mozilla.com>"
 criteria = "safe-to-deploy"
-user-id = 111105
+user-id = 111105 # Mark Hammond (mhammond)
 start = "2025-03-18"
 end = "2026-03-25"
 

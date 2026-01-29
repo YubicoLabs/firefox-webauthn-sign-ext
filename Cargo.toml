@@ -71,9 +71,9 @@ rust-version = "1.90.0"
 
 [workspace.dependencies]
 # Shared across multiple UniFFI consumers.
-uniffi = "0.29.3"
-uniffi_bindgen = "0.29.3"
-uniffi_pipeline = "0.29.3"
+uniffi = "0.31"
+uniffi_bindgen = "0.31"
+uniffi_pipeline = "0.31"
 # Shared across multiple application-services consumers.
 rusqlite = "0.37"
 # Shared across multiple glean consumers.
@@ -171,10 +171,6 @@ bindgen = { path = "build/rust/bindgen" }
 
 # Patch nix 0.29 to 0.30+
 nix = { path = "build/rust/nix" }
-
-# Patch siphasher 0.3 to 1.0
-# TODO: Remove once https://github.com/mozilla/uniffi-rs/pull/2709 lands in m-c.
-siphasher = { path = "build/rust/siphasher" }
 
 # Patch autocfg to hide rustc output. Workaround for https://github.com/cuviper/autocfg/issues/30
 autocfg = { path = "third_party/rust/autocfg" }
