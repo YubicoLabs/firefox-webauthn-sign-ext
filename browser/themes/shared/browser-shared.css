@@ -1447,7 +1447,7 @@ popupnotificationcontent {
   }
 }
 
-/* AI window immersive view (hidden address bar and buttons) */
+/* AI window immersive view (hidden nav bar and buttons) */
 :root[ai-window][aiwindow-immersive-view] {
   #nav-bar:not(.browser-titlebar) {
     height: 0;
@@ -1455,11 +1455,27 @@ popupnotificationcontent {
     visibility: hidden;
   }
 
+  #urlbar-container,
+  #aiwindow-ask-button,
+  #nav-bar-customization-target > *:not(#sidebar-button),
+  #nav-bar-overflow-button,
+  #PanelUI-button {
+    visibility: hidden;
+  }
+
   /* immersive view styles exclusive for first run */
   &[aiwindow-first-run] {
-    .toolbar-items {
+    #TabsToolbar > .toolbar-items {
       opacity: 0.2;
       pointer-events: none;
+    }
+
+    /* stylelint-disable-next-line media-query-no-invalid */
+    @media -moz-pref("sidebar.verticalTabs") {
+      #sidebar-main {
+        opacity: 0.2;
+        pointer-events: none;
+      }
     }
   }
 }
