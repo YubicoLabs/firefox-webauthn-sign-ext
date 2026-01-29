@@ -32,7 +32,6 @@ export default class IPProtectionStatusCard extends MozLitElement {
     enabledSince: { type: Object },
     location: { type: Object },
     bandwidthUsage: { type: Object },
-    hasExclusion: { type: Boolean },
   };
 
   constructor() {
@@ -151,18 +150,6 @@ export default class IPProtectionStatusCard extends MozLitElement {
   }
 
   render() {
-    if (this.hasExclusion && this.protectionEnabled) {
-      return html`
-        ${this.statusTemplate({
-          type: "excluded",
-          headerL10nId: "ipprotection-connection-status-excluded",
-          buttonL10nId: "ipprotection-button-turn-vpn-off-excluded-site",
-          iconSrc:
-            "chrome://browser/content/ipprotection/assets/states/ipprotection-excluded.svg",
-        })}
-      `;
-    }
-
     if (this.protectionEnabled) {
       return html`
         ${this.statusTemplate({

@@ -95,10 +95,6 @@ export default class IPProtectionContentElement extends MozLitElement {
     return this.state && this.state.isProtectionEnabled && !this.state.error;
   }
 
-  get hasSiteExclusion() {
-    return this.state?.siteData?.isExclusion ?? false;
-  }
-
   get #hasErrors() {
     return !this.state || !!this.state.error;
   }
@@ -260,14 +256,11 @@ export default class IPProtectionContentElement extends MozLitElement {
   }
 
   statusCardTemplate() {
-    let hasExclusion = this.hasSiteExclusion;
-
     return html`
       <ipprotection-status-card
         .protectionEnabled=${this.canEnableConnection}
         .location=${this.state.location}
         .bandwidthUsage=${ifDefined(this.state.bandwidthUsage)}
-        .hasExclusion=${hasExclusion}
       ></ipprotection-status-card>
     `;
   }
@@ -321,8 +314,8 @@ export default class IPProtectionContentElement extends MozLitElement {
       return null;
     }
 
-    const hasExclusion = this.hasSiteExclusion;
-    const siteExclusionToggleStateL10nId = hasExclusion
+    const isExclusion = this.state.siteData.isExclusion;
+    const siteExclusionToggleStateL10nId = isExclusion
       ? "site-exclusion-toggle-disabled"
       : "site-exclusion-toggle-enabled";
     return html` <div id="site-exclusion-control">
@@ -341,7 +334,7 @@ export default class IPProtectionContentElement extends MozLitElement {
         data-l10n-id=${siteExclusionToggleStateL10nId}
         data-l10n-attrs="label"
         id="site-exclusion-toggle"
-        ?pressed=${!hasExclusion}
+        ?pressed=${!isExclusion}
         @toggle=${this.handleToggleUseVPN}
       >
       </moz-toggle>
