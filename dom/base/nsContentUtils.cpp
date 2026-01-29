@@ -12569,22 +12569,7 @@ Maybe<int32_t> nsContentUtils::GetIndexInParent(const nsINode* aParent,
                 aKind == TreeKind::ShadowIncludingDOM) {
     idx = aParent->ComputeIndexOf(aNode);
   } else {
-    idx = [&]() -> Maybe<uint32_t> {
-      if (aNode->IsContent()) {
-        if (HTMLSlotElement* slot = aNode->AsContent()->GetAssignedSlot()) {
-          // If the assigned slot is in the UAWidget anonymous subtree of
-          // aParent, this is likely being called for selection purposes. In
-          // this case, we should ignore the UAWidget.
-          // XXX: Bug 2008277 is going to introduce a TreeKind for selection and
-          // then we can use that here instead.
-          if (slot->GetClosestNativeAnonymousSubtreeRootParentOrHost() ==
-              aParent) {
-            return aParent->ComputeIndexOf(aNode);
-          }
-        }
-      }
-      return aParent->ComputeFlatTreeIndexOf(aNode);
-    }();
+    idx = aParent->ComputeFlatTreeIndexOf(aNode);
   }
 
   if (idx) {
