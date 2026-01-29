@@ -60,9 +60,8 @@ add_task(async function test_keyboard_navigation_in_panel() {
   );
 
   let statusCard = content.statusCardEl;
-  let turnOnButton = statusCard.actionButtonEl;
 
-  await expectFocusAfterKey("Tab", turnOnButton);
+  await expectFocusAfterKey("Tab", statusCard.connectionToggleEl);
 
   await expectFocusAfterKey("Tab", content.settingsButtonEl);
 
@@ -73,7 +72,7 @@ add_task(async function test_keyboard_navigation_in_panel() {
       `#${IPProtectionPanel.HEADER_BUTTON_ID}`
     )
   );
-  await expectFocusAfterKey("Tab", turnOnButton);
+  await expectFocusAfterKey("Tab", statusCard.connectionToggleEl);
 
   await expectFocusAfterKey("Tab", content.settingsButtonEl);
 
@@ -84,7 +83,7 @@ add_task(async function test_keyboard_navigation_in_panel() {
       `#${IPProtectionPanel.HEADER_BUTTON_ID}`
     )
   );
-  await expectFocusAfterKey("ArrowDown", turnOnButton);
+  await expectFocusAfterKey("ArrowDown", statusCard.connectionToggleEl);
 
   // Loop backwards
   await expectFocusAfterKey(

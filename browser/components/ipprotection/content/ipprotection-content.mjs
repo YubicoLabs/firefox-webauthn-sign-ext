@@ -41,6 +41,9 @@ export default class IPProtectionContentElement extends MozLitElement {
     state: { type: Object, attribute: false },
     _showMessageBar: { type: Boolean, state: true },
     _messageDismissed: { type: Boolean, state: true },
+    // Track toggle state separately so that we can tell when the toggle
+    // is enabled because of the existing protection state or because of user action.
+    _toggleEnabled: { type: Boolean, state: true },
   };
 
   constructor() {

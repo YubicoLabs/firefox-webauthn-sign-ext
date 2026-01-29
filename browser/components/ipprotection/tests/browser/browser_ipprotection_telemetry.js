@@ -62,8 +62,8 @@ add_task(async function user_toggle_on_and_off() {
 
   let statusCard = content.shadowRoot.querySelector("ipprotection-status-card");
 
-  let turnOnButton = statusCard.actionButtonEl;
-  Assert.ok(turnOnButton, "Status card turn on button should be present");
+  let toggle = statusCard.connectionToggleEl;
+  Assert.ok(toggle, "Status card connection toggle should be present");
 
   Services.fog.testResetFOG();
   await Services.fog.testFlushAllChildren();
@@ -73,8 +73,8 @@ add_task(async function user_toggle_on_and_off() {
     false,
     () => !!IPPProxyManager.activatedAt
   );
-  // Turn the VPN on
-  turnOnButton.click();
+  // Toggle the VPN on
+  toggle.click();
   await vpnOnPromise;
   let toggledEvents = Glean.ipprotection.toggled.testGetValue();
   Assert.equal(toggledEvents.length, 1, "should have recorded a toggle");
@@ -89,9 +89,8 @@ add_task(async function user_toggle_on_and_off() {
     false,
     () => !IPPProxyManager.activatedAt
   );
-  // Turn the VPN off
-  let turnOffButton = statusCard.actionButtonEl;
-  turnOffButton.click();
+  // Toggle the VPN off
+  toggle.click();
   await vpnOffPromise;
   toggledEvents = Glean.ipprotection.toggled.testGetValue();
   Assert.equal(toggledEvents.length, 2, "should have recorded a second toggle");
@@ -150,8 +149,8 @@ add_task(async function toggle_off_on_shutdown() {
   await putServerInRemoteSettings();
 
   let statusCard = content.statusCardEl;
-  let turnOnButton = statusCard.actionButtonEl;
-  Assert.ok(turnOnButton, "Status card turn on button should be present");
+  let toggle = statusCard.connectionToggleEl;
+  Assert.ok(toggle, "Status card connection toggle should be present");
 
   Services.fog.testResetFOG();
 
@@ -161,8 +160,8 @@ add_task(async function toggle_off_on_shutdown() {
     false,
     () => !!IPPProxyManager.activatedAt
   );
-  // Turn the VPN on
-  turnOnButton.click();
+  // Toggle the VPN on
+  toggle.click();
   await vpnOnPromise;
   let toggledEvents = Glean.ipprotection.toggled.testGetValue();
   Assert.equal(toggledEvents.length, 1, "should have recorded a toggle");

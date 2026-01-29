@@ -96,7 +96,6 @@ hr {
   display: flex;
   justify-content: space-between;
   margin-inline: var(--space-xlarge);
-  padding-block: var(--space-large);
 }
 
 #site-exclusion-icon {
