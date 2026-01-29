@@ -134,6 +134,10 @@ input {
   }
 }
 
+panel-item::part(button) {
+  padding-inline-start: var(--space-medium);
+}
+
 // These styles are needed for -webkit-line-clamp to work correctly, so reuse
 // this class name while separately setting a clamp value via CSS or JS.
 .clamp {

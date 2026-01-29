@@ -425,6 +425,10 @@ input[type=text], input[type=search] {
   border-radius: var(--border-radius-small);
 }
 
+panel-item::part(button) {
+  padding-inline-start: var(--space-medium);
+}
+
 .clamp {
   -webkit-box-orient: vertical;
   display: -webkit-box;
