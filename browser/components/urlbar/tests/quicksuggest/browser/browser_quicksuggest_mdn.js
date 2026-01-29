@@ -50,6 +50,47 @@ add_task(async function basic() {
     );
     Assert.equal(result.payload.provider, "Mdn");
 
+    const row = element.row;
+    const icon = row.querySelector(".urlbarView-favicon");
+    Assert.equal(icon.src, "chrome://global/skin/icons/mdn.svg");
+    const title = row.querySelector(".urlbarView-title");
+    Assert.equal(title.textContent, suggestion.title);
+    Assert.ok(
+      BrowserTestUtils.isVisible(
+        row.querySelector(".urlbarView-subtitle-separator")
+      )
+    );
+    const subtitle = row.querySelector(".urlbarView-subtitle");
+    Assert.equal(subtitle.textContent, "MDN Web Docs");
+
+    const description = row.querySelector(".urlbarView-row-body-description");
+    Assert.equal(description.textContent, suggestion.description);
+
+    const bottomLabel = row.querySelector(".urlbarView-bottom-label");
+    Assert.equal(bottomLabel.textContent, "Recommended");
+    const bottomSeparator = row.querySelector(".urlbarView-bottom-separator");
+    Assert.ok(BrowserTestUtils.isHidden(bottomSeparator));
+    const bottomUrl = row.querySelector(".urlbarView-url");
+    const expectedUrl = makeExpectedUrl(suggestion.url);
+    const displayUrl = expectedUrl.replace(/^https:\/\//, "");
+    Assert.equal(bottomUrl.textContent, displayUrl);
+    Assert.ok(BrowserTestUtils.isHidden(bottomUrl));
+
+    info("Simulate hover");
+    InspectorUtils.addPseudoClassLock(row, ":hover");
+    Assert.ok(BrowserTestUtils.isVisible(bottomSeparator));
+    Assert.ok(BrowserTestUtils.isVisible(bottomUrl));
+
+    InspectorUtils.removePseudoClassLock(row, ":hover");
+    Assert.ok(BrowserTestUtils.isHidden(bottomSeparator));
+    Assert.ok(BrowserTestUtils.isHidden(bottomUrl));
+
+    info("Simulate selection");
+    row.toggleAttribute("selected", true);
+    Assert.ok(BrowserTestUtils.isVisible(bottomSeparator));
+    Assert.ok(BrowserTestUtils.isVisible(bottomUrl));
+    row.toggleAttribute("selected", false);
+
     const onLoad = BrowserTestUtils.browserLoaded(
       gBrowser.selectedBrowser,
       false,
@@ -242,4 +283,16 @@ async function doDismissTest(command) {
   await UrlbarTestUtils.promisePopupClose(window);
 
   return result;
+}
+
+function makeExpectedUrl(originalUrl) {
+  let url = new URL(originalUrl);
+  url.searchParams.set("utm_medium", "firefox-desktop");
+  url.searchParams.set("utm_source", "firefox-suggest");
+  url.searchParams.set(
+    "utm_campaign",
+    "firefox-mdn-web-docs-suggestion-experiment"
+  );
+  url.searchParams.set("utm_content", "treatment");
+  return url.href;
 }
