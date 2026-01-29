@@ -18,6 +18,7 @@ MOZ_SRC_FILES += [
     "QuickActionsLoaderDefault.sys.mjs",
     "QuickSuggest.sys.mjs",
     "SearchModeSwitcher.sys.mjs",
+    "SmartbarMentionsPanelSearch.sys.mjs",
     "UrlbarController.sys.mjs",
     "UrlbarEventBufferer.sys.mjs",
     "UrlbarMuxerStandard.sys.mjs",

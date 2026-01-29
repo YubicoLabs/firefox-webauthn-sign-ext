@@ -397,6 +397,9 @@ pref("browser.urlbar.focusContentDocumentOnEsc", true);
 // ConsoleInstance.webidl.
 pref("browser.urlbar.loglevel", "Error");
 
+// The maximum number of mentions to show.
+pref("browser.urlbar.mentions.maxResults", 5);
+
 // the maximum number of results to show in autocomplete when doing richResults
 pref("browser.urlbar.maxRichResults", 10);
 

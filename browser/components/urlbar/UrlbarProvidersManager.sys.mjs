@@ -66,7 +66,7 @@ var localProviderModules = [
     name: "UrlbarProviderAutofill",
     module:
       "moz-src:///browser/components/urlbar/UrlbarProviderAutofill.sys.mjs",
-    supportedSAPs: ["urlbar"],
+    supportedSAPs: ["smartbar", "urlbar"],
   },
   {
     name: "UrlbarProviderBookmarkKeywords",

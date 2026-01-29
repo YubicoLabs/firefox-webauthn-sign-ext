@@ -55,6 +55,14 @@ aiwindow-input-cta-label-navigate = Go
 smartbar-placeholder =
     .placeholder = Ask, search, or type a URL
 
+## Mentions
+## These label strings generally refer to “pages”, which can either be open tabs
+## or previously visited pages depending on the results shown in the list.
+
+smartbar-mentions-list-no-results-label = No tabs or pages found
+smartbar-mentions-list-open-tabs-label = Tabs
+smartbar-mentions-list-previously-visited-pages-label = Previously visited
+
 ## Website Chip
 
 aiwindow-website-chip-placeholder = Tag a tab or site
