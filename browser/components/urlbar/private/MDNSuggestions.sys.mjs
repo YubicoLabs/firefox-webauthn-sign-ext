@@ -67,16 +67,16 @@ export class MDNSuggestions extends SuggestProvider {
       type: lazy.UrlbarUtils.RESULT_TYPE.URL,
       source: lazy.UrlbarUtils.RESULT_SOURCE.OTHER_NETWORK,
       isBestMatch: true,
-      isNovaSuggestion: true,
+      showFeedbackMenu: true,
       payload: {
         icon: "chrome://global/skin/icons/mdn.svg",
         url: url.href,
         originalUrl: suggestion.url,
         title: suggestion.title,
-        subtitleL10n: { id: "urlbar-result-mdn-subtitle" },
         description: suggestion.description,
+        shouldShowUrl: true,
         bottomTextL10n: {
-          id: "urlbar-result-suggestion-recommended",
+          id: "firefox-suggest-mdn-bottom-text",
         },
       },
       highlights: {

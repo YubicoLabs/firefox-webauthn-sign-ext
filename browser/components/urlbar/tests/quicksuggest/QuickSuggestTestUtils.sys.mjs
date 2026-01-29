@@ -935,7 +935,7 @@ class _QuickSuggestTestUtils {
         icon,
         isSponsored: false,
         bottomTextL10n: {
-          id: "urlbar-result-suggestion-recommended",
+          id: "firefox-suggest-addons-recommended",
         },
         telemetryType: "amo",
       },
@@ -983,14 +983,14 @@ class _QuickSuggestTestUtils {
       payload: {
         telemetryType: "mdn",
         title,
-        subtitleL10n: { id: "urlbar-result-mdn-subtitle" },
         url: finalUrl.href,
         originalUrl: url,
         isSponsored: false,
         description,
         icon: "chrome://global/skin/icons/mdn.svg",
+        shouldShowUrl: true,
         bottomTextL10n: {
-          id: "urlbar-result-suggestion-recommended",
+          id: "firefox-suggest-mdn-bottom-text",
         },
         source: "rust",
         provider: "Mdn",
