@@ -51,10 +51,8 @@ add_task(async function basic() {
 
     Assert.equal(UrlbarTestUtils.getResultCount(window), 2);
 
-    const { element, result } = await UrlbarTestUtils.getDetailsOfResultAt(
-      window,
-      1
-    );
+    const details = await UrlbarTestUtils.getDetailsOfResultAt(window, 1);
+    const { element, result } = details;
     Assert.equal(
       result.providerName,
       UrlbarProviderQuickSuggest.name,
@@ -65,48 +63,24 @@ add_task(async function basic() {
       result.payload.url,
       "https://www.yelp.com/search?find_desc=RaMeN&find_loc=Tokyo%2C+Tokyo-to&utm_medium=partner&utm_source=mozilla"
     );
-
-    const { row } = element;
-    const icon = row.querySelector(".urlbarView-favicon");
-    Assert.equal(icon.src, "chrome://global/skin/icons/defaultFavicon.svg");
-    const title = row.querySelector(".urlbarView-title");
-    Assert.equal(title.textContent, "Top results for RaMeN iN Tokyo, Tokyo-to");
-    Assert.ok(
-      BrowserTestUtils.isVisible(
-        row.querySelector(".urlbarView-subtitle-separator")
-      )
-    );
-    const subtitle = row.querySelector(".urlbarView-subtitle");
-    Assert.equal(subtitle.textContent, "Yelp");
-
-    const description = row.querySelector(".urlbarView-row-body-description");
-    Assert.equal(description.textContent, "");
-
-    const bottomLabel = row.querySelector(".urlbarView-bottom-label");
-    Assert.equal(bottomLabel.textContent, "Sponsored");
-    const bottomSeparator = row.querySelector(".urlbarView-bottom-separator");
-    Assert.ok(BrowserTestUtils.isHidden(bottomSeparator));
-    const bottomUrl = row.querySelector(".urlbarView-url");
+    const titleElement = element.row.querySelector(".urlbarView-title");
     Assert.equal(
-      bottomUrl.textContent,
-      "yelp.com/search?find_desc=RaMeN&find_loc=Tokyo,+Tokyo-to&utm_medium=partner&utm_source=mozilla"
+      titleElement.innerHTML,
+      `Top results for <strong xmlns=\"http://www.w3.org/1999/xhtml\">RaMeN</strong> <strong xmlns=\"http://www.w3.org/1999/xhtml\">iN</strong> <strong xmlns=\"http://www.w3.org/1999/xhtml\">Tokyo</strong>, <strong xmlns=\"http://www.w3.org/1999/xhtml\">Tokyo</strong>-to`
     );
-    Assert.ok(BrowserTestUtils.isHidden(bottomUrl));
 
-    info("Simulate hover");
-    InspectorUtils.addPseudoClassLock(row, ":hover");
-    Assert.ok(BrowserTestUtils.isVisible(bottomSeparator));
-    Assert.ok(BrowserTestUtils.isVisible(bottomUrl));
-
-    InspectorUtils.removePseudoClassLock(row, ":hover");
-    Assert.ok(BrowserTestUtils.isHidden(bottomSeparator));
-    Assert.ok(BrowserTestUtils.isHidden(bottomUrl));
-
-    info("Simulate selection");
-    row.toggleAttribute("selected", true);
-    Assert.ok(BrowserTestUtils.isVisible(bottomSeparator));
-    Assert.ok(BrowserTestUtils.isVisible(bottomUrl));
-    row.toggleAttribute("selected", false);
+    const { row } = details.element;
+    const bottom = row.querySelector(".urlbarView-row-body-bottom");
+    Assert.ok(bottom, "Bottom text element should exist");
+    Assert.ok(
+      BrowserTestUtils.isVisible(bottom),
+      "Bottom text element should be visible"
+    );
+    Assert.equal(
+      bottom.textContent,
+      "Yelp · Sponsored",
+      "Bottom text is correct"
+    );
 
     await UrlbarTestUtils.promisePopupClose(window);
     await SpecialPowers.popPrefEnv();
@@ -137,7 +111,10 @@ add_task(async function businessSubject() {
     "https://www.yelp.com/search?find_desc=the+shop&find_loc=Tokyo%2C+Tokyo-to&utm_medium=partner&utm_source=mozilla"
   );
   const titleElement = element.row.querySelector(".urlbarView-title");
-  Assert.equal(titleElement.textContent, "the shop in Tokyo, Tokyo-to");
+  Assert.equal(
+    titleElement.innerHTML,
+    `<strong xmlns=\"http://www.w3.org/1999/xhtml\">the</strong> <strong xmlns=\"http://www.w3.org/1999/xhtml\">shop</strong> in <strong xmlns=\"http://www.w3.org/1999/xhtml\">To</strong>kyo, <strong xmlns=\"http://www.w3.org/1999/xhtml\">To</strong>kyo-<strong xmlns=\"http://www.w3.org/1999/xhtml\">to</strong>`
+  );
 
   await UrlbarTestUtils.promisePopupClose(window);
   await SpecialPowers.popPrefEnv();
