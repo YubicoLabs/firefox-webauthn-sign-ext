@@ -381,3 +381,11 @@
     list-style-image: url("chrome://global/skin/media/audio-muted.svg");
   }
 }
+
+#smartwindow-ask-button {
+  list-style-image: url("chrome://browser/content/aiwindow/assets/ask-icon.svg");
+
+  &.sidebar-is-open {
+    list-style-image: url("chrome://global/skin/icons/close.svg");
+  }
+}
