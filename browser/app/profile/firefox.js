@@ -2269,7 +2269,6 @@ pref("browser.ml.pageAssist.enabled", false);
 // AI Window Feature
 pref("browser.aiwindow.apiKey", '');
 pref("browser.aiwindow.chatStore.loglevel", "Error");
-pref("browser.aiwindow.chatHistory.loglevel", "Error");
 pref("browser.aiwindow.enabled", false);
 pref("browser.aiwindow.endpoint", "https://mlpa-prod-prod-mozilla.global.ssl.fastly.net/v1");
 pref("browser.aiwindow.memories", true);
