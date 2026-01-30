@@ -334,7 +334,7 @@ crash:
     send_in_pings:
     - crash
     type: string
-  minidump_sha_256_hash:
+  minidump_sha256_hash:
     bugs:
     - https://bugzilla.mozilla.org/1950749
     data_reviews:
