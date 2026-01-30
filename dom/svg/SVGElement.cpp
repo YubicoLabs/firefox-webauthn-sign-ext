@@ -959,7 +959,7 @@ SVGElement::IsAttributeMapped(const nsAtom* name) const {
   static const MappedAttributeEntry attributes[] = {
       // Properties that we don't support are commented out.
       // { nsGkAtoms::alignment_baseline },
-      // { nsGkAtoms::baseline_shift },
+      {nsGkAtoms::baseline_shift},
       {nsGkAtoms::clip},
       {nsGkAtoms::clip_path},
       {nsGkAtoms::clip_rule},
