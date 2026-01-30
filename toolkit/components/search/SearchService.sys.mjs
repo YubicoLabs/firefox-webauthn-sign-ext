@@ -867,10 +867,7 @@ export const SearchService = new (class SearchService {
   async removeEngine(engine, changeReason) {
     await this.init();
     if (!engine) {
-      throw Components.Exception(
-        "no engine passed to removeEngine!",
-        Cr.NS_ERROR_INVALID_ARG
-      );
+      throw new TypeError("no engine passed");
     }
 
     var engineToRemove = null;
@@ -881,10 +878,7 @@ export const SearchService = new (class SearchService {
     }
 
     if (!engineToRemove) {
-      throw Components.Exception(
-        "removeEngine: Can't find engine to remove!",
-        Cr.NS_ERROR_FILE_NOT_FOUND
-      );
+      throw new Error("Unable to find engine to remove");
     }
 
     this.#enginesPendingRemoval.add(engineToRemove);
@@ -971,30 +965,18 @@ export const SearchService = new (class SearchService {
   async moveEngine(engine, newIndex) {
     await this.init();
     if (newIndex > this.#sortedEngines.length || newIndex < 0) {
-      throw Components.Exception(
-        "moveEngine: Index out of bounds!",
-        Cr.NS_ERROR_INVALID_ARG
-      );
+      throw new RangeError("newIndex out of bounds");
     }
     if (!(engine instanceof lazy.SearchEngine)) {
-      throw Components.Exception(
-        "moveEngine: Invalid engine passed to moveEngine!",
-        Cr.NS_ERROR_INVALID_ARG
-      );
+      throw new TypeError("engine is not a SearchEngine instance");
     }
     if (engine.hidden) {
-      throw Components.Exception(
-        "moveEngine: Can't move a hidden engine!",
-        Cr.NS_ERROR_FAILURE
-      );
+      throw new Error("Unable to move a hidden engine");
     }
 
     var currentIndex = this.#sortedEngines.indexOf(engine);
     if (currentIndex == -1) {
-      throw Components.Exception(
-        "moveEngine: Can't find engine to move!",
-        Cr.NS_ERROR_UNEXPECTED
-      );
+      throw new Error("Unable to find engine to move");
     }
 
     // Our callers only take into account non-hidden engines when calculating
@@ -1010,10 +992,7 @@ export const SearchService = new (class SearchService {
     // newIndexEngine directly instead of newIndex.
     var newIndexEngine = this.#sortedVisibleEngines[newIndex];
     if (!newIndexEngine) {
-      throw Components.Exception(
-        "moveEngine: Can't find engine to replace!",
-        Cr.NS_ERROR_UNEXPECTED
-      );
+      throw new Error("Unable to find engine to replace");
     }
 
     for (var i = 0; i < this.#sortedEngines.length; ++i) {
@@ -1636,11 +1615,7 @@ export const SearchService = new (class SearchService {
     if (Services.startup.shuttingDown) {
       Glean.searchService.startupTime.cancel(timerId);
 
-      let ex = Components.Exception(
-        "#init: abandoning init due to shutting down",
-        Cr.NS_ERROR_ABORT
-      );
-
+      let ex = new Error("Abandoning search service init due to shutting down");
       this.#initializationStatus = "failed";
       this.#initDeferredPromise.reject(ex);
       throw ex;
@@ -3196,10 +3171,7 @@ export const SearchService = new (class SearchService {
     if (this._cachedSortedEngines) {
       var index = this._cachedSortedEngines.indexOf(engine);
       if (index == -1) {
-        throw Components.Exception(
-          "Can't find engine to remove in _sortedEngines!",
-          Cr.NS_ERROR_FAILURE
-        );
+        throw new Error("Unable to find engine to remove in the cache");
       }
       this._cachedSortedEngines.splice(index, 1);
     }
@@ -3310,18 +3282,12 @@ export const SearchService = new (class SearchService {
    */
   #setEngineDefault(privateMode, newEngine, changeReason) {
     if (!(newEngine instanceof lazy.SearchEngine)) {
-      throw Components.Exception(
-        "Invalid argument passed to defaultEngine setter",
-        Cr.NS_ERROR_INVALID_ARG
-      );
+      throw new TypeError("newEngine is not a SearchEngine instance");
     }
 
     const newCurrentEngine = this._engines.get(newEngine.id);
     if (!newCurrentEngine) {
-      throw Components.Exception(
-        "Can't find engine in store!",
-        Cr.NS_ERROR_UNEXPECTED
-      );
+      throw new Error("Unable to find the new engine in the engine store");
     }
 
     if (!newCurrentEngine.isConfigEngine) {
