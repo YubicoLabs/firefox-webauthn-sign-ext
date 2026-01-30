@@ -691,21 +691,23 @@ IntersectionInput DOMIntersectionObserver::ComputeInput(
   if (aRoot && aRoot->IsElement()) {
     if ((rootFrame = aRoot->AsElement()->GetPrimaryFrame())) {
       nsRect rootRectRelativeToRootFrame;
-      if (ScrollContainerFrame* scrollContainerFrame =
-              do_QueryFrame(rootFrame)) {
-        // rootRectRelativeToRootFrame should be the content rect of rootFrame,
-        // not including the scrollbars.
-        rootRectRelativeToRootFrame =
-            scrollContainerFrame
-                ->GetScrollPortRectAccountingForDynamicToolbar();
-      } else {
-        // rootRectRelativeToRootFrame should be the border rect of rootFrame.
-        rootRectRelativeToRootFrame = rootFrame->GetRectRelativeToSelf();
-      }
       nsIFrame* containingBlock =
           nsLayoutUtils::GetContainingBlockForClientRect(rootFrame);
-      rootRect = nsLayoutUtils::TransformFrameRectToAncestor(
-          rootFrame, rootRectRelativeToRootFrame, containingBlock);
+      if (ScrollContainerFrame* scrollContainerFrame =
+              do_QueryFrame(rootFrame)) {
+        // rootRect should be the content rect of rootFrame, not including the
+        // scrollbars.
+        rootRect = nsLayoutUtils::TransformFrameRectToAncestor(
+            rootFrame,
+            scrollContainerFrame
+                ->GetScrollPortRectAccountingForDynamicToolbar(),
+            containingBlock);
+      } else {
+        // rootRect should be the border rect of rootFrame.
+        rootRect = nsLayoutUtils::GetAllInFlowRectsUnion(
+            rootFrame, containingBlock,
+            nsLayoutUtils::GetAllInFlowRectsFlag::AccountForTransforms);
+      }
     }
   } else {
     MOZ_ASSERT(!aRoot || aRoot->IsDocument());
