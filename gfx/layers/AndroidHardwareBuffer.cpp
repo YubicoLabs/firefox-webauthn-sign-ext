@@ -73,20 +73,21 @@ already_AddRefed<AndroidHardwareBuffer> AndroidHardwareBuffer::Create(
   AHardwareBuffer_describe(nativeBuffer, &bufferInfo);
 
   RefPtr<AndroidHardwareBuffer> buffer = new AndroidHardwareBuffer(
-      nativeBuffer, aSize, bufferInfo.stride, aFormat, GetNextId());
-  AndroidHardwareBufferManager::Get()->Register(buffer);
+      nativeBuffer, aSize, bufferInfo.stride, aFormat);
+  if (auto* manager = AndroidHardwareBufferManager::Get()) {
+    manager->Register(buffer);
+  }
   return buffer.forget();
 }
 
 AndroidHardwareBuffer::AndroidHardwareBuffer(AHardwareBuffer* aNativeBuffer,
                                              gfx::IntSize aSize,
                                              uint32_t aStride,
-                                             gfx::SurfaceFormat aFormat,
-                                             uint64_t aId)
+                                             gfx::SurfaceFormat aFormat)
     : mSize(aSize),
       mStride(aStride),
       mFormat(aFormat),
-      mId(aId),
+      mId(GetNextId()),
       mNativeBuffer(aNativeBuffer),
       mIsRegistered(false) {
   MOZ_ASSERT(mNativeBuffer);
@@ -127,33 +128,28 @@ int AndroidHardwareBuffer::Unlock() {
 }
 
 void AndroidHardwareBuffer::SetReleaseFence(UniqueFileHandle&& aFenceFd) {
-  MonitorAutoLock lock(AndroidHardwareBufferManager::Get()->GetMonitor());
-  SetReleaseFence(std::move(aFenceFd), lock);
-}
-
-void AndroidHardwareBuffer::SetReleaseFence(UniqueFileHandle&& aFenceFd,
-                                            const MonitorAutoLock& aAutoLock) {
+  MonitorAutoLock lock(mMonitor);
   mReleaseFenceFd = std::move(aFenceFd);
 }
 
 void AndroidHardwareBuffer::SetAcquireFence(UniqueFileHandle&& aFenceFd) {
-  MonitorAutoLock lock(AndroidHardwareBufferManager::Get()->GetMonitor());
+  MonitorAutoLock lock(mMonitor);
 
   mAcquireFenceFd = std::move(aFenceFd);
 }
 
 UniqueFileHandle AndroidHardwareBuffer::GetAndResetReleaseFence() {
-  MonitorAutoLock lock(AndroidHardwareBufferManager::Get()->GetMonitor());
+  MonitorAutoLock lock(mMonitor);
   return std::move(mReleaseFenceFd);
 }
 
 UniqueFileHandle AndroidHardwareBuffer::GetAndResetAcquireFence() {
-  MonitorAutoLock lock(AndroidHardwareBufferManager::Get()->GetMonitor());
+  MonitorAutoLock lock(mMonitor);
   return std::move(mAcquireFenceFd);
 }
 
 UniqueFileHandle AndroidHardwareBuffer::GetAcquireFence() const {
-  MonitorAutoLock lock(AndroidHardwareBufferManager::Get()->GetMonitor());
+  MonitorAutoLock lock(mMonitor);
   if (!mAcquireFenceFd) {
     return UniqueFileHandle();
   }
@@ -173,9 +169,6 @@ void AndroidHardwareBufferManager::Init() {
 
 /* static */
 void AndroidHardwareBufferManager::Shutdown() { sInstance = nullptr; }
-
-AndroidHardwareBufferManager::AndroidHardwareBufferManager()
-    : mMonitor("AndroidHardwareBufferManager.mMonitor") {}
 
 void AndroidHardwareBufferManager::Register(
     RefPtr<AndroidHardwareBuffer> aBuffer) {
@@ -204,7 +197,7 @@ void AndroidHardwareBufferManager::Unregister(AndroidHardwareBuffer* aBuffer) {
 }
 
 already_AddRefed<AndroidHardwareBuffer> AndroidHardwareBufferManager::GetBuffer(
-    uint64_t aBufferId) {
+    uint64_t aBufferId) const {
   MonitorAutoLock lock(mMonitor);
 
   const auto it = mBuffers.find(aBufferId);
