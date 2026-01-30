@@ -551,7 +551,7 @@ nsresult nsSHistory::CloneAndReplaceChild(nsISHEntry* aEntry,
   if (data->destTreeParent) {
     data->destTreeParent->AddChild(dest, aChildIndex);
   }
-  data->resultEntry = dest;
+  data->resultEntry = std::move(dest);
   return rv;
 }
 
