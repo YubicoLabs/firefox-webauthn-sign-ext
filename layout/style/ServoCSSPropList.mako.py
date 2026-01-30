@@ -93,7 +93,7 @@ def serialized_by_servo(prop):
     return prop.name not in LONGHANDS_NOT_SERIALIZED_WITH_SERVO
 
 def exposed_on_getcs(prop):
-    if "Style" not in prop.rule_types_allowed_names():
+    if "style" not in prop.rule_types_allowed_names():
         return False
     if is_internal(prop):
         return False

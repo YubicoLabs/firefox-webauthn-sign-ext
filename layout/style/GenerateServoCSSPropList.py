@@ -103,7 +103,7 @@ def generate_header(output, data):
         excludes = []
         if is_internal:
             excludes.append("CSS_PROP_LIST_EXCLUDE_INTERNAL")
-        if "Style" not in prop.rules:
+        if "style" not in prop.rules:
             excludes.append("CSS_PROP_LIST_EXCLUDE_NOT_IN_STYLE")
 
         if excludes:

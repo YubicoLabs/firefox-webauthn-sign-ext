@@ -126,14 +126,14 @@ interface """
 
 
 def generateCSSStyleProperties(output, dataFile):
-    generate(output, dataFile, "Style", "CSSStyleProperties", "CSS2Property")
+    generate(output, dataFile, "style", "CSSStyleProperties", "CSS2Property")
 
 
 def generateCSSPageDescriptors(output, dataFile):
     generate(
         output,
         dataFile,
-        "Page",
+        "page",
         "CSSPageDescriptors",
         "CSSPageDescriptor",
     )
@@ -143,7 +143,7 @@ def generateCSSPositionTryDescriptors(output, dataFile):
     generate(
         output,
         dataFile,
-        "PositionTry",
+        "position-try",
         "CSSPositionTryDescriptors",
         "CSSPositionTryDescriptor",
         "layout.css.anchor-positioning.enabled",
