@@ -13,9 +13,7 @@
 ## They should be moved to toolkit/branding/brandings.ftl if the feature is
 ## exposed for localization.
 
--mdn-brand-name = MDN Web Docs
 -mdn-brand-short-name = MDN
--yelp-brand-name = Yelp
 
 ## These strings are used in the urlbar panel.
 
@@ -94,17 +92,6 @@ firefox-suggest-command-dont-show-any-suggestions =
   .label = Don’t show any suggestions
 firefox-suggest-command-dont-show-addons =
   .label = Don’t show { -brand-product-name } extension suggestions
-
-## These strings are used for add-on suggestions in the urlbar.
-
-# This string explaining that the add-on suggestion is a recommendation.
-firefox-suggest-addons-recommended = Recommended
-
-## These strings are used for MDN suggestions in the urlbar.
-
-# This string is shown in MDN suggestions and indicates the suggestion is from
-# MDN.
-firefox-suggest-mdn-bottom-text = { -mdn-brand-name }
 
 ## These strings are used for Yelp suggestions in the urlbar.
 
