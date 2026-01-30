@@ -394,9 +394,20 @@ class SearchRobot(private val composeTestRule: ComposeTestRule) {
     }
 
     fun typeSearch(searchTerm: String) {
-        Log.i(TAG, "typeSearch: Trying to set the edit mode toolbar text to $searchTerm")
-        this@SearchRobot.composeTestRule.onNodeWithTag(ADDRESSBAR_SEARCH_BOX).performTextReplacement(searchTerm)
-        Log.i(TAG, "typeSearch: Edit mode toolbar text was set to $searchTerm")
+        Log.i(TAG, "typeSearch: Waiting for search box to appear")
+        composeTestRule.waitUntil(waitingTime) {
+            composeTestRule.onAllNodesWithTag(ADDRESSBAR_SEARCH_BOX)
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        Log.i(TAG, "typeSearch: Search box is ready")
+
+        Log.i(TAG, "typeSearch: Performing text replacement with '$searchTerm'")
+        composeTestRule.onNodeWithTag(ADDRESSBAR_SEARCH_BOX).performTextReplacement(searchTerm)
+        Log.i(TAG, "typeSearch: Text replacement done")
+
+        Log.i(TAG, "typeSearch: Waiting for Compose to be idle")
+        composeTestRule.waitForIdle()
+        Log.i(TAG, "typeSearch: Compose is now idle")
     }
 
     fun clickClearButton() {
