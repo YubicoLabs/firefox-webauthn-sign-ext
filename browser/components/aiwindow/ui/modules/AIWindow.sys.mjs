@@ -16,16 +16,15 @@ ChromeUtils.defineESModuleGetters(lazy, {
     "moz-src:///browser/components/aiwindow/ui/modules/AIWindowAccountAuth.sys.mjs",
   AIWindowMenu:
     "moz-src:///browser/components/aiwindow/ui/modules/AIWindowMenu.sys.mjs",
+  SearchService: "moz-src:///toolkit/components/search/SearchService.sys.mjs",
+  SearchUIUtils: "moz-src:///browser/components/search/SearchUIUtils.sys.mjs",
   ChatStore:
     "moz-src:///browser/components/aiwindow/ui/modules/ChatStore.sys.mjs",
   NewTabPagePreloading:
     "moz-src:///browser/components/tabbrowser/NewTabPagePreloading.sys.mjs",
-  ONLOGOUT_NOTIFICATION: "resource://gre/modules/FxAccountsCommon.sys.mjs",
   PanelMultiView:
     "moz-src:///browser/components/customizableui/PanelMultiView.sys.mjs",
   PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.sys.mjs",
-  SearchService: "moz-src:///toolkit/components/search/SearchService.sys.mjs",
-  SearchUIUtils: "moz-src:///browser/components/search/SearchUIUtils.sys.mjs",
   MemoriesSchedulers:
     "moz-src:///browser/components/aiwindow/models/memories/MemoriesSchedulers.sys.mjs",
 });
@@ -62,7 +61,6 @@ export const AIWindow = {
     }
 
     ChromeUtils.defineLazyGetter(AIWindow, "chatStore", () => lazy.ChatStore);
-    Services.obs.addObserver(this, lazy.ONLOGOUT_NOTIFICATION);
     this._initialized = true;
 
     // On startup/restart, if the first window initialized is an
@@ -70,42 +68,6 @@ export const AIWindow = {
     if (this.isAIWindowActive(win)) {
       lazy.MemoriesSchedulers.maybeRunAndSchedule();
     }
-  },
-
-  uninit() {
-    if (!this._initialized) {
-      return;
-    }
-    Services.obs.removeObserver(this, lazy.ONLOGOUT_NOTIFICATION);
-    this._initialized = false;
-  },
-
-  observe(_subject, topic) {
-    if (topic === lazy.ONLOGOUT_NOTIFICATION) {
-      this._onAccountLogout();
-    }
-  },
-
-  // Switches all active AI Windows back to classic mode when the user signs out
-  // of their Firefox Account.
-  _onAccountLogout() {
-    for (const win of Services.wm.getEnumerator("navigator:browser")) {
-      if (!win.closed && this.isAIWindowActive(win)) {
-        this.toggleAIWindow(win, false);
-      }
-    }
-  },
-
-  // Checks if there are any open AI Windows. It's used to determine if certain
-  // operations (like Account sign-out warnings) need to account for active AI
-  // Window sessions.
-  hasActiveAIWindows() {
-    for (const win of Services.wm.getEnumerator("navigator:browser")) {
-      if (!win.closed && this.isAIWindowActiveAndEnabled(win)) {
-        return true;
-      }
-    }
-    return false;
   },
 
   _reconcileNewTabPages(win, previousNewTabURL) {

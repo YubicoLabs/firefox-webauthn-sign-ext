@@ -107,7 +107,3 @@ aiwindow-memories-on =
 aiwindow-memories-off =
     .tooltiptext = Memories off
     .aria-label = Memories off
-
-## Sign out dialog
-
-fxa-signout-dialog-body-aiwindow = Synced data will remain in your account. Your open Smart Windows will switch to standard windows.

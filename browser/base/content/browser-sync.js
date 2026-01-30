@@ -19,8 +19,6 @@ const { UIState } = ChromeUtils.importESModule(
 );
 
 ChromeUtils.defineESModuleGetters(this, {
-  AIWindow:
-    "moz-src:///browser/components/aiwindow/ui/modules/AIWindow.sys.mjs",
   ASRouter: "resource:///modules/asrouter/ASRouter.sys.mjs",
   EnsureFxAccountsWebChannel:
     "resource://gre/modules/FxAccountsWebChannel.sys.mjs",
@@ -520,7 +518,6 @@ var gSync = {
         "browser/sync.ftl",
         "browser/syncedTabs.ftl",
         "browser/newtab/asrouter.ftl",
-        "preview/aiWindow.ftl",
       ],
       true
     ));
@@ -2387,13 +2384,9 @@ var gSync = {
       deleteLocalData: false,
     };
 
-    const bodyId = AIWindow.hasActiveAIWindows()
-      ? "fxa-signout-dialog-body-aiwindow"
-      : "fxa-signout-dialog-body";
-
     let [title, body, button, checkbox] = await document.l10n.formatValues([
       { id: "fxa-signout-dialog-title2" },
-      { id: bodyId },
+      { id: "fxa-signout-dialog-body" },
       { id: "fxa-signout-dialog2-button" },
       { id: "fxa-signout-dialog2-checkbox" },
     ]);
