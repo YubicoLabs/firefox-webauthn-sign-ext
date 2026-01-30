@@ -22,35 +22,18 @@ ChromeUtils.defineESModuleGetters(lazy, {
 class IPProtectionAlertManagerClass {
   #localizationMessages = null;
   #promptsOpen = false;
-  #initialized = false;
-
-  get initialized() {
-    return this.#initialized;
-  }
 
   init() {
-    if (this.#initialized) {
-      return;
-    }
-
     lazy.IPPProxyManager.addEventListener("IPPProxyManager:StateChanged", this);
-
-    this.#initialized = true;
   }
 
   uninit() {
-    if (!this.#initialized) {
-      return;
-    }
-
     lazy.IPPProxyManager.removeEventListener(
       "IPPProxyManager:StateChanged",
       this
     );
 
     this.#closeAllPrompts();
-
-    this.#initialized = false;
   }
 
   get localizationMessages() {
@@ -232,27 +215,8 @@ class IPProtectionAlertManagerClass {
     if (buttonClicked === 0) {
       lazy.IPPProxyManager.stop(true);
     } else if (buttonClicked === 1) {
-      this.#closeAllTabs();
+      // TODO: Close all tabs
     }
-  }
-
-  async #closeAllTabs() {
-    const mostRecentWindow = Services.wm.getMostRecentBrowserWindow();
-    const tabs = mostRecentWindow.gBrowser.tabs;
-    mostRecentWindow.openTrustedLinkIn("about:home", "tab");
-    mostRecentWindow.gBrowser.removeTabs(tabs);
-
-    for (let window of lazy.EveryWindow.readyWindows) {
-      if (window === mostRecentWindow) {
-        continue;
-      }
-
-      window.close();
-    }
-
-    // Stop the VPN after closing everything to prevent any requests from
-    // completing.
-    lazy.IPPProxyManager.stop(true);
   }
 }
 
