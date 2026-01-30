@@ -9,9 +9,13 @@ use nix::{
         FcntlArg::{F_GETFL, F_SETFD, F_SETFL},
         FdFlag, OFlag,
     },
+    libc::{setsockopt, SOL_SOCKET, SO_NOSIGPIPE},
     sys::socket::{socketpair, AddressFamily, SockFlag, SockType},
 };
-use std::os::fd::{BorrowedFd, OwnedFd};
+use std::{
+    mem::size_of,
+    os::fd::{AsRawFd, BorrowedFd, OwnedFd},
+};
 use thiserror::Error;
 
 pub type ProcessHandle = ();
@@ -41,7 +45,7 @@ pub enum PlatformError {
 pub(crate) fn unix_socketpair() -> Result<(OwnedFd, OwnedFd), PlatformError> {
     socketpair(
         AddressFamily::Unix,
-        SockType::SeqPacket,
+        SockType::Stream,
         None,
         SockFlag::empty(),
     )
@@ -51,9 +55,26 @@ pub(crate) fn unix_socketpair() -> Result<(OwnedFd, OwnedFd), PlatformError> {
 pub(crate) fn set_socket_default_flags(socket: BorrowedFd) -> Result<(), PlatformError> {
     // All our sockets are in non-blocking mode.
     let flags = OFlag::from_bits_retain(fcntl(socket, F_GETFL)?);
-    fcntl(socket, F_SETFL(flags.union(OFlag::O_NONBLOCK)))
-        .map(|_res| ())
-        .map_err(PlatformError::SocketNonBlockError)
+    fcntl(socket, F_SETFL(flags.union(OFlag::O_NONBLOCK)))?;
+
+    // TODO: nix doesn't have a safe wrapper for SO_NOSIGPIPE yet, but we need
+    // to set this flag because we're using stream sockets unlike Linux, where
+    // we use sequential packets that don't raise SIGPIPE.
+    let res = unsafe {
+        setsockopt(
+            socket.as_raw_fd(),
+            SOL_SOCKET,
+            SO_NOSIGPIPE,
+            (&1 as *const i32).cast(),
+            size_of::<i32>() as _,
+        )
+    };
+
+    if res < 0 {
+        return Err(PlatformError::SocketNonBlockError(Errno::last()));
+    }
+
+    Ok(())
 }
 
 pub(crate) fn set_socket_cloexec(socket: BorrowedFd) -> Result<(), PlatformError> {

@@ -15,11 +15,7 @@ use thiserror::Error;
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::System::Diagnostics::Debug::{CONTEXT, EXCEPTION_RECORD};
 
-use crate::{
-    breakpad::Pid,
-    ipc_connector::{AncillaryData, CONNECTOR_ANCILLARY_DATA_LEN},
-    BreakpadString,
-};
+use crate::{breakpad::Pid, ipc_connector::AncillaryData, BreakpadString};
 
 #[derive(Debug, Error)]
 pub enum MessageError {
@@ -83,10 +79,10 @@ pub enum Kind {
 pub trait Message {
     fn kind() -> Kind;
     fn payload_size(&self) -> usize;
-    fn ancillary_data_len(&self) -> usize;
+    fn has_ancillary_data(&self) -> bool;
     fn header(&self) -> Vec<u8>;
-    fn into_payload(self) -> (Vec<u8>, Vec<AncillaryData>);
-    fn decode(data: &[u8], ancillary_data: Vec<AncillaryData>) -> Result<Self, MessageError>
+    fn into_payload(self) -> (Vec<u8>, Option<AncillaryData>);
+    fn decode(data: &[u8], ancillary_data: Option<AncillaryData>) -> Result<Self, MessageError>
     where
         Self: Sized;
 }
@@ -145,8 +141,8 @@ impl Message for SetCrashReportPath {
         size_of::<usize>() + path_len
     }
 
-    fn ancillary_data_len(&self) -> usize {
-        0
+    fn has_ancillary_data(&self) -> bool {
+        false
     }
 
     fn header(&self) -> Vec<u8> {
@@ -157,19 +153,19 @@ impl Message for SetCrashReportPath {
         .encode()
     }
 
-    fn into_payload(self) -> (Vec<u8>, Vec<AncillaryData>) {
+    fn into_payload(self) -> (Vec<u8>, Option<AncillaryData>) {
         let mut payload = Vec::with_capacity(self.payload_size());
         let path = self.path.serialize();
         payload.extend(path.len().to_ne_bytes());
         payload.extend(self.path.serialize());
-        (payload, vec![])
+        (payload, None)
     }
 
     fn decode(
         data: &[u8],
-        ancillary_data: Vec<AncillaryData>,
+        ancillary_data: Option<AncillaryData>,
     ) -> Result<SetCrashReportPath, MessageError> {
-        if !ancillary_data.is_empty() {
+        if ancillary_data.is_some() {
             return Err(MessageError::UnexpectedAncillaryData);
         }
 
@@ -206,8 +202,8 @@ impl Message for TransferMinidump {
         size_of::<Pid>()
     }
 
-    fn ancillary_data_len(&self) -> usize {
-        0
+    fn has_ancillary_data(&self) -> bool {
+        false
     }
 
     fn header(&self) -> Vec<u8> {
@@ -218,15 +214,15 @@ impl Message for TransferMinidump {
         .encode()
     }
 
-    fn into_payload(self) -> (Vec<u8>, Vec<AncillaryData>) {
-        (self.pid.to_ne_bytes().to_vec(), vec![])
+    fn into_payload(self) -> (Vec<u8>, Option<AncillaryData>) {
+        (self.pid.to_ne_bytes().to_vec(), None)
     }
 
     fn decode(
         data: &[u8],
-        ancillary_data: Vec<AncillaryData>,
+        ancillary_data: Option<AncillaryData>,
     ) -> Result<TransferMinidump, MessageError> {
-        if !ancillary_data.is_empty() {
+        if ancillary_data.is_some() {
             return Err(MessageError::UnexpectedAncillaryData);
         }
 
@@ -267,8 +263,8 @@ impl Message for TransferMinidumpReply {
                 .map_or(0, |error| error.as_bytes().len())
     }
 
-    fn ancillary_data_len(&self) -> usize {
-        0
+    fn has_ancillary_data(&self) -> bool {
+        false
     }
 
     fn header(&self) -> Vec<u8> {
@@ -279,7 +275,7 @@ impl Message for TransferMinidumpReply {
         .encode()
     }
 
-    fn into_payload(self) -> (Vec<u8>, Vec<AncillaryData>) {
+    fn into_payload(self) -> (Vec<u8>, Option<AncillaryData>) {
         let path_bytes = self.path.serialize();
         let mut buffer = Vec::with_capacity(self.payload_size());
         buffer.extend(path_bytes.len().to_ne_bytes());
@@ -296,14 +292,14 @@ impl Message for TransferMinidumpReply {
                 .as_ref()
                 .map_or(Vec::new(), |error| Vec::from(error.as_bytes())),
         );
-        (buffer, vec![])
+        (buffer, None)
     }
 
     fn decode(
         data: &[u8],
-        ancillary_data: Vec<AncillaryData>,
+        ancillary_data: Option<AncillaryData>,
     ) -> Result<TransferMinidumpReply, MessageError> {
-        if !ancillary_data.is_empty() {
+        if ancillary_data.is_some() {
             return Err(MessageError::UnexpectedAncillaryData);
         }
 
@@ -370,8 +366,8 @@ impl Message for WindowsErrorReportingMinidump {
             + size_of::<CONTEXT>()
     }
 
-    fn ancillary_data_len(&self) -> usize {
-        0
+    fn has_ancillary_data(&self) -> bool {
+        false
     }
 
     fn header(&self) -> Vec<u8> {
@@ -382,7 +378,7 @@ impl Message for WindowsErrorReportingMinidump {
         .encode()
     }
 
-    fn into_payload(self) -> (Vec<u8>, Vec<AncillaryData>) {
+    fn into_payload(self) -> (Vec<u8>, Option<AncillaryData>) {
         let mut buffer = Vec::<u8>::with_capacity(self.payload_size());
         buffer.extend(self.pid.to_ne_bytes());
         buffer.extend(self.tid.to_ne_bytes());
@@ -394,14 +390,14 @@ impl Message for WindowsErrorReportingMinidump {
         }
         let bytes: [u8; size_of::<CONTEXT>()] = unsafe { std::mem::transmute(self.context) };
         buffer.extend(bytes);
-        (buffer, vec![])
+        (buffer, None)
     }
 
     fn decode(
         data: &[u8],
-        ancillary_data: Vec<AncillaryData>,
+        ancillary_data: Option<AncillaryData>,
     ) -> Result<WindowsErrorReportingMinidump, MessageError> {
-        if !ancillary_data.is_empty() {
+        if ancillary_data.is_some() {
             return Err(MessageError::UnexpectedAncillaryData);
         }
 
@@ -474,8 +470,8 @@ impl Message for WindowsErrorReportingMinidumpReply {
         0
     }
 
-    fn ancillary_data_len(&self) -> usize {
-        0
+    fn has_ancillary_data(&self) -> bool {
+        false
     }
 
     fn header(&self) -> Vec<u8> {
@@ -486,15 +482,15 @@ impl Message for WindowsErrorReportingMinidumpReply {
         .encode()
     }
 
-    fn into_payload(self) -> (Vec<u8>, Vec<AncillaryData>) {
-        (Vec::<u8>::new(), vec![])
+    fn into_payload(self) -> (Vec<u8>, Option<AncillaryData>) {
+        (Vec::<u8>::new(), None)
     }
 
     fn decode(
         data: &[u8],
-        ancillary_data: Vec<AncillaryData>,
+        ancillary_data: Option<AncillaryData>,
     ) -> Result<WindowsErrorReportingMinidumpReply, MessageError> {
-        if !ancillary_data.is_empty() {
+        if ancillary_data.is_some() {
             return Err(MessageError::UnexpectedAncillaryData);
         }
 
@@ -533,8 +529,8 @@ impl Message for RegisterAuxvInfo {
         size_of::<Pid>() + (size_of::<AuxvType>() * 4)
     }
 
-    fn ancillary_data_len(&self) -> usize {
-        0
+    fn has_ancillary_data(&self) -> bool {
+        false
     }
 
     fn header(&self) -> Vec<u8> {
@@ -545,21 +541,21 @@ impl Message for RegisterAuxvInfo {
         .encode()
     }
 
-    fn into_payload(self) -> (Vec<u8>, Vec<AncillaryData>) {
+    fn into_payload(self) -> (Vec<u8>, Option<AncillaryData>) {
         let mut payload = Vec::with_capacity(self.payload_size());
         payload.extend(self.pid.to_ne_bytes());
         payload.extend(self.auxv_info.program_header_count.to_ne_bytes());
         payload.extend(self.auxv_info.program_header_address.to_ne_bytes());
         payload.extend(self.auxv_info.linux_gate_address.to_ne_bytes());
         payload.extend(self.auxv_info.entry_address.to_ne_bytes());
-        (payload, vec![])
+        (payload, None)
     }
 
     fn decode(
         data: &[u8],
-        ancillary_data: Vec<AncillaryData>,
+        ancillary_data: Option<AncillaryData>,
     ) -> Result<RegisterAuxvInfo, MessageError> {
-        if !ancillary_data.is_empty() {
+        if ancillary_data.is_some() {
             return Err(MessageError::UnexpectedAncillaryData);
         }
 
@@ -622,8 +618,8 @@ impl Message for UnregisterAuxvInfo {
         size_of::<Pid>()
     }
 
-    fn ancillary_data_len(&self) -> usize {
-        0
+    fn has_ancillary_data(&self) -> bool {
+        false
     }
 
     fn header(&self) -> Vec<u8> {
@@ -634,17 +630,17 @@ impl Message for UnregisterAuxvInfo {
         .encode()
     }
 
-    fn into_payload(self) -> (Vec<u8>, Vec<AncillaryData>) {
+    fn into_payload(self) -> (Vec<u8>, Option<AncillaryData>) {
         let mut payload = Vec::with_capacity(self.payload_size());
         payload.extend(self.pid.to_ne_bytes());
-        (payload, vec![])
+        (payload, None)
     }
 
     fn decode(
         data: &[u8],
-        ancillary_data: Vec<AncillaryData>,
+        ancillary_data: Option<AncillaryData>,
     ) -> Result<UnregisterAuxvInfo, MessageError> {
-        if !ancillary_data.is_empty() {
+        if ancillary_data.is_some() {
             return Err(MessageError::UnexpectedAncillaryData);
         }
 
@@ -657,17 +653,23 @@ impl Message for UnregisterAuxvInfo {
 
 /* Message sent from the main process to the crash helper to register a new
  * child process which is about to be spawned. This message contains the IPC
- * endpoint which the crash helper will use to talk to the child. */
+ * endpoint which the crash helper will use to talk to the child.
+ *
+ * Note that these processes should only contain an IPC endpoint and no actual
+ * data, however they declare a 1-byte sized payload which is transferred but
+ * ignored on the receiving size. This is a workaround to an issue with macOS
+ * 10.15 implementation of Unix sockets which would sometimes fail to deliver
+ * a message that would only contain control data and no buffer. See bug
+ * 1989686 for more information. This dummy payload can be removed once bug
+ * 2002791 is implemented. */
 
 pub struct RegisterChildProcess {
-    pub ancillary_data: [AncillaryData; CONNECTOR_ANCILLARY_DATA_LEN],
+    pub ipc_endpoint: AncillaryData,
 }
 
 impl RegisterChildProcess {
-    pub fn new(
-        ancillary_data: [AncillaryData; CONNECTOR_ANCILLARY_DATA_LEN],
-    ) -> RegisterChildProcess {
-        RegisterChildProcess { ancillary_data }
+    pub fn new(ipc_endpoint: AncillaryData) -> RegisterChildProcess {
+        RegisterChildProcess { ipc_endpoint }
     }
 }
 
@@ -677,11 +679,11 @@ impl Message for RegisterChildProcess {
     }
 
     fn payload_size(&self) -> usize {
-        0
+        1 // HACK, see the comment above
     }
 
-    fn ancillary_data_len(&self) -> usize {
-        self.ancillary_data.len()
+    fn has_ancillary_data(&self) -> bool {
+        true
     }
 
     fn header(&self) -> Vec<u8> {
@@ -692,25 +694,19 @@ impl Message for RegisterChildProcess {
         .encode()
     }
 
-    fn into_payload(self) -> (Vec<u8>, Vec<AncillaryData>) {
-        (vec![], self.ancillary_data.into())
+    fn into_payload(self) -> (Vec<u8>, Option<AncillaryData>) {
+        (vec![0], Some(self.ipc_endpoint))
     }
 
     fn decode(
         _data: &[u8],
-        mut ancillary_data: Vec<AncillaryData>,
+        ancillary_data: Option<AncillaryData>,
     ) -> Result<RegisterChildProcess, MessageError> {
-        #[cfg(any(target_os = "ios", target_os = "macos"))]
-        let ancillary_data: [AncillaryData; CONNECTOR_ANCILLARY_DATA_LEN] = {
-            let receive_right = ancillary_data.pop().ok_or(MessageError::MissingAncillary)?;
-            let send_right = ancillary_data.pop().ok_or(MessageError::MissingAncillary)?;
-            [send_right, receive_right]
+        let Some(ipc_endpoint) = ancillary_data else {
+            return Err(MessageError::MissingAncillary);
         };
-        #[cfg(not(any(target_os = "ios", target_os = "macos")))]
-        let ancillary_data: [AncillaryData; CONNECTOR_ANCILLARY_DATA_LEN] =
-            [ancillary_data.pop().ok_or(MessageError::MissingAncillary)?];
 
-        Ok(RegisterChildProcess { ancillary_data })
+        Ok(RegisterChildProcess { ipc_endpoint })
     }
 }
 
@@ -740,8 +736,8 @@ impl Message for ChildProcessRendezVous {
         size_of::<Pid>()
     }
 
-    fn ancillary_data_len(&self) -> usize {
-        0
+    fn has_ancillary_data(&self) -> bool {
+        false
     }
 
     fn header(&self) -> Vec<u8> {
@@ -752,15 +748,15 @@ impl Message for ChildProcessRendezVous {
         .encode()
     }
 
-    fn into_payload(self) -> (Vec<u8>, Vec<AncillaryData>) {
-        (self.crash_helper_pid.to_ne_bytes().to_vec(), vec![])
+    fn into_payload(self) -> (Vec<u8>, Option<AncillaryData>) {
+        (self.crash_helper_pid.to_ne_bytes().to_vec(), None)
     }
 
     fn decode(
         data: &[u8],
-        ancillary_data: Vec<AncillaryData>,
+        ancillary_data: Option<AncillaryData>,
     ) -> Result<ChildProcessRendezVous, MessageError> {
-        if !ancillary_data.is_empty() {
+        if ancillary_data.is_some() {
             return Err(MessageError::UnexpectedAncillaryData);
         }
 
@@ -802,8 +798,8 @@ impl Message for ChildProcessRendezVousReply {
         size_of::<u8>() + size_of::<Pid>()
     }
 
-    fn ancillary_data_len(&self) -> usize {
-        0
+    fn has_ancillary_data(&self) -> bool {
+        false
     }
 
     fn header(&self) -> Vec<u8> {
@@ -814,24 +810,24 @@ impl Message for ChildProcessRendezVousReply {
         .encode()
     }
 
-    fn into_payload(self) -> (Vec<u8>, Vec<AncillaryData>) {
+    fn into_payload(self) -> (Vec<u8>, Option<AncillaryData>) {
         let mut payload = Vec::with_capacity(self.payload_size());
         payload.push(self.dumpable.into());
         payload.extend(self.child_pid.to_ne_bytes());
         debug_assert!(self.payload_size() == payload.len());
-        (payload, vec![])
+        (payload, None)
     }
 
     fn decode(
         data: &[u8],
-        ancillary_data: Vec<AncillaryData>,
+        ancillary_data: Option<AncillaryData>,
     ) -> Result<ChildProcessRendezVousReply, MessageError> {
-        if !ancillary_data.is_empty() {
+        if ancillary_data.is_some() {
             return Err(MessageError::UnexpectedAncillaryData);
         }
 
         let dumpable_bytes: [u8; size_of::<u8>()] = data[0..size_of::<u8>()].try_into()?;
-        let dumpable = dumpable_bytes[0] != 0;
+        let dumpable = if dumpable_bytes[0] == 0 { false } else { true };
         let offset = size_of::<u8>();
 
         let child_pid_bytes: [u8; size_of::<Pid>()] =

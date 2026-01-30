@@ -1137,7 +1137,11 @@ Result<Ok, LaunchError> BaseProcessLauncher::DoSetup() {
     geckoargs::sCrashReporter.Put(std::move(childCrashFd), mChildArgs);
 #endif  // XP_UNIX && !XP_IOS
 
-    if (!CrashReporter::RegisterChildIPCChannel(mChildArgs)) {
+    UniqueFileHandle crashHelperClientFd =
+        CrashReporter::RegisterChildIPCChannel();
+    if (crashHelperClientFd) {
+      geckoargs::sCrashHelper.Put(std::move(crashHelperClientFd), mChildArgs);
+    } else {
       NS_WARNING("Could not create an IPC channel to the crash helper");
     }
   }
@@ -1544,12 +1548,10 @@ RefPtr<ProcessLaunchPromise> MacProcessLauncher::DoLaunch() {
         // Wait for the child process to send us its 'task_t' data, then
         // send it the mach send/receive rights which are being passed on
         // the commandline.
-        return MachHandleProcessCheckIn(
-                   std::move(self->mParentRecvPort),
-                   base::GetProcId(aResults.mHandle),
-                   mozilla::TimeDuration::FromSeconds(10),
-                   std::move(self->mChildArgs.mSendRights),
-                   std::move(self->mChildArgs.mReceiveRights))
+        return MachHandleProcessCheckIn(std::move(self->mParentRecvPort),
+                                        base::GetProcId(aResults.mHandle),
+                                        mozilla::TimeDuration::FromSeconds(10),
+                                        std::move(self->mChildArgs.mSendRights))
             ->Then(
                 XRE_GetAsyncIOEventTarget(), __func__,
                 [self, results = std::move(aResults)](task_t aTask) mutable {

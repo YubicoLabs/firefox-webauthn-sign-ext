@@ -9,6 +9,8 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 
+// For DirectAuxvDumpInfo
+#include "mozilla/toolkit/crashreporter/rust_minidump_writer_linux_ffi_generated.h"
 #include "mozilla/crash_helper_ffi_generated.h"
 
 #define CRASH_HELPER_LOGTAG "GeckoCrashHelper"
@@ -21,7 +23,11 @@ Java_org_mozilla_gecko_crashhelper_CrashHelper_set_1breakpad_1opts(
   // version that's too recent for us.
   const int val = 1;
   int res = setsockopt(breakpad_fd, SOL_SOCKET, SO_PASSCRED, &val, sizeof(val));
-  return res >= 0;
+  if (res < 0) {
+    return false;
+  }
+
+  return true;
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -47,7 +53,6 @@ Java_org_mozilla_gecko_crashhelper_CrashHelper_crash_1generator(
 
   const char* minidump_path_str =
       jenv->GetStringUTFChars(minidump_path, nullptr);
-  const RawIPCConnector pipe = {.socket = server_fd};
-  crash_generator_logic_android(pid, breakpad_fd, minidump_path_str, pipe);
+  crash_generator_logic_android(pid, breakpad_fd, minidump_path_str, server_fd);
   jenv->ReleaseStringUTFChars(minidump_path, minidump_path_str);
 }

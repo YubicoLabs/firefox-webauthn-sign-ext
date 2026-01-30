@@ -5,7 +5,8 @@
 use anyhow::{bail, Result};
 use crash_helper_common::{
     messages::{self},
-    BreakpadString, IPCClientChannel, IPCConnector, ProcessHandle, RawIPCConnector,
+    AncillaryData, BreakpadString, IPCClientChannel, IPCConnector, IntoRawAncillaryData,
+    ProcessHandle, RawAncillaryData, INVALID_ANCILLARY_DATA,
 };
 #[cfg(any(target_os = "android", target_os = "linux"))]
 use minidump_writer::minidump_writer::{AuxvType, DirectAuxvDumpInfo};
@@ -43,7 +44,7 @@ impl CrashHelperClient {
         Ok(())
     }
 
-    fn register_child_process(&mut self) -> Result<IPCConnector> {
+    fn register_child_process(&mut self) -> Result<AncillaryData> {
         let ipc_channel = IPCClientChannel::new()?;
         let (server_endpoint, client_endpoint) = ipc_channel.deconstruct();
 
@@ -62,7 +63,7 @@ impl CrashHelperClient {
         let message = messages::RegisterChildProcess::new(server_endpoint.into_ancillary());
         self.connector.send_message(message)?;
 
-        Ok(client_endpoint)
+        Ok(client_endpoint.into_ancillary())
     }
 
     #[cfg(any(target_os = "android", target_os = "linux"))]
@@ -148,9 +149,7 @@ pub unsafe extern "C" fn crash_helper_launch(
 #[cfg(target_os = "android")]
 #[no_mangle]
 pub unsafe extern "C" fn crash_helper_connect(client_socket: RawFd) -> *mut CrashHelperClient {
-    if let Ok(crash_helper) = CrashHelperClient::new(RawIPCConnector {
-        socket: client_socket,
-    }) {
+    if let Ok(crash_helper) = CrashHelperClient::new(client_socket) {
         let crash_helper_box = Box::new(crash_helper);
 
         // The object will be owned by the C++ code from now on, until it is
@@ -201,31 +200,24 @@ pub unsafe extern "C" fn set_crash_report_path(
 /// Creates a new IPC channel to connect a soon-to-be-created child process
 /// with the crash helper client. The server-side endpoint of this channel
 /// will be sent to the crash helper, and the client-side endpoint will be
-/// stored in the structure pointed by the `connector` argument.
+/// returned.
 ///
-/// This function will return false if we failed to create the IPC channel.
+/// This function will return an invalid file handle if creation failed.
 ///
 /// # Safety
 ///
 /// The `client` parameter must be a valid pointer to the crash helper client
 /// object returned by the [`crash_helper_launch()`] or
-/// [`crash_helper_connect()`] functions. The `connector` pointer must be a
-/// valid pointer to a `RawIPCConnector` structure.
+/// [`crash_helper_connect()`] functions.
 #[no_mangle]
 pub unsafe extern "C" fn register_child_ipc_channel(
     client: *mut CrashHelperClient,
-    connector: *mut RawIPCConnector,
-) -> bool {
+) -> RawAncillaryData {
     let client = client.as_mut().unwrap();
     if let Ok(client_endpoint) = client.register_child_process() {
-        let raw_connector = client_endpoint.into_raw_connector();
-        unsafe {
-            connector.write(raw_connector);
-        }
-
-        true
+        client_endpoint.into_raw()
     } else {
-        false
+        INVALID_ANCILLARY_DATA
     }
 }
 
@@ -377,7 +369,7 @@ pub unsafe extern "C" fn unregister_child_auxv_info(
 // signal/exception-safe. We will access this endpoint only from within the
 // exception handler with bare syscalls so we can leave the `IPCConnector`
 // object behind.
-static CHILD_IPC_ENDPOINT: OnceLock<Box<RawIPCConnector>> = OnceLock::new();
+static CHILD_IPC_ENDPOINT: OnceLock<Box<RawAncillaryData>> = OnceLock::new();
 static RENDEZVOUS_FAILED: AtomicBool = AtomicBool::new(false);
 
 /// Let a client rendez-vous with the crash helper process. This step ensures
@@ -390,8 +382,8 @@ static RENDEZVOUS_FAILED: AtomicBool = AtomicBool::new(false);
 /// a valid pipe handle (on Windows) or a valid file descriptor (on all other
 /// platforms).
 #[no_mangle]
-pub unsafe extern "C" fn crash_helper_rendezvous(raw_connector: RawIPCConnector) {
-    let Ok(connector) = IPCConnector::from_raw_connector(raw_connector) else {
+pub unsafe extern "C" fn crash_helper_rendezvous(client_endpoint: RawAncillaryData) {
+    let Ok(connector) = IPCConnector::from_raw_ancillary(client_endpoint) else {
         RENDEZVOUS_FAILED.store(true, Ordering::Relaxed);
         return;
     };
@@ -400,10 +392,10 @@ pub unsafe extern "C" fn crash_helper_rendezvous(raw_connector: RawIPCConnector)
         if let Ok(message) = connector.recv_reply::<messages::ChildProcessRendezVous>() {
             let res = CrashHelperClient::prepare_for_minidump(message.crash_helper_pid);
             let message = messages::ChildProcessRendezVousReply::new(res, process::id() as Pid);
-            if connector.send_message(message).is_ok() {
+            if let Ok(_) = connector.send_message(message) {
                 assert!(
                     CHILD_IPC_ENDPOINT
-                        .set(Box::new(connector.into_raw_connector()))
+                        .set(Box::new(connector.into_raw_ancillary()))
                         .is_ok(),
                     "The crash_helper_rendezvous() function must only be called once"
                 );
