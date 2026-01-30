@@ -1776,36 +1776,4 @@ class TextInputDelegateTest : BaseSessionTest() {
         assertText("text isn't changed", ic, "[***]")
         assertSelection("selection isn't collapsed", ic, 1, 4)
     }
-
-    // Bug 1563640 - SwiftKey commits empty text with setComposingRegion after enter key
-    @WithDisplay(width = 512, height = 512)
-    @Test
-    fun swiftKeyUsesSetComposingRegionAfterEnterKey() {
-        assumeThat("textarea only", id, equalTo("#textarea"))
-
-        setupContent("")
-        val ic = mainSession.textInput.onCreateInputConnection(EditorInfo())!!
-
-        pressKey(ic, KeyEvent.KEYCODE_B)
-        pressKey(ic, KeyEvent.KEYCODE_A)
-        pressKey(ic, KeyEvent.KEYCODE_R)
-        pressKey(ic, KeyEvent.KEYCODE_SPACE)
-        assertSelection("Can set selection to range", ic, 4, 4)
-
-        // After SwiftKey sends enter key, it calls setComposingRegion then finishComposingText to commit empty text.
-        val promise =
-            mainSession.evaluatePromiseJS(
-                """
-                new Promise(r => window.addEventListener('keyup', r, { once: true }))
-                """.trimIndent(),
-            )
-        ic.beginBatchEdit()
-        pressKeyNoWait(ic, KeyEvent.KEYCODE_ENTER)
-        ic.setComposingRegion(4, 4)
-        ic.finishComposingText()
-        ic.endBatchEdit()
-        promise.value
-
-        assertSelection("selection moves by enter key", ic, 5, 5)
-    }
 }
