@@ -65,6 +65,7 @@ let patterns: string[];
 - [`elementClicked`](#elementclicked)
 - [`ipProtectionReady`](#ipprotectionready)
 - [`selectableProfilesUpdated`](#selectableprofilesupdated)
+- [`smartWindowNewTab`](#smartwindownewtab)
 
 ### `openArticleURL`
 
@@ -461,5 +462,16 @@ Happens when the user switches between two tabs 2 times within one minute
 {
   trigger: { id: "tabSwitch" },
   targeting: `!'browser.tab.splitview.hasUsed'|preferenceValue`
+}
+```
+
+### `smartWindowNewTab`
+
+Occurs every time a user opens a new Smart Window tab.
+
+```js
+{
+  trigger: { id: "smartWindowNewTab" },
+  targeting: "isAIWindow && 'browser.aiwindow.firstrun.hasCompleted' | preferenceValue",
 }
 ```

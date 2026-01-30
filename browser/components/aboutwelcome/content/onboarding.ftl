@@ -16,3 +16,7 @@ amo-screen-primary-cta = Explore staff-recommended add-ons
 browser-aboutwelcome-button =
     .label = Finish setup
     .tooltiptext = Finish setting up { -brand-short-name }.
+
+## Smart window switcher callout
+
+smartwindow-switcher-callout = Switch between Smart and Classic Windows anytime.

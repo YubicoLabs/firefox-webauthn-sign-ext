@@ -28,6 +28,18 @@ add_task(async function test_ask_button() {
   const askButton = win.document.getElementById("smartwindow-ask-button");
   Assert.ok(askButton, "Ask button exists in the toolbar");
   Assert.ok(!askButton.hidden, "Ask button is initially visible for AI Window");
+
+  /* the window switcher feature callout gets in front of the ask button
+  if it exists, we must close before clicking on the ask button */
+  const switcherFeatureCallout = win.document.querySelector(
+    "#feature-callout .SMARTWINDOW_SWITCHER_BUTTON_CALLOUT"
+  );
+
+  if (switcherFeatureCallout) {
+    const closeBtn = switcherFeatureCallout.querySelector(".dismiss-button");
+    EventUtils.synthesizeMouseAtCenter(closeBtn, {}, win);
+  }
+
   EventUtils.synthesizeMouseAtCenter(askButton, {}, win);
 
   await BrowserTestUtils.waitForMutationCondition(

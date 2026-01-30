@@ -562,6 +562,18 @@
           "additionalProperties": false,
           "required": ["id"],
           "description": "Happens when the user switches between two tabs 2 times within a minute"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "enum": ["smartWindowNewTab"]
+            }
+          },
+          "additionalProperties": false,
+          "required": ["id"],
+          "description": "Occurs every time a user opens a new Smart Window tab."
         }
       ]
     }

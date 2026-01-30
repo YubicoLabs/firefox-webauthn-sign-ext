@@ -1174,6 +1174,62 @@ const MESSAGES = () => {
         ],
       },
     },
+    {
+      id: "SMARTWINDOW_NEWTAB_CALLOUT",
+      template: "feature_callout",
+      groups: ["cfr"],
+      content: {
+        id: "SMARTWINDOW_NEWTAB_CALLOUT",
+        template: "multistage",
+        backdrop: "transparent",
+        transitions: false,
+        screens: [
+          {
+            id: "SMARTWINDOW_SWITCHER_BUTTON_CALLOUT",
+            anchors: [
+              {
+                selector: "#ai-window-toggle > .toolbarbutton-icon",
+                panel_position: {
+                  anchor_attachment: "bottomcenter",
+                  callout_attachment: "topright",
+                },
+                arrow_width: 23,
+                arrow_corner_distance: 4,
+              },
+            ],
+            content: {
+              padding: 12,
+              position: "callout",
+              width: "248px",
+              title: {
+                string_id: "smartwindow-switcher-callout",
+                fontSize: "15px",
+                fontWeight: "400",
+                letterSpacing: "normal",
+                lineHeight: "normal",
+                marginInline: "0 18px",
+              },
+              dismiss_button: {
+                size: "x-small",
+                marginBlock: "8px 0",
+                marginInline: "0 8px",
+                action: {
+                  dismiss: true,
+                },
+              },
+            },
+          },
+        ],
+      },
+      targeting:
+        "isAIWindow && 'browser.aiwindow.firstrun.hasCompleted' | preferenceValue",
+      trigger: {
+        id: "smartWindowNewTab",
+      },
+      frequency: {
+        lifetime: 1,
+      },
+    },
   ];
   messages = add24HourImpressionJEXLTargeting(
     ["FIREFOX_VIEW_TAB_PICKUP_REMINDER"],
