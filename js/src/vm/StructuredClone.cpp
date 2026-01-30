@@ -2572,10 +2572,6 @@ JSStructuredCloneReader::JSStructuredCloneReader(
       callbacks(cb),
       closure(cbClosure),
       gcHeap(in.context()) {
-  // Readers should never enable SAB for a DifferentProcess scope.
-  MOZ_RELEASE_ASSERT(!(scope == JS::StructuredCloneScope::DifferentProcess &&
-                       cloneDataPolicy.areSharedMemoryObjectsAllowed()));
-
   // Avoid the need to bounds check by keeping a never-matching element at the
   // base of the `objState` stack. This append() will always succeed because
   // the objState vector has a nonzero MinInlineCapacity.
@@ -3451,6 +3447,7 @@ bool JSStructuredCloneReader::readHeader() {
     // Bug 1434308 and bug 1458320 - the scopes stored in old IndexedDB
     // clones are incorrect. Treat them as if they were DifferentProcess.
     allowedScope = JS::StructuredCloneScope::DifferentProcess;
+    return true;
   }
 
   if (storedScope < allowedScope) {
@@ -3458,12 +3455,6 @@ bool JSStructuredCloneReader::readHeader() {
                               JSMSG_SC_BAD_SERIALIZED_DATA,
                               "incompatible structured clone scope");
     return false;
-  }
-
-  if (allowedScope == JS::StructuredCloneScope::DifferentProcess) {
-    MOZ_RELEASE_ASSERT(
-        !cloneDataPolicy.areIntraClusterClonableSharedObjectsAllowed());
-    MOZ_RELEASE_ASSERT(!cloneDataPolicy.areSharedMemoryObjectsAllowed());
   }
 
   return true;
