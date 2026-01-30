@@ -5,7 +5,6 @@
 import runpy
 import string
 
-
 def generate(output, template, dataFile):
     with open(template, "r") as f:
         template = string.Template(f.read())

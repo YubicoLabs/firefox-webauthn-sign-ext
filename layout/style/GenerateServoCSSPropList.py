@@ -30,7 +30,7 @@ def generate_data(output, template):
     )
 
     # Add all relevant files into the dependencies of the generated file.
-    DEP_EXTS = [".py", ".rs"]
+    DEP_EXTS = [".py", ".rs", ".toml"]
     deps = set()
     for path, dirs, files in os.walk(SERVO_PROP_BASE):
         for file in files:
