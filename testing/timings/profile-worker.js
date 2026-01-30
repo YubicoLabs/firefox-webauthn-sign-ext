@@ -15,6 +15,10 @@ function normalizeMessage(message) {
     .replace(/Test ran for \d+s/g, "Test ran for Xs");
 }
 
+function formatTaskMessage(taskId, message) {
+  return `      Task ${taskId}: ${message}`;
+}
+
 // Extract parallel execution time ranges from markers
 function extractParallelRanges(markers) {
   const parallelRanges = [];
@@ -333,27 +337,51 @@ async function fetchResourceProfile(taskId, retryId = 0) {
 
   const url = `${workerData.taskclusterBaseUrl}/api/queue/v1/task/${taskId}/runs/${retryId}/artifacts/public/test_info/profile_resource-usage.json`;
 
+  let response;
   try {
-    const response = await fetch(url);
-    if (!response.ok) {
-      return null;
-    }
-
-    const profile = await response.json();
-
-    // Cache the profile for future use (gzipped)
-    try {
-      const compressed = zlib.gzipSync(JSON.stringify(profile));
-      fs.writeFileSync(cacheFileGz, compressed);
-    } catch (error) {
-      console.warn(`Error caching profile ${taskId}: ${error.message}`);
-    }
-
-    return profile;
+    response = await fetch(url);
   } catch (error) {
-    console.error(`Error fetching profile for task ${taskId}:`, error.message);
-    return null;
+    // Network error (timeout, connection refused, etc.)
+    let message = error.message;
+    if (error.cause) {
+      message += ` (${error.cause.code || error.cause.message})`;
+    }
+    console.error(formatTaskMessage(taskId, `Network error - ${message}`));
+    return { error: "network_error" };
   }
+
+  if (!response.ok) {
+    const errorType = response.status === 404 ? "not_found" : "http_error";
+    console.error(
+      formatTaskMessage(
+        taskId,
+        `HTTP error ${response.status} ${response.statusText}`
+      )
+    );
+    return { error: errorType };
+  }
+
+  let profile;
+  try {
+    profile = await response.json();
+  } catch (error) {
+    console.error(
+      formatTaskMessage(taskId, `JSON parse error - ${error.message}`)
+    );
+    return { error: "parse_error" };
+  }
+
+  // Cache the profile for future use (gzipped)
+  try {
+    const compressed = zlib.gzipSync(JSON.stringify(profile));
+    fs.writeFileSync(cacheFileGz, compressed);
+  } catch (error) {
+    console.warn(
+      formatTaskMessage(taskId, `Error caching profile - ${error.message}`)
+    );
+  }
+
+  return profile;
 }
 
 // Process a single job to extract test timings
@@ -365,19 +393,29 @@ async function processJob(job) {
   const jobName = job.name;
 
   if (!taskId) {
-    return null;
+    console.error(`      Job has no task ID: ${JSON.stringify(job)}`);
+    return { error: "invalid_job" };
   }
-
-  // Processing job silently to avoid mixed output with main thread
 
   const profile = await fetchResourceProfile(taskId, retryId);
   if (!profile) {
-    return null;
+    console.error(
+      formatTaskMessage(taskId, "No profile returned (unexpected null)")
+    );
+    return { error: "no_profile" };
+  }
+
+  // Check if profile is an error object
+  if (profile.error) {
+    return { error: profile.error };
   }
 
   const timings = extractTestTimings(profile);
   if (timings.length === 0) {
-    return null;
+    console.warn(
+      formatTaskMessage(taskId, "No test timings extracted from profile")
+    );
+    return { error: "no_timings" };
   }
 
   const resourceUsage = extractResourceUsage(profile);
