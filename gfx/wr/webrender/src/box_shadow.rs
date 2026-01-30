@@ -127,15 +127,15 @@ impl PatternBuilder for BoxShadowTemplate {
             }),
         ));
 
-        let task_world_rect = DeviceRect::from_origin_and_size(
+        let task_rect = DeviceRect::from_origin_and_size(
             content_origin,
             task_size.to_f32(),
-        ) / scale_factor;
+        );
 
         crate::quad::prepare_clip_range(
             clips_range,
             pattern_task_id,
-            task_world_rect,
+            task_rect,
             pattern_prim_address_f,
             raster_spatial_node_index,
             raster_spatial_node_index,
