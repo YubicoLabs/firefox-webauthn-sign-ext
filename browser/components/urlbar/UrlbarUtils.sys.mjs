@@ -909,6 +909,49 @@ export var UrlbarUtils = {
   },
 
   /**
+   * Sanitize and process data retrieved from the clipboard
+   *
+   * @param {string} clipboardData
+   *   The original data retrieved from the clipboard.
+   * @returns {string}
+   *   The sanitized paste data, ready to use.
+   */
+  sanitizeTextFromClipboard(clipboardData) {
+    let fixedURI, keywordAsSent;
+    try {
+      ({ fixedURI, keywordAsSent } = Services.uriFixup.getFixupURIInfo(
+        clipboardData,
+        Ci.nsIURIFixup.FIXUP_FLAG_FIX_SCHEME_TYPOS |
+          Ci.nsIURIFixup.FIXUP_FLAG_ALLOW_KEYWORD_LOOKUP
+      ));
+    } catch (e) {}
+
+    let pasteData;
+    if (keywordAsSent) {
+      // For performance reasons, we don't want to beautify a long string.
+      if (clipboardData.length < 500) {
+        // For only keywords, replace any white spaces including line break
+        // with white space.
+        pasteData = clipboardData.replace(/\s/g, " ");
+      } else {
+        pasteData = clipboardData;
+      }
+    } else if (
+      fixedURI?.scheme == "data" &&
+      !fixedURI.spec.match(/^data:.+;base64,/)
+    ) {
+      // For data url without base64, replace line break with white space.
+      pasteData = clipboardData.replace(/[\r\n]/g, " ");
+    } else {
+      // For normal url or data url having basic64, or if fixup failed, just
+      // remove line breaks.
+      pasteData = clipboardData.replace(/[\r\n]/g, "");
+    }
+
+    return this.stripUnsafeProtocolOnPaste(pasteData);
+  },
+
+  /**
    * Used to filter out the javascript protocol from URIs, since we don't
    * support LOAD_FLAGS_DISALLOW_INHERIT_PRINCIPAL for those.
    *
