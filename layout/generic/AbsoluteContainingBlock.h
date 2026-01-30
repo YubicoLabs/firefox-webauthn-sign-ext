@@ -129,6 +129,17 @@ class AbsoluteContainingBlock {
    */
   void MarkAllFramesDirty();
 
+  /**
+   * Rects for abspos frames to position against. Differences are relevant
+   * for containing blocks that scroll.
+   *
+   * See https://drafts.csswg.org/css-position-4/#scrollable-cb
+   */
+  struct ContainingBlockRects {
+    nsRect mLocal;
+    nsRect mScrollable;
+  };
+
  protected:
   /**
    * Returns true if the position of aFrame depends on the position of
@@ -175,10 +186,10 @@ class AbsoluteContainingBlock {
   void ReflowAbsoluteFrame(
       nsContainerFrame* aDelegatingFrame, nsPresContext* aPresContext,
       const ReflowInput& aReflowInput,
-      const nsRect& aOriginalContainingBlockRect,
-      const nsRect& aOriginalScrollableContainingBlockRect,
+      const ContainingBlockRects& aContainingBlockRects,
       AbsPosReflowFlags aFlags, nsIFrame* aKidFrame, nsReflowStatus& aStatus,
       OverflowAreas* aOverflowAreas,
+      const ContainingBlockRects* aFragmentedContainingBlockRects,
       mozilla::AnchorPosResolutionCache* aAnchorPosResolutionCache = nullptr);
 
   /**

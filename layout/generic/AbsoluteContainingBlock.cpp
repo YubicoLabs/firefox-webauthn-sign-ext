@@ -119,6 +119,13 @@ void AbsoluteContainingBlock::RemoveFrame(FrameDestroyContext& aContext,
 // Note: caller should use GetUnfragmentedPosition() helper to get the property.
 NS_DECLARE_FRAME_PROPERTY_DELETABLE(UnfragmentedPositionProperty, LogicalPoint)
 
+// In a fragmented context, for an absolute containing block, this property
+// stores the unfragmented containing block rects. This is used to allow
+// proper percentage-sizing of its children.
+NS_DECLARE_FRAME_PROPERTY_DELETABLE(
+    UnfragmentedContainingBlockProperty,
+    AbsoluteContainingBlock::ContainingBlockRects)
+
 static LogicalPoint* GetUnfragmentedPosition(const ReflowInput& aCBReflowInput,
                                              const nsIFrame* aFrame) {
   // If the absolute containing block is in a measuring reflow, then aFrame's
@@ -349,6 +356,29 @@ static AnchorPosResolutionCache PopulateAnchorResolutionCache(
   return result;
 }
 
+static nsRect ComputeScrollableContainingBlock(
+    const nsContainerFrame* aDelegatingFrame, const nsRect& aContainingBlock,
+    const OverflowAreas* aOverflowAreas) {
+  switch (aDelegatingFrame->Style()->GetPseudoType()) {
+    case PseudoStyleType::scrolledContent:
+    case PseudoStyleType::scrolledCanvas: {
+      if (!aOverflowAreas) {
+        break;
+      }
+      // FIXME(bug 2004432): This is close enough to what we want. In practice
+      // we don't want to account for relative positioning and so on, but this
+      // seems good enough for now.
+      ScrollContainerFrame* sf = do_QueryFrame(aDelegatingFrame->GetParent());
+      // Clamp to the scrollable range.
+      return sf->GetUnsnappedScrolledRectInternal(
+          aOverflowAreas->ScrollableOverflow(), aContainingBlock.Size());
+    }
+    default:
+      break;
+  }
+  return aContainingBlock;
+}
+
 void AbsoluteContainingBlock::Reflow(nsContainerFrame* aDelegatingFrame,
                                      nsPresContext* aPresContext,
                                      const ReflowInput& aReflowInput,
@@ -356,23 +386,34 @@ void AbsoluteContainingBlock::Reflow(nsContainerFrame* aDelegatingFrame,
                                      const nsRect& aContainingBlock,
                                      AbsPosReflowFlags aFlags,
                                      OverflowAreas* aOverflowAreas) {
-  const auto scrollableContainingBlock = [&]() -> nsRect {
-    switch (aDelegatingFrame->Style()->GetPseudoType()) {
-      case PseudoStyleType::scrolledContent:
-      case PseudoStyleType::scrolledCanvas: {
-        // FIXME(bug 2004432): This is close enough to what we want. In practice
-        // we don't want to account for relative positioning and so on, but this
-        // seems good enough for now.
-        ScrollContainerFrame* sf = do_QueryFrame(aDelegatingFrame->GetParent());
-        // Clamp to the scrollable range.
-        return sf->GetUnsnappedScrolledRectInternal(
-            aOverflowAreas->ScrollableOverflow(), aContainingBlock.Size());
-      }
-      default:
-        break;
+  const auto scrollableContainingBlock = ComputeScrollableContainingBlock(
+      aDelegatingFrame, aContainingBlock, aOverflowAreas);
+  const ContainingBlockRects passedContainingBlock{aContainingBlock,
+                                                   scrollableContainingBlock};
+
+  const auto* unfragmentedContainingBlockRects =
+      [&]() -> const ContainingBlockRects* {
+    if (aReflowInput.mFlags.mIsInColumnMeasuringReflow) {
+      // Doing the measuring reflow, so set the unfragmented containing sizes
+      // here.
+      NS_WARNING_ASSERTION(aDelegatingFrame->FirstInFlow() == aDelegatingFrame,
+                           "Saving unfragmented CB into non-first-in-flow");
+      aDelegatingFrame->SetOrUpdateDeletableProperty(
+          UnfragmentedContainingBlockProperty(), passedContainingBlock);
+      // Just reuse what was passed in.
+      return &passedContainingBlock;
     }
-    return aContainingBlock;
+    if (const auto* unfragmented = aDelegatingFrame->FirstInFlow()->GetProperty(
+            UnfragmentedContainingBlockProperty())) {
+      return unfragmented;
+    }
+    return &passedContainingBlock;
   }();
+
+  const auto* fragmentedContainingBlockRects =
+      unfragmentedContainingBlockRects != &passedContainingBlock
+          ? &passedContainingBlock
+          : nullptr;
 
 #ifdef DEBUG
   SanityCheckChildListsBeforeReflow(aDelegatingFrame);
@@ -442,13 +483,16 @@ void AbsoluteContainingBlock::Reflow(nsContainerFrame* aDelegatingFrame,
         kidNeedsReflow = true;
       } else {
         nscoord kidBEnd =
-            kidFrame->GetLogicalRect(aContainingBlock.Size()).BEnd(kidWM);
+            kidFrame
+                ->GetLogicalRect(
+                    unfragmentedContainingBlockRects->mLocal.Size())
+                .BEnd(kidWM);
         nscoord kidOverflowBEnd =
             LogicalRect(containerWM,
                         // Use ...RelativeToSelf to ignore transforms
                         kidFrame->ScrollableOverflowRectRelativeToSelf() +
                             kidFrame->GetPosition(),
-                        aContainingBlock.Size())
+                        unfragmentedContainingBlockRects->mLocal.Size())
                 .BEnd(containerWM);
         NS_ASSERTION(kidOverflowBEnd >= kidBEnd,
                      "overflow area should be at least as large as frame rect");
@@ -461,7 +505,8 @@ void AbsoluteContainingBlock::Reflow(nsContainerFrame* aDelegatingFrame,
     if (kidNeedsReflow && !aPresContext->HasPendingInterrupt()) {
       // TODO(TYLin, Bug 2009643): To get the correct cbSize, we should refactor
       // the lambda that gets |cb| in ReflowAbsoluteFrame(), and call it here.
-      const LogicalSize cbSize(containerWM, aContainingBlock.Size());
+      const LogicalSize cbSize(containerWM,
+                               unfragmentedContainingBlockRects->mLocal.Size());
       const LogicalMargin border =
           aDelegatingFrame->GetLogicalUsedBorder(containerWM)
               .ApplySkipSides(
@@ -486,8 +531,9 @@ void AbsoluteContainingBlock::Reflow(nsContainerFrame* aDelegatingFrame,
       nsReflowStatus kidStatus;
       if (!kidFrameNeedsPush) {
         ReflowAbsoluteFrame(aDelegatingFrame, aPresContext, aReflowInput,
-                            aContainingBlock, scrollableContainingBlock, aFlags,
-                            kidFrame, kidStatus, aOverflowAreas,
+                            *unfragmentedContainingBlockRects, aFlags, kidFrame,
+                            kidStatus, aOverflowAreas,
+                            fragmentedContainingBlockRects,
                             anchorPosResolutionCache.ptrOr(nullptr));
 
         // TODO(TYLin, Bug 2009647): We'll support a measuring reflow in
@@ -1288,20 +1334,22 @@ struct AnchorShiftInfo {
   StylePositionArea mResolvedArea;
 };
 
-struct ContainingBlockRect {
+struct ModifiedContainingBlock {
   Maybe<AnchorShiftInfo> mAnchorShiftInfo;
+  // Unmodified scrollable or local containing block
   nsRect mMaybeScrollableRect;
+  // Containing block after all its modifications e.g. By grid/position-area.
   nsRect mFinalRect;
 
-  explicit ContainingBlockRect(const nsRect& aRect)
+  explicit ModifiedContainingBlock(const nsRect& aRect)
       : mMaybeScrollableRect{aRect}, mFinalRect{aRect} {}
-  ContainingBlockRect(const nsRect& aMaybeScrollableRect,
-                      const nsRect& aFinalRect)
+  ModifiedContainingBlock(const nsRect& aMaybeScrollableRect,
+                          const nsRect& aFinalRect)
       : mMaybeScrollableRect{aMaybeScrollableRect}, mFinalRect{aFinalRect} {}
-  ContainingBlockRect(const nsPoint& aOffset,
-                      const StylePositionArea& aResolvedArea,
-                      const nsRect& aMaybeScrollableRect,
-                      const nsRect& aFinalRect)
+  ModifiedContainingBlock(const nsPoint& aOffset,
+                          const StylePositionArea& aResolvedArea,
+                          const nsRect& aMaybeScrollableRect,
+                          const nsRect& aFinalRect)
       : mAnchorShiftInfo{Some(AnchorShiftInfo{aOffset, aResolvedArea})},
         mMaybeScrollableRect{aMaybeScrollableRect},
         mFinalRect{aFinalRect} {}
@@ -1348,10 +1396,10 @@ static SideBits GetScrollCompensatedSidesFor(
 // reflow...
 void AbsoluteContainingBlock::ReflowAbsoluteFrame(
     nsContainerFrame* aDelegatingFrame, nsPresContext* aPresContext,
-    const ReflowInput& aReflowInput, const nsRect& aOriginalContainingBlockRect,
-    const nsRect& aOriginalScrollableContainingBlockRect,
-    AbsPosReflowFlags aFlags, nsIFrame* aKidFrame, nsReflowStatus& aStatus,
-    OverflowAreas* aOverflowAreas,
+    const ReflowInput& aReflowInput,
+    const ContainingBlockRects& aContainingBlockRects, AbsPosReflowFlags aFlags,
+    nsIFrame* aKidFrame, nsReflowStatus& aStatus, OverflowAreas* aOverflowAreas,
+    const ContainingBlockRects* aFragmentedContainingBlockRects,
     AnchorPosResolutionCache* aAnchorPosResolutionCache) {
   MOZ_ASSERT(aStatus.IsEmpty(), "Caller should pass a fresh reflow status!");
 
@@ -1360,7 +1408,7 @@ void AbsoluteContainingBlock::ReflowAbsoluteFrame(
     nsIFrame::IndentBy(stdout, nsBlockFrame::gNoiseIndent);
     fmt::println("abspos {}: begin reflow: availSize={}, orig cbRect={}",
                  aKidFrame->ListTag(), ToString(aReflowInput.AvailableSize()),
-                 ToString(aOriginalContainingBlockRect));
+                 ToString(aContainingBlockRects.mLocal));
   }
   AutoNoisyIndenter indent(nsBlockFrame::gNoisy);
 #endif  // DEBUG
@@ -1483,8 +1531,8 @@ void AbsoluteContainingBlock::ReflowAbsoluteFrame(
     auto cb = [&]() {
       // The current containing block, with ongoing modifications.
       // Starts as a local containing block.
-      nsRect containingBlock = aOriginalContainingBlockRect;
-      nsRect scrollableContainingBlock = aOriginalScrollableContainingBlockRect;
+      nsRect containingBlock = aContainingBlockRects.mLocal;
+      nsRect scrollableContainingBlock = aContainingBlockRects.mScrollable;
       const auto defaultAnchorInfo = [&]() -> Maybe<AnchorPosInfo> {
         if (!aAnchorPosResolutionCache) {
           return Nothing{};
@@ -1498,17 +1546,17 @@ void AbsoluteContainingBlock::ReflowAbsoluteFrame(
         // Presence of a valid default anchor causes us to use the scrollable
         // containing block.
         // https://github.com/w3c/csswg-drafts/issues/12552#issuecomment-3210696721
-        containingBlock = aOriginalScrollableContainingBlockRect;
+        containingBlock = aContainingBlockRects.mScrollable;
       }
 
       if (ViewportFrame* viewport = do_QueryFrame(aDelegatingFrame)) {
         if (IsSnapshotContainingBlock(aKidFrame)) {
-          return ContainingBlockRect{
+          return ModifiedContainingBlock{
               dom::ViewTransition::SnapshotContainingBlockRect(
                   viewport->PresContext())};
         }
-        MOZ_ASSERT(aOriginalScrollableContainingBlockRect ==
-                   aOriginalContainingBlockRect);
+        MOZ_ASSERT(aContainingBlockRects.mScrollable ==
+                   aContainingBlockRects.mLocal);
         containingBlock = scrollableContainingBlock =
             viewport->GetContainingBlockAdjustedForScrollbars(aReflowInput);
       }
@@ -1522,7 +1570,7 @@ void AbsoluteContainingBlock::ReflowAbsoluteFrame(
         containingBlock =
             nsGridContainerFrame::GridItemCB(aKidFrame) + borderShift;
         if (!defaultAnchorInfo) {
-          return ContainingBlockRect{containingBlock};
+          return ModifiedContainingBlock{containingBlock};
         }
       }
       // ... Then the position-area based adjustment.
@@ -1545,7 +1593,7 @@ void AbsoluteContainingBlock::ReflowAbsoluteFrame(
           StylePositionArea resolvedPositionArea{};
           const auto scrolledAnchorCb = AnchorPositioningUtils::
               AdjustAbsoluteContainingBlockRectForPositionArea(
-                  scrolledAnchorRect + aOriginalContainingBlockRect.TopLeft(),
+                  scrolledAnchorRect + aContainingBlockRects.mLocal.TopLeft(),
                   containingBlock, aKidFrame->GetWritingMode(),
                   aDelegatingFrame->GetWritingMode(), positionArea,
                   &resolvedPositionArea);
@@ -1553,15 +1601,16 @@ void AbsoluteContainingBlock::ReflowAbsoluteFrame(
           // compensated.
           aAnchorPosResolutionCache->mReferenceData->mScrollCompensatedSides =
               GetScrollCompensatedSidesFor(resolvedPositionArea);
-          return ContainingBlockRect{
+          return ModifiedContainingBlock{
               offset, resolvedPositionArea, scrollableContainingBlock,
               // Unscroll the CB by canceling out the previously applied
               // scroll offset (See above), the offset will be applied later.
               scrolledAnchorCb + offset};
         }
-        return ContainingBlockRect{scrollableContainingBlock, containingBlock};
+        return ModifiedContainingBlock{scrollableContainingBlock,
+                                       containingBlock};
       }
-      return ContainingBlockRect{containingBlock};
+      return ModifiedContainingBlock{containingBlock};
     }();
     if (aAnchorPosResolutionCache) {
       const auto& originalCb = cb.mMaybeScrollableRect;
@@ -1694,8 +1743,18 @@ void AbsoluteContainingBlock::ReflowAbsoluteFrame(
     if (aKidFrame->IsMenuPopupFrame()) {
       // Do nothing. Popup frame will handle its own positioning.
     } else if (unfragmentedPosition || kidPrevInFlow) {
+      // We can have reflows in a spanner that is also a multicol.
+      const auto maybeFragmentedCbSize =
+          (aFragmentedContainingBlockRects ? *aFragmentedContainingBlockRects
+                                           : aContainingBlockRects)
+              .mLocal.Size();
+      // TODO(dshin): Fix this up for anchor positioning. Scroll containers are
+      // monolithic and will not fragment, but an anchor-positioned frame's
+      // percentage size still needs to resolve against the correct containing
+      // block.
+      const LogicalSize unmodifiedCBSize(outerWM, maybeFragmentedCbSize);
       const nsSize cbBorderBoxSize =
-          (cbSize + border.Size(outerWM)).GetPhysicalSize(outerWM);
+          (unmodifiedCBSize + border.Size(outerWM)).GetPhysicalSize(outerWM);
       LogicalPoint kidPos(outerWM);
       if (unfragmentedPosition) {
         MOZ_ASSERT(!kidPrevInFlow, "aKidFrame should be a first-in-flow!");
@@ -1964,17 +2023,17 @@ void AbsoluteContainingBlock::ReflowAbsoluteFrame(
         !aKidFrame->StylePosition()->mPositionArea.IsNone()) {
       // The anchored element overflows the IMCB of its position-area. Would it
       // have fit within the original CB? If so, shift it to stay within that.
-      if (rect.width <= aOriginalContainingBlockRect.width &&
-          rect.height <= aOriginalContainingBlockRect.height) {
-        if (rect.x < aOriginalContainingBlockRect.x) {
-          rect.x = aOriginalContainingBlockRect.x;
-        } else if (rect.XMost() > aOriginalContainingBlockRect.XMost()) {
-          rect.x = aOriginalContainingBlockRect.XMost() - rect.width;
+      if (rect.width <= aContainingBlockRects.mLocal.width &&
+          rect.height <= aContainingBlockRects.mLocal.height) {
+        if (rect.x < aContainingBlockRects.mLocal.x) {
+          rect.x = aContainingBlockRects.mLocal.x;
+        } else if (rect.XMost() > aContainingBlockRects.mLocal.XMost()) {
+          rect.x = aContainingBlockRects.mLocal.XMost() - rect.width;
         }
-        if (rect.y < aOriginalContainingBlockRect.y) {
-          rect.y = aOriginalContainingBlockRect.y;
-        } else if (rect.YMost() > aOriginalContainingBlockRect.YMost()) {
-          rect.y = aOriginalContainingBlockRect.YMost() - rect.height;
+        if (rect.y < aContainingBlockRects.mLocal.y) {
+          rect.y = aContainingBlockRects.mLocal.y;
+        } else if (rect.YMost() > aContainingBlockRects.mLocal.YMost()) {
+          rect.y = aContainingBlockRects.mLocal.YMost() - rect.height;
         }
       }
     }
