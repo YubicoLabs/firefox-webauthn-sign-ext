@@ -224,8 +224,8 @@ Size SVGUtils::GetContextSize(const nsIFrame* aFrame) {
 
   SVGViewportElement* ctx = element->GetCtx();
   if (ctx) {
-    size.width = ctx->GetLength(SVGContentUtils::X);
-    size.height = ctx->GetLength(SVGContentUtils::Y);
+    size.width = ctx->GetLength(SVGLength::Axis::X);
+    size.height = ctx->GetLength(SVGLength::Axis::Y);
   }
   return size;
 }
@@ -236,13 +236,13 @@ float SVGUtils::ObjectSpace(const gfxRect& aRect,
   float axis;
 
   switch (aLength->GetCtxType()) {
-    case SVGContentUtils::X:
+    case SVGLength::Axis::X:
       axis = aRect.Width();
       break;
-    case SVGContentUtils::Y:
+    case SVGLength::Axis::Y:
       axis = aRect.Height();
       break;
-    case SVGContentUtils::XY:
+    case SVGLength::Axis::XY:
       axis = float(SVGContentUtils::ComputeNormalizedHypotenuse(
           aRect.Width(), aRect.Height()));
       break;

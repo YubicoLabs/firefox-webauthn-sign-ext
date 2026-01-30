@@ -81,11 +81,11 @@ void SVGFEMorphologyElement::GetRXY(int32_t* aRX, int32_t* aRY,
   // probably meant to be the integer it's close to, modulo machine precision
   // issues.
   *aRX = NSToIntCeil(aInstance.GetPrimitiveNumber(
-                         SVGContentUtils::X, &mNumberPairAttributes[RADIUS],
+                         SVGLength::Axis::X, &mNumberPairAttributes[RADIUS],
                          SVGAnimatedNumberPairWhichOne::First) -
                      MORPHOLOGY_EPSILON);
   *aRY = NSToIntCeil(aInstance.GetPrimitiveNumber(
-                         SVGContentUtils::Y, &mNumberPairAttributes[RADIUS],
+                         SVGLength::Axis::Y, &mNumberPairAttributes[RADIUS],
                          SVGAnimatedNumberPairWhichOne::Second) -
                      MORPHOLOGY_EPSILON);
 }
