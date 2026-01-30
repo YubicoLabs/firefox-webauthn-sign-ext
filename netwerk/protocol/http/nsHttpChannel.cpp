@@ -2424,7 +2424,8 @@ nsresult nsHttpChannel::CallOnStartRequest() {
     (void)mResponseHead->GetHeader(nsHttp::Content_Encoding, contentEncoding);
     // Note: doesn't handle multiple compressors: "dcb, gzip" or
     // "gzip, dcb" (etc)
-    if (contentEncoding.Equals("dcb") || contentEncoding.Equals("dcz")) {
+    if (contentEncoding.LowerCaseEqualsLiteral("dcb") ||
+        contentEncoding.LowerCaseEqualsLiteral("dcz")) {
       LOG_DICTIONARIES(
           ("Still had %s encoding at CallOnStartRequest, converting",
            contentEncoding.get()));
@@ -3654,10 +3655,11 @@ nsresult nsHttpChannel::ContinueProcessNormal(nsresult rv) {
   mIsDictionaryCompressed = false;
   nsAutoCString contentEncoding;
   (void)mResponseHead->GetHeader(nsHttp::Content_Encoding, contentEncoding);
-  if (contentEncoding.Equals("dcb") || contentEncoding.Equals("dcz")) {
+  if (contentEncoding.LowerCaseEqualsLiteral("dcb") ||
+      contentEncoding.LowerCaseEqualsLiteral("dcz")) {
     mIsDictionaryCompressed = true;
-  } else if (contentEncoding.Find("dcb") != -1 ||
-             contentEncoding.Find("dcz") != -1) {
+  } else if (contentEncoding.LowerCaseFindASCII("dcb") != -1 ||
+             contentEncoding.LowerCaseFindASCII("dcz") != -1) {
     // Reject responses that combine dcb/dcz with other encodings
     // (e.g. "dcb, gzip" or "gzip, dcz"). We don't support chained
     // dictionary compression with other compression methods.
@@ -3771,6 +3773,32 @@ nsresult nsHttpChannel::ContinueProcessNormal2(nsresult rv) {
     if (NS_FAILED(rv)) CloseCacheEntry(true);
   }
 
+  // CRITICAL: Check if dictionary is ready BEFORE creating decompressor.
+  // If we create the decompressor before the dictionary is ready, it will
+  // be created without the dictionary attached, causing decompression to fail.
+  // The dictionary prefetch callback (in PrepareToConnect) will call Resume()
+  // when ready, which will re-invoke ContinueProcessNormal2 via mCallOnResume.
+  if (mDictDecompress && mUsingDictionary && mShouldSuspendForDictionary &&
+      !mDictDecompress->DictionaryReady()) {
+    LOG_DICTIONARIES(
+        ("nsHttpChannel::ContinueProcessNormal2 [this=%p] Suspending before "
+         "creating decompressor, waiting for dictionary",
+         this));
+    Suspend();
+    mSuspendedForDictionary = true;
+    // Set up callback to resume processing when dictionary loads
+    mCallOnResume = [](nsHttpChannel* self) {
+      return self->ContinueProcessNormal3();
+    };
+    return NS_OK;
+  }
+
+  return ContinueProcessNormal3();
+}
+
+nsresult nsHttpChannel::ContinueProcessNormal3() {
+  nsresult rv = NS_OK;
+
   // Finish post-ParseDictionary work, must be done after waiting if Suspended
   if (mCacheEntry && !LoadCacheEntryIsReadOnly()) {
     if (mIsDictionaryCompressed || mDictSaving) {
@@ -3779,6 +3807,10 @@ nsresult nsHttpChannel::ContinueProcessNormal2(nsresult rv) {
       if (NS_FAILED(rv)) {
         LOG_DICTIONARIES(
             ("DoInstallCacheListener FAILED: %x", static_cast<uint32_t>(rv)));
+        // Cache entry is now corrupted - we set up headers with dcb/dcz
+        // Content-Encoding but failed to install the decompressor that would
+        // clear it. Doom the entry to prevent serving corrupted data.
+        CloseCacheEntry(true);
       }
     }
   }
@@ -3807,18 +3839,6 @@ nsresult nsHttpChannel::ContinueProcessNormal2(nsresult rv) {
         Cancel(NS_ERROR_ENTITY_CHANGED);
       }
     }
-  }
-
-  // If we don't have the entire dictionary yet, Suspend() the channel
-  // until the dictionary is in-memory.
-  if (mDictDecompress && mUsingDictionary && mShouldSuspendForDictionary &&
-      !mDictDecompress->DictionaryReady()) {
-    LOG(
-        ("nsHttpChannel::ContinueProcessNormal [this=%p] Suspending the "
-         "transaction, waiting for dictionary",
-         this));
-    Suspend();
-    mSuspendedForDictionary = true;
   }
 
   rv = CallOnStartRequest();
