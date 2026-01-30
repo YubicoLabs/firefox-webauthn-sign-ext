@@ -411,6 +411,22 @@ browsertime:
         toolchain:
             - linux64-node
 
+puppeteer-build:
+    description: "Build Puppeteer with all dependencies and artifacts"
+    treeherder:
+        symbol: TL(puppeteer-build)
+    run:
+        script: puppeteer-build.sh
+        sparse-profile: null
+        resources:
+            - 'remote/test/puppeteer/package.json'
+            - 'remote/test/puppeteer/package-lock.json'
+            - 'remote/test/puppeteer/test/package.json'
+        toolchain-artifact: public/build/puppeteer-build.tar.zst
+    fetches:
+        toolchain:
+            - linux64-node
+
 aboutwelcome-node-modules:
     description: "npm install aboutwelcome node_modules"
     treeherder:
