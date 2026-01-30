@@ -29,6 +29,8 @@ use std::{
 
 pub type AncillaryData = OwnedFd;
 
+pub const CONNECTOR_ANCILLARY_DATA_LEN: usize = 1;
+
 #[repr(C)]
 pub struct RawIPCConnector {
     pub socket: RawFd,
@@ -58,8 +60,10 @@ impl IPCConnector {
         Ok(IPCConnector { socket })
     }
 
-    pub fn from_ancillary(socket: AncillaryData) -> Result<IPCConnector, IPCError> {
-        IPCConnector::from_fd(socket)
+    pub fn from_ancillary(
+        ancillary_data: [AncillaryData; CONNECTOR_ANCILLARY_DATA_LEN],
+    ) -> Result<IPCConnector, IPCError> {
+        IPCConnector::from_fd(ancillary_data.into_iter().next().unwrap())
     }
 
     /// Create a connector from a raw connector structure holding a file
@@ -93,8 +97,8 @@ impl IPCConnector {
         Ok(IPCConnector { socket })
     }
 
-    pub fn into_ancillary(self) -> AncillaryData {
-        self.socket
+    pub fn into_ancillary(self) -> [AncillaryData; CONNECTOR_ANCILLARY_DATA_LEN] {
+        [self.socket]
     }
 
     pub fn into_raw_connector(self) -> RawIPCConnector {
@@ -133,12 +137,12 @@ impl IPCConnector {
         T: Message,
     {
         let expected_payload_len = message.payload_size();
-        let expected_ancillary_data = message.has_ancillary_data();
-        self.send(&message.header(), None)
+        let expected_ancillary_len = message.ancillary_data_len();
+        self.send(&message.header(), vec![])
             .map_err(IPCError::TransmissionFailure)?;
         let (payload, ancillary_data) = message.into_payload();
         assert!(payload.len() == expected_payload_len);
-        assert!(ancillary_data.is_some() == expected_ancillary_data);
+        assert!(ancillary_data.len() == expected_ancillary_len);
         self.send(&payload, ancillary_data)
             .map_err(IPCError::TransmissionFailure)
     }
@@ -158,13 +162,13 @@ impl IPCConnector {
             return Err(IPCError::UnexpectedMessage(header.kind));
         }
 
-        let (data, _) = self.recv(header.size)?;
-        T::decode(&data, None).map_err(IPCError::from)
+        let (data, ancillary_data) = self.recv(header.size)?;
+        T::decode(&data, ancillary_data).map_err(IPCError::from)
     }
 
-    fn send_nonblock(&self, buff: &[u8], fd: &Option<AncillaryData>) -> Result<(), PlatformError> {
+    fn send_nonblock(&self, buff: &[u8], fds: &[AncillaryData]) -> Result<(), PlatformError> {
         let iov = [IoSlice::new(buff)];
-        let scm_fds: Vec<i32> = fd.iter().map(|fd| fd.as_raw_fd()).collect();
+        let scm_fds: Vec<i32> = fds.iter().map(|fd| fd.as_raw_fd()).collect();
         let scm = ControlMessage::ScmRights(&scm_fds);
 
         let res = ignore_eintr!(sendmsg::<()>(
@@ -190,14 +194,14 @@ impl IPCConnector {
         }
     }
 
-    fn send(&self, buff: &[u8], fd: Option<AncillaryData>) -> Result<(), PlatformError> {
-        let res = self.send_nonblock(buff, &fd);
+    fn send(&self, buff: &[u8], fds: Vec<AncillaryData>) -> Result<(), PlatformError> {
+        let res = self.send_nonblock(buff, &fds);
         match res {
             Err(PlatformError::SendFailure(Errno::EAGAIN)) => {
                 // If the socket was not ready to send data wait for it to
                 // become unblocked then retry sending just once.
                 self.poll(PollFlags::POLLOUT)?;
-                self.send_nonblock(buff, &fd)
+                self.send_nonblock(buff, &fds)
             }
             _ => res,
         }
@@ -211,7 +215,7 @@ impl IPCConnector {
     fn recv_nonblock(
         &self,
         expected_size: usize,
-    ) -> Result<(Vec<u8>, Option<AncillaryData>), PlatformError> {
+    ) -> Result<(Vec<u8>, Vec<AncillaryData>), PlatformError> {
         let mut buff: Vec<u8> = vec![0; expected_size];
         let mut cmsg_buffer = cmsg_space!(RawFd);
         let mut iov = [IoSliceMut::new(&mut buff)];
@@ -242,15 +246,14 @@ impl IPCConnector {
             Ok(val) => val,
         };
 
-        let fd = if let Some(cmsg) = res.cmsgs()?.next() {
+        let mut owned_fds = Vec::<OwnedFd>::with_capacity(1);
+        for cmsg in res.cmsgs()? {
             if let ControlMessageOwned::ScmRights(fds) = cmsg {
-                fds.first().map(|&fd| unsafe { OwnedFd::from_raw_fd(fd) })
+                owned_fds.extend(fds.iter().map(|&fd| unsafe { OwnedFd::from_raw_fd(fd) }));
             } else {
                 return Err(PlatformError::ReceiveMissingCredentials);
             }
-        } else {
-            None
-        };
+        }
 
         if res.bytes != expected_size {
             return Err(PlatformError::ReceiveTooShort {
@@ -259,10 +262,10 @@ impl IPCConnector {
             });
         }
 
-        Ok((buff, fd))
+        Ok((buff, owned_fds))
     }
 
-    pub fn recv(&self, expected_size: usize) -> Result<(Vec<u8>, Option<AncillaryData>), IPCError> {
+    pub fn recv(&self, expected_size: usize) -> Result<(Vec<u8>, Vec<AncillaryData>), IPCError> {
         let res = self.recv_nonblock(expected_size);
         match res {
             Err(PlatformError::ReceiveFailure(Errno::EAGAIN)) => {

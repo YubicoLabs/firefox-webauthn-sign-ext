@@ -8,7 +8,7 @@ use crate::messages::Header;
 
 pub enum IPCEvent {
     Connect(Rc<IPCConnector>),
-    Message(IPCConnectorKey, Header, Vec<u8>, Option<AncillaryData>),
+    Message(IPCConnectorKey, Header, Vec<u8>, Vec<AncillaryData>),
     Disconnect(IPCConnectorKey),
 }
 
@@ -17,7 +17,9 @@ pub enum IPCEvent {
  *****************************************************************************/
 
 #[cfg(target_os = "windows")]
-pub use windows::{AncillaryData, IPCConnector, IPCConnectorKey, RawIPCConnector};
+pub use windows::{
+    AncillaryData, IPCConnector, IPCConnectorKey, RawIPCConnector, CONNECTOR_ANCILLARY_DATA_LEN,
+};
 
 #[cfg(target_os = "windows")]
 pub(crate) mod windows;
@@ -27,7 +29,9 @@ pub(crate) mod windows;
  *****************************************************************************/
 
 #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
-pub use unix::{AncillaryData, IPCConnector, IPCConnectorKey, RawIPCConnector};
+pub use unix::{
+    AncillaryData, IPCConnector, IPCConnectorKey, RawIPCConnector, CONNECTOR_ANCILLARY_DATA_LEN,
+};
 
 #[cfg(any(target_os = "android", target_os = "linux", target_os = "macos"))]
 pub(crate) mod unix;
