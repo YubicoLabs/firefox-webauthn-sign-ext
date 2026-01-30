@@ -316,6 +316,7 @@ package org.mozilla.geckoview {
   public static class Autocomplete.SelectOption.Hint {
     ctor public Hint();
     field public static final int DUPLICATE_USERNAME = 4;
+    field public static final @org.mozilla.geckoview.ExperimentalGeckoViewApi int FIREFOX_RELAY = 16;
     field public static final int GENERATED = 1;
     field public static final int INSECURE_FORM = 2;
     field public static final int MATCHING_ORIGIN = 8;
