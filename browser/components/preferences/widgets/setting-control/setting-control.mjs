@@ -325,6 +325,15 @@ export class SettingControl extends SettingElement {
   }
 
   /**
+   * Called by our parent when moz-message-bar is dismissed.
+   *
+   * @param {CustomEvent} event
+   */
+  onMessageBarDismiss(event) {
+    this.setting.messageBarDismiss(event);
+  }
+
+  /**
    * Called by our parent when items are reordered. The reorder event is
    * a CustomEvent that bubbles from reorderable moz-box-group elements when
    * items are reordered via drag-and-drop or keyboard shortcuts.

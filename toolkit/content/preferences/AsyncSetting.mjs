@@ -126,6 +126,14 @@ export class AsyncSetting extends EventEmitter {
   onUserClick(event) {}
 
   /**
+   * Callback fired after a user has dismissed a message bar.
+   *
+   * @param {CustomEvent} event
+   */
+  //eslint-disable-next-line no-unused-vars
+  onMessageBarDismiss(event) {}
+
+  /**
    * Callback fired after items in a reorderable list have been reordered.
    * This should be used to update the underlying data when the user
    * reorders items, such as updating preference values.
@@ -267,6 +275,13 @@ export class AsyncSettingHandler {
    */
   onUserClick(event) {
     this.asyncSetting.onUserClick(event);
+  }
+
+  /**
+   * @param {CustomEvent} event
+   */
+  onMessageBarDismiss(event) {
+    this.asyncSetting.onMessageBarDismiss(event);
   }
 
   /**

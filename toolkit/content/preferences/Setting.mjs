@@ -104,6 +104,14 @@ import { Preferences } from "chrome://global/content/preferences/Preferences.mjs
  */
 
 /**
+ * @callback SettingOnMessageBarDismissCallback
+ * @param {CustomEvent} event - The dismiss event
+ * @param {SettingDeps} deps
+ * @param {Setting} setting
+ * @returns {void}
+ */
+
+/**
  * @callback SettingOnUserReorderCallback
  * @param {CustomEvent} event - The reorder event with detail containing draggedElement, targetElement, position, draggedIndex, targetIndex
  * @param {SettingDeps} deps
@@ -144,6 +152,8 @@ import { Preferences } from "chrome://global/content/preferences/Preferences.mjs
  *    clicked, the element name must be included in the CLICK_HANDLERS array
  *    in {@link file://./../../browser/components/preferences/widgets/setting-group/setting-group.mjs}. This should be
  *    used for controls that aren't regular form controls but instead perform an action when clicked, like a button or link.
+ * @property {SettingOnMessageBarDismissCallback} [onMessageBarDismiss] - A function that will be called when a message bar has been
+ *    dismissed. This should be used for moz-message-bar to override the default behavior.
  * @property {SettingOnUserReorderCallback} [onUserReorder] - A function that will be called when items in a
  *    reorderable list have been reordered. This should be used to update the underlying data when the user
  *    reorders items, such as updating preference values.
@@ -335,6 +345,15 @@ export class Setting extends EventEmitter {
   userClick(event) {
     if (this.config.onUserClick) {
       this.config.onUserClick(event, this.deps, this);
+    }
+  }
+
+  /**
+   * @param {CustomEvent} event
+   */
+  messageBarDismiss(event) {
+    if (this.config.onMessageBarDismiss) {
+      this.config.onMessageBarDismiss(event, this.deps, this);
     }
   }
 

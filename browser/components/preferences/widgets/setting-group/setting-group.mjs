@@ -37,7 +37,7 @@ const CLICK_HANDLERS = new Set([
   "moz-box-group",
   "moz-message-bar",
 ]);
-
+const DISMISS_HANDLERS = new Set(["moz-message-bar"]);
 const REORDER_HANDLERS = new Set(["moz-box-group"]);
 
 /**
@@ -167,6 +167,21 @@ export class SettingGroup extends SettingElement {
   }
 
   /**
+   * Notify child controls when message bar has been dismissed. When controls
+   * are nested the parent receives events for the nested controls, so this is
+   * actually easier to manage here; it also registers fewer listeners.
+   *
+   * @param {SettingControlEvent<CustomEvent>} e
+   */
+  onMessageBarDismiss(e) {
+    let inputEl = e.target;
+    if (!DISMISS_HANDLERS.has(inputEl.localName)) {
+      return;
+    }
+    inputEl.control?.onMessageBarDismiss(e);
+  }
+
+  /**
    * Notify child controls when items have been reordered. The reorder event is
    * a CustomEvent that bubbles from reorderable moz-box-group elements when
    * items are reordered via drag-and-drop or keyboard shortcuts.
@@ -225,6 +240,7 @@ export class SettingGroup extends SettingElement {
         @change=${this.onChange}
         @toggle=${this.onChange}
         @click=${this.onClick}
+        @message-bar:user-dismissed=${this.onMessageBarDismiss}
         @reorder=${this.onReorder}
         @visibility-change=${this.handleVisibilityChange}
         ${spread(this.getCommonPropertyMapping(this.config))}
