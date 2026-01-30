@@ -3745,9 +3745,7 @@ export const SearchService = new (class SearchService {
     );
   }
 
-  // This is prefixed with _ rather than # because it is
-  // called in a test.
-  _removeObservers() {
+  #removeObservers() {
     if (this.ignoreListListener) {
       lazy.IgnoreLists.unsubscribe(this.ignoreListListener);
       delete this.ignoreListListener;
@@ -3813,7 +3811,7 @@ export const SearchService = new (class SearchService {
       }
 
       case QUIT_APPLICATION_TOPIC:
-        this._removeObservers();
+        this.#removeObservers();
         break;
 
       case TOPIC_LOCALES_CHANGE:
@@ -3941,7 +3939,7 @@ export const SearchService = new (class SearchService {
  */
 class SearchDefaultOverrideAllowlistHandler {
   constructor() {
-    this._remoteConfig = lazy.RemoteSettings(
+    this.#remoteConfig = lazy.RemoteSettings(
       lazy.SearchUtils.SETTINGS_ALLOWLIST_KEY
     );
   }
@@ -3960,7 +3958,7 @@ class SearchDefaultOverrideAllowlistHandler {
    *   instance.
    */
   async canOverride(extension, appProvidedEngineId) {
-    const overrideTable = await this._getAllowlist();
+    const overrideTable = await this.#getAllowlist();
 
     let entry = overrideTable.find(e => e.thirdPartyId == extension.id);
     if (!entry) {
@@ -3995,7 +3993,7 @@ class SearchDefaultOverrideAllowlistHandler {
    *   app provided instance.
    */
   async canEngineOverride(engine, appProvidedEngineId) {
-    const overrideEntries = await this._getAllowlist();
+    const overrideEntries = await this.#getAllowlist();
 
     let entry;
 
@@ -4035,10 +4033,10 @@ class SearchDefaultOverrideAllowlistHandler {
    *   An array of objects in the database, or an empty array if none
    *   could be obtained.
    */
-  async _getAllowlist() {
+  async #getAllowlist() {
     let result = [];
     try {
-      result = await this._remoteConfig.get();
+      result = await this.#remoteConfig.get();
     } catch (ex) {
       // Don't throw an error just log it, just continue with no data, and hopefully
       // a sync will fix things later on.
@@ -4047,4 +4045,6 @@ class SearchDefaultOverrideAllowlistHandler {
     lazy.logConsole.debug("Allow list is:", result);
     return result;
   }
+
+  #remoteConfig;
 }
