@@ -4224,13 +4224,14 @@ toolbar#nav-bar {
                 self.harness.countfail += numFailures
                 for message in errorMessages:
                     msg = {
-                        "action": "test_end",
+                        "action": "test_status",
+                        "subtest": "Shutdown",
                         "status": "FAIL",
                         "expected": "PASS",
                         "thread": None,
                         "pid": None,
                         "source": "mochitest",
-                        "time": int(time.time() * 1000),
+                        "time": message.get("time") or int(time.time() * 1000),
                         "test": message["test"],
                         "message": message["msg"],
                     }
