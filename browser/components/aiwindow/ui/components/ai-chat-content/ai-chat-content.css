@@ -3,6 +3,12 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 /* stylelint-disable */
 
+/*
+ * The styles in this file are intended to be applied to `aiChatContent.html`,
+ * which runs in a nested, remote frame for sandboxing reasons. They
+ * are not intended to be used directly in `aiWindow.html`
+ */
+
 :host {
   display: flex;
   flex-direction: column;
@@ -11,6 +17,13 @@
 
 .chat-content-wrapper {
   align-items: flex-start;
+  /*
+   * Without this box-sizing, even a medium size chat-bubble-user flexes this
+   * element horizontally, and since it has width: 100% and a lot of padding,
+   * that flexion overflows the visible part of the sidebar viewport and
+   * part of the chat-bubble-user is clipped.
+   */
+  box-sizing: border-box;
   display: flex;
   flex: 1;
   flex-direction: column;

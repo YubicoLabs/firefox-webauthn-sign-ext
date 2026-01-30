@@ -18,6 +18,7 @@ browser.jar:
   content/browser/aiwindow/components/ai-window.mjs                 (components/ai-window/ai-window.mjs)
   content/browser/aiwindow/components/ai-window.css                 (components/ai-window/ai-window.css)
   content/browser/aiwindow/ai-window-content.css                    (content/ai-window-content.css)
+  content/browser/aiwindow/ai-window-overrides.css                  (content/ai-window-overrides.css)
   content/browser/aiwindow/components/input-cta.css                 (components/input-cta/input-cta.css)
   content/browser/aiwindow/components/input-cta.mjs                 (components/input-cta/input-cta.mjs)
   content/browser/aiwindow/assets/model-choice-1.svg                (assets/model-choice-1.svg)
