@@ -564,7 +564,7 @@ export const SearchService = new (class SearchService {
     this._cachedSortedEngines = null;
     this.#currentEngine = null;
     this.#currentPrivateEngine = null;
-    this._searchDefault = null;
+    this.#searchDefault = null;
     this.#searchPrivateDefault = null;
     this.#maybeReloadDebounce = false;
     this._settings._batchTask?.disarm();
@@ -1280,12 +1280,9 @@ export const SearchService = new (class SearchService {
    * An object containing the id of the AppProvidedConfigEngine for the default
    * engine, as suggested by the configuration.
    *
-   * This is prefixed with _ rather than # because it is
-   * called in a test.
-   *
    * @type {object}
    */
-  _searchDefault = null;
+  #searchDefault = null;
 
   /**
    * An object containing the id of the AppProvidedConfigEngine for the default
@@ -1837,7 +1834,7 @@ export const SearchService = new (class SearchService {
     let defaultEngine = this._engines.get(
       privateMode && this.#searchPrivateDefault
         ? this.#searchPrivateDefault
-        : this._searchDefault
+        : this.#searchDefault
     );
 
     if (Services.policies?.status == Ci.nsIEnterprisePolicies.ACTIVE) {
@@ -2826,7 +2823,7 @@ export const SearchService = new (class SearchService {
   }
 
   #setDefaultFromSelector(refinedConfig) {
-    this._searchDefault = refinedConfig.appDefaultEngineId;
+    this.#searchDefault = refinedConfig.appDefaultEngineId;
     this.#searchPrivateDefault = refinedConfig.appPrivateDefaultEngineId;
   }
 
