@@ -81,6 +81,7 @@ export const toolsConfig = [
       description:
         "Retrieve cleaned text content of all the provided browser page URLs in the list.",
       parameters: {
+        type: "object",
         properties: {
           url_list: {
             type: "array",

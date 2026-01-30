@@ -36,6 +36,8 @@ support-files = [
 
 ["test_TitleGeneration.js"]
 
+["test_ToolDefinitions.js"]
+
 ["test_Tools_GetOpenTabs.js"]
 
 ["test_Tools_GetPageContent.js"]
