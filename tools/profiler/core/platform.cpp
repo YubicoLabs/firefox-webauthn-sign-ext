@@ -8017,9 +8017,11 @@ void profiler_set_js_context(CycleCollectedJSContext* aCx) {
                   profiledThreadData) {
                 profiledThreadData->NotifyReceivedJSContext(
                     ActivePS::Buffer(lock).BufferRangeEnd());
+#ifdef MOZ_EXECUTION_TRACING
                 if (ActivePS::FeatureTracing(lock)) {
-                  aCx->BeginExecutionTracingAsync();
+                  JS_TracerBeginTracing(aCx->Context());
                 }
+#endif
               }
             });
       });
@@ -8062,9 +8064,11 @@ void profiler_clear_js_context() {
           profiledThreadData->NotifyAboutToLoseJSContext(
               cx, CorePS::ProcessStartTime(), ActivePS::Buffer(lock));
 
+#ifdef MOZ_EXECUTION_TRACING
           if (ActivePS::FeatureTracing(lock)) {
-            cccx->EndExecutionTracingAsync();
+            JS_TracerEndTracing(cx);
           }
+#endif
 
           // Notify the JS context that profiling for this context has
           // stopped. Do this by calling StopJSSampling and PollJSSampling
