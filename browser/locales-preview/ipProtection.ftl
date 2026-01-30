@@ -129,9 +129,6 @@ ip-protection-exceptions-dialog-window =
   .title = Where to use VPN
 ip-protection-exclusions-desc = Use VPN for all websites except ones on this list. Add websites to this list by turning VPN on or off for any site in the VPN panel.
 
-ipprotection-site-settings-title =
-  .title = VPN site settings
-
 ## IP Proctection Bandwidth
 
 ip-protection-bandwidth-header = Monthly VPN data
