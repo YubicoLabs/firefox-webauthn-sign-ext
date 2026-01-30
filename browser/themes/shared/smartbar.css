@@ -4,6 +4,8 @@
 
 /* TODO (Bug 2008938): Make in-page Smartbar styling not dependent on chrome styles */
 @import url("chrome://browser/skin/urlbar-searchbar.css");
+
+:host,
 :root {
   --smartbar-border-style-gradient: var(--border-width) solid;
   --smartbar-border-color-gradient: linear-gradient(172deg, #321bfd -18%, #cf30e2 53%, #ff9900 89%, #f5c451 109%);
