@@ -15075,6 +15075,12 @@ nsresult FactoryOp::DirectoryWorkDone() {
   MOZ_ASSERT(gFactoryOps);
 
   // See if this FactoryOp needs to wait.
+  // FactoryOps are stored in gFactoryOps in the order they are created,
+  // and currently there are three different FactoryOps that gets stored
+  // i.e. OpenDatabaseOp, DeleteDatabaseOp, and GetDatabasesOp.
+  // We iterate over the gFactoryOps list here and put this operation
+  // into a waiting state if there is any existing operation that it needs
+  // to wait for as done by MustWaitFor().
   const bool blocked = [&self = *this] {
     bool foundThis = false;
     bool blocked = false;
@@ -15248,13 +15254,15 @@ bool FactoryOp::MustWaitFor(const FactoryOp& aExistingOp) {
     return false;
   }
 
-  // If the database ids don't overlap, the op can proceed.
-  if (!aExistingOp.mDatabaseId.isNothing() && !mDatabaseId.isNothing() &&
+  // If the database ids don't overlap, the op doesn't need to wait.
+  if (aExistingOp.mDatabaseId.isSome() && mDatabaseId.isSome() &&
       aExistingOp.mDatabaseId.ref() != mDatabaseId.ref()) {
     return false;
   }
 
-  return true;
+  // mDatabaseId being nothing means that this is GetDatabasesOp which
+  // must be serialized with other GetDatabaseOps.
+  return aExistingOp.mDatabaseId.isNothing() == mDatabaseId.isNothing();
 }
 
 // Run() assumes that the caller holds a strong reference to the object that
