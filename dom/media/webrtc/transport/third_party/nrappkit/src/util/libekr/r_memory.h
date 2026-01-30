@@ -40,15 +40,9 @@
 #ifndef _r_memory_h
 #define _r_memory_h
 
-#define R_MALLOC_X 2
-
-#include "r_types.h"
-
-void *r_malloc(int type, size_t size);
-void *r_calloc(int type,size_t number,size_t size);
-void r_free   (void *ptr);
 char *r_strdup(const char *str);
 
+#define NO_MALLOC_REPLACE 1
 #ifdef NO_MALLOC_REPLACE
 
 #ifndef RMALLOC
@@ -63,12 +57,13 @@ char *r_strdup(const char *str);
 #define RFREE(a) if(a) free(a)
 #endif
 
-#ifndef RREALLOC
-#define RREALLOC(a,b) realloc(a,b)
-#endif
 
 #else
 
+
+void *r_malloc(int type, size_t size);
+void *r_calloc(int type,size_t number,size_t size);
+void r_free   (void *ptr);
 
 #ifndef R_MALLOC_TYPE
 #define R_MALLOC_TYPE   0
@@ -86,9 +81,6 @@ char *r_strdup(const char *str);
 #define RFREE(a) if(a) r_free(a)
 #endif
 
-#ifndef RREALLOC
-#define RREALLOC(a,b) r_realloc(a,b)
-#endif
 
 #endif
 
