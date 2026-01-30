@@ -6917,10 +6917,14 @@
   value: false
   mirror: always
 
-# 0x7fff is the maximum supported xlib surface size and is more than enough for canvases.
 - name: gfx.canvas.max-size
   type: RelaxedAtomicInt32
-  value: 0x7fff
+  value: 0xffff
+  mirror: always
+
+- name: gfx.canvas.max-area
+  type: RelaxedAtomicUint32
+  value: 0x3fffffff
   mirror: always
 
 # Whether OffscreenCanvas can use remote canvas
@@ -7438,7 +7442,7 @@
 # Use gfxPlatform::MaxTextureSize instead of the pref directly.
 - name: gfx.max-texture-size
   type: int32_t
-  value: (int32_t)32767
+  value: (int32_t)65535
   mirror: once
   do_not_use_directly: true
 
