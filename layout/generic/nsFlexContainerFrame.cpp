@@ -2982,7 +2982,6 @@ void nsFlexContainerFrame::BuildDisplayList(nsDisplayListBuilder* aBuilder,
 
   if (GetPrevInFlow()) {
     DisplayOverflowContainers(aBuilder, tempLists);
-    DisplayPushedAbsoluteFrames(aBuilder, tempLists);
   }
 
   // Our children are all block-level, so their borders/backgrounds all go on
@@ -2998,6 +2997,10 @@ void nsFlexContainerFrame::BuildDisplayList(nsDisplayListBuilder* aBuilder,
   for (; !iter.AtEnd(); iter.Next()) {
     nsIFrame* childFrame = *iter;
     BuildDisplayListForChild(aBuilder, childFrame, childLists, flags);
+  }
+
+  if (GetPrevInFlow()) {
+    DisplayPushedAbsoluteFrames(aBuilder, tempLists);
   }
 
   tempLists.MoveTo(aLists);
