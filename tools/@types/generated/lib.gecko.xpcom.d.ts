@@ -2610,7 +2610,6 @@ interface nsIDOMWindowUtils extends nsISupports, Enums<typeof nsIDOMWindowUtils_
   sendSimpleGestureEvent(aType: string, aX: float, aY: float, aDirection: u32, aDelta: double, aModifiers: i32, aClickCount?: u32): void;
   elementFromPoint(aX: float, aY: float, aIgnoreRootScrollFrame: boolean, aFlushLayout: boolean): Element;
   nodesFromRect(aX: float, aY: float, aTopSize: float, aRightSize: float, aBottomSize: float, aLeftSize: float, aIgnoreRootScrollFrame: boolean, aFlushLayout: boolean, aOnlyVisible: boolean, aTransparencyThreshold?: float): NodeList;
-  getTranslationNodes(aRoot: Node): nsITranslationNodeList;
   compareCanvases(aCanvas1: nsISupports, aCanvas2: nsISupports, aMaxDifference: OutParam<u32>): u32;
   readonly isMozAfterPaintPending: boolean;
   readonly isWindowFullyOccluded: boolean;
@@ -2767,12 +2766,6 @@ interface nsIDOMWindowUtils extends nsISupports, Enums<typeof nsIDOMWindowUtils_
   getWheelScrollTarget(): Element;
   readonly dragSession: nsIDragSession;
   microTaskLevel: u32;
-}
-
-interface nsITranslationNodeList extends nsISupports {
-  readonly length: u32;
-  item(index: u32): Node;
-  isTranslationRootAtIndex(index: u32): boolean;
 }
 
 interface nsIJSRAIIHelper extends nsISupports {
@@ -15519,7 +15512,6 @@ interface nsIXPCComponents_Interfaces {
   nsIDOMWindow: nsJSIID<nsIDOMWindow>;
   nsISynthesizedEventCallback: nsJSIID<nsISynthesizedEventCallback>;
   nsIDOMWindowUtils: nsJSIID<nsIDOMWindowUtils, typeof nsIDOMWindowUtils_AsyncEnabledOption>;
-  nsITranslationNodeList: nsJSIID<nsITranslationNodeList>;
   nsIJSRAIIHelper: nsJSIID<nsIJSRAIIHelper>;
   nsIFocusManager: nsJSIID<nsIFocusManager>;
   nsIGeckoViewServiceWorker: nsJSIID<nsIGeckoViewServiceWorker>;
