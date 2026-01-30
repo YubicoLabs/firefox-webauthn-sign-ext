@@ -14,7 +14,6 @@ use crate::{
 
 use std::{
     ffi::{CStr, OsString},
-    io::Error,
     os::windows::io::{
         AsHandle, AsRawHandle, FromRawHandle, IntoRawHandle, OwnedHandle, RawHandle,
     },
@@ -54,7 +53,7 @@ fn extract_buffer_and_handle(buffer: Vec<u8>) -> Result<(Vec<u8>, Vec<OwnedHandl
     let data = &buffer[HANDLE_SIZE..];
     let handle_bytes: Result<[u8; HANDLE_SIZE], _> = handle_bytes.try_into();
     let Ok(handle_bytes) = handle_bytes else {
-        return Err(IPCError::ParseError);
+        return Err(IPCError::InvalidAncillary);
     };
     let handle = match HANDLE::from_ne_bytes(handle_bytes) {
         INVALID_ANCILLARY_DATA => vec![],
@@ -182,10 +181,14 @@ impl IPCConnector {
 
                 // If the pipe hasn't been created yet loop over and try again
                 if (res == FALSE) && (error != ERROR_FILE_NOT_FOUND) {
-                    return Err(IPCError::ConnectionFailure(error));
+                    return Err(IPCError::ConnectionFailure(
+                        PlatformError::WaitNamedPipeFailed(error),
+                    ));
                 }
             } else {
-                return Err(IPCError::ConnectionFailure(error));
+                return Err(IPCError::ConnectionFailure(
+                    PlatformError::CreatePipeFailure(error),
+                ));
             }
         }
 
@@ -202,7 +205,9 @@ impl IPCConnector {
             )
         };
         if res == FALSE {
-            return Err(IPCError::ConnectionFailure(get_last_error()));
+            return Err(IPCError::ConnectionFailure(
+                PlatformError::SetNamedPipeHandleState(get_last_error()),
+            ));
         }
 
         // SAFETY: We've verified above that the pipe handle is valid
@@ -212,15 +217,20 @@ impl IPCConnector {
     /// Serialize this connector into a string that can be passed on the
     /// command-line to a child process. This only works for newly
     /// created connectors because they are explicitly created as inheritable.
-    pub fn serialize(&self) -> OsString {
+    pub fn serialize(&self) -> Result<OsString, IPCError> {
         let raw_handle = self.handle.as_raw_handle() as usize;
-        OsString::from_str(raw_handle.to_string().as_ref()).unwrap()
+        OsString::from_str(raw_handle.to_string().as_ref())
+            .map_err(|_e| IPCError::Serialize(PlatformError::InvalidString))
     }
 
     /// Deserialize a connector from an argument passed on the command-line.
     pub fn deserialize(string: &CStr) -> Result<IPCConnector, IPCError> {
-        let string = string.to_str().map_err(|_e| IPCError::ParseError)?;
-        let handle = usize::from_str(string).map_err(|_e| IPCError::ParseError)?;
+        let string = string
+            .to_str()
+            .map_err(|_e| IPCError::Deserialize(PlatformError::ParseHandle))?;
+        let handle = usize::from_str(string)
+            .map_err(|_e| IPCError::Deserialize(PlatformError::ParseHandle))?;
+
         // SAFETY: This is a handle we passed in ourselves.
         unsafe { IPCConnector::from_raw_handle(handle as HANDLE) }
     }
@@ -332,9 +342,7 @@ impl IPCConnector {
         };
 
         if res == 0 {
-            return Err(PlatformError::CloneHandleFailed(Error::from_raw_os_error(
-                get_last_error() as i32,
-            )));
+            return Err(PlatformError::DuplicateHandleFailed(get_last_error()));
         }
 
         Ok(dst_handle)

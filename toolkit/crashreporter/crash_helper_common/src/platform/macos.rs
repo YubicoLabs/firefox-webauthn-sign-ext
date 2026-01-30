@@ -13,6 +13,7 @@ use nix::{
     sys::socket::{socketpair, AddressFamily, SockFlag, SockType},
 };
 use std::{
+    ffi::NulError,
     mem::size_of,
     os::fd::{AsRawFd, BorrowedFd, OwnedFd},
 };
@@ -22,6 +23,10 @@ pub type ProcessHandle = ();
 
 #[derive(Error, Debug)]
 pub enum PlatformError {
+    #[error("A C string contained an interior NUL character")]
+    InteriorNul(#[from] NulError),
+    #[error("Could not parse file descriptor")]
+    ParseFileDescriptor,
     #[error("poll() call failed with error: {0}")]
     PollFailure(Errno),
     #[error("Could not set socket in non-blocking mode: {0}")]

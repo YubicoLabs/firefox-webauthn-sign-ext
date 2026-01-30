@@ -16,8 +16,8 @@ pub enum IPCChannelError {
     Connector(#[from] IPCError),
     #[error("Could not create a listener: {0}")]
     Listener(#[from] IPCListenerError),
-    #[error("Could not create a socketpair: {0}")]
-    SocketPair(#[from] PlatformError),
+    #[error("Could not create an IPC channel: {0}")]
+    Channel(#[from] PlatformError),
 }
 
 /*****************************************************************************
