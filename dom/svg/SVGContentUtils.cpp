@@ -857,7 +857,7 @@ bool SVGContentUtils::ParseInteger(const nsAString& aString, int32_t& aValue) {
 
 float SVGContentUtils::CoordToFloat(const SVGElement* aContent,
                                     const LengthPercentage& aLength,
-                                    uint8_t aCtxType) {
+                                    SVGLength::Axis aCtxType) {
   float result = aLength.ResolveToCSSPixelsWith([&] {
     SVGViewportElement* ctx = aContent->GetCtx();
     return CSSCoord(ctx ? ctx->GetLength(aCtxType) : 0.0f);

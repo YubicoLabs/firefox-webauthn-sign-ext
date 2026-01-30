@@ -7,7 +7,6 @@
 #ifndef DOM_SVG_SVGLENGTH_H_
 #define DOM_SVG_SVGLENGTH_H_
 
-#include "mozilla/dom/SVGAnimatedLength.h"
 #include "mozilla/dom/SVGLengthBinding.h"
 #include "nsDebug.h"
 
@@ -17,7 +16,8 @@ namespace mozilla {
 
 namespace dom {
 class SVGElement;
-}
+class UserSpaceMetrics;
+}  // namespace dom
 
 /**
  * This SVGLength class is currently used for SVGLength *list* attributes only.
@@ -38,6 +38,9 @@ class SVGLength {
       : mValue(0.0f), mUnit(dom::SVGLength_Binding::SVG_LENGTHTYPE_UNKNOWN) {}
 
   SVGLength(float aValue, uint8_t aUnit) : mValue(aValue), mUnit(aUnit) {}
+
+  // Coordinate direction for ObjectSpace/UserSpace.
+  enum class Axis : uint8_t { X, Y, XY };
 
   bool operator==(const SVGLength& rhs) const {
     return mValue == rhs.mValue && mUnit == rhs.mUnit;
@@ -77,15 +80,11 @@ class SVGLength {
    * If it's not possible to convert this length's value to pixels, then
    * this method will return numeric_limits<float>::quiet_NaN().
    */
-  float GetValueInPixels(const dom::SVGElement* aElement, uint8_t aAxis) const {
-    return mValue * GetPixelsPerUnit(dom::SVGElementMetrics(aElement), aAxis);
-  }
+  float GetValueInPixels(const dom::SVGElement* aElement,
+                         SVGLength::Axis aAxis) const;
 
   float GetValueInPixelsWithZoom(const dom::SVGElement* aElement,
-                                 uint8_t aAxis) const {
-    return mValue *
-           GetPixelsPerUnitWithZoom(dom::SVGElementMetrics(aElement), aAxis);
-  }
+                                 SVGLength::Axis aAxis) const;
 
   /**
    * Get this length's value in the units specified.
@@ -94,17 +93,17 @@ class SVGLength {
    * possible to convert the value to the specified unit.
    */
   float GetValueInSpecifiedUnit(uint8_t aUnit, const dom::SVGElement* aElement,
-                                uint8_t aAxis) const;
+                                SVGLength::Axis aAxis) const;
 
   bool IsPercentage() const { return IsPercentageUnit(mUnit); }
 
   float GetPixelsPerUnitWithZoom(const dom::UserSpaceMetrics& aMetrics,
-                                 uint8_t aAxis) const {
+                                 SVGLength::Axis aAxis) const {
     return GetPixelsPerUnit(aMetrics, mUnit, aAxis, true);
   }
 
   float GetPixelsPerUnit(const dom::UserSpaceMetrics& aMetrics,
-                         uint8_t aAxis) const {
+                         SVGLength::Axis aAxis) const {
     return GetPixelsPerUnit(aMetrics, mUnit, aAxis, false);
   }
 
@@ -133,11 +132,11 @@ class SVGLength {
    * Returns the number of pixels per given unit.
    */
   static float GetPixelsPerUnit(const dom::UserSpaceMetrics& aMetrics,
-                                uint8_t aUnitType, uint8_t aAxis,
+                                uint8_t aUnitType, SVGLength::Axis aAxis,
                                 bool aApplyZoom);
 
   static float GetPixelsPerCSSUnit(const dom::UserSpaceMetrics& aMetrics,
-                                   nsCSSUnit aCSSUnit, uint8_t aAxis,
+                                   nsCSSUnit aCSSUnit, SVGLength::Axis aAxis,
                                    bool aApplyZoom);
 
  private:

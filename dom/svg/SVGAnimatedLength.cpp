@@ -225,7 +225,7 @@ float SVGElementMetrics::GetRootZoom() const {
       mSVGElement ? mSVGElement->OwnerDoc()->GetRootElement() : nullptr);
 }
 
-float SVGElementMetrics::GetAxisLength(uint8_t aCtxType) const {
+float SVGElementMetrics::GetAxisLength(SVGLength::Axis aCtxType) const {
   if (!EnsureCtx()) {
     return 1.0f;
   }
@@ -352,23 +352,19 @@ float NonSVGFrameUserSpaceMetrics::GetLineHeight(Type aType) const {
   return 1.0f;
 }
 
-float UserSpaceMetricsWithSize::GetAxisLength(uint8_t aCtxType) const {
+float UserSpaceMetricsWithSize::GetAxisLength(SVGLength::Axis aCtxType) const {
   gfx::Size size = GetSize();
   float length;
   switch (aCtxType) {
-    case SVGContentUtils::X:
+    case SVGLength::Axis::X:
       length = size.width;
       break;
-    case SVGContentUtils::Y:
+    case SVGLength::Axis::Y:
       length = size.height;
       break;
-    case SVGContentUtils::XY:
+    case SVGLength::Axis::XY:
       length =
           SVGContentUtils::ComputeNormalizedHypotenuse(size.width, size.height);
-      break;
-    default:
-      MOZ_ASSERT_UNREACHABLE("Unknown axis type");
-      length = 1;
       break;
   }
   return FixAxisLength(length);
@@ -377,19 +373,19 @@ float UserSpaceMetricsWithSize::GetAxisLength(uint8_t aCtxType) const {
 float SVGAnimatedLength::GetPixelsPerUnit(const SVGElement* aSVGElement,
                                           uint8_t aUnitType) const {
   return SVGLength::GetPixelsPerUnit(SVGElementMetrics(aSVGElement), aUnitType,
-                                     mCtxType, false);
+                                     GetCtxType(), false);
 }
 
 float SVGAnimatedLength::GetPixelsPerUnitWithZoom(const SVGElement* aSVGElement,
                                                   uint8_t aUnitType) const {
   return SVGLength::GetPixelsPerUnit(SVGElementMetrics(aSVGElement), aUnitType,
-                                     mCtxType, true);
+                                     GetCtxType(), true);
 }
 
 float SVGAnimatedLength::GetPixelsPerUnitWithZoom(
     const SVGViewportElement* aCtx, uint8_t aUnitType) const {
   return SVGLength::GetPixelsPerUnit(SVGElementMetrics(aCtx, aCtx), aUnitType,
-                                     mCtxType, true);
+                                     GetCtxType(), true);
 }
 
 float SVGAnimatedLength::GetPixelsPerUnitWithZoom(nsIFrame* aFrame,
@@ -399,15 +395,15 @@ float SVGAnimatedLength::GetPixelsPerUnitWithZoom(nsIFrame* aFrame,
   if (content->IsSVGElement()) {
     return SVGLength::GetPixelsPerUnit(
         SVGElementMetrics(static_cast<const SVGElement*>(content)), aUnitType,
-        mCtxType, true);
+        GetCtxType(), true);
   }
   return SVGLength::GetPixelsPerUnit(NonSVGFrameUserSpaceMetrics(aFrame),
-                                     aUnitType, mCtxType, true);
+                                     aUnitType, GetCtxType(), true);
 }
 
 float SVGAnimatedLength::GetPixelsPerUnitWithZoom(
     const UserSpaceMetrics& aMetrics, uint8_t aUnitType) const {
-  return SVGLength::GetPixelsPerUnit(aMetrics, aUnitType, mCtxType, true);
+  return SVGLength::GetPixelsPerUnit(aMetrics, aUnitType, GetCtxType(), true);
 }
 
 void SVGAnimatedLength::SetBaseValueInSpecifiedUnits(float aValue,

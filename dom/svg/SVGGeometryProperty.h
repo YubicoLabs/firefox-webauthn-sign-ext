@@ -30,7 +30,7 @@ namespace Tags {
                                         styleStruct)                  \
   struct tagName {                                                    \
     using ResolverType = ResolverTypes::resolver;                     \
-    constexpr static auto CtxDirection = SVGContentUtils::direction;  \
+    constexpr static auto CtxDirection = SVGLength::Axis::direction;  \
     constexpr static auto Getter = &styleStruct::m##tagName;          \
   }
 
@@ -48,7 +48,7 @@ using StyleSizeGetter = AnchorResolvedSize (nsStylePosition::*)(
 struct Height;
 struct Width {
   using ResolverType = ResolverTypes::LengthPercentWidthHeight;
-  constexpr static auto CtxDirection = SVGContentUtils::X;
+  constexpr static auto CtxDirection = SVGLength::Axis::X;
   constexpr static StyleSizeGetter Getter = &nsStylePosition::GetWidth;
   constexpr static auto SizeGetter = &gfx::Size::width;
   static AspectRatio AspectRatioRelative(AspectRatio aAspectRatio) {
@@ -59,7 +59,7 @@ struct Width {
 };
 struct Height {
   using ResolverType = ResolverTypes::LengthPercentWidthHeight;
-  constexpr static auto CtxDirection = SVGContentUtils::Y;
+  constexpr static auto CtxDirection = SVGLength::Axis::Y;
   constexpr static StyleSizeGetter Getter = &nsStylePosition::GetHeight;
   constexpr static auto SizeGetter = &gfx::Size::height;
   static AspectRatio AspectRatioRelative(AspectRatio aAspectRatio) {
@@ -73,13 +73,13 @@ struct Height {
 struct Ry;
 struct Rx {
   using ResolverType = ResolverTypes::LengthPercentRXY;
-  constexpr static auto CtxDirection = SVGContentUtils::X;
+  constexpr static auto CtxDirection = SVGLength::Axis::X;
   constexpr static auto Getter = &nsStyleSVGReset::mRx;
   using CounterPart = Ry;
 };
 struct Ry {
   using ResolverType = ResolverTypes::LengthPercentRXY;
-  constexpr static auto CtxDirection = SVGContentUtils::Y;
+  constexpr static auto CtxDirection = SVGLength::Axis::Y;
   constexpr static auto Getter = &nsStyleSVGReset::mRy;
   using CounterPart = Rx;
 };
@@ -91,7 +91,7 @@ template <class T>
 using AlwaysFloat = float;
 using dummy = int[];
 
-using CtxDirectionType = decltype(SVGContentUtils::X);
+using CtxDirectionType = decltype(SVGLength::Axis::X);
 
 template <CtxDirectionType CTD>
 float ResolvePureLengthPercentage(const SVGElement* aElement,
