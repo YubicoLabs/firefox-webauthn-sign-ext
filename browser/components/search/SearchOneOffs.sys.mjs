@@ -1132,7 +1132,7 @@ export class SearchOneOffs {
       .querySelector(".search-one-offs-context-set-default")
       .setAttribute(
         "disabled",
-        target.engine == lazy.SearchService.defaultEngine.wrappedJSObject
+        target.engine == lazy.SearchService.defaultEngine
       );
 
     const privateDefaultItem = this.contextMenuPopup.querySelector(
@@ -1149,7 +1149,7 @@ export class SearchOneOffs {
       privateDefaultItem.hidden = false;
       privateDefaultItem.setAttribute(
         "disabled",
-        target.engine == lazy.SearchService.defaultPrivateEngine.wrappedJSObject
+        target.engine == lazy.SearchService.defaultPrivateEngine
       );
     } else {
       privateDefaultItem.hidden = true;

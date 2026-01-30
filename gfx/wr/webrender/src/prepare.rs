@@ -1076,24 +1076,21 @@ fn prepare_interned_prim_for_render(
                     let pic_task_id = pic.primary_render_task_id.expect("uh oh");
                     let pic_task = frame_state.rg_builder.get_task_mut(pic_task_id);
 
-                    let (task_world_rect, task_raster_node_index) = match &pic_task.kind {
-                        RenderTaskKind::Picture(info) => {
-                            let rect = DeviceRect::from_origin_and_size(
-                                info.content_origin,
-                                pic_task.get_target_size().to_f32(),
-                            ) / info.device_pixel_scale;
-                            (rect, info.raster_spatial_node_index)
-                        },
-                        _ => unreachable!()
-                    };
+                    let RenderTaskKind::Picture(info) = &pic_task.kind else { unreachable!() };
+
+                    let task_rect = DeviceRect::from_origin_and_size(
+                        info.content_origin,
+                        pic_task.get_target_size().to_f32(),
+                    );
 
                     quad::prepare_clip_range(
                         clip_node_range,
                         pic_task_id,
-                        task_world_rect,
+                        task_rect,
                         prim_address_f,
                         prim_spatial_node_index,
-                        task_raster_node_index,
+                        info.raster_spatial_node_index,
+                        info.device_pixel_scale,
                         &data_stores.clip,
                         frame_state.clip_store,
                         frame_context.spatial_tree,
@@ -1154,15 +1151,16 @@ fn prepare_interned_prim_for_render(
                         count: frame_state.clip_store.clip_node_instances.len() as u32 - first_clip_node_index,
                     };
 
-                    let task_world_rect = clipped_surface_rect.to_f32() / device_pixel_scale;
+                    let task_rect = clipped_surface_rect.to_f32();
 
                     quad::prepare_clip_range(
                         clip_node_range,
                         clip_task_id,
-                        task_world_rect,
+                        task_rect,
                         prim_address_f,
                         prim_spatial_node_index,
                         raster_spatial_node_index,
+                        device_pixel_scale,
                         &data_stores.clip,
                         frame_state.clip_store,
                         frame_context.spatial_tree,

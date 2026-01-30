@@ -267,10 +267,7 @@ add_setup(async () => {
   Services.locale.requestedLocales = ["en"];
 
   Services.fog.initializeFOG();
-  sinon.stub(
-    SearchService.wrappedJSObject,
-    "_showRemovalOfSearchEngineNotificationBox"
-  );
+  sinon.stub(SearchService, "_showRemovalOfSearchEngineNotificationBox");
 
   SearchTestUtils.setRemoteSettingsConfig(BASE_CONFIG);
 
@@ -478,7 +475,7 @@ add_task(async function test_default_engine_update() {
   const defaultEngineData = {
     id: engine.telemetryId,
     name: "Bar",
-    loadPath: engine.wrappedJSObject._loadPath,
+    loadPath: engine._loadPath,
     submissionURL: "https://www.google.com/search?q=&version=2.0",
   };
   await checkTelemetry("engine-update", defaultEngineData, defaultEngineData);

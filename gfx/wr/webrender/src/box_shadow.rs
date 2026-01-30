@@ -121,24 +121,25 @@ impl PatternBuilder for BoxShadowTemplate {
                 prim_address_f: pattern_prim_address_f,
                 transform_id: GpuTransformId::IDENTITY,
                 edge_flags: EdgeAaSegmentMask::empty(),
-                quad_flags: QuadFlags::APPLY_RENDER_TASK_CLIP | QuadFlags::IGNORE_DEVICE_PIXEL_SCALE,
+                quad_flags: QuadFlags::APPLY_RENDER_TASK_CLIP,
                 prim_needs_scissor_rect: false,
                 texture_input: color_pattern.texture_input.task_id,
             }),
         ));
 
-        let task_world_rect = DeviceRect::from_origin_and_size(
+        let task_rect = DeviceRect::from_origin_and_size(
             content_origin,
             task_size.to_f32(),
-        ) / scale_factor;
+        );
 
         crate::quad::prepare_clip_range(
             clips_range,
             pattern_task_id,
-            task_world_rect,
+            task_rect,
             pattern_prim_address_f,
             raster_spatial_node_index,
             raster_spatial_node_index,
+            scale_factor,
             ctx.interned_clips,
             state.clip_store,
             ctx.spatial_tree,

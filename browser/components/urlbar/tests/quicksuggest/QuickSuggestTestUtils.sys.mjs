@@ -581,7 +581,9 @@ class _QuickSuggestTestUtils {
       source: lazy.UrlbarUtils.RESULT_SOURCE.SEARCH,
       heuristic: false,
       payload: {
-        title: fullKeyword ? `${fullKeyword} — ${title}` : title,
+        title: fullKeyword,
+        subtitle: title,
+        bottomTextL10n: { id: "urlbar-result-suggestion-recommended" },
         url,
         icon,
         iconBlob,
@@ -1239,19 +1241,14 @@ class _QuickSuggestTestUtils {
     let { row } = details.element;
 
     let bottomLabel = row._elements.get("bottomLabel");
-    if (isSponsored) {
-      this.Assert.ok(bottomLabel, "Result bottom label should exist");
-      this.Assert.deepEqual(
-        window.document.l10n.getAttributes(bottomLabel),
-        { id: "urlbar-result-action-sponsored", args: null },
-        "Result bottom label should have correct l10n"
-      );
-    } else {
-      this.Assert.ok(
-        !bottomLabel || !window.document.l10n.getAttributes(bottomLabel),
-        "Result bottom label should not exist or if it does it should not have l10n attributes"
-      );
-    }
+    this.Assert.ok(bottomLabel, "Result bottom label should exist");
+    this.Assert.deepEqual(
+      window.document.l10n.getAttributes(bottomLabel),
+      isSponsored
+        ? { id: "urlbar-result-action-sponsored", args: null }
+        : { id: "urlbar-result-suggestion-recommended", args: null },
+      "Result bottom label should have correct l10n"
+    );
 
     this.Assert.ok(
       row._buttons.get("result-menu"),

@@ -198,10 +198,6 @@ class BrowserSearchTelemetryHandler {
       let searchUrlType =
         details.searchUrlType ?? lazy.SearchUtils.URL_TYPE.SEARCH;
 
-      let unwrappedEngine = /** @type {SearchEngine} */ (
-        engine.wrappedJSObject
-      );
-
       // Strict equality is used because we want to only match against the
       // empty string and not other values. We would have `engine.partnerCode`
       // return `undefined`, but the XPCOM interfaces force us to return an
@@ -209,8 +205,7 @@ class BrowserSearchTelemetryHandler {
       let reportPartnerCode =
         !isOverridden &&
         engine.partnerCode !== "" &&
-        !unwrappedEngine.getURLOfType(searchUrlType)
-          ?.excludePartnerCodeFromTelemetry;
+        !engine.getURLOfType(searchUrlType)?.excludePartnerCodeFromTelemetry;
 
       Glean.sap.counts.record({
         source: this.KNOWN_SEARCH_SOURCES.get(source),

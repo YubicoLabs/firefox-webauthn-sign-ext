@@ -1747,17 +1747,18 @@ bool CanvasRenderingContext2D::EnsureTarget(ErrorResult& aError,
     return true;
   }
 
-  // Check that the dimensions are sane
-  if (mWidth > StaticPrefs::gfx_canvas_max_size() ||
-      mHeight > StaticPrefs::gfx_canvas_max_size()) {
-    SetErrorState();
-    aError.ThrowInvalidStateError("Canvas exceeds max size.");
-    return false;
-  }
-
   if (mWidth < 0 || mHeight < 0) {
     SetErrorState();
     aError.ThrowInvalidStateError("Canvas has invalid size.");
+    return false;
+  }
+
+  // Check that the dimensions are sane
+  if (mWidth > StaticPrefs::gfx_canvas_max_size() ||
+      mHeight > StaticPrefs::gfx_canvas_max_size() ||
+      size_t(mWidth) * size_t(mHeight) > StaticPrefs::gfx_canvas_max_area()) {
+    SetErrorState();
+    aError.ThrowInvalidStateError("Canvas exceeds max size.");
     return false;
   }
 

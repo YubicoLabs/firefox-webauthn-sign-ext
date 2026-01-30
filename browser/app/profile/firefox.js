@@ -1867,9 +1867,6 @@ pref("browser.newtabpage.activity-stream.mobileDownloadModal.variant-a", false);
 pref("browser.newtabpage.activity-stream.mobileDownloadModal.variant-b", false);
 pref("browser.newtabpage.activity-stream.mobileDownloadModal.variant-c", false);
 
-// Show refined card layout on newtab
-pref("browser.newtabpage.activity-stream.discoverystream.refinedCardsLayout.enabled", true);
-
 /**
  * @backward-compat { version 148 }
  *
@@ -2269,6 +2266,7 @@ pref("browser.ml.pageAssist.enabled", false);
 // AI Window Feature
 pref("browser.aiwindow.apiKey", '');
 pref("browser.aiwindow.chatStore.loglevel", "Error");
+pref("browser.aiwindow.chatHistory.loglevel", "Error");
 pref("browser.aiwindow.enabled", false);
 pref("browser.aiwindow.endpoint", "https://mlpa-prod-prod-mozilla.global.ssl.fastly.net/v1");
 pref("browser.aiwindow.memories", true);

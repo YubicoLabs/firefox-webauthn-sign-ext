@@ -7760,7 +7760,8 @@ void nsBlockFrame::BuildDisplayList(nsDisplayListBuilder* aBuilder,
 
   if (GetPrevInFlow()) {
     DisplayOverflowContainers(aBuilder, aLists);
-    DisplayPushedAbsoluteFrames(aBuilder, aLists);
+    // TODO(dshin, bug 2013284): Location of this doesn't align with observed
+    // behaviour.
     for (nsIFrame* f : GetChildList(FrameChildListID::Float)) {
       if (f->HasAnyStateBits(NS_FRAME_IS_PUSHED_OUT_OF_FLOW)) {
         BuildDisplayListForChild(aBuilder, f, aLists);
@@ -7937,6 +7938,10 @@ void nsBlockFrame::BuildDisplayList(nsDisplayListBuilder* aBuilder,
         break;
       }
       lineCount++;
+    }
+
+    if (GetPrevInFlow()) {
+      DisplayPushedAbsoluteFrames(aBuilder, aLists);
     }
 
     if (nonDecreasingYs && lineCount >= MIN_LINES_NEEDING_CURSOR) {

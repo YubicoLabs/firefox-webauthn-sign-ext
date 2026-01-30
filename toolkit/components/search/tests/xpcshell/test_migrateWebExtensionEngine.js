@@ -17,8 +17,7 @@ add_task(async function test_migrateLegacyEngine() {
   });
 
   // Modify the loadpath so it looks like a legacy plugin loadpath
-  engine.wrappedJSObject._loadPath = `jar:[profile]/extensions/${kExtensionID}.xpi!/simple.xml`;
-  engine.wrappedJSObject._extensionID = null;
+  engine._loadPath = `jar:[profile]/extensions/${kExtensionID}.xpi!/simple.xml`;
 
   await SearchService.setDefault(engine, SearchService.CHANGE_REASON.UNKNOWN);
 
@@ -33,8 +32,8 @@ add_task(async function test_migrateLegacyEngine() {
   );
 
   engine = SearchService.getEngineByName("simple");
-  Assert.equal(engine.wrappedJSObject._loadPath, "[addon]" + kExtensionID);
-  Assert.equal(engine.wrappedJSObject._extensionID, kExtensionID);
+  Assert.equal(engine._loadPath, "[addon]" + kExtensionID);
+  Assert.equal(engine.extensionID, kExtensionID);
 
   Assert.equal(
     (await SearchService.getDefault()).name,
@@ -51,8 +50,7 @@ add_task(async function test_migrateLegacyEngineDifferentName() {
   });
 
   // Modify the loadpath so it looks like an legacy plugin loadpath
-  engine.wrappedJSObject._loadPath = `jar:[profile]/extensions/${kExtensionID}.xpi!/simple.xml`;
-  engine.wrappedJSObject._extensionID = null;
+  engine._loadPath = `jar:[profile]/extensions/${kExtensionID}.xpi!/simple.xml`;
 
   await SearchService.setDefault(engine, SearchService.CHANGE_REASON.UNKNOWN);
 
@@ -71,8 +69,8 @@ add_task(async function test_migrateLegacyEngineDifferentName() {
 
   // The engine should have changed its name.
   engine = SearchService.getEngineByName("simple search");
-  Assert.equal(engine.wrappedJSObject._loadPath, "[addon]" + kExtensionID);
-  Assert.equal(engine.wrappedJSObject._extensionID, kExtensionID);
+  Assert.equal(engine._loadPath, "[addon]" + kExtensionID);
+  Assert.equal(engine.extensionID, kExtensionID);
 
   Assert.equal(
     (await SearchService.getDefault()).name,

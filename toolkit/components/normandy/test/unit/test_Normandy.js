@@ -22,12 +22,8 @@ const { decorate_task } = NormandyTestUtils;
 // Normandy's initialization function should set the start preferences before
 // its first `await`.
 decorate_task(
-  NormandyTestUtils.withStub(Normandy, "finishInit", {
-    returnValue: Promise.resolve(),
-  }),
-  NormandyTestUtils.withStub(NormandyMigrations, "applyAll", {
-    returnValue: Promise.resolve(),
-  }),
+  NormandyTestUtils.withStub(Normandy, "finishInit"),
+  NormandyTestUtils.withStub(NormandyMigrations, "applyAll"),
   NormandyTestUtils.withMockPreferences(),
   async function test_normandy_init_applies_startup_prefs_synchronously({
     mockPreferences,
@@ -64,14 +60,10 @@ decorate_task(
 );
 
 // Normandy's initialization function should register the observer for UI
-// startup before it's first async call.
+// startup before it's first await.
 decorate_task(
-  NormandyTestUtils.withStub(Normandy, "finishInit", {
-    returnValue: Promise.resolve(),
-  }),
-  NormandyTestUtils.withStub(NormandyMigrations, "applyAll", {
-    returnValue: Promise.resolve(),
-  }),
+  NormandyTestUtils.withStub(Normandy, "finishInit"),
+  NormandyTestUtils.withStub(NormandyMigrations, "applyAll"),
   async function test_normandy_init_applies_startup_prefs_synchronously({
     applyAllStub,
   }) {
@@ -80,7 +72,7 @@ decorate_task(
     Normandy.uiAvailableNotificationObserved = mockUiAvailableDeferred;
 
     let applyAllDeferred = Promise.withResolvers();
-    applyAllStub.returns(applyAllDeferred.promise);
+    applyAllStub.returns(applyAllStub);
 
     let promiseResolvedCount = 0;
     mockUiAvailableDeferred.promise.then(() => promiseResolvedCount++);

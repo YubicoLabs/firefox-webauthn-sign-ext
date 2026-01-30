@@ -147,14 +147,6 @@ export const SearchService = new (class SearchService {
   });
 
   /**
-   * Temporary property to maintain compatibility whilst migration away from
-   * a service is in work.
-   *
-   * @deprecated
-   */
-  wrappedJSObject = this;
-
-  /**
    * The currently active search engine.
    * Unless the application doesn't ship any search engine, this should never
    * be null. If the currently active engine is removed, this attribute will
@@ -572,7 +564,7 @@ export const SearchService = new (class SearchService {
     this._cachedSortedEngines = null;
     this.#currentEngine = null;
     this.#currentPrivateEngine = null;
-    this._searchDefault = null;
+    this.#searchDefault = null;
     this.#searchPrivateDefault = null;
     this.#maybeReloadDebounce = false;
     this._settings._batchTask?.disarm();
@@ -875,24 +867,18 @@ export const SearchService = new (class SearchService {
   async removeEngine(engine, changeReason) {
     await this.init();
     if (!engine) {
-      throw Components.Exception(
-        "no engine passed to removeEngine!",
-        Cr.NS_ERROR_INVALID_ARG
-      );
+      throw new TypeError("no engine passed");
     }
 
     var engineToRemove = null;
     for (var e of this._engines.values()) {
-      if (engine.wrappedJSObject == e) {
+      if (engine == e) {
         engineToRemove = e;
       }
     }
 
     if (!engineToRemove) {
-      throw Components.Exception(
-        "removeEngine: Can't find engine to remove!",
-        Cr.NS_ERROR_FILE_NOT_FOUND
-      );
+      throw new Error("Unable to find engine to remove");
     }
 
     this.#enginesPendingRemoval.add(engineToRemove);
@@ -979,32 +965,18 @@ export const SearchService = new (class SearchService {
   async moveEngine(engine, newIndex) {
     await this.init();
     if (newIndex > this.#sortedEngines.length || newIndex < 0) {
-      throw Components.Exception(
-        "moveEngine: Index out of bounds!",
-        Cr.NS_ERROR_INVALID_ARG
-      );
+      throw new RangeError("newIndex out of bounds");
     }
     if (!(engine instanceof lazy.SearchEngine)) {
-      throw Components.Exception(
-        "moveEngine: Invalid engine passed to moveEngine!",
-        Cr.NS_ERROR_INVALID_ARG
-      );
+      throw new TypeError("engine is not a SearchEngine instance");
     }
     if (engine.hidden) {
-      throw Components.Exception(
-        "moveEngine: Can't move a hidden engine!",
-        Cr.NS_ERROR_FAILURE
-      );
+      throw new Error("Unable to move a hidden engine");
     }
-
-    engine = engine.wrappedJSObject;
 
     var currentIndex = this.#sortedEngines.indexOf(engine);
     if (currentIndex == -1) {
-      throw Components.Exception(
-        "moveEngine: Can't find engine to move!",
-        Cr.NS_ERROR_UNEXPECTED
-      );
+      throw new Error("Unable to find engine to move");
     }
 
     // Our callers only take into account non-hidden engines when calculating
@@ -1020,10 +992,7 @@ export const SearchService = new (class SearchService {
     // newIndexEngine directly instead of newIndex.
     var newIndexEngine = this.#sortedVisibleEngines[newIndex];
     if (!newIndexEngine) {
-      throw Components.Exception(
-        "moveEngine: Can't find engine to replace!",
-        Cr.NS_ERROR_UNEXPECTED
-      );
+      throw new Error("Unable to find engine to replace");
     }
 
     for (var i = 0; i < this.#sortedEngines.length; ++i) {
@@ -1290,12 +1259,9 @@ export const SearchService = new (class SearchService {
    * An object containing the id of the AppProvidedConfigEngine for the default
    * engine, as suggested by the configuration.
    *
-   * This is prefixed with _ rather than # because it is
-   * called in a test.
-   *
    * @type {object}
    */
-  _searchDefault = null;
+  #searchDefault = null;
 
   /**
    * An object containing the id of the AppProvidedConfigEngine for the default
@@ -1427,7 +1393,7 @@ export const SearchService = new (class SearchService {
     function isAddonEngine(engine) {
       return (
         engine instanceof lazy.AddonSearchEngine &&
-        engine._extensionID == extensionID
+        engine.extensionID == extensionID
       );
     }
 
@@ -1447,7 +1413,7 @@ export const SearchService = new (class SearchService {
     for (const engine of this._engines.values()) {
       if (
         engine instanceof lazy.AddonSearchEngine &&
-        engine._extensionID == details.id
+        engine.extensionID == details.id
       ) {
         return engine;
       }
@@ -1560,7 +1526,7 @@ export const SearchService = new (class SearchService {
     experimentPrefValue: {
       pref: "browser.search.experiment",
       default: "",
-      onUpdate: () => this._maybeReloadEngines(this.CHANGE_REASON.EXPERIMENT),
+      onUpdate: () => this.#maybeReloadEngines(this.CHANGE_REASON.EXPERIMENT),
     },
   });
 
@@ -1649,11 +1615,7 @@ export const SearchService = new (class SearchService {
     if (Services.startup.shuttingDown) {
       Glean.searchService.startupTime.cancel(timerId);
 
-      let ex = Components.Exception(
-        "#init: abandoning init due to shutting down",
-        Cr.NS_ERROR_ABORT
-      );
-
+      let ex = new Error("Abandoning search service init due to shutting down");
       this.#initializationStatus = "failed";
       this.#initDeferredPromise.reject(ex);
       throw ex;
@@ -1778,7 +1740,7 @@ export const SearchService = new (class SearchService {
     // reload the engines - it is possible the settings just had one engine in it,
     // and that is now empty, so we need to load from our main list.
     if (engineRemoved && !this._engines.size) {
-      this._maybeReloadEngines(
+      this.#maybeReloadEngines(
         this.CHANGE_REASON.ENGINE_IGNORE_LIST_UPDATED
       ).catch(console.error);
     }
@@ -1847,7 +1809,7 @@ export const SearchService = new (class SearchService {
     let defaultEngine = this._engines.get(
       privateMode && this.#searchPrivateDefault
         ? this.#searchPrivateDefault
-        : this._searchDefault
+        : this.#searchDefault
     );
 
     if (Services.policies?.status == Ci.nsIEnterprisePolicies.ACTIVE) {
@@ -2183,13 +2145,10 @@ export const SearchService = new (class SearchService {
    * Reloads engines asynchronously, but only when
    * the service has already been initialized.
    *
-   * This is prefixed with _ rather than # because it is
-   * called in test_reload_engines.js
-   *
    * @param {Values<typeof this.CHANGE_REASON>} changeReason
    *   The reason reload engines is being called.
    */
-  async _maybeReloadEngines(changeReason) {
+  async #maybeReloadEngines(changeReason) {
     if (this.#maybeReloadDebounce) {
       lazy.logConsole.debug("We're already waiting to reload engines.");
       return;
@@ -2203,7 +2162,7 @@ export const SearchService = new (class SearchService {
           return;
         }
         this.#maybeReloadDebounce = false;
-        this._maybeReloadEngines(changeReason).catch(console.error);
+        this.#maybeReloadEngines(changeReason).catch(console.error);
       }, 10000);
       lazy.logConsole.debug(
         "Post-poning maybeReloadEngines() as we're currently initializing."
@@ -2716,7 +2675,7 @@ export const SearchService = new (class SearchService {
 
           if (
             existingEngine instanceof lazy.AddonSearchEngine &&
-            existingEngine._extensionID == extensionId
+            existingEngine.extensionID == extensionId
           ) {
             // We assume that this WebExtension was already loaded as part of
             // #loadStartupEngines, and therefore do not try to add it again.
@@ -2836,7 +2795,7 @@ export const SearchService = new (class SearchService {
   }
 
   #setDefaultFromSelector(refinedConfig) {
-    this._searchDefault = refinedConfig.appDefaultEngineId;
+    this.#searchDefault = refinedConfig.appDefaultEngineId;
     this.#searchPrivateDefault = refinedConfig.appPrivateDefaultEngineId;
   }
 
@@ -3212,10 +3171,7 @@ export const SearchService = new (class SearchService {
     if (this._cachedSortedEngines) {
       var index = this._cachedSortedEngines.indexOf(engine);
       if (index == -1) {
-        throw Components.Exception(
-          "Can't find engine to remove in _sortedEngines!",
-          Cr.NS_ERROR_FAILURE
-        );
+        throw new Error("Unable to find engine to remove in the cache");
       }
       this._cachedSortedEngines.splice(index, 1);
     }
@@ -3326,18 +3282,12 @@ export const SearchService = new (class SearchService {
    */
   #setEngineDefault(privateMode, newEngine, changeReason) {
     if (!(newEngine instanceof lazy.SearchEngine)) {
-      throw Components.Exception(
-        "Invalid argument passed to defaultEngine setter",
-        Cr.NS_ERROR_INVALID_ARG
-      );
+      throw new TypeError("newEngine is not a SearchEngine instance");
     }
 
     const newCurrentEngine = this._engines.get(newEngine.id);
     if (!newCurrentEngine) {
-      throw Components.Exception(
-        "Can't find engine in store!",
-        Cr.NS_ERROR_UNEXPECTED
-      );
+      throw new Error("Unable to find the new engine in the engine store");
     }
 
     if (!newCurrentEngine.isConfigEngine) {
@@ -3761,9 +3711,7 @@ export const SearchService = new (class SearchService {
     );
   }
 
-  // This is prefixed with _ rather than # because it is
-  // called in a test.
-  _removeObservers() {
+  #removeObservers() {
     if (this.ignoreListListener) {
       lazy.IgnoreLists.unsubscribe(this.ignoreListListener);
       delete this.ignoreListListener;
@@ -3822,14 +3770,14 @@ export const SearchService = new (class SearchService {
         lazy.logConsole.debug(
           "Reloading engines after idle due to configuration change"
         );
-        this._maybeReloadEngines(this.CHANGE_REASON.CONFIG).catch(
+        this.#maybeReloadEngines(this.CHANGE_REASON.CONFIG).catch(
           console.error
         );
         break;
       }
 
       case QUIT_APPLICATION_TOPIC:
-        this._removeObservers();
+        this.#removeObservers();
         break;
 
       case TOPIC_LOCALES_CHANGE:
@@ -3845,7 +3793,7 @@ export const SearchService = new (class SearchService {
         // down at the same time (see _reInit for more info).
         Services.tm.dispatchToMainThread(() => {
           if (!Services.startup.shuttingDown) {
-            this._maybeReloadEngines(this.CHANGE_REASON.LOCALE).catch(
+            this.#maybeReloadEngines(this.CHANGE_REASON.LOCALE).catch(
               console.error
             );
           }
@@ -3853,7 +3801,7 @@ export const SearchService = new (class SearchService {
         break;
       case lazy.Region.REGION_TOPIC:
         lazy.logConsole.debug("Region updated:", lazy.Region.home);
-        this._maybeReloadEngines(this.CHANGE_REASON.REGION).catch(
+        this.#maybeReloadEngines(this.CHANGE_REASON.REGION).catch(
           console.error
         );
         break;
@@ -3957,7 +3905,7 @@ export const SearchService = new (class SearchService {
  */
 class SearchDefaultOverrideAllowlistHandler {
   constructor() {
-    this._remoteConfig = lazy.RemoteSettings(
+    this.#remoteConfig = lazy.RemoteSettings(
       lazy.SearchUtils.SETTINGS_ALLOWLIST_KEY
     );
   }
@@ -3976,7 +3924,7 @@ class SearchDefaultOverrideAllowlistHandler {
    *   instance.
    */
   async canOverride(extension, appProvidedEngineId) {
-    const overrideTable = await this._getAllowlist();
+    const overrideTable = await this.#getAllowlist();
 
     let entry = overrideTable.find(e => e.thirdPartyId == extension.id);
     if (!entry) {
@@ -4011,12 +3959,12 @@ class SearchDefaultOverrideAllowlistHandler {
    *   app provided instance.
    */
   async canEngineOverride(engine, appProvidedEngineId) {
-    const overrideEntries = await this._getAllowlist();
+    const overrideEntries = await this.#getAllowlist();
 
     let entry;
 
     if (engine instanceof lazy.AddonSearchEngine) {
-      entry = overrideEntries.find(e => e.thirdPartyId == engine._extensionID);
+      entry = overrideEntries.find(e => e.thirdPartyId == engine.extensionID);
     } else if (engine instanceof lazy.OpenSearchEngine) {
       entry = overrideEntries.find(
         e =>
@@ -4051,10 +3999,10 @@ class SearchDefaultOverrideAllowlistHandler {
    *   An array of objects in the database, or an empty array if none
    *   could be obtained.
    */
-  async _getAllowlist() {
+  async #getAllowlist() {
     let result = [];
     try {
-      result = await this._remoteConfig.get();
+      result = await this.#remoteConfig.get();
     } catch (ex) {
       // Don't throw an error just log it, just continue with no data, and hopefully
       // a sync will fix things later on.
@@ -4063,4 +4011,6 @@ class SearchDefaultOverrideAllowlistHandler {
     lazy.logConsole.debug("Allow list is:", result);
     return result;
   }
+
+  #remoteConfig;
 }

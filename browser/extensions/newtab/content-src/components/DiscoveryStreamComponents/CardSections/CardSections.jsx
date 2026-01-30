@@ -36,7 +36,6 @@ const PREF_BILLBOARD_ENABLED = "newtabAdSize.billboard";
 const PREF_BILLBOARD_POSITION = "newtabAdSize.billboard.position";
 const PREF_LEADERBOARD_ENABLED = "newtabAdSize.leaderboard";
 const PREF_LEADERBOARD_POSITION = "newtabAdSize.leaderboard.position";
-const PREF_REFINED_CARDS_ENABLED = "discoverystream.refinedCardsLayout.enabled";
 const PREF_INFERRED_PERSONALIZATION_USER =
   "discoverystream.sections.personalization.inferred.user.enabled";
 const PREF_DAILY_BRIEF_SECTIONID = "discoverystream.dailyBrief.sectionId";
@@ -48,7 +47,7 @@ const PREF_SPOCS_STARTUPCACHE_ENABLED =
 const CURATED_RECOMMENDATIONS_FEED_URL =
   "https://merino.services.mozilla.com/api/v1/curated-recommendations";
 
-function getLayoutData(responsiveLayouts, index, refinedCardsLayout) {
+function getLayoutData(responsiveLayouts, index) {
   let layoutData = {
     classNames: [],
     imageSizes: {},
@@ -71,7 +70,7 @@ function getLayoutData(responsiveLayouts, index, refinedCardsLayout) {
         // The API tells us whether the tile should show the excerpt or not.
         // Apply extra styles accordingly.
         if (tile.hasExcerpt) {
-          if (tile.size === "medium" && refinedCardsLayout) {
+          if (tile.size === "medium") {
             layoutData.classNames.push(
               `col-${layout.columnCount}-hide-excerpt`
             );
@@ -212,7 +211,6 @@ function CardSection({
   const mayHaveSectionsCards = prefs[PREF_SECTIONS_CARDS_ENABLED];
   const selectedTopics = prefs[PREF_TOPICS_SELECTED];
   const availableTopics = prefs[PREF_TOPICS_AVAILABLE];
-  const refinedCardsLayout = prefs[PREF_REFINED_CARDS_ENABLED];
   const spocsStartupCacheEnabled = prefs[PREF_SPOCS_STARTUPCACHE_ENABLED];
   const dailyBriefV2Enabled =
     prefs.trainhopConfig?.dailyBriefing?.v2Enabled ||
@@ -342,11 +340,7 @@ function CardSection({
     let dataIndex = 0;
 
     for (let position = 0; position < maxTile; position++) {
-      const layoutData = getLayoutData(
-        responsiveLayouts,
-        position,
-        refinedCardsLayout
-      );
+      const layoutData = getLayoutData(responsiveLayouts, position);
       const { classNames, imageSizes } = layoutData;
       const shouldRenderWidget =
         shouldShowBriefingCard &&

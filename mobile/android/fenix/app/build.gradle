@@ -822,16 +822,16 @@ tasks.register('printVariants') {
 
 // Work around generated SafeArgs code hitting USELESS_CAST warnings with Kotlin 2.3+
 // https://issuetracker.google.com/issues/458082829
-def safeArgsSrc = fileTree(layout.buildDirectory.dir("generated/source/navigation-args")) {
-    include "**/*.kt"
-}
+def safeArgsSrc = layout.buildDirectory
+    .dir("generated/java")
+    .map { dir -> fileTree(dir) { include "generateSafeArgs*/**/*.kt" } }
 
 tasks.register("suppressUselessCastInSafeArgs") {
     inputs.files(safeArgsSrc)
     outputs.upToDateWhen { false }
 
     doLast {
-        safeArgsSrc.each { File f ->
+        safeArgsSrc.get().each { File f ->
             if (!f.text.contains('@file:Suppress("USELESS_CAST")')) {
                 f.text =
 """@file:Suppress("USELESS_CAST")

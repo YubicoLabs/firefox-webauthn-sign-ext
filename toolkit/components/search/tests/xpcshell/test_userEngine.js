@@ -78,7 +78,7 @@ add_task(async function test_rename() {
     SearchUtils.MODIFIED_TYPE.CHANGED,
     SearchUtils.TOPIC_ENGINE_MODIFIED
   );
-  let success = engine.wrappedJSObject.rename("user2");
+  let success = engine.rename("user2");
   await promiseEngineChanged;
   Assert.ok(true, "Received change notification.");
 
@@ -105,7 +105,7 @@ add_task(async function test_rename_duplicate() {
     url: "https://example.com/user?q={searchTerms}",
   });
 
-  let success = engine.wrappedJSObject.rename("user2");
+  let success = engine.rename("user2");
   Assert.ok(!success, "Engine was not renamed.");
   Assert.equal(engine.name, "user", "Should have kept the name.");
 
@@ -138,7 +138,7 @@ add_task(async function test_changeUrl() {
     SearchUtils.MODIFIED_TYPE.CHANGED,
     SearchUtils.TOPIC_ENGINE_MODIFIED
   );
-  engine.wrappedJSObject.changeUrl(
+  engine.changeUrl(
     SearchUtils.URL_TYPE.SEARCH,
     "https://example.com/user?query={searchTerms}",
     null
@@ -154,7 +154,7 @@ add_task(async function test_changeUrl() {
   );
   Assert.ok(!submission.postData, "No post data.");
 
-  engine.wrappedJSObject.changeUrl(
+  engine.changeUrl(
     SearchUtils.URL_TYPE.SEARCH,
     "https://example.com/user",
     "query={searchTerms}"
@@ -170,7 +170,7 @@ add_task(async function test_changeUrl() {
   submission = engine.getSubmission("foo", SearchUtils.URL_TYPE.SUGGEST_JSON);
   Assert.ok(!submission, "No suggest URL yet.");
 
-  engine.wrappedJSObject.changeUrl(
+  engine.changeUrl(
     SearchUtils.URL_TYPE.SUGGEST_JSON,
     "https://example.com/suggest?query={searchTerms}",
     null
@@ -183,7 +183,7 @@ add_task(async function test_changeUrl() {
   );
   Assert.equal(submission.postData, null, "Suggest URL uses GET");
 
-  engine.wrappedJSObject.changeUrl(SearchUtils.URL_TYPE.SUGGEST_JSON, null);
+  engine.changeUrl(SearchUtils.URL_TYPE.SUGGEST_JSON, null);
   submission = engine.getSubmission("foo", SearchUtils.URL_TYPE.SUGGEST_JSON);
   Assert.ok(!submission, "Suggest URL was removed");
 

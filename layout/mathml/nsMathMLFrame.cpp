@@ -195,13 +195,10 @@ nscoord nsMathMLFrame::CalcLength(const nsCSSValue& aCSSValue,
   nsCSSUnit unit = aCSSValue.GetUnit();
   mozilla::dom::NonSVGFrameUserSpaceMetrics userSpaceMetrics(aFrame);
 
-  // The axis is only relevant for percentages, so it doesn't matter what we use
-  // here.
-  auto axis = SVGContentUtils::X;
-
   return nsPresContext::CSSPixelsToAppUnits(
       aCSSValue.GetFloatValue() *
-      SVGLength::GetPixelsPerCSSUnit(userSpaceMetrics, unit, axis,
+      SVGLength::GetPixelsPerCSSUnit(userSpaceMetrics, unit,
+                                     SVGLength::Axis::XY,
                                      /* aApplyZoom = */ true));
 }
 

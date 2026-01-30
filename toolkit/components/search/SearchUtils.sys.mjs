@@ -258,6 +258,8 @@ export var SearchUtils = {
   notifyAction(engine, verb) {
     if (lazy.SearchService.isInitialized) {
       lazy.logConsole.debug("NOTIFY: Engine:", engine.name, "Verb:", verb);
+      // @ts-ignore XPConnect will automatically wrap the object, so it does
+      // not needs to support nsISupports.
       Services.obs.notifyObservers(engine, this.TOPIC_ENGINE_MODIFIED, verb);
     }
   },

@@ -4669,7 +4669,11 @@
       if (pinned && !itemAfter?.pinned) {
         itemAfter = null;
       } else if (itemAfter?.splitview) {
-        itemAfter = itemAfter.splitview;
+        let splitview = itemAfter.splitview;
+        itemAfter =
+          itemAfter === splitview.tabs[0]
+            ? splitview
+            : splitview.nextElementSibling || null;
       }
       // Prevent a flash of unstyled content by setting up the tab content
       // and inherited attributes before appending it (see Bug 1592054):
@@ -6900,6 +6904,12 @@
           targetElement = targetElement.group;
         }
         moveBefore = true;
+      }
+
+      // We want to include the splitview wrapper if it's the targetElement, but
+      // not in the case where we want to reverse tabs within the same splitview.
+      if (targetElement?.splitview && !element.splitview) {
+        targetElement = targetElement.splitview;
       }
 
       let getContainer = () =>

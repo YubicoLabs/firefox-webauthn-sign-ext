@@ -1427,8 +1427,8 @@
   value: ""
   mirror: always
 
-# Control whether we enable the feature of crash pull at all
-- name: browser.crashReports.crashPull
+# Control whether we enable the feature of crash reports on demand at all
+- name: browser.crashReports.onDemand
   type: bool
   value: true
   mirror: always
@@ -3713,7 +3713,7 @@
 # BrowsingContext. This includes calls to History and Location APIs.
 - name: dom.navigation.navigationRateLimit.count
   type: uint32_t
-  value: 200
+  value: 1000
   mirror: always
 
 # Time span in seconds for location change rate limit.
@@ -6917,10 +6917,14 @@
   value: false
   mirror: always
 
-# 0x7fff is the maximum supported xlib surface size and is more than enough for canvases.
 - name: gfx.canvas.max-size
   type: RelaxedAtomicInt32
-  value: 0x7fff
+  value: 0xffff
+  mirror: always
+
+- name: gfx.canvas.max-area
+  type: RelaxedAtomicUint32
+  value: 0x3fffffff
   mirror: always
 
 # Whether OffscreenCanvas can use remote canvas
@@ -7438,7 +7442,7 @@
 # Use gfxPlatform::MaxTextureSize instead of the pref directly.
 - name: gfx.max-texture-size
   type: int32_t
-  value: (int32_t)32767
+  value: (int32_t)65535
   mirror: once
   do_not_use_directly: true
 

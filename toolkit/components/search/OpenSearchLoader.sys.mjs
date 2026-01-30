@@ -274,16 +274,10 @@ function processXMLDocument(xmlDocument) {
     }
   }
   if (!result.name || !result.urls.length) {
-    throw Components.Exception(
-      "_parse: No name, or missing URL!",
-      Cr.NS_ERROR_FAILURE
-    );
+    throw new Error("No name, or missing URL for search engine");
   }
   if (!result.urls.find(url => url.type == lazy.SearchUtils.URL_TYPE.SEARCH)) {
-    throw Components.Exception(
-      "_parse: No text/html result type!",
-      Cr.NS_ERROR_FAILURE
-    );
+    throw new Error("Missing text/html result type in URLs for search engine");
   }
   return result;
 }

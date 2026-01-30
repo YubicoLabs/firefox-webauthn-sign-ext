@@ -11,23 +11,6 @@ $tags:
   - "Toolkit :: Crash Reporting"
 
 crash:
-  minidump_sha256_hash:
-    type: string
-    description: >
-      The SHA256 hash of the associated minidump file, if any.
-    notification_emails:
-      - crash-reporting-wg@mozilla.org
-      - stability@mozilla.org
-    bugs:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1830098
-    data_reviews:
-      - https://bugzilla.mozilla.org/show_bug.cgi?id=1830098
-    data_sensitivity:
-      - technical
-    expires: never
-    send_in_pings:
-      - crash
-
   compressed_store_size:
     type: memory_distribution
     description: >

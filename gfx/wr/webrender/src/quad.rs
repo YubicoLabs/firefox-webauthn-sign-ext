@@ -352,9 +352,10 @@ fn prepare_quad_impl(
         EdgeAaSegmentMask::all()
     };
 
-    let transform_id = state.transforms.gpu.get_id(
+    let transform_id = state.transforms.gpu.get_id_with_post_scale(
         prim_spatial_node_index,
         pic_context.raster_spatial_node_index,
+        device_pixel_scale.get(),
         ctx.spatial_tree,
     );
 
@@ -1147,18 +1148,19 @@ fn add_render_task_with_mask(
             }
 
             if clips_range.count > 0 {
-                let task_world_rect = DeviceRect::from_origin_and_size(
+                let task_rect = DeviceRect::from_origin_and_size(
                     content_origin,
                     task_size.to_f32(),
-                ) / device_pixel_scale;
+                );
 
                 prepare_clip_range(
                     clips_range,
                     task_id,
-                    task_world_rect,
+                    task_rect,
                     prim_address_f,
                     prim_spatial_node_index,
                     raster_spatial_node_index,
+                    device_pixel_scale,
                     interned_clips,
                     clip_store,
                     spatial_tree,
@@ -1196,8 +1198,7 @@ fn add_pattern_prim(
 
     frame_state.set_segments(segments, targets);
 
-    let mut quad_flags = QuadFlags::IGNORE_DEVICE_PIXEL_SCALE
-        | QuadFlags::APPLY_RENDER_TASK_CLIP;
+    let mut quad_flags = QuadFlags::APPLY_RENDER_TASK_CLIP;
 
     if is_opaque {
         quad_flags |= QuadFlags::IS_OPAQUE;
@@ -1246,8 +1247,7 @@ fn add_composite_prim(
 
     frame_state.set_segments(segments, targets);
 
-    let quad_flags = QuadFlags::IGNORE_DEVICE_PIXEL_SCALE
-        | QuadFlags::APPLY_RENDER_TASK_CLIP;
+    let quad_flags = QuadFlags::APPLY_RENDER_TASK_CLIP;
 
     frame_state.push_cmd(
         &PrimitiveCommand::quad(
@@ -1268,10 +1268,11 @@ fn add_composite_prim(
 pub fn prepare_clip_range(
     clips_range: ClipNodeRange,
     masked_prim_task_id: RenderTaskId,
-    task_world_rect: WorldRect,
+    task_rect: DeviceRect,
     main_prim_address: GpuBufferAddress,
     prim_spatial_node_index: SpatialNodeIndex,
     raster_spatial_node_index: SpatialNodeIndex,
+    device_pixel_scale: DevicePixelScale,
     interned_clips: &DataStore<ClipIntern>,
     clip_store: &ClipStore,
     spatial_tree: &SpatialTree,
@@ -1288,10 +1289,11 @@ pub fn prepare_clip_range(
         prepare_clip_task(
             clip_instance,
             clip_item,
-            task_world_rect,
+            task_rect,
             main_prim_address,
             prim_spatial_node_index,
             raster_spatial_node_index,
+            device_pixel_scale,
             clip_store,
             spatial_tree,
             gpu_buffer,
@@ -1309,10 +1311,11 @@ pub fn prepare_clip_range(
 pub fn prepare_clip_task(
     clip_instance: &ClipNodeInstance,
     clip_item: &ClipItem,
-    task_world_rect: WorldRect,
+    task_rect: DeviceRect,
     clipped_prim_address: GpuBufferAddress,
     prim_spatial_node_index: SpatialNodeIndex,
     raster_spatial_node_index: SpatialNodeIndex,
+    device_pixel_scale: DevicePixelScale,
     clip_store: &ClipStore,
     spatial_tree: &SpatialTree,
     gpu_buffer: &mut GpuBufferBuilderF,
@@ -1371,9 +1374,10 @@ pub fn prepare_clip_task(
             panic!("bug: box-shadow clips not expected on non-legacy rect/quads");
         }
         ClipItemKind::Image { rect, .. } => {
-            let transform_id = transforms.gpu.get_id(
+            let transform_id = transforms.gpu.get_id_with_post_scale(
                 clip_item.spatial_node_index,
                 raster_spatial_node_index,
+                device_pixel_scale.get(),
                 spatial_tree,
             );
 
@@ -1434,7 +1438,8 @@ pub fn prepare_clip_task(
         // pattern transform which serves the same purpose and is cheaper since
         // is a scale-offset. In this code path the raster-to-clip transform is
         // guaranteed to be representable by a scale and offset.
-        let clip_transform_id = transforms.gpu.get_id(
+        let clip_transform_id = transforms.gpu.get_id_with_pre_scale(
+            device_pixel_scale.inverse().get(),
             raster_spatial_node_index,
             clip_item.spatial_node_index,
             spatial_tree,
@@ -1443,8 +1448,8 @@ pub fn prepare_clip_task(
 
         let quad_address = write_prim_blocks(
             gpu_buffer,
-            task_world_rect.to_untyped(),
-            task_world_rect.to_untyped(),
+            task_rect.to_untyped(),
+            task_rect.to_untyped(),
             pattern.base_color,
             pattern.texture_input.task_id,
             &[],
@@ -1453,9 +1458,10 @@ pub fn prepare_clip_task(
 
         (ClipSpace::Raster, clip_transform_id, quad_address, quad_transform_id, true)
     } else {
-        let quad_transform_id = transforms.gpu.get_id(
+        let quad_transform_id = transforms.gpu.get_id_with_post_scale(
             prim_spatial_node_index,
             raster_spatial_node_index,
+            device_pixel_scale.get(),
             spatial_tree,
         );
 
