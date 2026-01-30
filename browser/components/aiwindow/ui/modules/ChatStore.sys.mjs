@@ -427,12 +427,13 @@ class ChatStore {
    * in the message.content.body field
    *
    * @param {string} searchString - The string to search with for conversations
+   * @param {boolean} [includeMessages=true] - Whether to fetch messages for each conversation
    *
-   * @returns {Array<ChatConversation>} - An array of conversations with messages
+   * @returns {Array<ChatConversation>} - An array of conversations with or without messages
    * that contain a message that matches the search string in the conversation
    * titles
    */
-  async search(searchString) {
+  async search(searchString, includeMessages = true) {
     await this.#ensureDatabase().catch(e => {
       lazy.log.error(
         "Could not ensure a database connection.",
@@ -455,6 +456,10 @@ class ChatStore {
     }
 
     const conversations = rows.map(parseConversationRow);
+
+    if (!includeMessages) {
+      return conversations;
+    }
 
     return await this.#getMessagesForConversations(conversations);
   }
