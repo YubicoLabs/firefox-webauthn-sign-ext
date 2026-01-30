@@ -4669,7 +4669,11 @@
       if (pinned && !itemAfter?.pinned) {
         itemAfter = null;
       } else if (itemAfter?.splitview) {
-        itemAfter = itemAfter.splitview;
+        let splitview = itemAfter.splitview;
+        itemAfter =
+          itemAfter === splitview.tabs[0]
+            ? splitview
+            : splitview.nextElementSibling || null;
       }
       // Prevent a flash of unstyled content by setting up the tab content
       // and inherited attributes before appending it (see Bug 1592054):
