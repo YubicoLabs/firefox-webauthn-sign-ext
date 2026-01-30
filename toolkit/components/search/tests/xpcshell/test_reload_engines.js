@@ -203,9 +203,7 @@ add_task(async function test_config_updated_engine_changes() {
   }
   Services.obs.addObserver(enginesObs, SearchUtils.TOPIC_ENGINE_MODIFIED);
 
-  Region._setHomeRegion("FR", false);
-
-  await SearchService._maybeReloadEngines();
+  Region._setHomeRegion("FR");
 
   await reloadObserved;
   Services.obs.removeObserver(enginesObs, SearchUtils.TOPIC_ENGINE_MODIFIED);

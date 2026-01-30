@@ -1547,7 +1547,7 @@ export const SearchService = new (class SearchService {
     experimentPrefValue: {
       pref: "browser.search.experiment",
       default: "",
-      onUpdate: () => this._maybeReloadEngines(this.CHANGE_REASON.EXPERIMENT),
+      onUpdate: () => this.#maybeReloadEngines(this.CHANGE_REASON.EXPERIMENT),
     },
   });
 
@@ -1765,7 +1765,7 @@ export const SearchService = new (class SearchService {
     // reload the engines - it is possible the settings just had one engine in it,
     // and that is now empty, so we need to load from our main list.
     if (engineRemoved && !this._engines.size) {
-      this._maybeReloadEngines(
+      this.#maybeReloadEngines(
         this.CHANGE_REASON.ENGINE_IGNORE_LIST_UPDATED
       ).catch(console.error);
     }
@@ -2170,13 +2170,10 @@ export const SearchService = new (class SearchService {
    * Reloads engines asynchronously, but only when
    * the service has already been initialized.
    *
-   * This is prefixed with _ rather than # because it is
-   * called in test_reload_engines.js
-   *
    * @param {Values<typeof this.CHANGE_REASON>} changeReason
    *   The reason reload engines is being called.
    */
-  async _maybeReloadEngines(changeReason) {
+  async #maybeReloadEngines(changeReason) {
     if (this.#maybeReloadDebounce) {
       lazy.logConsole.debug("We're already waiting to reload engines.");
       return;
@@ -2190,7 +2187,7 @@ export const SearchService = new (class SearchService {
           return;
         }
         this.#maybeReloadDebounce = false;
-        this._maybeReloadEngines(changeReason).catch(console.error);
+        this.#maybeReloadEngines(changeReason).catch(console.error);
       }, 10000);
       lazy.logConsole.debug(
         "Post-poning maybeReloadEngines() as we're currently initializing."
@@ -3809,7 +3806,7 @@ export const SearchService = new (class SearchService {
         lazy.logConsole.debug(
           "Reloading engines after idle due to configuration change"
         );
-        this._maybeReloadEngines(this.CHANGE_REASON.CONFIG).catch(
+        this.#maybeReloadEngines(this.CHANGE_REASON.CONFIG).catch(
           console.error
         );
         break;
@@ -3832,7 +3829,7 @@ export const SearchService = new (class SearchService {
         // down at the same time (see _reInit for more info).
         Services.tm.dispatchToMainThread(() => {
           if (!Services.startup.shuttingDown) {
-            this._maybeReloadEngines(this.CHANGE_REASON.LOCALE).catch(
+            this.#maybeReloadEngines(this.CHANGE_REASON.LOCALE).catch(
               console.error
             );
           }
@@ -3840,7 +3837,7 @@ export const SearchService = new (class SearchService {
         break;
       case lazy.Region.REGION_TOPIC:
         lazy.logConsole.debug("Region updated:", lazy.Region.home);
-        this._maybeReloadEngines(this.CHANGE_REASON.REGION).catch(
+        this.#maybeReloadEngines(this.CHANGE_REASON.REGION).catch(
           console.error
         );
         break;
