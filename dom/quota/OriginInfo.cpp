@@ -25,18 +25,18 @@ OriginInfo::OriginInfo(GroupInfo* aGroupInfo, const nsACString& aOrigin,
                        const ClientUsageArray& aClientUsages, uint64_t aUsage,
                        int64_t aAccessTime, int32_t aMaintenanceDate,
                        bool aPersisted, bool aDirectoryExists)
-    : mClientUsages(aClientUsages),
-      mGroupInfo(aGroupInfo),
+    : mGroupInfo(aGroupInfo),
       mOrigin(aOrigin),
       mStorageOrigin(aStorageOrigin),
-      mUsage(aUsage),
       mAccessTime(aAccessTime),
       mMaintenanceDate(aMaintenanceDate),
       mIsPrivate(aIsPrivate),
       mAccessed(false),
       mPersisted(aPersisted),
       mIsExtension(StringBeginsWith(aOrigin, "moz-extension://"_ns)),
-      mDirectoryExists(aDirectoryExists) {
+      mDirectoryExists(aDirectoryExists),
+      mClientUsages(aClientUsages),
+      mUsage(aUsage) {
   MOZ_ASSERT(aGroupInfo);
   MOZ_ASSERT_IF(!aIsPrivate, aOrigin == aStorageOrigin);
   MOZ_ASSERT_IF(aIsPrivate, aOrigin != aStorageOrigin);

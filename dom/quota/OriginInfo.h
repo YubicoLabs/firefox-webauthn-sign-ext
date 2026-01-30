@@ -142,11 +142,9 @@ class OriginInfo final {
 
   nsTHashMap<nsStringHashKey, NotNull<CanonicalQuotaObject*>>
       mCanonicalQuotaObjects;
-  ClientUsageArray mClientUsages;
   GroupInfo* mGroupInfo;
   const nsCString mOrigin;
   const nsCString mStorageOrigin;
-  uint64_t mUsage;
   int64_t mAccessTime;
   int32_t mMaintenanceDate;
   bool mIsPrivate;
@@ -166,6 +164,10 @@ class OriginInfo final {
    * has not yet flushed the data to disk.
    */
   bool mDirectoryExists;
+
+ private:
+  ClientUsageArray mClientUsages;
+  uint64_t mUsage;
 };
 
 class OriginInfoAccessTimeComparator {
