@@ -27,6 +27,7 @@
 #include "nsHttpChannel.h"
 #include "nsHttpChannelAuthProvider.h"
 #include "nsHttpHandler.h"
+#include "nsHTTPCompressConv.h"
 #include "nsIStreamConverter.h"
 #include "nsString.h"
 #include "nsICacheStorageService.h"
@@ -2424,8 +2425,8 @@ nsresult nsHttpChannel::CallOnStartRequest() {
     (void)mResponseHead->GetHeader(nsHttp::Content_Encoding, contentEncoding);
     // Note: doesn't handle multiple compressors: "dcb, gzip" or
     // "gzip, dcb" (etc)
-    if (contentEncoding.LowerCaseEqualsLiteral("dcb") ||
-        contentEncoding.LowerCaseEqualsLiteral("dcz")) {
+    if (contentEncoding.LowerCaseEqualsASCII(HTTP_BROTLI_DICTIONARY_TYPE) ||
+        contentEncoding.LowerCaseEqualsASCII(HTTP_ZSTD_DICTIONARY_TYPE)) {
       LOG_DICTIONARIES(
           ("Still had %s encoding at CallOnStartRequest, converting",
            contentEncoding.get()));
@@ -3655,11 +3656,13 @@ nsresult nsHttpChannel::ContinueProcessNormal(nsresult rv) {
   mIsDictionaryCompressed = false;
   nsAutoCString contentEncoding;
   (void)mResponseHead->GetHeader(nsHttp::Content_Encoding, contentEncoding);
-  if (contentEncoding.LowerCaseEqualsLiteral("dcb") ||
-      contentEncoding.LowerCaseEqualsLiteral("dcz")) {
+  if (contentEncoding.LowerCaseEqualsASCII(HTTP_BROTLI_DICTIONARY_TYPE) ||
+      contentEncoding.LowerCaseEqualsASCII(HTTP_ZSTD_DICTIONARY_TYPE)) {
     mIsDictionaryCompressed = true;
-  } else if (contentEncoding.LowerCaseFindASCII("dcb") != -1 ||
-             contentEncoding.LowerCaseFindASCII("dcz") != -1) {
+  } else if (contentEncoding.LowerCaseFindASCII(HTTP_BROTLI_DICTIONARY_TYPE) !=
+                 -1 ||
+             contentEncoding.LowerCaseFindASCII(HTTP_ZSTD_DICTIONARY_TYPE) !=
+                 -1) {
     // Reject responses that combine dcb/dcz with other encodings
     // (e.g. "dcb, gzip" or "gzip, dcz"). We don't support chained
     // dictionary compression with other compression methods.
@@ -6635,8 +6638,10 @@ nsresult nsHttpChannel::DoInstallCacheListener(bool aSaveDecompressed,
   // Verify that Content-Encoding was properly cleared
   nsAutoCString verifyEncoding;
   (void)mResponseHead->GetHeader(nsHttp::Content_Encoding, verifyEncoding);
-  MOZ_ASSERT(!verifyEncoding.Equals("dcb") && !verifyEncoding.Equals("dcz"),
-             "Content-Encoding should have been cleared for dcb/dcz");
+  MOZ_ASSERT(
+      !verifyEncoding.LowerCaseEqualsASCII(HTTP_BROTLI_DICTIONARY_TYPE) &&
+          !verifyEncoding.LowerCaseEqualsASCII(HTTP_ZSTD_DICTIONARY_TYPE),
+      "Content-Encoding should have been cleared for dcb/dcz");
   if (aSaveDecompressed) {
     MOZ_ASSERT(
         verifyEncoding.IsEmpty(),
