@@ -1867,9 +1867,6 @@ pref("browser.newtabpage.activity-stream.mobileDownloadModal.variant-a", false);
 pref("browser.newtabpage.activity-stream.mobileDownloadModal.variant-b", false);
 pref("browser.newtabpage.activity-stream.mobileDownloadModal.variant-c", false);
 
-// Show refined card layout on newtab
-pref("browser.newtabpage.activity-stream.discoverystream.refinedCardsLayout.enabled", true);
-
 /**
  * @backward-compat { version 148 }
  *

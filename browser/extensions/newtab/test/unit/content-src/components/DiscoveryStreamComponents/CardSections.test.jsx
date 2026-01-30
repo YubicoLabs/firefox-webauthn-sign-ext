@@ -194,8 +194,8 @@ describe("<CardSections />", () => {
   it("should apply correct class names for cards with and without excerpts", () => {
     wrapper.find(DSCard).forEach(card => {
       const props = card.props();
-      // Small cards don't show excerpts according to the data in DEFAULT_PROPS for this test suite
-      if (props.sectionsClassNames.includes("small")) {
+      const classNames = props.sectionsClassNames;
+      if (classNames.includes("small") || classNames.includes("medium")) {
         assert.include(props.sectionsClassNames, "hide-excerpt");
         assert.notInclude(props.sectionsClassNames, "show-excerpt");
       }

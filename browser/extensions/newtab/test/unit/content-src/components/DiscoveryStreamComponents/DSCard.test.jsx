@@ -610,7 +610,7 @@ describe("<DSCard>", () => {
       const standardImageSize = {
         mediaMatcher: "default",
         width: 296,
-        height: 148,
+        height: 160,
       };
       const image = wrapper.find(DSImage);
       assert.deepEqual(image.props().sizes[0], standardImageSize);
@@ -779,7 +779,7 @@ describe("<DSCard>", () => {
         },
         medium: {
           width: 300,
-          height: 150,
+          height: 160,
         },
         large: {
           width: 190,

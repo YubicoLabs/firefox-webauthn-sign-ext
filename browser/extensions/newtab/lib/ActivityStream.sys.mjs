@@ -323,14 +323,6 @@ export const PREFS_CONFIG = new Map([
     },
   ],
   [
-    "discoverystream.refinedCardsLayout.enabled",
-    {
-      title:
-        "Boolean flag enable layout and styling refinements for content and ad cards across different card sizes",
-      value: false,
-    },
-  ],
-  [
     "discoverystream.merino-provider.ohttp.enabled",
     {
       title: "Enables the Merino requests and images sent over OHTTP",
@@ -1388,7 +1380,7 @@ export const PREFS_CONFIG = new Map([
     "discoverystream.publisherFavicon.enabled",
     {
       title: "Enables publisher favicons on recommended stories",
-      value: false,
+      value: true,
     },
   ],
   [
