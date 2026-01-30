@@ -152,9 +152,16 @@ class Maybe_CopyMove_Enabler<T, true, true, true> {
 
   Maybe_CopyMove_Enabler(const Maybe_CopyMove_Enabler&) = default;
   Maybe_CopyMove_Enabler& operator=(const Maybe_CopyMove_Enabler&) = default;
-  constexpr Maybe_CopyMove_Enabler(Maybe_CopyMove_Enabler&& aOther) = default;
-  constexpr Maybe_CopyMove_Enabler& operator=(Maybe_CopyMove_Enabler&& aOther) =
-      default;
+  constexpr Maybe_CopyMove_Enabler(Maybe_CopyMove_Enabler&& aOther) {
+    downcast(aOther).reset();
+  }
+  constexpr Maybe_CopyMove_Enabler& operator=(Maybe_CopyMove_Enabler&& aOther) {
+    downcast(aOther).reset();
+    return *this;
+  }
+
+ private:
+  MOZ_MAYBE_DOWNCAST()
 };
 
 template <typename T>
@@ -270,8 +277,6 @@ template <typename T>
 struct MaybeStorage<T, true> : MaybeStorageBase<T> {
  protected:
   char mIsSome = false;  // not bool -- guarantees minimal space consumption
-  // Make the padding explicit to help compiler optimization.
-  char padding[alignof(MaybeStorageBase<T>) - sizeof(char)] = {};
 
   constexpr MaybeStorage() = default;
   constexpr explicit MaybeStorage(const T& aVal)

@@ -651,11 +651,12 @@ BEGIN_TEST_WITH_ATTRIBUTES(testGCRootedResult, JS_EXPECT_HAZARDS) {
   // But this should be fine when no tracing is required.
   Result<Result<mozilla::Ok, int>, double> dummy(3.4);
 
-  // Beware: Result<>: unwrap() takes ownership of a value. In the case of
-  // Result<Maybe>, that means the contained Maybe is left in a valid but
-  // undefined state.
+  // One thing I didn't realize initially about Result<>: unwrap() takes
+  // ownership of a value. In the case of Result<Maybe>, that means the
+  // contained Maybe is reset to Nothing.
   Result<mozilla::Maybe<int>, int> confusing(mozilla::Some(7));
   CHECK(confusing.unwrap().isSome());
+  CHECK(!confusing.unwrap().isSome());
 
   Result<mozilla::Maybe<JS::Value>, JSObject*> maybevalobj(
       mozilla::Some(val.get()));
