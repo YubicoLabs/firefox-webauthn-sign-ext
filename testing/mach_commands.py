@@ -785,7 +785,13 @@ class TestInfoNodeRunner(MozbuildObject):
 
         # Build the command to run
         node_binary, _ = find_node_executable()
-        cmd = [node_binary, test_runner_script, "--harness", harness]
+        cmd = [
+            node_binary,
+            "--max-old-space-size=16384",
+            test_runner_script,
+            "--harness",
+            harness,
+        ]
 
         if revision:
             cmd.extend(["--revision", revision])

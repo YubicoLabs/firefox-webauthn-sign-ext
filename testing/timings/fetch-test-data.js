@@ -1812,6 +1812,12 @@ async function createAggregatedFailuresFile(dates) {
 
 async function main() {
   const scriptStartTime = Date.now();
+
+  // Log heap limit at startup
+  const heapStats = require("v8").getHeapStatistics();
+  const heapLimitMB = Math.round(heapStats.heap_size_limit / 1024 / 1024);
+  console.log(`Node heap limit: ${heapLimitMB}MB`);
+
   const forceRefetch = process.argv.includes("--force");
 
   // Check for --days parameter
