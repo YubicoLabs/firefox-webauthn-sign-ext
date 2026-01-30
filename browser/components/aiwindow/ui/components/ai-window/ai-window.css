@@ -38,3 +38,13 @@
 #browser-container.chat-active #ai-window-smartbar {
   grid-area: 2 / 1;
 }
+
+.sidebar-header {
+  padding: var(--space-small);
+  display: flex;
+  justify-content: flex-end;
+}
+
+moz-button.new-chat-icon-button {
+  --button-border-radius: var(--border-radius-large);
+}

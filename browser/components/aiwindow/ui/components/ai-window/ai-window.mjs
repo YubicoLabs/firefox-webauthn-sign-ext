@@ -318,17 +318,6 @@ export class AIWindow extends MozLitElement {
   }
 
   /**
-   * Adds the chat-active class to the browser-container so that the
-   * chat input moves to active chat position.
-   *
-   * @private
-   */
-  #applyChatActive() {
-    const container = this.renderRoot.querySelector("#browser-container");
-    container.classList.add("chat-active");
-  }
-
-  /**
    * Processes tokens from the AI response stream and updates the message.
    * Adds all tokens to their respective arrays in the tokens object and
    * builds the memoriesApplied array for existing_memory tokens.
@@ -347,6 +336,20 @@ export class AIWindow extends MozLitElement {
     });
   };
 
+  #setBrowserContainerActiveState(isActive) {
+    const container = this.renderRoot.querySelector("#browser-container");
+    if (!container) {
+      return;
+    }
+
+    if (isActive) {
+      container.classList.add("chat-active");
+      return;
+    }
+
+    container.classList.remove("chat-active");
+  }
+
   /**
    * Fetches an AI response based on the current user prompt.
    * Validates the prompt, updates conversation state, streams the response,
@@ -361,7 +364,7 @@ export class AIWindow extends MozLitElement {
       return;
     }
 
-    this.#applyChatActive();
+    this.#setBrowserContainerActiveState(true);
 
     const nextTurnIndex = this.#conversation.currentTurnIndex() + 1;
     try {
@@ -513,7 +516,7 @@ export class AIWindow extends MozLitElement {
       return;
     }
 
-    this.#applyChatActive();
+    this.#setBrowserContainerActiveState(true);
 
     // @todo Bug2013096
     // Add way to batch these messages to the actor in one message
@@ -543,6 +546,25 @@ export class AIWindow extends MozLitElement {
     }
   }
 
+  #onCreateNewChatclick() {
+    // Clear the conversation state locally
+    this.#conversation = new lazy.ChatConversation({});
+
+    // Reset memories toggle state
+    this.#memoriesToggled = null;
+    this.#syncMemoriesButtonUI();
+
+    // Submitting a message with a new convoId here.
+    // This will clear the chat content area in the child process via side effect.
+    this.#dispatchMessageToChatContent({
+      role: "", // wont be checked.
+      content: { body: "" },
+    });
+
+    // Hide chat-active state
+    this.#setBrowserContainerActiveState(false);
+  }
+
   render() {
     return html`
       <link
@@ -551,6 +573,18 @@ export class AIWindow extends MozLitElement {
       />
       <!-- TODO (Bug 2008938): Make in-page Smartbar styling not dependent on chrome styles -->
       <link rel="stylesheet" href="chrome://browser/skin/smartbar.css" />
+      ${this.mode === SIDEBAR
+        ? html`<div class="sidebar-header">
+            <moz-button
+              data-l10n-id="aiwindow-new-chat"
+              data-l10n-attrs="tooltiptext,aria-label"
+              class="new-chat-icon-button"
+              size="default"
+              iconsrc="chrome://browser/content/aiwindow/assets/new-chat.svg"
+              @click=${this.#onCreateNewChatclick}
+            ></moz-button>
+          </div>`
+        : ""}
       <div id="browser-container"></div>
       <!-- TODO : Example of mode-based rendering -->
       ${this.mode === FULLPAGE ? html`<div>Fullpage Footer Content</div>` : ""}

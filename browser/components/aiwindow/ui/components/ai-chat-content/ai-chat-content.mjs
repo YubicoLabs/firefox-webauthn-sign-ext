@@ -69,6 +69,7 @@ export class AIChatContent extends MozLitElement {
       firstMessage.ordinal === message.ordinal;
     const convIdChanged = message.convId !== lastMessage?.convId;
 
+    // If the conversation ID has changed, reset the conversation state
     if (convIdChanged || isReloadingSameConvo) {
       this.conversationState = [];
     }
