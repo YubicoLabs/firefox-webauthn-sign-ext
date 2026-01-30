@@ -1798,6 +1798,11 @@ who = "Matthew Gregan <kinetik@flim.org>"
 criteria = "safe-to-deploy"
 delta = "0.29.0 -> 0.30.1"
 
+[[audits.cubeb]]
+who = "Chun-Min Chang <chun.m.chang@gmail.com>"
+criteria = "safe-to-deploy"
+delta = "0.30.1 -> 0.32.0"
+
 [[audits.cubeb-backend]]
 who = "Matthew Gregan <kinetik@flim.org>"
 criteria = "safe-to-deploy"
@@ -1843,6 +1848,11 @@ delta = "0.13.0 -> 0.29.0"
 who = "Matthew Gregan <kinetik@flim.org>"
 criteria = "safe-to-deploy"
 delta = "0.29.0 -> 0.30.1"
+
+[[audits.cubeb-backend]]
+who = "Chun-Min Chang <chun.m.chang@gmail.com>"
+criteria = "safe-to-deploy"
+delta = "0.30.1 -> 0.32.0"
 
 [[audits.cubeb-core]]
 who = "Matthew Gregan <kinetik@flim.org>"
@@ -1895,6 +1905,11 @@ who = "Matthew Gregan <kinetik@flim.org>"
 criteria = "safe-to-deploy"
 delta = "0.29.0 -> 0.30.1"
 
+[[audits.cubeb-core]]
+who = "Chun-Min Chang <chun.m.chang@gmail.com>"
+criteria = "safe-to-deploy"
+delta = "0.30.1 -> 0.32.0"
+
 [[audits.cubeb-sys]]
 who = "Matthew Gregan <kinetik@flim.org>"
 criteria = "safe-to-deploy"
@@ -1940,6 +1955,11 @@ delta = "0.13.0 -> 0.29.0"
 who = "Matthew Gregan <kinetik@flim.org>"
 criteria = "safe-to-deploy"
 delta = "0.29.0 -> 0.30.1"
+
+[[audits.cubeb-sys]]
+who = "Chun-Min Chang <chun.m.chang@gmail.com>"
+criteria = "safe-to-deploy"
+delta = "0.30.1 -> 0.32.0"
 
 [[audits.cvt]]
 who = "Erich Gubler <erichdongubler@gmail.com>"
