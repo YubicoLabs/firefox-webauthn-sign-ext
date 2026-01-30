@@ -328,17 +328,6 @@ export class PrefsFeed {
     this._setBoolPref(values, "feeds.section.topstories", false);
     this._setBoolPref(values, "discoverystream.enabled", false);
     this._setBoolPref(values, "discoverystream.hardcoded-basic-layout", false);
-    this._setBoolPref(values, "discoverystream.personalization.enabled", false);
-    this._setBoolPref(
-      values,
-      "discoverystream.personalization.override",
-      false
-    );
-    this._setStringPref(
-      values,
-      "discoverystream.personalization.modelKeys",
-      ""
-    );
     this._setStringPref(values, "discoverystream.spocs-endpoint", "");
     this._setStringPref(values, "discoverystream.spocs-endpoint-query", "");
     this._setStringPref(values, "newNewtabExperience.colors", "");

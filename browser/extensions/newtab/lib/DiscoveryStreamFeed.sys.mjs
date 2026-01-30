@@ -247,20 +247,6 @@ export class DiscoveryStreamFeed {
     );
   }
 
-  get personalized() {
-    return this.recommendationProvider.personalized;
-  }
-
-  get recommendationProvider() {
-    if (this._recommendationProvider) {
-      return this._recommendationProvider;
-    }
-    this._recommendationProvider = this.store.feeds.get(
-      "feeds.recommendationprovider"
-    );
-    return this._recommendationProvider;
-  }
-
   get sectionLayoutConfig() {
     const prefs = this.store.getState().Prefs.values;
     const trainhopConfig = prefs?.trainhopConfig || {};
@@ -1285,17 +1271,6 @@ export class DiscoveryStreamFeed {
             },
           };
 
-          if (spocsResponse.settings && spocsResponse.settings.feature_flags) {
-            this.store.dispatch(
-              ac.OnlyToMain({
-                type: at.DISCOVERY_STREAM_PERSONALIZATION_OVERRIDE,
-                data: {
-                  override: !spocsResponse.settings.feature_flags.spoc_v2,
-                },
-              })
-            );
-          }
-
           const spocsResultPromises = this.getPlacements().map(
             async placement => {
               let freshSpocs = spocsState.spocs[placement.name];
@@ -1366,16 +1341,16 @@ export class DiscoveryStreamFeed {
               );
 
               let items = spocsWithFetchTimestamp;
-              let personalized = false;
 
               // We only need to rank if we don't have contextual ads.
               if (!this.isContextualAds) {
-                const scoreResults = await this.scoreItems(
-                  spocsWithFetchTimestamp,
-                  "spocs"
-                );
-                items = scoreResults.data;
-                personalized = scoreResults.personalized;
+                items = (
+                  await Promise.all(
+                    items.map(item => this.normalizeScore(item))
+                  )
+                )
+                  // Sort by highest scores.
+                  .sort(this.sortItem);
               }
 
               spocsState.spocs = {
@@ -1385,7 +1360,6 @@ export class DiscoveryStreamFeed {
                   context,
                   sponsor,
                   sponsored_by_override,
-                  personalized,
                   items,
                 },
               };
@@ -1515,17 +1489,11 @@ export class DiscoveryStreamFeed {
     return a.priority - b.priority;
   }
 
-  async scoreItems(items, type) {
-    const spocsPersonalized =
-      this.store.getState().Prefs.values?.pocketConfig?.spocsPersonalized;
-    const recsPersonalized =
-      this.store.getState().Prefs.values?.pocketConfig?.recsPersonalized;
-    const personalizedByType =
-      type === "feed" ? recsPersonalized : spocsPersonalized;
+  async scoreItemsInferred(items) {
     // If this is initialized, we are ready to go.
-    let personalized = this.store.getState().Personalization.initialized;
+    let personalized = false;
     let data = null;
-    if (type === "feed" && this.doLocalInferredRerank) {
+    if (this.doLocalInferredRerank) {
       // make a flag for this
       const { inferredInterests = {} } =
         this.store.getState().InferredPersonalization ?? {};
@@ -1551,11 +1519,7 @@ export class DiscoveryStreamFeed {
         .sort(this.sortItem);
       personalized = true;
     } else {
-      data = (
-        await Promise.all(
-          items.map(item => this.scoreItem(item, personalizedByType))
-        )
-      )
+      data = (await Promise.all(items.map(item => this.normalizeScore(item))))
         // Sort by highest scores.
         .sort(this.sortItem);
     }
@@ -1563,13 +1527,10 @@ export class DiscoveryStreamFeed {
     return { data, personalized };
   }
 
-  async scoreItem(item, personalizedByType) {
+  async normalizeScore(item) {
     item.score = item.item_score;
     if (item.score !== 0 && !item.score) {
       item.score = 1;
-    }
-    if (this.personalized && personalizedByType) {
-      await this.recommendationProvider.calculateItemRelevanceScore(item);
     }
     return item;
   }
@@ -1875,10 +1836,8 @@ export class DiscoveryStreamFeed {
           }
         }
 
-        const { data: scoredItems, personalized } = await this.scoreItems(
-          recommendations,
-          "feed"
-        );
+        const { data: scoredItems, personalized } =
+          await this.scoreItemsInferred(recommendations);
 
         if (sections.length) {
           const visibleSections = sections
@@ -2064,7 +2023,7 @@ export class DiscoveryStreamFeed {
           // Feed was previously personalized then cached, we don't need to do this again.
           return Promise.resolve();
         }
-        const feedPromise = this.scoreItems(feed.data.recommendations, "feed");
+        const feedPromise = this.scoreItemsInferred(feed.data.recommendations);
         feedPromise.then(({ data: scoredItems, personalized }) => {
           feed = {
             ...feed,
@@ -2092,52 +2051,6 @@ export class DiscoveryStreamFeed {
       await Promise.all(feedsPromises);
       await this.cache.set("feeds", feeds);
     }
-  }
-
-  async scoreSpocs(spocsState) {
-    const spocsResultPromises = this.getPlacements().map(async placement => {
-      const nextSpocs = spocsState.data[placement.name] || {};
-      const { items } = nextSpocs;
-
-      if (nextSpocs.personalized || !items || !items.length) {
-        return;
-      }
-
-      const { data: scoreResult, personalized } = await this.scoreItems(
-        items,
-        "spocs"
-      );
-
-      spocsState.data = {
-        ...spocsState.data,
-        [placement.name]: {
-          ...nextSpocs,
-          personalized,
-          items: scoreResult,
-        },
-      };
-    });
-    await Promise.all(spocsResultPromises);
-
-    // Update cache here so we don't need to re calculate scores on loads from cache.
-    // Related Bug 1606276
-    await this.cache.set("spocs", {
-      lastUpdated: spocsState.lastUpdated,
-      spocs: spocsState.data,
-      spocsOnDemand: this.spocsOnDemand,
-      spocsCacheUpdateTime: this.spocsCacheUpdateTime,
-    });
-    this.store.dispatch(
-      ac.AlsoToPreloaded({
-        type: at.DISCOVERY_STREAM_SPOCS_UPDATE,
-        data: {
-          lastUpdated: spocsState.lastUpdated,
-          spocs: spocsState.data,
-          spocsOnDemand: this.spocsOnDemand,
-          spocsCacheUpdateTime: this.spocsCacheUpdateTime,
-        },
-      })
-    );
   }
 
   /**
@@ -2693,21 +2606,6 @@ export class DiscoveryStreamFeed {
           )
         );
         break;
-      case at.DISCOVERY_STREAM_PERSONALIZATION_UPDATED:
-        if (this.personalized) {
-          const { feeds, spocs } = this.store.getState().DiscoveryStream;
-          const spocsPersonalized =
-            this.store.getState().Prefs.values?.pocketConfig?.spocsPersonalized;
-          const recsPersonalized =
-            this.store.getState().Prefs.values?.pocketConfig?.recsPersonalized;
-          if (recsPersonalized && feeds.loaded) {
-            this.scoreFeeds(feeds);
-          }
-          if (spocsPersonalized && spocs.loaded) {
-            this.scoreSpocs(spocs);
-          }
-        }
-        break;
       case at.DISCOVERY_STREAM_CONFIG_RESET:
         // This is a generic config reset likely related to an external feed pref.
         this.configReset();
@@ -2879,7 +2777,6 @@ export class DiscoveryStreamFeed {
       case at.UNINIT:
         // When this feed is shutting down:
         this.uninitPrefs();
-        this._recommendationProvider = null;
         break;
       case at.BLOCK_URL: {
         // If we block a story that also has a flight_id

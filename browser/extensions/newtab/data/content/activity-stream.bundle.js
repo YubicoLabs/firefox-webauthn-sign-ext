@@ -140,12 +140,6 @@ for (const type of [
   "DISCOVERY_STREAM_LAYOUT_UPDATE",
   "DISCOVERY_STREAM_LINK_BLOCKED",
   "DISCOVERY_STREAM_LOADED_CONTENT",
-  "DISCOVERY_STREAM_PERSONALIZATION_INIT",
-  "DISCOVERY_STREAM_PERSONALIZATION_LAST_UPDATED",
-  "DISCOVERY_STREAM_PERSONALIZATION_OVERRIDE",
-  "DISCOVERY_STREAM_PERSONALIZATION_RESET",
-  "DISCOVERY_STREAM_PERSONALIZATION_TOGGLE",
-  "DISCOVERY_STREAM_PERSONALIZATION_UPDATED",
   "DISCOVERY_STREAM_PREFS_SETUP",
   "DISCOVERY_STREAM_RETRY_FEED",
   "DISCOVERY_STREAM_SPOCS_CAPS",
@@ -679,34 +673,6 @@ class TogglePrefCheckbox extends (external_React_default()).PureComponent {
     }), " ", this.props.pref, " ");
   }
 }
-class Personalization extends (external_React_default()).PureComponent {
-  constructor(props) {
-    super(props);
-    this.togglePersonalization = this.togglePersonalization.bind(this);
-  }
-  togglePersonalization() {
-    this.props.dispatch(actionCreators.OnlyToMain({
-      type: actionTypes.DISCOVERY_STREAM_PERSONALIZATION_TOGGLE
-    }));
-  }
-  render() {
-    const {
-      lastUpdated,
-      initialized
-    } = this.props.state.Personalization;
-    return /*#__PURE__*/external_React_default().createElement((external_React_default()).Fragment, null, /*#__PURE__*/external_React_default().createElement("table", null, /*#__PURE__*/external_React_default().createElement("tbody", null, /*#__PURE__*/external_React_default().createElement(Row, null, /*#__PURE__*/external_React_default().createElement("td", {
-      colSpan: "2"
-    }, /*#__PURE__*/external_React_default().createElement(TogglePrefCheckbox, {
-      checked: this.props.personalized,
-      pref: "personalized",
-      onChange: this.togglePersonalization
-    }))), /*#__PURE__*/external_React_default().createElement(Row, null, /*#__PURE__*/external_React_default().createElement("td", {
-      className: "min"
-    }, "Personalization Last Updated"), /*#__PURE__*/external_React_default().createElement("td", null, relativeTime(lastUpdated) || "(no data)")), /*#__PURE__*/external_React_default().createElement(Row, null, /*#__PURE__*/external_React_default().createElement("td", {
-      className: "min"
-    }, "Personalization Initialized"), /*#__PURE__*/external_React_default().createElement("td", null, initialized ? "true" : "false")))));
-  }
-}
 class DiscoveryStreamAdminUI extends (external_React_default()).PureComponent {
   constructor(props) {
     super(props);
@@ -1106,7 +1072,6 @@ class DiscoveryStreamAdminUI extends (external_React_default()).PureComponent {
       config,
       layout
     } = this.props.state.DiscoveryStream;
-    const personalized = this.props.otherPrefs["discoverystream.personalization.enabled"];
     const sectionsEnabled = this.props.otherPrefs[PREF_SECTIONS_ENABLED];
 
     // Prefs for IAB Banners
@@ -1188,13 +1153,7 @@ class DiscoveryStreamAdminUI extends (external_React_default()).PureComponent {
     }, row.components.map((component, componentIndex) => /*#__PURE__*/external_React_default().createElement("div", {
       key: `component-${componentIndex}`,
       className: "ds-component"
-    }, this.renderComponent(row.width, component))))), /*#__PURE__*/external_React_default().createElement("h3", null, "Personalization"), /*#__PURE__*/external_React_default().createElement(Personalization, {
-      personalized: personalized,
-      dispatch: this.props.dispatch,
-      state: {
-        Personalization: this.props.state.Personalization
-      }
-    }), /*#__PURE__*/external_React_default().createElement("h3", null, "Spocs"), this.renderSpocs(), /*#__PURE__*/external_React_default().createElement("h3", null, "Feeds Data"), /*#__PURE__*/external_React_default().createElement("div", {
+    }, this.renderComponent(row.width, component))))), /*#__PURE__*/external_React_default().createElement("h3", null, "Spocs"), this.renderSpocs(), /*#__PURE__*/external_React_default().createElement("h3", null, "Feeds Data"), /*#__PURE__*/external_React_default().createElement("div", {
       className: "large-data-container"
     }, this.renderFeedsData()), /*#__PURE__*/external_React_default().createElement("h3", null, "Impressions Data"), /*#__PURE__*/external_React_default().createElement("div", {
       className: "large-data-container"
@@ -1223,7 +1182,6 @@ class DiscoveryStreamAdminInner extends (external_React_default()).PureComponent
     }, "Click here"))), /*#__PURE__*/external_React_default().createElement((external_React_default()).Fragment, null, /*#__PURE__*/external_React_default().createElement(DiscoveryStreamAdminUI, {
       state: {
         DiscoveryStream: this.props.DiscoveryStream,
-        Personalization: this.props.Personalization,
         Weather: this.props.Weather,
         InferredPersonalization: this.props.InferredPersonalization
       },
@@ -1265,7 +1223,6 @@ const _DiscoveryStreamAdmin = props => /*#__PURE__*/external_React_default().cre
 const DiscoveryStreamAdmin = (0,external_ReactRedux_namespaceObject.connect)(state => ({
   Sections: state.Sections,
   DiscoveryStream: state.DiscoveryStream,
-  Personalization: state.Personalization,
   InferredPersonalization: state.InferredPersonalization,
   Prefs: state.Prefs,
   Weather: state.Weather
@@ -6520,10 +6477,6 @@ const INITIAL_STATE = {
     // For can be a queue in the future, but for now is one item
     toastQueue: [],
   },
-  Personalization: {
-    lastUpdated: null,
-    initialized: false,
-  },
   InferredPersonalization: {
     initialized: false,
     lastUpdated: null,
@@ -7010,25 +6963,6 @@ function Pocket(prevState = INITIAL_STATE.Pocket, action) {
           useCta: action.data.use_cta,
         },
       };
-    default:
-      return prevState;
-  }
-}
-
-function Reducers_sys_Personalization(prevState = INITIAL_STATE.Personalization, action) {
-  switch (action.type) {
-    case actionTypes.DISCOVERY_STREAM_PERSONALIZATION_LAST_UPDATED:
-      return {
-        ...prevState,
-        lastUpdated: action.data.lastUpdated,
-      };
-    case actionTypes.DISCOVERY_STREAM_PERSONALIZATION_INIT:
-      return {
-        ...prevState,
-        initialized: true,
-      };
-    case actionTypes.DISCOVERY_STREAM_PERSONALIZATION_RESET:
-      return { ...INITIAL_STATE.Personalization };
     default:
       return prevState;
   }
@@ -7594,7 +7528,6 @@ const reducers = {
   Messages,
   Notifications,
   Pocket,
-  Personalization: Reducers_sys_Personalization,
   InferredPersonalization,
   DiscoveryStream,
   Search,

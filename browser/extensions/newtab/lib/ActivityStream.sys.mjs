@@ -42,8 +42,6 @@ ChromeUtils.defineESModuleGetters(lazy, {
   NimbusFeatures: "resource://nimbus/ExperimentAPI.sys.mjs",
   PrefsFeed: "resource://newtab/lib/PrefsFeed.sys.mjs",
   PlacesFeed: "resource://newtab/lib/PlacesFeed.sys.mjs",
-  RecommendationProvider:
-    "resource://newtab/lib/RecommendationProvider.sys.mjs",
   Region: "resource://gre/modules/Region.sys.mjs",
   SectionsFeed: "resource://newtab/lib/SectionsManager.sys.mjs",
   StartupCacheInit: "resource://newtab/lib/StartupCacheInit.sys.mjs",
@@ -1555,12 +1553,6 @@ const FEEDS_DATA = [
     name: "system.topsites",
     factory: () => new lazy.TopSitesFeed(),
     title: "Queries places and gets metadata for Top Sites section",
-    value: true,
-  },
-  {
-    name: "recommendationprovider",
-    factory: () => new lazy.RecommendationProvider(),
-    title: "Handles setup and interaction for the personality provider",
     value: true,
   },
   {
