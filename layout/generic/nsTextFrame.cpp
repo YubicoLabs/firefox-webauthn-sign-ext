@@ -2002,7 +2002,7 @@ static bool HasDefaultVerticalAlignment(const nsIFrame* aFrame) {
     return false;
   }
 
-  const auto& baselineShift = aFrame->StyleDisplay()->mBaselineShift;
+  const auto& baselineShift = aFrame->BaselineShift();
   if (baselineShift.IsKeyword() ||
       !baselineShift.AsLength().IsDefinitelyZero()) {
     return false;
