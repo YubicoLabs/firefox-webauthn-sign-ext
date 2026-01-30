@@ -136,6 +136,8 @@ class OriginInfo final {
 
   void LockedTruncateUsages(Client::Type aClientType, uint64_t aDelta);
 
+  bool LockedUpdateUsagesForEviction(Client::Type aClientType, uint64_t aDelta);
+
   nsTHashMap<nsStringHashKey, NotNull<CanonicalQuotaObject*>>
       mCanonicalQuotaObjects;
   ClientUsageArray mClientUsages;
