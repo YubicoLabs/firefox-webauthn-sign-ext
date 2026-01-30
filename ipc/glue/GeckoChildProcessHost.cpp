@@ -1137,11 +1137,7 @@ Result<Ok, LaunchError> BaseProcessLauncher::DoSetup() {
     geckoargs::sCrashReporter.Put(std::move(childCrashFd), mChildArgs);
 #endif  // XP_UNIX && !XP_IOS
 
-    UniqueFileHandle crashHelperClientFd =
-        CrashReporter::RegisterChildIPCChannel();
-    if (crashHelperClientFd) {
-      geckoargs::sCrashHelper.Put(std::move(crashHelperClientFd), mChildArgs);
-    } else {
+    if (!CrashReporter::RegisterChildIPCChannel(mChildArgs)) {
       NS_WARNING("Could not create an IPC channel to the crash helper");
     }
   }

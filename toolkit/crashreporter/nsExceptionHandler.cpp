@@ -17,6 +17,7 @@
 #include "nsNetUtil.h"
 #include "nsString.h"
 #include "mozilla/DebugOnly.h"
+#include "mozilla/GeckoArgs.h"
 #include "mozilla/EnumeratedRange.h"
 #include "mozilla/Services.h"
 #include "nsIObserverService.h"
@@ -3328,21 +3329,52 @@ CrashPipeType GetChildNotificationPipe() {
 #endif
 }
 
-UniqueFileHandle RegisterChildIPCChannel() {
+bool RegisterChildIPCChannel(mozilla::geckoargs::ChildProcessArgs& aArgs) {
   StaticMutexAutoLock lock(gCrashHelperClientMutex);
   if (gCrashHelperClient) {
-    RawAncillaryData ipc_endpoint =
-        register_child_ipc_channel(gCrashHelperClient);
-    return UniqueFileHandle{ipc_endpoint};
+    RawIPCConnector connector = {};
+    if (!register_child_ipc_channel(gCrashHelperClient, &connector)) {
+      return false;
+    }
+
+#if defined(XP_WIN)
+    UniqueFileHandle endpoint{connector.handle};
+#else
+    UniqueFileHandle endpoint{connector.socket};
+#endif  // defined(XP_WIN)
+
+    if (!endpoint) {
+      return false;
+    }
+
+    geckoargs::sCrashHelper.Put(std::move(endpoint), aArgs);
+    return true;
   }
 
-  return UniqueFileHandle();
+  return false;
 }
 
-bool SetRemoteExceptionHandler(CrashPipeType aCrashPipe,
-                               UniqueFileHandle aCrashHelperPipe) {
+bool SetRemoteExceptionHandler(int& aArgc, char** aArgv) {
   MOZ_ASSERT(!gExceptionHandler, "crash client already init'd");
-  crash_helper_rendezvous(aCrashHelperPipe.release());
+  auto crash_pipe = geckoargs::sCrashReporter.Get(aArgc, aArgv);
+
+  if (crash_pipe.isNothing()) {
+    return false;
+  }
+
+  auto endpoint = geckoargs::sCrashHelper.Get(aArgc, aArgv);
+
+  if (endpoint.isNothing()) {
+    return false;
+  }
+
+#if defined(XP_WIN)
+  RawIPCConnector raw_connector = {.handle = endpoint->release()};
+#else
+  RawIPCConnector raw_connector = {.socket = endpoint->release()};
+#endif  // defined(XP_WIN)
+
+  crash_helper_rendezvous(raw_connector);
   RegisterRuntimeExceptionModule();
   InitializeAppNotes();
   RegisterAnnotations();
@@ -3363,7 +3395,7 @@ bool SetRemoteExceptionHandler(CrashPipeType aCrashPipe,
       nullptr,  // no callback
       nullptr,  // no callback context
       google_breakpad::ExceptionHandler::HANDLER_ALL, GetMinidumpType(),
-      (const wchar_t*)NS_ConvertUTF8toUTF16(aCrashPipe).BeginReading(),
+      (const wchar_t*)NS_ConvertUTF8toUTF16(*crash_pipe).BeginReading(),
       nullptr  // no custom info
   );
   gExceptionHandler->set_handle_debug_exceptions(true);
@@ -3380,23 +3412,27 @@ bool SetRemoteExceptionHandler(CrashPipeType aCrashPipe,
                                             nullptr,  // no callback
                                             nullptr,  // no callback context
                                             true,     // install signal handlers
-                                            aCrashPipe.release());
+                                            crash_pipe->release());
 #elif defined(XP_MACOSX)
   gExceptionHandler =
       new google_breakpad::ExceptionHandler("", ChildFilter,
                                             nullptr,  // no callback
                                             nullptr,  // no callback context
                                             true,     // install signal handlers
-                                            aCrashPipe);
+                                            *crash_pipe);
 #endif
 
   RecordMainThreadId();
 
   oldTerminateHandler = std::set_terminate(&TerminateHandler);
 
-  // we either do remote or nothing, no fallback to regular crash reporting
+  // If we didn't fail earlier because of a missing IPC channel then all of the
+  // above should have succeeded.
+  MOZ_ASSERT(gExceptionHandler->IsOutOfProcess(),
+             "Should have been able to set remote exception handler");
+
   return gExceptionHandler->IsOutOfProcess();
-}
+}  // namespace CrashReporter
 
 bool TakeMinidumpForChild(ProcessId childPid, nsIFile** dump,
                           AnnotationTable& aAnnotations) {
