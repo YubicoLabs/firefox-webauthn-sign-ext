@@ -1,14 +1,3 @@
----
-layout: page
-title: your title
-permalink: /docs/rfcs/file-name
----
-
-* RFC PR: [PR #](https://github.com/mozilla-mobile/android-components/pull/#)
-* Start date: YYYY-MM-DD (Day of proposal posting.)
-* End date: YYYY-MM-DD (Last day for general feedback. However, the proposal can be merged immediately after all stakeholders approve.)
-* Stakeholders: github-username, github-username
-
 ## Summary
 
 This section should include a brief description of the proposal.
@@ -17,6 +6,8 @@ This section should include a brief description of the proposal.
 
 This section should include reasoning about why the proposal is useful. Examples, specific scenarios,
 open bugs, records of performance metrics, and other empirical data are beneficial to include here if available.
+
+Often this section will be a link to a separate preliminary brief or 1-pager.
 
 ## Guide-level explanation
 
