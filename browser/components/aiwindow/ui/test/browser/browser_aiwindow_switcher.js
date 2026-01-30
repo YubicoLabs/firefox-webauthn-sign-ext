@@ -235,3 +235,29 @@ add_task(async function test_switcher_repositions_on_pref_change() {
 
   await SpecialPowers.flushPrefEnv();
 });
+
+// Test that _onAccountLogout switches AI windows to classic mode
+add_task(async function test_onAccountLogout_switches_windows() {
+  const { AIWindow } = ChromeUtils.importESModule(
+    "moz-src:///browser/components/aiwindow/ui/modules/AIWindow.sys.mjs"
+  );
+
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.aiwindow.enabled", true]],
+  });
+
+  document.documentElement.setAttribute("ai-window", "");
+  Assert.ok(
+    AIWindow.isAIWindowActive(window),
+    "Window should start in AI mode"
+  );
+
+  AIWindow._onAccountLogout();
+
+  Assert.ok(
+    !AIWindow.isAIWindowActive(window),
+    "Window should switch to classic mode after logout"
+  );
+
+  await SpecialPowers.popPrefEnv();
+});
