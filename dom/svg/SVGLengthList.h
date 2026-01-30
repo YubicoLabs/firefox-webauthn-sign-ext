@@ -173,17 +173,15 @@ class SVGLengthList {
  */
 class SVGLengthListAndInfo : public SVGLengthList {
  public:
-  SVGLengthListAndInfo()
-      : mElement(nullptr), mAxis(SVGLength::Axis::XY), mCanZeroPadList(true) {}
+  SVGLengthListAndInfo() : mElement(nullptr), mAxis(0), mCanZeroPadList(true) {}
 
-  SVGLengthListAndInfo(dom::SVGElement* aElement, SVGLength::Axis aAxis,
+  SVGLengthListAndInfo(dom::SVGElement* aElement, uint8_t aAxis,
                        bool aCanZeroPadList)
       : mElement(do_GetWeakReference(static_cast<nsINode*>(aElement))),
         mAxis(aAxis),
         mCanZeroPadList(aCanZeroPadList) {}
 
-  void SetInfo(dom::SVGElement* aElement, SVGLength::Axis aAxis,
-               bool aCanZeroPadList) {
+  void SetInfo(dom::SVGElement* aElement, uint8_t aAxis, bool aCanZeroPadList) {
     mElement = do_GetWeakReference(static_cast<nsINode*>(aElement));
     mAxis = aAxis;
     mCanZeroPadList = aCanZeroPadList;
@@ -207,7 +205,7 @@ class SVGLengthListAndInfo : public SVGLengthList {
     return false;
   }
 
-  SVGLength::Axis Axis() const {
+  uint8_t Axis() const {
     MOZ_ASSERT(mElement, "Axis() isn't valid");
     return mAxis;
   }
@@ -282,7 +280,7 @@ class SVGLengthListAndInfo : public SVGLengthList {
   // https://bugzilla.mozilla.org/show_bug.cgi?id=515116#c15
   // See also https://bugzilla.mozilla.org/show_bug.cgi?id=653497
   nsWeakPtr mElement;
-  SVGLength::Axis mAxis;
+  uint8_t mAxis;
   bool mCanZeroPadList;
 };
 
@@ -302,11 +300,10 @@ class SVGLengthListAndInfo : public SVGLengthList {
  */
 class MOZ_STACK_CLASS SVGUserUnitList {
  public:
-  SVGUserUnitList()
-      : mList(nullptr), mElement(nullptr), mAxis(SVGLength::Axis::XY) {}
+  SVGUserUnitList() : mList(nullptr), mElement(nullptr), mAxis(0) {}
 
   void Init(const SVGLengthList* aList, const dom::SVGElement* aElement,
-            SVGLength::Axis aAxis) {
+            uint8_t aAxis) {
     mList = aList;
     mElement = aElement;
     mAxis = aAxis;
@@ -328,7 +325,7 @@ class MOZ_STACK_CLASS SVGUserUnitList {
  private:
   const SVGLengthList* mList;
   const dom::SVGElement* mElement;
-  SVGLength::Axis mAxis;
+  uint8_t mAxis;
 };
 
 }  // namespace mozilla

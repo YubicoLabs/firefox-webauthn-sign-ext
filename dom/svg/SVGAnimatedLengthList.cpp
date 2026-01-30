@@ -108,7 +108,7 @@ void SVGAnimatedLengthList::ClearAnimValue(SVGElement* aElement,
 
 UniquePtr<SMILAttr> SVGAnimatedLengthList::ToSMILAttr(SVGElement* aSVGElement,
                                                       uint8_t aAttrEnum,
-                                                      SVGLength::Axis aAxis,
+                                                      uint8_t aAxis,
                                                       bool aCanZeroPadList) {
   return MakeUnique<SMILAnimatedLengthList>(this, aSVGElement, aAttrEnum, aAxis,
                                             aCanZeroPadList);

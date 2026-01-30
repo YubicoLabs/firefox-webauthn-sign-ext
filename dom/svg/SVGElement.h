@@ -367,7 +367,7 @@ class SVGElement : public SVGElementBase  // nsIContent
     nsStaticAtom* const mName;
     const float mDefaultValue;
     const uint8_t mDefaultUnitType;
-    const SVGLength::Axis mCtxType;
+    const uint8_t mCtxType;
   };
 
   template <typename Value, typename InfoValue>
@@ -393,7 +393,10 @@ class SVGElement : public SVGElementBase  // nsIContent
 
   using NumberAttributesInfo = AttributesInfo<SVGAnimatedNumber, NumberInfo>;
 
-  using NumberPairInfo = NumberInfo;
+  struct NumberPairInfo {
+    nsStaticAtom* const mName;
+    const float mDefaultValue;
+  };
 
   using NumberPairAttributesInfo =
       AttributesInfo<SVGAnimatedNumberPair, NumberPairInfo>;
@@ -405,7 +408,10 @@ class SVGElement : public SVGElementBase  // nsIContent
 
   using IntegerAttributesInfo = AttributesInfo<SVGAnimatedInteger, IntegerInfo>;
 
-  using IntegerPairInfo = IntegerInfo;
+  struct IntegerPairInfo {
+    nsStaticAtom* const mName;
+    const int32_t mDefaultValue;
+  };
 
   using IntegerPairAttributesInfo =
       AttributesInfo<SVGAnimatedIntegerPair, IntegerPairInfo>;
@@ -436,7 +442,7 @@ class SVGElement : public SVGElementBase  // nsIContent
 
   struct LengthListInfo {
     nsStaticAtom* const mName;
-    const SVGLength::Axis mAxis;
+    const uint8_t mAxis;
     /**
      * Flag to indicate whether appending zeros to the end of the list would
      * change the rendering of the SVG for the attribute in question. For x and

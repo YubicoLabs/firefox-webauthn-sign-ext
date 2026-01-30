@@ -12,7 +12,6 @@
 
 #include "gfx2DGlue.h"
 #include "mozilla/EnumSet.h"
-#include "mozilla/dom/SVGLength.h"
 #include "mozilla/gfx/2D.h"  // for StrokeOptions
 #include "mozilla/gfx/Matrix.h"
 #include "nsDependentSubstring.h"
@@ -192,6 +191,9 @@ class SVGContentUtils {
   static dom::SVGViewportElement* GetNearestViewportElement(
       const nsIContent* aContent);
 
+  /* enum for specifying coordinate direction for ObjectSpace/UserSpace */
+  enum ctxDirection { X, Y, XY };
+
   /**
    * Computes sqrt((aWidth^2 + aHeight^2)/2);
    */
@@ -291,7 +293,7 @@ class SVGContentUtils {
    */
   static float CoordToFloat(const dom::SVGElement* aContent,
                             const StyleLengthPercentageUnion&,
-                            SVGLength::Axis aCtxType = SVGLength::Axis::XY);
+                            uint8_t aCtxType = SVGContentUtils::XY);
   /**
    * Parse the SVG path string
    * Returns a path

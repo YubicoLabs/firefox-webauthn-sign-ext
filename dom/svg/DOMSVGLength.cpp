@@ -189,8 +189,7 @@ float DOMSVGLength::GetValue(ErrorResult& aRv) {
   }
 
   if (SVGLength::IsAbsoluteUnit(mUnit)) {
-    return SVGLength(mValue, mUnit)
-        .GetValueInPixels(nullptr, SVGLength::Axis::XY);
+    return SVGLength(mValue, mUnit).GetValueInPixels(nullptr, 0);
   }
 
   // else [SVGWG issue] Can't convert this length's value to user units
@@ -396,8 +395,7 @@ void DOMSVGLength::ConvertToSpecifiedUnits(uint16_t aUnit, ErrorResult& aRv) {
     if (mUnit == aUnit) {
       return;
     }
-    val = SVGLength(mValue, mUnit)
-              .GetValueInSpecifiedUnit(aUnit, nullptr, SVGLength::Axis::XY);
+    val = SVGLength(mValue, mUnit).GetValueInSpecifiedUnit(aUnit, nullptr, 0);
   }
   if (!std::isfinite(val)) {
     aRv.ThrowTypeError<MSG_NOT_FINITE>("value");

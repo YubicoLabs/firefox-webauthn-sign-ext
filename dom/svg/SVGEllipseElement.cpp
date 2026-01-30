@@ -26,13 +26,13 @@ JSObject* SVGEllipseElement::WrapNode(JSContext* aCx,
 
 SVGElement::LengthInfo SVGEllipseElement::sLengthInfo[4] = {
     {nsGkAtoms::cx, 0, SVGLength_Binding::SVG_LENGTHTYPE_NUMBER,
-     SVGLength::Axis::X},
+     SVGContentUtils::X},
     {nsGkAtoms::cy, 0, SVGLength_Binding::SVG_LENGTHTYPE_NUMBER,
-     SVGLength::Axis::Y},
+     SVGContentUtils::Y},
     {nsGkAtoms::rx, 0, SVGLength_Binding::SVG_LENGTHTYPE_NUMBER,
-     SVGLength::Axis::X},
+     SVGContentUtils::X},
     {nsGkAtoms::ry, 0, SVGLength_Binding::SVG_LENGTHTYPE_NUMBER,
-     SVGLength::Axis::Y},
+     SVGContentUtils::Y},
 };
 
 //----------------------------------------------------------------------

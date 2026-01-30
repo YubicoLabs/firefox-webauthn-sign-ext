@@ -63,10 +63,10 @@ FilterPrimitiveDescription SVGFEGaussianBlurElement::GetPrimitiveDescription(
     const nsTArray<bool>& aInputsAreTainted,
     nsTArray<RefPtr<SourceSurface>>& aInputImages) {
   float stdX = aInstance->GetPrimitiveNumber(
-      SVGLength::Axis::X, &mNumberPairAttributes[STD_DEV],
+      SVGContentUtils::X, &mNumberPairAttributes[STD_DEV],
       SVGAnimatedNumberPairWhichOne::First);
   float stdY = aInstance->GetPrimitiveNumber(
-      SVGLength::Axis::Y, &mNumberPairAttributes[STD_DEV],
+      SVGContentUtils::Y, &mNumberPairAttributes[STD_DEV],
       SVGAnimatedNumberPairWhichOne::Second);
   if (stdX < 0 || stdY < 0) {
     return FilterPrimitiveDescription();

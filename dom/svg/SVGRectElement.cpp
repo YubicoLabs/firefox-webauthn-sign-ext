@@ -32,17 +32,17 @@ JSObject* SVGRectElement::WrapNode(JSContext* aCx,
 
 SVGElement::LengthInfo SVGRectElement::sLengthInfo[6] = {
     {nsGkAtoms::x, 0, SVGLength_Binding::SVG_LENGTHTYPE_NUMBER,
-     SVGLength::Axis::X},
+     SVGContentUtils::X},
     {nsGkAtoms::y, 0, SVGLength_Binding::SVG_LENGTHTYPE_NUMBER,
-     SVGLength::Axis::Y},
+     SVGContentUtils::Y},
     {nsGkAtoms::width, 0, SVGLength_Binding::SVG_LENGTHTYPE_NUMBER,
-     SVGLength::Axis::X},
+     SVGContentUtils::X},
     {nsGkAtoms::height, 0, SVGLength_Binding::SVG_LENGTHTYPE_NUMBER,
-     SVGLength::Axis::Y},
+     SVGContentUtils::Y},
     {nsGkAtoms::rx, 0, SVGLength_Binding::SVG_LENGTHTYPE_NUMBER,
-     SVGLength::Axis::X},
+     SVGContentUtils::X},
     {nsGkAtoms::ry, 0, SVGLength_Binding::SVG_LENGTHTYPE_NUMBER,
-     SVGLength::Axis::Y}};
+     SVGContentUtils::Y}};
 
 //----------------------------------------------------------------------
 // Implementation

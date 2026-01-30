@@ -6,6 +6,8 @@
 
 #include "mozilla/dom/SVGViewportElement.h"
 
+#include <stdint.h>
+
 #include <algorithm>
 
 #include "DOMSVGLength.h"
@@ -33,13 +35,13 @@ namespace mozilla::dom {
 
 SVGElement::LengthInfo SVGViewportElement::sLengthInfo[4] = {
     {nsGkAtoms::x, 0, SVGLength_Binding::SVG_LENGTHTYPE_NUMBER,
-     SVGLength::Axis::X},
+     SVGContentUtils::X},
     {nsGkAtoms::y, 0, SVGLength_Binding::SVG_LENGTHTYPE_NUMBER,
-     SVGLength::Axis::Y},
+     SVGContentUtils::Y},
     {nsGkAtoms::width, 100, SVGLength_Binding::SVG_LENGTHTYPE_PERCENTAGE,
-     SVGLength::Axis::X},
+     SVGContentUtils::X},
     {nsGkAtoms::height, 100, SVGLength_Binding::SVG_LENGTHTYPE_PERCENTAGE,
-     SVGLength::Axis::Y},
+     SVGContentUtils::Y},
 };
 
 //----------------------------------------------------------------------
@@ -176,13 +178,13 @@ gfx::Matrix SVGViewportElement::GetViewBoxTransform() const {
 //----------------------------------------------------------------------
 // SVGViewportElement
 
-float SVGViewportElement::GetLength(SVGLength::Axis aCtxType) const {
+float SVGViewportElement::GetLength(uint8_t aCtxType) const {
   const auto& animatedViewBox = GetViewBoxInternal();
   float h = 0.0f, w = 0.0f;
   bool shouldComputeWidth =
-           (aCtxType == SVGLength::Axis::X || aCtxType == SVGLength::Axis::XY),
+           (aCtxType == SVGContentUtils::X || aCtxType == SVGContentUtils::XY),
        shouldComputeHeight =
-           (aCtxType == SVGLength::Axis::Y || aCtxType == SVGLength::Axis::XY);
+           (aCtxType == SVGContentUtils::Y || aCtxType == SVGContentUtils::XY);
 
   if (animatedViewBox.HasRect()) {
     float zoom = UserSpaceMetrics::GetZoom(this);
@@ -218,11 +220,11 @@ float SVGViewportElement::GetLength(SVGLength::Axis aCtxType) const {
   h = std::max(h, 0.0f);
 
   switch (aCtxType) {
-    case SVGLength::Axis::X:
+    case SVGContentUtils::X:
       return w;
-    case SVGLength::Axis::Y:
+    case SVGContentUtils::Y:
       return h;
-    case SVGLength::Axis::XY:
+    case SVGContentUtils::XY:
       return float(SVGContentUtils::ComputeNormalizedHypotenuse(w, h));
   }
   return 0;

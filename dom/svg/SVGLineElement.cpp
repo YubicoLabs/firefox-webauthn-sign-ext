@@ -23,13 +23,13 @@ JSObject* SVGLineElement::WrapNode(JSContext* aCx,
 
 SVGElement::LengthInfo SVGLineElement::sLengthInfo[4] = {
     {nsGkAtoms::x1, 0, SVGLength_Binding::SVG_LENGTHTYPE_NUMBER,
-     SVGLength::Axis::X},
+     SVGContentUtils::X},
     {nsGkAtoms::y1, 0, SVGLength_Binding::SVG_LENGTHTYPE_NUMBER,
-     SVGLength::Axis::Y},
+     SVGContentUtils::Y},
     {nsGkAtoms::x2, 0, SVGLength_Binding::SVG_LENGTHTYPE_NUMBER,
-     SVGLength::Axis::X},
+     SVGContentUtils::X},
     {nsGkAtoms::y2, 0, SVGLength_Binding::SVG_LENGTHTYPE_NUMBER,
-     SVGLength::Axis::Y},
+     SVGContentUtils::Y},
 };
 
 //----------------------------------------------------------------------

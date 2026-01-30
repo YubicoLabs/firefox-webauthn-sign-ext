@@ -26,11 +26,11 @@ JSObject* SVGCircleElement::WrapNode(JSContext* aCx,
 
 SVGElement::LengthInfo SVGCircleElement::sLengthInfo[3] = {
     {nsGkAtoms::cx, 0, SVGLength_Binding::SVG_LENGTHTYPE_NUMBER,
-     SVGLength::Axis::X},
+     SVGContentUtils::X},
     {nsGkAtoms::cy, 0, SVGLength_Binding::SVG_LENGTHTYPE_NUMBER,
-     SVGLength::Axis::Y},
+     SVGContentUtils::Y},
     {nsGkAtoms::r, 0, SVGLength_Binding::SVG_LENGTHTYPE_NUMBER,
-     SVGLength::Axis::XY}};
+     SVGContentUtils::XY}};
 
 //----------------------------------------------------------------------
 // Implementation

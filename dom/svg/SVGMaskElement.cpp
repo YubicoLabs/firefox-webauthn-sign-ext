@@ -27,13 +27,13 @@ JSObject* SVGMaskElement::WrapNode(JSContext* aCx,
 
 SVGElement::LengthInfo SVGMaskElement::sLengthInfo[4] = {
     {nsGkAtoms::x, -10, SVGLength_Binding::SVG_LENGTHTYPE_PERCENTAGE,
-     SVGLength::Axis::X},
+     SVGContentUtils::X},
     {nsGkAtoms::y, -10, SVGLength_Binding::SVG_LENGTHTYPE_PERCENTAGE,
-     SVGLength::Axis::Y},
+     SVGContentUtils::Y},
     {nsGkAtoms::width, 120, SVGLength_Binding::SVG_LENGTHTYPE_PERCENTAGE,
-     SVGLength::Axis::X},
+     SVGContentUtils::X},
     {nsGkAtoms::height, 120, SVGLength_Binding::SVG_LENGTHTYPE_PERCENTAGE,
-     SVGLength::Axis::Y},
+     SVGContentUtils::Y},
 };
 
 SVGElement::EnumInfo SVGMaskElement::sEnumInfo[2] = {

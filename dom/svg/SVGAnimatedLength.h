@@ -11,7 +11,6 @@
 #include "mozilla/SVGContentUtils.h"
 #include "mozilla/UniquePtr.h"
 #include "mozilla/dom/SVGElement.h"
-#include "mozilla/dom/SVGLength.h"
 #include "mozilla/dom/SVGLengthBinding.h"
 #include "nsError.h"
 
@@ -50,7 +49,7 @@ class UserSpaceMetrics {
   float GetChSize(Type aType) const;
   float GetIcWidth(Type aType) const;
   float GetCapHeight(Type aType) const;
-  virtual float GetAxisLength(SVGLength::Axis aCtxType) const = 0;
+  virtual float GetAxisLength(uint8_t aCtxType) const = 0;
   virtual CSSSize GetCSSViewportSize() const = 0;
   virtual float GetLineHeight(Type aType) const = 0;
 
@@ -62,7 +61,7 @@ class UserSpaceMetrics {
 class UserSpaceMetricsWithSize : public UserSpaceMetrics {
  public:
   virtual gfx::Size GetSize() const = 0;
-  float GetAxisLength(SVGLength::Axis aCtxType) const override;
+  float GetAxisLength(uint8_t aCtxType) const override;
 };
 
 class SVGElementMetrics final : public UserSpaceMetrics {
@@ -74,7 +73,7 @@ class SVGElementMetrics final : public UserSpaceMetrics {
   float GetEmLength(Type aType) const override {
     return SVGContentUtils::GetFontSize(GetElementForType(aType));
   }
-  float GetAxisLength(SVGLength::Axis aCtxType) const override;
+  float GetAxisLength(uint8_t aCtxType) const override;
   CSSSize GetCSSViewportSize() const override;
   float GetLineHeight(Type aType) const override;
   float GetZoom() const override;
@@ -119,13 +118,12 @@ class SVGAnimatedLength {
   using UserSpaceMetrics = dom::UserSpaceMetrics;
 
  public:
-  void Init(SVGLength::Axis aCtxType = SVGLength::Axis::XY,
-            uint8_t aAttrEnum = 0xff, float aValue = 0,
+  void Init(uint8_t aCtxType = SVGContentUtils::XY, uint8_t aAttrEnum = 0xff,
+            float aValue = 0,
             uint8_t aUnitType = dom::SVGLength_Binding::SVG_LENGTHTYPE_NUMBER) {
     mAnimVal = mBaseVal = aValue;
     mBaseUnitType = mAnimUnitType = aUnitType;
     mAttrEnum = aAttrEnum;
-    mCtxType = aCtxType;
     mCtxType = aCtxType;
     mIsAnimated = false;
     mIsBaseSet = false;
@@ -166,7 +164,7 @@ class SVGAnimatedLength {
     return mAnimVal * GetPixelsPerUnitWithZoom(aMetrics, mAnimUnitType);
   }
 
-  SVGLength::Axis GetCtxType() const { return mCtxType; }
+  uint8_t GetCtxType() const { return mCtxType; }
   uint8_t GetBaseUnitType() const { return mBaseUnitType; }
   uint8_t GetAnimUnitType() const { return mAnimUnitType; }
   bool IsPercentage() const {
@@ -195,8 +193,8 @@ class SVGAnimatedLength {
   float mBaseVal;
   uint8_t mBaseUnitType;
   uint8_t mAnimUnitType;
-  uint8_t mAttrEnum : 6;         // element specified tracking for attribute
-  SVGLength::Axis mCtxType : 2;  // X, Y or Unspecified
+  uint8_t mAttrEnum : 6;  // element specified tracking for attribute
+  uint8_t mCtxType : 2;   // X, Y or Unspecified
   bool mIsAnimated : 1;
   bool mIsBaseSet : 1;
 
@@ -312,7 +310,7 @@ class SVGLengthAndInfo {
     mCtxType = rhs.GetCtxType();
   }
 
-  void Set(float aValue, uint8_t aUnitType, SVGLength::Axis aCtxType) {
+  void Set(float aValue, uint8_t aUnitType, uint8_t aCtxType) {
     mValue = aValue;
     mUnitType = aUnitType;
     mCtxType = aCtxType;
@@ -326,7 +324,7 @@ class SVGLengthAndInfo {
   nsWeakPtr mElement;
   float mValue = 0.0f;
   uint8_t mUnitType = dom::SVGLength_Binding::SVG_LENGTHTYPE_NUMBER;
-  SVGLength::Axis mCtxType = SVGLength::Axis::XY;
+  uint8_t mCtxType = SVGContentUtils::XY;
 };
 
 }  // namespace mozilla
