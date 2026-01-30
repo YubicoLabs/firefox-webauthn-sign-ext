@@ -43,15 +43,23 @@ add_task(async function () {
     style: `
       #order-of-appearance {
         background-color: var(--appearance-order_first);
+
+        @media (width > 1px) {
+          background-color: var(--appearance-order_second);
+        }
       }
       #order-of-appearance {
-        --appearance-order_second: var(--winning-color);
-        background-color: var(--appearance-order_second);
+        --appearance-order_third: var(--winning-color);
+        background-color: var(--appearance-order_third);
       }`,
     expectedMatchedSelectors: [
       // Last rule in stylesheet wins
       {
         selector: "#order-of-appearance",
+        value: "var(--appearance-order_third)",
+      },
+      {
+        selector: "&",
         value: "var(--appearance-order_second)",
       },
       {
