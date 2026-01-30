@@ -473,7 +473,7 @@ tasks:
                                       'eventType == "push"':
                                           - 'assume:repo:${repoUrl[8:]}:branch:${shortRef}'
                                       'eventType == "action"':
-                                          - 'assume:repo:${repoUrl[8:]}:action:${action.action_perm}'
+                                          - 'assume:repo:${baseRepoUrl[8:]}:${tasks_for}:${action.action_perm}'
                               dependencies: []
                               requires: all-completed
                               priority:
