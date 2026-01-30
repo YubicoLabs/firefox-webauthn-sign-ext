@@ -137,6 +137,8 @@ impl TransformMetadata {
 struct RelativeTransformKey {
     from_index: SpatialNodeIndex,
     to_index: SpatialNodeIndex,
+    scale: u32,
+    pre_scale: bool,
 }
 
 pub struct TransformPalette {
@@ -199,45 +201,56 @@ impl GpuTransforms {
         &mut self,
         child_index: SpatialNodeIndex,
         parent_index: SpatialNodeIndex,
+        mut scale: Option<f32>,
+        pre_scale: bool,
         spatial_tree: &SpatialTree,
     ) -> usize {
-        if child_index == parent_index {
-            0
-        } else {
-            let key = RelativeTransformKey {
-                from_index: child_index,
-                to_index: parent_index,
-            };
-
-            let metadata = &mut self.metadata;
-            let transforms = &mut self.transforms;
-
-            *self.map
-                .entry(key)
-                .or_insert_with(|| {
-                    let transform = spatial_tree.get_relative_transform(
-                        child_index,
-                        parent_index,
-                    );
-
-                    let is_2d_axis_aligned = transform.is_2d_axis_aligned();
-                    let is_2d_scale_offset  = transform.is_2d_scale_translation();
-
-                    let transform = transform
-                        .into_transform()
-                        .with_destination::<PicturePixel>();
-
-                    register_gpu_transform(
-                        metadata,
-                        transforms,
-                        transform,
-                        TransformMetadata {
-                            is_2d_axis_aligned,
-                            is_2d_scale_offset,
-                        }
-                    )
-                })
+        if scale == Some(1.0) {
+            scale = None;
         }
+
+        // Deduplicate the common case of identity transforms.
+        if child_index == parent_index && scale.is_none() {
+            return 0;
+        }
+
+        let scale_key = scale.map(|s| s.to_bits()).unwrap_or(0);
+
+        let key = RelativeTransformKey {
+            from_index: child_index,
+            to_index: parent_index,
+            scale: scale_key,
+            pre_scale,
+        };
+
+        let metadata = &mut self.metadata;
+        let transforms = &mut self.transforms;
+
+        *self.map.entry(key).or_insert_with(|| {
+            let transform = spatial_tree.get_relative_transform(
+                child_index,
+                parent_index,
+            );
+
+            let is_2d_axis_aligned = transform.is_2d_axis_aligned();
+            let is_2d_scale_offset  = transform.is_2d_scale_translation();
+
+            let transform = transform
+                .into_transform()
+                .with_destination::<PicturePixel>();
+
+            register_gpu_transform(
+                metadata,
+                transforms,
+                transform,
+                scale,
+                pre_scale,
+                TransformMetadata {
+                    is_2d_axis_aligned,
+                    is_2d_scale_offset,
+                }
+            )
+        })
     }
 
     // Get a transform palette id for the given spatial node.
@@ -253,6 +266,48 @@ impl GpuTransforms {
         let index = self.get_index(
             from_index,
             to_index,
+            None,
+            false,
+            spatial_tree,
+        );
+
+        let flags = self.metadata[index].flags();
+
+        GpuTransformId((index as u32) | flags)
+    }
+
+    pub fn get_id_with_post_scale(
+        &mut self,
+        from_index: SpatialNodeIndex,
+        to_index: SpatialNodeIndex,
+        scale: f32,
+        spatial_tree: &SpatialTree,
+    ) -> GpuTransformId {
+        let index = self.get_index(
+            from_index,
+            to_index,
+            Some(scale),
+            false,
+            spatial_tree,
+        );
+
+        let flags = self.metadata[index].flags();
+
+        GpuTransformId((index as u32) | flags)
+    }
+
+    pub fn get_id_with_pre_scale(
+        &mut self,
+        scale: f32,
+        from_index: SpatialNodeIndex,
+        to_index: SpatialNodeIndex,
+        spatial_tree: &SpatialTree,
+    ) -> GpuTransformId {
+        let index = self.get_index(
+            from_index,
+            to_index,
+            Some(scale),
+            true,
             spatial_tree,
         );
 
@@ -275,6 +330,8 @@ impl GpuTransforms {
             &mut self.metadata,
             &mut self.transforms,
             transform,
+            None,
+            false,
             metadata,
         );
 
@@ -287,9 +344,18 @@ impl GpuTransforms {
 fn register_gpu_transform(
     metadatas: &mut Vec<TransformMetadata>,
     transforms: &mut FrameVec<TransformData>,
-    transform: LayoutToPictureTransform,
+    mut transform: LayoutToPictureTransform,
+    scale: Option<f32>,
+    pre_scale: bool,
     metadata: TransformMetadata,
 ) -> usize {
+    if let Some(scale) = scale {
+        if pre_scale {
+            transform = transform.pre_scale(scale, scale, 1.0);
+        } else {
+            transform = transform.then_scale(scale, scale, 1.0);
+        }
+    }
     // TODO: refactor the calling code to not even try
     // registering a non-invertible transform.
     let inv_transform = transform
