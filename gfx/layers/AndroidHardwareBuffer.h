@@ -39,6 +39,23 @@ class AndroidHardwareBuffer
 
   virtual ~AndroidHardwareBuffer();
 
+  // Serializes the AndroidHardwareBuffer to a file descriptor that can, if
+  // desired, be shared to another process, and deserialized with
+  // DeserializeFromFileDescriptor(). Note that while an AndroidHardwareBuffer
+  // deserialized from the returned file descriptor will refer to the same
+  // underlying system buffer, it will be a different instance of this class.
+  // Fences will therefore not be propagated between the instances.
+  UniqueFileHandle SerializeToFileDescriptor() const;
+
+  // Creates an AndroidHardwareBuffer from a file descriptor that was previously
+  // obtained from ToFileDescriptor(). The file descriptor may have been shared
+  // from another process. Note that while the returned AndroidHardwareBuffer
+  // refers to the same underlying system buffer as the one that was originally
+  // serialized, it will be a different instance of this class. Fences will
+  // therefore not be propagated between the instances.
+  static already_AddRefed<AndroidHardwareBuffer> DeserializeFromFileDescriptor(
+      UniqueFileHandle&& aFd);
+
   int Lock(uint64_t aUsage, const ARect* aRect, void** aOutVirtualAddress);
   int Unlock();
 

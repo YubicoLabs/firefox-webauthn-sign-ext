@@ -13,6 +13,8 @@
 #include "mozilla/TimeStamp.h"
 #include "mozilla/UniquePtrExtensions.h"
 
+#include <sys/socket.h>
+
 namespace mozilla {
 namespace layers {
 
@@ -32,6 +34,19 @@ static uint32_t ToAHardwareBuffer_Format(gfx::SurfaceFormat aFormat) {
     default:
       MOZ_ASSERT_UNREACHABLE("Unsupported SurfaceFormat");
       return AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM;
+  }
+}
+
+static Maybe<gfx::SurfaceFormat> ToSurfaceFormat(uint32_t aFormat) {
+  switch (aFormat) {
+    case AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM:
+      return Some(gfx::SurfaceFormat::R8G8B8A8);
+    case AHARDWAREBUFFER_FORMAT_R8G8B8X8_UNORM:
+      return Some(gfx::SurfaceFormat::R8G8B8X8);
+    case AHARDWAREBUFFER_FORMAT_R5G6B5_UNORM:
+      return Some(gfx::SurfaceFormat::R5G6B5_UINT16);
+    default:
+      return Nothing();
   }
 }
 
@@ -106,6 +121,63 @@ AndroidHardwareBuffer::~AndroidHardwareBuffer() {
     AndroidHardwareBufferManager::Get()->Unregister(this);
   }
   AHardwareBuffer_release(mNativeBuffer);
+}
+
+UniqueFileHandle AndroidHardwareBuffer::SerializeToFileDescriptor() const {
+  int fd[2];
+  if (socketpair(AF_UNIX, SOCK_SEQPACKET, 0, fd) != 0) {
+    gfxCriticalNote << "AndroidHardwareBuffer::SerializeToFileDescriptor: "
+                       "Failed to create Unix socket";
+    return UniqueFileHandle();
+  }
+
+  UniqueFileHandle readerFd(fd[0]);
+  UniqueFileHandle writerFd(fd[1]);
+  const int ret =
+      AHardwareBuffer_sendHandleToUnixSocket(mNativeBuffer, writerFd.get());
+  if (ret < 0) {
+    gfxCriticalNote << "AndroidHardwareBuffer::SerializeToFileDescriptor: "
+                       "sendHandleToUnixSocket failed";
+    return UniqueFileHandle();
+  }
+
+  return readerFd;
+}
+
+/* static */
+already_AddRefed<AndroidHardwareBuffer>
+AndroidHardwareBuffer::DeserializeFromFileDescriptor(UniqueFileHandle&& aFd) {
+  if (!aFd) {
+    gfxCriticalNote << "AndroidHardwareBuffer::DeserializeFromFileDescriptor: "
+                       "Invalid FileDescriptor";
+    return nullptr;
+  }
+
+  AHardwareBuffer* nativeBuffer = nullptr;
+  int ret =
+      AHardwareBuffer_recvHandleFromUnixSocket(aFd.release(), &nativeBuffer);
+  if (ret < 0) {
+    gfxCriticalNote << "AndroidHardwareBuffer::DeserializeFromFileDescriptor: "
+                       "recvHandleFromUnixSocket failed";
+    return nullptr;
+  }
+
+  AHardwareBuffer_Desc desc = {};
+  AHardwareBuffer_describe(nativeBuffer, &desc);
+
+  const auto format = ToSurfaceFormat(desc.format);
+  if (!format) {
+    gfxCriticalNote << "AndroidHardwareBuffer::DeserializeFromFileDescriptor: "
+                       "Unrecognized AHARDWAREBUFFER_FORMAT";
+    AHardwareBuffer_release(nativeBuffer);
+    return nullptr;
+  }
+
+  RefPtr<AndroidHardwareBuffer> buffer = new AndroidHardwareBuffer(
+      nativeBuffer, gfx::IntSize(desc.width, desc.height), desc.stride,
+      *format);
+
+  return buffer.forget();
 }
 
 int AndroidHardwareBuffer::Lock(uint64_t aUsage, const ARect* aRect,
