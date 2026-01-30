@@ -9,6 +9,7 @@
 #include "GroupInfo.h"
 #include "GroupInfoPair.h"
 #include "OriginInfo.h"
+#include "mozilla/DebugOnly.h"
 #include "mozilla/dom/StorageActivityService.h"
 #include "mozilla/dom/quota/AssertionsImpl.h"
 #include "mozilla/dom/quota/NotifyUtils.h"
@@ -130,7 +131,7 @@ bool CanonicalQuotaObject::LockedMaybeUpdateSize(int64_t aSize, bool aTruncate)
     return true;
   }
 
-  GroupInfo* groupInfo = mOriginInfo->mGroupInfo;
+  DebugOnly<GroupInfo*> groupInfo = mOriginInfo->mGroupInfo;
   MOZ_ASSERT(groupInfo);
 
   if (mSize > aSize) {
@@ -144,63 +145,18 @@ bool CanonicalQuotaObject::LockedMaybeUpdateSize(int64_t aSize, bool aTruncate)
 
   MOZ_ASSERT(mSize < aSize);
 
-  const auto& complementaryPersistenceTypes =
-      ComplementaryPersistenceTypes(groupInfo->mPersistenceType);
-
   uint64_t delta = aSize - mSize;
-
-  AssertNoOverflow(mOriginInfo->mClientUsages[mClientType].valueOr(0), delta);
-  uint64_t newClientUsage =
-      mOriginInfo->mClientUsages[mClientType].valueOr(0) + delta;
-
-  AssertNoOverflow(mOriginInfo->mUsage, delta);
-  uint64_t newUsage = mOriginInfo->mUsage + delta;
 
   // Temporary storage has no limit for origin usage (there's a group and the
   // global limit though).
 
-  uint64_t newGroupUsage = groupInfo->mUsage;
-  if (!mOriginInfo->LockedPersisted()) {
-    AssertNoOverflow(groupInfo->mUsage, delta);
-    newGroupUsage += delta;
-
-    uint64_t groupUsage = groupInfo->mUsage;
-    for (const auto& complementaryPersistenceType :
-         complementaryPersistenceTypes) {
-      const auto& complementaryGroupInfo =
-          groupInfo->mGroupInfoPair->LockedGetGroupInfo(
-              complementaryPersistenceType);
-
-      if (complementaryGroupInfo) {
-        AssertNoOverflow(groupUsage, complementaryGroupInfo->mUsage);
-        groupUsage += complementaryGroupInfo->mUsage;
-      }
+  if (const auto& maybeReturnValue =
+          mOriginInfo->LockedUpdateUsages(mClientType, delta)) {
+    if (maybeReturnValue.value()) {
+      mSize = aSize;  // No limit was breached and we are done.
     }
 
-    // Temporary storage has a hard limit for group usage (20 % of the global
-    // limit).
-    AssertNoOverflow(groupUsage, delta);
-    if (groupUsage + delta > quotaManager->GetGroupLimit()) {
-      return false;
-    }
-  }
-
-  AssertNoOverflow(quotaManager->mTemporaryStorageUsage, delta);
-  uint64_t newTemporaryStorageUsage =
-      quotaManager->mTemporaryStorageUsage + delta;
-
-  if (newTemporaryStorageUsage <= quotaManager->mTemporaryStorageLimit) {
-    mOriginInfo->mClientUsages[mClientType] = Some(newClientUsage);
-
-    mOriginInfo->mUsage = newUsage;
-    if (!mOriginInfo->LockedPersisted()) {
-      groupInfo->mUsage = newGroupUsage;
-    }
-    quotaManager->mTemporaryStorageUsage = newTemporaryStorageUsage;
-
-    mSize = aSize;
-
-    return true;
+    return maybeReturnValue.value();
   }
 
   // This will block the thread without holding the lock while waitting.

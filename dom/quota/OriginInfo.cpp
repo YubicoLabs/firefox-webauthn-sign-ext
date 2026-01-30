@@ -207,6 +207,70 @@ void OriginInfo::LockedTruncateUsages(Client::Type aClientType,
       Some(mClientUsages[aClientType].value() - aDelta);
 };
 
+Maybe<bool> OriginInfo::LockedUpdateUsages(Client::Type aClientType,
+                                           uint64_t aDelta) {
+  AssertCurrentThreadOwnsQuotaMutex();
+
+  QuotaManager* quotaManager = QuotaManager::Get();
+  MOZ_ASSERT(quotaManager);
+
+  const auto& complementaryPersistenceTypes =
+      ComplementaryPersistenceTypes(mGroupInfo->mPersistenceType);
+
+  AssertNoOverflow(mClientUsages[aClientType].valueOr(0), aDelta);
+  uint64_t newClientUsage = mClientUsages[aClientType].valueOr(0) + aDelta;
+
+  AssertNoOverflow(mUsage, aDelta);
+  uint64_t newUsage = mUsage + aDelta;
+
+  // Temporary storage has no limit for origin usage (there's a group and the
+  // global limit though).
+
+  uint64_t newGroupUsage = mGroupInfo->mUsage;
+  if (!LockedPersisted()) {
+    AssertNoOverflow(mGroupInfo->mUsage, aDelta);
+    newGroupUsage += aDelta;
+
+    uint64_t groupUsage = mGroupInfo->mUsage;
+    for (const auto& complementaryPersistenceType :
+         complementaryPersistenceTypes) {
+      const auto& complementaryGroupInfo =
+          mGroupInfo->mGroupInfoPair->LockedGetGroupInfo(
+              complementaryPersistenceType);
+
+      if (complementaryGroupInfo) {
+        AssertNoOverflow(groupUsage, complementaryGroupInfo->mUsage);
+        groupUsage += complementaryGroupInfo->mUsage;
+      }
+    }
+
+    // Temporary storage has a hard limit for group usage (20 % of the global
+    // limit).
+    AssertNoOverflow(groupUsage, aDelta);
+    if (groupUsage + aDelta > quotaManager->GetGroupLimit()) {
+      return Some(false);
+    }
+  }
+
+  AssertNoOverflow(quotaManager->mTemporaryStorageUsage, aDelta);
+  uint64_t newTemporaryStorageUsage =
+      quotaManager->mTemporaryStorageUsage + aDelta;
+
+  if (newTemporaryStorageUsage <= quotaManager->mTemporaryStorageLimit) {
+    mClientUsages[aClientType] = Some(newClientUsage);
+
+    mUsage = newUsage;
+    if (!LockedPersisted()) {
+      mGroupInfo->mUsage = newGroupUsage;
+    }
+    quotaManager->mTemporaryStorageUsage = newTemporaryStorageUsage;
+
+    return Some(true);
+  }
+
+  return Nothing();
+}
+
 bool OriginInfo::LockedUpdateUsagesForEviction(Client::Type aClientType,
                                                uint64_t aDelta) {
   AssertCurrentThreadOwnsQuotaMutex();
