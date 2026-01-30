@@ -598,7 +598,7 @@ nsMargin nsComputedDOMStyle::GetAdjustedValuesForBoxSizing() {
   const nsStylePosition* stylePos = StylePosition();
 
   nsMargin adjustment;
-  if (stylePos->mBoxSizing == StyleBoxSizing::Border) {
+  if (stylePos->mBoxSizing == StyleBoxSizing::BorderBox) {
     adjustment = mInnerFrame->GetUsedBorderAndPadding();
   }
 

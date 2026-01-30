@@ -4294,22 +4294,22 @@ bool CanvasRenderingContext2D::SetFontInternal(const nsACString& aFont,
       // Leave whatever the shorthand set.
       break;
     case CanvasFontVariantCaps::Small_caps:
-      resizedFont.variantCaps = NS_FONT_VARIANT_CAPS_SMALLCAPS;
+      resizedFont.variantCaps = NS_FONT_VARIANT_CAPS_SMALL_CAPS;
       break;
     case CanvasFontVariantCaps::All_small_caps:
-      resizedFont.variantCaps = NS_FONT_VARIANT_CAPS_ALLSMALL;
+      resizedFont.variantCaps = NS_FONT_VARIANT_CAPS_ALL_SMALL_CAPS;
       break;
     case CanvasFontVariantCaps::Petite_caps:
-      resizedFont.variantCaps = NS_FONT_VARIANT_CAPS_PETITECAPS;
+      resizedFont.variantCaps = NS_FONT_VARIANT_CAPS_PETITE_CAPS;
       break;
     case CanvasFontVariantCaps::All_petite_caps:
-      resizedFont.variantCaps = NS_FONT_VARIANT_CAPS_ALLPETITE;
+      resizedFont.variantCaps = NS_FONT_VARIANT_CAPS_ALL_PETITE_CAPS;
       break;
     case CanvasFontVariantCaps::Unicase:
       resizedFont.variantCaps = NS_FONT_VARIANT_CAPS_UNICASE;
       break;
     case CanvasFontVariantCaps::Titling_caps:
-      resizedFont.variantCaps = NS_FONT_VARIANT_CAPS_TITLING;
+      resizedFont.variantCaps = NS_FONT_VARIANT_CAPS_TITLING_CAPS;
       break;
     default:
       MOZ_ASSERT_UNREACHABLE("unknown caps value");
@@ -4370,7 +4370,7 @@ static void SerializeFontForCanvas(const StyleFontFamilyList& aList,
     aUsedFont.Append(" ");
   }
 
-  if (aStyle.variantCaps == NS_FONT_VARIANT_CAPS_SMALLCAPS) {
+  if (aStyle.variantCaps == NS_FONT_VARIANT_CAPS_SMALL_CAPS) {
     aUsedFont.Append("small-caps ");
   }
 
@@ -4465,26 +4465,26 @@ bool CanvasRenderingContext2D::SetFontInternalDisconnected(
   // the available values); see https://github.com/whatwg/html/issues/8103.
   switch (CurrentState().fontVariantCaps) {
     case CanvasFontVariantCaps::Normal:
-      fontStyle.variantCaps = smallCaps ? NS_FONT_VARIANT_CAPS_SMALLCAPS
+      fontStyle.variantCaps = smallCaps ? NS_FONT_VARIANT_CAPS_SMALL_CAPS
                                         : NS_FONT_VARIANT_CAPS_NORMAL;
       break;
     case CanvasFontVariantCaps::Small_caps:
-      fontStyle.variantCaps = NS_FONT_VARIANT_CAPS_SMALLCAPS;
+      fontStyle.variantCaps = NS_FONT_VARIANT_CAPS_SMALL_CAPS;
       break;
     case CanvasFontVariantCaps::All_small_caps:
-      fontStyle.variantCaps = NS_FONT_VARIANT_CAPS_ALLSMALL;
+      fontStyle.variantCaps = NS_FONT_VARIANT_CAPS_ALL_SMALL_CAPS;
       break;
     case CanvasFontVariantCaps::Petite_caps:
-      fontStyle.variantCaps = NS_FONT_VARIANT_CAPS_PETITECAPS;
+      fontStyle.variantCaps = NS_FONT_VARIANT_CAPS_PETITE_CAPS;
       break;
     case CanvasFontVariantCaps::All_petite_caps:
-      fontStyle.variantCaps = NS_FONT_VARIANT_CAPS_ALLPETITE;
+      fontStyle.variantCaps = NS_FONT_VARIANT_CAPS_ALL_PETITE_CAPS;
       break;
     case CanvasFontVariantCaps::Unicase:
       fontStyle.variantCaps = NS_FONT_VARIANT_CAPS_UNICASE;
       break;
     case CanvasFontVariantCaps::Titling_caps:
-      fontStyle.variantCaps = NS_FONT_VARIANT_CAPS_TITLING;
+      fontStyle.variantCaps = NS_FONT_VARIANT_CAPS_TITLING_CAPS;
       break;
     default:
       MOZ_ASSERT_UNREACHABLE("unknown caps value");

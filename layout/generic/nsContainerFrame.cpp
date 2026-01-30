@@ -907,7 +907,7 @@ void nsContainerFrame::ReflowOverflowContainerChildren(
       // prev-in-flow's inline-size since both should be the same.
       sizeOverride.mStyleISize.emplace(
           StyleSize::LengthPercentage(LengthPercentage::FromAppUnits(
-              frame->StylePosition()->mBoxSizing == StyleBoxSizing::Border
+              frame->StylePosition()->mBoxSizing == StyleBoxSizing::BorderBox
                   ? prevInFlow->ISize(wm)
                   : prevInFlow->ContentISize(wm))));
 
@@ -1988,7 +1988,7 @@ LogicalSize nsContainerFrame::ComputeSizeWithIntrinsicDimensions(
   const bool isAutoBSize =
       nsLayoutUtils::IsAutoBSize(*styleBSize, aCBSize.BSize(aWM));
 
-  const auto boxSizingAdjust = stylePos->mBoxSizing == StyleBoxSizing::Border
+  const auto boxSizingAdjust = stylePos->mBoxSizing == StyleBoxSizing::BorderBox
                                    ? aBorderPadding
                                    : LogicalSize(aWM);
   const nscoord boxSizingToMarginEdgeISize = aMargin.ISize(aWM) +

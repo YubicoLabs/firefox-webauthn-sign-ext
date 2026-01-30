@@ -372,8 +372,8 @@ nscoord SizeComputationInput::ComputeISizeValue(
   const auto borderPadding = ComputedLogicalBorderPadding(wm);
   const auto margin = ComputedLogicalMargin(wm);
   const LogicalSize contentEdgeToBoxSizing =
-      aBoxSizing == StyleBoxSizing::Border ? borderPadding.Size(wm)
-                                           : LogicalSize(wm);
+      aBoxSizing == StyleBoxSizing::BorderBox ? borderPadding.Size(wm)
+                                              : LogicalSize(wm);
   const nscoord boxSizingToMarginEdgeISize = borderPadding.IStartEnd(wm) +
                                              margin.IStartEnd(wm) -
                                              contentEdgeToBoxSizing.ISize(wm);
@@ -421,7 +421,7 @@ nscoord SizeComputationInput::ComputeBSizeValue(
     const LengthPercentage& aSize) const {
   WritingMode wm = GetWritingMode();
   nscoord inside = 0;
-  if (aBoxSizing == StyleBoxSizing::Border) {
+  if (aBoxSizing == StyleBoxSizing::BorderBox) {
     inside = ComputedLogicalBorderPadding(wm).BStartEnd(wm);
   }
   return nsLayoutUtils::ComputeBSizeValue(aContainingBlockBSize, inside, aSize);
@@ -1301,7 +1301,7 @@ void ReflowInput::CalculateBorderPaddingMargin(
 
   nscoord outside = paddingStartEnd + borderStartEnd + marginStartEnd;
   nscoord inside = 0;
-  if (mStylePosition->mBoxSizing == StyleBoxSizing::Border) {
+  if (mStylePosition->mBoxSizing == StyleBoxSizing::BorderBox) {
     inside = borderStartEnd + paddingStartEnd;
   }
   outside -= inside;

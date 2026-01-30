@@ -457,7 +457,7 @@ class nsFlexContainerFrame::FlexItem final {
   // ReflowInput for flex items.
   StyleSize StyleMainSize() const {
     nscoord mainSize = MainSize();
-    if (Frame()->StylePosition()->mBoxSizing == StyleBoxSizing::Border) {
+    if (Frame()->StylePosition()->mBoxSizing == StyleBoxSizing::BorderBox) {
       mainSize += BorderPaddingSizeInMainAxis();
     }
     return StyleSize::LengthPercentage(
@@ -466,7 +466,7 @@ class nsFlexContainerFrame::FlexItem final {
 
   StyleSize StyleCrossSize() const {
     nscoord crossSize = CrossSize();
-    if (Frame()->StylePosition()->mBoxSizing == StyleBoxSizing::Border) {
+    if (Frame()->StylePosition()->mBoxSizing == StyleBoxSizing::BorderBox) {
       crossSize += BorderPaddingSizeInCrossAxis();
     }
     return StyleSize::LengthPercentage(
@@ -1587,7 +1587,7 @@ nscoord nsFlexContainerFrame::PartiallyResolveAutoMinSize(
   const auto maxMainStyleSize = aItemReflowInput.mStylePosition->MaxSize(
       aAxisTracker.MainAxis(), cbWM, anchorResolutionParams);
   const auto boxSizingAdjust =
-      aItemReflowInput.mStylePosition->mBoxSizing == StyleBoxSizing::Border
+      aItemReflowInput.mStylePosition->mBoxSizing == StyleBoxSizing::BorderBox
           ? aFlexItem.BorderPadding().Size(cbWM)
           : LogicalSize(cbWM);
 
@@ -2474,7 +2474,7 @@ void FlexItem::ResolveFlexBaseSizeFromAspectRatio(
               AnchorPosResolutionParams::From(&aItemReflowInput))) &&
       IsCrossSizeDefinite(aItemReflowInput)) {
     const LogicalSize contentBoxSizeToBoxSizingAdjust =
-        aItemReflowInput.mStylePosition->mBoxSizing == StyleBoxSizing::Border
+        aItemReflowInput.mStylePosition->mBoxSizing == StyleBoxSizing::BorderBox
             ? BorderPadding().Size(mCBWM)
             : LogicalSize(mCBWM);
     const nscoord mainSizeFromRatio = mAspectRatio.ComputeRatioDependentSize(
@@ -2563,7 +2563,7 @@ nscoord FlexItem::ClampMainSizeViaCrossAxisConstraints(
   MOZ_ASSERT(HasAspectRatio(), "Caller should've checked the ratio is valid!");
 
   const LogicalSize contentBoxSizeToBoxSizingAdjust =
-      aItemReflowInput.mStylePosition->mBoxSizing == StyleBoxSizing::Border
+      aItemReflowInput.mStylePosition->mBoxSizing == StyleBoxSizing::BorderBox
           ? BorderPadding().Size(mCBWM)
           : LogicalSize(mCBWM);
 
@@ -6575,7 +6575,7 @@ nscoord nsFlexContainerFrame::ComputeIntrinsicISize(
     if (childShouldStretchCrossSize) {
       const auto offsetData = childFrame->IntrinsicBSizeOffsets();
       const nscoord boxSizingToMarginEdgeSize =
-          childStylePos->mBoxSizing == StyleBoxSizing::Content
+          childStylePos->mBoxSizing == StyleBoxSizing::ContentBox
               ? offsetData.MarginBorderPadding()
               : offsetData.margin;
       const nscoord stretchedCrossSize =

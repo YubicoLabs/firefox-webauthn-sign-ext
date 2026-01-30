@@ -597,29 +597,29 @@ void gfxFontShaper::MergeFontFeatures(
     case NS_FONT_VARIANT_CAPS_NORMAL:
       break;
 
-    case NS_FONT_VARIANT_CAPS_ALLSMALL:
+    case NS_FONT_VARIANT_CAPS_ALL_SMALL_CAPS:
       addOrReplace(gfxFontFeature{HB_TAG('c', '2', 's', 'c'), 1});
       // fall through to the small-caps case
       [[fallthrough]];
 
-    case NS_FONT_VARIANT_CAPS_SMALLCAPS:
+    case NS_FONT_VARIANT_CAPS_SMALL_CAPS:
       addOrReplace(gfxFontFeature{HB_TAG('s', 'm', 'c', 'p'), 1});
       break;
 
-    case NS_FONT_VARIANT_CAPS_ALLPETITE:
+    case NS_FONT_VARIANT_CAPS_ALL_PETITE_CAPS:
       addOrReplace(gfxFontFeature{aAddSmallCaps ? HB_TAG('c', '2', 's', 'c')
                                                 : HB_TAG('c', '2', 'p', 'c'),
                                   1});
       // fall through to the petite-caps case
       [[fallthrough]];
 
-    case NS_FONT_VARIANT_CAPS_PETITECAPS:
+    case NS_FONT_VARIANT_CAPS_PETITE_CAPS:
       addOrReplace(gfxFontFeature{aAddSmallCaps ? HB_TAG('s', 'm', 'c', 'p')
                                                 : HB_TAG('p', 'c', 'a', 'p'),
                                   1});
       break;
 
-    case NS_FONT_VARIANT_CAPS_TITLING:
+    case NS_FONT_VARIANT_CAPS_TITLING_CAPS:
       addOrReplace(gfxFontFeature{HB_TAG('t', 'i', 't', 'l'), 1});
       break;
 
@@ -1578,13 +1578,13 @@ bool gfxFont::SupportsVariantCaps(Script aScript, uint32_t aVariantCaps,
   aSyntheticLowerToSmallCaps = false;
   aSyntheticUpperToSmallCaps = false;
   switch (aVariantCaps) {
-    case NS_FONT_VARIANT_CAPS_SMALLCAPS:
+    case NS_FONT_VARIANT_CAPS_SMALL_CAPS:
       ok = SupportsFeature(aScript, HB_TAG('s', 'm', 'c', 'p'));
       if (!ok) {
         aSyntheticLowerToSmallCaps = true;
       }
       break;
-    case NS_FONT_VARIANT_CAPS_ALLSMALL:
+    case NS_FONT_VARIANT_CAPS_ALL_SMALL_CAPS:
       ok = SupportsFeature(aScript, HB_TAG('s', 'm', 'c', 'p')) &&
            SupportsFeature(aScript, HB_TAG('c', '2', 's', 'c'));
       if (!ok) {
@@ -1592,7 +1592,7 @@ bool gfxFont::SupportsVariantCaps(Script aScript, uint32_t aVariantCaps,
         aSyntheticUpperToSmallCaps = true;
       }
       break;
-    case NS_FONT_VARIANT_CAPS_PETITECAPS:
+    case NS_FONT_VARIANT_CAPS_PETITE_CAPS:
       ok = SupportsFeature(aScript, HB_TAG('p', 'c', 'a', 'p'));
       if (!ok) {
         ok = SupportsFeature(aScript, HB_TAG('s', 'm', 'c', 'p'));
@@ -1602,7 +1602,7 @@ bool gfxFont::SupportsVariantCaps(Script aScript, uint32_t aVariantCaps,
         aSyntheticLowerToSmallCaps = true;
       }
       break;
-    case NS_FONT_VARIANT_CAPS_ALLPETITE:
+    case NS_FONT_VARIANT_CAPS_ALL_PETITE_CAPS:
       ok = SupportsFeature(aScript, HB_TAG('p', 'c', 'a', 'p')) &&
            SupportsFeature(aScript, HB_TAG('c', '2', 'p', 'c'));
       if (!ok) {

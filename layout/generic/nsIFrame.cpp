@@ -6700,7 +6700,7 @@ nsIFrame::SizeComputationResult nsIFrame::ComputeSize(
   const auto anchorResolutionParams = AnchorPosResolutionParams::From(this);
   auto aspectRatioUsage = AspectRatioUsage::None;
 
-  const auto boxSizingAdjust = stylePos->mBoxSizing == StyleBoxSizing::Border
+  const auto boxSizingAdjust = stylePos->mBoxSizing == StyleBoxSizing::BorderBox
                                    ? aBorderPadding
                                    : LogicalSize(aWM);
   nscoord boxSizingToMarginEdgeISize = aMargin.ISize(aWM) +
@@ -7179,8 +7179,8 @@ LogicalSize nsIFrame::ComputeAutoSize(
             ? AnchorResolvedSizeHelper::Overridden(*aSizeOverrides.mStyleBSize)
             : stylePos->BSize(aWM, anchorResolutionParams);
     const LogicalSize contentEdgeToBoxSizing =
-        stylePos->mBoxSizing == StyleBoxSizing::Border ? aBorderPadding
-                                                       : LogicalSize(aWM);
+        stylePos->mBoxSizing == StyleBoxSizing::BorderBox ? aBorderPadding
+                                                          : LogicalSize(aWM);
     const nscoord bSize = ComputeBSizeValueAsPercentageBasis(
         *styleBSize, *stylePos->MinBSize(aWM, anchorResolutionParams),
         *stylePos->MaxBSize(aWM, anchorResolutionParams), aCBSize.BSize(aWM),
@@ -7250,7 +7250,7 @@ LogicalSize nsIFrame::ComputeAbsolutePosAutoSize(
           ->GetAnchorResolvedInset(LogicalSide::BEnd, aWM,
                                    anchorResolutionParams)
           ->IsAuto();
-  const auto boxSizingAdjust = stylePos->mBoxSizing == StyleBoxSizing::Border
+  const auto boxSizingAdjust = stylePos->mBoxSizing == StyleBoxSizing::BorderBox
                                    ? aBorderPadding
                                    : LogicalSize(aWM);
   auto shouldStretch = [](StyleAlignFlags aAlignment, const nsIFrame* aFrame,
