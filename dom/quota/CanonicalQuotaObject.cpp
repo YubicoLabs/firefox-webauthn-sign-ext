@@ -136,23 +136,7 @@ bool CanonicalQuotaObject::LockedMaybeUpdateSize(int64_t aSize, bool aTruncate)
   if (mSize > aSize) {
     if (aTruncate) {
       const int64_t delta = mSize - aSize;
-
-      AssertNoUnderflow(quotaManager->mTemporaryStorageUsage, delta);
-      quotaManager->mTemporaryStorageUsage -= delta;
-
-      if (!mOriginInfo->LockedPersisted()) {
-        AssertNoUnderflow(groupInfo->mUsage, delta);
-        groupInfo->mUsage -= delta;
-      }
-
-      AssertNoUnderflow(mOriginInfo->mUsage, delta);
-      mOriginInfo->mUsage -= delta;
-
-      MOZ_ASSERT(mOriginInfo->mClientUsages[mClientType].isSome());
-      AssertNoUnderflow(mOriginInfo->mClientUsages[mClientType].value(), delta);
-      mOriginInfo->mClientUsages[mClientType] =
-          Some(mOriginInfo->mClientUsages[mClientType].value() - delta);
-
+      mOriginInfo->LockedTruncateUsages(mClientType, delta);
       mSize = aSize;
     }
     return true;

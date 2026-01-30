@@ -134,6 +134,8 @@ class OriginInfo final {
 
   void LockedDirectoryCreated();
 
+  void LockedTruncateUsages(Client::Type aClientType, uint64_t aDelta);
+
   nsTHashMap<nsStringHashKey, NotNull<CanonicalQuotaObject*>>
       mCanonicalQuotaObjects;
   ClientUsageArray mClientUsages;

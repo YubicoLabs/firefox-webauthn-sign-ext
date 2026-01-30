@@ -183,6 +183,30 @@ void OriginInfo::LockedPersist() {
   mGroupInfo->mUsage -= mUsage;
 }
 
+void OriginInfo::LockedTruncateUsages(Client::Type aClientType,
+                                      uint64_t aDelta) {
+  AssertCurrentThreadOwnsQuotaMutex();
+
+  QuotaManager* quotaManager = QuotaManager::Get();
+  MOZ_ASSERT(quotaManager);
+
+  AssertNoUnderflow(quotaManager->mTemporaryStorageUsage, aDelta);
+  quotaManager->mTemporaryStorageUsage -= aDelta;
+
+  if (!LockedPersisted()) {
+    AssertNoUnderflow(mGroupInfo->mUsage, aDelta);
+    mGroupInfo->mUsage -= aDelta;
+  }
+
+  AssertNoUnderflow(mUsage, aDelta);
+  mUsage -= aDelta;
+
+  MOZ_ASSERT(mClientUsages[aClientType].isSome());
+  AssertNoUnderflow(mClientUsages[aClientType].value(), aDelta);
+  mClientUsages[aClientType] =
+      Some(mClientUsages[aClientType].value() - aDelta);
+};
+
 void OriginInfo::LockedDirectoryCreated() {
   AssertCurrentThreadOwnsQuotaMutex();
   MOZ_ASSERT(!mDirectoryExists);
