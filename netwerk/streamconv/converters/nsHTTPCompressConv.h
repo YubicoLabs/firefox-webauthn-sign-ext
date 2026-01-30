@@ -26,31 +26,17 @@ class nsIStringInputStream;
      {0xab, 0xf4, 0x07, 0x98, 0x61, 0x51, 0x02, 0x2d}}
 
 #  define HTTP_DEFLATE_TYPE "deflate"
-#  define HTTP_DEFLATE_TYPE_ns "deflate"_ns
-#  define HTTP_X_DEFLATE_TYPE "x-deflate"
-#  define HTTP_X_DEFLATE_TYPE_ns "x-deflate"_ns
 #  define HTTP_GZIP_TYPE "gzip"
-#  define HTTP_GZIP_TYPE_ns "gzip"_ns
 #  define HTTP_X_GZIP_TYPE "x-gzip"
-#  define HTTP_X_GZIP_TYPE_ns "x-gzip"_ns
 #  define HTTP_COMPRESS_TYPE "compress"
-#  define HTTP_COMPRESS_TYPE_ns "compress"_ns
 #  define HTTP_X_COMPRESS_TYPE "x-compress"
-#  define HTTP_X_COMPRESS_TYPE_ns "x-compress"_ns
 #  define HTTP_BROTLI_TYPE "br"
-#  define HTTP_BROTLI_TYPE_ns "br"_ns
 #  define HTTP_IDENTITY_TYPE "identity"
-#  define HTTP_IDENTITY_TYPE_ns "identity"_ns
 #  define HTTP_UNCOMPRESSED_TYPE "uncompressed"
-#  define HTTP_UNCOMPRESSED_TYPE_ns "uncompressed"_ns
 #  define HTTP_ZSTD_TYPE "zstd"
-#  define HTTP_ZSTD_TYPE_ns "zstd"_ns
 #  define HTTP_ZST_TYPE "zst"
-#  define HTTP_ZST_TYPE_ns "zst"_ns
 #  define HTTP_BROTLI_DICTIONARY_TYPE "dcb"
-#  define HTTP_BROTLI_DICTIONARY_TYPE_ns "dcb"_ns
 #  define HTTP_ZSTD_DICTIONARY_TYPE "dcz"
-#  define HTTP_ZSTD_DICTIONARY_TYPE_ns "dcz"_ns
 
 namespace mozilla {
 namespace net {

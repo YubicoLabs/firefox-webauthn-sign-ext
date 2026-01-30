@@ -61,15 +61,10 @@ class BrotliWrapper {
     if (!httpchannel) {
       return false;
     }
+    // XXX Wait for dictionary to be read into RAM!!
     if (NS_SUCCEEDED(httpchannel->GetDecompressDictionary(
             getter_AddRefs(mDictionary))) &&
         mDictionary) {
-      // Critical: Dictionary must be fully loaded before use
-      if (!mDictionary->DictionaryReady()) {
-        DICTIONARY_LOG(("Brotli: dictionary not ready yet!"));
-        MOZ_ASSERT(false, "Dictionary should be ready before decompression");
-        return false;
-      }
       size_t length = mDictionary->GetDictionary().length();
       DICTIONARY_LOG(("Brotli: dictionary %zu bytes", length));
       if (length > 0) {
@@ -116,16 +111,10 @@ class ZstdWrapper {
     if (aMode == nsHTTPCompressConv::HTTP_COMPRESS_ZSTD_DICTIONARY) {
       nsCOMPtr<nsIHttpChannel> httpchannel(do_QueryInterface(aRequest));
       if (httpchannel) {
+        // XXX Wait for dictionary to be read into RAM!!
         if (NS_FAILED(httpchannel->GetDecompressDictionary(
                 getter_AddRefs(mDictionary))) ||
             !mDictionary) {
-          return;
-        }
-        // Critical: Dictionary must be fully loaded before use
-        if (!mDictionary->DictionaryReady()) {
-          DICTIONARY_LOG(("Zstd: dictionary not ready yet!"));
-          MOZ_ASSERT(false, "Dictionary should be ready before decompression");
-          mDictionary = nullptr;
           return;
         }
         length = mDictionary->GetDictionary().length();

@@ -367,7 +367,6 @@ class nsHttpChannel final : public HttpBaseChannel,
   [[nodiscard]] nsresult ProcessNormal();
   [[nodiscard]] nsresult ContinueProcessNormal(nsresult);
   [[nodiscard]] nsresult ContinueProcessNormal2(nsresult);
-  [[nodiscard]] nsresult ContinueProcessNormal3();
   void ProcessAltService(nsHttpConnectionInfo* aTransConnInfo = nullptr);
   bool ShouldBypassProcessNotModified();
   [[nodiscard]] nsresult ProcessNotModified(

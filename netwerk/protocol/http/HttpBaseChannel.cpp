@@ -1501,8 +1501,7 @@ nsresult HttpBaseChannel::DoApplyContentConversionsInternal(
       nsAutoCString newEncoding;
       char* cePtr = contentEncoding.BeginWriting();
       while (char* val = nsCRT::strtok(cePtr, HTTP_LWS ",", &cePtr)) {
-        if (nsCRT::strcasecmp(val, HTTP_BROTLI_DICTIONARY_TYPE) == 0 ||
-            nsCRT::strcasecmp(val, HTTP_ZSTD_DICTIONARY_TYPE) == 0) {
+        if (strcmp(val, "dcb") == 0 || strcmp(val, "dcz") == 0) {
           MOZ_ASSERT(LoadApplyConversion() && !LoadHasAppliedConversion());
         }
       }
@@ -1565,26 +1564,24 @@ nsresult HttpBaseChannel::DoApplyContentConversionsInternal(
       LOG(("Adding converter for content-encoding '%s'", val));
       if (Telemetry::CanRecordPrereleaseData()) {
         int mode = 0;
-        if (from.LowerCaseEqualsASCII(HTTP_GZIP_TYPE) ||
-            from.LowerCaseEqualsASCII(HTTP_X_GZIP_TYPE)) {
+        if (from.EqualsLiteral("gzip") || from.EqualsLiteral("x-gzip")) {
           mode = 1;
-        } else if (from.LowerCaseEqualsASCII(HTTP_DEFLATE_TYPE) ||
-                   from.LowerCaseEqualsASCII(HTTP_X_DEFLATE_TYPE)) {
+        } else if (from.EqualsLiteral("deflate") ||
+                   from.EqualsLiteral("x-deflate")) {
           mode = 2;
-        } else if (from.LowerCaseEqualsASCII(HTTP_BROTLI_TYPE)) {
+        } else if (from.EqualsLiteral("br")) {
           mode = 3;
-        } else if (from.LowerCaseEqualsASCII(HTTP_ZSTD_TYPE)) {
+        } else if (from.EqualsLiteral("zstd")) {
           mode = 4;
-        } else if (from.LowerCaseEqualsASCII(HTTP_BROTLI_DICTIONARY_TYPE)) {
+        } else if (from.EqualsLiteral("dcb")) {
           mode = 5;
-        } else if (from.LowerCaseEqualsASCII(HTTP_ZSTD_DICTIONARY_TYPE)) {
+        } else if (from.EqualsLiteral("dcz")) {
           mode = 6;
         }
         glean::http::content_encoding.AccumulateSingleSample(mode);
       }
 #ifdef MOZ_DIAGNOSTIC_ASSERT_ENABLED
-      if (from.LowerCaseEqualsASCII(HTTP_BROTLI_DICTIONARY_TYPE) ||
-          from.LowerCaseEqualsASCII(HTTP_ZSTD_DICTIONARY_TYPE)) {
+      if (from.EqualsLiteral("dcb") || from.EqualsLiteral("dcz")) {
         MOZ_DIAGNOSTIC_ASSERT(XRE_IsParentProcess());
       }
 #endif
@@ -1683,14 +1680,14 @@ HttpBaseChannel::nsContentEncodings::GetNext(nsACString& aNextEncoding) {
   encoding.EndReading(end);
 
   bool haveType = false;
-  if (CaseInsensitiveFindInReadable(HTTP_GZIP_TYPE_ns, start, end)) {
+  if (CaseInsensitiveFindInReadable("gzip"_ns, start, end)) {
     aNextEncoding.AssignLiteral(APPLICATION_GZIP);
     haveType = true;
   }
 
   if (!haveType) {
     encoding.BeginReading(start);
-    if (CaseInsensitiveFindInReadable(HTTP_COMPRESS_TYPE_ns, start, end)) {
+    if (CaseInsensitiveFindInReadable("compress"_ns, start, end)) {
       aNextEncoding.AssignLiteral(APPLICATION_COMPRESS);
       haveType = true;
     }
@@ -1698,7 +1695,7 @@ HttpBaseChannel::nsContentEncodings::GetNext(nsACString& aNextEncoding) {
 
   if (!haveType) {
     encoding.BeginReading(start);
-    if (CaseInsensitiveFindInReadable(HTTP_DEFLATE_TYPE_ns, start, end)) {
+    if (CaseInsensitiveFindInReadable("deflate"_ns, start, end)) {
       aNextEncoding.AssignLiteral(APPLICATION_ZIP);
       haveType = true;
     }
@@ -1706,7 +1703,7 @@ HttpBaseChannel::nsContentEncodings::GetNext(nsACString& aNextEncoding) {
 
   if (!haveType) {
     encoding.BeginReading(start);
-    if (CaseInsensitiveFindInReadable(HTTP_BROTLI_TYPE_ns, start, end)) {
+    if (CaseInsensitiveFindInReadable("br"_ns, start, end)) {
       aNextEncoding.AssignLiteral(APPLICATION_BROTLI);
       haveType = true;
     }
@@ -1714,7 +1711,7 @@ HttpBaseChannel::nsContentEncodings::GetNext(nsACString& aNextEncoding) {
 
   if (!haveType) {
     encoding.BeginReading(start);
-    if (CaseInsensitiveFindInReadable(HTTP_ZSTD_TYPE_ns, start, end)) {
+    if (CaseInsensitiveFindInReadable("zstd"_ns, start, end)) {
       aNextEncoding.AssignLiteral(APPLICATION_ZSTD);
       haveType = true;
     }
