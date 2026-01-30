@@ -991,7 +991,7 @@ export class SearchEngine {
         this.setAttr("overriddenBy", engine.id);
         this.setAttr("overriddenByOpenSearch", engine.toJSON());
       } else {
-        this.setAttr("overriddenBy", engine._extensionID);
+        this.setAttr("overriddenBy", engine.extensionID);
       }
     } else {
       this._urls = [];

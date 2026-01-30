@@ -1419,7 +1419,7 @@ export const SearchService = new (class SearchService {
     function isAddonEngine(engine) {
       return (
         engine instanceof lazy.AddonSearchEngine &&
-        engine._extensionID == extensionID
+        engine.extensionID == extensionID
       );
     }
 
@@ -1439,7 +1439,7 @@ export const SearchService = new (class SearchService {
     for (const engine of this._engines.values()) {
       if (
         engine instanceof lazy.AddonSearchEngine &&
-        engine._extensionID == details.id
+        engine.extensionID == details.id
       ) {
         return engine;
       }
@@ -2708,7 +2708,7 @@ export const SearchService = new (class SearchService {
 
           if (
             existingEngine instanceof lazy.AddonSearchEngine &&
-            existingEngine._extensionID == extensionId
+            existingEngine.extensionID == extensionId
           ) {
             // We assume that this WebExtension was already loaded as part of
             // #loadStartupEngines, and therefore do not try to add it again.
@@ -4008,7 +4008,7 @@ class SearchDefaultOverrideAllowlistHandler {
     let entry;
 
     if (engine instanceof lazy.AddonSearchEngine) {
-      entry = overrideEntries.find(e => e.thirdPartyId == engine._extensionID);
+      entry = overrideEntries.find(e => e.thirdPartyId == engine.extensionID);
     } else if (engine instanceof lazy.OpenSearchEngine) {
       entry = overrideEntries.find(
         e =>

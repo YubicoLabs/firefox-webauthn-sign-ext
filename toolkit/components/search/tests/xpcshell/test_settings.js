@@ -627,8 +627,8 @@ var EXPECTED_ENGINE = {
   engine: {
     name: "Test search engine",
     alias: "",
+    extensionID: "test-addon-id@mozilla.org",
     wrappedJSObject: {
-      _extensionID: "test-addon-id@mozilla.org",
       _iconURL:
         "data:image/png;base64,AAABAAEAEBAAAAEAGABoAwAAFgAAACgAAAAQAAA" +
         "AIAAAAAEAGAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADs9Pt8xetPtu9F" +
