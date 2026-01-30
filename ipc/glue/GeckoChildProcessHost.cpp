@@ -1548,10 +1548,12 @@ RefPtr<ProcessLaunchPromise> MacProcessLauncher::DoLaunch() {
         // Wait for the child process to send us its 'task_t' data, then
         // send it the mach send/receive rights which are being passed on
         // the commandline.
-        return MachHandleProcessCheckIn(std::move(self->mParentRecvPort),
-                                        base::GetProcId(aResults.mHandle),
-                                        mozilla::TimeDuration::FromSeconds(10),
-                                        std::move(self->mChildArgs.mSendRights))
+        return MachHandleProcessCheckIn(
+                   std::move(self->mParentRecvPort),
+                   base::GetProcId(aResults.mHandle),
+                   mozilla::TimeDuration::FromSeconds(10),
+                   std::move(self->mChildArgs.mSendRights),
+                   std::move(self->mChildArgs.mReceiveRights))
             ->Then(
                 XRE_GetAsyncIOEventTarget(), __func__,
                 [self, results = std::move(aResults)](task_t aTask) mutable {
