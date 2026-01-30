@@ -352,9 +352,10 @@ fn prepare_quad_impl(
         EdgeAaSegmentMask::all()
     };
 
-    let transform_id = state.transforms.gpu.get_id(
+    let transform_id = state.transforms.gpu.get_id_with_post_scale(
         prim_spatial_node_index,
         pic_context.raster_spatial_node_index,
+        device_pixel_scale.get(),
         ctx.spatial_tree,
     );
 
@@ -1159,6 +1160,7 @@ fn add_render_task_with_mask(
                     prim_address_f,
                     prim_spatial_node_index,
                     raster_spatial_node_index,
+                    device_pixel_scale,
                     interned_clips,
                     clip_store,
                     spatial_tree,
@@ -1196,8 +1198,7 @@ fn add_pattern_prim(
 
     frame_state.set_segments(segments, targets);
 
-    let mut quad_flags = QuadFlags::IGNORE_DEVICE_PIXEL_SCALE
-        | QuadFlags::APPLY_RENDER_TASK_CLIP;
+    let mut quad_flags = QuadFlags::APPLY_RENDER_TASK_CLIP;
 
     if is_opaque {
         quad_flags |= QuadFlags::IS_OPAQUE;
@@ -1246,8 +1247,7 @@ fn add_composite_prim(
 
     frame_state.set_segments(segments, targets);
 
-    let quad_flags = QuadFlags::IGNORE_DEVICE_PIXEL_SCALE
-        | QuadFlags::APPLY_RENDER_TASK_CLIP;
+    let quad_flags = QuadFlags::APPLY_RENDER_TASK_CLIP;
 
     frame_state.push_cmd(
         &PrimitiveCommand::quad(
@@ -1272,6 +1272,7 @@ pub fn prepare_clip_range(
     main_prim_address: GpuBufferAddress,
     prim_spatial_node_index: SpatialNodeIndex,
     raster_spatial_node_index: SpatialNodeIndex,
+    device_pixel_scale: DevicePixelScale,
     interned_clips: &DataStore<ClipIntern>,
     clip_store: &ClipStore,
     spatial_tree: &SpatialTree,
@@ -1292,6 +1293,7 @@ pub fn prepare_clip_range(
             main_prim_address,
             prim_spatial_node_index,
             raster_spatial_node_index,
+            device_pixel_scale,
             clip_store,
             spatial_tree,
             gpu_buffer,
@@ -1313,6 +1315,7 @@ pub fn prepare_clip_task(
     clipped_prim_address: GpuBufferAddress,
     prim_spatial_node_index: SpatialNodeIndex,
     raster_spatial_node_index: SpatialNodeIndex,
+    device_pixel_scale: DevicePixelScale,
     clip_store: &ClipStore,
     spatial_tree: &SpatialTree,
     gpu_buffer: &mut GpuBufferBuilderF,
@@ -1371,9 +1374,10 @@ pub fn prepare_clip_task(
             panic!("bug: box-shadow clips not expected on non-legacy rect/quads");
         }
         ClipItemKind::Image { rect, .. } => {
-            let transform_id = transforms.gpu.get_id(
+            let transform_id = transforms.gpu.get_id_with_post_scale(
                 clip_item.spatial_node_index,
                 raster_spatial_node_index,
+                device_pixel_scale.get(),
                 spatial_tree,
             );
 
@@ -1427,7 +1431,12 @@ pub fn prepare_clip_task(
 
     // See the documentation of RectangleClipSubTask::clip_space.
     let (clip_space, clip_transform_id, quad_address, quad_transform_id, is_same_coord_system) = if raster_clip {
-        let quad_transform_id = GpuTransformId::IDENTITY;
+        let quad_transform_id = transforms.gpu.get_id_with_post_scale(
+            raster_spatial_node_index,
+            raster_spatial_node_index,
+            device_pixel_scale.get(),
+            spatial_tree,
+        );
         let pattern = Pattern::color(ColorF::WHITE);
 
         // TODO: This transform could be set to identity in favor of using the
@@ -1453,9 +1462,10 @@ pub fn prepare_clip_task(
 
         (ClipSpace::Raster, clip_transform_id, quad_address, quad_transform_id, true)
     } else {
-        let quad_transform_id = transforms.gpu.get_id(
+        let quad_transform_id = transforms.gpu.get_id_with_post_scale(
             prim_spatial_node_index,
             raster_spatial_node_index,
+            device_pixel_scale.get(),
             spatial_tree,
         );
 

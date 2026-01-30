@@ -1076,16 +1076,12 @@ fn prepare_interned_prim_for_render(
                     let pic_task_id = pic.primary_render_task_id.expect("uh oh");
                     let pic_task = frame_state.rg_builder.get_task_mut(pic_task_id);
 
-                    let (task_world_rect, task_raster_node_index) = match &pic_task.kind {
-                        RenderTaskKind::Picture(info) => {
-                            let rect = DeviceRect::from_origin_and_size(
-                                info.content_origin,
-                                pic_task.get_target_size().to_f32(),
-                            ) / info.device_pixel_scale;
-                            (rect, info.raster_spatial_node_index)
-                        },
-                        _ => unreachable!()
-                    };
+                    let RenderTaskKind::Picture(info) = &pic_task.kind else { unreachable!() };
+
+                    let task_world_rect = DeviceRect::from_origin_and_size(
+                        info.content_origin,
+                        pic_task.get_target_size().to_f32(),
+                    ) / info.device_pixel_scale;
 
                     quad::prepare_clip_range(
                         clip_node_range,
@@ -1093,7 +1089,8 @@ fn prepare_interned_prim_for_render(
                         task_world_rect,
                         prim_address_f,
                         prim_spatial_node_index,
-                        task_raster_node_index,
+                        info.raster_spatial_node_index,
+                        info.device_pixel_scale,
                         &data_stores.clip,
                         frame_state.clip_store,
                         frame_context.spatial_tree,
@@ -1163,6 +1160,7 @@ fn prepare_interned_prim_for_render(
                         prim_address_f,
                         prim_spatial_node_index,
                         raster_spatial_node_index,
+                        device_pixel_scale,
                         &data_stores.clip,
                         frame_state.clip_store,
                         frame_context.spatial_tree,
