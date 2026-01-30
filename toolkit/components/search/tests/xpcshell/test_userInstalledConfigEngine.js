@@ -77,7 +77,7 @@ add_task(async function update() {
 });
 
 add_task(async function switchRegion() {
-  let engine = SearchService.getEngineById("additional").wrappedJSObject;
+  let engine = SearchService.getEngineById("additional");
   Assert.ok(
     engine instanceof UserInstalledConfigEngine,
     "Starts as a UserInstalledConfigEngine"
@@ -93,7 +93,7 @@ add_task(async function switchRegion() {
   Assert.equal(engine.partnerCode, "regional_partner_code");
 
   await restartSearchService();
-  engine = SearchService.getEngineById("additional").wrappedJSObject;
+  engine = SearchService.getEngineById("additional");
   Assert.ok(
     engine instanceof AppProvidedConfigEngine,
     "Still is AppProvidedConfigEngine"
@@ -109,7 +109,7 @@ add_task(async function switchRegion() {
   Assert.equal(engine.partnerCode, "old_partner_code");
 
   await restartSearchService();
-  engine = SearchService.getEngineById("additional").wrappedJSObject;
+  engine = SearchService.getEngineById("additional");
   Assert.ok(
     engine instanceof UserInstalledConfigEngine,
     "Still is UserInstalledConfigEngine"
@@ -119,7 +119,7 @@ add_task(async function switchRegion() {
 
 add_task(async function remove() {
   let engine = SearchService.getEngineById("additional");
-  let engineLoadPath = engine.wrappedJSObject._loadPath;
+  let engineLoadPath = engine._loadPath;
   // Set the seen counter to some value so we can check if it was reset.
   SearchService._settings.setMetaDataAttribute("contextual-engines-seen", {
     [engineLoadPath]: -1,

@@ -140,7 +140,7 @@ add_setup(async function () {
     search_url_get_params: "q={searchTerms}",
   });
   let nonconfigEngine = SearchService.getEngineByName(NONCONFIG_ENGINE_NAME);
-  nonconfigEngine.wrappedJSObject._urls.push(
+  nonconfigEngine._urls.push(
     new EngineURL({
       type: SearchUtils.URL_TYPE.VISUAL_SEARCH,
       template: "https://example.com/nonconfig-engine-visual",
@@ -334,7 +334,7 @@ add_task(async function nonconfigEngine() {
 
   let engine = SearchService.getEngineByName(NONCONFIG_ENGINE_NAME);
   Assert.ok(
-    engine.wrappedJSObject.getURLOfType(SearchUtils.URL_TYPE.VISUAL_SEARCH),
+    engine.getURLOfType(SearchUtils.URL_TYPE.VISUAL_SEARCH),
     "Sanity check: Nonconfig engine has a visual search URL"
   );
 

@@ -875,7 +875,7 @@ export const SearchService = new (class SearchService {
 
     var engineToRemove = null;
     for (var e of this._engines.values()) {
-      if (engine.wrappedJSObject == e) {
+      if (engine == e) {
         engineToRemove = e;
       }
     }
@@ -988,8 +988,6 @@ export const SearchService = new (class SearchService {
         Cr.NS_ERROR_FAILURE
       );
     }
-
-    engine = engine.wrappedJSObject;
 
     var currentIndex = this.#sortedEngines.indexOf(engine);
     if (currentIndex == -1) {

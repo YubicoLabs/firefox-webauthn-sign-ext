@@ -90,15 +90,14 @@ add_task(async function test_appDefaultEngine() {
 
 add_task(async function test_alternateAppDefaultEngine_with_partnerCode() {
   let promise = promiseDefaultNotification();
-  let alternateEngine =
-    SearchService.getEngineById("alternateEngine").wrappedJSObject;
+  let alternateEngine = SearchService.getEngineById("alternateEngine");
   await SearchService.setDefault(
     alternateEngine,
     SearchService.CHANGE_REASON.UNKNOWN
   );
 
-  Assert.equal((await promise).wrappedJSObject, alternateEngine);
-  Assert.equal(SearchService.defaultEngine.wrappedJSObject, alternateEngine);
+  Assert.equal(await promise, alternateEngine);
+  Assert.equal(SearchService.defaultEngine, alternateEngine);
 
   await assertGleanDefaultEngine({
     normal: {
@@ -137,8 +136,7 @@ add_task(async function test_alternateAppDefaultEngine_with_override() {
     },
   ]);
 
-  let alternateEngine =
-    SearchService.getEngineById("alternateEngine").wrappedJSObject;
+  let alternateEngine = SearchService.getEngineById("alternateEngine");
 
   promise = promiseDefaultNotification();
   let ext = ExtensionTestUtils.loadExtension({
@@ -167,8 +165,8 @@ add_task(async function test_alternateAppDefaultEngine_with_override() {
   });
 
   await AddonTestUtils.waitForSearchProviderStartup(ext);
-  Assert.equal((await promise).wrappedJSObject, alternateEngine);
-  Assert.equal(SearchService.defaultEngine.wrappedJSObject, alternateEngine);
+  Assert.equal(await promise, alternateEngine);
+  Assert.equal(SearchService.defaultEngine, alternateEngine);
   Assert.equal(
     alternateEngine.overriddenById,
     "test@thirdparty.example.com",
@@ -194,8 +192,8 @@ add_task(async function test_thirdPartyDefaultEngine() {
   let promise = promiseDefaultNotification();
   await SearchService.setDefault(engine1, SearchService.CHANGE_REASON.UNKNOWN);
 
-  Assert.equal((await promise).wrappedJSObject, engine1);
-  Assert.equal(SearchService.defaultEngine.wrappedJSObject, engine1);
+  Assert.equal(await promise, engine1);
+  Assert.equal(SearchService.defaultEngine, engine1);
 
   await assertGleanDefaultEngine({
     normal: {
@@ -211,8 +209,8 @@ add_task(async function test_thirdPartyDefaultEngine() {
 
   promise = promiseDefaultNotification();
   await SearchService.setDefault(engine2, SearchService.CHANGE_REASON.UNKNOWN);
-  Assert.equal((await promise).wrappedJSObject, engine2);
-  Assert.equal(SearchService.defaultEngine.wrappedJSObject, engine2);
+  Assert.equal(await promise, engine2);
+  Assert.equal(SearchService.defaultEngine, engine2);
 
   await assertGleanDefaultEngine({
     normal: {
@@ -228,8 +226,8 @@ add_task(async function test_thirdPartyDefaultEngine() {
 
   promise = promiseDefaultNotification();
   await SearchService.setDefault(engine1, SearchService.CHANGE_REASON.UNKNOWN);
-  Assert.equal((await promise).wrappedJSObject, engine1);
-  Assert.equal(SearchService.defaultEngine.wrappedJSObject, engine1);
+  Assert.equal(await promise, engine1);
+  Assert.equal(SearchService.defaultEngine, engine1);
 
   await assertGleanDefaultEngine({
     normal: {
@@ -273,7 +271,7 @@ add_task(async function test_telemetry_empty_submission_url() {
 });
 
 add_task(async function test_switch_with_invalid_overriddenBy() {
-  engine1.wrappedJSObject.setAttr("overriddenBy", "random@id");
+  engine1.setAttr("overriddenBy", "random@id");
 
   consoleAllowList.push(
     "Test search engine had overriddenBy set, but no _overriddenData"
@@ -281,6 +279,6 @@ add_task(async function test_switch_with_invalid_overriddenBy() {
 
   let promise = promiseDefaultNotification();
   await SearchService.setDefault(engine2, SearchService.CHANGE_REASON.UNKNOWN);
-  Assert.equal((await promise).wrappedJSObject, engine2);
-  Assert.equal(SearchService.defaultEngine.wrappedJSObject, engine2);
+  Assert.equal(await promise, engine2);
+  Assert.equal(SearchService.defaultEngine, engine2);
 });

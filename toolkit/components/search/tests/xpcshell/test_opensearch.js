@@ -73,10 +73,7 @@ for (const test of tests) {
 
     Assert.equal(engine.name, test.name, "Should have the correct name");
 
-    Assert.equal(
-      engine.wrappedJSObject._loadPath,
-      `[http]localhost/${test.file}`
-    );
+    Assert.equal(engine._loadPath, `[http]localhost/${test.file}`);
 
     Assert.equal(
       engine.queryCharset,

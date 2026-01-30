@@ -291,7 +291,7 @@ for (const test of tests) {
 
     let engine = await SearchService.getEngineByName(kOverriddenEngineName);
     Assert.equal(
-      !!engine.wrappedJSObject.getAttr("overriddenBy"),
+      !!engine.getAttr("overriddenBy"),
       test.expected.overridesEngine,
       "Should have correctly overridden or not."
     );
@@ -349,7 +349,7 @@ for (const test of tests) {
         SearchService.CHANGE_REASON.UNKNOWN
       );
 
-      engine.wrappedJSObject.removeExtensionOverride();
+      engine.removeExtensionOverride();
     }
   });
 }

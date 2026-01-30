@@ -1060,10 +1060,8 @@ class EngineStore {
     for (let i of ["id", "name", "alias", "hidden", "isAppProvided"]) {
       clonedObj[i] = aEngine[i];
     }
-    clonedObj.isAddonEngine =
-      aEngine.wrappedJSObject instanceof lazy.AddonSearchEngine;
-    clonedObj.isUserEngine =
-      aEngine.wrappedJSObject instanceof lazy.UserSearchEngine;
+    clonedObj.isAddonEngine = aEngine instanceof lazy.AddonSearchEngine;
+    clonedObj.isUserEngine = aEngine instanceof lazy.UserSearchEngine;
     clonedObj.originalEngine = aEngine;
 
     // Trigger getting the iconURL for this engine.
@@ -1525,7 +1523,7 @@ class EngineView {
             break;
           case "editEngineButton":
             if (this.selectedEngine.isUserEngine) {
-              let engine = this.selectedEngine.originalEngine.wrappedJSObject;
+              let engine = this.selectedEngine.originalEngine;
               gSubDialog.open(
                 "chrome://browser/content/search/addEngine.xhtml",
                 { features: "resizable=no, modal=yes" },
@@ -1913,7 +1911,7 @@ class EngineView {
    *   Resolves to true if the name was changed.
    */
   async #changeName(aEngine, aNewName) {
-    let valid = aEngine.originalEngine.wrappedJSObject.rename(aNewName);
+    let valid = aEngine.originalEngine.rename(aNewName);
     if (!valid) {
       let msg = await document.l10n.formatValue(
         "edit-engine-name-warning-duplicate",

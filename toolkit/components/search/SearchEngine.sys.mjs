@@ -1592,10 +1592,6 @@ export class SearchEngine {
     };
   }
 
-  get wrappedJSObject() {
-    return this;
-  }
-
   /**
    * Returns the icon URL for the search engine closest to the preferred width
    * or undefined if the engine has no icons.

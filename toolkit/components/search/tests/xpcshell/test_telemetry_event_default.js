@@ -475,7 +475,7 @@ add_task(async function test_default_engine_update() {
   const defaultEngineData = {
     id: engine.telemetryId,
     name: "Bar",
-    loadPath: engine.wrappedJSObject._loadPath,
+    loadPath: engine._loadPath,
     submissionURL: "https://www.google.com/search?q=&version=2.0",
   };
   await checkTelemetry("engine-update", defaultEngineData, defaultEngineData);

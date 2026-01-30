@@ -96,7 +96,7 @@ async function assertInstalledEngineMatches(expectedData) {
 
   Assert.ok(engine, `Should have found the ${expectedData.type} engine`);
   Assert.equal(
-    engine.wrappedJSObject._loadPath,
+    engine._loadPath,
     expectedData.loadPath,
     "Should have migrated the loadPath"
   );

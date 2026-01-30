@@ -474,7 +474,7 @@ async function assertEngineCorrectlySet({
     "Should have used the third party engine's URLs"
   );
   Assert.equal(
-    !!defaultEngine.wrappedJSObject.getAttr("overriddenBy"),
+    !!defaultEngine.getAttr("overriddenBy"),
     appEngineOverriden,
     "Should have correctly overridden or not."
   );
