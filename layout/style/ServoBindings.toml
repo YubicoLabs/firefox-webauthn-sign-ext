@@ -664,6 +664,7 @@ mapped-generic-types = [
     { generic = false, gecko = "ServoNodeData", servo = "atomic_refcell::AtomicRefCell<crate::data::ElementData>" },
     { generic = false, gecko = "mozilla::ServoWritingMode", servo = "crate::logical_geometry::WritingMode" },
     { generic = false, gecko = "mozilla::ServoComputedCustomProperties", servo = "crate::custom_properties::ComputedCustomProperties" },
+    { generic = false, gecko = "mozilla::ServoUsedAttributes", servo = "crate::dom::AttributeReferences" },
     { generic = false, gecko = "mozilla::ServoRuleNode", servo = "Option<crate::rule_tree::StrongRuleNode>" },
     { generic = false, gecko = "nsACString", servo = "nsstring::nsACString" },
     { generic = false, gecko = "nsAString", servo = "nsstring::nsAString" },
