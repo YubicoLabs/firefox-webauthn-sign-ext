@@ -1657,6 +1657,14 @@ class CssSelectorInfo {
     const originalOrder =
       selectorInfos.indexOf(this) < selectorInfos.indexOf(that) ? -1 : 1;
 
+    // If rules are applied to different elements, the element that is the closest to the
+    // view element should be displayed before the other
+    if (this.distance !== that.distance) {
+      // Higher distance means we're closest to the viewed element (0 is when the rule is
+      // for the viewed element, -1 when it's for its parent and so on).
+      return this.distance > that.distance ? -1 : 1;
+    }
+
     // If both properties are not important, we can keep the original order
     if (!this.important && !that.important) {
       return originalOrder;

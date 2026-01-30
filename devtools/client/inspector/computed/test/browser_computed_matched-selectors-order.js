@@ -853,6 +853,28 @@ add_task(async function () {
       },
     ],
   });
+
+  await selectNode("#with-important-inherited", inspector);
+  await checkMatchedSelectorForProperty(view, {
+    property: "color",
+    expectedComputedValue: "rgb(0, 0, 255)",
+    expectedMatchedSelectors: [
+      {
+        selector: "& #with-important-inherited",
+        value: "blue",
+      },
+      {
+        selector: "#set-important-inherited",
+        value: "red",
+        match: false,
+      },
+      {
+        selector: ":root",
+        value: "canvastext",
+        match: false,
+      },
+    ],
+  });
 });
 
 async function checkBackgroundColorMatchedSelectors(
