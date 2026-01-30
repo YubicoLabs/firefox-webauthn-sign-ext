@@ -10,7 +10,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.mozilla.fenix.settings.emailmasks.EmailMasksAction
-import org.mozilla.fenix.settings.emailmasks.EmailMasksPreferencesMiddleware
+import org.mozilla.fenix.settings.emailmasks.middleware.EmailMasksPreferencesMiddleware
 import org.mozilla.fenix.settings.emailmasks.EmailMasksState
 import org.mozilla.fenix.settings.emailmasks.EmailMasksUserAction
 
