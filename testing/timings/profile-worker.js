@@ -218,6 +218,10 @@ function extractTestTimings(profile) {
       if (status === "FAIL" && data.color === "green") {
         status = "EXPECTED-FAIL";
       }
+      // Check if this is an unexpected pass (PASS status with expected field present)
+      else if (status === "PASS" && data.expected && data.expected !== "PASS") {
+        status = "UNEXPECTED-PASS";
+      }
       // Add execution context suffix to timeout, fail, and pass statuses
       else if (
         ["TIMEOUT", "FAIL", "PASS"].includes(status) &&
@@ -264,7 +268,8 @@ function extractTestTimings(profile) {
       continue;
     }
 
-    if (!testPath || !testPath.endsWith(".js")) {
+    // Filter out non-test paths (allow common test file extensions)
+    if (!testPath || !/\.(js|html|xhtml)$/.test(testPath)) {
       continue;
     }
 
@@ -353,8 +358,10 @@ async function fetchResourceProfile(taskId, retryId = 0) {
 
 // Process a single job to extract test timings
 async function processJob(job) {
-  const taskId = job.task_id;
-  const retryId = job.retry_id || 0;
+  // Parse task field: "<task_id>.<retry_id>" or just "<task_id>"
+  const parts = job.task.split(".");
+  const taskId = parts[0];
+  const retryId = parts.length === 2 ? parseInt(parts[1], 10) : 0;
   const jobName = job.name;
 
   if (!taskId) {

@@ -16,13 +16,30 @@ const TASKCLUSTER_BASE_URL =
   process.env.TASKCLUSTER_ROOT_URL ||
   "https://firefox-ci-tc.services.mozilla.com";
 
+// Check for --harness parameter
+const HARNESS = (() => {
+  const harnessIndex = process.argv.findIndex(arg => arg === "--harness");
+  if (harnessIndex !== -1 && harnessIndex + 1 < process.argv.length) {
+    return process.argv[harnessIndex + 1];
+  }
+  return "xpcshell";
+})();
+
+// Firefox-CI ETL Query for test job data (contains xpcshell, mochitest, reftest)
+const FIREFOX_CI_ETL_URL =
+  "https://sql.telemetry.mozilla.org/api/queries/114029/results.json?api_key=6LTIeXwlJ5YTlmtbRXmlr5vfSEKVmzsNEyhr4VxO";
+
+// Treeherder query for list of tasks to ignore (broken patches that were reverted)
+const IGNORE_LIST_URL =
+  "https://sql.telemetry.mozilla.org/api/queries/114030/results.json?api_key=8Q6UgAs8l8MdhmZD8bmW9VNcWpZ8MMwyhyOchslh";
+
 // Check for --output-dir parameter
 const OUTPUT_DIR = (() => {
   const outputDirIndex = process.argv.findIndex(arg => arg === "--output-dir");
   if (outputDirIndex !== -1 && outputDirIndex + 1 < process.argv.length) {
     return process.argv[outputDirIndex + 1];
   }
-  return "./xpcshell-data";
+  return `./${HARNESS}-data`;
 })();
 
 const PROFILE_CACHE_DIR = "./profile-cache";
@@ -48,6 +65,9 @@ function getDateString(daysAgo = 0) {
 async function fetchJson(url) {
   const response = await fetch(url);
   if (!response.ok) {
+    console.error(
+      `Failed to fetch ${url}: HTTP ${response.status} ${response.statusText}`
+    );
     return null;
   }
   return response.json();
@@ -101,45 +121,79 @@ async function fetchPushJobs(project, pushId) {
   const retryIdIndex = propertyNames.indexOf("retry_id");
   const lastModifiedIndex = propertyNames.indexOf("last_modified");
 
-  const xpcshellJobs = allJobs
+  const harnessJobs = allJobs
     .filter(
-      job => job[jobTypeNameIndex] && job[jobTypeNameIndex].includes("xpcshell")
+      job => job[jobTypeNameIndex] && job[jobTypeNameIndex].includes(HARNESS)
     )
-    .map(job => ({
-      name: job[jobTypeNameIndex],
-      task_id: job[taskIdIndex],
-      retry_id: job[retryIdIndex] || 0,
-      start_time: job[lastModifiedIndex],
-      repository: project,
-    }));
+    .map(job => {
+      const taskId = job[taskIdIndex];
+      const retryId = job[retryIdIndex] || 0;
+      const task = retryId === 0 ? taskId : `${taskId}.${retryId}`;
+      return {
+        name: job[jobTypeNameIndex],
+        task,
+        start_time: job[lastModifiedIndex],
+        repository: project,
+      };
+    });
 
   console.log(
-    `Found ${xpcshellJobs.length} xpcshell jobs out of ${allJobs.length} total jobs`
+    `Found ${harnessJobs.length} ${HARNESS} jobs out of ${allJobs.length} total jobs`
   );
-  return xpcshellJobs;
+  return harnessJobs;
 }
 
-// Fetch xpcshell test data from treeherder database for a specific date
-async function fetchXpcshellData(targetDate) {
-  console.log(`Fetching xpcshell test data for ${targetDate}...`);
+// Fetch test data from Firefox-CI ETL for a specific date
+async function fetchHarnessData(targetDate) {
+  console.log(`Fetching ${HARNESS} test data for ${targetDate}...`);
 
-  // Fetch data from the treeherder database if not already cached
+  // Fetch data from Firefox-CI ETL if not already cached
   if (!allJobsCache) {
-    console.log(`Querying treeherder database...`);
-    const result = await fetchJson(
-      "https://sql.telemetry.mozilla.org/api/queries/110630/results.json?api_key=Pyybfsna2r5KQkwYgSk9zqbYfc6Dv0rhxL99DFi1"
-    );
+    console.log(`Querying Firefox-CI ETL and loading ignore list...`);
 
-    if (!result) {
-      throw new Error("Failed to fetch data from treeherder database");
+    // Fetch both Firefox-CI ETL data and ignore list in parallel
+    const [etlResult, ignoreListResult] = await Promise.all([
+      fetchJson(FIREFOX_CI_ETL_URL),
+      fetchJson(IGNORE_LIST_URL),
+    ]);
+
+    if (!etlResult) {
+      throw new Error("Failed to fetch data from Firefox-CI ETL");
     }
 
-    const allJobs = result.query_result.data.rows;
+    if (!ignoreListResult) {
+      throw new Error("Failed to fetch ignore list from Treeherder");
+    }
 
-    // Cache only xpcshell jobs
-    allJobsCache = allJobs.filter(job => job.name.includes("xpcshell"));
+    // Build set of tasks to ignore
+    const ignoreTasks = new Set();
+    for (const row of ignoreListResult.query_result.data.rows) {
+      ignoreTasks.add(row.task);
+    }
+    console.log(`Loaded ${ignoreTasks.size} tasks to ignore`);
+
+    const allJobs = etlResult.query_result.data.rows;
+
+    // Filter jobs by harness and ignore list
+    let ignoredTotalCount = 0;
+    let ignoredHarnessCount = 0;
+
+    allJobsCache = allJobs.filter(job => {
+      if (ignoreTasks.has(job.task)) {
+        ignoredTotalCount++;
+        if (job.name?.includes(HARNESS)) {
+          ignoredHarnessCount++;
+        }
+        return false;
+      }
+      return job.name?.includes(HARNESS);
+    });
+
     console.log(
-      `Cached ${allJobsCache.length} xpcshell jobs from treeherder database (out of ${allJobs.length} total jobs)`
+      `Ignored ${ignoredTotalCount} jobs from ignore list (${ignoredHarnessCount} ${HARNESS} jobs)`
+    );
+    console.log(
+      `Cached ${allJobsCache.length} ${HARNESS} jobs from Firefox-CI ETL (out of ${allJobs.length} total jobs)`
     );
   }
 
@@ -1059,12 +1113,12 @@ async function processJobsAndCreateData(
 }
 
 async function processRevisionData(project, revision, forceRefetch = false) {
-  console.log(`Fetching xpcshell test data for ${project}:${revision}`);
+  console.log(`Fetching ${HARNESS} test data for ${project}:${revision}`);
   console.log(`=== Processing ${project}:${revision} ===`);
 
   const cacheFile = path.join(
     OUTPUT_DIR,
-    `xpcshell-${project}-${revision}.json`
+    `${HARNESS}-${project}-${revision}.json`
   );
 
   // Check if we already have data for this revision
@@ -1087,7 +1141,7 @@ async function processRevisionData(project, revision, forceRefetch = false) {
     const jobs = await fetchPushJobs(project, pushId);
 
     if (jobs.length === 0) {
-      console.log(`No xpcshell jobs found for ${project}:${revision}.`);
+      console.log(`No ${HARNESS} jobs found for ${project}:${revision}.`);
       return null;
     }
 
@@ -1114,7 +1168,7 @@ async function processRevisionData(project, revision, forceRefetch = false) {
     saveJsonFile(output.testData, cacheFile);
     const resourceCacheFile = path.join(
       OUTPUT_DIR,
-      `xpcshell-${project}-${revision}-resources.json`
+      `${HARNESS}-${project}-${revision}-resources.json`
     );
     saveJsonFile(output.resourceData, resourceCacheFile);
 
@@ -1181,8 +1235,8 @@ async function fetchPreviousRunData() {
 
 // Process data for a single date
 async function processDateData(targetDate, forceRefetch = false) {
-  const timingsFilename = `xpcshell-${targetDate}.json`;
-  const resourcesFilename = `xpcshell-${targetDate}-resources.json`;
+  const timingsFilename = `${HARNESS}-${targetDate}.json`;
+  const resourcesFilename = `${HARNESS}-${targetDate}-resources.json`;
   const timingsPath = path.join(OUTPUT_DIR, timingsFilename);
   const resourcesPath = path.join(OUTPUT_DIR, resourcesFilename);
 
@@ -1195,7 +1249,7 @@ async function processDateData(targetDate, forceRefetch = false) {
   // Fetch jobs list first (needed for verification)
   let jobs;
   try {
-    jobs = await fetchXpcshellData(targetDate);
+    jobs = await fetchHarnessData(targetDate);
     if (jobs.length === 0) {
       console.log(`No jobs found for ${targetDate}.`);
       return;
@@ -1275,7 +1329,7 @@ async function createAggregatedFailuresFile(dates) {
 
   const dailyFiles = [];
   for (const date of dates) {
-    const filePath = path.join(OUTPUT_DIR, `xpcshell-${date}.json`);
+    const filePath = path.join(OUTPUT_DIR, `${HARNESS}-${date}.json`);
     if (fs.existsSync(filePath)) {
       dailyFiles.push({ date, filePath });
     }
@@ -1659,7 +1713,7 @@ async function createAggregatedFailuresFile(dates) {
 
   const outputFileWithDetails = path.join(
     OUTPUT_DIR,
-    "xpcshell-issues-with-taskids.json"
+    `${HARNESS}-issues-with-taskids.json`
   );
   saveJsonFile(outputData, outputFileWithDetails);
 
@@ -1709,7 +1763,7 @@ async function createAggregatedFailuresFile(dates) {
     testRuns: smallTestRuns,
   };
 
-  const outputFileSmall = path.join(OUTPUT_DIR, "xpcshell-issues.json");
+  const outputFileSmall = path.join(OUTPUT_DIR, `${HARNESS}-issues.json`);
   saveJsonFile(smallOutput, outputFileSmall);
 
   console.log(
@@ -1786,7 +1840,7 @@ async function main() {
   }
 
   console.log(
-    `Fetching xpcshell test data for the last ${numDays} day${numDays > 1 ? "s" : ""}: ${dates.join(", ")}`
+    `Fetching ${HARNESS} test data for the last ${numDays} day${numDays > 1 ? "s" : ""}: ${dates.join(", ")}`
   );
 
   for (const date of dates) {
@@ -1803,10 +1857,11 @@ async function main() {
   const indexFile = path.join(OUTPUT_DIR, "index.json");
   const availableDates = [];
 
-  // Scan for all xpcshell-*.json files in the output directory
+  // Scan for all harness-*.json files in the output directory
   const files = fs.readdirSync(OUTPUT_DIR);
+  const pattern = new RegExp(`^${HARNESS}-(\\d{4}-\\d{2}-\\d{2})\\.json$`);
   files.forEach(file => {
-    const match = file.match(/^xpcshell-(\d{4}-\d{2}-\d{2})\.json$/);
+    const match = file.match(pattern);
     if (match) {
       availableDates.push(match[1]);
     }
