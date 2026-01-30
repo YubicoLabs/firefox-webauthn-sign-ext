@@ -119,6 +119,9 @@ const PREF_IMAGE_PROXY_ENABLED_STORE = "discoverystream.imageProxy.enabled";
 const PREF_SHOULD_ENABLE_EXTERNAL_COMPONENTS_FEED =
   "browser.newtabpage.activity-stream.externalComponents.enabled";
 
+export const PREF_DEFAULT_VALUE_TOPSITES_ENABLED = true;
+export const PREF_DEFAULT_VALUE_TOPSTORIES_ENABLED = true;
+
 export const WEATHER_OPTIN_REGIONS = [
   "AT", // Austria
   "BE", // Belgium
@@ -256,7 +259,7 @@ export const PREFS_CONFIG = new Map([
     "feeds.topsites",
     {
       title: "Displays Top Sites on the New Tab Page",
-      value: true,
+      value: PREF_DEFAULT_VALUE_TOPSITES_ENABLED,
     },
   ],
   [
@@ -584,6 +587,13 @@ export const PREFS_CONFIG = new Map([
     {
       title: "Number of rows of Highlights to display",
       value: 1,
+    },
+  ],
+  [
+    "feeds.section.topstories",
+    {
+      title: "Whether top stories are enabled by default.",
+      value: PREF_DEFAULT_VALUE_TOPSTORIES_ENABLED,
     },
   ],
   [
