@@ -1434,7 +1434,7 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleVisibility {
   }
 
   bool UseLegacyCollapseBehavior() const {
-    return mMozBoxCollapse == mozilla::StyleMozBoxCollapse::Legacy;
+    return mMozBoxCollapse == mozilla::StyleBoxCollapse::Legacy;
   }
 
   /**
@@ -1467,7 +1467,7 @@ struct MOZ_NEEDS_MEMMOVABLE_MEMBERS nsStyleVisibility {
   mozilla::StyleImageRendering mImageRendering;
   mozilla::StyleWritingModeProperty mWritingMode;
   mozilla::StyleTextOrientation mTextOrientation;
-  mozilla::StyleMozBoxCollapse mMozBoxCollapse;
+  mozilla::StyleBoxCollapse mMozBoxCollapse;
   mozilla::StylePrintColorAdjust mPrintColorAdjust;
 
  private:
