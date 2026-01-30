@@ -266,4 +266,4 @@ Now that you're prepared and set up, you can access specific project instruction
 Android Request For Comment (RFC) Process
 -----------------------------------------
 
-See :doc:`Android RFC Process <rfcs/0015-android-rfc-process.md>`.
+See :doc:`Android RFC Process <rfcs/0015-android-rfc-process>`.
