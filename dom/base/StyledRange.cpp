@@ -23,24 +23,23 @@ void ImplCycleCollectionTraverse(nsCycleCollectionTraversalCallback& aCallback,
   }
 }
 void StyledRangeCollection::AppendElement(StyledRange&& aRange) {
-  SetTextRangeStyle(*mRanges.AppendElement(std::move(aRange.mRange)),
-                    aRange.mTextRangeStyle);
+  AddStyle(*mRanges.AppendElement(std::move(aRange.mRange)),
+           aRange.mTextRangeStyle);
 }
 void StyledRangeCollection::AppendElement(const StyledRange& aRange) {
-  SetTextRangeStyle(*mRanges.AppendElement(aRange.mRange),
-                    aRange.mTextRangeStyle);
+  AddStyle(*mRanges.AppendElement(aRange.mRange), aRange.mTextRangeStyle);
 }
 
 void StyledRangeCollection::InsertElementAt(size_t aIndex,
                                             StyledRange&& aRange) {
-  SetTextRangeStyle(*mRanges.InsertElementAt(aIndex, std::move(aRange.mRange)),
-                    aRange.mTextRangeStyle);
+  AddStyle(*mRanges.InsertElementAt(aIndex, std::move(aRange.mRange)),
+           aRange.mTextRangeStyle);
 }
 
 void StyledRangeCollection::InsertElementAt(size_t aIndex,
                                             const StyledRange& aRange) {
-  SetTextRangeStyle(*mRanges.InsertElementAt(aIndex, aRange.mRange),
-                    aRange.mTextRangeStyle);
+  AddStyle(*mRanges.InsertElementAt(aIndex, aRange.mRange),
+           aRange.mTextRangeStyle);
 }
 
 void StyledRangeCollection::InsertElementsAt(
@@ -81,28 +80,24 @@ void StyledRangeCollection::Clear() {
 StyledRange StyledRangeCollection::ExtractElementAt(size_t aIndex) {
   mozilla::dom::AbstractRange* range = mRanges[aIndex];
   StyledRange result(range);
-  if (const auto* style = GetTextRangeStyleIfNotDefault(range)) {
+  if (auto* style = FindStyleForRange(range)) {
     result.mTextRangeStyle = *style;
   }
   RemoveElementAt(aIndex);
   return result;
 }
 
-void StyledRangeCollection::SetTextRangeStyle(const AbstractRange* aRange,
-                                              const TextRangeStyle& aStyle) {
-  static const TextRangeStyle defaultStyle{};
-  if (aStyle != defaultStyle) {
-    mRangeStyleData.InsertOrUpdate(aRange, aStyle);
-  }
+void StyledRangeCollection::AddStyle(AbstractRange* aRange,
+                                     const TextRangeStyle& aStyle) {
+  mRangeStyleData.InsertOrUpdate(aRange, aStyle);
 }
 
-void StyledRangeCollection::RemoveStyle(const AbstractRange* aRange) {
+void StyledRangeCollection::RemoveStyle(AbstractRange* aRange) {
   mRangeStyleData.Remove(aRange);
 }
 
-const mozilla::TextRangeStyle*
-StyledRangeCollection::GetTextRangeStyleIfNotDefault(
-    const AbstractRange* aRange) {
+mozilla::TextRangeStyle* StyledRangeCollection::FindStyleForRange(
+    AbstractRange* aRange) {
   if (!aRange) {
     return nullptr;
   }
