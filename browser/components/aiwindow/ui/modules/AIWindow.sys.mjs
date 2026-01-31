@@ -16,6 +16,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
     "moz-src:///browser/components/aiwindow/ui/modules/AIWindowAccountAuth.sys.mjs",
   AIWindowMenu:
     "moz-src:///browser/components/aiwindow/ui/modules/AIWindowMenu.sys.mjs",
+  BrowserWindowTracker: "resource:///modules/BrowserWindowTracker.sys.mjs",
   SearchService: "moz-src:///toolkit/components/search/SearchService.sys.mjs",
   SearchUIUtils: "moz-src:///browser/components/search/SearchUIUtils.sys.mjs",
   ChatStore:
@@ -393,25 +394,43 @@ export const AIWindow = {
     }
   },
 
-  async launchWindow(browser) {
-    if (!this.isAIWindowEnabled()) {
-      Services.prefs.setBoolPref("browser.smartwindow.enabled", true);
-    }
+  async _authorizeAndToggleWindow(win) {
+    const authorized = await lazy.AIWindowAccountAuth.ensureAIWindowAccess(
+      win.gBrowser.selectedBrowser
+    );
 
-    if (!(await lazy.AIWindowAccountAuth.ensureAIWindowAccess(browser))) {
+    if (!authorized) {
       return false;
     }
 
-    this.toggleAIWindow(browser.ownerGlobal, true);
+    this.toggleAIWindow(win, true);
 
     if (!lazy.hasFirstrunCompleted) {
-      browser.ownerGlobal.gBrowser.loadURI(Services.io.newURI(FIRSTRUN_URL), {
+      win.gBrowser.loadURI(FIRSTRUN_URI, {
         triggeringPrincipal:
           Services.scriptSecurityManager.getSystemPrincipal(),
       });
     }
 
     return true;
+  },
+
+  async launchWindow(browser, openNewWindow = false) {
+    if (!this.isAIWindowEnabled()) {
+      Services.prefs.setBoolPref("browser.aiwindow.enabled", true);
+    }
+
+    if (!openNewWindow) {
+      return this._authorizeAndToggleWindow(browser.ownerGlobal);
+    }
+
+    const isAuthorized = await lazy.AIWindowAccountAuth.canAccessAIWindow();
+    const windowPromise = lazy.BrowserWindowTracker.promiseOpenWindow({
+      aiWindow: isAuthorized,
+      openerWindow: browser.ownerGlobal,
+    });
+
+    return this._authorizeAndToggleWindow(await windowPromise);
   },
 
   /**
