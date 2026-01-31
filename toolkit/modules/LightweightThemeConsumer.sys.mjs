@@ -306,19 +306,26 @@ LightweightThemeConsumer.prototype = {
   },
 
   _update(themeData) {
+    const manager = lazy.LightweightThemeManager;
+
+    // Store user's theme before replacing with aiThemeData.
+    this._lastData = themeData;
+
+    // Capture original theme's color scheme before replacing with aiThemeData.
+    let originalThemeColorScheme = themeData?.theme?.color_scheme;
+
     if (this._isAIWindow) {
-      const manager = lazy.LightweightThemeManager;
       if (manager.aiThemeData) {
         themeData = manager.aiThemeData;
       } else {
         manager.promiseAIThemeData().then(() => {
           if (this._isAIWindow && this._win && !this._win.closed) {
-            this._update(manager.aiThemeData);
+            this._update(this._lastData);
           }
         });
+        return;
       }
     }
-    this._lastData = themeData;
 
     let updateGlobalThemeData = true;
     const useDarkTheme = (() => {
@@ -331,9 +338,16 @@ LightweightThemeConsumer.prototype = {
         return false;
       }
 
-      // AI windows: use toolbar theme pref (0=dark, 1=light, 2=system)
-      if (this._isAIWindow && this._toolbarTheme != 2) {
-        return this._toolbarTheme == 0;
+      // AI windows: use color scheme from original user's theme
+      if (this._isAIWindow && originalThemeColorScheme) {
+        switch (originalThemeColorScheme) {
+          case "light":
+            return false;
+          case "dark":
+            return true;
+          default:
+            break;
+        }
       }
 
       if (this.darkThemeMediaQuery?.matches) {
