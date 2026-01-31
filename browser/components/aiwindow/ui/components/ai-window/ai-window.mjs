@@ -38,13 +38,13 @@ ChromeUtils.defineESModuleGetters(lazy, {
 ChromeUtils.defineLazyGetter(lazy, "log", function () {
   return console.createInstance({
     prefix: "ChatStore",
-    maxLogLevelPref: "browser.aiwindow.chatStore.loglevel",
+    maxLogLevelPref: "browser.smartwindow.chatStore.loglevel",
   });
 });
 
 const FULLPAGE = "fullpage";
 const SIDEBAR = "sidebar";
-const PREF_MEMORIES = "browser.aiwindow.memories";
+const PREF_MEMORIES = "browser.smartwindow.memories";
 
 /**
  * A custom element for managing AI Window

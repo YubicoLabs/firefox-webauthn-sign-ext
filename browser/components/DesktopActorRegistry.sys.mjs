@@ -235,7 +235,7 @@ let JSWINDOWACTORS = {
     },
     allFrames: true,
     matches: ["about:aichatcontent"],
-    enablePreference: "browser.aiwindow.enabled",
+    enablePreference: "browser.smartwindow.enabled",
   },
 
   BackupUI: {

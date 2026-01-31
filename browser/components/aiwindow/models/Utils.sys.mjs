@@ -22,8 +22,9 @@ const lazy = XPCOMUtils.declareLazy({
   RemoteSettings: "resource://services-settings/remote-settings.sys.mjs",
 });
 
-const MODEL_PREF = "browser.aiwindow.model";
-const ENDPOINT_PREF = "browser.aiwindow.endpoint";
+const APIKEY_PREF = "browser.smartwindow.apiKey";
+const MODEL_PREF = "browser.smartwindow.model";
+const ENDPOINT_PREF = "browser.smartwindow.endpoint";
 
 /**
  * Default engine ID used for all AI Window features
@@ -643,7 +644,7 @@ export class openAIEngine {
    */
   static async #createOpenAIEngine(engineId, serviceType, modelId = null) {
     const extraHeadersPref = Services.prefs.getStringPref(
-      "browser.aiwindow.extraHeaders",
+      "browser.smartwindow.extraHeaders",
       "{}"
     );
     let extraHeaders = {};
@@ -651,14 +652,14 @@ export class openAIEngine {
       extraHeaders = JSON.parse(extraHeadersPref);
     } catch (e) {
       console.error("Failed to parse extra headers from prefs:", e);
-      Services.prefs.clearUserPref("browser.aiwindow.extraHeaders");
+      Services.prefs.clearUserPref("browser.smartwindow.extraHeaders");
     }
 
     try {
       const engineInstance = await openAIEngine._createEngine({
-        apiKey: Services.prefs.getStringPref("browser.aiwindow.apiKey", ""),
+        apiKey: Services.prefs.getStringPref(APIKEY_PREF, ""),
         backend: "openai",
-        baseURL: Services.prefs.getStringPref("browser.aiwindow.endpoint", ""),
+        baseURL: Services.prefs.getStringPref(ENDPOINT_PREF, ""),
         engineId,
         modelId,
         modelRevision: "main",

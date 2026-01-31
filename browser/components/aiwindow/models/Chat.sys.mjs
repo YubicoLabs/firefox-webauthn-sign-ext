@@ -26,7 +26,7 @@ export const Chat = {};
 XPCOMUtils.defineLazyPreferenceGetter(
   Chat,
   "modelId",
-  "browser.aiwindow.model",
+  "browser.smartwindow.model",
   "qwen3-235b-a22b-instruct-2507-maas"
 );
 

@@ -20,7 +20,10 @@ ChromeUtils.defineLazyGetter(lazy, "fxAccounts", () => {
 ChromeUtils.defineLazyGetter(lazy, "log", function () {
   return console.createInstance({
     prefix: "AIWindowAccountAuth",
-    maxLogLevelPref: Services.prefs.getBoolPref("browser.aiwindow.log", false)
+    maxLogLevelPref: Services.prefs.getBoolPref(
+      "browser.smartwindow.log",
+      false
+    )
       ? "Debug"
       : "Warn",
   });
@@ -29,13 +32,13 @@ ChromeUtils.defineLazyGetter(lazy, "log", function () {
 XPCOMUtils.defineLazyPreferenceGetter(
   lazy,
   "hasAIWindowToSConsent",
-  "browser.aiwindow.tos.hasConsent",
+  "browser.smartwindow.tos.hasConsent",
   false
 );
 XPCOMUtils.defineLazyPreferenceGetter(
   lazy,
   "hasFirstrunCompleted",
-  "browser.aiwindow.firstrun.hasCompleted",
+  "browser.smartwindow.firstrun.hasCompleted",
   false
 );
 
@@ -45,7 +48,7 @@ export const AIWindowAccountAuth = {
   },
 
   set hasToSConsent(value) {
-    Services.prefs.setBoolPref("browser.aiwindow.tos.hasConsent", value);
+    Services.prefs.setBoolPref("browser.smartwindow.tos.hasConsent", value);
   },
 
   async isSignedIn() {

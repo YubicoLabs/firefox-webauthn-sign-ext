@@ -32,7 +32,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
 XPCOMUtils.defineLazyPreferenceGetter(
   lazy,
   "hasFirstrunCompleted",
-  "browser.aiwindow.firstrun.hasCompleted"
+  "browser.smartwindow.firstrun.hasCompleted"
 );
 
 /**
@@ -395,7 +395,7 @@ export const AIWindow = {
 
   async launchWindow(browser) {
     if (!this.isAIWindowEnabled()) {
-      Services.prefs.setBoolPref("browser.aiwindow.enabled", true);
+      Services.prefs.setBoolPref("browser.smartwindow.enabled", true);
     }
 
     if (!(await lazy.AIWindowAccountAuth.ensureAIWindowAccess(browser))) {
@@ -451,7 +451,7 @@ export const AIWindow = {
 XPCOMUtils.defineLazyPreferenceGetter(
   AIWindow,
   "AIWindowEnabled",
-  "browser.aiwindow.enabled",
+  "browser.smartwindow.enabled",
   false,
   AIWindow._onAIWindowEnabledPrefChange.bind(AIWindow)
 );

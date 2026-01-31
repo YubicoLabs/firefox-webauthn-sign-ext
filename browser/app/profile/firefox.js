@@ -2252,18 +2252,18 @@ pref("browser.ml.linkPreview.supportedLocales", "en");
 pref("browser.ml.pageAssist.enabled", false);
 
 // AI Window Feature
-pref("browser.aiwindow.apiKey", '');
-pref("browser.aiwindow.chatStore.loglevel", "Error");
-pref("browser.aiwindow.chatHistory.loglevel", "Error");
-pref("browser.aiwindow.enabled", false);
-pref("browser.aiwindow.endpoint", "https://mlpa-prod-prod-mozilla.global.ssl.fastly.net/v1");
-pref("browser.aiwindow.memories", true);
-pref("browser.aiwindow.memoriesLogLevel", "Warn");
-pref("browser.aiwindow.firstrun.autoAdvanceMS", 3000);
-pref("browser.aiwindow.firstrun.hasCompleted", false);
-pref("browser.aiwindow.firstrun.modelChoice", "");
-pref("browser.aiwindow.model", "qwen3-235b-a22b-instruct-2507-maas");
-pref("browser.aiwindow.preferences.enabled", false);
+pref("browser.smartwindow.apiKey", '');
+pref("browser.smartwindow.chatHistory.loglevel", "Error");
+pref("browser.smartwindow.chatStore.loglevel", "Error");
+pref("browser.smartwindow.enabled", false);
+pref("browser.smartwindow.endpoint", "https://mlpa-prod-prod-mozilla.global.ssl.fastly.net/v1");
+pref("browser.smartwindow.memories", true);
+pref("browser.smartwindow.memoriesLogLevel", "Warn");
+pref("browser.smartwindow.firstrun.autoAdvanceMS", 3000);
+pref("browser.smartwindow.firstrun.hasCompleted", false);
+pref("browser.smartwindow.firstrun.modelChoice", "");
+pref("browser.smartwindow.model", "qwen3-235b-a22b-instruct-2507-maas");
+pref("browser.smartwindow.preferences.enabled", false);
 
 // Block insecure active content on https pages
 pref("security.mixed_content.block_active_content", true);

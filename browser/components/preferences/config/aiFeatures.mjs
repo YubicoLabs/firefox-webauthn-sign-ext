@@ -29,9 +29,9 @@ const lazy = XPCOMUtils.declareLazy({
 Preferences.addAll([
   // browser.ai.control.* prefs defined in main.js
   { id: "browser.ml.chat.provider", type: "string" },
-  { id: "browser.aiwindow.preferences.enabled", type: "bool" },
-  { id: "browser.aiwindow.enabled", type: "bool" },
-  { id: "browser.aiwindow.memories", type: "bool" },
+  { id: "browser.smartwindow.preferences.enabled", type: "bool" },
+  { id: "browser.smartwindow.enabled", type: "bool" },
+  { id: "browser.smartwindow.memories", type: "bool" },
 ]);
 
 Preferences.addSetting({ id: "aiControlsDescription" });
@@ -449,12 +449,12 @@ Preferences.addSetting(
 
 Preferences.addSetting({
   id: "AIWindowPreferencesEnabled",
-  pref: "browser.aiwindow.preferences.enabled",
+  pref: "browser.smartwindow.preferences.enabled",
 });
 
 Preferences.addSetting({
   id: "AIWindowEnabled",
-  pref: "browser.aiwindow.enabled",
+  pref: "browser.smartwindow.enabled",
 });
 
 // Only show the feature settings if the prefs are allowed to show and the
@@ -492,7 +492,7 @@ Preferences.addSetting({
 Preferences.addSetting({ id: "learnFromActivityWrapper" });
 Preferences.addSetting({
   id: "learnFromActivity",
-  pref: "browser.aiwindow.memories",
+  pref: "browser.smartwindow.memories",
 });
 
 Preferences.addSetting({
@@ -575,11 +575,14 @@ Preferences.addSetting(
 
     setup() {
       Services.obs.addObserver(this.emitChange, "memory-store-changed");
-      Services.prefs.addObserver("browser.aiwindow.memories", this.emitChange);
+      Services.prefs.addObserver(
+        "browser.smartwindow.memories",
+        this.emitChange
+      );
       return () => {
         Services.obs.removeObserver(this.emitChange, "memory-store-changed");
         Services.prefs.removeObserver(
-          "browser.aiwindow.memories",
+          "browser.smartwindow.memories",
           this.emitChange
         );
       };
@@ -592,7 +595,7 @@ Preferences.addSetting(
     async getControlConfig() {
       const memories = await this.getMemories();
       const isLearningEnabled = Services.prefs.getBoolPref(
-        "browser.aiwindow.memories",
+        "browser.smartwindow.memories",
         false
       );
 
