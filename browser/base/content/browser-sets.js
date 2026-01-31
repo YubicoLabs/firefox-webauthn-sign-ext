@@ -228,7 +228,7 @@ document.addEventListener(
             OpenBrowserWindow({ aiWindow: false });
             break;
           case "Tools:AIWindow":
-            AIWindow.launchWindow(gBrowser.selectedBrowser, true);
+            OpenBrowserWindow({ aiWindow: true });
             break;
           case "Tools:ChatsHistory":
             // @todo Bug 2006543

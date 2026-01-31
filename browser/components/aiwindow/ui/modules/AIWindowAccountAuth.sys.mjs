@@ -71,7 +71,7 @@ export const AIWindowAccountAuth = {
   async promptSignIn(browser) {
     try {
       const data = {
-        autoClose: !!lazy.hasFirstrunCompleted,
+        autoClose: lazy.hasFirstrunCompleted,
         entrypoint: "aiwindow",
         extraParams: {
           service: "aiwindow",
