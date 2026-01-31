@@ -15,7 +15,7 @@ async function openFirstrunPage() {
 
 add_task(async function test_firstrun_welcome_screen_renders() {
   await SpecialPowers.pushPrefEnv({
-    set: [["browser.aiwindow.firstrun.autoAdvanceMS", 0]],
+    set: [["browser.smartwindow.firstrun.autoAdvanceMS", 0]],
   });
 
   const tab = await openFirstrunPage();
@@ -51,8 +51,8 @@ add_task(async function test_firstrun_welcome_screen_renders() {
 add_task(async function test_launchWindow_shows_firstrun_when_not_completed() {
   await SpecialPowers.pushPrefEnv({
     set: [
-      ["browser.aiwindow.enabled", true],
-      ["browser.aiwindow.firstrun.hasCompleted", false],
+      ["browser.smartwindow.enabled", true],
+      ["browser.smartwindow.firstrun.hasCompleted", false],
     ],
   });
 
@@ -89,8 +89,8 @@ add_task(async function test_launchWindow_shows_firstrun_when_not_completed() {
 add_task(async function test_switcher_shows_firstrun_when_not_completed() {
   await SpecialPowers.pushPrefEnv({
     set: [
-      ["browser.aiwindow.enabled", true],
-      ["browser.aiwindow.firstrun.hasCompleted", false],
+      ["browser.smartwindow.enabled", true],
+      ["browser.smartwindow.firstrun.hasCompleted", false],
     ],
   });
 
@@ -144,13 +144,13 @@ add_task(async function test_switcher_shows_firstrun_when_not_completed() {
 });
 
 add_task(async function test_firstrun_explainer_page_opens() {
-  const explainerPref = "browser.aiwindow.firstrun.explainerURL";
+  const explainerPref = "browser.smartwindow.firstrun.explainerURL";
   const exampleURL = "https://example.com/";
 
   await SpecialPowers.pushPrefEnv({
     set: [
-      ["browser.aiwindow.enabled", true],
-      ["browser.aiwindow.firstrun.hasCompleted", false],
+      ["browser.smartwindow.enabled", true],
+      ["browser.smartwindow.firstrun.hasCompleted", false],
       [explainerPref, exampleURL],
     ],
   });
@@ -241,8 +241,8 @@ add_task(async function test_firstrun_explainer_page_opens() {
 add_task(async function test_firstrun_immersive_view() {
   await SpecialPowers.pushPrefEnv({
     set: [
-      ["browser.aiwindow.enabled", true],
-      ["browser.aiwindow.firstrun.hasCompleted", false],
+      ["browser.smartwindow.enabled", true],
+      ["browser.smartwindow.firstrun.hasCompleted", false],
     ],
   });
 

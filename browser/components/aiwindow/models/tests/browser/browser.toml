@@ -4,7 +4,7 @@ support-files = [
   "ai-window-prompts-remote-settings-snapshot.json",
 ]
 prefs = [
-  "browser.aiwindow.enabled=true",
+  "browser.smartwindow.enabled=true",
 ]
 
 ["browser_conversation_stream.js"]

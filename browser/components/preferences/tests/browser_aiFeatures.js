@@ -290,7 +290,7 @@ describe("settings ai features", () => {
 
   it("hides Smart Window when preferences not enabled", async () => {
     await SpecialPowers.pushPrefEnv({
-      set: [["browser.aiwindow.preferences.enabled", false]],
+      set: [["browser.smartwindow.preferences.enabled", false]],
     });
 
     await openAiFeaturePanel();
@@ -305,8 +305,8 @@ describe("settings ai features", () => {
   it("shows Smart Window activate when preferences enabled and feature not enabled", async () => {
     await SpecialPowers.pushPrefEnv({
       set: [
-        ["browser.aiwindow.preferences.enabled", true],
-        ["browser.aiwindow.enabled", false],
+        ["browser.smartwindow.preferences.enabled", true],
+        ["browser.smartwindow.enabled", false],
       ],
     });
 
@@ -324,8 +324,8 @@ describe("settings ai features", () => {
   it("hides Smart Window activate and show personalize button when feature enabled", async () => {
     await SpecialPowers.pushPrefEnv({
       set: [
-        ["browser.aiwindow.preferences.enabled", true],
-        ["browser.aiwindow.enabled", true],
+        ["browser.smartwindow.preferences.enabled", true],
+        ["browser.smartwindow.enabled", true],
       ],
     });
 

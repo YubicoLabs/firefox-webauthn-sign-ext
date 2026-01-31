@@ -13,8 +13,8 @@ const { AIWindowUI } = ChromeUtils.importESModule(
 add_task(async function test_new_chat_button_sidebar() {
   await SpecialPowers.pushPrefEnv({
     set: [
-      ["browser.aiwindow.enabled", true],
-      ["browser.aiwindow.firstrun.hasCompleted", true],
+      ["browser.smartwindow.enabled", true],
+      ["browser.smartwindow.firstrun.hasCompleted", true],
     ],
   });
 
@@ -63,8 +63,8 @@ add_task(async function test_new_chat_button_sidebar() {
 add_task(async function test_new_chat_button_not_in_fullpage() {
   await SpecialPowers.pushPrefEnv({
     set: [
-      ["browser.aiwindow.enabled", true],
-      ["browser.aiwindow.firstrun.hasCompleted", true],
+      ["browser.smartwindow.enabled", true],
+      ["browser.smartwindow.firstrun.hasCompleted", true],
     ],
   });
 
