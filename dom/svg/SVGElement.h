@@ -17,10 +17,10 @@
 #include "mozilla/Attributes.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/SVGAnimatedClass.h"
-#include "mozilla/SVGContentUtils.h"
 #include "mozilla/UniquePtr.h"
 #include "mozilla/dom/DOMRect.h"
 #include "mozilla/dom/Element.h"
+#include "mozilla/dom/SVGLength.h"
 #include "mozilla/gfx/MatrixFwd.h"
 #include "nsChangeHint.h"
 #include "nsCycleCollectionParticipant.h"
@@ -367,7 +367,7 @@ class SVGElement : public SVGElementBase  // nsIContent
     nsStaticAtom* const mName;
     const float mDefaultValue;
     const uint8_t mDefaultUnitType;
-    const SVGLength::Axis mCtxType;
+    const SVGLength::Axis mAxis;
   };
 
   template <typename Value, typename InfoValue>

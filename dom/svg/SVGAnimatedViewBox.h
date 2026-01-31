@@ -11,6 +11,7 @@
 #include "mozilla/SMILAttr.h"
 #include "mozilla/UniquePtr.h"
 #include "mozilla/dom/SVGAnimatedRect.h"
+#include "mozilla/gfx/Point.h"
 #include "nsCycleCollectionParticipant.h"
 #include "nsError.h"
 
@@ -36,6 +37,8 @@ struct SVGViewBox {
   SVGViewBox operator*(const float m) const {
     return SVGViewBox(x * m, y * m, width * m, height * m);
   }
+
+  gfx::Size Size() const { return gfx::Size(width, height); }
 
   bool IsFinite() const {
     if (none) {

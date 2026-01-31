@@ -14,7 +14,6 @@
 #include "CSSFilterInstance.h"
 #include "FilterSupport.h"
 #include "ImgDrawResult.h"
-#include "SVGContentUtils.h"
 #include "SVGIntegrationUtils.h"
 #include "gfx2DGlue.h"
 #include "gfxContext.h"

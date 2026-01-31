@@ -128,7 +128,7 @@ void SVGElement::AttributesInfo<Value, Info>::CopyAllFrom(
 
 template <>
 void SVGElement::LengthAttributesInfo::Reset(uint8_t aAttrEnum) {
-  mValues[aAttrEnum].Init(mInfos[aAttrEnum].mCtxType, aAttrEnum,
+  mValues[aAttrEnum].Init(mInfos[aAttrEnum].mAxis, aAttrEnum,
                           mInfos[aAttrEnum].mDefaultValue,
                           mInfos[aAttrEnum].mDefaultUnitType);
 }
