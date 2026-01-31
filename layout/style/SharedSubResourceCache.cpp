@@ -62,8 +62,7 @@ void AddPerformanceEntryForCache(
   storage->AddEntry(aEntryName, aInitiatorType, std::move(data));
 }
 
-bool ShouldClearEntry(nsIURI* aEntryURI, nsIPrincipal* aEntryLoaderPrincipal,
-                      nsIPrincipal* aEntryPartitionPrincipal,
+bool ShouldClearEntry(nsIURI* aEntryURI, nsIPrincipal* aEntryPartitionPrincipal,
                       const Maybe<bool>& aChrome,
                       const Maybe<nsCOMPtr<nsIPrincipal>>& aPrincipal,
                       const Maybe<nsCString>& aSchemelessSite,
@@ -73,13 +72,13 @@ bool ShouldClearEntry(nsIURI* aEntryURI, nsIPrincipal* aEntryLoaderPrincipal,
     RefPtr<nsIURI> uri = aEntryURI;
     if (!uri) {
       // If there's no uri (inline resource) try to use the principal URI.
-      uri = aEntryLoaderPrincipal->GetURI();
+      uri = aEntryPartitionPrincipal->GetURI();
     }
     const bool isChrome = [&] {
       if (uri && (uri->SchemeIs("chrome") || uri->SchemeIs("resource"))) {
         return true;
       }
-      if (!aEntryURI && aEntryLoaderPrincipal->IsSystemPrincipal()) {
+      if (!aEntryURI && aEntryPartitionPrincipal->IsSystemPrincipal()) {
         return true;
       }
       return false;
