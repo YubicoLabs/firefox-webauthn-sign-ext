@@ -71,6 +71,8 @@ add_task(async function test_button_actions() {
     set: [["browser.smartwindow.enabled", true]],
   });
 
+  const restoreSignIn = skipSignIn();
+
   const currentWindowIsAIWindow = isAIWindow();
 
   await openHamburgerMenu();
@@ -157,6 +159,7 @@ add_task(async function test_button_actions() {
     await closeHamburgerMenu();
   }
 
+  restoreSignIn();
   await SpecialPowers.popPrefEnv();
 });
 
