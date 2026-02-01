@@ -88,7 +88,10 @@ size_t PerformanceResourceTiming::SizeOfExcludingThis(
     mozilla::MallocSizeOf aMallocSizeOf) const {
   return PerformanceEntry::SizeOfExcludingThis(aMallocSizeOf) +
          mInitiatorType.SizeOfExcludingThisIfUnshared(aMallocSizeOf) +
-         mTimingData->SizeOfIncludingThis(aMallocSizeOf);
+         mTimingData->ContentType().SizeOfExcludingThisIfUnshared(
+             aMallocSizeOf) +
+         mTimingData->NextHopProtocol().SizeOfExcludingThisIfUnshared(
+             aMallocSizeOf);
 }
 
 void PerformanceResourceTiming::GetServerTiming(
