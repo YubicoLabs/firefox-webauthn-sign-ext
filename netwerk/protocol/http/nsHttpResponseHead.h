@@ -149,6 +149,17 @@ class nsHttpResponseHead {
   bool HasContentCharset();
   bool GetContentTypeOptionsHeader(nsACString& aOutput);
 
+  size_t SizeOfIncludingThis(MallocSizeOf aMallocSizeOf) const {
+    return aMallocSizeOf(this) + SizeOfExcludingThis(aMallocSizeOf);
+  }
+
+  size_t SizeOfExcludingThis(MallocSizeOf aMallocSizeOf) const {
+    RecursiveMutexAutoLock monitor(mRecursiveMutex);
+    return mStatusText.SizeOfExcludingThisIfUnshared(aMallocSizeOf) +
+           mContentType.SizeOfExcludingThisIfUnshared(aMallocSizeOf) +
+           mContentCharset.SizeOfExcludingThisIfUnshared(aMallocSizeOf);
+  }
+
  private:
   [[nodiscard]] nsresult SetHeader_locked(const nsHttpAtom& atom,
                                           const nsACString& h,
