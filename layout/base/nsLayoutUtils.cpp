@@ -1099,6 +1099,28 @@ bool nsLayoutUtils::IsAncestorFrameCrossDocInProcess(
 }
 
 // static
+bool nsLayoutUtils::IsAncestorFrameCrossDocInProcessConsideringContinuations(
+    const nsIFrame* aAncestorFrame, const nsIFrame* aFrame,
+    const nsIFrame* aCommonAncestor) {
+  MOZ_ASSERT(aAncestorFrame);
+  const nsIFrame* ancestorFirstContinuation =
+      aAncestorFrame->FirstContinuation();
+  const nsIFrame* commonFirstContinuation =
+      aCommonAncestor ? aCommonAncestor->FirstContinuation() : nullptr;
+
+  for (const nsIFrame* f = aFrame; f; f = GetCrossDocParentFrameInProcess(f)) {
+    auto* first = f->FirstContinuation();
+    if (first == ancestorFirstContinuation) {
+      return true;
+    }
+    if (first == commonFirstContinuation) {
+      break;
+    }
+  }
+  return false;
+}
+
+// static
 bool nsLayoutUtils::IsProperAncestorFrame(const nsIFrame* aAncestorFrame,
                                           const nsIFrame* aFrame,
                                           const nsIFrame* aCommonAncestor) {
