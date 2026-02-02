@@ -35,7 +35,6 @@ export default class IPProtectionMessageBarElement extends MozLitElement {
     messageId: { type: String },
     messageLink: { type: String },
     messageLinkl10nId: { type: String },
-    messageLinkL10nArgs: { type: String },
   };
 
   constructor() {
@@ -101,7 +100,6 @@ export default class IPProtectionMessageBarElement extends MozLitElement {
       <moz-message-bar
         type="warning"
         data-l10n-id=${ifDefined(this.messageId)}
-        data-l10n-args=${ifDefined(this.messageLinkL10nArgs)}
         dismissable
       >
       </moz-message-bar>
