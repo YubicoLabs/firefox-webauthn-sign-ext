@@ -296,30 +296,6 @@ class DateTimeFormatObject : public NativeObject {
   static void finalize(JS::GCContext* gcx, JSObject* obj);
 };
 
-/**
- * Returns a String value representing x (which must be a Number value)
- * according to the effective locale and the formatting options of the
- * given DateTimeFormat.
- *
- * Spec: ECMAScript Internationalization API Specification, 12.3.2.
- *
- * Usage: formatted = intl_FormatDateTime(dateTimeFormat, x, formatToParts)
- */
-[[nodiscard]] extern bool intl_FormatDateTime(JSContext* cx, unsigned argc,
-                                              JS::Value* vp);
-
-/**
- * Returns a String value representing the range between x and y (which both
- * must be Number values) according to the effective locale and the formatting
- * options of the given DateTimeFormat.
- *
- * Spec: Intl.DateTimeFormat.prototype.formatRange proposal
- *
- * Usage: formatted = intl_FormatDateTimeRange(dateTimeFmt, x, y, formatToParts)
- */
-[[nodiscard]] extern bool intl_FormatDateTimeRange(JSContext* cx, unsigned argc,
-                                                   JS::Value* vp);
-
 namespace intl {
 
 enum class DateTimeFormatKind {
