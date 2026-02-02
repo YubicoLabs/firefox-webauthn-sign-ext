@@ -9245,13 +9245,6 @@
   mirror: always
   set_spidermonkey_pref: always
 
-# Dictionary Teleporting
-- name: javascript.options.experimental.dictionary_teleporting
-  type: bool
-  value: true
-  mirror: always
-  set_spidermonkey_pref: always
-
 - name: javascript.options.wasm_caching
   type: bool
   value: true
