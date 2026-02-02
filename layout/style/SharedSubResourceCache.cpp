@@ -157,4 +157,16 @@ SubResourceNetworkMetadataHolder::SubResourceNetworkMetadataHolder(
   }
 }
 
+size_t SubResourceNetworkMetadataHolder::SizeOfExcludingThis(
+    MallocSizeOf aMallocSizeOf) const {
+  size_t n = 0;
+  if (mPerfData) {
+    n += mPerfData->SizeOfExcludingThis(aMallocSizeOf);
+  }
+  if (mResponseHead) {
+    mResponseHead->SizeOfIncludingThis(aMallocSizeOf);
+  }
+  return n;
+}
+
 }  // namespace mozilla
