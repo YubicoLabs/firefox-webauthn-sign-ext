@@ -11,11 +11,17 @@
 #include <stdint.h>
 
 #include "js/GCVector.h"
+#include "js/ProtoKey.h"
 #include "js/RootingAPI.h"
+#include "js/TypeDecls.h"
 #include "js/Utility.h"
 
 namespace mozilla::intl {
 enum class ICUError : uint8_t;
+}
+
+namespace JS {
+class CallArgs;
 }
 
 namespace js {
@@ -23,6 +29,22 @@ namespace js {
 class PropertyName;
 
 namespace intl {
+
+/**
+ * ChainDateTimeFormat ( dateTimeFormat, newTarget, this )
+ * ChainNumberFormat ( numberFormat, newTarget, this )
+ */
+extern bool ChainLegacyIntlFormat(JSContext* cx, JSProtoKey protoKey,
+                                  const JS::CallArgs& args,
+                                  JS::Handle<JSObject*> format);
+
+/**
+ * UnwrapDateTimeFormat ( dtf )
+ * UnwrapNumberFormat ( nf )
+ */
+extern bool UnwrapLegacyIntlFormat(JSContext* cx, JSProtoKey protoKey,
+                                   JS::Handle<JSObject*> format,
+                                   JS::MutableHandle<JS::Value> result);
 
 /**
  * Initialize a new Intl.* object using the named self-hosted function.

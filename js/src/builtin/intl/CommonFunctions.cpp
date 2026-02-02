@@ -18,6 +18,7 @@
 #include "gc/ZoneAllocator.h"
 #include "js/friend/ErrorMessages.h"  // js::GetErrorMessage, JSMSG_INTERNAL_INTL_ERROR
 #include "js/Value.h"
+#include "vm/GlobalObject.h"
 #include "vm/JSAtomState.h"
 #include "vm/JSContext.h"
 #include "vm/JSObject.h"
@@ -26,6 +27,90 @@
 #include "vm/StringType.h"
 
 #include "gc/GCContext-inl.h"
+#include "vm/JSObject-inl.h"
+#include "vm/ObjectOperations-inl.h"
+
+/**
+ * ChainDateTimeFormat ( dateTimeFormat, newTarget, this )
+ * ChainNumberFormat ( numberFormat, newTarget, this )
+ */
+bool js::intl::ChainLegacyIntlFormat(JSContext* cx, JSProtoKey protoKey,
+                                     const JS::CallArgs& args,
+                                     JS::Handle<JSObject*> format) {
+  // Step 1.
+  if (!args.isConstructing() && args.thisv().isObject()) {
+    Rooted<JSObject*> thisValue(cx, &args.thisv().toObject());
+
+    Rooted<JSObject*> proto(cx,
+                            cx->global()->getOrCreatePrototype(cx, protoKey));
+    if (!proto) {
+      return false;
+    }
+
+    bool isPrototype;
+    if (!IsPrototypeOf(cx, proto, thisValue, &isPrototype)) {
+      return false;
+    }
+
+    if (isPrototype) {
+      auto* fallback = cx->global()->globalIntlData().fallbackSymbol(cx);
+      if (!fallback) {
+        return false;
+      }
+
+      // Step 1.a.
+      Rooted<PropertyKey> id(cx, JS::PropertyKey::Symbol(fallback));
+      Rooted<Value> value(cx, ObjectValue(*format));
+      if (!DefineDataProperty(cx, thisValue, id, value,
+                              JSPROP_READONLY | JSPROP_PERMANENT)) {
+        return false;
+      }
+
+      // Step 1.b.
+      args.rval().set(args.thisv());
+      return true;
+    }
+  }
+
+  // Step 2.
+  args.rval().setObject(*format);
+  return true;
+}
+
+/**
+ * UnwrapDateTimeFormat ( dtf )
+ * UnwrapNumberFormat ( nf )
+ */
+bool js::intl::UnwrapLegacyIntlFormat(JSContext* cx, JSProtoKey protoKey,
+                                      JS::Handle<JSObject*> format,
+                                      JS::MutableHandle<JS::Value> result) {
+  // Step 1. (Performed in caller)
+
+  // Step 2. (Partial)
+  Rooted<JSObject*> proto(cx, cx->global()->getOrCreatePrototype(cx, protoKey));
+  if (!proto) {
+    return false;
+  }
+
+  bool isPrototype;
+  if (!IsPrototypeOf(cx, proto, format, &isPrototype)) {
+    return false;
+  }
+
+  if (isPrototype) {
+    auto* fallback = cx->global()->globalIntlData().fallbackSymbol(cx);
+    if (!fallback) {
+      return false;
+    }
+
+    Rooted<PropertyKey> id(cx, JS::PropertyKey::Symbol(fallback));
+    return GetProperty(cx, format, format, id, result);
+  }
+
+  // Step 3.
+  result.setObject(*format);
+  return true;
+}
 
 bool js::intl::InitializeObject(JSContext* cx, JS::Handle<JSObject*> obj,
                                 JS::Handle<PropertyName*> initializer,
