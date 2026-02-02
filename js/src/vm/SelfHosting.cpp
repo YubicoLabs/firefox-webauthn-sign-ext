@@ -1290,34 +1290,6 @@ bool js::ReportIncompatibleSelfHostedMethod(
 }
 
 #ifdef JS_HAS_INTL_API
-static bool intrinsic_DefaultTimeZone(JSContext* cx, unsigned argc, Value* vp) {
-  CallArgs args = CallArgsFromVp(argc, vp);
-  MOZ_ASSERT(args.length() == 0);
-
-  auto* timeZone = cx->global()->globalIntlData().defaultTimeZone(cx);
-  if (!timeZone) {
-    return false;
-  }
-
-  args.rval().setString(timeZone);
-  return true;
-}
-
-static bool intl_ValidateAndCanonicalizeTimeZone(JSContext* cx, unsigned argc,
-                                                 Value* vp) {
-  CallArgs args = CallArgsFromVp(argc, vp);
-  MOZ_ASSERT(args.length() == 1);
-
-  Rooted<JSString*> timeZone(cx, args[0].toString());
-  auto* timeZoneId = temporal::ToValidCanonicalTimeZoneIdentifier(cx, timeZone);
-  if (!timeZoneId) {
-    return false;
-  }
-
-  args.rval().setString(timeZoneId);
-  return true;
-}
-
 static bool intrinsic_FallbackSymbol(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
   MOZ_ASSERT(args.length() == 0);
@@ -1866,7 +1838,6 @@ static const JSFunctionSpec intrinsic_functions[] = {
     JS_FN("intl_CallSegmentsMethodIfWrapped",
           CallNonGenericSelfhostedMethod<Is<SegmentsObject>>, 2, 0),
     JS_FN("intl_CreateSegmentIterator", intl_CreateSegmentIterator, 1, 0),
-    JS_FN("intl_DefaultTimeZone", intrinsic_DefaultTimeZone, 0, 0),
     JS_FN("intl_FallbackSymbol", intrinsic_FallbackSymbol, 0, 0),
     JS_FN("intl_FindNextSegmentBoundaries", intl_FindNextSegmentBoundaries, 1,
           0),
@@ -1901,8 +1872,6 @@ static const JSFunctionSpec intrinsic_functions[] = {
     JS_FN("intl_SelectPluralRuleRange", intl_SelectPluralRuleRange, 3, 0),
     JS_FN("intl_ValidateAndCanonicalizeLanguageTag",
           intl_ValidateAndCanonicalizeLanguageTag, 2, 0),
-    JS_FN("intl_ValidateAndCanonicalizeTimeZone",
-          intl_ValidateAndCanonicalizeTimeZone, 1, 0),
     JS_FN("intl_ValidateAndCanonicalizeUnicodeExtensionType",
           intl_ValidateAndCanonicalizeUnicodeExtensionType, 3, 0),
 #  if DEBUG || MOZ_SYSTEM_ICU
