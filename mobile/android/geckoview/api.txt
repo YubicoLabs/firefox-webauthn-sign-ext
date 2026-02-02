@@ -1030,6 +1030,7 @@ package org.mozilla.geckoview {
     method @Nullable public Boolean getFingerprintingProtection();
     method @NonNull public String getFingerprintingProtectionOverrides();
     method @Nullable public Boolean getFingerprintingProtectionPrivateBrowsing();
+    method @Nullable public String getFirefoxRelay();
     method @Nullable public Boolean getFissionEnabled();
     method public boolean getFontInflationEnabled();
     method public float getFontSizeFactor();
@@ -1090,6 +1091,7 @@ package org.mozilla.geckoview {
     method @NonNull public GeckoRuntimeSettings setFingerprintingProtection(boolean);
     method @NonNull public GeckoRuntimeSettings setFingerprintingProtectionOverrides(@NonNull String);
     method @NonNull public GeckoRuntimeSettings setFingerprintingProtectionPrivateBrowsing(boolean);
+    method @NonNull public GeckoRuntimeSettings setFirefoxRelay(@NonNull String);
     method @NonNull public GeckoRuntimeSettings setFontInflationEnabled(boolean);
     method @NonNull public GeckoRuntimeSettings setFontSizeFactor(float);
     method @NonNull public GeckoRuntimeSettings setForceEnableAccessibility(boolean);
@@ -1124,6 +1126,10 @@ package org.mozilla.geckoview {
     field public static final int COLOR_SCHEME_LIGHT = 0;
     field public static final int COLOR_SCHEME_SYSTEM = -1;
     field public static final Parcelable.Creator<GeckoRuntimeSettings> CREATOR;
+    field public static final String FIREFOX_RELAY_AVAILABLE = "available";
+    field public static final String FIREFOX_RELAY_DISABLED = "disabled";
+    field public static final String FIREFOX_RELAY_ENABLED = "enabled";
+    field public static final String FIREFOX_RELAY_OFFERED = "offered";
     field public static final int HTTPS_ONLY = 2;
     field public static final int HTTPS_ONLY_PRIVATE = 1;
     field public static final int STRATEGY_ISOLATE_EVERYTHING = 1;
@@ -1192,6 +1198,9 @@ package org.mozilla.geckoview {
   }
 
   @Retention(value=RetentionPolicy.SOURCE) public static interface GeckoRuntimeSettings.ColorScheme {
+  }
+
+  @Retention(value=RetentionPolicy.SOURCE) public static interface GeckoRuntimeSettings.FirefoxRelayMode {
   }
 
   @Retention(value=RetentionPolicy.SOURCE) public static interface GeckoRuntimeSettings.HttpsOnlyMode {
