@@ -25,6 +25,7 @@ export default class IPProtectionStatusBox extends MozLitElement {
   static properties = {
     headerL10nId: { type: String },
     descriptionL10nId: { type: String },
+    descriptionL10nArgs: { type: String },
     type: { type: String },
   };
 
