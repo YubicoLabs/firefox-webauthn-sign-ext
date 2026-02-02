@@ -603,6 +603,7 @@ class HomeFragment : Fragment() {
                 fenixBrowserUseCases = components.useCases.fenixBrowserUseCases,
                 topSitesUseCases = components.useCases.topSitesUseCase,
                 marsUseCases = components.useCases.marsUseCases,
+                mozAdsUseCases = components.useCases.mozAdsUseCases,
                 viewLifecycleScope = viewLifecycleOwner.lifecycleScope,
             ),
             privacyNoticeBannerController = DefaultPrivacyNoticeBannerController(
