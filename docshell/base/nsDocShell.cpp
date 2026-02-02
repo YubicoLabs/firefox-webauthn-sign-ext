@@ -6667,7 +6667,7 @@ nsresult nsDocShell::CreateInitialDocumentViewer(
       aWindowActor->DocumentPrincipal() ==
           aOpenWindowInfo->PartitionedPrincipalToInheritForAboutBlank());
 
-  nsresult rv = CreateAboutBlankDocumentViewer(
+  MOZ_TRY(CreateAboutBlankDocumentViewer(
       aOpenWindowInfo->PrincipalToInheritForAboutBlank(),
       aOpenWindowInfo->PartitionedPrincipalToInheritForAboutBlank(),
       aOpenWindowInfo->PolicyContainerToInheritForAboutBlank(),
@@ -6675,28 +6675,25 @@ nsresult nsDocShell::CreateInitialDocumentViewer(
       /* aIsInitialDocument */ true,
       aOpenWindowInfo->CoepToInheritForAboutBlank(),
       /* aTryToSaveOldPresentation */ true,
-      /* aCheckPermitUnload */ true, aWindowActor);
+      /* aCheckPermitUnload */ true, aWindowActor));
 
   NS_ENSURE_STATE(mDocumentViewer);
 
-  if (NS_SUCCEEDED(rv)) {
-    RefPtr<Document> doc(GetDocument());
-    MOZ_ASSERT(doc,
-               "Should have doc if CreateAboutBlankDocumentViewer "
-               "succeeded!");
-    MOZ_ASSERT(doc->IsInitialDocument(), "Document should be initial document");
+  RefPtr<Document> doc(GetDocument());
+  MOZ_ASSERT(doc,
+             "Should have doc if CreateAboutBlankDocumentViewer succeeded!");
+  MOZ_ASSERT(doc->IsInitialDocument(), "Document should be initial document");
 
-    // Documents created using CreateInitialDocumentViewer may be transient
-    // placeholders created by framescripts before content has a
-    // chance to load. In some cases, window.open(..., "noopener")
-    // will create such a document and then synchronously tear it
-    // down, firing a "pagehide" event. Doing so violates our
-    // assertions about DocGroups. It's easier to silence the
-    // assertion here than to avoid creating the extra document.
-    doc->IgnoreDocGroupMismatches();
-  }
+  // Documents created using CreateInitialDocumentViewer may be transient
+  // placeholders created by framescripts before content has a
+  // chance to load. In some cases, window.open(..., "noopener")
+  // will create such a document and then synchronously tear it
+  // down, firing a "pagehide" event. Doing so violates our
+  // assertions about DocGroups. It's easier to silence the
+  // assertion here than to avoid creating the extra document.
+  doc->IgnoreDocGroupMismatches();
 
-  return rv;
+  return NS_OK;
 }
 
 // Location.ancestorOrigins for about:blank, need special case handling.
