@@ -15,14 +15,14 @@ panel {
   min-width: 1px;
   --panel-background: Menu;
   --panel-color: MenuText;
-  --panel-padding: var(--panel-padding-block) 0;
   /* This should match GetMenuCornerRadius() on macOS, or be overridden below */
   --panel-border-radius: 6px;
-  --panel-padding-block: 4px;
+  --panel-padding-block: round(down, var(--space-xsmall, 4px), 1px);
+  --panel-padding: var(--panel-padding-block) 0;
   --panel-border-color: ThreeDShadow;
   --panel-width: initial;
 
-  --panel-shadow-margin: 4px;
+  --panel-shadow-margin: round(down, var(--space-xsmall, 4px), 1px);
   --panel-shadow: 0 0 var(--panel-shadow-margin) hsla(0, 0%, 0%, 0.2);
   -moz-window-input-region-margin: var(--panel-shadow-margin);
   margin: calc(-1 * var(--panel-shadow-margin));
