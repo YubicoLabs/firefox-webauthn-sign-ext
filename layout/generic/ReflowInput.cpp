@@ -2280,13 +2280,29 @@ void ReflowInput::InitConstraints(
     } else {
       AutoMaybeDisableFontInflation an(mFrame);
 
-      nsIFrame* const alignCB = [&] {
-        nsIFrame* cb = mFrame->GetParent();
+      auto* const alignCB = [&] {
+        auto* cb = mFrame->GetParent();
         if (cb->IsTableWrapperFrame()) {
-          nsIFrame* alignCBParent = cb->GetParent();
+          auto* alignCBParent = cb->GetParent();
           if (alignCBParent && alignCBParent->IsGridContainerFrame()) {
             return alignCBParent;
           }
+        }
+        if (cb->Style()->GetPseudoType() ==
+            PseudoStyleType::columnSpanWrapper) {
+          MOZ_ASSERT(mFrame->StyleColumn()->mColumnSpan !=
+                     StyleColumnSpan::None);
+          // Note(dshin, bug 2013429): `:-moz-column-span-wrapper` is a
+          // non-inheriting anon box, so it doesn't inherit writing-mode either.
+          auto* p = cb->GetParent();
+          while (p) {
+            if (p->Style()->GetPseudoType() !=
+                PseudoStyleType::columnSpanWrapper) {
+              return p;
+            }
+            p = p->GetParent();
+          }
+          MOZ_ASSERT_UNREACHABLE("No parent above :-moz-column-span-wrapper?");
         }
         return cb;
       }();
