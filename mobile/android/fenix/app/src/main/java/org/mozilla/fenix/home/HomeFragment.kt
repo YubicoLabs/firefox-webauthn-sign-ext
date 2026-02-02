@@ -32,7 +32,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.content.ContextCompat.getColor
-import androidx.core.graphics.drawable.toDrawable
 import androidx.core.view.isVisible
 import androidx.core.view.updateLayoutParams
 import androidx.fragment.app.Fragment
@@ -51,6 +50,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import mozilla.components.browser.state.state.TabSessionState
 import mozilla.components.browser.state.store.BrowserStore
+import mozilla.components.compose.browser.toolbar.store.BrowserToolbarState
 import mozilla.components.compose.browser.toolbar.store.BrowserToolbarStore
 import mozilla.components.compose.cfr.CFRPopup
 import mozilla.components.compose.cfr.CFRPopupProperties
@@ -64,6 +64,7 @@ import mozilla.components.feature.top.sites.presenter.DefaultTopSitesPresenter
 import mozilla.components.lib.state.ext.consumeFlow
 import mozilla.components.lib.state.ext.consumeFrom
 import mozilla.components.lib.state.ext.flow
+import mozilla.components.lib.state.ext.observeAsComposableState
 import mozilla.components.support.base.feature.ViewBoundFeatureWrapper
 import mozilla.components.support.utils.KeyboardState
 import mozilla.components.support.utils.keyboardAsState
@@ -79,6 +80,7 @@ import org.mozilla.fenix.biometricauthentication.BiometricAuthenticationManager
 import org.mozilla.fenix.browser.BrowserFragmentDirections
 import org.mozilla.fenix.browser.browsingmode.BrowsingMode
 import org.mozilla.fenix.browser.tabstrip.TabStrip
+import org.mozilla.fenix.browser.tabstrip.TabStripColors
 import org.mozilla.fenix.components.Components
 import org.mozilla.fenix.components.HomepageThumbnailIntegration
 import org.mozilla.fenix.components.QrScanFenixFeature
@@ -266,6 +268,7 @@ class HomeFragment : Fragment() {
     private val showReviewPromptBinding = ViewBoundFeatureWrapper<ShowReviewPromptBinding>()
     private val topSitesBinding = ViewBoundFeatureWrapper<TopSitesBinding>()
 
+    private val homepageEdgeToEdgeFeature = ViewBoundFeatureWrapper<HomepageEdgeToEdgeFeature>()
     private var qrScanFenixFeature: ViewBoundFeatureWrapper<QrScanFenixFeature>? =
         ViewBoundFeatureWrapper()
     private val qrScanLauncher: ActivityResultLauncher<Intent> =
@@ -637,6 +640,19 @@ class HomeFragment : Fragment() {
             true -> {
                 val toolbarStore by buildToolbarStore(activity)
 
+                if (isEdgeToEdgeBackgroundEnabled() && homepageEdgeToEdgeFeature.get() == null) {
+                    homepageEdgeToEdgeFeature.set(
+                        feature = HomepageEdgeToEdgeFeature(
+                            activity = activity,
+                            settings = activity.settings(),
+                            browsingModeManager = browsingModeManager,
+                            toolbarStore = toolbarStore,
+                        ),
+                        owner = viewLifecycleOwner,
+                        view = binding.root,
+                    )
+                }
+
                 homeNavigationBar = HomeNavigationBar(
                     context = activity,
                     container = binding.navigationBarContainer,
@@ -652,6 +668,7 @@ class HomeFragment : Fragment() {
                     toolbarStore = toolbarStore,
                     appStore = activity.components.appStore,
                     browserStore = activity.components.core.store,
+                    browsingModeManager = activity.browsingModeManager,
                     settings = activity.settings(),
                     directToSearchConfig = DirectToSearchConfig(
                         startSearch = bundleArgs.getBoolean(FOCUS_ON_ADDRESS_BAR) ||
@@ -659,7 +676,7 @@ class HomeFragment : Fragment() {
                         sessionId = args.sessionToStartSearchFor,
                         source = args.searchAccessPoint,
                     ),
-                    tabStripContent = { TabStrip() },
+                    tabStripContent = { TabStrip(toolbarStore) },
                     searchSuggestionsContent = { modifier ->
                         (awesomeBarComposable ?: initializeAwesomeBarComposable(toolbarStore, modifier))
                             ?.SearchSuggestions()
@@ -1104,10 +1121,11 @@ class HomeFragment : Fragment() {
     }
 
     @Composable
-    private fun TabStrip() {
+    private fun TabStrip(toolbarStore: BrowserToolbarStore? = null) {
         // Tabs will not be shown as selected on the homepage when Homepage as a New Tab is not
         // enabled.
         val isSelectDisabled = !requireContext().settings().enableHomepageAsNewTab
+        val toolbarState: BrowserToolbarState? = toolbarStore?.observeAsComposableState { it }?.value
 
         FirefoxTheme {
             TabStrip(
@@ -1115,6 +1133,11 @@ class HomeFragment : Fragment() {
                 // Show action buttons only if composable toolbar is not enabled.
                 showActionButtons =
                     context?.settings()?.shouldUseComposableToolbar == false,
+                tabStripColors = TabStripColors.build(
+                    toolbarState = toolbarState,
+                    browsingModeManager = (requireActivity() as HomeActivity).browsingModeManager,
+                    settings = requireContext().settings(),
+                ),
                 onAddTabClick = {
                     if (requireContext().settings().enableHomepageAsNewTab) {
                         requireComponents.useCases.fenixBrowserUseCases.addNewHomepageTab(
@@ -1225,11 +1248,6 @@ class HomeFragment : Fragment() {
 
     override fun onResume() {
         super.onResume()
-        if (browsingModeManager.mode == BrowsingMode.Private) {
-            activity?.window?.setBackgroundDrawable(
-                getColor(requireContext(), R.color.fx_mobile_private_surface).toDrawable(),
-            )
-        }
 
         hideToolbar()
 
@@ -1332,11 +1350,17 @@ class HomeFragment : Fragment() {
     internal fun shouldEnableWallpaper() =
         (activity as? HomeActivity)?.themeManager?.currentTheme?.isPrivate?.not() ?: false
 
+    internal fun isEdgeToEdgeBackgroundEnabled(): Boolean {
+        val settings = requireContext().settings()
+        return settings.enableHomepageEdgeToEdgeBackgroundFeature &&
+                settings.currentWallpaperName == Wallpaper.EDGE_TO_EDGE
+    }
+
     private fun applyWallpaper(wallpaperName: String, orientationChange: Boolean, orientation: Int) {
         when {
             !shouldEnableWallpaper() ||
                 (wallpaperName == lastAppliedWallpaperName && !orientationChange) -> return
-            Wallpaper.nameIsDefault(wallpaperName) -> {
+            Wallpaper.isLocalWallpaper(wallpaperName) -> {
                 binding.wallpaperImageView.isVisible = false
                 lastAppliedWallpaperName = wallpaperName
             }
