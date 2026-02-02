@@ -1317,6 +1317,19 @@ static bool intl_ValidateAndCanonicalizeTimeZone(JSContext* cx, unsigned argc,
   args.rval().setString(timeZoneId);
   return true;
 }
+
+static bool intrinsic_FallbackSymbol(JSContext* cx, unsigned argc, Value* vp) {
+  CallArgs args = CallArgsFromVp(argc, vp);
+  MOZ_ASSERT(args.length() == 0);
+
+  auto* fallbackSymbol = cx->global()->globalIntlData().fallbackSymbol(cx);
+  if (!fallbackSymbol) {
+    return false;
+  }
+
+  args.rval().setSymbol(fallbackSymbol);
+  return true;
+}
 #endif  // JS_HAS_INTL_API
 
 static bool intrinsic_ConstructFunction(JSContext* cx, unsigned argc,
@@ -1854,6 +1867,7 @@ static const JSFunctionSpec intrinsic_functions[] = {
           CallNonGenericSelfhostedMethod<Is<SegmentsObject>>, 2, 0),
     JS_FN("intl_CreateSegmentIterator", intl_CreateSegmentIterator, 1, 0),
     JS_FN("intl_DefaultTimeZone", intrinsic_DefaultTimeZone, 0, 0),
+    JS_FN("intl_FallbackSymbol", intrinsic_FallbackSymbol, 0, 0),
     JS_FN("intl_FindNextSegmentBoundaries", intl_FindNextSegmentBoundaries, 1,
           0),
     JS_FN("intl_FindSegmentBoundaries", intl_FindSegmentBoundaries, 2, 0),

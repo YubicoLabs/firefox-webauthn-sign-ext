@@ -231,11 +231,6 @@ function GetNumberOption(options, property, minimum, maximum, fallback) {
   return DefaultNumberOption(options[property], minimum, maximum, fallback);
 }
 
-// Symbols in the self-hosting compartment can't be cloned, use a separate
-// object to hold the actual symbol value.
-// TODO: Can we add support to clone symbols?
-var intlFallbackSymbolHolder = { value: undefined };
-
 /**
  * The [[FallbackSymbol]] symbol of the %Intl% intrinsic object.
  *
@@ -243,13 +238,7 @@ var intlFallbackSymbolHolder = { value: undefined };
  * Intl.DateTimeFormat and Intl.NumberFormat.
  */
 function intlFallbackSymbol() {
-  var fallbackSymbol = intlFallbackSymbolHolder.value;
-  if (!fallbackSymbol) {
-    var Symbol = GetBuiltinConstructor("Symbol");
-    fallbackSymbol = Symbol("IntlLegacyConstructedSymbol");
-    intlFallbackSymbolHolder.value = fallbackSymbol;
-  }
-  return fallbackSymbol;
+  return intl_FallbackSymbol();
 }
 
 /**
