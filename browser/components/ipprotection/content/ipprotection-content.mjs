@@ -283,14 +283,19 @@ export default class IPProtectionContentElement extends MozLitElement {
         href="chrome://browser/content/ipprotection/ipprotection-content.css"
       />
       <div id="upgrade-vpn-content">
-        <h2 id="upgrade-vpn-title" data-l10n-id="upgrade-vpn-title"></h2>
+        <h2
+          id="upgrade-vpn-title"
+          data-l10n-id="upgrade-vpn-title"
+          class="vpn-title"
+        ></h2>
         <span
           id="upgrade-vpn-description"
           data-l10n-id="upgrade-vpn-description"
-          class="text-deemphasized"
+          class="vpn-description"
         ></span>
         <moz-button
           id="upgrade-vpn-button"
+          class="vpn-button"
           type="primary"
           data-l10n-id="upgrade-vpn-button"
           @click=${this.handleUpgrade}
