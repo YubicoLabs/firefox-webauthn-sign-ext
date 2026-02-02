@@ -524,7 +524,7 @@ class ZoneAllocator;
 
 namespace gc {
 
-struct Cell;
+class Cell;
 
 /*
  * Default settings for tuning the GC.  Some of these can be set at runtime,
