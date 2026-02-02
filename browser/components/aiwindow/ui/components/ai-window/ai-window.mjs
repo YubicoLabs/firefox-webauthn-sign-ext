@@ -122,6 +122,11 @@ export class AIWindow extends MozLitElement {
     super.connectedCallback();
 
     this.ownerDocument.addEventListener("OpenConversation", this);
+    this.ownerDocument.addEventListener(
+      "smartbar-commit",
+      this.#handleSmartbarCommit,
+      true
+    );
 
     this.#loadPendingConversation();
   }
@@ -141,11 +146,12 @@ export class AIWindow extends MozLitElement {
     }
 
     // Clean up smartbar
+    this.ownerDocument.removeEventListener(
+      "smartbar-commit",
+      this.#handleSmartbarCommit,
+      true
+    );
     if (this.#smartbar) {
-      this.#smartbar.removeEventListener(
-        "smartbar-commit",
-        this.#handleSmartbarCommit
-      );
       this.#smartbar.removeEventListener(
         "aiwindow-memories-toggle:on-change",
         this.#handleMemoriesToggle

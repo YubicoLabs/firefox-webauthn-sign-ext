@@ -2240,6 +2240,13 @@ export class UrlbarView {
         };
         setURL = true;
         break;
+      case lazy.UrlbarUtils.RESULT_TYPE.AI_CHAT:
+        actionSetter = () => {
+          this.#l10nCache.setElementL10n(action, {
+            id: "urlbar-result-action-ai-chat",
+          });
+        };
+        break;
       case lazy.UrlbarUtils.RESULT_TYPE.SEARCH:
         if (
           result.payload.suggestionObject?.suggestionType == "important_dates"

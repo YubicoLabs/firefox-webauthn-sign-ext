@@ -238,6 +238,21 @@ let JSWINDOWACTORS = {
     enablePreference: "browser.smartwindow.enabled",
   },
 
+  AISmartBar: {
+    parent: {
+      esModuleURI:
+        "moz-src:///browser/components/aiwindow/ui/actors/AISmartBarParent.sys.mjs",
+    },
+    child: {
+      esModuleURI:
+        "moz-src:///browser/components/aiwindow/ui/actors/AISmartBarChild.sys.mjs",
+    },
+    matches: ["chrome://browser/content/aiwindow/aiWindow.html"],
+    includeChrome: true,
+    allFrames: true,
+    enablePreference: "browser.aiwindow.enabled",
+  },
+
   BackupUI: {
     parent: {
       esModuleURI: "resource:///actors/BackupUIParent.sys.mjs",
