@@ -6836,6 +6836,11 @@ void MacroAssemblerRiscv64::Float64Min(FPURegister dst, FPURegister src1,
 
 void MacroAssemblerRiscv64::Rol(Register rd, Register rs, const Operand& rt) {
   if (rt.is_reg()) {
+    if (HasZbbExtension()) {
+      rolw(rd, rs, rt.rm());
+      return;
+    }
+
     UseScratchRegisterScope temps(this);
     Register scratch = temps.Acquire();
 
@@ -6885,6 +6890,11 @@ void MacroAssemblerRiscv64::Ror(Register rd, Register rs, const Operand& rt) {
 
 void MacroAssemblerRiscv64::Drol(Register rd, Register rs, const Operand& rt) {
   if (rt.is_reg()) {
+    if (HasZbbExtension()) {
+      rol(rd, rs, rt.rm());
+      return;
+    }
+
     UseScratchRegisterScope temps(this);
     Register scratch = temps.Acquire();
 
