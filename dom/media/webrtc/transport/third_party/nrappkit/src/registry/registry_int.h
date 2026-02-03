@@ -53,7 +53,7 @@
 
 extern int NR_LOG_REGISTRY;
 
-int nr_reg_is_valid(NR_registry name);
+int nr_reg_is_valid(NR_registry_name name);
 
 #define NR_REG_TYPE_CHAR               0
 #define NR_REG_TYPE_UCHAR              1
@@ -73,7 +73,7 @@ const char *nr_reg_action_name(int action);
 int nr_reg_cb_init(void);
 int nr_reg_client_cb_init(void);
 int nr_reg_register_for_callbacks(int fd, int connect_to_port);
-int nr_reg_raise_event(NR_registry name, int action);
+int nr_reg_raise_event(NR_registry_name name, int action);
 #ifndef NO_REG_RPC
 int nr_reg_get_client(CLIENT **client);
 #endif
@@ -122,17 +122,17 @@ typedef struct nr_reg_find_children_arg_ {
 
 int nr_reg_local_init(void);
 
-int nr_reg_get(char *name, int type, void *out);
-int nr_reg_get_array(char *name, unsigned char type, UCHAR *out, size_t size, size_t *length);
+int nr_reg_get(const char *name, int type, void *out);
+int nr_reg_get_array(const char *name, unsigned char type, UCHAR *out, size_t size, size_t *length);
 
-int nr_reg_set(char *name, int type, void *data);
-int nr_reg_set_array(char *name, unsigned char type, const UCHAR *data, size_t length);
+int nr_reg_set(const char *name, int type, void *data);
+int nr_reg_set_array(const char *name, unsigned char type, const UCHAR *data, size_t length);
 
-int nr_reg_fetch_node(char *name, unsigned char type, nr_registry_node **node, int *free_node);
+int nr_reg_fetch_node(const char *name, unsigned char type, nr_registry_node **node, int *free_node);
 
-int nr_reg_local_get_length(NR_registry name, size_t *len);
-int nr_reg_local_del(NR_registry name);
-int nr_reg_local_get_child_count(NR_registry parent, size_t *count);
-int nr_reg_local_get_children(NR_registry parent, NR_registry *data, size_t size, size_t *length);
+int nr_reg_local_get_length(NR_registry_name name, size_t *len);
+int nr_reg_local_del(NR_registry_name name);
+int nr_reg_local_get_child_count(NR_registry_name parent, size_t *count);
+int nr_reg_local_get_children(NR_registry_name parent, NR_registry *data, size_t size, size_t *length);
 
 #endif

@@ -149,15 +149,15 @@ static int r_log_level_environment=0;
 static int r_log_initted=0;
 static int r_log_env_verbose=0;
 
-static void r_log_facility_change_cb(void *cb_arg, char action, NR_registry name);
-static void r_log_facility_delete_cb(void *cb_arg, char action, NR_registry name);
-static void r_log_destination_change_cb(void *cb_arg, char action, NR_registry name);
-static void r_log_default_level_change_cb(void *cb_arg, char action, NR_registry name);
+static void r_log_facility_change_cb(void *cb_arg, char action, NR_registry_name name);
+static void r_log_facility_delete_cb(void *cb_arg, char action, NR_registry_name name);
+static void r_log_destination_change_cb(void *cb_arg, char action, NR_registry_name name);
+static void r_log_default_level_change_cb(void *cb_arg, char action, NR_registry_name name);
 static int r_log_get_default_level(void);
 static int r_log_get_destinations(int usereg);
 static int r_logging_dest(int dest_index, int facility, int level);
 static int _r_log_init(int usereg);
-static int r_log_get_reg_level(NR_registry name, int *level);
+static int r_log_get_reg_level(NR_registry_name name, int *level);
 
 int r_log_register(const char *facility_name,int *log_facility)
   {
@@ -225,7 +225,7 @@ int r_log_register(const char *facility_name,int *log_facility)
     return(_status);
   }
 
-static int r_log_get_reg_level(NR_registry name, int *out)
+static int r_log_get_reg_level(NR_registry_name name, int *out)
   {
     char level[32];
     int r,_status;
@@ -256,7 +256,7 @@ static int r_log_get_reg_level(NR_registry name, int *out)
   }
 
 /* Handle the case where a value changes */
-static void r_log_facility_change_cb(void *cb_arg, char action, NR_registry name)
+static void r_log_facility_change_cb(void *cb_arg, char action, NR_registry_name name)
   {
     int *lt_level=(int *)cb_arg;
     int level;
@@ -275,7 +275,7 @@ static void r_log_facility_change_cb(void *cb_arg, char action, NR_registry name
   }
 
 /* Handle the case where a value is deleted */
-static void r_log_facility_delete_cb(void *cb_arg, char action, NR_registry name)
+static void r_log_facility_delete_cb(void *cb_arg, char action, NR_registry_name name)
   {
     int *lt_level=(int *)cb_arg;
 
@@ -517,12 +517,12 @@ static int r_log_get_destinations(int usereg)
     return(_status);
   }
 
-static void r_log_destination_change_cb(void *cb_arg, char action, NR_registry name)
+static void r_log_destination_change_cb(void *cb_arg, char action, NR_registry_name name)
   {
     r_log_get_destinations(1);
   }
 
-static void r_log_default_level_change_cb(void *cb_arg, char action, NR_registry name)
+static void r_log_default_level_change_cb(void *cb_arg, char action, NR_registry_name name)
   {
     r_log_get_destinations(1);
   }
