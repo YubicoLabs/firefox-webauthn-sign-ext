@@ -4295,7 +4295,7 @@ inline size_t MozJemalloc::malloc_good_size(size_t aSize) {
     // CHUNK_CEILING to get csize.  This ensures that this
     // malloc_usable_size(malloc(n)) always matches
     // malloc_good_size(n).
-    aSize = PAGE_CEILING(aSize);
+    aSize = REAL_PAGE_CEILING(aSize);
   }
   return aSize;
 }
