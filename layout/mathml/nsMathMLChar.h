@@ -8,6 +8,7 @@
 #define nsMathMLChar_h_
 
 #include "gfxTextRun.h"
+#include "mozilla/EnumSet.h"
 #include "nsBoundingMetrics.h"
 #include "nsColor.h"
 #include "nsMathMLOperators.h"
@@ -29,22 +30,20 @@ class ComputedStyle;
 }  // namespace mozilla
 
 // Hints for Stretch() to indicate criteria for stretching
-enum {
-  // Don't stretch
-  NS_STRETCH_NONE = 0x00,
-  // Variable size stretches
-  NS_STRETCH_VARIABLE_MASK = 0x0F,
-  NS_STRETCH_NORMAL = 0x01,   // try to stretch to requested size
-  NS_STRETCH_NEARER = 0x02,   // stretch very close to requested size
-  NS_STRETCH_SMALLER = 0x04,  // don't stretch more than requested size
-  NS_STRETCH_LARGER = 0x08,   // don't stretch less than requested size
-  // A largeop in displaystyle
-  NS_STRETCH_LARGEOP = 0x10,
-
-  // Intended for internal use:
-  // Find the widest metrics that might be returned from a vertical stretch
-  NS_STRETCH_MAXWIDTH = 0x20
+enum class MathMLStretchFlag : uint8_t {
+  Normal,         // try to stretch to requested size.
+  Nearer,         // Stretch very close to requested size.
+  Smaller,        // Don't stretch more than requested size.
+  Larger,         // Don't stretch less than requested size.
+  LargeOperator,  // Draw as a large operator in displaystyle.
+  MaxWidth,       // Find the widest metrics returned from a vertical stretch.
 };
+using MathMLStretchFlags = mozilla::EnumSet<MathMLStretchFlag>;
+constexpr MathMLStretchFlags kMathMLStretchVariableSet(
+    MathMLStretchFlag::Normal, MathMLStretchFlag::Nearer,
+    MathMLStretchFlag::Smaller, MathMLStretchFlag::Larger);
+constexpr MathMLStretchFlags kMathMLStretchSet =
+    kMathMLStretchVariableSet + MathMLStretchFlag::LargeOperator;
 
 // A single glyph in our internal representation is either
 // 1) a code pair from the mathfontFONTFAMILY.properties table, interpreted
@@ -99,7 +98,7 @@ class nsMathMLChar {
                    float aFontSizeInflation, StretchDirection aStretchDirection,
                    const nsBoundingMetrics& aContainerSize,
                    nsBoundingMetrics& aDesiredStretchSize,
-                   uint32_t aStretchHint, bool aRTL);
+                   MathMLStretchFlags aStretchFlags, bool aRTL);
 
   void SetData(nsString& aData);
 
@@ -122,9 +121,9 @@ class nsMathMLChar {
   //
   // @param aStretchHint can be the value that will be passed to Stretch().
   // It is used to determine whether the operator is stretchy or a largeop.
-  nscoord GetMaxWidth(nsIFrame* aForFrame, DrawTarget* aDrawTarget,
-                      float aFontSizeInflation,
-                      uint32_t aStretchHint = NS_STRETCH_NORMAL);
+  nscoord GetMaxWidth(
+      nsIFrame* aForFrame, DrawTarget* aDrawTarget, float aFontSizeInflation,
+      MathMLStretchFlags aStretchFlags = MathMLStretchFlag::Normal);
 
   // Metrics that _exactly_ enclose the char. The char *must* have *already*
   // being stretched before you can call the GetBoundingMetrics() method.
@@ -209,7 +208,7 @@ class nsMathMLChar {
                            StretchDirection& aStretchDirection,
                            const nsBoundingMetrics& aContainerSize,
                            nsBoundingMetrics& aDesiredStretchSize,
-                           uint32_t aStretchHint,
+                           MathMLStretchFlags aStretchFlags,
                            float aMaxSize = NS_MATHML_OPERATOR_SIZE_INFINITY,
                            bool aMaxSizeIsAbsolute = false);
 

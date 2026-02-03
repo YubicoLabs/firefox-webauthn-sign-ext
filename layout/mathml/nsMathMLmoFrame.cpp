@@ -567,11 +567,11 @@ void nsMathMLmoFrame::ProcessOperatorData() {
   }
 }
 
-static uint32_t GetStretchHint(nsOperatorFlags aFlags,
-                               nsPresentationData aPresentationData,
-                               bool aIsVertical,
-                               const nsStyleFont* aStyleFont) {
-  uint32_t stretchHint = NS_STRETCH_NONE;
+static MathMLStretchFlags GetStretchFlags(nsOperatorFlags aFlags,
+                                          nsPresentationData aPresentationData,
+                                          bool aIsVertical,
+                                          const nsStyleFont* aStyleFont) {
+  MathMLStretchFlags stretchFlags;
   // See if it is okay to stretch,
   // starting from what the Operator Dictionary said
   if (NS_MATHML_OPERATOR_IS_MUTABLE(aFlags)) {
@@ -582,22 +582,24 @@ static uint32_t GetStretchHint(nsOperatorFlags aFlags,
     // . largeop is taken if largeop=true and stretchy=true
     if (aStyleFont->mMathStyle == StyleMathStyle::Normal &&
         NS_MATHML_OPERATOR_IS_LARGEOP(aFlags)) {
-      stretchHint = NS_STRETCH_LARGEOP;  // (largeopOnly, not mask!)
+      stretchFlags =
+          MathMLStretchFlag::LargeOperator;  // (largeopOnly, not mask!)
       if (NS_MATHML_OPERATOR_IS_STRETCHY(aFlags)) {
-        stretchHint |= NS_STRETCH_NEARER | NS_STRETCH_LARGER;
+        stretchFlags += MathMLStretchFlag::Nearer;
+        stretchFlags += MathMLStretchFlag::Larger;
       }
     } else if (NS_MATHML_OPERATOR_IS_STRETCHY(aFlags)) {
       if (aIsVertical) {
         // TeX hint. Can impact some sloppy markups missing <mrow></mrow>
-        stretchHint = NS_STRETCH_NEARER;
+        stretchFlags = MathMLStretchFlag::Nearer;
       } else {
-        stretchHint = NS_STRETCH_NORMAL;
+        stretchFlags = MathMLStretchFlag::Normal;
       }
     }
     // else if the stretchy and largeop attributes have been disabled,
     // the operator is not mutable
   }
-  return stretchHint;
+  return stretchFlags;
 }
 
 // NOTE: aDesiredStretchSize is an IN/OUT parameter
@@ -638,13 +640,13 @@ nsMathMLmoFrame::Stretch(DrawTarget* aDrawTarget,
     isVertical = true;
   }
 
-  uint32_t stretchHint =
-      GetStretchHint(mFlags, mPresentationData, isVertical, StyleFont());
+  auto stretchFlags =
+      GetStretchFlags(mFlags, mPresentationData, isVertical, StyleFont());
 
   if (useMathMLChar) {
     nsBoundingMetrics initialSize = aDesiredStretchSize.mBoundingMetrics;
 
-    if (stretchHint != NS_STRETCH_NONE) {
+    if (!stretchFlags.isEmpty()) {
       container = aContainerSize;
 
       // some adjustments if the operator is symmetric and vertical
@@ -667,8 +669,8 @@ nsMathMLmoFrame::Stretch(DrawTarget* aDrawTarget,
 
       if (mMaxSize != NS_MATHML_OPERATOR_SIZE_INFINITY && mMaxSize > 0.0f) {
         // if we are here, there is a user defined maxsize ...
-        // XXX Set stretchHint = NS_STRETCH_NORMAL? to honor the maxsize as
-        // close as possible?
+        // XXX Set stretchFlags = MathMLStretchFlag::Normal? to honor the
+        // maxsize as close as possible?
         if (NS_MATHML_OPERATOR_MAXSIZE_IS_ABSOLUTE(mFlags)) {
           // there is an explicit value like maxsize="20pt"
           // try to maintain the aspect ratio of the char
@@ -743,7 +745,7 @@ nsMathMLmoFrame::Stretch(DrawTarget* aDrawTarget,
     // let the MathMLChar stretch itself...
     nsresult res = mMathMLChar.Stretch(
         this, aDrawTarget, fontSizeInflation, aStretchDirection, container,
-        charSize, stretchHint,
+        charSize, stretchFlags,
         StyleVisibility()->mDirection == StyleDirection::Rtl);
     if (NS_FAILED(res)) {
       // gracefully handle cases where stretching the char failed (i.e.,
@@ -767,8 +769,9 @@ nsMathMLmoFrame::Stretch(DrawTarget* aDrawTarget,
     // if the returned direction is 'unsupported', the char didn't actually
     // change. So we do the centering only if necessary
     if (mMathMLChar.GetStretchDirection() != StretchDirection::Unsupported) {
-      bool largeopOnly = (NS_STRETCH_LARGEOP & stretchHint) != 0 &&
-                         (NS_STRETCH_VARIABLE_MASK & stretchHint) == 0;
+      bool largeopOnly =
+          stretchFlags.contains(MathMLStretchFlag::LargeOperator) &&
+          (stretchFlags & kMathMLStretchVariableSet).isEmpty();
 
       if (isVertical) {
         // the desired size returned by mMathMLChar maybe different
@@ -978,7 +981,7 @@ void nsMathMLmoFrame::Place(DrawTarget* aDrawTarget, const PlaceFlags& aFlags,
     nsresult rv = mMathMLChar.Stretch(
         this, aDrawTarget, nsLayoutUtils::FontSizeInflationFor(this),
         StretchDirection::Vertical, aDesiredSize.mBoundingMetrics, newMetrics,
-        NS_STRETCH_LARGEOP,
+        MathMLStretchFlag::LargeOperator,
         StyleVisibility()->mDirection == StyleDirection::Rtl);
 
     if (NS_FAILED(rv)) {
@@ -1030,11 +1033,11 @@ void nsMathMLmoFrame::GetIntrinsicISizeMetrics(gfxContext* aRenderingContext,
                                                ReflowOutput& aDesiredSize) {
   ProcessOperatorData();
   if (UseMathMLChar()) {
-    uint32_t stretchHint =
-        GetStretchHint(mFlags, mPresentationData, true, StyleFont());
+    auto stretchFlags =
+        GetStretchFlags(mFlags, mPresentationData, true, StyleFont());
     aDesiredSize.Width() = mMathMLChar.GetMaxWidth(
         this, aRenderingContext->GetDrawTarget(),
-        nsLayoutUtils::FontSizeInflationFor(this), stretchHint);
+        nsLayoutUtils::FontSizeInflationFor(this), stretchFlags);
     aDesiredSize.Width() += IntrinsicISizeOffsets().BorderPadding();
   } else {
     nsMathMLTokenFrame::GetIntrinsicISizeMetrics(aRenderingContext,
