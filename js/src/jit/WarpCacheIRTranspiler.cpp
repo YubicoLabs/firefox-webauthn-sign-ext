@@ -7057,7 +7057,10 @@ bool WarpCacheIRTranspiler::emitCallNativeSetter(ObjOperandId receiverId,
                         nargsAndFlagsOffset);
 }
 
-bool WarpCacheIRTranspiler::emitMetaCreateThis(uint32_t thisShapeOffset,
+bool WarpCacheIRTranspiler::emitMetaCreateThis(uint32_t numFixedSlots,
+                                               uint32_t numDynamicSlots,
+                                               gc::AllocKind allocKind,
+                                               uint32_t thisShapeOffset,
                                                uint32_t siteOffset) {
   SharedShape* shape = &shapeStubField(thisShapeOffset)->asShared();
   MOZ_ASSERT(shape->getObjectClass() == &PlainObject::class_);
@@ -7067,15 +7070,12 @@ bool WarpCacheIRTranspiler::emitMetaCreateThis(uint32_t thisShapeOffset,
 
   gc::Heap heap = allocSiteInitialHeapField(siteOffset);
 
-  uint32_t numFixedSlots = shape->numFixedSlots();
-  uint32_t numDynamicSlots = NativeObject::calculateDynamicSlots(shape);
-  gc::AllocKind kind = gc::GetGCObjectKind(numFixedSlots);
   MOZ_ASSERT(gc::GetObjectFinalizeKind(&PlainObject::class_) ==
              gc::FinalizeKind::None);
-  MOZ_ASSERT(!IsFinalizedKind(kind));
+  MOZ_ASSERT(!IsFinalizedKind(allocKind));
 
   auto* createThis = MNewPlainObject::New(alloc(), shapeConst, numFixedSlots,
-                                          numDynamicSlots, kind, heap);
+                                          numDynamicSlots, allocKind, heap);
   add(createThis);
 
   callInfo_->thisArg()->setImplicitlyUsedUnchecked();

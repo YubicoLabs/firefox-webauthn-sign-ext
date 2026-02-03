@@ -3104,12 +3104,15 @@ bool BaselineCacheIRCompiler::emitCallClassHook(ObjOperandId calleeId,
                               targetOffset_);
 }
 
-// This op generates no code. It caches the alloc site offset for eventual
-// use in createThis.
-bool BaselineCacheIRCompiler::emitMetaCreateThis(uint32_t thisShapeOffset,
+// This op generates no code. It caches metadata for eventual use in createThis.
+bool BaselineCacheIRCompiler::emitMetaCreateThis(uint32_t numFixedSlots,
+                                                 uint32_t numDynamicSlots,
+                                                 gc::AllocKind allocKind,
+                                                 uint32_t thisShapeOffset,
                                                  uint32_t siteOffset) {
-  MOZ_ASSERT(scriptedAllocSiteOffset_.isNothing());
-  scriptedAllocSiteOffset_.emplace(siteOffset);
+  MOZ_ASSERT(createThisData_.isNothing());
+  createThisData_.emplace(numFixedSlots, numDynamicSlots, allocKind,
+                          thisShapeOffset, siteOffset);
   return true;
 }
 
@@ -3136,9 +3139,8 @@ void BaselineCacheIRCompiler::loadStackObject(ArgumentKind kind,
   }
 }
 
-template <typename T>
-void BaselineCacheIRCompiler::storeThis(const T& newThis, Register argcReg,
-                                        CallFlags flags) {
+void BaselineCacheIRCompiler::storeThis(const ConstantOrRegister& newThis,
+                                        Register argcReg, CallFlags flags) {
   switch (flags.getArgFormat()) {
     case CallFlags::Standard: {
       BaseValueIndex thisAddress(
@@ -3146,13 +3148,13 @@ void BaselineCacheIRCompiler::storeThis(const T& newThis, Register argcReg,
           argcReg,                               // Arguments
           1 * sizeof(Value) +                    // NewTarget
               BaselineStubFrameLayout::Size());  // Stub frame
-      masm.storeValue(newThis, thisAddress);
+      masm.storeConstantOrRegister(newThis, thisAddress);
     } break;
     case CallFlags::Spread: {
       Address thisAddress(FramePointer,
                           2 * sizeof(Value) +  // Arg array, NewTarget
                               BaselineStubFrameLayout::Size());  // Stub frame
-      masm.storeValue(newThis, thisAddress);
+      masm.storeConstantOrRegister(newThis, thisAddress);
     } break;
     default:
       MOZ_CRASH("Invalid arg format for scripted constructor");
@@ -3171,13 +3173,50 @@ void BaselineCacheIRCompiler::storeThis(const T& newThis, Register argcReg,
  * overwrites the magic ThisV on the stack.
  */
 void BaselineCacheIRCompiler::createThis(Register argcReg, Register calleeReg,
-                                         Register scratch, CallFlags flags,
+                                         Register scratch, Register scratch2,
+                                         Register scratch3, CallFlags flags,
                                          bool isBoundFunction) {
   MOZ_ASSERT(flags.isConstructing());
 
   if (flags.needsUninitializedThis()) {
     storeThis(MagicValue(JS_UNINITIALIZED_LEXICAL), argcReg, flags);
     return;
+  }
+
+  Label done;
+  bool hasCreateThisData = createThisData_.isSome();
+  if (hasCreateThisData) {
+    Label fail;
+    Register result = scratch;
+
+    Register shape = scratch2;
+    masm.loadPtr(stubAddress(createThisData_->thisShapeOffset), shape);
+
+    Register site = scratch3;
+    masm.loadPtr(stubAddress(createThisData_->allocSiteOffset), site);
+
+    // On x86-32, all of our registers are already spoken for, but we need one
+    // more.  We already generate code to reload `calleeReg` in case it was
+    // clobbered by a GC, so we can use it here.
+    Register temp = calleeReg;
+
+    masm.createPlainGCObject(
+        result, shape, temp, shape, createThisData_->numFixedSlots,
+        createThisData_->numDynamicSlots, createThisData_->allocKind,
+        gc::Heap::Default, &fail, AllocSiteInput(site));
+    storeThis(TypedOrValueRegister(MIRType::Object, AnyRegister(result)),
+              argcReg, flags);
+
+    // This rejoins the fallback path at the point where we will restore
+    // calleeReg.
+    masm.jump(&done);
+
+    masm.bind(&fail);
+    if (isBoundFunction) {
+      // We clobbered calleeReg, but we still need it in the fallback path
+      // below. Restore it.
+      loadStackObject(ArgumentKind::Callee, flags, argcReg, calleeReg);
+    }
   }
 
   // Save live registers that don't have to be traced.
@@ -3188,9 +3227,8 @@ void BaselineCacheIRCompiler::createThis(Register argcReg, Register calleeReg,
   // CreateThis takes two arguments: callee, and newTarget. We may also pass
   // an alloc site.
 
-  bool hasAllocSite = scriptedAllocSiteOffset_.isSome();
-  if (hasAllocSite) {
-    masm.loadPtr(stubAddress(*scriptedAllocSiteOffset_), scratch);
+  if (hasCreateThisData) {
+    masm.loadPtr(stubAddress(createThisData_->allocSiteOffset), scratch);
     masm.push(scratch);
   }
 
@@ -3210,7 +3248,7 @@ void BaselineCacheIRCompiler::createThis(Register argcReg, Register calleeReg,
     masm.push(scratch);
   }
 
-  if (hasAllocSite) {
+  if (hasCreateThisData) {
     using Fn = bool (*)(JSContext*, HandleObject, HandleObject, gc::AllocSite*,
                         MutableHandleValue);
     callVM<Fn, CreateThisFromICWithAllocSite>(masm);
@@ -3240,7 +3278,9 @@ void BaselineCacheIRCompiler::createThis(Register argcReg, Register calleeReg,
 
   // Save |this| value back into pushed arguments on stack.
   MOZ_ASSERT(!liveNonGCRegs.aliases(JSReturnOperand));
-  storeThis(JSReturnOperand, argcReg, flags);
+  storeThis(TypedOrValueRegister(JSReturnOperand), argcReg, flags);
+
+  masm.bind(&done);
 
   // Restore calleeReg. CreateThisFromIC may trigger a GC, so we reload the
   // callee from the stub frame (which is traced) instead of spilling it to
@@ -3280,8 +3320,9 @@ bool BaselineCacheIRCompiler::emitCallScriptedFunctionShared(
     ObjOperandId calleeId, Int32OperandId argcId, CallFlags flags,
     uint32_t argcFixed, Maybe<uint32_t> icScriptOffset) {
   AutoOutputRegister output(*this);
-  AutoScratchRegisterMaybeOutput scratch(allocator, masm, output);
-  AutoScratchRegister scratch2(allocator, masm);
+  AutoScratchRegister scratch(allocator, masm);
+  AutoScratchRegisterMaybeOutput scratch2(allocator, masm, output);
+  AutoScratchRegisterMaybeOutputType scratch3(allocator, masm, output);
 
   Register calleeReg = allocator.useRegister(masm, calleeId);
   Register argcReg = allocator.useRegister(masm, argcId);
@@ -3309,7 +3350,7 @@ bool BaselineCacheIRCompiler::emitCallScriptedFunctionShared(
   }
 
   if (isConstructing) {
-    createThis(argcReg, calleeReg, scratch, flags,
+    createThis(argcReg, calleeReg, scratch, scratch2, scratch3, flags,
                /* isBoundFunction = */ false);
   }
 
@@ -3341,7 +3382,7 @@ bool BaselineCacheIRCompiler::emitCallScriptedFunctionShared(
   stubFrame.leave(masm);
 
   if (!isSameRealm) {
-    masm.switchToBaselineFrameRealm(scratch2);
+    masm.switchToBaselineFrameRealm(scratch);
   }
 
   return true;
@@ -3498,8 +3539,9 @@ bool BaselineCacheIRCompiler::emitCallBoundScriptedFunction(
   JitSpew(JitSpew_Codegen, "%s", __FUNCTION__);
 
   AutoOutputRegister output(*this);
-  AutoScratchRegisterMaybeOutput scratch(allocator, masm, output);
-  AutoScratchRegister scratch2(allocator, masm);
+  AutoScratchRegister scratch(allocator, masm);
+  AutoScratchRegisterMaybeOutput scratch2(allocator, masm, output);
+  AutoScratchRegisterMaybeOutputType scratch3(allocator, masm, output);
 
   Register calleeReg = allocator.useRegister(masm, calleeId);
   Register argcReg = allocator.useRegister(masm, argcId);
@@ -3523,7 +3565,7 @@ bool BaselineCacheIRCompiler::emitCallBoundScriptedFunction(
       masm.unboxObject(boundTarget, scratch);
       masm.switchToObjectRealm(scratch, scratch);
     }
-    createThis(argcReg, calleeReg, scratch, flags,
+    createThis(argcReg, calleeReg, scratch, scratch2, scratch3, flags,
                /* isBoundFunction = */ true);
   }
 
@@ -3559,7 +3601,7 @@ bool BaselineCacheIRCompiler::emitCallBoundScriptedFunction(
   stubFrame.leave(masm);
 
   if (!isSameRealm) {
-    masm.switchToBaselineFrameRealm(scratch2);
+    masm.switchToBaselineFrameRealm(scratch);
   }
 
   return true;

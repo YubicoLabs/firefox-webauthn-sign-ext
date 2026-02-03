@@ -2296,6 +2296,9 @@
   transpile: true
   cost_estimate: 0
   args:
+    numFixedSlots: UInt32Imm
+    numDynamicSlots: UInt32Imm
+    allocKind: AllocKindImm
     thisShape: ShapeField
     site: AllocSiteField
 

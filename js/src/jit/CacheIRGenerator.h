@@ -604,9 +604,9 @@ class MOZ_RAII CallIRGenerator : public IRGenerator {
 
   friend class InlinableNativeIRGenerator;
 
-  ScriptedThisResult getThisShapeForScripted(HandleFunction calleeFunc,
-                                             Handle<JSObject*> newTarget,
-                                             MutableHandle<Shape*> result);
+  ScriptedThisResult getThisShapeForScripted(
+      HandleFunction calleeFunc, Handle<JSObject*> newTarget,
+      MutableHandle<SharedShape*> result);
 
   ObjOperandId emitFunCallOrApplyGuard(Int32OperandId argcId);
   ObjOperandId emitFunCallGuard(Int32OperandId argcId);
@@ -616,7 +616,8 @@ class MOZ_RAII CallIRGenerator : public IRGenerator {
 
   void emitCallScriptedGuards(ObjOperandId calleeObjId, JSFunction* calleeFunc,
                               Int32OperandId argcId, CallFlags flags,
-                              Shape* thisShape, gc::AllocSite* maybeAllocSite,
+                              SharedShape* thisShape,
+                              gc::AllocSite* maybeAllocSite,
                               bool isBoundFunction);
 
   AttachDecision tryAttachFunCall(HandleFunction calleeFunc);
