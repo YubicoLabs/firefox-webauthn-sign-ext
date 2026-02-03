@@ -161,7 +161,7 @@ nr_reg_register_callback(NR_registry_name name, char action, void (*cb)(void *cb
     }
 
     if (create_info) {
-      if (!(info=(void*)RCALLOC(sizeof(*info))))
+      if (!(info=R_NEW(nr_reg_cb_info)))
         ABORT(R_NO_MEMORY);
     }
 

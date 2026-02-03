@@ -64,7 +64,7 @@ static int nr_ice_pre_answer_request_create(nr_transport_addr *dst, nr_stun_serv
     nr_ice_pre_answer_request *par = 0;
     nr_stun_message_attribute *attr;
 
-    if (!(par = RCALLOC(sizeof(nr_ice_pre_answer_request))))
+    if (!(par = R_NEW(nr_ice_pre_answer_request)))
       ABORT(R_NO_MEMORY);
 
     par->req = *req; /* Struct assignment */
@@ -113,7 +113,7 @@ int nr_ice_component_create(nr_ice_media_stream *stream, int component_id, nr_ic
     int _status;
     nr_ice_component *comp=0;
 
-    if(!(comp=RCALLOC(sizeof(nr_ice_component))))
+    if(!(comp=R_NEW(nr_ice_component)))
       ABORT(R_NO_MEMORY);
 
     comp->state=NR_ICE_COMPONENT_UNPAIRED;
@@ -1678,7 +1678,7 @@ int nr_ice_component_select_pair(nr_ice_peer_ctx *pctx, nr_ice_component *comp)
     }
 
     /* Make and fill the array */
-    if(!(pairs=RCALLOC(sizeof(nr_ice_cand_pair *)*ct)))
+    if(!(pairs=R_NEW_CNT(nr_ice_cand_pair*, ct)))
       ABORT(R_NO_MEMORY);
 
     ct=0;

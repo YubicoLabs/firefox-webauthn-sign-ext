@@ -71,7 +71,7 @@ int nr_ice_candidate_pair_create(nr_ice_peer_ctx *pctx, nr_ice_candidate *lcand,
     nr_ice_candidate tmpcand;
     UINT8 t_priority;
 
-    if(!(pair=RCALLOC(sizeof(nr_ice_cand_pair))))
+    if(!(pair=R_NEW(nr_ice_cand_pair)))
       ABORT(R_NO_MEMORY);
 
     pair->pctx=pctx;

@@ -51,7 +51,7 @@ int nr_ice_media_stream_create(nr_ice_ctx *ctx,const char *label,const char *ufr
     nr_ice_component *comp=0;
     int i;
 
-    if(!(stream=RCALLOC(sizeof(nr_ice_media_stream))))
+    if(!(stream=R_NEW(nr_ice_media_stream)))
       ABORT(R_NO_MEMORY);
 
     if(!(stream->label=r_strdup(label)))
@@ -85,7 +85,7 @@ int nr_ice_media_stream_create(nr_ice_ctx *ctx,const char *label,const char *ufr
     stream->l2r_user = 0;
     stream->flags = ctx->flags;
     if(ctx->stun_server_ct_cfg) {
-      if(!(stream->stun_servers=RCALLOC(sizeof(nr_ice_stun_server)*(ctx->stun_server_ct_cfg))))
+      if(!(stream->stun_servers=R_NEW_CNT(nr_ice_stun_server, ctx->stun_server_ct_cfg)))
         ABORT(R_NO_MEMORY);
 
       memcpy(stream->stun_servers,ctx->stun_servers_cfg,sizeof(nr_ice_stun_server)*(ctx->stun_server_ct_cfg));
@@ -93,7 +93,7 @@ int nr_ice_media_stream_create(nr_ice_ctx *ctx,const char *label,const char *ufr
     }
 
     if(ctx->turn_server_ct_cfg) {
-      if(!(stream->turn_servers=RCALLOC(sizeof(nr_ice_turn_server)*(ctx->turn_server_ct_cfg))))
+      if(!(stream->turn_servers=R_NEW_CNT(nr_ice_turn_server, ctx->turn_server_ct_cfg)))
         ABORT(R_NO_MEMORY);
 
       for(int i = 0; i < ctx->turn_server_ct_cfg; ++i) {
@@ -225,10 +225,10 @@ int nr_ice_media_stream_get_attributes(nr_ice_media_stream *stream, char ***attr
     }
 
     /* Make the array we'll need */
-    if(!(attrs=RCALLOC(sizeof(char *)*attrct)))
+    if(!(attrs=R_NEW_CNT(char *, attrct)))
       ABORT(R_NO_MEMORY);
     for(index=0;index<attrct;index++){
-      if(!(attrs[index]=RMALLOC(NR_ICE_MAX_ATTRIBUTE_SIZE)))
+      if(!(attrs[index]=(char*)RMALLOC(NR_ICE_MAX_ATTRIBUTE_SIZE)))
         ABORT(R_NO_MEMORY);
     }
 
@@ -260,12 +260,12 @@ int nr_ice_media_stream_get_attributes(nr_ice_media_stream *stream, char ***attr
     }
 
     /* Now, ufrag and pwd */
-    if(!(tmp=RMALLOC(100)))
+    if(!(tmp=(char*)RMALLOC(100)))
       ABORT(R_NO_MEMORY);
     snprintf(tmp,100,"ice-ufrag:%s",stream->ufrag);
     attrs[index++]=tmp;
 
-    if(!(tmp=RMALLOC(100)))
+    if(!(tmp=(char*)RMALLOC(100)))
       ABORT(R_NO_MEMORY);
     snprintf(tmp,100,"ice-pwd:%s",stream->pwd);
     attrs[index++]=tmp;

@@ -65,7 +65,7 @@ static int nr_win32_get_adapter_friendly_name(char *adapter_GUID, char **friendl
 
 #ifdef UNICODE
     newlen = wcslen(keyval_buf)+1;
-    my_fn = (char *) RCALLOC(newlen);
+    my_fn = (char *) RCALLOC_RAWSIZE(newlen);
     if (!my_fn) {
       ABORT(R_NO_MEMORY);
     }

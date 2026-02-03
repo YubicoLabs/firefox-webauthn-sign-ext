@@ -51,7 +51,7 @@ int nr_ice_peer_ctx_create(nr_ice_ctx *ctx, nr_ice_handler *handler,char *label,
     int r,_status;
     nr_ice_peer_ctx *pctx=0;
 
-    if(!(pctx=RCALLOC(sizeof(nr_ice_peer_ctx))))
+    if(!(pctx=R_NEW(nr_ice_peer_ctx)))
       ABORT(R_NO_MEMORY);
 
     pctx->state = NR_ICE_PEER_STATE_UNPAIRED;

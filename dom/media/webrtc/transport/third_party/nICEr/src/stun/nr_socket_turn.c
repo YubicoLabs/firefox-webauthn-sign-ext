@@ -80,7 +80,7 @@ int nr_socket_turn_create(nr_socket **sockp)
     int r,_status;
     nr_socket_turn *sturn=0;
 
-    if(!(sturn=RCALLOC(sizeof(nr_socket_turn))))
+    if(!(sturn=R_NEW(nr_socket_turn)))
       ABORT(R_NO_MEMORY);
 
     sturn->magic_cookie = nr_socket_turn_magic_cookie;
