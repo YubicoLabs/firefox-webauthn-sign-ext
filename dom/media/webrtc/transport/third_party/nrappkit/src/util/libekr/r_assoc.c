@@ -127,14 +127,13 @@ int r_assoc_create(
     r_assoc *assoc=0;
     int _status;
 
-    if(!(assoc=(r_assoc *)RCALLOC(sizeof(r_assoc))))
+    if(!(assoc=R_NEW(r_assoc)))
       ABORT(R_NO_MEMORY);
     assoc->size=(1<<bits);
     assoc->bits=bits;
     assoc->hash_func=hash_func;
 
-    if(!(assoc->chains=(r_assoc_el **)RCALLOC(sizeof(r_assoc_el *)*
-      assoc->size)))
+    if(!(assoc->chains=R_NEW_CNT(r_assoc_el *, assoc->size)))
       ABORT(R_NO_MEMORY);
 
     *assocp=assoc;
@@ -242,7 +241,7 @@ int r_assoc_insert(
 	ABORT(r);
       hash_value=assoc->hash_func(key,len,assoc->bits);
 
-      if(!(new_bucket=(r_assoc_el *)RCALLOC(sizeof(r_assoc_el))))
+      if(!(new_bucket=R_NEW(r_assoc_el)))
 	ABORT(R_NO_MEMORY);
       if(!(new_bucket->key=(char *)RMALLOC(len)))
 	ABORT(R_NO_MEMORY);

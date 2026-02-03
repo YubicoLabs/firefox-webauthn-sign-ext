@@ -220,7 +220,7 @@ NR_reg_get_child_registry(NR_registry_name parent, unsigned int i, NR_registry c
         ABORT(R_NOT_FOUND);
     else {
         count++;
-        children = (NR_registry *)RCALLOC(count * sizeof(NR_registry));
+        children = R_NEW_CNT(NR_registry, count);
         if (!children)
             ABORT(R_NO_MEMORY);
 
@@ -251,7 +251,7 @@ NR_reg_alloc_data(NR_registry_name name, Data *data)
     if ((r=NR_reg_get_length(name, &length)))
       ABORT(r);
 
-    if (!(tmp = (void*)RMALLOC(length)))
+    if (!(tmp = (UCHAR*)RMALLOC(length)))
       ABORT(R_NO_MEMORY);
 
     if ((r=NR_reg_get_bytes(name, tmp, length, &sanity_check)))
@@ -280,7 +280,7 @@ NR_reg_alloc_string(NR_registry_name name, char **data)
     if ((r=NR_reg_get_length(name, &length)))
       ABORT(r);
 
-    if (!(tmp = (void*)RMALLOC(length+1)))
+    if (!(tmp = (char*)RMALLOC(length+1)))
       ABORT(R_NO_MEMORY);
 
     if ((r=NR_reg_get_string(name, tmp, length+1)))

@@ -201,7 +201,7 @@ int nr_ice_socket_create(nr_ice_ctx *ctx,nr_ice_component *comp, nr_socket *nsoc
     nr_transport_addr addr;
     int r,_status;
 
-    if(!(sock=RCALLOC(sizeof(nr_ice_socket))))
+    if(!(sock=R_NEW(nr_ice_socket)))
       ABORT(R_NO_MEMORY);
 
     sock->sock=nsock;
@@ -307,7 +307,7 @@ int nr_ice_socket_register_stun_client(nr_ice_socket *sock, nr_stun_client_ctx *
     nr_ice_stun_ctx *sc=0;
     int _status;
 
-    if(!(sc=RCALLOC(sizeof(nr_ice_stun_ctx))))
+    if(!(sc=R_NEW(nr_ice_stun_ctx)))
       ABORT(R_NO_MEMORY);
 
     sc->type=NR_ICE_STUN_CLIENT;
@@ -327,7 +327,7 @@ int nr_ice_socket_register_stun_server(nr_ice_socket *sock, nr_stun_server_ctx *
     nr_ice_stun_ctx *sc=0;
     int _status;
 
-    if(!(sc=RCALLOC(sizeof(nr_ice_stun_ctx))))
+    if(!(sc=R_NEW(nr_ice_stun_ctx)))
       ABORT(R_NO_MEMORY);
 
     sc->type=NR_ICE_STUN_SERVER;
@@ -348,7 +348,7 @@ int nr_ice_socket_register_turn_client(nr_ice_socket *sock, nr_turn_client_ctx *
     nr_ice_stun_ctx *sc=0;
     int _status;
 
-    if(!(sc=RCALLOC(sizeof(nr_ice_stun_ctx))))
+    if(!(sc=R_NEW(nr_ice_stun_ctx)))
       ABORT(R_NO_MEMORY);
 
     sc->type=NR_ICE_TURN_CLIENT;

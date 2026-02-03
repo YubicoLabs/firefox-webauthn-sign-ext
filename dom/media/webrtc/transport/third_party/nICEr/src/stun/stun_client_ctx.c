@@ -56,7 +56,7 @@ int nr_stun_client_ctx_create(const char* label, nr_socket* sock,
     if ((r=nr_stun_startup()))
       ABORT(r);
 
-    if(!(ctx=RCALLOC(sizeof(nr_stun_client_ctx))))
+    if(!(ctx=R_NEW(nr_stun_client_ctx)))
       ABORT(R_NO_MEMORY);
 
     ctx->state=NR_STUN_CLIENT_STATE_INITTED;

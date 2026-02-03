@@ -121,7 +121,7 @@ int nr_ice_candidate_create(nr_ice_ctx *ctx,nr_ice_component *comp,nr_ice_socket
     int r,_status;
     char label[512];
 
-    if(!(cand=RCALLOC(sizeof(nr_ice_candidate))))
+    if(!(cand=R_NEW(nr_ice_candidate)))
       ABORT(R_NO_MEMORY);
     cand->state=NR_ICE_CAND_STATE_CREATED;
     cand->ctx=ctx;
@@ -221,7 +221,7 @@ int nr_ice_peer_peer_rflx_candidate_create(nr_ice_ctx *ctx, const char *label, n
     nr_ice_candidate_type ctype=PEER_REFLEXIVE;
     int r,_status;
 
-    if(!(cand=RCALLOC(sizeof(nr_ice_candidate))))
+    if(!(cand=R_NEW(nr_ice_candidate)))
       ABORT(R_NO_MEMORY);
     if(!(cand->label=r_strdup(label)))
       ABORT(R_NO_MEMORY);
@@ -395,7 +395,7 @@ static int nr_ice_get_foundation(nr_ice_ctx *ctx,nr_ice_candidate *cand)
       i++;
     }
 
-    if(!(foundation=RCALLOC(sizeof(nr_ice_foundation))))
+    if(!(foundation=R_NEW(nr_ice_foundation)))
       ABORT(R_NO_MEMORY);
     nr_transport_addr_copy(&foundation->addr,&cand->base);
     foundation->type=cand->type;

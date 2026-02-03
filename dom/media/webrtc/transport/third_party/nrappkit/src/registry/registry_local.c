@@ -340,7 +340,7 @@ nr_reg_alloc_node_data(const char *name, nr_registry_node *node, int *freeit)
     }
 
     if (alloc > 0) {
-      s = (void*)RMALLOC(alloc);
+      s = (char*)RMALLOC(alloc);
       if (!s)
         return 0;
 
@@ -509,7 +509,7 @@ nr_reg_set(const char *name, int type, void *data)
         ABORT(r);
 
     if (create_node) {
-      if (!(node=(void*)RCALLOC(sizeof(nr_scalar_registry_node))))
+      if (!(node=R_NEW(nr_scalar_registry_node)))
         ABORT(R_NO_MEMORY);
 
       node->type = type;
@@ -596,7 +596,7 @@ nr_reg_set_array(const char *name, unsigned char type, const UCHAR *data, size_t
             changed = 1;
 
             if (old->array.length < length) {
-                if (!(node=(void*)RCALLOC(sizeof(nr_array_registry_node)+length)))
+                if (!(node=(nr_array_registry_node*)RCALLOC_RAWSIZE(sizeof(nr_array_registry_node)+length)))
                     ABORT(R_NO_MEMORY);
             }
             else {
@@ -605,7 +605,7 @@ nr_reg_set_array(const char *name, unsigned char type, const UCHAR *data, size_t
         }
     }
     else {
-        if (!(node=(void*)RCALLOC(sizeof(nr_array_registry_node)+length)))
+        if (!(node=(nr_array_registry_node*)RCALLOC_RAWSIZE(sizeof(nr_array_registry_node)+length)))
             ABORT(R_NO_MEMORY);
 
         added = 1;

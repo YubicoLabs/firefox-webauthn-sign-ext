@@ -302,7 +302,7 @@ int r_dump(int facility,int level,const char *name,const char *data,int len)
     if(!r_logging(facility,level))
       return(0);
 
-    hex=RMALLOC((len*2)+1);
+    hex=(char*)RMALLOC((len*2)+1);
     if (!hex)
       return(R_FAILED);
 
