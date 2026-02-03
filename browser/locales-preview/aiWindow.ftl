@@ -111,5 +111,5 @@ aiwindow-memories-off =
 ## New Chat Button
 
 aiwindow-new-chat =
-    .tooltiptext = Start new chat
-    .aria-label = Start new chat
+    .tooltiptext = New chat
+    .aria-label = New chat
