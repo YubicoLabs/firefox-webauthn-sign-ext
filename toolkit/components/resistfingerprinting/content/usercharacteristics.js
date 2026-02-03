@@ -866,7 +866,16 @@ async function populateICEFoundations() {
       })
       .catch(reject);
 
-    return promise;
+    // Add timeout to prevent hanging indefinitely
+    const timeout = setTimeout(() => {
+      pc.close();
+      resolve(result);
+    }, 5000);
+
+    return promise.then(res => {
+      clearTimeout(timeout);
+      return res;
+    });
   }
 
   // Run get candidates multiple times to see if foundation order changes
@@ -985,18 +994,35 @@ async function populateMathML() {
 
 async function populateAudioDeviceProperties() {
   const ctx = new AudioContext();
-  await ctx.resume();
+
+  try {
+    // Add a timeout to prevent hanging indefinitely if the user has no audio hardware
+    await Promise.race([
+      ctx.resume(),
+      new Promise((_, reject) =>
+        setTimeout(
+          () => reject(new Error("AudioContext.resume() timeout")),
+          5000
+        )
+      ),
+    ]);
+  } catch (e) {
+    throw new Error(
+      "AudioContext.resume error, probably a timeout, user may not have audio hardware"
+    );
+  }
 
   // Give firefox some time to calculate latency
   await new Promise(resolve => setTimeout(resolve, 2000));
 
   // All the other properties (min/max decibels, smoothingTimeConstant,
   // fftSize, frequencyBinCount, baseLatency) are hardcoded.
-  return {
+  const result = {
     audioFrames: ctx.outputLatency * ctx.sampleRate,
     audioRate: ctx.sampleRate,
     audioChannels: ctx.destination.maxChannelCount,
   };
+  return result;
 }
 
 async function populateTimezoneWeb() {
