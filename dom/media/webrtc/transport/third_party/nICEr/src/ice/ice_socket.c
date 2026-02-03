@@ -368,7 +368,7 @@ int nr_ice_socket_register_turn_client(nr_ice_socket *sock, nr_turn_client_ctx *
    in the CB, which is where this is likely to be called */
 int nr_ice_socket_deregister(nr_ice_socket *sock, void *handle)
   {
-    nr_ice_stun_ctx *sc=handle;
+    nr_ice_stun_ctx *sc=(nr_ice_stun_ctx*)handle;
 
     if(!sc)
       return(0);
