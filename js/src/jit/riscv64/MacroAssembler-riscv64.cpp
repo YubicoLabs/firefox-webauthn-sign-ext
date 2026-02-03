@@ -6380,7 +6380,12 @@ void MacroAssemblerRiscv64::Clz32(Register rd, Register xx) {
 }
 
 #if JS_CODEGEN_RISCV64
-void MacroAssemblerRiscv64::Clz64(Register rd, Register xx) {
+void MacroAssemblerRiscv64::Clz64(Register rd, Register rs) {
+  if (HasZbbExtension()) {
+    clz(rd, rs);
+    return;
+  }
+
   // 64 bit: count number of leading zeros.
   //  int n = 64;
   //  unsigned y;
@@ -6398,8 +6403,8 @@ void MacroAssemblerRiscv64::Clz64(Register rd, Register xx) {
   Register x = rd;
   Register y = temps.Acquire();
   Register n = temps.Acquire();
-  MOZ_ASSERT(xx != y && xx != n);
-  mv(x, xx);
+  MOZ_ASSERT(rs != y && rs != n);
+  mv(x, rs);
   ma_li(n, Imm32(64));
   srli(y, x, 32);
   ma_branch(&L0, Equal, y, Operand(zero_reg));
@@ -6433,6 +6438,7 @@ void MacroAssemblerRiscv64::Clz64(Register rd, Register xx) {
   bind(&L5);
 }
 #endif
+
 void MacroAssemblerRiscv64::Ctz32(Register rd, Register rs) {
   if (HasZbbExtension()) {
 #if JS_CODEGEN_RISCV64
@@ -6464,6 +6470,7 @@ void MacroAssemblerRiscv64::Ctz32(Register rd, Register rs) {
     ma_sub32(rd, scratch, rd);
   }
 }
+
 #if JS_CODEGEN_RISCV64
 void MacroAssemblerRiscv64::Ctz64(Register rd, Register rs) {
   if (HasZbbExtension()) {
@@ -6492,6 +6499,7 @@ void MacroAssemblerRiscv64::Ctz64(Register rd, Register rs) {
   }
 }
 #endif
+
 void MacroAssemblerRiscv64::Popcnt32(Register rd, Register rs,
                                      Register scratch) {
   if (HasZbbExtension()) {
