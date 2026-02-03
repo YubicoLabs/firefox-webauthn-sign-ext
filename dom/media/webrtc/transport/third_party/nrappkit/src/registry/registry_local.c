@@ -73,7 +73,7 @@ static int nr_reg_set_parent_registries(char *name);
 char *nr_reg_alloc_node_data(char *name, nr_registry_node *node, int *freeit);
 static int nr_reg_rfree(void *ptr);
 static int nr_reg_compute_length(char *name, nr_registry_node *node, size_t *length);
-char *nr_reg_action_name(int action);
+const char *nr_reg_action_name(int action);
 
 /* the registry, containing mappings like "foo.bar.baz" to registry
  * nodes, which are either of type nr_scalar_registry_node or
