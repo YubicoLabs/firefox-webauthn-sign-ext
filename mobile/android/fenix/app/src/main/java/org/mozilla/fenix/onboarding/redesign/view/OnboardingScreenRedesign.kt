@@ -297,72 +297,72 @@ private fun OnboardingContent(
             isSolidBackground = layout.isSmall,
         )
 
-            Column(
-                modifier = Modifier.systemBarsPadding(),
-                verticalArrangement = Arrangement.Center,
-            ) {
-                if (!layout.isSmall) {
-                    Spacer(modifier = Modifier.weight(1f))
-                }
+        Column(
+            modifier = Modifier.systemBarsPadding(),
+            verticalArrangement = Arrangement.Center,
+        ) {
+            if (!layout.isSmall) {
+                Spacer(modifier = Modifier.weight(1f))
+            }
 
-                HorizontalPager(
-                    state = pagerState,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(layout.pagerHeight),
-                    userScrollEnabled = pagerState.currentPage != 0, // Disable scroll for the Terms of Use card.
-                    contentPadding = layout.contentPadding,
-                    pageSize = PageSize.Fill,
-                    beyondViewportPageCount = 2,
-                    pageSpacing = pageSpacing(layout.isLarge, layout.isSmall, layout.pagePeekWidth),
-                    key = { pagesToDisplay[it].type },
-                    overscrollEffect = null,
-                ) { pageIndex ->
-                    // protect against a rare case where the user goes to the marketing screen at the same
-                    // moment it gets removed by [MarketingPageRemovalSupport]
-                    val pageUiState = pagesToDisplay.getOrElse(pageIndex) { pagesToDisplay[it.dec()] }
-                    val onboardingPageState = mapToOnboardingPageState(
-                        onboardingPageUiData = pageUiState,
-                        onMakeFirefoxDefaultClick = onMakeFirefoxDefaultClick,
-                        onMakeFirefoxDefaultSkipClick = onMakeFirefoxDefaultSkipClick,
-                        onSignInButtonClick = onSignInButtonClick,
-                        onSignInSkipClick = onSignInSkipClick,
-                        onNotificationPermissionButtonClick = onNotificationPermissionButtonClick,
-                        onNotificationPermissionSkipClick = onNotificationPermissionSkipClick,
-                        onAddFirefoxWidgetClick = onAddFirefoxWidgetClick,
-                        onAddFirefoxWidgetSkipClick = onSkipFirefoxWidgetClick,
-                        onCustomizeToolbarButtonClick = onCustomizeToolbarButtonClick,
-                        onTermsOfServiceButtonClick = onAgreeAndConfirmTermsOfService,
-                        shouldShowElevation = !layout.isSmall,
-                    )
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(layout.pagerHeight),
+                userScrollEnabled = pagerState.currentPage != 0, // Disable scroll for the Terms of Use card.
+                contentPadding = layout.contentPadding,
+                pageSize = PageSize.Fill,
+                beyondViewportPageCount = 2,
+                pageSpacing = pageSpacing(layout.isLarge, layout.isSmall, layout.pagePeekWidth),
+                key = { pagesToDisplay[it].type },
+                overscrollEffect = null,
+            ) { pageIndex ->
+                // protect against a rare case where the user goes to the marketing screen at the same
+                // moment it gets removed by [MarketingPageRemovalSupport]
+                val pageUiState = pagesToDisplay.getOrElse(pageIndex) { pagesToDisplay[it.dec()] }
+                val onboardingPageState = mapToOnboardingPageState(
+                    onboardingPageUiData = pageUiState,
+                    onMakeFirefoxDefaultClick = onMakeFirefoxDefaultClick,
+                    onMakeFirefoxDefaultSkipClick = onMakeFirefoxDefaultSkipClick,
+                    onSignInButtonClick = onSignInButtonClick,
+                    onSignInSkipClick = onSignInSkipClick,
+                    onNotificationPermissionButtonClick = onNotificationPermissionButtonClick,
+                    onNotificationPermissionSkipClick = onNotificationPermissionSkipClick,
+                    onAddFirefoxWidgetClick = onAddFirefoxWidgetClick,
+                    onAddFirefoxWidgetSkipClick = onSkipFirefoxWidgetClick,
+                    onCustomizeToolbarButtonClick = onCustomizeToolbarButtonClick,
+                    onTermsOfServiceButtonClick = onAgreeAndConfirmTermsOfService,
+                    shouldShowElevation = !layout.isSmall,
+                )
 
-                    OnboardingPageForType(
-                        type = pageUiState.type,
-                        state = onboardingPageState,
-                        onboardingStore = onboardingStore,
-                        termsOfServiceEventHandler = termsOfServiceEventHandler,
-                        onMarketingDataLearnMoreClick = onMarketingDataLearnMoreClick,
-                        onMarketingOptInToggle = onMarketingOptInToggle,
-                        onMarketingDataContinueClick = onMarketingDataContinueClick,
-                    )
-                }
-
-                if (!layout.isSmall) {
-                    Spacer(modifier = Modifier.weight(1f))
-                }
-
-                PagerIndicator(
-                    pagerState = pagerState,
-                    modifier = Modifier
-                        .align(Alignment.CenterHorizontally)
-                        .padding(bottom = 16.dp),
-                    activeColor = MaterialTheme.colorScheme.onPrimary,
-                    inactiveColor = MaterialTheme.colorScheme.surfaceVariant,
-                    leaveTrail = true,
+                OnboardingPageForType(
+                    type = pageUiState.type,
+                    state = onboardingPageState,
+                    onboardingStore = onboardingStore,
+                    termsOfServiceEventHandler = termsOfServiceEventHandler,
+                    onMarketingDataLearnMoreClick = onMarketingDataLearnMoreClick,
+                    onMarketingOptInToggle = onMarketingOptInToggle,
+                    onMarketingDataContinueClick = onMarketingDataContinueClick,
                 )
             }
+
+            if (!layout.isSmall) {
+                Spacer(modifier = Modifier.weight(1f))
+            }
+
+            PagerIndicator(
+                pagerState = pagerState,
+                modifier = Modifier
+                    .align(Alignment.CenterHorizontally)
+                    .padding(bottom = 16.dp),
+                activeColor = MaterialTheme.colorScheme.onPrimary,
+                inactiveColor = MaterialTheme.colorScheme.surfaceVariant,
+                leaveTrail = true,
+            )
         }
     }
+}
 
 @Composable
 private fun OnboardingBackground(isVisible: Boolean, isSolidBackground: Boolean) {
