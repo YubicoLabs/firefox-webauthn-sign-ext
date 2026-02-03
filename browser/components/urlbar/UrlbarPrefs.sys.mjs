@@ -40,6 +40,10 @@ const PREF_URLBAR_DEFAULTS = /** @type {PreferenceDefinition[]} */ ([
   // Feature gate pref for addon suggestions in the urlbar.
   ["addons.featureGate", false],
 
+  // The minimum prefix length of an addons keyword the user must type to
+  // trigger the suggestion.
+  ["addons.minKeywordLength", 0],
+
   // The number of times the user has clicked the "Show less frequently" command
   // for addon suggestions.
   ["addons.showLessFrequentlyCount", 0],
