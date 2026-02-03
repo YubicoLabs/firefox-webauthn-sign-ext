@@ -41,8 +41,10 @@ namespace layers {
 
 class AsyncImagePipelineManager;
 class Compositor;
+class CompositorBridgeParent;
 class CompositorBridgeParentBase;
 class CompositorVsyncScheduler;
+class ContentCompositorBridgeParent;
 class OMTASampler;
 class RemoteTextureTxnScheduler;
 class UiCompositorControllerParent;
@@ -64,9 +66,17 @@ class WebRenderBridgeParent final : public PWebRenderBridgeParent,
                                     public CompositableParentManager,
                                     public FrameRecorder {
  public:
-  WebRenderBridgeParent(CompositorBridgeParentBase* aCompositorBridge,
+  // Constructor for root WebRenderBridgeParents.
+  WebRenderBridgeParent(CompositorBridgeParent* aCompositorBridge,
                         const wr::PipelineId& aPipelineId,
                         widget::CompositorWidget* aWidget,
+                        RefPtr<wr::WebRenderAPI>&& aApi,
+                        RefPtr<AsyncImagePipelineManager>&& aImageMgr,
+                        TimeDuration aVsyncRate);
+
+  // Constructor for content WebRenderBridgeParents.
+  WebRenderBridgeParent(ContentCompositorBridgeParent* aCompositorBridge,
+                        const wr::PipelineId& aPipelineId,
                         CompositorVsyncScheduler* aScheduler,
                         RefPtr<wr::WebRenderAPI>&& aApi,
                         RefPtr<AsyncImagePipelineManager>&& aImageMgr,
@@ -479,7 +489,7 @@ class WebRenderBridgeParent final : public PWebRenderBridgeParent,
 
   std::deque<PendingTransactionId> mPendingTransactionIds;
   std::queue<CompositorAnimationIdsForEpoch> mCompositorAnimationsToDelete;
-  wr::Epoch mWrEpoch;
+  wr::Epoch mWrEpoch{0};
   wr::IdNamespace mIdNamespace;
   CompositionOpportunityId mCompositionOpportunityId;
   nsCString mInitError;
@@ -489,11 +499,11 @@ class WebRenderBridgeParent final : public PWebRenderBridgeParent,
   RefPtr<WebRenderBridgeParentRef> mWebRenderBridgeRef;
 
 #if defined(MOZ_WIDGET_ANDROID)
-  UiCompositorControllerParent* mScreenPixelsTarget;
+  UiCompositorControllerParent* mScreenPixelsTarget = nullptr;
 #endif
   uint32_t mBoolParameterBits;
-  uint16_t mBlobTileSize;
-  wr::RenderReasons mSkippedCompositeReasons;
+  uint16_t mBlobTileSize = 256;
+  wr::RenderReasons mSkippedCompositeReasons = wr::RenderReasons::NONE;
   bool mDestroyed;
   bool mIsFirstPaint;
   bool mLastNotifiedHasLayers = false;
@@ -502,7 +512,7 @@ class WebRenderBridgeParent final : public PWebRenderBridgeParent,
   bool mDisablingNativeCompositor = false;
   // These payloads are being used for SCROLL_PRESENT_LATENCY telemetry
   DataMutex<nsClassHashtable<nsUint64HashKey, nsTArray<CompositionPayload>>>
-      mPendingScrollPayloads;
+      mPendingScrollPayloads{"WebRenderBridgeParent::mPendingScrollPayloads"};
 
   RefPtr<RemoteTextureTxnScheduler> mRemoteTextureTxnScheduler;
 };

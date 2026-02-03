@@ -32,6 +32,7 @@
 #include "mozilla/layers/CompositorAnimationStorage.h"
 #include "mozilla/layers/CompositorThread.h"
 #include "mozilla/layers/CompositorVsyncScheduler.h"
+#include "mozilla/layers/ContentCompositorBridgeParent.h"
 #include "mozilla/layers/ImageBridgeParent.h"
 #include "mozilla/layers/ImageDataSerializer.h"
 #include "mozilla/layers/IpcResourceUpdateQueue.h"
@@ -332,27 +333,19 @@ class MOZ_STACK_CLASS AutoWebRenderBridgeParentAsyncMessageSender final {
 };
 
 WebRenderBridgeParent::WebRenderBridgeParent(
-    CompositorBridgeParentBase* aCompositorBridge,
+    CompositorBridgeParent* aCompositorBridge,
     const wr::PipelineId& aPipelineId, widget::CompositorWidget* aWidget,
-    CompositorVsyncScheduler* aScheduler, RefPtr<wr::WebRenderAPI>&& aApi,
+    RefPtr<wr::WebRenderAPI>&& aApi,
     RefPtr<AsyncImagePipelineManager>&& aImageMgr, TimeDuration aVsyncRate)
     : mCompositorBridge(aCompositorBridge),
       mPipelineId(aPipelineId),
       mWidget(aWidget),
       mApi(aApi),
       mAsyncImageManager(aImageMgr),
-      mCompositorScheduler(aScheduler),
       mVsyncRate(aVsyncRate),
-      mWrEpoch{0},
       mIdNamespace(aApi->GetNamespace()),
-#if defined(MOZ_WIDGET_ANDROID)
-      mScreenPixelsTarget(nullptr),
-#endif
-      mBlobTileSize(256),
-      mSkippedCompositeReasons(wr::RenderReasons::NONE),
       mDestroyed(false),
-      mIsFirstPaint(true),
-      mPendingScrollPayloads("WebRenderBridgeParent::mPendingScrollPayloads") {
+      mIsFirstPaint(true) {
   MOZ_ASSERT(mAsyncImageManager);
   LOG("WebRenderBridgeParent::WebRenderBridgeParent() PipelineId %" PRIx64
       " Id %" PRIx64 " root %d",
@@ -360,18 +353,40 @@ WebRenderBridgeParent::WebRenderBridgeParent(
       IsRootWebRenderBridgeParent());
 
   mAsyncImageManager->AddPipeline(mPipelineId, this);
-  if (IsRootWebRenderBridgeParent()) {
-    MOZ_ASSERT(!mCompositorScheduler);
-    mCompositorScheduler = new CompositorVsyncScheduler(this, mWidget);
-    UpdateDebugFlags();
-    UpdateQualitySettings();
-    UpdateProfilerUI();
-    UpdateParameters();
-    // Start with the cached bool parameter bits inverted so that we update them
-    // all.
-    mBoolParameterBits = ~gfxVars::WebRenderBoolParameters();
-    UpdateBoolParameters();
-  }
+  mCompositorScheduler = new CompositorVsyncScheduler(this, mWidget);
+  UpdateDebugFlags();
+  UpdateQualitySettings();
+  UpdateProfilerUI();
+  UpdateParameters();
+  // Start with the cached bool parameter bits inverted so that we update them
+  // all.
+  mBoolParameterBits = ~gfxVars::WebRenderBoolParameters();
+  UpdateBoolParameters();
+  mRemoteTextureTxnScheduler =
+      RemoteTextureTxnScheduler::Create(aCompositorBridge);
+}
+
+WebRenderBridgeParent::WebRenderBridgeParent(
+    ContentCompositorBridgeParent* aCompositorBridge,
+    const wr::PipelineId& aPipelineId, CompositorVsyncScheduler* aScheduler,
+    RefPtr<wr::WebRenderAPI>&& aApi,
+    RefPtr<AsyncImagePipelineManager>&& aImageMgr, TimeDuration aVsyncRate)
+    : mCompositorBridge(aCompositorBridge),
+      mPipelineId(aPipelineId),
+      mApi(aApi),
+      mAsyncImageManager(aImageMgr),
+      mCompositorScheduler(aScheduler),
+      mVsyncRate(aVsyncRate),
+      mIdNamespace(aApi->GetNamespace()),
+      mDestroyed(false),
+      mIsFirstPaint(true) {
+  MOZ_ASSERT(mAsyncImageManager);
+  LOG("WebRenderBridgeParent::WebRenderBridgeParent() PipelineId %" PRIx64
+      " Id %" PRIx64 " root %d",
+      wr::AsUint64(mPipelineId), wr::AsUint64(mApi->GetId()),
+      IsRootWebRenderBridgeParent());
+
+  mAsyncImageManager->AddPipeline(mPipelineId, this);
   mRemoteTextureTxnScheduler =
       RemoteTextureTxnScheduler::Create(aCompositorBridge);
 }
@@ -380,12 +395,10 @@ WebRenderBridgeParent::WebRenderBridgeParent(const wr::PipelineId& aPipelineId,
                                              nsCString&& aError)
     : mCompositorBridge(nullptr),
       mPipelineId(aPipelineId),
-      mWrEpoch{0},
       mIdNamespace{0},
       mInitError(aError),
       mDestroyed(true),
-      mIsFirstPaint(false),
-      mPendingScrollPayloads("WebRenderBridgeParent::mPendingScrollPayloads") {
+      mIsFirstPaint(false) {
   LOG("WebRenderBridgeParent::WebRenderBridgeParent() PipelineId %" PRIx64 "",
       wr::AsUint64(mPipelineId));
 }

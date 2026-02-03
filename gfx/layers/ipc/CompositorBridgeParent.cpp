@@ -1120,9 +1120,9 @@ PWebRenderBridgeParent* CompositorBridgeParent::AllocPWebRenderBridgeParent(
   mAsyncImageManager =
       new AsyncImagePipelineManager(api->Clone(), useCompositorWnd);
   RefPtr<AsyncImagePipelineManager> asyncMgr = mAsyncImageManager;
-  mWrBridge = new WebRenderBridgeParent(this, aPipelineId, mWidget, nullptr,
-                                        std::move(api), std::move(asyncMgr),
-                                        mVsyncRate);
+  mWrBridge =
+      new WebRenderBridgeParent(this, aPipelineId, mWidget, std::move(api),
+                                std::move(asyncMgr), mVsyncRate);
   mWrBridge.get()->AddRef();  // IPDL reference
 
   mAsyncImageManager->SetTextureFactoryIdentifier(
