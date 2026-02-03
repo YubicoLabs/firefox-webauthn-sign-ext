@@ -105,6 +105,8 @@ export class IPProtectionPanel {
    * Data about the currently loaded site, including "isExclusion".
    * @property {object} bandwidthUsage
    *  An object containing the current and max usage
+   * @property {boolean} isActivating
+   *  True if the VPN service is in the process of connecting, else false.
    */
 
   /**
@@ -184,6 +186,8 @@ export class IPProtectionPanel {
       bandwidthUsage: lazy.BANDWIDTH_USAGE_ENABLED
         ? { currentBandwidthUsage: 0, maxBandwidth: 150 }
         : null,
+      isActivating:
+        lazy.IPPProxyManager.state === lazy.IPPProxyStates.ACTIVATING,
     };
 
     // The progress listener to listen for page navigations.
@@ -628,6 +632,8 @@ export class IPProtectionPanel {
           lazy.IPPProxyManager.state === lazy.IPPProxyStates.ACTIVE,
         hasUpgraded: lazy.IPPEnrollAndEntitleManager.hasUpgraded,
         error: hasError ? ERRORS.GENERIC : "",
+        isActivating:
+          lazy.IPPProxyManager.state === lazy.IPPProxyStates.ACTIVATING,
       });
     } else if (event.type == "IPPExceptionsManager:ExclusionChanged") {
       this.#updateSiteData();

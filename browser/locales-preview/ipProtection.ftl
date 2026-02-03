@@ -52,6 +52,7 @@ ipprotection-settings-link =
 ipprotection-connection-status-connected = VPN is on
 ipprotection-connection-status-disconnected = VPN is off
 ipprotection-connection-status-excluded = VPN is off for this site
+ipprotection-connection-status-connecting = VPN is connecting…
 
 # Button to turn off the VPN
 ipprotection-button-turn-vpn-off = Turn off VPN
@@ -60,6 +61,8 @@ ipprotection-button-turn-vpn-off = Turn off VPN
 ipprotection-button-turn-vpn-off-excluded-site = Turn off VPN everywhere
 # Button to turn on the VPN
 ipprotection-button-turn-vpn-on = Turn on VPN
+# Button while VPN is connecting
+ipprotection-button-connecting = Turning on…
 
 ## VPN paused state
 

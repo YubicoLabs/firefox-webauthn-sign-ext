@@ -17,8 +17,8 @@ const mockLocation = {
 };
 
 const mockBandwidthUsage = {
-  currentBandwidthUsage: 50,
-  maxBandwidth: 150,
+  currentBandwidthUsage: 25,
+  maxBandwidth: 50,
 };
 
 async function setupStatusCardTest() {
@@ -261,7 +261,7 @@ add_task(async function test_status_card_excluded() {
   let content = await openPanel({
     location: mockLocation,
     isProtectionEnabled: true,
-    bandwidthUsage: { currentBandwidthUsage: 50, maxBandwidth: 150 },
+    bandwidthUsage: mockBandwidthUsage,
   });
 
   Assert.ok(
@@ -281,10 +281,7 @@ add_task(async function test_status_card_excluded() {
     "Status box should have excluded type"
   );
 
-  checkLocationAndBandwidth(statusBoxEl, mockLocation, {
-    currentBandwidthUsage: 50,
-    maxBandwidth: 150,
-  });
+  checkLocationAndBandwidth(statusBoxEl, mockLocation, mockBandwidthUsage);
 
   const turnOffVPNButtonEl = statusCard.actionButtonEl;
   Assert.ok(turnOffVPNButtonEl, "Button to turn off VPN should be present");
@@ -292,4 +289,46 @@ add_task(async function test_status_card_excluded() {
   await closePanel();
   await cleanupStatusCardTest();
   sandbox.restore();
+});
+
+/**
+ * Tests the connecting state UI.
+ */
+add_task(async function test_status_card_connecting() {
+  await setupStatusCardTest();
+
+  let content = await openPanel({
+    location: mockLocation,
+    isProtectionEnabled: true,
+    bandwidthUsage: mockBandwidthUsage,
+    isActivating: true,
+  });
+
+  Assert.ok(
+    BrowserTestUtils.isVisible(content),
+    "ipprotection content component should be present"
+  );
+
+  let statusCard = content.statusCardEl;
+  Assert.ok(content.statusCardEl, "ipprotection-status-card should be present");
+
+  let statusBoxEl = statusCard.statusBoxEl;
+  Assert.ok(statusBoxEl, "Status box should be present");
+
+  Assert.equal(
+    statusBoxEl.type,
+    "connecting",
+    "Status box should have connecting type"
+  );
+
+  checkLocationAndBandwidth(statusBoxEl, mockLocation, mockBandwidthUsage);
+
+  const button = statusCard.actionButtonEl;
+  Assert.ok(
+    button?.disabled,
+    "Button in connecting state should be present and disabled"
+  );
+
+  await closePanel();
+  await cleanupStatusCardTest();
 });
