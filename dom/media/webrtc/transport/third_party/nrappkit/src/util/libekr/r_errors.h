@@ -119,7 +119,6 @@
     }
 
 char *nr_strerror(int errnum);
-int   nr_strerror_r(int errnum, char *strerrbuf, size_t buflen);
 
 #endif
 

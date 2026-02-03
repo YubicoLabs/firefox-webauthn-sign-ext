@@ -112,12 +112,3 @@ nr_strerror(int errnum)
 
     return error;
 }
-
-int
-nr_strerror_r(int errnum, char *strerrbuf, size_t buflen)
-{
-    char *error = nr_strerror(errnum);
-    snprintf(strerrbuf, buflen, "%s", error);
-    return 0;
-}
-

@@ -308,41 +308,6 @@ nr_reg_type_name(int type)
     return(typenames[type]);
 }
 
-int
-nr_reg_compute_type(char *typename, int *type)
-{
-    int _status;
-    size_t i;
-
-#ifdef SANITY_CHECKS
-    assert(!strcasecmp(typenames[NR_REG_TYPE_CHAR],     "char"));
-    assert(!strcasecmp(typenames[NR_REG_TYPE_UCHAR],    "UCHAR"));
-    assert(!strcasecmp(typenames[NR_REG_TYPE_INT2],     "INT2"));
-    assert(!strcasecmp(typenames[NR_REG_TYPE_UINT2],    "UINT2"));
-    assert(!strcasecmp(typenames[NR_REG_TYPE_INT4],     "INT4"));
-    assert(!strcasecmp(typenames[NR_REG_TYPE_UINT4],    "UINT4"));
-    assert(!strcasecmp(typenames[NR_REG_TYPE_INT8],     "INT8"));
-    assert(!strcasecmp(typenames[NR_REG_TYPE_UINT8],    "UINT8"));
-    assert(!strcasecmp(typenames[NR_REG_TYPE_DOUBLE],   "double"));
-    assert(!strcasecmp(typenames[NR_REG_TYPE_BYTES],    "Data"));
-    assert(!strcasecmp(typenames[NR_REG_TYPE_STRING],   "string"));
-    assert(!strcasecmp(typenames[NR_REG_TYPE_REGISTRY], "registry"));
-    assert(sizeof(typenames)/sizeof(*typenames) == (NR_REG_TYPE_REGISTRY+1));
-#endif
-
-    for (i = 0; i < sizeof(typenames)/sizeof(*typenames); ++i) {
-      if (!strcasecmp(typenames[i], typename)) {
-        *type = i;
-        return 0;
-      }
-    }
-    ABORT(R_BAD_ARGS);
-
-    _status=0;
-  abort:
-    return(_status);
-}
-
 /* More convenience functions: the same as their parents but they
    take a prefix and a suffix */
 #define NRGET2(func, type, get) \

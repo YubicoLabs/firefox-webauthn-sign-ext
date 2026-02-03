@@ -68,8 +68,6 @@ int nr_reg_is_valid(NR_registry name);
 #define NR_REG_TYPE_STRING             10
 #define NR_REG_TYPE_REGISTRY           11
 char *nr_reg_type_name(int type);
-int nr_reg_compute_type(char *type_name, int *type);
-
 char *nr_reg_action_name(int action);
 
 int nr_reg_cb_init(void);
