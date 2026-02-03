@@ -27,11 +27,6 @@ class PresShell;
  * to position children in various customized ways.
  */
 
-// Options for the preferred size at which to stretch our stretchy children
-#define STRETCH_CONSIDER_ACTUAL_SIZE 0x00000001  // just use our current size
-#define STRETCH_CONSIDER_EMBELLISHMENTS \
-  0x00000002  // size calculations include embellishments
-
 class nsMathMLContainerFrame : public nsContainerFrame, public nsMathMLFrame {
  public:
   nsMathMLContainerFrame(ComputedStyle* aStyle, nsPresContext* aPresContext,
@@ -189,7 +184,12 @@ class nsMathMLContainerFrame : public nsContainerFrame, public nsMathMLFrame {
 
   // helper to get the preferred size that a container frame should use to fire
   // the stretch on its stretchy child frames.
-  void GetPreferredStretchSize(DrawTarget* aDrawTarget, uint32_t aOptions,
+  enum class PreferredStretchSizeMode {
+    Embellishments,
+    EmbellishmentsIfSameStretchDirection,
+  };
+  void GetPreferredStretchSize(DrawTarget* aDrawTarget,
+                               PreferredStretchSizeMode aMode,
                                StretchDirection aStretchDirection,
                                nsBoundingMetrics& aPreferredStretchSize);
 
