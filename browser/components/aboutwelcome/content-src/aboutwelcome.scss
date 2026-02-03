@@ -2265,6 +2265,14 @@ html {
       background: url('chrome://global/skin/icons/arrow-down.svg') center center / 100% no-repeat;
     }
 
+    .external-link-icon {
+      width: 1.2em;
+      height: 1.3em;
+      -moz-context-properties: fill;
+      fill: currentColor;
+      background: url('chrome://global/skin/icons/open-in-new.svg') center center / 100% no-repeat;
+    }
+
     &[aria-expanded='true'] {
       border-end-start-radius: 0;
       border-end-end-radius: 0;
@@ -2330,7 +2338,8 @@ html {
         }
 
         &:has(+ .content-tile.has-header) {
-          button.tile-header[aria-expanded='false'] {
+          button.tile-header[aria-expanded='false'],
+          button.tile-header[role='link'] {
             border-bottom: none;
           }
         }
@@ -2349,12 +2358,7 @@ html {
           display: flex;
           flex-direction: column;
 
-          .header-title {
-            font-weight: var(--heading-font-weight);
-            line-height: 1.5;
-          }
-
-          .header-subtitle {
+          .header-title, .header-subtitle {
             font-weight: normal;
             line-height: 1.5;
           }
