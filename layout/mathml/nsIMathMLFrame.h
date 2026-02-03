@@ -19,7 +19,7 @@ class ReflowOutput;
 
 // For MathML, this 'type' will be used to determine the spacing between frames
 // Subclasses can return a 'type' that will give them a particular spacing
-enum class MathMLFrameType {
+enum class MathMLFrameType : uint8_t {
   Ordinary,
   OperatorOrdinary,
   OperatorInvisible,
