@@ -2084,8 +2084,11 @@ static bool InnerModuleEvaluation(JSContext* cx, Handle<ModuleObject*> module,
 
       // Step 11.c.ii. Assert: requiredModule.[[Status]] is evaluating if and
       //               only if requiredModule is in stack.
-      MOZ_ASSERT((requiredModule->status() == ModuleStatus::Evaluating) ==
-                 ContainsElement(stack, requiredModule));
+      if ((requiredModule->status() == ModuleStatus::Evaluating) !=
+          ContainsElement(stack, requiredModule)) {
+        ThrowUnexpectedModuleStatus(cx, requiredModule->status());
+        return false;
+      }
 
       // Step 11.c.iii. If requiredModule.[[Status]] is evaluating, then:
       if (requiredModule->status() == ModuleStatus::Evaluating) {
