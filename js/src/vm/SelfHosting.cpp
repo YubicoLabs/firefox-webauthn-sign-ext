@@ -1828,8 +1828,6 @@ static const JSFunctionSpec intrinsic_functions[] = {
     JS_INLINABLE_FN("intl_GuardToSegments",
                     intrinsic_GuardToBuiltin<SegmentsObject>, 1, 0,
                     IntlGuardToSegments),
-    JS_FN("intl_SelectPluralRule", intl_SelectPluralRule, 2, 0),
-    JS_FN("intl_SelectPluralRuleRange", intl_SelectPluralRuleRange, 3, 0),
 #endif  // JS_HAS_INTL_API
 
     // Standard builtins used by self-hosting.

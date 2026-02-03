@@ -57,6 +57,10 @@ const JSClass& PluralRulesObject::protoClass_ = PlainObject::class_;
 static bool pluralRules_supportedLocalesOf(JSContext* cx, unsigned argc,
                                            Value* vp);
 
+static bool pluralRules_select(JSContext* cx, unsigned argc, Value* vp);
+
+static bool pluralRules_selectRange(JSContext* cx, unsigned argc, Value* vp);
+
 static bool pluralRules_resolvedOptions(JSContext* cx, unsigned argc,
                                         Value* vp);
 
@@ -73,8 +77,8 @@ static const JSFunctionSpec pluralRules_static_methods[] = {
 
 static const JSFunctionSpec pluralRules_methods[] = {
     JS_FN("resolvedOptions", pluralRules_resolvedOptions, 0, 0),
-    JS_SELF_HOSTED_FN("select", "Intl_PluralRules_select", 1, 0),
-    JS_SELF_HOSTED_FN("selectRange", "Intl_PluralRules_selectRange", 2, 0),
+    JS_FN("select", pluralRules_select, 1, 0),
+    JS_FN("selectRange", pluralRules_selectRange, 2, 0),
     JS_FN("toSource", pluralRules_toSource, 0, 0),
     JS_FS_END,
 };
@@ -349,26 +353,25 @@ static bool ResolveLocale(JSContext* cx,
 
 static JSString* KeywordToString(mozilla::intl::PluralRules::Keyword keyword,
                                  JSContext* cx) {
-  using Keyword = mozilla::intl::PluralRules::Keyword;
+#ifndef USING_ENUM
+  using enum mozilla::intl::PluralRules::Keyword;
+#else
+  USING_ENUM(mozilla::intl::PluralRules::Keyword, Zero, One, Two, Few, Many,
+             Other);
+#endif
   switch (keyword) {
-    case Keyword::Zero: {
+    case Zero:
       return cx->names().zero;
-    }
-    case Keyword::One: {
+    case One:
       return cx->names().one;
-    }
-    case Keyword::Two: {
+    case Two:
       return cx->names().two;
-    }
-    case Keyword::Few: {
+    case Few:
       return cx->names().few;
-    }
-    case Keyword::Many: {
+    case Many:
       return cx->names().many;
-    }
-    case Keyword::Other: {
+    case Other:
       return cx->names().other;
-    }
   }
   MOZ_CRASH("Unexpected PluralRules keyword");
 }
@@ -436,92 +439,75 @@ static mozilla::intl::PluralRules* GetOrCreatePluralRules(
 }
 
 /**
- * 16.5.3 ResolvePlural ( pluralRules, n )
- * 16.5.2 PluralRuleSelect ( locale, type, n, operands )
+ * ResolvePlural ( pluralRules, n )
+ * PluralRuleSelect ( locale, type, notation, compactDisplay, s )
  *
- * ES2024 Intl draft rev 74ca7099f103d143431b2ea422ae640c6f43e3e6
+ * Returns a plural rule for the number x according to the effective locale and
+ * formatting options of the given PluralRules.
+ *
+ * A plural rule is a grammatical category that expresses count distinctions
+ * (such as "one", "two", "few" etc.).
  */
-bool js::intl_SelectPluralRule(JSContext* cx, unsigned argc, Value* vp) {
-  CallArgs args = CallArgsFromVp(argc, vp);
-  MOZ_ASSERT(args.length() == 2);
-
-  // Steps 1-2.
-  Rooted<PluralRulesObject*> pluralRules(
-      cx, &args[0].toObject().as<PluralRulesObject>());
-
-  // Step 3.
-  double x = args[1].toNumber();
-
-  // Steps 4-11.
-  using PluralRules = mozilla::intl::PluralRules;
-  PluralRules* pr = GetOrCreatePluralRules(cx, pluralRules);
+static JSString* ResolvePlural(JSContext* cx,
+                               Handle<PluralRulesObject*> pluralRules,
+                               double x) {
+  // Steps 1-11.
+  auto* pr = GetOrCreatePluralRules(cx, pluralRules);
   if (!pr) {
-    return false;
+    return nullptr;
   }
 
   auto keywordResult = pr->Select(x);
   if (keywordResult.isErr()) {
-    intl::ReportInternalError(cx, keywordResult.unwrapErr());
-    return false;
+    ReportInternalError(cx, keywordResult.unwrapErr());
+    return nullptr;
   }
 
-  JSString* str = KeywordToString(keywordResult.unwrap(), cx);
-  MOZ_ASSERT(str);
-
-  args.rval().setString(str);
-  return true;
+  return KeywordToString(keywordResult.unwrap(), cx);
 }
 
 /**
- * 16.5.5 ResolvePluralRange ( pluralRules, x, y )
- * 16.5.4 PluralRuleSelectRange ( locale, type, xp, yp )
+ * ResolvePluralRange ( pluralRules, x, y )
+ * PluralRuleSelectRange ( locale, type, notation, compactDisplay, xp, yp )
  *
- * ES2024 Intl draft rev 74ca7099f103d143431b2ea422ae640c6f43e3e6
+ * Returns a plural rule for the number range «x - y» according to the effective
+ * locale and formatting options of the given PluralRules.
+ *
+ * A plural rule is a grammatical category that expresses count distinctions
+ * (such as "one", "two", "few" etc.).
  */
-bool js::intl_SelectPluralRuleRange(JSContext* cx, unsigned argc, Value* vp) {
-  CallArgs args = CallArgsFromVp(argc, vp);
-  MOZ_ASSERT(args.length() == 3);
-
-  // Steps 1-2.
-  Rooted<PluralRulesObject*> pluralRules(
-      cx, &args[0].toObject().as<PluralRulesObject>());
-
-  // Steps 3-4.
-  double x = args[1].toNumber();
-  double y = args[2].toNumber();
-
-  // Step 5.
+static JSString* ResolvePluralRange(JSContext* cx,
+                                    Handle<PluralRulesObject*> pluralRules,
+                                    double x, double y) {
+  // Step 1.
   if (std::isnan(x)) {
     JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
                               JSMSG_NAN_NUMBER_RANGE, "start", "PluralRules",
                               "selectRange");
-    return false;
+    return nullptr;
   }
+
+  // Step 2.
   if (std::isnan(y)) {
     JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
                               JSMSG_NAN_NUMBER_RANGE, "end", "PluralRules",
                               "selectRange");
-    return false;
+    return nullptr;
   }
 
-  using PluralRules = mozilla::intl::PluralRules;
-  PluralRules* pr = GetOrCreatePluralRules(cx, pluralRules);
+  // Steps 3-9
+  auto* pr = GetOrCreatePluralRules(cx, pluralRules);
   if (!pr) {
-    return false;
+    return nullptr;
   }
 
-  // Steps 6-11.
   auto keywordResult = pr->SelectRange(x, y);
   if (keywordResult.isErr()) {
-    intl::ReportInternalError(cx, keywordResult.unwrapErr());
-    return false;
+    ReportInternalError(cx, keywordResult.unwrapErr());
+    return nullptr;
   }
 
-  JSString* str = KeywordToString(keywordResult.unwrap(), cx);
-  MOZ_ASSERT(str);
-
-  args.rval().setString(str);
-  return true;
+  return KeywordToString(keywordResult.unwrap(), cx);
 }
 
 /**
@@ -579,6 +565,82 @@ static ArrayObject* GetPluralCategories(
 
 static bool IsPluralRules(Handle<JS::Value> v) {
   return v.isObject() && v.toObject().is<PluralRulesObject>();
+}
+
+/**
+ * Intl.PluralRules.prototype.select ( value )
+ */
+static bool pluralRules_select(JSContext* cx, const CallArgs& args) {
+  Rooted<PluralRulesObject*> pluralRules(
+      cx, &args.thisv().toObject().as<PluralRulesObject>());
+
+  // Step 3.
+  double x;
+  if (!JS::ToNumber(cx, args.get(0), &x)) {
+    return false;
+  }
+
+  // Step 4.
+  auto* result = ResolvePlural(cx, pluralRules, x);
+  if (!result) {
+    return false;
+  }
+  args.rval().setString(result);
+  return true;
+}
+
+/**
+ * Intl.PluralRules.prototype.select ( value )
+ */
+static bool pluralRules_select(JSContext* cx, unsigned argc, Value* vp) {
+  // Steps 1-2.
+  CallArgs args = CallArgsFromVp(argc, vp);
+  return CallNonGenericMethod<IsPluralRules, pluralRules_select>(cx, args);
+}
+
+/**
+ * Intl.PluralRules.prototype.selectRange ( start, end )
+ */
+static bool pluralRules_selectRange(JSContext* cx, const CallArgs& args) {
+  Rooted<PluralRulesObject*> pluralRules(
+      cx, &args.thisv().toObject().as<PluralRulesObject>());
+
+  // Step 3.
+  if (!args.hasDefined(0) || !args.hasDefined(1)) {
+    JS_ReportErrorNumberASCII(
+        cx, GetErrorMessage, nullptr, JSMSG_UNDEFINED_NUMBER,
+        !args.hasDefined(0) ? "start" : "end", "PluralRules", "selectRange");
+    return false;
+  }
+
+  // Step 4.
+  double x;
+  if (!JS::ToNumber(cx, args[0], &x)) {
+    return false;
+  }
+
+  // Step 5.
+  double y;
+  if (!JS::ToNumber(cx, args[1], &y)) {
+    return false;
+  }
+
+  // Step 6.
+  auto* result = ResolvePluralRange(cx, pluralRules, x, y);
+  if (!result) {
+    return false;
+  }
+  args.rval().setString(result);
+  return true;
+}
+
+/**
+ * Intl.PluralRules.prototype.selectRange ( start, end )
+ */
+static bool pluralRules_selectRange(JSContext* cx, unsigned argc, Value* vp) {
+  // Steps 1-2.
+  CallArgs args = CallArgsFromVp(argc, vp);
+  return CallNonGenericMethod<IsPluralRules, pluralRules_selectRange>(cx, args);
 }
 
 /**
