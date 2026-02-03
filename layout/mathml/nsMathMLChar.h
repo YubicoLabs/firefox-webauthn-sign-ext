@@ -172,7 +172,7 @@ class nsMathMLChar {
   // - Variant: we draw a larger size variant given by mGlyphs[0].
   // - Parts: we assemble several parts given by mGlyphs[0], ... mGlyphs[4]
   // XXXfredw: the MATH table can have any numbers of parts and extenders.
-  enum class DrawingMethod { Normal, Variant, Parts };
+  enum class DrawingMethod : uint8_t { Normal, Variant, Parts };
   DrawingMethod mDrawingMethod;
 
   // mMirroringMethod indicates whether the character is mirrored.
