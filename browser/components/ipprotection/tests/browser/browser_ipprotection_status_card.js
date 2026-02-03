@@ -33,6 +33,10 @@ async function setupStatusCardTest() {
     },
   });
   await IPPEnrollAndEntitleManager.refetchEntitlement();
+
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.ipProtection.bandwidth.enabled", true]],
+  });
 }
 
 async function cleanupStatusCardTest() {

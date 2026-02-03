@@ -7,7 +7,6 @@ prefs = [
   "browser.ipProtection.log=true",
   "browser.ipProtection.features.siteExceptions=true",
   "dom.security.https_first=false",
-  "browser.ipProtection.bandwidth.enabled=true",
 ]
 
 ["browser_IPPChannelFilter.js"]
