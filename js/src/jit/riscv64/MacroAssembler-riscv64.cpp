@@ -1318,8 +1318,23 @@ void MacroAssemblerRiscv64::computeScaledAddress(const BaseIndex& address,
     MOZ_ASSERT(shift <= 4);
     slli(dest, index, shift);
   } else if (shift) {
-    Register tmp = dest == base ? temps.Acquire() : dest;
     MOZ_ASSERT(shift <= 4);
+    if (HasZbaExtension()) {
+      switch (shift) {
+        case 1:
+          sh1add(dest, index, base);
+          return;
+        case 2:
+          sh2add(dest, index, base);
+          return;
+        case 3:
+          sh3add(dest, index, base);
+          return;
+        default:
+          break;
+      }
+    }
+    Register tmp = dest == base ? temps.Acquire() : dest;
     slli(tmp, index, shift);
     add(dest, base, tmp);
   } else {
@@ -1337,8 +1352,23 @@ void MacroAssemblerRiscv64::computeScaledAddress32(const BaseIndex& address,
     MOZ_ASSERT(shift <= 4);
     slliw(dest, index, shift);
   } else if (shift) {
-    Register tmp = dest == base ? temps.Acquire() : dest;
     MOZ_ASSERT(shift <= 4);
+    if (HasZbaExtension()) {
+      switch (shift) {
+        case 1:
+          sh1add_uw(dest, index, base);
+          return;
+        case 2:
+          sh2add_uw(dest, index, base);
+          return;
+        case 3:
+          sh3add_uw(dest, index, base);
+          return;
+        default:
+          break;
+      }
+    }
+    Register tmp = dest == base ? temps.Acquire() : dest;
     slliw(tmp, index, shift);
     addw(dest, base, tmp);
   } else {
