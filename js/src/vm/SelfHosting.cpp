@@ -1809,7 +1809,6 @@ static const JSFunctionSpec intrinsic_functions[] = {
 
 // Intrinsics and standard functions used by Intl API implementation.
 #ifdef JS_HAS_INTL_API
-    JS_FN("intl_BestAvailableLocale", intl_BestAvailableLocale, 3, 0),
     JS_FN("intl_CallPluralRulesMethodIfWrapped",
           CallNonGenericSelfhostedMethod<Is<PluralRulesObject>>, 2, 0),
     JS_FN("intl_CallSegmentIteratorMethodIfWrapped",
@@ -1829,13 +1828,8 @@ static const JSFunctionSpec intrinsic_functions[] = {
     JS_INLINABLE_FN("intl_GuardToSegments",
                     intrinsic_GuardToBuiltin<SegmentsObject>, 1, 0,
                     IntlGuardToSegments),
-    JS_FN("intl_ResolveLocale", intl_ResolveLocale, 3, 0),
     JS_FN("intl_SelectPluralRule", intl_SelectPluralRule, 2, 0),
     JS_FN("intl_SelectPluralRuleRange", intl_SelectPluralRuleRange, 3, 0),
-    JS_FN("intl_ValidateAndCanonicalizeLanguageTag",
-          intl_ValidateAndCanonicalizeLanguageTag, 2, 0),
-    JS_FN("intl_ValidateAndCanonicalizeUnicodeExtensionType",
-          intl_ValidateAndCanonicalizeUnicodeExtensionType, 3, 0),
 #endif  // JS_HAS_INTL_API
 
     // Standard builtins used by self-hosting.

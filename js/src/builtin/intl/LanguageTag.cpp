@@ -265,22 +265,6 @@ JS::UniqueChars js::intl::FormatLocale(
   return buffer.extractStringZ();
 }
 
-JS::UniqueChars js::intl::FormatLocale(
-    JSContext* cx, JS::Handle<JSObject*> internals,
-    JS::HandleVector<UnicodeExtensionKeyword> keywords) {
-  RootedValue value(cx);
-  if (!GetProperty(cx, internals, internals, cx->names().locale, &value)) {
-    return nullptr;
-  }
-
-  Rooted<JSLinearString*> locale(cx, value.toString()->ensureLinear(cx));
-  if (!locale) {
-    return nullptr;
-  }
-
-  return FormatLocale(cx, locale, keywords);
-}
-
 void js::intl::UnicodeExtensionKeyword::trace(JSTracer* trc) {
   TraceRoot(trc, &type_, "UnicodeExtensionKeyword::type");
 }

@@ -88,8 +88,6 @@ selfhosted_inputs = [
     "WeakSet.js",
 ] + (
     [
-        "intl/CommonFunctions.js",
-        "intl/NumberFormat.js",
         "intl/PluralRules.js",
         "intl/Segmenter.js",
     ]

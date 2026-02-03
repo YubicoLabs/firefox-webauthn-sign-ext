@@ -17,7 +17,6 @@
 
 #include <algorithm>
 #include <string>
-#include <string.h>
 #include <utility>
 
 #include "builtin/Array.h"
@@ -149,29 +148,6 @@ static LocaleObject* CreateLocaleObject(JSContext* cx, HandleObject prototype,
   locale->initFixedSlot(LocaleObject::UNICODE_EXTENSION_SLOT, unicodeExtension);
 
   return locale;
-}
-
-static inline bool IsValidUnicodeExtensionValue(JSContext* cx,
-                                                const JSLinearString* linear,
-                                                bool* isValid) {
-  if (linear->length() == 0) {
-    *isValid = false;
-    return true;
-  }
-
-  if (!StringIsAscii(linear)) {
-    *isValid = false;
-    return true;
-  }
-
-  intl::StringAsciiChars chars(linear);
-  if (!chars.init(cx)) {
-    return false;
-  }
-
-  *isValid =
-      mozilla::intl::LocaleParser::CanParseUnicodeExtensionType(chars).isOk();
-  return true;
 }
 
 /**
@@ -1416,125 +1392,6 @@ static JSLinearString* ValidateAndCanonicalizeLanguageTag(
     return nullptr;
   }
   return ValidateAndCanonicalizeLanguageTag(cx, tagLinearStr);
-}
-
-bool js::intl_ValidateAndCanonicalizeLanguageTag(JSContext* cx, unsigned argc,
-                                                 Value* vp) {
-  CallArgs args = CallArgsFromVp(argc, vp);
-  MOZ_ASSERT(args.length() == 2);
-
-  HandleValue tagValue = args[0];
-  bool applyToString = args[1].toBoolean();
-
-  if (tagValue.isObject()) {
-    JSString* tagStr;
-    JS_TRY_VAR_OR_RETURN_FALSE(
-        cx, tagStr,
-        LanguageTagFromMaybeWrappedLocale(cx, &tagValue.toObject()));
-    if (tagStr) {
-      args.rval().setString(tagStr);
-      return true;
-    }
-  }
-
-  if (!applyToString && !tagValue.isString()) {
-    args.rval().setNull();
-    return true;
-  }
-
-  auto* resultStr = ValidateAndCanonicalizeLanguageTag(cx, tagValue);
-  if (!resultStr) {
-    return false;
-  }
-  args.rval().setString(resultStr);
-  return true;
-}
-
-bool js::intl_ValidateAndCanonicalizeUnicodeExtensionType(JSContext* cx,
-                                                          unsigned argc,
-                                                          Value* vp) {
-  CallArgs args = CallArgsFromVp(argc, vp);
-  MOZ_ASSERT(args.length() == 3);
-
-  HandleValue typeArg = args[0];
-  MOZ_ASSERT(typeArg.isString(), "type must be a string");
-
-  HandleValue optionArg = args[1];
-  MOZ_ASSERT(optionArg.isString(), "option name must be a string");
-
-  HandleValue keyArg = args[2];
-  MOZ_ASSERT(keyArg.isString(), "key must be a string");
-
-  Rooted<JSLinearString*> unicodeType(cx, typeArg.toString()->ensureLinear(cx));
-  if (!unicodeType) {
-    return false;
-  }
-
-  bool isValid;
-  if (!IsValidUnicodeExtensionValue(cx, unicodeType, &isValid)) {
-    return false;
-  }
-  if (!isValid) {
-    UniqueChars optionChars = EncodeAscii(cx, optionArg.toString());
-    if (!optionChars) {
-      return false;
-    }
-
-    UniqueChars unicodeTypeChars = QuoteString(cx, unicodeType, '"');
-    if (!unicodeTypeChars) {
-      return false;
-    }
-
-    JS_ReportErrorNumberASCII(cx, js::GetErrorMessage, nullptr,
-                              JSMSG_INVALID_OPTION_VALUE, optionChars.get(),
-                              unicodeTypeChars.get());
-    return false;
-  }
-
-  char unicodeKey[UnicodeKeyLength];
-  {
-    JSLinearString* str = keyArg.toString()->ensureLinear(cx);
-    if (!str) {
-      return false;
-    }
-    MOZ_ASSERT(str->length() == UnicodeKeyLength);
-
-    for (size_t i = 0; i < UnicodeKeyLength; i++) {
-      char16_t ch = str->latin1OrTwoByteChar(i);
-      MOZ_ASSERT(mozilla::IsAscii(ch));
-      unicodeKey[i] = char(ch);
-    }
-  }
-
-  UniqueChars unicodeTypeChars = EncodeAscii(cx, unicodeType);
-  if (!unicodeTypeChars) {
-    return false;
-  }
-
-  size_t unicodeTypeLength = unicodeType->length();
-  MOZ_ASSERT(strlen(unicodeTypeChars.get()) == unicodeTypeLength);
-
-  // Convert into canonical case before searching for replacements.
-  mozilla::intl::AsciiToLowerCase(unicodeTypeChars.get(), unicodeTypeLength,
-                                  unicodeTypeChars.get());
-
-  auto key = mozilla::Span(unicodeKey, UnicodeKeyLength);
-  auto type = mozilla::Span(unicodeTypeChars.get(), unicodeTypeLength);
-
-  // Search if there's a replacement for the current Unicode keyword.
-  JSString* result;
-  if (const char* replacement =
-          mozilla::intl::Locale::ReplaceUnicodeExtensionType(key, type)) {
-    result = NewStringCopyZ<CanGC>(cx, replacement);
-  } else {
-    result = StringToLowerCase(cx, unicodeType);
-  }
-  if (!result) {
-    return false;
-  }
-
-  args.rval().setString(result);
-  return true;
 }
 
 /**
