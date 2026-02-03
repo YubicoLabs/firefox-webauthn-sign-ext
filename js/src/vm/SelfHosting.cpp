@@ -26,7 +26,6 @@
 #ifdef JS_HAS_INTL_API
 #  include "builtin/intl/IntlObject.h"
 #  include "builtin/intl/Locale.h"
-#  include "builtin/intl/NumberFormat.h"
 #  include "builtin/intl/PluralRules.h"
 #  include "builtin/intl/Segmenter.h"
 #endif
@@ -1811,8 +1810,6 @@ static const JSFunctionSpec intrinsic_functions[] = {
 // Intrinsics and standard functions used by Intl API implementation.
 #ifdef JS_HAS_INTL_API
     JS_FN("intl_BestAvailableLocale", intl_BestAvailableLocale, 3, 0),
-    JS_FN("intl_CallNumberFormatMethodIfWrapped",
-          CallNonGenericSelfhostedMethod<Is<NumberFormatObject>>, 2, 0),
     JS_FN("intl_CallPluralRulesMethodIfWrapped",
           CallNonGenericSelfhostedMethod<Is<PluralRulesObject>>, 2, 0),
     JS_FN("intl_CallSegmentIteratorMethodIfWrapped",
@@ -1824,9 +1821,6 @@ static const JSFunctionSpec intrinsic_functions[] = {
           0),
     JS_FN("intl_FindSegmentBoundaries", intl_FindSegmentBoundaries, 2, 0),
     JS_FN("intl_GetPluralCategories", intl_GetPluralCategories, 1, 0),
-    JS_INLINABLE_FN("intl_GuardToNumberFormat",
-                    intrinsic_GuardToBuiltin<NumberFormatObject>, 1, 0,
-                    IntlGuardToNumberFormat),
     JS_INLINABLE_FN("intl_GuardToPluralRules",
                     intrinsic_GuardToBuiltin<PluralRulesObject>, 1, 0,
                     IntlGuardToPluralRules),
@@ -1836,8 +1830,6 @@ static const JSFunctionSpec intrinsic_functions[] = {
     JS_INLINABLE_FN("intl_GuardToSegments",
                     intrinsic_GuardToBuiltin<SegmentsObject>, 1, 0,
                     IntlGuardToSegments),
-    JS_FN("intl_IsWrappedNumberFormat",
-          intrinsic_IsWrappedInstanceOfBuiltin<NumberFormatObject>, 1, 0),
     JS_FN("intl_ResolveLocale", intl_ResolveLocale, 3, 0),
     JS_FN("intl_SelectPluralRule", intl_SelectPluralRule, 2, 0),
     JS_FN("intl_SelectPluralRuleRange", intl_SelectPluralRuleRange, 3, 0),

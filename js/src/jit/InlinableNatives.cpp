@@ -7,7 +7,6 @@
 #include "jit/InlinableNatives.h"
 
 #ifdef JS_HAS_INTL_API
-#  include "builtin/intl/NumberFormat.h"
 #  include "builtin/intl/PluralRules.h"
 #  include "builtin/intl/Segmenter.h"
 #endif
@@ -38,8 +37,6 @@ const JSClass* js::jit::InlinableNativeGuardToClass(InlinableNative native) {
   switch (native) {
 #ifdef JS_HAS_INTL_API
     // Intl natives.
-    case InlinableNative::IntlGuardToNumberFormat:
-      return &NumberFormatObject::class_;
     case InlinableNative::IntlGuardToPluralRules:
       return &PluralRulesObject::class_;
     case InlinableNative::IntlGuardToSegments:
@@ -47,7 +44,6 @@ const JSClass* js::jit::InlinableNativeGuardToClass(InlinableNative native) {
     case InlinableNative::IntlGuardToSegmentIterator:
       return &SegmentIteratorObject::class_;
 #else
-    case InlinableNative::IntlGuardToNumberFormat:
     case InlinableNative::IntlGuardToPluralRules:
     case InlinableNative::IntlGuardToSegments:
     case InlinableNative::IntlGuardToSegmentIterator:
@@ -153,7 +149,6 @@ bool js::jit::CanInlineNativeCrossRealm(InlinableNative native) {
       // RNG state is per-realm.
       return false;
 
-    case InlinableNative::IntlGuardToNumberFormat:
     case InlinableNative::IntlGuardToPluralRules:
     case InlinableNative::IntlGuardToSegments:
     case InlinableNative::IntlGuardToSegmentIterator:
