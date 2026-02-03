@@ -588,6 +588,17 @@ void MacroAssemblerRiscv64Compat::minMax32(Register lhs, Imm32 rhs,
 
 void MacroAssemblerRiscv64Compat::minMaxPtr(Register lhs, Register rhs,
                                             Register dest, bool isMax) {
+  if (HasZbbExtension()) {
+    // Using signed max/min to match the (signed)
+    // Assembler::GreaterThan/Assembler::LessThan below
+    if (isMax) {
+      max(dest, lhs, rhs);
+    } else {
+      min(dest, lhs, rhs);
+    }
+    return;
+  }
+
   if (rhs == dest) {
     std::swap(lhs, rhs);
   }
@@ -601,6 +612,25 @@ void MacroAssemblerRiscv64Compat::minMaxPtr(Register lhs, Register rhs,
 
 void MacroAssemblerRiscv64Compat::minMaxPtr(Register lhs, ImmWord rhs,
                                             Register dest, bool isMax) {
+  if (HasZbbExtension()) {
+    UseScratchRegisterScope temps(this);
+    Register realRhs;
+    if (rhs.value == 0) {
+      realRhs = zero;
+    } else {
+      realRhs = temps.Acquire();
+      ma_li(realRhs, rhs);
+    }
+    // Using signed max/min to match the (signed)
+    // Assembler::GreaterThan/Assembler::LessThan below
+    if (isMax) {
+      max(dest, lhs, realRhs);
+    } else {
+      min(dest, lhs, realRhs);
+    }
+    return;
+  }
+
   if (rhs.value == 0) {
     UseScratchRegisterScope temps(this);
     Register scratch = temps.Acquire();
