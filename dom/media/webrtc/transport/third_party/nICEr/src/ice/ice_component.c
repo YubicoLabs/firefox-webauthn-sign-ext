@@ -999,7 +999,7 @@ static int nr_ice_component_process_incoming_check(nr_ice_component *comp, nr_tr
 
 static int nr_ice_component_stun_server_cb(void *cb_arg,nr_stun_server_ctx *stun_ctx,nr_socket *sock, nr_stun_server_request *req, int *dont_free, int *error)
   {
-    nr_ice_component *pcomp=cb_arg;
+    nr_ice_component *pcomp=(nr_ice_component*)cb_arg;
     nr_transport_addr local_addr;
     int r,_status;
 
@@ -1307,7 +1307,7 @@ static void nr_ice_component_consent_failed(nr_ice_component *comp)
 
 static void nr_ice_component_consent_timeout_cb(NR_SOCKET s, int how, void *cb_arg)
   {
-    nr_ice_component *comp=cb_arg;
+    nr_ice_component *comp=(nr_ice_component*)cb_arg;
 
     comp->consent_timeout = 0;
 
@@ -1365,7 +1365,7 @@ static void nr_ice_component_consent_refreshed(nr_ice_component *comp)
 
 static void nr_ice_component_refresh_consent_cb(NR_SOCKET s, int how, void *cb_arg)
   {
-    nr_ice_cand_pair *pair=cb_arg;
+    nr_ice_cand_pair *pair=(nr_ice_cand_pair*)cb_arg;
     assert(pair && pair->remote && pair->remote->component);
     nr_ice_component *comp=pair->remote->component;
 
@@ -1431,7 +1431,7 @@ void nr_ice_component_consent_calc_consent_timer(nr_ice_component *comp)
 
 static void nr_ice_component_consent_timer_cb(NR_SOCKET s, int how, void *cb_arg)
   {
-    nr_ice_component *comp=cb_arg;
+    nr_ice_component *comp=(nr_ice_component*)cb_arg;
     int r;
 
     if (!comp->consent_ctx) {

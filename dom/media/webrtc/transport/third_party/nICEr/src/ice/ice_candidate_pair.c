@@ -208,7 +208,7 @@ int nr_ice_candidate_pair_unfreeze(nr_ice_peer_ctx *pctx, nr_ice_cand_pair *pair
 static void nr_ice_candidate_pair_stun_cb(NR_SOCKET s, int how, void *cb_arg)
   {
     int r,_status;
-    nr_ice_cand_pair *pair=cb_arg;
+    nr_ice_cand_pair *pair=(nr_ice_cand_pair*)cb_arg;
     nr_ice_cand_pair *actual_pair=0;
     nr_ice_candidate *cand=0;
     nr_stun_message *sres;
@@ -626,7 +626,7 @@ void nr_ice_candidate_pair_insert(nr_ice_cand_pair_head *head,nr_ice_cand_pair *
 
 void nr_ice_candidate_pair_restart_stun_nominated_cb(NR_SOCKET s, int how, void *cb_arg)
   {
-    nr_ice_cand_pair *pair=cb_arg;
+    nr_ice_cand_pair *pair=(nr_ice_cand_pair*)cb_arg;
     int r,_status;
 
     pair->restart_nominated_cb_timer=0;
@@ -654,7 +654,7 @@ void nr_ice_candidate_pair_restart_stun_nominated_cb(NR_SOCKET s, int how, void 
 
 static void nr_ice_candidate_pair_restart_stun_role_change_cb(NR_SOCKET s, int how, void *cb_arg)
  {
-    nr_ice_cand_pair *pair=cb_arg;
+    nr_ice_cand_pair *pair=(nr_ice_cand_pair*)cb_arg;
 
     pair->restart_role_change_cb_timer=0;
 

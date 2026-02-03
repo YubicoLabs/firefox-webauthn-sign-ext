@@ -359,7 +359,7 @@ int nr_ice_peer_ctx_parse_trickle_candidate(nr_ice_peer_ctx *pctx, nr_ice_media_
 
 static void nr_ice_peer_ctx_trickle_wait_cb(NR_SOCKET s, int how, void *cb_arg)
   {
-    nr_ice_peer_ctx *pctx=cb_arg;
+    nr_ice_peer_ctx *pctx=(nr_ice_peer_ctx*)cb_arg;
     nr_ice_media_stream *stream;
     nr_ice_component *comp;
 
@@ -692,7 +692,7 @@ void nr_ice_peer_ctx_connected(nr_ice_peer_ctx *pctx)
 
 static void nr_ice_peer_ctx_fire_connected(NR_SOCKET s, int how, void *cb_arg)
   {
-    nr_ice_peer_ctx *pctx=cb_arg;
+    nr_ice_peer_ctx *pctx=(nr_ice_peer_ctx*)cb_arg;
 
     pctx->connected_cb_timer=0;
 

@@ -188,7 +188,7 @@ nr_stun_client_reset(nr_stun_client_ctx *ctx)
 static void nr_stun_client_timer_expired_cb(NR_SOCKET s, int b, void *cb_arg)
   {
     int _status;
-    nr_stun_client_ctx *ctx=cb_arg;
+    nr_stun_client_ctx *ctx=(nr_stun_client_ctx*)cb_arg;
     struct timeval now;
     INT8 ms_waited;
 

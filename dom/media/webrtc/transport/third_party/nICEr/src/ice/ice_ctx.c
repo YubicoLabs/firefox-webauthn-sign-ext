@@ -468,7 +468,7 @@ int nr_ice_fetch_turn_servers(int ct, nr_ice_turn_server **out)
 void nr_ice_gather_finished_cb(NR_SOCKET s, int h, void *cb_arg)
   {
     int r;
-    nr_ice_candidate *cand=cb_arg;
+    nr_ice_candidate *cand=(nr_ice_candidate*)cb_arg;
     nr_ice_ctx *ctx;
     nr_ice_media_stream *stream;
     int component_id;
