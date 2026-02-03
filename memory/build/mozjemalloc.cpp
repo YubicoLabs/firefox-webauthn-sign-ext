@@ -4331,6 +4331,7 @@ inline void MozJemalloc::jemalloc_stats_internal(
   aStats->large_max = gMaxLargeClass;
   aStats->chunksize = kChunkSize;
   aStats->page_size = gPageSize;
+  aStats->real_page_size = gRealPageSize;
   aStats->dirty_max = opt_dirty_max;
 
   // Gather current memory usage statistics.

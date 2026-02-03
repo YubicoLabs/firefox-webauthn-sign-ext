@@ -112,7 +112,9 @@ typedef struct {
   size_t subpage_max;        // Max subpage allocation size.
   size_t large_max;          // Max sub-chunksize allocation size.
   size_t chunksize;          // Size of each virtual memory mapping.
-  size_t page_size;          // Size of pages.
+  size_t page_size;          // Size of pages in mozjemalloc internal
+                             // structures.
+  size_t real_page_size;     // Size of OS/hardware pages.
   size_t dirty_max;          // Max dirty pages per arena.
 
   // Current memory usage statistics.
