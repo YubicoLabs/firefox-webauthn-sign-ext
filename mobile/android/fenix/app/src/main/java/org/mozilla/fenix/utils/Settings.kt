@@ -2072,15 +2072,6 @@ class Settings(
     )
 
     /**
-     * Whether or not the profile ID used in the sponsored stories communications with the Pocket
-     * endpoint has been migrated to the MARS endpoint.
-     */
-    var hasPocketSponsoredStoriesProfileMigrated by booleanPreference(
-        appContext.getPreferenceKey(R.string.pref_key_pocket_sponsored_stories_profile_migrated),
-        default = false,
-    )
-
-    /**
      *  Whether or not to display the Pocket sponsored stories parameter secret settings.
      */
     var useCustomConfigurationForSponsoredStories by booleanPreference(
