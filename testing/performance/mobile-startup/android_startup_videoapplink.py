@@ -91,6 +91,8 @@ class ImageAnalzer:
         if self.test != "homeview_startup":
             self.create_background_tabs()
         self.device.shell(f"am force-stop {self.package_name}")
+        # Extra delay needed to avoid shutdown thread active during startup
+        time.sleep(3)
 
     def skip_onboarding(self):
         # Skip onboarding for chrome and fenix
