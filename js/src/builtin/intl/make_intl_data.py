@@ -3090,20 +3090,32 @@ def writeCurrencyFile(published, currencies, out):
  *
  * Spec: ISO 4217 Currency and Funds Code List.
  * http://www.currency-iso.org/en/home/tables/table-a1.html
- */"""
+ */
+
+#ifndef builtin_intl_CurrencyDataGenerated_h
+#define builtin_intl_CurrencyDataGenerated_h
+"""
         )
-        println("var currencyDigits = {")
+
+        lines = []
+        lines.append("#define CURRENCIES_WITH_NON_DEFAULT_DIGITS(MACRO)")
         for currency, entries in groupby(
             sorted(currencies, key=itemgetter(0)), itemgetter(0)
         ):
             for _, minorUnits, currencyName, countryName in entries:
-                println(f"  // {currencyName} ({countryName})")
-            println(f"  {currency}: {minorUnits},")
-        println("};")
+                lines.append(f"  /* {currencyName} ({countryName}) */")
+            lines.append(f"  MACRO({currency}, {minorUnits})")
+
+        line_length = max(len(line) for line in lines)
+
+        println(" \\\n".join(line.ljust(line_length) for line in lines).rstrip())
+
+        println("")
+        println("#endif  // builtin_intl_CurrencyDataGenerated_h")
 
 
 def updateCurrency(topsrcdir, args):
-    """Update the CurrencyDataGenerated.js file."""
+    """Update the CurrencyDataGenerated.h file."""
     import xml.etree.ElementTree as ET
     from random import randint
 
@@ -3999,7 +4011,7 @@ if __name__ == "__main__":
     )
     parser_currency.add_argument(
         "--out",
-        default=os.path.join(thisDir, "CurrencyDataGenerated.js"),
+        default=os.path.join(thisDir, "CurrencyDataGenerated.h"),
         help="Output file (default: %(default)s)",
     )
     parser_currency.add_argument(
