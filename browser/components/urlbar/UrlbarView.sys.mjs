@@ -2095,6 +2095,10 @@ export class UrlbarView {
     if (result.isNovaSuggestion) {
       item.toggleAttribute("nova", true);
       item.toggleAttribute("rich-suggestion", true);
+      item.setAttribute(
+        "type",
+        lazy.UrlbarUtils.searchEngagementTelemetryType(result)
+      );
       this.#updateRowContentForNova(item, result);
       return;
     }
