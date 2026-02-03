@@ -274,7 +274,7 @@ class nsMathMLFrame : public nsIMathMLFrame {
    */
   void DisplayBar(mozilla::nsDisplayListBuilder* aBuilder, nsIFrame* aFrame,
                   const nsRect& aRect, const mozilla::nsDisplayListSet& aLists,
-                  uint32_t aIndex = 0);
+                  uint16_t aIndex = 0);
 
   // information about the presentation policy of the frame
   nsPresentationData mPresentationData;
