@@ -70,8 +70,6 @@ class WebRenderBridgeParent final : public PWebRenderBridgeParent,
   WebRenderBridgeParent(CompositorBridgeParent* aCompositorBridge,
                         const wr::PipelineId& aPipelineId,
                         widget::CompositorWidget* aWidget,
-                        RefPtr<wr::WebRenderAPI>&& aApi,
-                        RefPtr<AsyncImagePipelineManager>&& aImageMgr,
                         TimeDuration aVsyncRate);
 
   // Constructor for content WebRenderBridgeParents.
@@ -85,13 +83,20 @@ class WebRenderBridgeParent final : public PWebRenderBridgeParent,
   static WebRenderBridgeParent* CreateDestroyed(
       const wr::PipelineId& aPipelineId, nsCString&& aError);
 
+  // Called for root WebRenderBridgeParents to complete initialization once the
+  // WebRenderAPI and AsyncImagePipelineManager have been created.
+  void FinishInitialization(RefPtr<wr::WebRenderAPI>&& aApi,
+                            RefPtr<AsyncImagePipelineManager>&& aImageMgr);
+
   wr::PipelineId PipelineId() { return mPipelineId; }
   already_AddRefed<wr::WebRenderAPI> GetWebRenderAPI() {
-    return do_AddRef(mApi);
+    return do_AddRef(mLateInit->mApi);
   }
-  AsyncImagePipelineManager* AsyncImageManager() { return mAsyncImageManager; }
+  AsyncImagePipelineManager* AsyncImageManager() {
+    return mLateInit->mAsyncImageManager;
+  }
   CompositorVsyncScheduler* CompositorScheduler() {
-    return mCompositorScheduler.get();
+    return mLateInit->mCompositorScheduler.get();
   }
   CompositorBridgeParentBase* GetCompositorBridge() {
     return mCompositorBridge;
@@ -234,10 +239,10 @@ class WebRenderBridgeParent final : public PWebRenderBridgeParent,
       nsTArray<ImageCompositeNotificationInfo>* aNotifications);
 
   wr::Epoch GetCurrentEpoch() const { return mWrEpoch; }
-  wr::IdNamespace GetIdNamespace() { return mIdNamespace; }
+  wr::IdNamespace GetIdNamespace() { return mLateInit->mIdNamespace; }
 
   bool MatchesNamespace(const wr::ImageKey& aImageKey) const {
-    return aImageKey.mNamespace == mIdNamespace;
+    return aImageKey.mNamespace == mLateInit->mIdNamespace;
   }
 
   bool MatchesNamespace(const wr::BlobImageKey& aBlobKey) const {
@@ -249,11 +254,11 @@ class WebRenderBridgeParent final : public PWebRenderBridgeParent,
   }
 
   bool MatchesNamespace(const wr::FontKey& aFontKey) const {
-    return aFontKey.mNamespace == mIdNamespace;
+    return aFontKey.mNamespace == mLateInit->mIdNamespace;
   }
 
   bool MatchesNamespace(const wr::FontInstanceKey& aFontKey) const {
-    return aFontKey.mNamespace == mIdNamespace;
+    return aFontKey.mNamespace == mLateInit->mIdNamespace;
   }
 
   void FlushRendering(wr::RenderReasons aReasons, bool aBlocking);
@@ -473,9 +478,18 @@ class WebRenderBridgeParent final : public PWebRenderBridgeParent,
   CompositorBridgeParentBase* MOZ_NON_OWNING_REF mCompositorBridge;
   wr::PipelineId mPipelineId;
   RefPtr<widget::CompositorWidget> mWidget;
-  RefPtr<wr::WebRenderAPI> mApi;
-  RefPtr<AsyncImagePipelineManager> mAsyncImageManager;
-  RefPtr<CompositorVsyncScheduler> mCompositorScheduler;
+
+  // Members that may be initialized after construction. Accessing via a `Maybe`
+  // ensures a safe crash when attempting to access a member before it has been
+  // initialized.
+  struct LateInit {
+    RefPtr<wr::WebRenderAPI> mApi;
+    RefPtr<AsyncImagePipelineManager> mAsyncImageManager;
+    RefPtr<CompositorVsyncScheduler> mCompositorScheduler;
+    wr::IdNamespace mIdNamespace;
+  };
+  Maybe<LateInit> mLateInit;
+
   // mActiveAnimations is used to avoid leaking animations when
   // WebRenderBridgeParent is destroyed abnormally and Tab move between
   // different windows.
@@ -490,7 +504,6 @@ class WebRenderBridgeParent final : public PWebRenderBridgeParent,
   std::deque<PendingTransactionId> mPendingTransactionIds;
   std::queue<CompositorAnimationIdsForEpoch> mCompositorAnimationsToDelete;
   wr::Epoch mWrEpoch{0};
-  wr::IdNamespace mIdNamespace;
   CompositionOpportunityId mCompositionOpportunityId;
   nsCString mInitError;
 
