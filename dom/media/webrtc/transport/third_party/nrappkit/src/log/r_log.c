@@ -60,7 +60,7 @@
 
 int NR_LOG_LOGGING = 0;
 
-static char *log_level_strings[]={
+static const char *log_level_strings[]={
      "EMERG",
      "ALERT",
      "CRIT",
@@ -71,7 +71,7 @@ static char *log_level_strings[]={
      "DEBUG"
 };
 
-static char *log_level_reg_strings[]={
+static const char *log_level_reg_strings[]={
      "emergency",
      "alert",
      "critical",
@@ -104,7 +104,7 @@ static int log_type_ct;
 
 
 typedef struct log_destination_ {
-     char *dest_name;
+     const char *dest_name;
      int enabled;
      int default_level;
      r_dest_vlog *dest_vlog;
@@ -159,7 +159,7 @@ static int r_logging_dest(int dest_index, int facility, int level);
 static int _r_log_init(int usereg);
 static int r_log_get_reg_level(NR_registry name, int *level);
 
-int r_log_register(char *facility_name,int *log_facility)
+int r_log_register(const char *facility_name,int *log_facility)
   {
     int i,j;
     int level;
@@ -294,7 +294,7 @@ int r_log(int facility,int level,const char *format,...)
     return(0);
   }
 
-int r_dump(int facility,int level,char *name,char *data,int len)
+int r_dump(int facility,int level,const char *name,const char *data,int len)
   {
     char *hex = 0;
     size_t unused;
@@ -306,7 +306,7 @@ int r_dump(int facility,int level,char *name,char *data,int len)
     if (!hex)
       return(R_FAILED);
 
-    if (nr_nbin2hex((UCHAR*)data, len, hex, len*2+1, &unused))
+    if (nr_nbin2hex((const UCHAR*)data, len, hex, len*2+1, &unused))
       strcpy(hex, "?");
 
     if(name)
@@ -330,9 +330,9 @@ int r_dump(int facility,int level,char *name,char *data,int len)
 int r_vlog(int facility,int level,const char *format,va_list ap)
   {
     char log_fmt_buf[MAX_ERROR_STRING_SIZE];
-    char *level_str="unknown";
-    char *facility_str="unknown";
-    char *fmt_str=(char *)format;
+    const char *level_str="unknown";
+    const char *facility_str="unknown";
+    const char *fmt_str=format;
     int i;
 
     if(r_log_env_verbose){
