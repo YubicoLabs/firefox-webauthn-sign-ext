@@ -24,9 +24,6 @@
 #include "builtin/Array.h"
 #include "builtin/BigInt.h"
 #ifdef JS_HAS_INTL_API
-#  include "builtin/intl/IntlObject.h"
-#  include "builtin/intl/Locale.h"
-#  include "builtin/intl/PluralRules.h"
 #  include "builtin/intl/Segmenter.h"
 #endif
 #include "builtin/MapObject.h"
@@ -38,10 +35,6 @@
 #include "builtin/RegExp.h"
 #include "builtin/SelfHostingDefines.h"
 #include "builtin/String.h"
-#ifdef JS_HAS_INTL_API
-#  include "builtin/temporal/Duration.h"
-#  include "builtin/temporal/TimeZone.h"
-#endif
 #include "builtin/WeakMapObject.h"
 #include "frontend/BytecodeCompiler.h"    // CompileGlobalScriptToStencil
 #include "frontend/CompilationStencil.h"  // js::frontend::CompilationStencil
@@ -1809,8 +1802,6 @@ static const JSFunctionSpec intrinsic_functions[] = {
 
 // Intrinsics and standard functions used by Intl API implementation.
 #ifdef JS_HAS_INTL_API
-    JS_FN("intl_CallPluralRulesMethodIfWrapped",
-          CallNonGenericSelfhostedMethod<Is<PluralRulesObject>>, 2, 0),
     JS_FN("intl_CallSegmentIteratorMethodIfWrapped",
           CallNonGenericSelfhostedMethod<Is<SegmentIteratorObject>>, 2, 0),
     JS_FN("intl_CallSegmentsMethodIfWrapped",
@@ -1819,9 +1810,6 @@ static const JSFunctionSpec intrinsic_functions[] = {
     JS_FN("intl_FindNextSegmentBoundaries", intl_FindNextSegmentBoundaries, 1,
           0),
     JS_FN("intl_FindSegmentBoundaries", intl_FindSegmentBoundaries, 2, 0),
-    JS_INLINABLE_FN("intl_GuardToPluralRules",
-                    intrinsic_GuardToBuiltin<PluralRulesObject>, 1, 0,
-                    IntlGuardToPluralRules),
     JS_INLINABLE_FN("intl_GuardToSegmentIterator",
                     intrinsic_GuardToBuiltin<SegmentIteratorObject>, 1, 0,
                     IntlGuardToSegmentIterator),

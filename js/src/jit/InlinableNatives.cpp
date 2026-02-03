@@ -7,7 +7,6 @@
 #include "jit/InlinableNatives.h"
 
 #ifdef JS_HAS_INTL_API
-#  include "builtin/intl/PluralRules.h"
 #  include "builtin/intl/Segmenter.h"
 #endif
 #ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT
@@ -37,14 +36,11 @@ const JSClass* js::jit::InlinableNativeGuardToClass(InlinableNative native) {
   switch (native) {
 #ifdef JS_HAS_INTL_API
     // Intl natives.
-    case InlinableNative::IntlGuardToPluralRules:
-      return &PluralRulesObject::class_;
     case InlinableNative::IntlGuardToSegments:
       return &SegmentsObject::class_;
     case InlinableNative::IntlGuardToSegmentIterator:
       return &SegmentIteratorObject::class_;
 #else
-    case InlinableNative::IntlGuardToPluralRules:
     case InlinableNative::IntlGuardToSegments:
     case InlinableNative::IntlGuardToSegmentIterator:
       MOZ_CRASH("Intl API disabled");
@@ -149,7 +145,6 @@ bool js::jit::CanInlineNativeCrossRealm(InlinableNative native) {
       // RNG state is per-realm.
       return false;
 
-    case InlinableNative::IntlGuardToPluralRules:
     case InlinableNative::IntlGuardToSegments:
     case InlinableNative::IntlGuardToSegmentIterator:
     case InlinableNative::IsRegExpObject:

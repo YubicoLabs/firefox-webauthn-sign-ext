@@ -95,7 +95,6 @@
                                                    \
   _(FunctionBind)                                  \
                                                    \
-  _(IntlGuardToPluralRules)                        \
   _(IntlGuardToSegments)                           \
   _(IntlGuardToSegmentIterator)                    \
                                                    \
