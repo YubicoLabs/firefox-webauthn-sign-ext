@@ -2354,7 +2354,7 @@ class Settings(
      */
     var enableMozillaAdsClient by booleanPreference(
         key = appContext.getPreferenceKey(R.string.pref_key_enable_mozilla_ads_client),
-        default = FeatureFlags.MOZILLA_ADS_CLIENT_ENABLED,
+        default = { FxNimbus.features.mozillaAdsClient.value().enabled },
     )
 
     /**

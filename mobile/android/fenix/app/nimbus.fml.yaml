@@ -1012,6 +1012,14 @@ features:
         type: Boolean
         default: false
 
+  mozilla-ads-client:
+    description: Feature to enable the Mozilla Ads Client for users on Firefox on Android.
+    variables:
+      enabled:
+        description: If true, Mozilla Ads Client is enabled.
+        type: Boolean
+        default: false
+
 types:
   objects:
     GleanServerKnobsConfiguration:
