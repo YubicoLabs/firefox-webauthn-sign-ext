@@ -59,7 +59,7 @@ class nsMathMLmoFrame final : public nsMathMLTokenFrame {
   // This method is called by the parent frame to ask <mo>
   // to stretch itself.
   NS_IMETHOD
-  Stretch(DrawTarget* aDrawTarget, StretchDirection aStretchDirection,
+  Stretch(DrawTarget* aDrawTarget, nsStretchDirection aStretchDirection,
           nsBoundingMetrics& aContainerSize,
           ReflowOutput& aDesiredStretchSize) override;
 
@@ -73,6 +73,7 @@ class nsMathMLmoFrame final : public nsMathMLTokenFrame {
  protected:
   explicit nsMathMLmoFrame(ComputedStyle* aStyle, nsPresContext* aPresContext)
       : nsMathMLTokenFrame(aStyle, aPresContext, kClassID),
+        mFlags(0),
         mMinSize(0),
         mMaxSize(0) {}
   virtual ~nsMathMLmoFrame();

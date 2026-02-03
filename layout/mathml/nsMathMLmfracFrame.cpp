@@ -74,7 +74,7 @@ nsMathMLmfracFrame::TransmitAutomaticData() {
   if (mEmbellishData.flags.contains(MathMLEmbellishFlag::EmbellishedOperator)) {
     // even when embellished, we need to record that <mfrac> won't fire
     // Stretch() on its embellished child
-    mEmbellishData.direction = StretchDirection::Unsupported;
+    mEmbellishData.direction = NS_STRETCH_DIRECTION_UNSUPPORTED;
   }
 
   return NS_OK;

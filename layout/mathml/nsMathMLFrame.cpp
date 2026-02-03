@@ -49,7 +49,7 @@ NS_IMETHODIMP
 nsMathMLFrame::InheritAutomaticData(nsIFrame* aParent) {
   mEmbellishData.flags.clear();
   mEmbellishData.coreFrame = nullptr;
-  mEmbellishData.direction = StretchDirection::Unsupported;
+  mEmbellishData.direction = NS_STRETCH_DIRECTION_UNSUPPORTED;
   mEmbellishData.leadingSpace = 0;
   mEmbellishData.trailingSpace = 0;
 
@@ -97,7 +97,7 @@ void nsMathMLFrame::GetEmbellishDataFrom(nsIFrame* aFrame,
   // initialize OUT params
   aEmbellishData.flags.clear();
   aEmbellishData.coreFrame = nullptr;
-  aEmbellishData.direction = StretchDirection::Unsupported;
+  aEmbellishData.direction = NS_STRETCH_DIRECTION_UNSUPPORTED;
   aEmbellishData.leadingSpace = 0;
   aEmbellishData.trailingSpace = 0;
 
@@ -282,7 +282,7 @@ void nsDisplayMathMLBar::Paint(nsDisplayListBuilder* aBuilder,
 void nsMathMLFrame::DisplayBar(nsDisplayListBuilder* aBuilder, nsIFrame* aFrame,
                                const nsRect& aRect,
                                const nsDisplayListSet& aLists,
-                               uint16_t aIndex) {
+                               uint32_t aIndex) {
   if (!aFrame->StyleVisibility()->IsVisible() || aRect.IsEmpty()) {
     return;
   }

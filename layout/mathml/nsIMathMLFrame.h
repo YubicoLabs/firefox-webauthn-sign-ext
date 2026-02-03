@@ -19,7 +19,7 @@ class ReflowOutput;
 
 // For MathML, this 'type' will be used to determine the spacing between frames
 // Subclasses can return a 'type' that will give them a particular spacing
-enum class MathMLFrameType : uint8_t {
+enum class MathMLFrameType {
   Ordinary,
   OperatorOrdinary,
   OperatorInvisible,
@@ -148,7 +148,8 @@ class nsIMathMLFrame {
    */
   NS_IMETHOD
   Stretch(mozilla::gfx::DrawTarget* aDrawTarget,
-          StretchDirection aStretchDirection, nsBoundingMetrics& aContainerSize,
+          nsStretchDirection aStretchDirection,
+          nsBoundingMetrics& aContainerSize,
           mozilla::ReflowOutput& aDesiredStretchSize) = 0;
 
   /* Get the mEmbellishData member variable. */
@@ -291,7 +292,7 @@ struct nsEmbellishData {
   nsIFrame* coreFrame = nullptr;
 
   // stretchy direction that the nsMathMLChar owned by the core <mo> supports
-  StretchDirection direction = StretchDirection::Unsupported;
+  nsStretchDirection direction = NS_STRETCH_DIRECTION_UNSUPPORTED;
 
   // spacing that may come from <mo> depending on its 'form'. Since
   // the 'form' may also depend on the position of the outermost
