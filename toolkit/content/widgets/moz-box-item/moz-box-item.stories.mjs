@@ -63,6 +63,7 @@ const Template = ({
   slottedActions,
   slottedActionsStart,
   supportPage,
+  slottedDescription,
 }) => html`
   <style>
     .container {
@@ -128,6 +129,12 @@ const Template = ({
             ></moz-button>
           `
         : ""}
+      ${slottedDescription
+        ? html`<span slot="description"
+            >This is a slotted description
+            <a href="https://www.example.com" target="_blank">click me</a></span
+          >`
+        : ""}
     </moz-box-item>
   </div>
 `;
@@ -141,6 +148,7 @@ Default.args = {
   slottedActions: false,
   slottedActionsStart: false,
   supportPage: "",
+  slottedDescription: false,
 };
 
 export const WithDescription = Template.bind({});
@@ -184,6 +192,12 @@ export const WithSlottedActionAtTheStart = Template.bind({});
 WithSlottedActionAtTheStart.args = {
   ...Default.args,
   slottedActionsStart: true,
+};
+
+export const WithSlottedDescription = Template.bind({});
+WithSlottedDescription.args = {
+  ...Default.args,
+  slottedDescription: true,
 };
 
 export const WithSupportPage = Template.bind({});
