@@ -3,6 +3,7 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import React, { useEffect, useState } from "react";
+import { actionCreators as ac } from "common/Actions.mjs";
 import { useDispatch } from "react-redux";
 import { SafeAnchor } from "../SafeAnchor/SafeAnchor";
 import { LinkMenuOptions } from "content-src/lib/link-menu-options.mjs";
@@ -17,6 +18,9 @@ const BriefingCard = ({
   sectionClassNames = "",
   headlines = [],
   lastUpdated,
+  selectedTopics,
+  isFollowed,
+  firstVisibleTimestamp,
 }) => {
   const [showTimestamp, setShowTimestamp] = useState(false);
   const [timeAgo, setTimeAgo] = useState("");
@@ -69,6 +73,39 @@ const BriefingCard = ({
     return null;
   }
 
+  const onLinkClick = headline => {
+    dispatch(
+      ac.DiscoveryStreamUserEvent({
+        event: "CLICK",
+        source: "DAILY_BRIEFING",
+        action_position: headline.pos,
+        value: {
+          event_source: "CARD_GRID",
+          card_type: "organic",
+          recommendation_id: headline.recommendation_id,
+          tile_id: headline.id,
+          fetchTimestamp: headline.fetchTimestamp,
+          firstVisibleTimestamp,
+          corpus_item_id: headline.corpus_item_id,
+          scheduled_corpus_item_id: headline.scheduled_corpus_item_id,
+          recommended_at: headline.recommended_at,
+          received_rank: headline.received_rank,
+          features: headline.features,
+          selected_topics: selectedTopics,
+          format: "daily-briefing",
+          ...(headline.section
+            ? {
+                section: headline.section,
+                section_position: 0, // Single section in briefing card
+                is_section_followed: isFollowed,
+                layout_name: "daily-briefing",
+              }
+            : {}),
+        },
+      })
+    );
+  };
+
   return (
     <div className={`briefing-card ${sectionClassNames}`}>
       <moz-button
@@ -103,6 +140,7 @@ const BriefingCard = ({
             <SafeAnchor
               url={headline.url}
               dispatch={dispatch}
+              onLinkClick={() => onLinkClick(headline)}
               className="briefing-card-headline-link"
               title={headline.title}
             >

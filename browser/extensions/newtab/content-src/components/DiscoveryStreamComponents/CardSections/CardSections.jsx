@@ -354,6 +354,9 @@ function CardSection({
             sectionClassNames={classNames.join(" ")}
             headlines={briefingHeadlines}
             lastUpdated={briefingLastUpdated}
+            selectedTopics={selectedTopics}
+            isFollowed={following}
+            firstVisibleTimestamp={firstVisibleTimestamp}
           />
         );
         continue;

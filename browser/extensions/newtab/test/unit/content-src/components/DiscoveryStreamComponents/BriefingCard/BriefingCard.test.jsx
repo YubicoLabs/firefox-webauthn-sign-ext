@@ -33,6 +33,9 @@ const DEFAULT_PROPS = {
     },
   ],
   lastUpdated: Date.now(),
+  selectedTopics: ["topic1", "topic2"],
+  isFollowed: true,
+  firstVisibleTimestamp: Date.now() - 5000,
 };
 
 function WrapWithProvider({ children, state = INITIAL_STATE }) {
@@ -149,6 +152,25 @@ describe("<BriefingCard>", () => {
       );
 
       assert.lengthOf(wrapper.find(".briefing-card-timestamp"), 0);
+    });
+  });
+  describe("onLinkClick", () => {
+    it("should dispatch DiscoveryStreamUserEvent on headline click", () => {
+      const store = createStore(combineReducers(reducers), INITIAL_STATE);
+      sandbox.spy(store, "dispatch");
+
+      wrapper = mount(
+        <Provider store={store}>
+          <BriefingCard {...DEFAULT_PROPS} />
+        </Provider>
+      );
+
+      const firstHeadline = wrapper.find(SafeAnchor).at(0);
+      firstHeadline.simulate("click");
+
+      assert.calledTwice(store.dispatch);
+      const action = store.dispatch.getCall(1).firstArg;
+      assert.equal(action.type, at.DISCOVERY_STREAM_USER_EVENT);
     });
   });
 });
