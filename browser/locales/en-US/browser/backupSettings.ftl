@@ -21,7 +21,9 @@ backup-folder-name = Restore { -brand-product-name }
 # FirefoxBackup_default_20240606-1830.html
 backup-file-name = { -brand-product-name }Backup
 
-settings-data-backup-header = Backup
+settings-data-backup-header2 =
+    .label = Backup
+    .description = Automatically protect your bookmarks, history, and other data.
 settings-data-backup-toggle = Manage backup
 settings-data-backup-toggle-on = Turn on backup
 settings-data-backup-toggle-off = Turn off backup
