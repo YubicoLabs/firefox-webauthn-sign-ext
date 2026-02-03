@@ -15,6 +15,7 @@ add_task(async function test_new_chat_button_sidebar() {
     set: [
       ["browser.smartwindow.enabled", true],
       ["browser.smartwindow.firstrun.hasCompleted", true],
+      ["browser.smartwindow.endpoint", "http://localhost:0/v1"],
     ],
   });
 
@@ -65,6 +66,7 @@ add_task(async function test_new_chat_button_not_in_fullpage() {
     set: [
       ["browser.smartwindow.enabled", true],
       ["browser.smartwindow.firstrun.hasCompleted", true],
+      ["browser.smartwindow.endpoint", "http://localhost:0/v1"],
     ],
   });
 
@@ -74,6 +76,11 @@ add_task(async function test_new_chat_button_not_in_fullpage() {
   // Use SpecialPowers.spawn to access the content properly
   const result = await SpecialPowers.spawn(browser, [], async () => {
     const aiWindowElement = content.document.querySelector("ai-window");
+
+    // In fullpage mode, the browser container starts with 0 height (collapsed)
+    // until chat starts, but the component should still be fully functional.
+    // Wait a bit more for grid layout to settle
+    await new Promise(resolve => content.setTimeout(resolve, 100));
 
     // Wait for the AI Window component to be ready
     await ContentTaskUtils.waitForCondition(
