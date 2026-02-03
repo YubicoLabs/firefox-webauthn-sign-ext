@@ -6283,7 +6283,7 @@ bool WarpCacheIRTranspiler::maybeCreateThis(MDefinition* callee,
   MOZ_ASSERT(kind == CallKind::Scripted);
 
   if (thisArg->isNewPlainObject()) {
-    // We have already updated |this| based on MetaScriptedThisShape. We do
+    // We have already updated |this| based on MetaCreateThis. We do
     // not need to generate a check.
     return false;
   }
@@ -7057,8 +7057,8 @@ bool WarpCacheIRTranspiler::emitCallNativeSetter(ObjOperandId receiverId,
                         nargsAndFlagsOffset);
 }
 
-bool WarpCacheIRTranspiler::emitMetaScriptedThisShape(uint32_t thisShapeOffset,
-                                                      uint32_t siteOffset) {
+bool WarpCacheIRTranspiler::emitMetaCreateThis(uint32_t thisShapeOffset,
+                                               uint32_t siteOffset) {
   SharedShape* shape = &shapeStubField(thisShapeOffset)->asShared();
   MOZ_ASSERT(shape->getObjectClass() == &PlainObject::class_);
 

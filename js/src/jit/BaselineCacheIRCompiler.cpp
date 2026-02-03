@@ -3104,9 +3104,10 @@ bool BaselineCacheIRCompiler::emitCallClassHook(ObjOperandId calleeId,
                               targetOffset_);
 }
 
-// This op generates no code. It is consumed by the transpiler.
-bool BaselineCacheIRCompiler::emitMetaScriptedThisShape(
-    uint32_t thisShapeOffset, uint32_t siteOffset) {
+// This op generates no code. It caches the alloc site offset for eventual
+// use in createThis.
+bool BaselineCacheIRCompiler::emitMetaCreateThis(uint32_t thisShapeOffset,
+                                                 uint32_t siteOffset) {
   MOZ_ASSERT(scriptedAllocSiteOffset_.isNothing());
   scriptedAllocSiteOffset_.emplace(siteOffset);
   return true;

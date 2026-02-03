@@ -2289,8 +2289,9 @@
     nargsAndFlags: UInt32Imm
   #endif
 
-# Meta ops generate no code, but contain data for the Warp Transpiler.
-- name: MetaScriptedThisShape
+# This op generates no code itself, but contains data used by a subsequent
+# Call(Scripted|Inlined|Bound)Function op.
+- name: MetaCreateThis
   shared: false
   transpile: true
   cost_estimate: 0

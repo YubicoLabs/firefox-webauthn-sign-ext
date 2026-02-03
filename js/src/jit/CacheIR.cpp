@@ -13701,10 +13701,10 @@ void CallIRGenerator::emitCallScriptedGuards(ObjOperandId calleeObjId,
                                            slot - newTarget->numFixedSlots());
       }
 
-      // Call metaScriptedThisShape before emitting the call, so that Warp can
-      // use the shape to create the |this| object before transpiling the call.
+      // Call metaCreateThis before emitting the call, so that Warp can use the
+      // shape/site to create the |this| object before transpiling the call.
       MOZ_ASSERT(maybeAllocSite);
-      writer.metaScriptedThisShape(thisShape, maybeAllocSite);
+      writer.metaCreateThis(thisShape, maybeAllocSite);
     }
   } else {
     // Guard that object is a scripted function
