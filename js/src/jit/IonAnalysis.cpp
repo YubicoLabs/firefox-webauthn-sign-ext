@@ -4475,8 +4475,7 @@ static void TryOptimizeWasmCast(MDefinition* cast, MIRGraph& graph) {
       if (otherCast->dominates(cast)) {
         // And the type of the dominating ref.cast is <: the type of the
         // current cast...
-        wasm::RefType dominatingDestType =
-            WasmRefTestOrCastDestType(otherCast);
+        wasm::RefType dominatingDestType = WasmRefTestOrCastDestType(otherCast);
         wasm::RefType currentDestType = WasmRefTestOrCastDestType(cast);
         if (wasm::RefType::isSubTypeOf(dominatingDestType, currentDestType)) {
           // Then the cast is redundant because it is dominated by a tighter
@@ -4562,8 +4561,7 @@ static void TryOptimizeWasmTest(MDefinition* refTest, MIRGraph& graph) {
           // Then the ref.test is redundant because it is dominated by a
           // tighter ref.cast. Replace with a constant 1.
           auto* replacement = MConstant::NewInt32(graph.alloc(), 1);
-          refTest->block()->insertBefore(refTest->toInstruction(),
-                                         replacement);
+          refTest->block()->insertBefore(refTest->toInstruction(), replacement);
           refTest->replaceAllUsesWith(replacement);
           refTest->block()->discard(refTest->toInstruction());
           return;
