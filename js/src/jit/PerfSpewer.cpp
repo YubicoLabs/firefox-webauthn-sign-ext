@@ -576,15 +576,12 @@ void WasmBaselinePerfSpewer::recordInstruction(MacroAssembler& masm,
   recordOpcode(masm.currentOffset() - startOffset_, op.toPacked());
 }
 
-void BaselinePerfSpewer::recordInstruction(MacroAssembler& masm, jsbytecode* pc,
-                                           JSScript* script,
-                                           CompilerFrameInfo& frame) {
+void BaselinePerfSpewer::recordInstruction(
+    MacroAssembler& masm, jsbytecode* pc, unsigned line,
+    JS::LimitedColumnNumberOneOrigin column, CompilerFrameInfo& frame) {
   uint32_t offset = masm.currentOffset() - startOffset_;
   if (PerfSrcEnabled()) {
-    JS::LimitedColumnNumberOneOrigin colno;
-    uint32_t line = PCToLineNumber(script, pc, &colno);
-    uint32_t column = colno.oneOriginValue();
-    if (!debugInfo_.emplaceBack(offset, line, column)) {
+    if (!debugInfo_.emplaceBack(offset, line, column.oneOriginValue())) {
       disable();
     }
     return;

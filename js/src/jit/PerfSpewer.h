@@ -11,6 +11,7 @@
 #  include <stdio.h>
 #endif
 #include "js/AllocPolicy.h"
+#include "js/ColumnNumber.h"
 #include "js/Vector.h"
 
 #ifdef JS_JITSPEW
@@ -215,7 +216,8 @@ class BaselinePerfSpewer : public PerfSpewer {
   const char* CodeName(uint32_t op) override;
 
  public:
-  void recordInstruction(MacroAssembler& masm, jsbytecode* pc, JSScript* script,
+  void recordInstruction(MacroAssembler& masm, jsbytecode* pc, unsigned line,
+                         JS::LimitedColumnNumberOneOrigin column,
                          CompilerFrameInfo& frame);
   void saveProfile(JSContext* cx, JSScript* script, JitCode* code);
 };
