@@ -6602,7 +6602,7 @@
 
       let tabs;
       if (contextTab.multiselected) {
-        tabs = this.selectedTabs;
+        tabs = this.selectedElements;
       } else {
         tabs = [contextTab];
       }
@@ -6642,7 +6642,9 @@
           let tabIndex = 0;
           for (let tab of tabs) {
             if (tab !== selectedTab) {
-              const newTab = win.gBrowser.adoptTab(tab, { tabIndex });
+              const newTab = win.gBrowser.isSplitViewWrapper(tab)
+                ? win.gBrowser.adoptSplitView(tab, { elementIndex: tabIndex })
+                : win.gBrowser.adoptTab(tab, { tabIndex });
               if (!newTab) {
                 // The adoption failed. Restore "fadein" and don't increase the index.
                 tab.setAttribute("fadein", "true");
@@ -7369,6 +7371,10 @@
     }
 
     addToMultiSelectedTabs(aTab) {
+      if (aTab.splitview) {
+        aTab.splitview.setAttribute("multiselected", "true");
+      }
+
       if (aTab.multiselected) {
         return;
       }
@@ -7415,6 +7421,9 @@
         return;
       }
       aTab.removeAttribute("multiselected");
+      if (aTab.splitview) {
+        aTab.splitview.removeAttribute("multiselected");
+      }
       aTab.removeAttribute("aria-selected");
       this._multiSelectedTabsSet.delete(aTab);
       this._startMultiSelectChange();
@@ -7552,6 +7561,22 @@
         tabs.push(selectedTab);
       }
       return tabs.sort((a, b) => a._tPos > b._tPos);
+    }
+
+    /**
+     * For multiselection, splitsviews can also be selected alongside tabs.
+     * The getter for selectedTabs returns an array with the splitview child tabs
+     * rather than the splitview itself. Hence the need for selectedElements.
+     * We need to know the indices of the draggable elements, such as the
+     * splitview parent element. This getter returns an array of multiselected
+     * tabs and splitview parent elements (as opposed to splitview child tabs).
+     */
+    get selectedElements() {
+      let selectedElements = new Set();
+      for (let selectedTab of this.selectedTabs) {
+        selectedElements.add(selectedTab.splitview ?? selectedTab);
+      }
+      return Array.from(selectedElements.values());
     }
 
     get multiSelectedTabsCount() {

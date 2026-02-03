@@ -84,6 +84,10 @@
       this.toggleAttribute("hasactivetab", val);
     }
 
+    get multiselected() {
+      return this.hasAttribute("multiselected");
+    }
+
     constructor() {
       super();
       XPCOMUtils.defineLazyPreferenceGetter(
@@ -178,6 +182,10 @@
 
     get visible() {
       return this.tabs.every(tab => tab.visible);
+    }
+
+    get pinned() {
+      return false;
     }
 
     /**

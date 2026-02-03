@@ -601,8 +601,12 @@
           detail: metricsContext,
         })
       );
-      for (let i = this.tabs.length - 1; i >= 0; i--) {
-        gBrowser.ungroupTab(this.tabs[i]);
+      for (let i = this.tabsAndSplitViews.length - 1; i >= 0; i--) {
+        if (gBrowser.isSplitViewWrapper(this.tabsAndSplitViews[i])) {
+          gBrowser.ungroupSplitView(this.tabsAndSplitViews[i]);
+        } else if (gBrowser.isTab(this.tabsAndSplitViews[i])) {
+          gBrowser.ungroupTab(this.tabsAndSplitViews[i]);
+        }
       }
     }
 
