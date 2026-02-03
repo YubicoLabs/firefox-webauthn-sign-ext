@@ -239,17 +239,6 @@ class NumberFormatObject : public NativeObject {
 [[nodiscard]] extern bool intl_FormatNumberRange(JSContext* cx, unsigned argc,
                                                  Value* vp);
 
-#if DEBUG || MOZ_SYSTEM_ICU
-/**
- * Returns an object with all available measurement units.
- *
- * Usage: units = intl_availableMeasurementUnits()
- */
-[[nodiscard]] extern bool intl_availableMeasurementUnits(JSContext* cx,
-                                                         unsigned argc,
-                                                         Value* vp);
-#endif
-
 namespace intl {
 
 /**

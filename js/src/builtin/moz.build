@@ -88,12 +88,9 @@ selfhosted_inputs = [
     "WeakSet.js",
 ] + (
     [
-        "intl/NumberingSystemsGenerated.h",
         "intl/CommonFunctions.js",
-        "intl/CurrencyDataGenerated.js",
         "intl/NumberFormat.js",
         "intl/PluralRules.js",
-        "intl/SanctionedSimpleUnitIdentifiersGenerated.js",
         "intl/Segmenter.js",
     ]
     if CONFIG["JS_HAS_INTL_API"]

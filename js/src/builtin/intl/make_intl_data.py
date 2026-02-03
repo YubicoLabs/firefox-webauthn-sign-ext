@@ -3495,33 +3495,6 @@ def writeSanctionedSimpleUnitIdentifiersFiles(all_units, sanctioned_units):
         assert result and len(result) == 1
         return result[0]
 
-    sanctioned_js_file = os.path.join(
-        js_src_builtin_intl_dir, "SanctionedSimpleUnitIdentifiersGenerated.js"
-    )
-    with open(sanctioned_js_file, mode="w", encoding="utf-8", newline="") as f:
-        println = partial(print, file=f)
-
-        sanctioned_units_object = json.dumps(
-            {unit: True for unit in sorted(sanctioned_units)},
-            sort_keys=True,
-            indent=2,
-            separators=(",", ": "),
-        )
-
-        println(generatedFileWarning)
-
-        println(
-            """
-/**
- * The list of currently supported simple unit identifiers.
- *
- * Intl.NumberFormat Unified API Proposal
- */"""
-        )
-
-        println("// prettier-ignore")
-        println(f"var sanctionedSimpleUnitIdentifiers = {sanctioned_units_object};")
-
     sanctioned_h_file = os.path.join(intl_components_src_dir, "MeasureUnitGenerated.h")
     with open(sanctioned_h_file, mode="w", encoding="utf-8", newline="") as f:
         println = partial(print, file=f)

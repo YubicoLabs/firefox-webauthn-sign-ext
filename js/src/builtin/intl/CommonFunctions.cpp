@@ -133,28 +133,6 @@ bool js::intl::InitializeObject(JSContext* cx, JS::Handle<JSObject*> obj,
   return true;
 }
 
-bool js::intl::InitializeNumberFormatObject(
-    JSContext* cx, JS::Handle<JSObject*> obj, JS::Handle<JS::Value> thisValue,
-    JS::Handle<JS::Value> locales, JS::Handle<JS::Value> options,
-    JS::MutableHandle<JS::Value> result) {
-  Handle<PropertyName*> initializer = cx->names().InitializeNumberFormat;
-
-  FixedInvokeArgs<4> args(cx);
-
-  args[0].setObject(*obj);
-  args[1].set(thisValue);
-  args[2].set(locales);
-  args[3].set(options);
-
-  if (!CallSelfHostedFunction(cx, initializer, NullHandleValue, args, result)) {
-    return false;
-  }
-
-  MOZ_ASSERT(result.isObject(),
-             "Intl.NumberFormat initializer must return an object");
-  return true;
-}
-
 JSObject* js::intl::GetInternalsObject(JSContext* cx,
                                        JS::Handle<JSObject*> obj) {
   FixedInvokeArgs<1> args(cx);

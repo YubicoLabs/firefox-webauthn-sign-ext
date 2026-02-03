@@ -1501,47 +1501,6 @@ static bool ResolveLocale(JSContext* cx,
   return true;
 }
 
-#if DEBUG || MOZ_SYSTEM_ICU
-bool js::intl_availableMeasurementUnits(JSContext* cx, unsigned argc,
-                                        Value* vp) {
-  CallArgs args = CallArgsFromVp(argc, vp);
-  MOZ_ASSERT(args.length() == 0);
-
-  RootedObject measurementUnits(cx, NewPlainObjectWithProto(cx, nullptr));
-  if (!measurementUnits) {
-    return false;
-  }
-
-  auto units = mozilla::intl::MeasureUnit::GetAvailable();
-  if (units.isErr()) {
-    intl::ReportInternalError(cx, units.unwrapErr());
-    return false;
-  }
-
-  Rooted<JSAtom*> unitAtom(cx);
-  for (auto unit : units.unwrap()) {
-    if (unit.isErr()) {
-      intl::ReportInternalError(cx);
-      return false;
-    }
-    auto unitIdentifier = unit.unwrap();
-
-    unitAtom = Atomize(cx, unitIdentifier.data(), unitIdentifier.size());
-    if (!unitAtom) {
-      return false;
-    }
-
-    if (!DefineDataProperty(cx, measurementUnits, unitAtom->asPropertyName(),
-                            TrueHandleValue)) {
-      return false;
-    }
-  }
-
-  args.rval().setObject(*measurementUnits);
-  return true;
-}
-#endif
-
 static UniqueChars NumberFormatLocale(
     JSContext* cx, Handle<NumberFormatObject*> numberFormat) {
   MOZ_ASSERT(numberFormat->isLocaleResolved());

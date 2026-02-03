@@ -55,16 +55,6 @@ extern bool InitializeObject(JSContext* cx, JS::Handle<JSObject*> obj,
                              JS::Handle<JS::Value> options);
 
 /**
- * Initialize an existing object as an Intl.NumberFormat object.
- */
-extern bool InitializeNumberFormatObject(JSContext* cx,
-                                         JS::Handle<JSObject*> obj,
-                                         JS::Handle<JS::Value> thisValue,
-                                         JS::Handle<JS::Value> locales,
-                                         JS::Handle<JS::Value> options,
-                                         JS::MutableHandle<JS::Value> result);
-
-/**
  * Returns the object holding the internal properties for obj.
  */
 extern JSObject* GetInternalsObject(JSContext* cx, JS::Handle<JSObject*> obj);
