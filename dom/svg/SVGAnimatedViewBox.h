@@ -7,9 +7,10 @@
 #ifndef DOM_SVG_SVGANIMATEDVIEWBOX_H_
 #define DOM_SVG_SVGANIMATEDVIEWBOX_H_
 
+#include <memory>
+
 #include "SVGAttrTearoffTable.h"
 #include "mozilla/SMILAttr.h"
-#include "mozilla/UniquePtr.h"
 #include "mozilla/dom/SVGAnimatedRect.h"
 #include "mozilla/gfx/Point.h"
 #include "nsCycleCollectionParticipant.h"
@@ -73,7 +74,7 @@ class SVGAnimatedViewBox {
   SVGAnimatedViewBox& operator=(const SVGAnimatedViewBox& aOther) {
     mBaseVal = aOther.mBaseVal;
     if (aOther.mAnimVal) {
-      mAnimVal = MakeUnique<SVGViewBox>(*aOther.mAnimVal);
+      mAnimVal = std::make_unique<SVGViewBox>(*aOther.mAnimVal);
     }
     mHasBaseVal = aOther.mHasBaseVal;
     return *this;
@@ -132,13 +133,13 @@ class SVGAnimatedViewBox {
 
   already_AddRefed<dom::SVGRect> ToDOMAnimVal(SVGElement* aSVGElement);
 
-  UniquePtr<SMILAttr> ToSMILAttr(SVGElement* aSVGElement);
+  std::unique_ptr<SMILAttr> ToSMILAttr(SVGElement* aSVGElement);
 
  private:
   void SetBaseField(float aHeight, SVGElement* aSVGElement, float& aElement);
 
   SVGViewBox mBaseVal;
-  UniquePtr<SVGViewBox> mAnimVal;
+  std::unique_ptr<SVGViewBox> mAnimVal;
   bool mHasBaseVal;
 
  public:

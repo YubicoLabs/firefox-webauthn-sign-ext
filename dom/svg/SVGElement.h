@@ -12,12 +12,13 @@
   It implements all the common DOM interfaces and handles attributes.
 */
 
+#include <memory>
+
 #include "NonCustomCSSPropertyId.h"
 #include "gfxMatrix.h"
 #include "mozilla/Attributes.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/SVGAnimatedClass.h"
-#include "mozilla/UniquePtr.h"
 #include "mozilla/dom/DOMRect.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/SVGLength.h"
@@ -299,8 +300,8 @@ class SVGElement : public SVGElementBase  // nsIContent
     return nullptr;
   }
 
-  mozilla::UniquePtr<SMILAttr> GetAnimatedAttr(int32_t aNamespaceID,
-                                               nsAtom* aName) override;
+  std::unique_ptr<SMILAttr> GetAnimatedAttr(int32_t aNamespaceID,
+                                            nsAtom* aName) override;
   void AnimationNeedsResample();
   void FlushAnimations();
 
@@ -493,7 +494,7 @@ class SVGElement : public SVGElementBase  // nsIContent
   void UnsetAttrInternal(int32_t aNameSpaceID, nsAtom* aName, bool aNotify);
 
   SVGAnimatedClass mClassAttribute;
-  UniquePtr<nsAttrValue> mClassAnimAttr;
+  std::unique_ptr<nsAttrValue> mClassAnimAttr;
 };
 
 /**

@@ -5208,7 +5208,7 @@ void SVGTextFrame::DoReflow() {
     return;
   }
 
-  UniquePtr<gfxContext> renderingContext =
+  std::unique_ptr<gfxContext> renderingContext =
       presContext->PresShell()->CreateReferenceRenderingContext();
 
   if (UpdateFontSizeScaleFactor()) {

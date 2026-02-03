@@ -7,9 +7,10 @@
 #ifndef DOM_SVG_SVGANIMATEDLENGTH_H_
 #define DOM_SVG_SVGANIMATEDLENGTH_H_
 
+#include <memory>
+
 #include "mozilla/SMILAttr.h"
 #include "mozilla/SVGContentUtils.h"
-#include "mozilla/UniquePtr.h"
 #include "mozilla/dom/SVGElement.h"
 #include "mozilla/dom/SVGLength.h"
 #include "mozilla/dom/SVGLengthBinding.h"
@@ -187,7 +188,7 @@ class SVGAnimatedLength {
   already_AddRefed<dom::DOMSVGAnimatedLength> ToDOMAnimatedLength(
       SVGElement* aSVGElement);
 
-  UniquePtr<SMILAttr> ToSMILAttr(SVGElement* aSVGElement);
+  std::unique_ptr<SMILAttr> ToSMILAttr(SVGElement* aSVGElement);
 
  private:
   float mAnimVal;

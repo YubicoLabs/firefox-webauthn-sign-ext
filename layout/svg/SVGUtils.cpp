@@ -534,7 +534,7 @@ class MixModeBlender {
 
   nsIFrame* mFrame;
   gfxContext* mSourceCtx;
-  UniquePtr<gfxContext> mTargetCtx;
+  std::unique_ptr<gfxContext> mTargetCtx;
   IntPoint mTargetOffset;
 };
 
