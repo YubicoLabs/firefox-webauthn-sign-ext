@@ -2942,7 +2942,7 @@ class ImpressionStats_ImpressionStats extends (external_React_default()).PureCom
       }
     }
     if (this._needsImpressionStats(cards)) {
-      props.dispatch(actionCreators.DiscoveryStreamImpressionStats({
+      const impressionData = {
         source: props.source.toUpperCase(),
         window_inner_width: window.innerWidth,
         window_inner_height: window.innerHeight,
@@ -2975,7 +2975,8 @@ class ImpressionStats_ImpressionStats extends (external_React_default()).PureCom
           } : {})
         })),
         firstVisibleTimestamp: props.firstVisibleTimestamp
-      }));
+      };
+      props.dispatch(actionCreators.DiscoveryStreamImpressionStats(impressionData));
       this.impressionCardGuids = cards.map(link => link.id);
     }
   }
@@ -11116,6 +11117,7 @@ const Weather_Weather = (0,external_ReactRedux_namespaceObject.connect)(state =>
 
 
 
+
 const TIMESTAMP_DISPLAY_DURATION = 15 * 60 * 1000;
 
 /**
@@ -11136,8 +11138,22 @@ const BriefingCard = ({
   const dispatch = (0,external_ReactRedux_namespaceObject.useDispatch)();
   const handleDismiss = () => {
     setIsDismissed(true);
-    const menuOption = LinkMenuOptions.BlockUrls(headlines, 0, "DAILY_BRIEFING");
+    const tilesWithFormat = headlines.map(headline => ({
+      ...headline,
+      format: "daily-briefing",
+      guid: headline.id,
+      tile_id: headline.id,
+      ...(headline.section ? {
+        section: headline.section,
+        section_position: 0,
+        is_section_followed: isFollowed
+      } : {})
+    }));
+    const menuOption = LinkMenuOptions.BlockUrls(tilesWithFormat, 0, "DAILY_BRIEFING");
     dispatch(menuOption.action);
+    if (menuOption.impression) {
+      dispatch(menuOption.impression);
+    }
   };
   (0,external_React_namespaceObject.useEffect)(() => {
     if (!lastUpdated) {
@@ -11166,7 +11182,7 @@ const BriefingCard = ({
     return null;
   }
   const onLinkClick = headline => {
-    dispatch(actionCreators.DiscoveryStreamUserEvent({
+    const userEvent = {
       event: "CLICK",
       source: "DAILY_BRIEFING",
       action_position: headline.pos,
@@ -11187,12 +11203,12 @@ const BriefingCard = ({
         ...(headline.section ? {
           section: headline.section,
           section_position: 0,
-          // Single section in briefing card
           is_section_followed: isFollowed,
           layout_name: "daily-briefing"
         } : {})
       }
-    }));
+    };
+    dispatch(actionCreators.DiscoveryStreamUserEvent(userEvent));
   };
   return /*#__PURE__*/external_React_default().createElement("div", {
     className: `briefing-card ${sectionClassNames}`
@@ -11238,7 +11254,30 @@ const BriefingCard = ({
     className: "briefing-card-headline-icon"
   }), /*#__PURE__*/external_React_default().createElement("span", {
     className: "briefing-card-headline-source"
-  }, headline.publisher)))))));
+  }, headline.publisher)))))), /*#__PURE__*/external_React_default().createElement(ImpressionStats_ImpressionStats, {
+    rows: headlines.map(headline => ({
+      id: headline.id,
+      pos: headline.pos,
+      recommendation_id: headline.recommendation_id,
+      fetchTimestamp: headline.fetchTimestamp,
+      corpus_item_id: headline.corpus_item_id,
+      scheduled_corpus_item_id: headline.scheduled_corpus_item_id,
+      recommended_at: headline.recommended_at,
+      received_rank: headline.received_rank,
+      features: headline.features,
+      format: "daily-briefing",
+      ...(headline.section ? {
+        section: headline.section,
+        // Daily Briefing is a single section, section_position is always 0.
+        section_position: 0,
+        is_section_followed: isFollowed,
+        sectionLayoutName: "daily-briefing"
+      } : {})
+    })),
+    dispatch: dispatch,
+    source: "DAILY_BRIEFING",
+    firstVisibleTimestamp: firstVisibleTimestamp
+  }));
 };
 
 ;// CONCATENATED MODULE: ./content-src/components/DiscoveryStreamComponents/CardSections/CardSections.jsx
