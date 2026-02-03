@@ -1820,7 +1820,6 @@ static const JSFunctionSpec intrinsic_functions[] = {
     JS_FN("intl_FindNextSegmentBoundaries", intl_FindNextSegmentBoundaries, 1,
           0),
     JS_FN("intl_FindSegmentBoundaries", intl_FindSegmentBoundaries, 2, 0),
-    JS_FN("intl_GetPluralCategories", intl_GetPluralCategories, 1, 0),
     JS_INLINABLE_FN("intl_GuardToPluralRules",
                     intrinsic_GuardToBuiltin<PluralRulesObject>, 1, 0,
                     IntlGuardToPluralRules),

@@ -416,6 +416,7 @@
   MACRO_(pending, "pending")                                                   \
   MACRO_(percentSign, "percentSign")                                           \
   MACRO_(plainTime, "plainTime")                                               \
+  MACRO_(pluralCategories, "pluralCategories")                                 \
   MACRO_(plusSign, "plusSign")                                                 \
   MACRO_(preventExtensions, "preventExtensions")                               \
   MACRO_(private_, "private")                                                  \

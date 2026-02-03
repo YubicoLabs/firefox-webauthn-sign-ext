@@ -16,6 +16,7 @@
 #include "mozilla/intl/NumberFormat.h"
 #include "mozilla/intl/NumberingSystem.h"
 #include "mozilla/intl/NumberRangeFormat.h"
+#include "mozilla/intl/PluralRules.h"
 #include "mozilla/Span.h"
 #include "mozilla/TextUtils.h"
 
@@ -33,6 +34,7 @@
 #include "builtin/intl/LanguageTag.h"
 #include "builtin/intl/LocaleNegotiation.h"
 #include "builtin/intl/ParameterNegotiation.h"
+#include "builtin/intl/PluralRules.h"
 #include "builtin/intl/RelativeTimeFormat.h"
 #include "builtin/intl/UsingEnum.h"
 #include "builtin/Number.h"
@@ -744,7 +746,7 @@ static constexpr std::string_view SignDisplayToString(
  * SetNumberFormatDigitOptions ( intlObj, options, mnfdDefault, mxfdDefault,
  * notation )
  */
-static bool SetNumberFormatDigitOptions(
+bool js::intl::SetNumberFormatDigitOptions(
     JSContext* cx, NumberFormatDigitOptions& obj, Handle<JSObject*> options,
     int32_t mnfdDefault, int32_t mxfdDefault,
     NumberFormatOptions::Notation notation) {
@@ -1820,6 +1822,14 @@ static void SetNumberFormatOptions(const NumberFormatOptions& nfOptions,
       RangeIdentityFallback::Approximately;
 }
 
+void js::intl::SetPluralRulesOptions(
+    const PluralRulesOptions& plOptions,
+    mozilla::intl::PluralRulesOptions& options) {
+  ::SetNumberFormatDigitOptions(plOptions.digitOptions, options);
+
+  options.mNotation = ToNotation(plOptions.notation, plOptions.compactDisplay);
+}
+
 /**
  * Returns a new mozilla::intl::Number[Range]Format with the locale and number
  * formatting options of the given NumberFormat, or a nullptr if
@@ -2708,6 +2718,36 @@ static bool ResolveRoundingAndTrailingZeroOptions(
   }
   if (!options.emplaceBack(NameToId(cx->names().trailingZeroDisplay),
                            StringValue(trailingZeroDisplay))) {
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Intl.PluralRules.prototype.resolvedOptions ( )
+ *
+ * Resolve plural rules options.
+ */
+bool js::intl::ResolvePluralRulesOptions(
+    JSContext* cx, const PluralRulesOptions& plOptions,
+    JS::Handle<ArrayObject*> pluralCategories,
+    JS::MutableHandle<IdValueVector> options) {
+  if (!ResolveNotationOptions(cx, plOptions, options)) {
+    return false;
+  }
+
+  if (!ResolveDigitOptions(cx, plOptions.digitOptions, options)) {
+    return false;
+  }
+
+  if (!options.emplaceBack(NameToId(cx->names().pluralCategories),
+                           ObjectValue(*pluralCategories))) {
+    return false;
+  }
+
+  if (!ResolveRoundingAndTrailingZeroOptions(cx, plOptions.digitOptions,
+                                             options)) {
     return false;
   }
 
