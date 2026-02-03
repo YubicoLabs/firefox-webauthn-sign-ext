@@ -52,10 +52,10 @@
 #include "r_log.h"
 #include "r_macros.h"
 
-static char CB_ACTIONS[] = { NR_REG_CB_ACTION_ADD,
-                             NR_REG_CB_ACTION_DELETE,
-                             NR_REG_CB_ACTION_CHANGE,
-                             NR_REG_CB_ACTION_FINAL };
+static const char CB_ACTIONS[] = { NR_REG_CB_ACTION_ADD,
+                                   NR_REG_CB_ACTION_DELETE,
+                                   NR_REG_CB_ACTION_CHANGE,
+                                   NR_REG_CB_ACTION_FINAL };
 
 typedef struct nr_reg_cb_info_ {
      char            action;
@@ -200,10 +200,10 @@ compute_cb_id(void *cb, char action, unsigned char cb_id[SIZEOF_CB_ID])
    return 0;
 }
 
-char *
+const char *
 nr_reg_action_name(int action)
 {
-    char *name = "*Unknown*";
+    const char *name = "*Unknown*";
 
     switch (action) {
     case NR_REG_CB_ACTION_ADD:     name = "add";     break;
@@ -313,7 +313,7 @@ nr_reg_raise_event(NR_registry name, int action)
 {
     int r, _status;
     int count;
-    char *event = nr_reg_action_name(action);
+    const char *event = nr_reg_action_name(action);
 
     r_log(NR_LOG_REGISTRY, LOG_DEBUG, "raising event '%s' on '%s'", event, name);
 

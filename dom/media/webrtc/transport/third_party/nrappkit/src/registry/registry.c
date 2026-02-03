@@ -64,7 +64,7 @@
 static int reg_initted = 0;
 
 /* must be in the order the types are numbered */
-static char *typenames[] = { "char", "UCHAR", "INT2", "UINT2", "INT4", "UINT4", "INT8", "UINT8", "double", "Data", "string", "registry" };
+static const char *typenames[] = { "char", "UCHAR", "INT2", "UINT2", "INT4", "UINT4", "INT8", "UINT8", "double", "Data", "string", "registry" };
 
 int NR_LOG_REGISTRY=0;
 
@@ -299,7 +299,7 @@ NR_reg_alloc_string(NR_registry name, char **data)
 }
 
 
-char *
+const char *
 nr_reg_type_name(int type)
 {
     if ((type < NR_REG_TYPE_CHAR) || (type > NR_REG_TYPE_REGISTRY))
