@@ -448,7 +448,7 @@ void nsMathMLmencloseFrame::Place(DrawTarget* aDrawTarget,
       // height(longdiv) should be >= height(base) + psi + mRuleThickness
       mMathMLChar[mLongDivCharIndex].Stretch(
           this, aDrawTarget, fontSizeInflation, StretchDirection::Vertical,
-          contSize, bmLongdivChar, NS_STRETCH_LARGER, false);
+          contSize, bmLongdivChar, MathMLStretchFlag::Larger, false);
       mMathMLChar[mLongDivCharIndex].GetBoundingMetrics(bmLongdivChar);
 
       // Update horizontal parameters
