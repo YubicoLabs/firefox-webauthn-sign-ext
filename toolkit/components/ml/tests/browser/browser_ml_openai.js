@@ -284,11 +284,10 @@ add_task(async function test_openai_fxaccount_token() {
   });
 
   const fxAccountToken = "test_fxa_token_12345";
-  const apiKey = "test-api-key";
 
   const engineInstance = await createEngine({
     ...BASE_ENGINE_OPTIONS,
-    apiKey: apiKey,
+    apiKey: "test-api-key",
     baseURL: `http://localhost:${port}/v1`,
     backend: "openai",
   });
@@ -314,7 +313,7 @@ add_task(async function test_openai_fxaccount_token() {
     );
 
     // Verify that the FxA token was sent in the request headers
-    const expectedValue = `Bearer ${apiKey}`;
+    const expectedValue = `Bearer ${fxAccountToken}`;
 
     Assert.equal(
       capturedFxaHeader,
@@ -361,8 +360,8 @@ add_task(async function test_openai_fxaccount_token() {
 
     Assert.equal(
       capturedServiceTypeHeader,
-      "ai",
-      "service-type header should be present"
+      null,
+      "service-type header should not be present when no FxA token is provided"
     );
   } finally {
     await EngineProcess.destroyMLEngine();
