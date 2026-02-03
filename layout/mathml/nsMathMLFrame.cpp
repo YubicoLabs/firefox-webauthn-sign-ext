@@ -282,7 +282,7 @@ void nsDisplayMathMLBar::Paint(nsDisplayListBuilder* aBuilder,
 void nsMathMLFrame::DisplayBar(nsDisplayListBuilder* aBuilder, nsIFrame* aFrame,
                                const nsRect& aRect,
                                const nsDisplayListSet& aLists,
-                               uint32_t aIndex) {
+                               uint16_t aIndex) {
   if (!aFrame->StyleVisibility()->IsVisible() || aRect.IsEmpty()) {
     return;
   }
