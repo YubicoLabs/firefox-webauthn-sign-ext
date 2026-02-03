@@ -618,14 +618,14 @@ nr_stun_attr_codec_error_code_encode(nr_stun_attr_info *attr_info, void *data, s
     int start = offset;
     int length = strlen(error_code->reason);
     UCHAR pad[2] = { 0 };
-    UCHAR class = error_code->number / 100;
-    UCHAR number = error_code->number % 100;
+    UCHAR err_class = error_code->number / 100;
+    UCHAR err_number = error_code->number % 100;
 
     if (nr_stun_encode_htons(attr_info->type   , buflen, buf, &offset)
      || nr_stun_encode_htons(4 + length        , buflen, buf, &offset)
      || nr_stun_encode(pad, 2                  , buflen, buf, &offset)
-     || nr_stun_encode(&class, 1               , buflen, buf, &offset)
-     || nr_stun_encode(&number, 1              , buflen, buf, &offset)
+     || nr_stun_encode(&err_class, 1           , buflen, buf, &offset)
+     || nr_stun_encode(&err_number, 1          , buflen, buf, &offset)
      || nr_stun_encode((UCHAR*)error_code->reason, length, buflen, buf, &offset))
         return R_FAILED;
 
@@ -640,16 +640,16 @@ nr_stun_attr_codec_error_code_decode(nr_stun_attr_info *attr_info, size_t attrle
     int _status;
     nr_stun_attr_error_code *result = (nr_stun_attr_error_code*)data;
     UCHAR pad[2];
-    UCHAR class;
-    UCHAR number;
+    UCHAR err_class;
+    UCHAR err_number;
     size_t size_reason;
 
     if (nr_stun_decode(2, buf, buflen, &offset, pad)
-     || nr_stun_decode(1, buf, buflen, &offset, &class)
-     || nr_stun_decode(1, buf, buflen, &offset, &number))
+     || nr_stun_decode(1, buf, buflen, &offset, &err_class)
+     || nr_stun_decode(1, buf, buflen, &offset, &err_number))
         ABORT(R_FAILED);
 
-    result->number = (class * 100) + number;
+    result->number = (err_class * 100) + err_number;
 
     size_reason = attrlen - 4;
 
