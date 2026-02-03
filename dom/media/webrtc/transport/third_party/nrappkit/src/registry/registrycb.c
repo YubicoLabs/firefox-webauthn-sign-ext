@@ -135,7 +135,7 @@ nr_reg_register_callback(NR_registry_name name, char action, void (*cb)(void *cb
     if ((r=nr_reg_validate_action(action)))
       ABORT(r);
 
-    if ((r=r_assoc_fetch(nr_registry_callbacks, name, strlen(name)+1, (void*)&assoc))) {
+    if ((r=r_assoc_fetch(nr_registry_callbacks, name, strlen(name)+1, (void**)&assoc))) {
       if (r == R_NOT_FOUND)
         create_assoc = 1;
       else
@@ -150,10 +150,10 @@ nr_reg_register_callback(NR_registry_name name, char action, void (*cb)(void *cb
         ABORT(r);
     }
 
-    if ((r=compute_cb_id(cb, action, cb_id)))
+    if ((r=compute_cb_id((void*)cb, action, cb_id)))
       ABORT(r);
 
-    if ((r=r_assoc_fetch(assoc, (char*)cb_id, SIZEOF_CB_ID, (void*)&info))) {
+    if ((r=r_assoc_fetch(assoc, (char*)cb_id, SIZEOF_CB_ID, (void**)&info))) {
       if (r == R_NOT_FOUND)
         create_info = 1;
       else
@@ -248,7 +248,7 @@ nr_reg_raise_event_recurse(const char *name, char *tmp, int action)
       free_tmp = 1;
     }
 
-    if ((r=r_assoc_fetch(nr_registry_callbacks, tmp, strlen(tmp)+1, (void*)&assoc))) {
+    if ((r=r_assoc_fetch(nr_registry_callbacks, tmp, strlen(tmp)+1, (void**)&assoc))) {
       if (r != R_NOT_FOUND)
         ABORT(r);
 
@@ -264,7 +264,7 @@ nr_reg_raise_event_recurse(const char *name, char *tmp, int action)
           ABORT(r);
 
       for (;;) {
-        if ((r=r_assoc_iter(&iter, (void*)&key, &keyl, (void*)&info))) {
+        if ((r=r_assoc_iter(&iter, (void**)&key, &keyl, (void**)&info))) {
           if (r == R_EOD)
             break;
           else

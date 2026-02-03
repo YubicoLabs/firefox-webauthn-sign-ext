@@ -132,7 +132,7 @@ NR_reg_get_registry(NR_registry_name name, NR_registry out)
     nr_scalar_registry_node *node = 0;
     int free_node = 0;
 
-    if ((r=nr_reg_fetch_node(name, NR_REG_TYPE_REGISTRY, (void*)&node, &free_node)))
+    if ((r=nr_reg_fetch_node(name, NR_REG_TYPE_REGISTRY, (nr_registry_node**)&node, &free_node)))
       ABORT(r);
 
     strncpy(out, name, sizeof(NR_registry));

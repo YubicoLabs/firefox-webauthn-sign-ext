@@ -247,7 +247,7 @@ static int nr_ice_component_initialize_udp(struct nr_ice_ctx_ *ctx,nr_ice_compon
 
       if (!(component->stream->flags & NR_ICE_CTX_FLAGS_RELAY_ONLY)) {
         /* Create one host candidate */
-        if(r=nr_ice_candidate_create(ctx,component,isock,sock,HOST,0,0,
+        if(r=nr_ice_candidate_create(ctx,component,isock,sock,HOST,TCP_TYPE_NONE,0,
           component->component_id,&cand))
           ABORT(r);
 
@@ -270,7 +270,7 @@ static int nr_ice_component_initialize_udp(struct nr_ice_ctx_ *ctx,nr_ice_compon
           /* Ensure id is set (nr_ice_ctx_set_stun_servers does not) */
           component->stream->stun_servers[j].id = j;
           if(r=nr_ice_candidate_create(ctx,component,
-            isock,sock,SERVER_REFLEXIVE,0,
+            isock,sock,SERVER_REFLEXIVE,TCP_TYPE_NONE,
             &component->stream->stun_servers[j],component->component_id,&cand))
             ABORT(r);
           TAILQ_INSERT_TAIL(&component->candidates,cand,entry_comp);
@@ -310,7 +310,7 @@ static int nr_ice_component_initialize_udp(struct nr_ice_ctx_ *ctx,nr_ice_compon
           component->stream->turn_servers[j].turn_server.id = j + component->stream->stun_server_ct;
           /* srvrflx */
           if(r=nr_ice_candidate_create(ctx,component,
-            isock,sock,SERVER_REFLEXIVE,0,
+            isock,sock,SERVER_REFLEXIVE,TCP_TYPE_NONE,
             &component->stream->turn_servers[j].turn_server,component->component_id,&cand))
             ABORT(r);
           cand->state=NR_ICE_CAND_STATE_INITIALIZING; /* Don't start */
@@ -326,7 +326,7 @@ static int nr_ice_component_initialize_udp(struct nr_ice_ctx_ *ctx,nr_ice_compon
         if(r=nr_socket_turn_create(&turn_sock))
           ABORT(r);
         if(r=nr_ice_candidate_create(ctx,component,
-          isock,turn_sock,RELAYED,0,
+          isock,turn_sock,RELAYED,TCP_TYPE_NONE,
           &component->stream->turn_servers[j].turn_server,component->component_id,&cand))
            ABORT(r);
         if (srvflx_cand) {
@@ -351,7 +351,7 @@ static int nr_ice_component_get_port_from_ephemeral_range(uint16_t *port)
   {
     int _status, r;
     void *buf = port;
-    if(r=nr_crypto_random_bytes(buf, 2))
+    if(r=nr_crypto_random_bytes((UCHAR*)buf, 2))
       ABORT(r);
     *port|=49152; /* make it fit into IANA ephemeral port range >= 49152 */
     _status=0;
