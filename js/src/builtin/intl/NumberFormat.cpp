@@ -84,6 +84,13 @@ static bool numberFormat_supportedLocalesOf(JSContext* cx, unsigned argc,
 
 static bool numberFormat_format(JSContext* cx, unsigned argc, Value* vp);
 
+static bool numberFormat_formatToParts(JSContext* cx, unsigned argc, Value* vp);
+
+static bool numberFormat_formatRange(JSContext* cx, unsigned argc, Value* vp);
+
+static bool numberFormat_formatRangeToParts(JSContext* cx, unsigned argc,
+                                            Value* vp);
+
 static bool numberFormat_resolvedOptions(JSContext* cx, unsigned argc,
                                          Value* vp);
 
@@ -100,10 +107,9 @@ static const JSFunctionSpec numberFormat_static_methods[] = {
 
 static const JSFunctionSpec numberFormat_methods[] = {
     JS_FN("resolvedOptions", numberFormat_resolvedOptions, 0, 0),
-    JS_SELF_HOSTED_FN("formatToParts", "Intl_NumberFormat_formatToParts", 1, 0),
-    JS_SELF_HOSTED_FN("formatRange", "Intl_NumberFormat_formatRange", 2, 0),
-    JS_SELF_HOSTED_FN("formatRangeToParts",
-                      "Intl_NumberFormat_formatRangeToParts", 2, 0),
+    JS_FN("formatToParts", numberFormat_formatToParts, 1, 0),
+    JS_FN("formatRange", numberFormat_formatRange, 2, 0),
+    JS_FN("formatRangeToParts", numberFormat_formatRangeToParts, 2, 0),
     JS_FN("toSource", numberFormat_toSource, 0, 0),
     JS_FS_END,
 };
@@ -1942,16 +1948,55 @@ static FieldType GetFieldTypeForNumberPartSource(
 enum class DisplayNumberPartSource : bool { No, Yes };
 enum class DisplayLiteralUnit : bool { No, Yes };
 
+/**
+ * FormatNumericToParts ( numberFormat, x )
+ * FormatNumericRangeToParts ( numberFormat, x, y )
+ *
+ * Create the part object for FormatNumeric{Range}ToParts.
+ */
+static PlainObject* CreateNumberPart(JSContext* cx,
+                                     const mozilla::intl::NumberPart& part,
+                                     Handle<JSString*> value,
+                                     DisplayNumberPartSource displaySource,
+                                     DisplayLiteralUnit displayLiteralUnit,
+                                     FieldType unitType) {
+  Rooted<IdValueVector> properties(cx, cx);
+
+  FieldType type = GetFieldTypeForNumberPartType(part.type);
+  if (!properties.emplaceBack(NameToId(cx->names().type),
+                              StringValue(cx->names().*type))) {
+    return nullptr;
+  }
+
+  if (!properties.emplaceBack(NameToId(cx->names().value),
+                              StringValue(value))) {
+    return nullptr;
+  }
+
+  if (displaySource == DisplayNumberPartSource::Yes) {
+    FieldType source = GetFieldTypeForNumberPartSource(part.source);
+    if (!properties.emplaceBack(NameToId(cx->names().source),
+                                StringValue(cx->names().*source))) {
+      return nullptr;
+    }
+  }
+
+  if (unitType != nullptr && (type != &JSAtomState::literal ||
+                              displayLiteralUnit == DisplayLiteralUnit::Yes)) {
+    if (!properties.emplaceBack(NameToId(cx->names().unit),
+                                StringValue(cx->names().*unitType))) {
+      return nullptr;
+    }
+  }
+
+  return NewPlainObjectWithUniqueNames(cx, properties);
+}
+
 static ArrayObject* FormattedNumberToParts(
-    JSContext* cx, HandleString str,
+    JSContext* cx, Handle<JSString*> string,
     const mozilla::intl::NumberPartVector& parts,
     DisplayNumberPartSource displaySource,
     DisplayLiteralUnit displayLiteralUnit, FieldType unitType) {
-  size_t lastEndIndex = 0;
-
-  RootedObject singlePart(cx);
-  RootedValue propVal(cx);
-
   Rooted<ArrayObject*> partsArray(
       cx, NewDenseFullyAllocatedArray(cx, parts.length()));
   if (!partsArray) {
@@ -1959,68 +2004,37 @@ static ArrayObject* FormattedNumberToParts(
   }
   partsArray->ensureDenseInitializedLength(0, parts.length());
 
+  Rooted<JSString*> value(cx);
+
   size_t index = 0;
+  size_t beginIndex = 0;
   for (const auto& part : parts) {
-    FieldType type = GetFieldTypeForNumberPartType(part.type);
-    size_t endIndex = part.endIndex;
-
-    MOZ_ASSERT(lastEndIndex < endIndex);
-
-    singlePart = NewPlainObject(cx);
-    if (!singlePart) {
+    MOZ_ASSERT(part.endIndex > beginIndex);
+    value =
+        NewDependentString(cx, string, beginIndex, part.endIndex - beginIndex);
+    if (!value) {
       return nullptr;
     }
+    beginIndex = part.endIndex;
 
-    propVal.setString(cx->names().*type);
-    if (!DefineDataProperty(cx, singlePart, cx->names().type, propVal)) {
+    auto* obj = CreateNumberPart(cx, part, value, displaySource,
+                                 displayLiteralUnit, unitType);
+    if (!obj) {
       return nullptr;
     }
-
-    JSLinearString* partSubstr =
-        NewDependentString(cx, str, lastEndIndex, endIndex - lastEndIndex);
-    if (!partSubstr) {
-      return nullptr;
-    }
-
-    propVal.setString(partSubstr);
-    if (!DefineDataProperty(cx, singlePart, cx->names().value, propVal)) {
-      return nullptr;
-    }
-
-    if (displaySource == DisplayNumberPartSource::Yes) {
-      FieldType source = GetFieldTypeForNumberPartSource(part.source);
-
-      propVal.setString(cx->names().*source);
-      if (!DefineDataProperty(cx, singlePart, cx->names().source, propVal)) {
-        return nullptr;
-      }
-    }
-
-    if (unitType != nullptr &&
-        (type != &JSAtomState::literal ||
-         displayLiteralUnit == DisplayLiteralUnit::Yes)) {
-      propVal.setString(cx->names().*unitType);
-      if (!DefineDataProperty(cx, singlePart, cx->names().unit, propVal)) {
-        return nullptr;
-      }
-    }
-
-    partsArray->initDenseElement(index++, ObjectValue(*singlePart));
-
-    lastEndIndex = endIndex;
+    partsArray->initDenseElement(index++, ObjectValue(*obj));
   }
-
   MOZ_ASSERT(index == parts.length());
-  MOZ_ASSERT(lastEndIndex == str->length(),
+  MOZ_ASSERT(beginIndex == string->length(),
              "result array must partition the entire string");
 
   return partsArray;
 }
 
 bool js::intl::FormattedRelativeTimeToParts(
-    JSContext* cx, HandleString str,
+    JSContext* cx, Handle<JSString*> str,
     const mozilla::intl::NumberPartVector& parts,
-    RelativeTimeFormatUnit relativeTimeUnit, MutableHandleValue result) {
+    RelativeTimeFormatUnit relativeTimeUnit, MutableHandle<JS::Value> result) {
   auto* array =
       FormattedNumberToParts(cx, str, parts, DisplayNumberPartSource::No,
                              DisplayLiteralUnit::No, relativeTimeUnit);
@@ -2058,7 +2072,8 @@ static bool IsNonDecimalNumber(const JSLinearString* str) {
  *
  * ES2024 Intl draft rev 74ca7099f103d143431b2ea422ae640c6f43e3e6
  */
-static bool ToIntlMathematicalValue(JSContext* cx, MutableHandleValue value) {
+static bool ToIntlMathematicalValue(JSContext* cx,
+                                    MutableHandle<JS::Value> value) {
   // Step 1.
   if (!ToPrimitive(cx, JSTYPE_NUMBER, value)) {
     return false;
@@ -2076,7 +2091,7 @@ static bool ToIntlMathematicalValue(JSContext* cx, MutableHandleValue value) {
   }
 
   // Step 3.
-  JSLinearString* str = value.toString()->ensureLinear(cx);
+  auto* str = value.toString()->ensureLinear(cx);
   if (!str) {
     return false;
   }
@@ -2116,7 +2131,7 @@ static bool ToIntlMathematicalValue(JSContext* cx, MutableHandleValue value) {
 
       // StringToBigInt can't fail (other than OOM) when StringToNumber already
       // succeeded.
-      RootedString rooted(cx, str);
+      Rooted<JSString*> rooted(cx, str);
       BigInt* bi;
       JS_TRY_VAR_OR_RETURN_FALSE(cx, bi, StringToBigInt(cx, rooted));
       MOZ_ASSERT(bi);
@@ -2173,6 +2188,25 @@ static bool NumberPart(JSContext* cx, JSLinearString* str,
   return true;
 }
 
+class StringNumberChars {
+  JS::AutoCheckCannotGC nogc;
+
+  JSLinearString* string_;
+  std::string_view view_;
+
+  // Two-byte strings have to be copied into a separate |char| buffer.
+  JS::UniqueChars latin1_;
+
+ public:
+  explicit StringNumberChars(JSLinearString* string) : string_(string) {}
+
+  bool init(JSContext* cx) {
+    return NumberPart(cx, string_, nogc, latin1_, view_);
+  }
+
+  operator std::string_view() const { return view_; }
+};
+
 static JSLinearString* FormattedResultToString(
     JSContext* cx,
     mozilla::Result<std::u16string_view, mozilla::intl::ICUError>& result) {
@@ -2183,58 +2217,64 @@ static JSLinearString* FormattedResultToString(
   return NewStringCopy<CanGC>(cx, result.unwrap());
 }
 
+/**
+ * FormatNumeric ( numberFormat, x )
+ */
+static auto FormatNumeric(JSContext* cx, mozilla::intl::NumberFormat* nf,
+                          Handle<JS::BigInt*> value)
+    -> decltype(nf->format(int64_t(0))) {
+  int64_t num;
+  if (BigInt::isInt64(value, &num)) {
+    return nf->format(num);
+  }
+
+  auto* str = BigInt::toString<CanGC>(cx, value, 10);
+  if (!str) {
+    return mozilla::Err(mozilla::intl::ICUError::OutOfMemory);
+  }
+  MOZ_RELEASE_ASSERT(str->hasLatin1Chars());
+
+  JS::AutoCheckCannotGC nogc;
+
+  const char* chars = reinterpret_cast<const char*>(str->latin1Chars(nogc));
+  return nf->format(std::string_view(chars, str->length()));
+}
+
+/**
+ * FormatNumeric ( numberFormat, x )
+ */
 static auto FormatNumeric(JSContext* cx, mozilla::intl::NumberFormat* nf,
                           Handle<JS::Value> value)
     -> decltype(nf->format(0.0)) {
+  MOZ_ASSERT(value.isNumeric() || value.isString());
+
   if (value.isNumber()) {
     return nf->format(value.toNumber());
   }
 
   if (value.isBigInt()) {
-    RootedBigInt bi(cx, value.toBigInt());
-
-    int64_t num;
-    if (BigInt::isInt64(bi, &num)) {
-      return nf->format(num);
-    }
-
-    JSLinearString* str = BigInt::toString<CanGC>(cx, bi, 10);
-    if (!str) {
-      return mozilla::Err(mozilla::intl::ICUError::OutOfMemory);
-    }
-    MOZ_RELEASE_ASSERT(str->hasLatin1Chars());
-
-    JS::AutoCheckCannotGC nogc;
-
-    const char* chars = reinterpret_cast<const char*>(str->latin1Chars(nogc));
-    return nf->format(std::string_view(chars, str->length()));
+    Rooted<BigInt*> bi(cx, value.toBigInt());
+    return FormatNumeric(cx, nf, bi);
   }
 
-  JSLinearString* str = value.toString()->ensureLinear(cx);
+  auto* str = value.toString()->ensureLinear(cx);
   if (!str) {
     return mozilla::Err(mozilla::intl::ICUError::OutOfMemory);
   }
 
-  JS::AutoCheckCannotGC nogc;
-
-  // Two-byte strings have to be copied into a separate |char| buffer.
-  JS::UniqueChars latin1;
-
-  std::string_view sv;
-  if (!NumberPart(cx, str, nogc, latin1, sv)) {
+  StringNumberChars chars(str);
+  if (!chars.init(cx)) {
     return mozilla::Err(mozilla::intl::ICUError::OutOfMemory);
   }
-  return nf->format(sv);
+  return nf->format(chars);
 }
 
+/**
+ * FormatNumeric ( numberFormat, x )
+ */
 static JSString* FormatNumeric(JSContext* cx,
                                Handle<NumberFormatObject*> numberFormat,
-                               Handle<JS::Value> arg) {
-  Rooted<JS::Value> value(cx, arg);
-  if (!ToIntlMathematicalValue(cx, &value)) {
-    return nullptr;
-  }
-
+                               Handle<JS::Value> value) {
   auto* nf = GetOrCreateNumberFormat(cx, numberFormat);
   if (!nf) {
     return nullptr;
@@ -2244,114 +2284,78 @@ static JSString* FormatNumeric(JSContext* cx,
   return FormattedResultToString(cx, result);
 }
 
-bool js::intl_FormatNumber(JSContext* cx, unsigned argc, Value* vp) {
-  CallArgs args = CallArgsFromVp(argc, vp);
-  MOZ_ASSERT(args.length() == 3);
-  MOZ_ASSERT(args[0].isObject());
-  MOZ_ASSERT(args[2].isBoolean());
+/**
+ * FormatNumericToParts ( numberFormat, x )
+ */
+static auto FormatNumericToParts(JSContext* cx, mozilla::intl::NumberFormat* nf,
+                                 Handle<JS::Value> value,
+                                 mozilla::intl::NumberPartVector& parts)
+    -> decltype(nf->formatToParts(0.0, parts)) {
+  MOZ_ASSERT(value.isNumeric() || value.isString());
 
-  Rooted<NumberFormatObject*> numberFormat(
-      cx, &args[0].toObject().as<NumberFormatObject>());
-
-  RootedValue value(cx, args[1]);
-  if (!ToIntlMathematicalValue(cx, &value)) {
-    return false;
-  }
-
-  mozilla::intl::NumberFormat* nf = GetOrCreateNumberFormat(cx, numberFormat);
-  if (!nf) {
-    return false;
-  }
-
-  // Actually format the number
-  using ICUError = mozilla::intl::ICUError;
-
-  bool formatToParts = args[2].toBoolean();
-  mozilla::Result<std::u16string_view, ICUError> result =
-      mozilla::Err(ICUError::InternalError);
-  mozilla::intl::NumberPartVector parts;
   if (value.isNumber()) {
-    double num = value.toNumber();
-    if (formatToParts) {
-      result = nf->formatToParts(num, parts);
-    } else {
-      result = nf->format(num);
-    }
-  } else if (value.isBigInt()) {
-    RootedBigInt bi(cx, value.toBigInt());
+    return nf->formatToParts(value.toNumber(), parts);
+  }
+
+  if (value.isBigInt()) {
+    Rooted<BigInt*> bi(cx, value.toBigInt());
 
     int64_t num;
     if (BigInt::isInt64(bi, &num)) {
-      if (formatToParts) {
-        result = nf->formatToParts(num, parts);
-      } else {
-        result = nf->format(num);
-      }
-    } else {
-      JSLinearString* str = BigInt::toString<CanGC>(cx, bi, 10);
-      if (!str) {
-        return false;
-      }
-      MOZ_RELEASE_ASSERT(str->hasLatin1Chars());
-
-      JS::AutoCheckCannotGC nogc;
-
-      const char* chars = reinterpret_cast<const char*>(str->latin1Chars(nogc));
-      if (formatToParts) {
-        result =
-            nf->formatToParts(std::string_view(chars, str->length()), parts);
-      } else {
-        result = nf->format(std::string_view(chars, str->length()));
-      }
+      return nf->formatToParts(num, parts);
     }
-  } else {
-    JSLinearString* str = value.toString()->ensureLinear(cx);
+
+    auto* str = BigInt::toString<CanGC>(cx, bi, 10);
     if (!str) {
-      return false;
+      return mozilla::Err(mozilla::intl::ICUError::OutOfMemory);
     }
+    MOZ_RELEASE_ASSERT(str->hasLatin1Chars());
 
     JS::AutoCheckCannotGC nogc;
 
-    // Two-byte strings have to be copied into a separate |char| buffer.
-    JS::UniqueChars latin1;
-
-    std::string_view sv;
-    if (!NumberPart(cx, str, nogc, latin1, sv)) {
-      return false;
-    }
-
-    if (formatToParts) {
-      result = nf->formatToParts(sv, parts);
-    } else {
-      result = nf->format(sv);
-    }
+    const char* chars = reinterpret_cast<const char*>(str->latin1Chars(nogc));
+    return nf->formatToParts(std::string_view(chars, str->length()), parts);
   }
 
-  RootedString str(cx, FormattedResultToString(cx, result));
+  auto* str = value.toString()->ensureLinear(cx);
   if (!str) {
-    return false;
+    return mozilla::Err(mozilla::intl::ICUError::OutOfMemory);
   }
 
-  if (formatToParts) {
-    auto* array =
-        FormattedNumberToParts(cx, str, parts, DisplayNumberPartSource::No,
-                               DisplayLiteralUnit::No, nullptr);
-    if (!array) {
-      return false;
-    }
+  StringNumberChars chars(str);
+  if (!chars.init(cx)) {
+    return mozilla::Err(mozilla::intl::ICUError::OutOfMemory);
+  }
+  return nf->formatToParts(chars, parts);
+}
 
-    args.rval().setObject(*array);
-    return true;
+/**
+ * FormatNumericToParts ( numberFormat, x )
+ */
+static ArrayObject* FormatNumericToParts(
+    JSContext* cx, Handle<NumberFormatObject*> numberFormat,
+    Handle<JS::Value> value) {
+  auto* nf = GetOrCreateNumberFormat(cx, numberFormat);
+  if (!nf) {
+    return nullptr;
   }
 
-  args.rval().setString(str);
-  return true;
+  mozilla::intl::NumberPartVector parts;
+  auto result = FormatNumericToParts(cx, nf, value, parts);
+
+  Rooted<JSString*> str(cx, FormattedResultToString(cx, result));
+  if (!str) {
+    return nullptr;
+  }
+
+  return FormattedNumberToParts(cx, str, parts, DisplayNumberPartSource::No,
+                                DisplayLiteralUnit::No, nullptr);
 }
 
 JSString* js::intl::FormatNumber(JSContext* cx,
                                  Handle<NumberFormatObject*> numberFormat,
                                  double x) {
-  mozilla::intl::NumberFormat* nf = GetOrCreateNumberFormat(cx, numberFormat);
+  auto* nf = GetOrCreateNumberFormat(cx, numberFormat);
   if (!nf) {
     return nullptr;
   }
@@ -2363,177 +2367,196 @@ JSString* js::intl::FormatNumber(JSContext* cx,
 JSString* js::intl::FormatBigInt(JSContext* cx,
                                  Handle<NumberFormatObject*> numberFormat,
                                  Handle<BigInt*> x) {
-  mozilla::intl::NumberFormat* nf = GetOrCreateNumberFormat(cx, numberFormat);
+  auto* nf = GetOrCreateNumberFormat(cx, numberFormat);
   if (!nf) {
     return nullptr;
   }
 
-  int64_t num;
-  if (BigInt::isInt64(x, &num)) {
-    auto result = nf->format(num);
-    return FormattedResultToString(cx, result);
-  }
-
-  JSLinearString* str = BigInt::toString<CanGC>(cx, x, 10);
-  if (!str) {
-    return nullptr;
-  }
-  MOZ_RELEASE_ASSERT(str->hasLatin1Chars());
-
-  mozilla::Result<std::u16string_view, mozilla::intl::ICUError> result{
-      std::u16string_view{}};
-  {
-    JS::AutoCheckCannotGC nogc;
-
-    const char* chars = reinterpret_cast<const char*>(str->latin1Chars(nogc));
-    result = nf->format(std::string_view(chars, str->length()));
-  }
+  auto result = FormatNumeric(cx, nf, x);
   return FormattedResultToString(cx, result);
 }
 
-static JSLinearString* ToLinearString(JSContext* cx, HandleValue val) {
+static JSLinearString* ToLinearString(JSContext* cx, Handle<JS::Value> val) {
   // Special case to preserve negative zero.
   if (val.isDouble() && mozilla::IsNegativeZero(val.toDouble())) {
     constexpr std::string_view negativeZero = "-0";
     return NewStringCopy<CanGC>(cx, negativeZero);
   }
 
-  JSString* str = ToString(cx, val);
+  auto* str = ToString(cx, val);
   return str ? str->ensureLinear(cx) : nullptr;
 };
 
-bool js::intl_FormatNumberRange(JSContext* cx, unsigned argc, Value* vp) {
-  CallArgs args = CallArgsFromVp(argc, vp);
-  MOZ_ASSERT(args.length() == 4);
-  MOZ_ASSERT(args[0].isObject());
-  MOZ_ASSERT(!args[1].isUndefined());
-  MOZ_ASSERT(!args[2].isUndefined());
-  MOZ_ASSERT(args[3].isBoolean());
-
-  Rooted<NumberFormatObject*> numberFormat(
-      cx, &args[0].toObject().as<NumberFormatObject>());
-  bool formatToParts = args[3].toBoolean();
-
-  RootedValue start(cx, args[1]);
-  if (!ToIntlMathematicalValue(cx, &start)) {
-    return false;
-  }
-
-  RootedValue end(cx, args[2]);
-  if (!ToIntlMathematicalValue(cx, &end)) {
-    return false;
-  }
-
-  // PartitionNumberRangePattern, step 1.
+static bool EnsureNumericRangeHasNoNaN(JSContext* cx, const char* methodName,
+                                       Handle<JS::Value> start,
+                                       Handle<JS::Value> end) {
   if (start.isDouble() && std::isnan(start.toDouble())) {
-    JS_ReportErrorNumberASCII(
-        cx, GetErrorMessage, nullptr, JSMSG_NAN_NUMBER_RANGE, "start",
-        "NumberFormat", formatToParts ? "formatRangeToParts" : "formatRange");
+    JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
+                              JSMSG_NAN_NUMBER_RANGE, "start", "NumberFormat",
+                              methodName);
     return false;
   }
   if (end.isDouble() && std::isnan(end.toDouble())) {
-    JS_ReportErrorNumberASCII(
-        cx, GetErrorMessage, nullptr, JSMSG_NAN_NUMBER_RANGE, "end",
-        "NumberFormat", formatToParts ? "formatRangeToParts" : "formatRange");
+    JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
+                              JSMSG_NAN_NUMBER_RANGE, "end", "NumberFormat",
+                              methodName);
     return false;
   }
+  return true;
+}
 
-  using NumberRangeFormat = mozilla::intl::NumberRangeFormat;
-  NumberRangeFormat* nf = GetOrCreateNumberRangeFormat(cx, numberFormat);
-  if (!nf) {
-    return false;
-  }
-
-  auto valueRepresentableAsDouble = [](const Value& val, double* num) {
-    if (val.isNumber()) {
-      *num = val.toNumber();
-      return true;
-    }
-    if (val.isBigInt()) {
-      int64_t i64;
-      if (BigInt::isInt64(val.toBigInt(), &i64) &&
-          i64 < int64_t(DOUBLE_INTEGRAL_PRECISION_LIMIT) &&
-          i64 > -int64_t(DOUBLE_INTEGRAL_PRECISION_LIMIT)) {
-        *num = double(i64);
-        return true;
-      }
-    }
-    return false;
-  };
-
-  // Actually format the number range.
-  using ICUError = mozilla::intl::ICUError;
-
-  mozilla::Result<std::u16string_view, ICUError> result =
-      mozilla::Err(ICUError::InternalError);
-  mozilla::intl::NumberPartVector parts;
-
-  double numStart, numEnd;
-  if (valueRepresentableAsDouble(start, &numStart) &&
-      valueRepresentableAsDouble(end, &numEnd)) {
-    if (formatToParts) {
-      result = nf->formatToParts(numStart, numEnd, parts);
-    } else {
-      result = nf->format(numStart, numEnd);
-    }
-  } else {
-    Rooted<JSLinearString*> strStart(cx, ToLinearString(cx, start));
-    if (!strStart) {
-      return false;
-    }
-
-    Rooted<JSLinearString*> strEnd(cx, ToLinearString(cx, end));
-    if (!strEnd) {
-      return false;
-    }
-
-    JS::AutoCheckCannotGC nogc;
-
-    // Two-byte strings have to be copied into a separate |char| buffer.
-    JS::UniqueChars latin1Start;
-    JS::UniqueChars latin1End;
-
-    std::string_view svStart;
-    if (!NumberPart(cx, strStart, nogc, latin1Start, svStart)) {
-      return false;
-    }
-
-    std::string_view svEnd;
-    if (!NumberPart(cx, strEnd, nogc, latin1End, svEnd)) {
-      return false;
-    }
-
-    if (formatToParts) {
-      result = nf->formatToParts(svStart, svEnd, parts);
-    } else {
-      result = nf->format(svStart, svEnd);
-    }
-  }
-
-  if (result.isErr()) {
-    intl::ReportInternalError(cx, result.unwrapErr());
-    return false;
-  }
-
-  RootedString str(cx, NewStringCopy<CanGC>(cx, result.unwrap()));
-  if (!str) {
-    return false;
-  }
-
-  if (formatToParts) {
-    auto* array =
-        FormattedNumberToParts(cx, str, parts, DisplayNumberPartSource::Yes,
-                               DisplayLiteralUnit::No, nullptr);
-    if (!array) {
-      return false;
-    }
-
-    args.rval().setObject(*array);
+static bool ValueRepresentableAsDouble(const Value& val, double* result) {
+  if (val.isNumber()) {
+    *result = val.toNumber();
     return true;
   }
+  if (val.isBigInt()) {
+    int64_t i64;
+    if (BigInt::isInt64(val.toBigInt(), &i64) &&
+        i64 < int64_t(DOUBLE_INTEGRAL_PRECISION_LIMIT) &&
+        i64 > -int64_t(DOUBLE_INTEGRAL_PRECISION_LIMIT)) {
+      *result = double(i64);
+      return true;
+    }
+  }
+  return false;
+}
 
-  args.rval().setString(str);
-  return true;
+/**
+ * FormatNumericRange ( numberFormat, x, y )
+ */
+static auto FormatNumericRange(JSContext* cx,
+                               mozilla::intl::NumberRangeFormat* nf,
+                               Handle<JS::Value> start, Handle<JS::Value> end)
+    -> decltype(nf->format(0.0, 0.0)) {
+  MOZ_ASSERT(start.isNumeric() || start.isString(),
+             "start is an Intl mathematical number");
+  MOZ_ASSERT(end.isNumeric() || end.isString(),
+             "end is an Intl mathematical number");
+  MOZ_ASSERT_IF(start.isDouble(), !std::isnan(start.toDouble()));
+  MOZ_ASSERT_IF(end.isDouble(), !std::isnan(end.toDouble()));
+
+  double numStart, numEnd;
+  if (ValueRepresentableAsDouble(start, &numStart) &&
+      ValueRepresentableAsDouble(end, &numEnd)) {
+    return nf->format(numStart, numEnd);
+  }
+
+  Rooted<JSLinearString*> strStart(cx, ToLinearString(cx, start));
+  if (!strStart) {
+    return mozilla::Err(mozilla::intl::ICUError::OutOfMemory);
+  }
+
+  Rooted<JSLinearString*> strEnd(cx, ToLinearString(cx, end));
+  if (!strEnd) {
+    return mozilla::Err(mozilla::intl::ICUError::OutOfMemory);
+  }
+
+  StringNumberChars charsStart(strStart);
+  if (!charsStart.init(cx)) {
+    return mozilla::Err(mozilla::intl::ICUError::OutOfMemory);
+  }
+
+  StringNumberChars charsEnd(strEnd);
+  if (!charsEnd.init(cx)) {
+    return mozilla::Err(mozilla::intl::ICUError::OutOfMemory);
+  }
+
+  return nf->format(charsStart, charsEnd);
+}
+
+/**
+ * FormatNumericRange ( numberFormat, x, y )
+ */
+static JSString* FormatNumericRange(JSContext* cx,
+                                    Handle<NumberFormatObject*> numberFormat,
+                                    Handle<JS::Value> start,
+                                    Handle<JS::Value> end) {
+  // PartitionNumberRangePattern, step 1.
+  if (!EnsureNumericRangeHasNoNaN(cx, "formatRange", start, end)) {
+    return nullptr;
+  }
+
+  auto* nf = GetOrCreateNumberRangeFormat(cx, numberFormat);
+  if (!nf) {
+    return nullptr;
+  }
+
+  auto result = FormatNumericRange(cx, nf, start, end);
+  return FormattedResultToString(cx, result);
+}
+
+/**
+ * FormatNumericRangeToParts ( numberFormat, x, y )
+ */
+static auto FormatNumericRangeToParts(JSContext* cx,
+                                      mozilla::intl::NumberRangeFormat* nf,
+                                      Handle<JS::Value> start,
+                                      Handle<JS::Value> end,
+                                      mozilla::intl::NumberPartVector& parts)
+    -> decltype(nf->formatToParts(0.0, 0.0, parts)) {
+  MOZ_ASSERT(start.isNumeric() || start.isString(),
+             "start is an Intl mathematical number");
+  MOZ_ASSERT(end.isNumeric() || end.isString(),
+             "end is an Intl mathematical number");
+  MOZ_ASSERT_IF(start.isDouble(), !std::isnan(start.toDouble()));
+  MOZ_ASSERT_IF(end.isDouble(), !std::isnan(end.toDouble()));
+
+  double numStart, numEnd;
+  if (ValueRepresentableAsDouble(start, &numStart) &&
+      ValueRepresentableAsDouble(end, &numEnd)) {
+    return nf->formatToParts(numStart, numEnd, parts);
+  }
+
+  Rooted<JSLinearString*> strStart(cx, ToLinearString(cx, start));
+  if (!strStart) {
+    return mozilla::Err(mozilla::intl::ICUError::OutOfMemory);
+  }
+
+  Rooted<JSLinearString*> strEnd(cx, ToLinearString(cx, end));
+  if (!strEnd) {
+    return mozilla::Err(mozilla::intl::ICUError::OutOfMemory);
+  }
+
+  StringNumberChars charsStart(strStart);
+  if (!charsStart.init(cx)) {
+    return mozilla::Err(mozilla::intl::ICUError::OutOfMemory);
+  }
+
+  StringNumberChars charsEnd(strEnd);
+  if (!charsEnd.init(cx)) {
+    return mozilla::Err(mozilla::intl::ICUError::OutOfMemory);
+  }
+
+  return nf->formatToParts(charsStart, charsEnd, parts);
+}
+
+/**
+ * FormatNumericRangeToParts ( numberFormat, x, y )
+ */
+static ArrayObject* FormatNumericRangeToParts(
+    JSContext* cx, Handle<NumberFormatObject*> numberFormat,
+    Handle<JS::Value> start, Handle<JS::Value> end) {
+  // PartitionNumberRangePattern, step 1.
+  if (!EnsureNumericRangeHasNoNaN(cx, "formatRangeToParts", start, end)) {
+    return nullptr;
+  }
+
+  auto* nf = GetOrCreateNumberRangeFormat(cx, numberFormat);
+  if (!nf) {
+    return nullptr;
+  }
+
+  mozilla::intl::NumberPartVector parts;
+  auto result = FormatNumericRangeToParts(cx, nf, start, end, parts);
+
+  Rooted<JSString*> str(cx, FormattedResultToString(cx, result));
+  if (!str) {
+    return nullptr;
+  }
+
+  return FormattedNumberToParts(cx, str, parts, DisplayNumberPartSource::Yes,
+                                DisplayLiteralUnit::No, nullptr);
 }
 
 JSLinearString* js::intl::FormatNumber(
@@ -2727,8 +2750,14 @@ static bool NumberFormatFunction(JSContext* cx, unsigned argc, Value* vp) {
   Rooted<NumberFormatObject*> numberFormat(
       cx, &nfValue.toObject().as<NumberFormatObject>());
 
-  // Steps 3-4.
-  auto* result = FormatNumeric(cx, numberFormat, args.get(0));
+  // Step 3.
+  Rooted<JS::Value> value(cx, args.get(0));
+  if (!ToIntlMathematicalValue(cx, &value)) {
+    return false;
+  }
+
+  // Step 4.
+  auto* result = FormatNumeric(cx, numberFormat, value);
   if (!result) {
     return false;
   }
@@ -2775,6 +2804,134 @@ static bool numberFormat_format(JSContext* cx, unsigned argc, Value* vp) {
     return false;
   }
   return CallNonGenericMethod<IsNumberFormat, numberFormat_format>(cx, args);
+}
+
+/**
+ * Intl.NumberFormat.prototype.formatToParts ( value )
+ */
+static bool numberFormat_formatToParts(JSContext* cx, const CallArgs& args) {
+  Rooted<NumberFormatObject*> numberFormat(
+      cx, &args.thisv().toObject().as<NumberFormatObject>());
+
+  // Step 3.
+  Rooted<JS::Value> value(cx, args.get(0));
+  if (!ToIntlMathematicalValue(cx, &value)) {
+    return false;
+  }
+
+  // Step 4.
+  auto* result = FormatNumericToParts(cx, numberFormat, value);
+  if (!result) {
+    return false;
+  }
+  args.rval().setObject(*result);
+  return true;
+}
+
+/**
+ * Intl.NumberFormat.prototype.formatToParts ( value )
+ */
+static bool numberFormat_formatToParts(JSContext* cx, unsigned argc,
+                                       Value* vp) {
+  // Steps 1-2.
+  CallArgs args = CallArgsFromVp(argc, vp);
+  return CallNonGenericMethod<IsNumberFormat, numberFormat_formatToParts>(cx,
+                                                                          args);
+}
+
+/**
+ * Intl.NumberFormat.prototype.formatRange ( start, end )
+ */
+static bool numberFormat_formatRange(JSContext* cx, const CallArgs& args) {
+  Rooted<NumberFormatObject*> numberFormat(
+      cx, &args.thisv().toObject().as<NumberFormatObject>());
+
+  // Step 3.
+  if (!args.hasDefined(0) || !args.hasDefined(1)) {
+    JS_ReportErrorNumberASCII(
+        cx, GetErrorMessage, nullptr, JSMSG_UNDEFINED_NUMBER,
+        !args.hasDefined(0) ? "start" : "end", "NumberFormat", "formatRange");
+    return false;
+  }
+
+  // Step 4.
+  Rooted<JS::Value> start(cx, args[0]);
+  if (!ToIntlMathematicalValue(cx, &start)) {
+    return false;
+  }
+
+  // Step 5.
+  Rooted<JS::Value> end(cx, args[1]);
+  if (!ToIntlMathematicalValue(cx, &end)) {
+    return false;
+  }
+
+  // Step 6.
+  auto* result = FormatNumericRange(cx, numberFormat, start, end);
+  if (!result) {
+    return false;
+  }
+  args.rval().setString(result);
+  return true;
+}
+
+/**
+ * Intl.NumberFormat.prototype.formatRange ( start, end )
+ */
+static bool numberFormat_formatRange(JSContext* cx, unsigned argc, Value* vp) {
+  // Steps 1-2.
+  CallArgs args = CallArgsFromVp(argc, vp);
+  return CallNonGenericMethod<IsNumberFormat, numberFormat_formatRange>(cx,
+                                                                        args);
+}
+
+/**
+ * Intl.NumberFormat.prototype.formatRangeToParts ( start, end )
+ */
+static bool numberFormat_formatRangeToParts(JSContext* cx,
+                                            const CallArgs& args) {
+  Rooted<NumberFormatObject*> numberFormat(
+      cx, &args.thisv().toObject().as<NumberFormatObject>());
+
+  // Step 3.
+  if (!args.hasDefined(0) || !args.hasDefined(1)) {
+    JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
+                              JSMSG_UNDEFINED_NUMBER,
+                              !args.hasDefined(0) ? "start" : "end",
+                              "NumberFormat", "formatRangeToParts");
+    return false;
+  }
+
+  // Step 4.
+  Rooted<JS::Value> start(cx, args[0]);
+  if (!ToIntlMathematicalValue(cx, &start)) {
+    return false;
+  }
+
+  // Step 5.
+  Rooted<JS::Value> end(cx, args[1]);
+  if (!ToIntlMathematicalValue(cx, &end)) {
+    return false;
+  }
+
+  // Step 6.
+  auto* result = FormatNumericRangeToParts(cx, numberFormat, start, end);
+  if (!result) {
+    return false;
+  }
+  args.rval().setObject(*result);
+  return true;
+}
+
+/**
+ * Intl.NumberFormat.prototype.formatRangeToParts ( start, end )
+ */
+static bool numberFormat_formatRangeToParts(JSContext* cx, unsigned argc,
+                                            Value* vp) {
+  // Steps 1-2.
+  CallArgs args = CallArgsFromVp(argc, vp);
+  return CallNonGenericMethod<IsNumberFormat, numberFormat_formatRangeToParts>(
+      cx, args);
 }
 
 /**

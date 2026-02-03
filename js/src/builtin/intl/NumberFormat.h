@@ -219,26 +219,6 @@ class NumberFormatObject : public NativeObject {
   static void finalize(JS::GCContext* gcx, JSObject* obj);
 };
 
-/**
- * Returns a string representing the number x according to the effective
- * locale and the formatting options of the given NumberFormat.
- *
- * Spec: ECMAScript Internationalization API Specification, 11.3.2.
- *
- * Usage: formatted = intl_FormatNumber(numberFormat, x, formatToParts)
- */
-[[nodiscard]] extern bool intl_FormatNumber(JSContext* cx, unsigned argc,
-                                            Value* vp);
-
-/**
- * Returns a string representing the number range «x - y» according to the
- * effective locale and the formatting options of the given NumberFormat.
- *
- * Usage: formatted = intl_FormatNumberRange(numberFormat, x, y, formatToParts)
- */
-[[nodiscard]] extern bool intl_FormatNumberRange(JSContext* cx, unsigned argc,
-                                                 Value* vp);
-
 namespace intl {
 
 /**
