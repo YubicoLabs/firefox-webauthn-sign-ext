@@ -4727,29 +4727,16 @@ export class BackupService extends EventTarget {
       // During the first startup, the browser's backup location is often left
       // unconfigured; therefore, it defaults to predefined locations to look
       // for existing backup files.
-
-      // Build the list of backup directories filtering out null paths (with
-      // Boolean) and appending the backup directory name where needed
-      let backupPaths = [
-        this.#_state.backupDirPath,
-        ...[
-          BackupService.docsDirFolderPath?.path,
-          BackupService.oneDriveFolderPath?.path,
-        ]
-          .filter(Boolean)
-          .map(backupPath =>
-            PathUtils.join(backupPath, BackupService.BACKUP_DIR_NAME)
-          ),
-      ].filter(Boolean);
-
-      let files = [];
-
-      for (let backupPath of backupPaths) {
-        files.push(
-          ...(await IOUtils.getChildren(backupPath, { ignoreAbsent: true }))
-        );
-      }
-
+      let defaultPath = PathUtils.join(
+        BackupService.DEFAULT_PARENT_DIR_PATH,
+        BackupService.BACKUP_DIR_NAME
+      );
+      let files = await IOUtils.getChildren(
+        this.#_state.backupDirPath ? this.#_state.backupDirPath : defaultPath,
+        {
+          ignoreAbsent: true,
+        }
+      );
       // filtering is an O(N) operation, we can return early if there's too many files
       // in this folder to filter to avoid a performance bottleneck
       if (speedUpHeuristic && files && files.length > 1000) {
