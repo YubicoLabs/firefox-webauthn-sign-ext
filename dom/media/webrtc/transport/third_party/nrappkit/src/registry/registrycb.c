@@ -59,7 +59,7 @@ static const char CB_ACTIONS[] = { NR_REG_CB_ACTION_ADD,
 
 typedef struct nr_reg_cb_info_ {
      char            action;
-     void          (*cb)(void *cb_arg, char action, NR_registry name);
+     void          (*cb)(void *cb_arg, char action, NR_registry_name name);
      void           *cb_arg;
      NR_registry     name;
 } nr_reg_cb_info;
@@ -75,8 +75,8 @@ static int nr_reg_validate_action(char action);
 static int nr_reg_assoc_destroy(void *ptr);
 static int compute_cb_id(void *cb, char action, unsigned char cb_id[SIZEOF_CB_ID]);
 static int nr_reg_info_free(void *ptr);
-static int nr_reg_raise_event_recurse(char *name, char *tmp, int action);
-static int nr_reg_register_callback(NR_registry name, char action, void (*cb)(void *cb_arg, char action, NR_registry name), void *cb_arg);
+static int nr_reg_raise_event_recurse(const char *name, char *tmp, int action);
+static int nr_reg_register_callback(NR_registry_name name, char action, void (*cb)(void *cb_arg, char action, NR_registry_name name), void *cb_arg);
 
 int
 nr_reg_cb_init()
@@ -114,7 +114,7 @@ nr_reg_validate_action(char action)
 }
 
 int
-nr_reg_register_callback(NR_registry name, char action, void (*cb)(void *cb_arg, char action, NR_registry name), void *cb_arg)
+nr_reg_register_callback(NR_registry_name name, char action, void (*cb)(void *cb_arg, char action, NR_registry_name name), void *cb_arg)
 {
     int r, _status;
     r_assoc *assoc = 0;
@@ -230,7 +230,7 @@ nr_reg_info_free(void *ptr)
 
 /* call with tmp=0 */
 int
-nr_reg_raise_event_recurse(char *name, char *tmp, int action)
+nr_reg_raise_event_recurse(const char *name, char *tmp, int action)
 {
     int r, _status;
     r_assoc *assoc = 0;
@@ -309,7 +309,7 @@ nr_reg_raise_event_recurse(char *name, char *tmp, int action)
 /* NON-STATIC METHODS */
 
 int
-nr_reg_raise_event(NR_registry name, int action)
+nr_reg_raise_event(NR_registry_name name, int action)
 {
     int r, _status;
     int count;
@@ -344,7 +344,7 @@ nr_reg_raise_event(NR_registry name, int action)
 /* PUBLIC METHODS */
 
 int
-NR_reg_register_callback(NR_registry name, char action, void (*cb)(void *cb_arg, char action, NR_registry name), void *cb_arg)
+NR_reg_register_callback(NR_registry_name name, char action, void (*cb)(void *cb_arg, char action, NR_registry_name name), void *cb_arg)
 {
     int r, _status;
     size_t i;

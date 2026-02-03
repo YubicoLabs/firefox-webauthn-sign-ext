@@ -66,13 +66,13 @@ static int nr_reg_local_compare_string(const void *arg1, const void *arg2) {
    return strcasecmp(*(const char **)arg1, *(const char **)arg2);
 }
 
-static int nr_reg_insert_node(char *name, void *node);
-static int nr_reg_change_node(char *name, void *node, void *old);
-static int nr_reg_get_data(NR_registry name, nr_scalar_registry_node *node, void *out);
-static int nr_reg_set_parent_registries(char *name);
-char *nr_reg_alloc_node_data(char *name, nr_registry_node *node, int *freeit);
+static int nr_reg_insert_node(const char *name, void *node);
+static int nr_reg_change_node(const char *name, void *node, void *old);
+static int nr_reg_get_data(NR_registry_name name, nr_scalar_registry_node *node, void *out);
+static int nr_reg_set_parent_registries(const char *name);
+char *nr_reg_alloc_node_data(const char *name, nr_registry_node *node, int *freeit);
 static int nr_reg_rfree(void *ptr);
-static int nr_reg_compute_length(char *name, nr_registry_node *node, size_t *length);
+static int nr_reg_compute_length(const char *name, nr_registry_node *node, size_t *length);
 const char *nr_reg_action_name(int action);
 
 /* the registry, containing mappings like "foo.bar.baz" to registry
@@ -80,7 +80,7 @@ const char *nr_reg_action_name(int action);
  * nr_array_registry_node */
 static r_assoc     *nr_registry = 0;
 
-static int nr_reg_local_iter(NR_registry prefix, int (*action)(void *ptr, r_assoc_iterator *iter, const char *prefix, const char *name, nr_registry_node *node), void *ptr);
+static int nr_reg_local_iter(NR_registry_name prefix, int (*action)(void *ptr, r_assoc_iterator *iter, const char *prefix, const char *name, nr_registry_node *node), void *ptr);
 static int nr_reg_local_iter_delete(void *ptr, r_assoc_iterator *iter, const char *prefix, const char *name, nr_registry_node *node);
 static int nr_reg_local_find_children(void *ptr, r_assoc_iterator *iter, const char *prefix, const char *name, nr_registry_node *node);
 static int nr_reg_local_count_children(void *ptr, r_assoc_iterator *iter, const char *prefix, const char *name, nr_registry_node *node);
@@ -88,7 +88,7 @@ static int nr_reg_local_count_children(void *ptr, r_assoc_iterator *iter, const 
 
 
 int
-nr_reg_local_iter(NR_registry prefix, int (*action)(void *ptr, r_assoc_iterator *iter, const char *prefix, const char *name, nr_registry_node *node), void *ptr)
+nr_reg_local_iter(NR_registry_name prefix, int (*action)(void *ptr, r_assoc_iterator *iter, const char *prefix, const char *name, nr_registry_node *node), void *ptr)
 {
     int r, _status;
     r_assoc_iterator iter;
@@ -214,7 +214,7 @@ nr_reg_rfree(void *ptr)
 }
 
 int
-nr_reg_fetch_node(char *name, unsigned char type, nr_registry_node **node, int *free_node)
+nr_reg_fetch_node(const char *name, unsigned char type, nr_registry_node **node, int *free_node)
 {
     int r, _status;
 
@@ -248,7 +248,7 @@ nr_reg_fetch_node(char *name, unsigned char type, nr_registry_node **node, int *
 }
 
 int
-nr_reg_insert_node(char *name, void *node)
+nr_reg_insert_node(const char *name, void *node)
 {
     int r, _status;
 
@@ -284,7 +284,7 @@ nr_reg_insert_node(char *name, void *node)
 }
 
 int
-nr_reg_change_node(char *name, void *node, void *old)
+nr_reg_change_node(const char *name, void *node, void *old)
 {
     int r, _status;
 
@@ -315,7 +315,7 @@ nr_reg_change_node(char *name, void *node, void *old)
 }
 
 char *
-nr_reg_alloc_node_data(char *name, nr_registry_node *node, int *freeit)
+nr_reg_alloc_node_data(const char *name, nr_registry_node *node, int *freeit)
 {
     char *s = 0;
     int len;
@@ -406,7 +406,7 @@ nr_reg_alloc_node_data(char *name, nr_registry_node *node, int *freeit)
 }
 
 int
-nr_reg_get(char *name, int type, void *out)
+nr_reg_get(const char *name, int type, void *out)
 {
     int r, _status;
     nr_scalar_registry_node *node = 0;
@@ -425,7 +425,7 @@ nr_reg_get(char *name, int type, void *out)
 }
 
 int
-nr_reg_get_data(NR_registry name, nr_scalar_registry_node *node, void *out)
+nr_reg_get_data(NR_registry_name name /* mjf-unused */, nr_scalar_registry_node *node, void *out)
 {
     int _status;
 
@@ -468,7 +468,7 @@ nr_reg_get_data(NR_registry name, nr_scalar_registry_node *node, void *out)
 }
 
 int
-nr_reg_get_array(char *name, unsigned char type, unsigned char *out, size_t size, size_t *length)
+nr_reg_get_array(const char *name, unsigned char type, unsigned char *out, size_t size, size_t *length)
 {
     int r, _status;
     nr_array_registry_node *node = 0;
@@ -492,7 +492,7 @@ nr_reg_get_array(char *name, unsigned char type, unsigned char *out, size_t size
 }
 
 int
-nr_reg_set(char *name, int type, void *data)
+nr_reg_set(const char *name, int type, void *data)
 {
     int r, _status;
     nr_scalar_registry_node *node = 0;
@@ -570,7 +570,7 @@ nr_reg_set(char *name, int type, void *data)
 }
 
 int
-nr_reg_set_array(char *name, unsigned char type, const UCHAR *data, size_t length)
+nr_reg_set_array(const char *name, unsigned char type, const UCHAR *data, size_t length)
 {
     int r, _status;
     nr_array_registry_node *old = 0;
@@ -632,7 +632,7 @@ nr_reg_set_array(char *name, unsigned char type, const UCHAR *data, size_t lengt
 }
 
 int
-nr_reg_set_parent_registries(char *name)
+nr_reg_set_parent_registries(const char *name)
 {
     int r, _status;
     char *parent = 0;
@@ -660,7 +660,7 @@ nr_reg_set_parent_registries(char *name)
 /* NON-STATIC METHODS */
 
 int
-nr_reg_is_valid(NR_registry name)
+nr_reg_is_valid(NR_registry_name name)
 {
     int _status;
     unsigned int length;
@@ -697,7 +697,7 @@ nr_reg_is_valid(NR_registry name)
 
 
 int
-nr_reg_compute_length(char *name, nr_registry_node *in, size_t *length)
+nr_reg_compute_length(const char *name, nr_registry_node *in, size_t *length)
 {
     int _status;
     nr_array_registry_node *node = (nr_array_registry_node*)in;
@@ -767,7 +767,7 @@ nr_reg_local_init(void)
 }
 
 int
-nr_reg_local_get_length(NR_registry name, size_t *length)
+nr_reg_local_get_length(NR_registry_name name, size_t *length)
 {
     int r, _status;
     nr_registry_node *node = 0;
@@ -788,7 +788,7 @@ nr_reg_local_get_length(NR_registry name, size_t *length)
 
 
 int
-nr_reg_local_del(NR_registry name)
+nr_reg_local_del(NR_registry_name name)
 {
     int r, _status;
 
@@ -818,7 +818,7 @@ nr_reg_local_del(NR_registry name)
 }
 
 int
-nr_reg_local_get_child_count(NR_registry parent, size_t *count)
+nr_reg_local_get_child_count(NR_registry_name parent, size_t *count)
 {
     int r, _status;
     nr_registry_node *ignore1 = 0;
@@ -846,7 +846,7 @@ nr_reg_local_get_child_count(NR_registry parent, size_t *count)
 }
 
 int
-nr_reg_local_get_children(NR_registry parent, NR_registry *data, size_t size, size_t *length)
+nr_reg_local_get_children(NR_registry_name parent, NR_registry *data, size_t size, size_t *length)
 {
     int r, _status;
     nr_reg_find_children_arg arg;
