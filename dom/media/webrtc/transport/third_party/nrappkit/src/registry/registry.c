@@ -175,9 +175,9 @@ NRREGSET(NR_reg_set_int4,     NR_REG_TYPE_INT4,     INT4)
 NRREGSET(NR_reg_set_uint4,    NR_REG_TYPE_UINT4,    UINT4)
 
 int
-NR_reg_set_string(NR_registry name, char *data)
+NR_reg_set_string(NR_registry name, const char *data)
 {
-    return nr_reg_set_array(name, NR_REG_TYPE_STRING, (UCHAR*)data, strlen(data)+1);
+    return nr_reg_set_array(name, NR_REG_TYPE_STRING, (const UCHAR*)data, strlen(data)+1);
 }
 
 int
@@ -187,7 +187,7 @@ NR_reg_set_registry(NR_registry name)
 }
 
 int
-NR_reg_set_bytes(NR_registry name, unsigned char *data, size_t length)
+NR_reg_set_bytes(NR_registry name, const unsigned char *data, size_t length)
 {
     return nr_reg_set_array(name, NR_REG_TYPE_BYTES, data, length);
 }
@@ -312,7 +312,7 @@ nr_reg_type_name(int type)
    take a prefix and a suffix */
 #define NRGET2(func, type, get) \
 int                                                                  \
-func(NR_registry parent, char *child, type *out)                     \
+func(NR_registry parent, const char *child, type *out)               \
 {                                                                    \
   int r, _status;                                                    \
   NR_registry registry;                                              \
@@ -339,7 +339,7 @@ NRGET2(NR_reg_alloc2_data,     Data,    NR_reg_alloc_data)
    take a prefix and a suffix */
 #define NRSET2(func, type, set) \
 int                                                                  \
-func(NR_registry parent, char *child, type in)                       \
+func(NR_registry parent, const char *child, type in)                 \
 {                                                                    \
   int r, _status;                                                    \
   NR_registry registry;                                              \
@@ -357,11 +357,11 @@ abort:                                                               \
 }
 
 NRSET2(NR_reg_set2_uchar,    UCHAR,   NR_reg_set_uchar)
-NRSET2(NR_reg_set2_string,   char*,   NR_reg_set_string)
+NRSET2(NR_reg_set2_string,   const char*,   NR_reg_set_string)
 
 /* requires parent already in legal form */
 int
-NR_reg_make_registry(NR_registry parent, char *child, NR_registry out)
+NR_reg_make_registry(NR_registry parent, const char *child, NR_registry out)
 {
     int r, _status;
     size_t plen;

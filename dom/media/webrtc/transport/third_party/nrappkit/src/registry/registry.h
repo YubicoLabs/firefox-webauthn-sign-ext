@@ -76,12 +76,12 @@ int NR_reg_get_string(NR_registry name, char *out, size_t size);
 int NR_reg_get_length(NR_registry name, size_t *length);
 
 
-int NR_reg_get2_char(NR_registry prefix, char *name, char *);
-int NR_reg_get2_uchar(NR_registry prefix, char *name, UCHAR *);
-int NR_reg_get2_uint2(NR_registry prefix, char *name, UINT2 *);
+int NR_reg_get2_char(NR_registry prefix, const char *name, char *);
+int NR_reg_get2_uchar(NR_registry prefix, const char *name, UCHAR *);
+int NR_reg_get2_uint2(NR_registry prefix, const char *name, UINT2 *);
 
-int NR_reg_alloc2_string(NR_registry prefix, char *name, char **);
-int NR_reg_alloc2_data(NR_registry prefix, char *name, Data *);
+int NR_reg_alloc2_string(NR_registry prefix, const char *name, char **);
+int NR_reg_alloc2_data(NR_registry prefix, const char *name, Data *);
 
 int NR_reg_set_char(NR_registry name, char data);
 int NR_reg_set_uchar(NR_registry name, UCHAR data);
@@ -90,12 +90,12 @@ int NR_reg_set_uint4(NR_registry name, UINT4 data);
 
 int NR_reg_set_registry(NR_registry name);
 
-int NR_reg_set_bytes(NR_registry name, UCHAR *data, size_t length);
-int NR_reg_set_string(NR_registry name, char *data);
+int NR_reg_set_bytes(NR_registry name, const UCHAR *data, size_t length);
+int NR_reg_set_string(NR_registry name, const char *data);
 
-int NR_reg_set2_uchar(NR_registry prefix, char *name, UCHAR data);
+int NR_reg_set2_uchar(NR_registry prefix, const char *name, UCHAR data);
 
-int NR_reg_set2_string(NR_registry prefix, char *name, char *data);
+int NR_reg_set2_string(NR_registry prefix, const char *name, const char *data);
 
 int NR_reg_del(NR_registry name);
 
@@ -112,6 +112,6 @@ int NR_reg_alloc_string(NR_registry name, char **data);
 #define NR_REG_CB_ACTION_FINAL    (1<<6)
 int NR_reg_register_callback(NR_registry name, char action, void (*cb)(void *cb_arg, char action, NR_registry name), void *cb_arg);
 
-int NR_reg_make_registry(NR_registry parent, char *child, NR_registry out);
+int NR_reg_make_registry(NR_registry parent, const char *child, NR_registry out);
 
 #endif

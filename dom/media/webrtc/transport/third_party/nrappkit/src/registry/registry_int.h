@@ -126,7 +126,7 @@ int nr_reg_get(char *name, int type, void *out);
 int nr_reg_get_array(char *name, unsigned char type, UCHAR *out, size_t size, size_t *length);
 
 int nr_reg_set(char *name, int type, void *data);
-int nr_reg_set_array(char *name, unsigned char type, UCHAR *data, size_t length);
+int nr_reg_set_array(char *name, unsigned char type, const UCHAR *data, size_t length);
 
 int nr_reg_fetch_node(char *name, unsigned char type, nr_registry_node **node, int *free_node);
 

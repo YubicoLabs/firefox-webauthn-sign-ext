@@ -80,15 +80,15 @@ const char *nr_reg_action_name(int action);
  * nr_array_registry_node */
 static r_assoc     *nr_registry = 0;
 
-static int nr_reg_local_iter(NR_registry prefix, int (*action)(void *ptr, r_assoc_iterator *iter, char *prefix, char *name, nr_registry_node *node), void *ptr);
-static int nr_reg_local_iter_delete(void *ptr, r_assoc_iterator *iter, char *prefix, char *name, nr_registry_node *node);
-static int nr_reg_local_find_children(void *ptr, r_assoc_iterator *iter, char *prefix, char *name, nr_registry_node *node);
-static int nr_reg_local_count_children(void *ptr, r_assoc_iterator *iter, char *prefix, char *name, nr_registry_node *node);
+static int nr_reg_local_iter(NR_registry prefix, int (*action)(void *ptr, r_assoc_iterator *iter, const char *prefix, const char *name, nr_registry_node *node), void *ptr);
+static int nr_reg_local_iter_delete(void *ptr, r_assoc_iterator *iter, const char *prefix, const char *name, nr_registry_node *node);
+static int nr_reg_local_find_children(void *ptr, r_assoc_iterator *iter, const char *prefix, const char *name, nr_registry_node *node);
+static int nr_reg_local_count_children(void *ptr, r_assoc_iterator *iter, const char *prefix, const char *name, nr_registry_node *node);
 
 
 
 int
-nr_reg_local_iter(NR_registry prefix, int (*action)(void *ptr, r_assoc_iterator *iter, char *prefix, char *name, nr_registry_node *node), void *ptr)
+nr_reg_local_iter(NR_registry prefix, int (*action)(void *ptr, r_assoc_iterator *iter, const char *prefix, const char *name, nr_registry_node *node), void *ptr)
 {
     int r, _status;
     r_assoc_iterator iter;
@@ -143,7 +143,7 @@ nr_reg_local_iter(NR_registry prefix, int (*action)(void *ptr, r_assoc_iterator 
 }
 
 int
-nr_reg_local_iter_delete(void *ptr, r_assoc_iterator *iter, char *prefix, char *name, nr_registry_node *node)
+nr_reg_local_iter_delete(void *ptr, r_assoc_iterator *iter, const char *prefix, const char *name, nr_registry_node *node)
 {
     int r, _status;
 
@@ -156,11 +156,11 @@ nr_reg_local_iter_delete(void *ptr, r_assoc_iterator *iter, char *prefix, char *
 }
 
 int
-nr_reg_local_find_children(void *ptr, r_assoc_iterator *iter, char *prefix, char *name, nr_registry_node *node)
+nr_reg_local_find_children(void *ptr, r_assoc_iterator *iter, const char *prefix, const char *name, nr_registry_node *node)
 {
   int _status;
   int prefixl = strlen(prefix);
-  char *dot = 0;
+  const char *dot = 0;
   nr_reg_find_children_arg *arg = (void*)ptr;
 
   assert(sizeof(*(arg->children)) == sizeof(NR_registry));
@@ -186,10 +186,10 @@ nr_reg_local_find_children(void *ptr, r_assoc_iterator *iter, char *prefix, char
 }
 
 int
-nr_reg_local_count_children(void *ptr, r_assoc_iterator *iter, char *prefix, char *name, nr_registry_node *node)
+nr_reg_local_count_children(void *ptr, r_assoc_iterator *iter, const char *prefix, const char *name, nr_registry_node *node)
 {
   int prefixl = strlen(prefix);
-  char *dot = 0;
+  const char *dot = 0;
 
   /* only count children */
   if (name[prefixl] == '.') {
@@ -570,7 +570,7 @@ nr_reg_set(char *name, int type, void *data)
 }
 
 int
-nr_reg_set_array(char *name, unsigned char type, UCHAR *data, size_t length)
+nr_reg_set_array(char *name, unsigned char type, const UCHAR *data, size_t length)
 {
     int r, _status;
     nr_array_registry_node *old = 0;
