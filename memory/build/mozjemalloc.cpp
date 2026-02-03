@@ -3845,7 +3845,8 @@ void* arena_t::RallocHuge(void* aPtr, size_t aSize, size_t aOldSize) {
 
   // Avoid moving the allocation if the size class would not change.
   if (aOldSize > gMaxLargeClass &&
-      CHUNK_CEILING(aSize + gPageSize) == CHUNK_CEILING(aOldSize + gPageSize)) {
+      CHUNK_CEILING(aSize + gRealPageSize) ==
+          CHUNK_CEILING(aOldSize + gRealPageSize)) {
     size_t psize = REAL_PAGE_CEILING(aSize);
     if (aSize < aOldSize) {
       MaybePoison((void*)((uintptr_t)aPtr + aSize), aOldSize - aSize);
