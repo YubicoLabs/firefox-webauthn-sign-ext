@@ -463,7 +463,7 @@ int nr_stun_client_process_response(nr_stun_client_ctx *ctx, UCHAR *msg, int len
        * want to delay the completion of gathering. */
       fail_on_error = 1;
       compute_lt_key = 1;
-      /* Fall through */
+      [[fallthrough]];
     case NR_STUN_CLIENT_MODE_BINDING_REQUEST_SHORT_TERM_AUTH:
       password = ctx->params.stun_binding_request.password;
       break;
