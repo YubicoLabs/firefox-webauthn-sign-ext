@@ -98,6 +98,9 @@ export let OAUTH_CLIENT_ID = CLIENT_IS_THUNDERBIRD
   : FX_OAUTH_CLIENT_ID;
 export let SCOPE_PROFILE = "profile";
 export let SCOPE_PROFILE_WRITE = "profile:write";
+export let SCOPE_PROFILE_UID = "profile:uid";
+export let SCOPE_SMART_WINDOW = "https://identity.mozilla.com/apps/smartwindow";
+
 // Sync scope in Firefox.
 export let SCOPE_OLD_SYNC = "https://identity.mozilla.com/apps/oldsync";
 // Sync scope in Thunderbird.

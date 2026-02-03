@@ -14,7 +14,8 @@ import { createEngine } from "chrome://global/content/ml/EngineProcess.sys.mjs";
 import { getFxAccountsSingleton } from "resource://gre/modules/FxAccounts.sys.mjs";
 import {
   OAUTH_CLIENT_ID,
-  SCOPE_PROFILE,
+  SCOPE_PROFILE_UID,
+  SCOPE_SMART_WINDOW,
 } from "resource://gre/modules/FxAccountsCommon.sys.mjs";
 import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 
@@ -624,8 +625,7 @@ export class openAIEngine {
     try {
       const fxAccounts = getFxAccountsSingleton();
       return await fxAccounts.getOAuthToken({
-        // Scope needs to be updated in accordance with https://bugzilla.mozilla.org/show_bug.cgi?id=2005290
-        scope: SCOPE_PROFILE,
+        scope: [SCOPE_SMART_WINDOW, SCOPE_PROFILE_UID],
         client_id: OAUTH_CLIENT_ID,
       });
     } catch (error) {
