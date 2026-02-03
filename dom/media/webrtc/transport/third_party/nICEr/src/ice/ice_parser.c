@@ -240,7 +240,7 @@ nr_ice_peer_candidate_from_attribute(nr_ice_ctx *ctx,char *orig,nr_ice_media_str
 
     for (i = 1; nr_ice_candidate_type_names[i]; ++i) {
         if(!strncasecmp(nr_ice_candidate_type_names[i], str, strlen(nr_ice_candidate_type_names[i]))) {
-            cand->type=(nr_ice_candidate_type)i;
+            cand->type=i;
             break;
         }
     }
@@ -324,7 +324,7 @@ nr_ice_peer_candidate_from_attribute(nr_ice_ctx *ctx,char *orig,nr_ice_media_str
 
       for (i = 1; nr_ice_candidate_tcp_type_names[i]; ++i) {
         if(!strncasecmp(nr_ice_candidate_tcp_type_names[i], str, strlen(nr_ice_candidate_tcp_type_names[i]))) {
-          cand->tcp_type=(nr_socket_tcp_type)i;
+          cand->tcp_type=i;
           fast_forward(&str, strlen(nr_ice_candidate_tcp_type_names[i]));
           break;
         }

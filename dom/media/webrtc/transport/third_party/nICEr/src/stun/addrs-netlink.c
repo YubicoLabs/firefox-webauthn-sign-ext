@@ -155,7 +155,7 @@ stun_convert_netlink(nr_local_addr *addr, struct ifaddrmsg *address_msg, struct 
   /* Getting ethtool for ethernet information. */
   ecmd.cmd = ETHTOOL_GSET;
   /* In/out param */
-  ifr.ifr_data = (char*)&ecmd;
+  ifr.ifr_data = (void*)&ecmd;
 
   e = ioctl(s, SIOCETHTOOL, &ifr);
   if (e == 0)

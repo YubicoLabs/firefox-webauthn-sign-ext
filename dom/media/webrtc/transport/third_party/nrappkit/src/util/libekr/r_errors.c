@@ -88,15 +88,15 @@
 
 static struct {
     int    errnum;
-    const char  *str;
+    char  *str;
 } errors[] = NR_ERROR_MAPPING;
 
-const char *
+char *
 nr_strerror(int errnum)
 {
     static char unknown_error[256];
     size_t i;
-    const char *error = 0;
+    char *error = 0;
 
     for (i = 0; i < sizeof(errors)/sizeof(*errors); ++i) {
         if (errnum == errors[i].errnum) {
@@ -112,3 +112,12 @@ nr_strerror(int errnum)
 
     return error;
 }
+
+int
+nr_strerror_r(int errnum, char *strerrbuf, size_t buflen)
+{
+    char *error = nr_strerror(errnum);
+    snprintf(strerrbuf, buflen, "%s", error);
+    return 0;
+}
+

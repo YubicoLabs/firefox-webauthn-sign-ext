@@ -42,7 +42,7 @@ static void nr_ice_socket_readable_cb(NR_SOCKET s, int how, void *cb_arg)
   {
     int r;
     nr_ice_stun_ctx *sc1,*sc2;
-    nr_ice_socket *sock=(nr_ice_socket*)cb_arg;
+    nr_ice_socket *sock=cb_arg;
     UCHAR buf[9216];
     char string[256];
     nr_transport_addr addr;
@@ -368,7 +368,7 @@ int nr_ice_socket_register_turn_client(nr_ice_socket *sock, nr_turn_client_ctx *
    in the CB, which is where this is likely to be called */
 int nr_ice_socket_deregister(nr_ice_socket *sock, void *handle)
   {
-    nr_ice_stun_ctx *sc=(nr_ice_stun_ctx*)handle;
+    nr_ice_stun_ctx *sc=handle;
 
     if(!sc)
       return(0);

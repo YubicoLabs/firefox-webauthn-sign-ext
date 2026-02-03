@@ -149,10 +149,10 @@ stun_getaddrs_filtered(nr_local_addr addrs[], int maxaddrs, int *count)
 
         if(r=nr_crypto_md5((UCHAR *)tmpAddress->FriendlyName,
                            wcslen(tmpAddress->FriendlyName) * sizeof(wchar_t),
-                           (UCHAR *)bin_hashed_ifname))
+                           bin_hashed_ifname))
           ABORT(r);
-        if(r=nr_bin2hex((UCHAR*)bin_hashed_ifname, sizeof(bin_hashed_ifname),
-                        (UCHAR*)hex_hashed_ifname))
+        if(r=nr_bin2hex(bin_hashed_ifname, sizeof(bin_hashed_ifname),
+          hex_hashed_ifname))
           ABORT(r);
 
         for (u = tmpAddress->FirstUnicastAddress; u != 0; u = u->Next) {

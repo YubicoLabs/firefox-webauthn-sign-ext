@@ -38,7 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ice_util.h"
 #include "ice_ctx.h"
 
-static const char *nr_ice_media_stream_states[]={"INVALID",
+static char *nr_ice_media_stream_states[]={"INVALID",
   "UNPAIRED","FROZEN","ACTIVE","CONNECTED","FAILED"
 };
 
@@ -376,7 +376,7 @@ int nr_ice_media_stream_service_pre_answer_requests(nr_ice_peer_ctx *pctx, nr_ic
 static void nr_ice_media_stream_check_timer_cb(NR_SOCKET s, int h, void *cb_arg)
   {
     int r,_status;
-    nr_ice_media_stream *stream=(nr_ice_media_stream*)cb_arg;
+    nr_ice_media_stream *stream=cb_arg;
     nr_ice_cand_pair *pair = 0;
     int timer_multiplier=stream->pctx->active_streams ? stream->pctx->active_streams : 1;
     int timer_val=stream->pctx->ctx->Ta*timer_multiplier;

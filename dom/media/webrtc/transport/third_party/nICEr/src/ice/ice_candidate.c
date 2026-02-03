@@ -85,8 +85,8 @@ void nr_ice_candidate_compute_codeword(nr_ice_candidate *cand)
     nr_ice_compute_codeword(as_string,strlen(as_string),cand->codeword);
   }
 
-const char *nr_ice_candidate_type_names[]={0,"host","srflx","prflx","relay",0};
-const char *nr_ice_candidate_tcp_type_names[]={0,"active","passive","so",0};
+char *nr_ice_candidate_type_names[]={0,"host","srflx","prflx","relay",0};
+char *nr_ice_candidate_tcp_type_names[]={0,"active","passive","so",0};
 
 static const char *nr_ctype_name(nr_ice_candidate_type ctype) {
   assert(ctype<CTYPE_MAX && ctype>0);
@@ -215,7 +215,7 @@ int nr_ice_candidate_create(nr_ice_ctx *ctx,nr_ice_component *comp,nr_ice_socket
 
 
 /* Create a peer reflexive candidate */
-int nr_ice_peer_peer_rflx_candidate_create(nr_ice_ctx *ctx, const char *label, nr_ice_component *comp,nr_transport_addr *addr, nr_ice_candidate **candp)
+int nr_ice_peer_peer_rflx_candidate_create(nr_ice_ctx *ctx,char *label, nr_ice_component *comp,nr_transport_addr *addr, nr_ice_candidate **candp)
   {
     nr_ice_candidate *cand=0;
     nr_ice_candidate_type ctype=PEER_REFLEXIVE;
@@ -567,7 +567,7 @@ int nr_ice_candidate_compute_priority(nr_ice_candidate *cand)
 
 static void nr_ice_candidate_fire_ready_cb(NR_SOCKET s, int how, void *cb_arg)
   {
-    nr_ice_candidate *cand = (nr_ice_candidate*)cb_arg;
+    nr_ice_candidate *cand = cb_arg;
 
     cand->ready_cb_timer = 0;
     cand->ready_cb(0, 0, cand->ready_cb_arg);
@@ -736,7 +736,7 @@ int nr_ice_candidate_initialize(nr_ice_candidate *cand, NR_async_cb ready_cb, vo
 
 static int nr_ice_candidate_resolved_cb(void *cb_arg, nr_transport_addr *addr)
   {
-    nr_ice_candidate *cand=(nr_ice_candidate*)cb_arg;
+    nr_ice_candidate *cand=cb_arg;
     int r,_status;
 
     cand->resolver_handle=0;
@@ -810,7 +810,7 @@ static int nr_ice_candidate_initialize2(nr_ice_candidate *cand)
 
 static void nr_ice_srvrflx_start_stun_timer_cb(NR_SOCKET s, int how, void *cb_arg)
   {
-    nr_ice_candidate *cand=(nr_ice_candidate*)cb_arg;
+    nr_ice_candidate *cand=cb_arg;
     int r,_status;
 
     cand->delay_timer=0;
@@ -863,7 +863,7 @@ static int nr_ice_srvrflx_start_stun(nr_ice_candidate *cand)
 #ifdef USE_TURN
 static void nr_ice_start_relay_turn_timer_cb(NR_SOCKET s, int how, void *cb_arg)
   {
-    nr_ice_candidate *cand=(nr_ice_candidate*)cb_arg;
+    nr_ice_candidate *cand=cb_arg;
     int r,_status;
 
     cand->delay_timer=0;
@@ -910,7 +910,7 @@ static int nr_ice_start_relay_turn(nr_ice_candidate *cand)
 static void nr_ice_srvrflx_stun_finished_cb(NR_SOCKET sock, int how, void *cb_arg)
   {
     int _status;
-    nr_ice_candidate *cand=(nr_ice_candidate*)cb_arg;
+    nr_ice_candidate *cand=cb_arg;
 
     r_log(LOG_ICE,LOG_DEBUG,"ICE(%s)/CAND(%s): %s",cand->ctx->label,cand->label,__FUNCTION__);
 
@@ -950,7 +950,7 @@ static void nr_ice_srvrflx_stun_finished_cb(NR_SOCKET sock, int how, void *cb_ar
 static void nr_ice_turn_allocated_cb(NR_SOCKET s, int how, void *cb_arg)
   {
     int r,_status;
-    nr_ice_candidate *cand=(nr_ice_candidate*)cb_arg;
+    nr_ice_candidate *cand=cb_arg;
     nr_turn_client_ctx *turn=cand->u.relayed.turn;
     char *label;
     nr_transport_addr relay_addr;
