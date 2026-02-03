@@ -677,6 +677,13 @@ struct arena_t {
 
   arena_chunk_t* DallocRun(arena_run_t* aRun, bool aDirty) MOZ_REQUIRES(mLock);
 
+#ifndef MALLOC_DECOMMIT
+  // Mark an madvised page as dirty, this is required when a allocating a
+  // neighbouring page that is part of the same real page.
+  void TouchMadvisedPage(arena_chunk_t* aChunk, size_t aPage)
+      MOZ_REQUIRES(mLock);
+#endif
+
   [[nodiscard]] bool SplitRun(arena_run_t* aRun, size_t aSize, bool aLarge,
                               bool aZero) MOZ_REQUIRES(mLock);
 
@@ -1478,6 +1485,31 @@ static inline void arena_run_reg_dalloc(arena_run_t* run, arena_bin_t* bin,
   run->mRegionsMask[elm] |= (1U << bit);
 }
 
+#ifndef MALLOC_DECOMMIT
+void arena_t::TouchMadvisedPage(arena_chunk_t* aChunk, size_t page) {
+  // It should be MADVISED because it's part of the same real page.
+  MOZ_ASSERT(aChunk->mPageMap[page].bits & CHUNK_MAP_MADVISED);
+
+  // But it must not have the other flags.
+  MOZ_ASSERT((aChunk->mPageMap[page].bits &
+              (CHUNK_MAP_FRESH | CHUNK_MAP_DECOMMITTED | CHUNK_MAP_DIRTY)) ==
+             0);
+
+  // Clear MADVISED and set DIRTY.  It's dirty since it may still contain
+  // data from a previous use.
+  aChunk->mPageMap[page].bits =
+      (aChunk->mPageMap[page].bits & ~CHUNK_MAP_MADVISED) | CHUNK_MAP_DIRTY;
+
+  // Although this increases the number of dirty pages in the chunk, we
+  // don't add it to the purge list because these pages can't be purged.
+  // DallocRun will add it later.
+  aChunk->mNumDirty++;
+  mNumDirty++;
+  mStats.committed++;
+  mNumMAdvised--;
+}
+#endif
+
 bool arena_t::SplitRun(arena_run_t* aRun, size_t aSize, bool aLarge,
                        bool aZero) {
   arena_chunk_t* chunk = GetChunkForPtr(aRun);
@@ -1575,6 +1607,12 @@ bool arena_t::SplitRun(arena_run_t* aRun, size_t aSize, bool aLarge,
     chunk->mDirtyRunHint = run_ind + need_pages;
   }
 
+#ifndef MALLOC_DECOMMIT
+  bool first_page_was_madvised =
+      chunk->mPageMap[run_ind].bits & CHUNK_MAP_MADVISED;
+  bool last_page_was_madvised =
+      chunk->mPageMap[run_ind + need_pages - 1].bits & CHUNK_MAP_MADVISED;
+#endif
   for (size_t i = 0; i < need_pages; i++) {
     // Zero if necessary.
     if (aZero) {
@@ -1609,6 +1647,34 @@ bool arena_t::SplitRun(arena_run_t* aRun, size_t aSize, bool aLarge,
       chunk->mPageMap[run_ind + i].bits = size_t(aRun) | CHUNK_MAP_ALLOCATED;
     }
   }
+
+#ifndef MALLOC_DECOMMIT
+  // Remove the MADVISED bit from leading and trailing pages that are part of
+  // the same real pages that we've touched.  This may cross into other free
+  // runs, including busy runs.  This is safe because real page boundaries are
+  // not crossed by either this code or the purging code.
+  if (first_page_was_madvised) {
+    for (size_t i = run_ind - 1;
+         (i & (gPagesPerRealPage - 1)) != (gPagesPerRealPage - 1); i--) {
+      // This loop will never go beyond into the chunk header or touch the guard
+      // page because the guard page is always aligned.
+      MOZ_ASSERT(gChunkHeaderNumPages <= i);
+
+      TouchMadvisedPage(chunk, i);
+    }
+  }
+
+  if (last_page_was_madvised) {
+    for (size_t i = run_ind + need_pages; (i & (gPagesPerRealPage - 1)) != 0;
+         i++) {
+      // This loop will never go beyond the end of the chunk or touch the guard
+      // page because the guard page is always aligned.
+      MOZ_ASSERT(i < gChunkNumPages - gPagesPerRealPage);
+
+      TouchMadvisedPage(chunk, i);
+    }
+  }
+#endif
 
   // Set the run size only in the first element for large runs.  This is
   // primarily a debugging aid, since the lack of size info for trailing
