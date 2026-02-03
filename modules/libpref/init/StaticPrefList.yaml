@@ -7875,7 +7875,7 @@
 - name: gfx.webrender.dcomp-texture-overlay-win
   type: bool
 #if defined(XP_WIN)
-  value: @IS_EARLY_BETA_OR_EARLIER@
+  value: true
 #else
   value: false
 #endif
