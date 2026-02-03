@@ -341,7 +341,7 @@ RefPtr<WebRenderAPI::CreatePromise> WebRenderAPI::Create(
 
         // Kick off shader warmup, outside this Create task so that any threads
         // which block on the WebRenderAPI work can proceed immediately.
-        aRenderThread.BeginShaderWarmupIfNeeded();
+        renderThread->BeginShaderWarmupIfNeeded();
 
         RefPtr<WebRenderAPI> api = new WebRenderAPI(
             docHandle, aWindowId, backend, compositorType, maxTextureSize,
