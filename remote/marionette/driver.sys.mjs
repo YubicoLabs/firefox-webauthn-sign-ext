@@ -56,15 +56,12 @@ ChromeUtils.defineESModuleGetters(lazy, {
   WebDriverSession: "chrome://remote/content/shared/webdriver/Session.sys.mjs",
   WebElement: "chrome://remote/content/marionette/web-reference.sys.mjs",
   windowManager: "chrome://remote/content/shared/WindowManager.sys.mjs",
+  WindowState: "chrome://remote/content/shared/WindowManager.sys.mjs",
 });
 
 ChromeUtils.defineLazyGetter(lazy, "logger", () =>
   lazy.Log.get(lazy.Log.TYPES.MARIONETTE)
 );
-
-/**
- * @typedef {import("chrome://remote/content/shared/WindowManager.sys.mjs").WindowRect} WindowRect
- */
 
 const XUL_NS = "http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul";
 
@@ -1440,8 +1437,9 @@ GeckoDriver.prototype.getWindowHandles = function () {
  * window outerWidth and outerHeight values, which include scroll bars,
  * title bars, etc.
  *
- * @returns {Promise<WindowRect>}
- *     A promise that resolves to the window rect.
+ * @returns {Record<string, number>}
+ *     Object with |x| and |y| coordinates, and |width| and |height|
+ *     of browser window.
  *
  * @throws {NoSuchWindowError}
  *     Top-level browsing context has been discarded.
@@ -1452,11 +1450,12 @@ GeckoDriver.prototype.getWindowRect = async function () {
   lazy.assert.open(this.getBrowsingContext({ top: true }));
   await this._handleUserPrompts();
 
-  return lazy.windowManager.getWindowRect(this.getCurrentWindow());
+  return this.curBrowser.rect;
 };
 
 /**
- * Set the window position and size on the operating system window manager.
+ * Set the window position and size of the browser on the operating
+ * system window manager.
  *
  * The supplied `width` and `height` values refer to the window `outerWidth`
  * and `outerHeight` values, which include browser chrome and OS-level
@@ -1464,17 +1463,19 @@ GeckoDriver.prototype.getWindowRect = async function () {
  *
  * @param {object} cmd
  * @param {number} cmd.parameters.x
- *     X coordinate of the top/left of the window that it will be moved to.
+ *     X coordinate of the top/left of the window that it will be
+ *     moved to.
  * @param {number} cmd.parameters.y
- *     Y coordinate of the top/left of the window that it will be moved to.
+ *     Y coordinate of the top/left of the window that it will be
+ *     moved to.
  * @param {number} cmd.parameters.width
  *     Width to resize the window to.
  * @param {number} cmd.parameters.height
  *     Height to resize the window to.
  *
- * @returns {WindowRect<string, number>}
- *     A promise that resolves to the window rect when the window
- *     geometry has been adjusted.
+ * @returns {Record<string, number>}
+ *     Object with `x` and `y` coordinates and `width` and `height`
+ *     dimensions.
  *
  * @throws {NoSuchWindowError}
  *     Top-level browsing context has been discarded.
@@ -1484,10 +1485,9 @@ GeckoDriver.prototype.getWindowRect = async function () {
  *     Not applicable to application.
  */
 GeckoDriver.prototype.setWindowRect = async function (cmd) {
+  lazy.assert.desktop();
   lazy.assert.open(this.getBrowsingContext({ top: true }));
   await this._handleUserPrompts();
-
-  lazy.assert.desktop();
 
   const { x = null, y = null, width = null, height = null } = cmd.parameters;
   if (x !== null) {
@@ -1515,13 +1515,21 @@ GeckoDriver.prototype.setWindowRect = async function (cmd) {
     );
   }
 
-  return lazy.windowManager.adjustWindowGeometry(
-    this.getCurrentWindow(),
-    x,
-    y,
-    width,
-    height
-  );
+  const win = this.getCurrentWindow();
+  switch (lazy.WindowState.from(win.windowState)) {
+    case lazy.WindowState.Fullscreen:
+      await lazy.windowManager.setFullscreen(win, false);
+      break;
+
+    case lazy.WindowState.Maximized:
+    case lazy.WindowState.Minimized:
+      await lazy.windowManager.restoreWindow(win);
+      break;
+  }
+
+  await lazy.windowManager.adjustWindowGeometry(win, x, y, width, height);
+
+  return this.curBrowser.rect;
 };
 
 /**
@@ -3085,60 +3093,15 @@ GeckoDriver.prototype.setScreenOrientation = async function (cmd) {
 };
 
 /**
- * Sets the window to full screen as if the user had done "View > Enter Full Screen".
+ * Synchronously minimizes the user agent window as if the user pressed
+ * the minimize button.
  *
- * Not supported on Android.
+ * No action is taken if the window is already minimized.
  *
- * @returns {Promise<WindowRect>}
- *     A promise that resolves to the window rect when the window is fullscreen.
+ * Not supported on Fennec.
  *
- * @throws {NoSuchWindowError}
- *     Top-level browsing context has been discarded.
- * @throws {UnexpectedAlertOpenError}
- *     A modal dialog is open, blocking this operation.
- * @throws {UnsupportedOperationError}
- *     Not available for current application.
- */
-GeckoDriver.prototype.fullscreenWindow = async function () {
-  lazy.assert.open(this.getBrowsingContext({ top: true }));
-  await this._handleUserPrompts();
-
-  lazy.assert.desktop();
-
-  return lazy.windowManager.fullscreenWindow(this.getCurrentWindow());
-};
-
-/**
- * Maximizes the window as if the user pressed the maximize button.
- *
- * Not supported on Android.
- *
- * @returns {Promise<WindowRect>}
- *     A promise that resolves to the window rect when the window is maximized.
- *
- * @throws {NoSuchWindowError}
- *     Top-level browsing context has been discarded.
- * @throws {UnexpectedAlertOpenError}
- *     A modal dialog is open, blocking this operation.
- * @throws {UnsupportedOperationError}
- *     Not available for current application.
- */
-GeckoDriver.prototype.maximizeWindow = async function () {
-  lazy.assert.open(this.getBrowsingContext({ top: true }));
-  await this._handleUserPrompts();
-
-  lazy.assert.desktop();
-
-  return lazy.windowManager.maximizeWindow(this.getCurrentWindow());
-};
-
-/**
- * Minimizes the window as if the user pressed the minimize button.
- *
- * Not supported on Android.
- *
- * @returns {Promise<WindowRect>}
- *     A promise that resolves to the window rect when the window is minimized.
+ * @returns {Record<string, number>}
+ *     Window rect and window state.
  *
  * @throws {NoSuchWindowError}
  *     Top-level browsing context has been discarded.
@@ -3148,12 +3111,99 @@ GeckoDriver.prototype.maximizeWindow = async function () {
  *     Not available for current application.
  */
 GeckoDriver.prototype.minimizeWindow = async function () {
+  lazy.assert.desktop();
   lazy.assert.open(this.getBrowsingContext({ top: true }));
   await this._handleUserPrompts();
 
-  lazy.assert.desktop();
+  const win = this.getCurrentWindow();
+  switch (lazy.WindowState.from(win.windowState)) {
+    case lazy.WindowState.Fullscreen:
+      await lazy.windowManager.setFullscreen(win, false);
+      break;
 
-  return lazy.windowManager.minimizeWindow(this.getCurrentWindow());
+    case lazy.WindowState.Maximized:
+      await lazy.windowManager.restoreWindow(win);
+      break;
+  }
+
+  await lazy.windowManager.minimizeWindow(win);
+
+  return this.curBrowser.rect;
+};
+
+/**
+ * Synchronously maximizes the user agent window as if the user pressed
+ * the maximize button.
+ *
+ * No action is taken if the window is already maximized.
+ *
+ * Not supported on Fennec.
+ *
+ * @returns {Record<string, number>}
+ *     Window rect.
+ *
+ * @throws {NoSuchWindowError}
+ *     Top-level browsing context has been discarded.
+ * @throws {UnexpectedAlertOpenError}
+ *     A modal dialog is open, blocking this operation.
+ * @throws {UnsupportedOperationError}
+ *     Not available for current application.
+ */
+GeckoDriver.prototype.maximizeWindow = async function () {
+  lazy.assert.desktop();
+  lazy.assert.open(this.getBrowsingContext({ top: true }));
+  await this._handleUserPrompts();
+
+  const win = this.getCurrentWindow();
+  switch (lazy.WindowState.from(win.windowState)) {
+    case lazy.WindowState.Fullscreen:
+      await lazy.windowManager.setFullscreen(win, false);
+      break;
+
+    case lazy.WindowState.Minimized:
+      await lazy.windowManager.restoreWindow(win);
+      break;
+  }
+
+  await lazy.windowManager.maximizeWindow(win);
+
+  return this.curBrowser.rect;
+};
+
+/**
+ * Synchronously sets the user agent window to full screen as if the user
+ * had done "View > Enter Full Screen".
+ *
+ * No action is taken if the window is already in full screen mode.
+ *
+ * Not supported on Fennec.
+ *
+ * @returns {Map.<string, number>}
+ *     Window rect.
+ *
+ * @throws {NoSuchWindowError}
+ *     Top-level browsing context has been discarded.
+ * @throws {UnexpectedAlertOpenError}
+ *     A modal dialog is open, blocking this operation.
+ * @throws {UnsupportedOperationError}
+ *     Not available for current application.
+ */
+GeckoDriver.prototype.fullscreenWindow = async function () {
+  lazy.assert.desktop();
+  lazy.assert.open(this.getBrowsingContext({ top: true }));
+  await this._handleUserPrompts();
+
+  const win = this.getCurrentWindow();
+  switch (lazy.WindowState.from(win.windowState)) {
+    case lazy.WindowState.Maximized:
+    case lazy.WindowState.Minimized:
+      await lazy.windowManager.restoreWindow(win);
+      break;
+  }
+
+  await lazy.windowManager.setFullscreen(win, true);
+
+  return this.curBrowser.rect;
 };
 
 /**
