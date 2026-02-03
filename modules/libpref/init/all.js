@@ -3099,12 +3099,14 @@ pref("network.tcp.keepalive.idle_time", 600); // seconds; 10 mins
 
 // All the Geolocation preferences are here.
 //
-pref("geo.provider.network.url", "https://www.googleapis.com/geolocation/v1/geolocate?key=%GOOGLE_LOCATION_SERVICE_API_KEY%&solution_channel=%OS%");
+#ifndef ANDROID
+  pref("geo.provider.network.url", "https://www.googleapis.com/geolocation/v1/geolocate?key=%GOOGLE_LOCATION_SERVICE_API_KEY%&solution_channel=%OS%");
 
-// Timeout to wait before sending the location request.
-pref("geo.provider.network.timeToWaitBeforeSending", 5000);
-// Timeout for outbound network geolocation provider.
-pref("geo.provider.network.timeout", 60000);
+  // Timeout to wait before sending the location request.
+  pref("geo.provider.network.timeToWaitBeforeSending", 5000);
+  // Timeout for outbound network geolocation provider.
+  pref("geo.provider.network.timeout", 60000);
+#endif
 
 #ifdef XP_MACOSX
   pref("geo.provider.use_corelocation", true);
