@@ -114,13 +114,13 @@ export class UserCharacteristicsCanvasRenderingChild extends JSWindowActorChild 
       const result = await runRecipe(false, recipe);
       if (result.error) {
         errors.push({
-          name: name + "software",
+          name: name + "Software",
           error: result.error,
           originalError: result.originalError,
         });
         continue;
       }
-      renderings.set(name + "software", result);
+      renderings.set(name + "Software", result);
     }
 
     const data = new Map();
