@@ -52,7 +52,7 @@ nr_stun_message_create(nr_stun_message **msg)
     int _status;
     nr_stun_message *m = 0;
 
-    m = R_NEW(nr_stun_message);
+    m = RCALLOC(sizeof(*m));
     if (!m)
         ABORT(R_NO_MEMORY);
 
@@ -118,7 +118,7 @@ nr_stun_message_attribute_create(nr_stun_message *msg, nr_stun_message_attribute
     int _status;
     nr_stun_message_attribute *a = 0;
 
-    a = R_NEW(nr_stun_message_attribute);
+    a = RCALLOC(sizeof(*a));
     if (!a)
         ABORT(R_NO_MEMORY);
 

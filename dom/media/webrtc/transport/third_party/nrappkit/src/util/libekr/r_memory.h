@@ -49,16 +49,8 @@ char *r_strdup(const char *str);
 #define RMALLOC(a) malloc(a)
 #endif
 
-#ifndef RCALLOC_RAWSIZE
-#define RCALLOC_RAWSIZE(a) calloc(1,a)
-#endif
-
-#ifndef R_NEW
-#define R_NEW(type) (type*)calloc(1,sizeof(type))
-#endif
-
-#ifndef R_NEW_CNT
-#define R_NEW_CNT(type,cnt) (type*)calloc(cnt,sizeof(type))
+#ifndef RCALLOC
+#define RCALLOC(a) calloc(1,a)
 #endif
 
 #ifndef RFREE
@@ -81,16 +73,8 @@ void r_free   (void *ptr);
 #define RMALLOC(a) r_malloc(R_MALLOC_TYPE,a)
 #endif
 
-#ifndef RCALLOC_RAWSIZE
-#define RCALLOC_RAWSIZE(a) r_calloc(R_MALLOC_TYPE,1,a)
-#endif
-
-#ifndef R_NEW
-#define R_NEW(type) (type*)r_calloc(R_MALLOC_TYPE,1,sizeof(type))
-#endif
-
-#ifndef R_NEW_CNT
-#define R_NEW_CNT(type,cnt) (type*)r_calloc(R_MALLOC_TYPE,cnt,sizeof(type))
+#ifndef RCALLOC
+#define RCALLOC(a) r_calloc(R_MALLOC_TYPE,1,a)
 #endif
 
 #ifndef RFREE
