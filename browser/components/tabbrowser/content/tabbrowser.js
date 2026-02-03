@@ -3471,7 +3471,7 @@
       for (const tab of tabs) {
         this.tabpanels.setSplitViewPanelActive(isActive, tab.linkedPanel);
       }
-      this.tabpanels.isSplitViewActive = gBrowser.selectedTab.splitview;
+      this.tabpanels.setSplitViewActive(!!gBrowser.selectedTab.splitview);
     }
 
     /**
