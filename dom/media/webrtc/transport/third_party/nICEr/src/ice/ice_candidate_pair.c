@@ -70,6 +70,7 @@ int nr_ice_candidate_pair_create(nr_ice_peer_ctx *pctx, nr_ice_candidate *lcand,
     UINT4 RTO;
     nr_ice_candidate tmpcand;
     UINT8 t_priority;
+    int flags = 0;
 
     if(!(pair=R_NEW(nr_ice_cand_pair)))
       ABORT(R_NO_MEMORY);
@@ -129,7 +130,7 @@ int nr_ice_candidate_pair_create(nr_ice_peer_ctx *pctx, nr_ice_candidate *lcand,
       ABORT(r);
     t_priority = tmpcand.priority;
 
-    int flags = NR_STUN_TRANSPORT_ADDR_CHECK_WILDCARD;
+    flags = NR_STUN_TRANSPORT_ADDR_CHECK_WILDCARD;
     if (!(pctx->ctx->flags & NR_ICE_CTX_FLAGS_ALLOW_LOOPBACK)) {
       flags |= NR_STUN_TRANSPORT_ADDR_CHECK_LOOPBACK;
     }
