@@ -516,7 +516,7 @@
   _(JSGC_STORE_BUFFER_ENTRIES, size_t, storeBufferEntries, ConvertSize,        \
     CheckNonZero, 16384)                                                       \
   _(JSGC_STORE_BUFFER_SCALING, double, storeBufferScaling, ConvertTimes100,    \
-    NoCheck, 0.25)
+    CheckNonZeroUnitRange, 0.25)
 
 namespace js {
 
