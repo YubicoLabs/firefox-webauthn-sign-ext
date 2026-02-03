@@ -38,6 +38,17 @@ else:
     system_encoding = "utf-8"
 
 
+def sanitize_shell_env(env):
+    """Return a copy of env with SHELLOPTS removed for bash subprocess calls.
+
+    SHELLOPTS being exported can cause various problems in subprocess shell
+    execution, so we remove it entirely to prevent unexpected behavior.
+    """
+    env = dict(env)
+    env.pop("SHELLOPTS", None)
+    return env
+
+
 LOG_TIMESTAMP_FORMAT = "%Y%m%d_%H%M%S"
 
 
