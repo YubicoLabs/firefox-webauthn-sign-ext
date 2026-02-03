@@ -10688,6 +10688,13 @@
   value: true
   mirror: always
 
+# Is support for CSS text-box property enabled?
+# https://drafts.csswg.org/css-inline-3/#text-box-shorthand
+- name: layout.css.text-box.enabled
+  type: bool
+  value: false
+  mirror: always
+
 # Maximum number of lines to try balancing.
 - name: layout.css.text-wrap-balance.limit
   type: int32_t
