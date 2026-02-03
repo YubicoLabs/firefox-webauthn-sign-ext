@@ -224,12 +224,12 @@ UNKNOWN_GROUP_NAME = (
 )
 
 V2_ROUTE_TEMPLATES = [
-    "index.{trust-domain}.v2.{project}.latest.{product}.{job-name}",
-    "index.{trust-domain}.v2.{project}.pushdate.{build_date_long}.{product}.{job-name}",
-    "index.{trust-domain}.v2.{project}.pushdate.{build_date}.latest.{product}.{job-name}",
-    "index.{trust-domain}.v2.{project}.pushlog-id.{pushlog_id}.{product}.{job-name}",
-    "index.{trust-domain}.v2.{project}.revision.{branch_rev}.{product}.{job-name}",
-    "index.{trust-domain}.v2.{project}.revision.{branch_git_rev}.{product}.{job-name}",
+    "index.{trust-domain}.v2.{project}{head_ref}.latest.{product}.{job-name}",
+    "index.{trust-domain}.v2.{project}{head_ref}.pushdate.{build_date_long}.{product}.{job-name}",
+    "index.{trust-domain}.v2.{project}{head_ref}.pushdate.{build_date}.latest.{product}.{job-name}",
+    "index.{trust-domain}.v2.{project}{head_ref}.pushlog-id.{pushlog_id}.{product}.{job-name}",
+    "index.{trust-domain}.v2.{project}{head_ref}.revision.{branch_rev}.{product}.{job-name}",
+    "index.{trust-domain}.v2.{project}{head_ref}.revision.{branch_git_rev}.{product}.{job-name}",
 ]
 
 # {central, inbound, autoland} write to a "trunk" index prefix. This facilitates
@@ -239,30 +239,30 @@ V2_TRUNK_ROUTE_TEMPLATES = [
 ]
 
 V2_SHIPPABLE_TEMPLATES = [
-    "index.{trust-domain}.v2.{project}.shippable.latest.{product}.{job-name}",
-    "index.{trust-domain}.v2.{project}.shippable.{build_date}.revision.{branch_rev}.{product}.{job-name}",  # noqa - too long
-    "index.{trust-domain}.v2.{project}.shippable.{build_date}.latest.{product}.{job-name}",
-    "index.{trust-domain}.v2.{project}.shippable.revision.{branch_rev}.{product}.{job-name}",
-    "index.{trust-domain}.v2.{project}.shippable.revision.{branch_git_rev}.{product}.{job-name}",
+    "index.{trust-domain}.v2.{project}{head_ref}.shippable.latest.{product}.{job-name}",
+    "index.{trust-domain}.v2.{project}{head_ref}.shippable.{build_date}.revision.{branch_rev}.{product}.{job-name}",  # noqa - too long
+    "index.{trust-domain}.v2.{project}{head_ref}.shippable.{build_date}.latest.{product}.{job-name}",
+    "index.{trust-domain}.v2.{project}{head_ref}.shippable.revision.{branch_rev}.{product}.{job-name}",
+    "index.{trust-domain}.v2.{project}{head_ref}.shippable.revision.{branch_git_rev}.{product}.{job-name}",
 ]
 
 V2_SHIPPABLE_L10N_TEMPLATES = [
-    "index.{trust-domain}.v2.{project}.shippable.latest.{product}-l10n.{job-name}.{locale}",
-    "index.{trust-domain}.v2.{project}.shippable.{build_date}.revision.{branch_rev}.{product}-l10n.{job-name}.{locale}",  # noqa - too long
-    "index.{trust-domain}.v2.{project}.shippable.{build_date}.latest.{product}-l10n.{job-name}.{locale}",  # noqa - too long
-    "index.{trust-domain}.v2.{project}.shippable.revision.{branch_rev}.{product}-l10n.{job-name}.{locale}",  # noqa - too long
+    "index.{trust-domain}.v2.{project}{head_ref}.shippable.latest.{product}-l10n.{job-name}.{locale}",
+    "index.{trust-domain}.v2.{project}{head_ref}.shippable.{build_date}.revision.{branch_rev}.{product}-l10n.{job-name}.{locale}",  # noqa - too long
+    "index.{trust-domain}.v2.{project}{head_ref}.shippable.{build_date}.latest.{product}-l10n.{job-name}.{locale}",  # noqa - too long
+    "index.{trust-domain}.v2.{project}{head_ref}.shippable.revision.{branch_rev}.{product}-l10n.{job-name}.{locale}",  # noqa - too long
 ]
 
 V2_L10N_TEMPLATES = [
-    "index.{trust-domain}.v2.{project}.revision.{branch_rev}.{product}-l10n.{job-name}.{locale}",
-    "index.{trust-domain}.v2.{project}.pushdate.{build_date_long}.{product}-l10n.{job-name}.{locale}",  # noqa - too long
-    "index.{trust-domain}.v2.{project}.pushlog-id.{pushlog_id}.{product}-l10n.{job-name}.{locale}",
-    "index.{trust-domain}.v2.{project}.latest.{product}-l10n.{job-name}.{locale}",
+    "index.{trust-domain}.v2.{project}{head_ref}.revision.{branch_rev}.{product}-l10n.{job-name}.{locale}",
+    "index.{trust-domain}.v2.{project}{head_ref}.pushdate.{build_date_long}.{product}-l10n.{job-name}.{locale}",  # noqa - too long
+    "index.{trust-domain}.v2.{project}{head_ref}.pushlog-id.{pushlog_id}.{product}-l10n.{job-name}.{locale}",
+    "index.{trust-domain}.v2.{project}{head_ref}.latest.{product}-l10n.{job-name}.{locale}",
 ]
 
 # This index is specifically for builds that include geckoview releases,
 # so we can hard-code the project to "geckoview"
-V2_GECKOVIEW_RELEASE = "index.{trust-domain}.v2.{project}.geckoview-version.{geckoview-version}.{product}.{job-name}"  # noqa - too long
+V2_GECKOVIEW_RELEASE = "index.{trust-domain}.v2.{project}{head_ref}.geckoview-version.{geckoview-version}.{product}.{job-name}"  # noqa - too long
 
 # the roots of the treeherder routes
 TREEHERDER_ROUTE_ROOT = "tc-treeherder"
@@ -292,6 +292,30 @@ def get_project_alias(config):
     if config.params["tasks_for"].startswith("github-pull-request"):
         return f"{config.params['project']}-pr"
     return config.params["project"]
+
+
+def get_head_ref(config):
+    if config.params["repository_type"] == "hg":
+        return ""
+
+    if config.params["tasks_for"].startswith("github-pull-request"):
+        return ""
+
+    head_ref = config.params["head_ref"]
+    head_prefix = "refs/heads"
+    if head_ref.startswith(head_prefix):
+        head_ref = head_ref[len(head_prefix) + 1 :]
+        return f".branch.{head_ref}"
+
+    tag_prefix = "refs/tags"
+    if head_ref.startswith(tag_prefix):
+        head_ref = head_ref[len(tag_prefix) + 1 :]
+        return f".tag.{head_ref}"
+
+    # Unable to determine whether it's a branch or a tag, just put it in a
+    # 'ref' namespace.
+    # TODO We should probably enforce passing 'head_ref' with a prefix.
+    return f".ref.{head_ref}"
 
 
 @memoize
@@ -1871,6 +1895,7 @@ def add_generic_index_routes(config, task):
         pass
 
     subs["project"] = get_project_alias(config)
+    subs["head_ref"] = get_head_ref(config)
 
     project = config.params.get("project")
 
@@ -1913,6 +1938,7 @@ def add_shippable_index_routes(config, task):
     except KeyError:
         pass
     subs["project"] = get_project_alias(config)
+    subs["head_ref"] = get_head_ref(config)
 
     for tpl in V2_SHIPPABLE_TEMPLATES:
         try:
@@ -1950,6 +1976,7 @@ def add_l10n_index_routes(config, task, force_locale=None):
     subs["trust-domain"] = config.graph_config["trust-domain"]
     subs["branch_rev"] = get_branch_rev(config)
     subs["project"] = get_project_alias(config)
+    subs["head_ref"] = get_head_ref(config)
 
     locales = task["attributes"].get(
         "chunk_locales", task["attributes"].get("all_locales")
@@ -1993,6 +2020,7 @@ def add_shippable_l10n_index_routes(config, task, force_locale=None):
     subs["trust-domain"] = config.graph_config["trust-domain"]
     subs["branch_rev"] = get_branch_rev(config)
     subs["project"] = get_project_alias(config)
+    subs["head_ref"] = get_head_ref(config)
 
     locales = task["attributes"].get(
         "chunk_locales", task["attributes"].get("all_locales")
@@ -2029,6 +2057,7 @@ def add_geckoview_index_routes(config, task):
 
     subs = {
         "geckoview-version": geckoview_version,
+        "head_ref": get_head_ref(config),
         "job-name": index["job-name"],
         "product": index["product"],
         "project": get_project_alias(config),
