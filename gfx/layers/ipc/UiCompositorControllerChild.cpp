@@ -321,9 +321,6 @@ void UiCompositorControllerChild::SetCompositorSurfaceManager(
     java::CompositorSurfaceManager::Param aCompositorSurfaceManager) {
   MOZ_ASSERT(!mCompositorSurfaceManager,
              "SetCompositorSurfaceManager must only be called once.");
-  MOZ_ASSERT(mProcessToken != 0,
-             "SetCompositorSurfaceManager must only be called for GPU process "
-             "controllers.");
   mCompositorSurfaceManager = aCompositorSurfaceManager;
 };
 
