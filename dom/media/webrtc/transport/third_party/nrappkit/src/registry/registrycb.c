@@ -165,7 +165,7 @@ nr_reg_register_callback(NR_registry_name name, char action, void (*cb)(void *cb
         ABORT(R_NO_MEMORY);
     }
 
-    strncpy(info->name, name, sizeof(info->name));
+    (void)strlcpy(info->name, name, sizeof(info->name));
     info->action = action;
     info->cb = cb;
     info->cb_arg = cb_arg;
