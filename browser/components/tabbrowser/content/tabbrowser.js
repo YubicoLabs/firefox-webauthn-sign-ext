@@ -9338,6 +9338,13 @@
             PrivateBrowsingUtils.isWindowPrivate(window)
           );
           this.mBrowser.registeredOpenURI = aLocation;
+
+          // Record telemetry for URI loads in split view
+          if (this.mTab.splitview && aLocation.spec !== "about:opentabs") {
+            const index = this.mTab.splitview.tabs.indexOf(this.mTab);
+            const label = String(index + 1); // 0 -> "1" (LTR left), 1 -> "2" (LTR right)
+            Glean.splitview.uriCount[label].add(1);
+          }
         }
 
         if (this.mTab != gBrowser.selectedTab) {
