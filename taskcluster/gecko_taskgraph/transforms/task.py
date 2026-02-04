@@ -14,6 +14,7 @@ import os
 import re
 import time
 from pathlib import Path
+from urllib.parse import quote
 
 import taskgraph
 from mozbuild.util import memoize
@@ -294,7 +295,7 @@ def get_project_alias(config):
     return config.params["project"]
 
 
-def get_head_ref(config):
+def get_head_ref(config) -> str:
     if config.params["repository_type"] == "hg":
         return ""
 
@@ -302,20 +303,25 @@ def get_head_ref(config):
         return ""
 
     head_ref = config.params["head_ref"]
+
     head_prefix = "refs/heads"
-    if head_ref.startswith(head_prefix):
-        head_ref = head_ref[len(head_prefix) + 1 :]
-        return f".branch.{head_ref}"
-
     tag_prefix = "refs/tags"
-    if head_ref.startswith(tag_prefix):
-        head_ref = head_ref[len(tag_prefix) + 1 :]
-        return f".tag.{head_ref}"
 
-    # Unable to determine whether it's a branch or a tag, just put it in a
-    # 'ref' namespace.
-    # TODO We should probably enforce passing 'head_ref' with a prefix.
-    return f".ref.{head_ref}"
+    if head_ref.startswith(head_prefix):
+        head_ref = f".branch.{head_ref[len(head_prefix) + 1 :]}"
+
+    elif head_ref.startswith(tag_prefix):
+        head_ref = f".tag.{head_ref[len(tag_prefix) + 1 :]}"
+
+    else:
+        # Unable to determine whether it's a branch or a tag, just put it in a
+        # 'ref' namespace.
+        # TODO We should probably enforce passing 'head_ref' with a prefix.
+        head_ref = f".ref.{head_ref}"
+
+    # Ensure head_ref conforms to TC route schema. The `safe` flag ensures '/'
+    # is also quoted.
+    return quote(head_ref, safe="")
 
 
 @memoize
