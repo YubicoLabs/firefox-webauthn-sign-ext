@@ -19,7 +19,6 @@ import { Notifications } from "content-src/components/Notifications/Notification
 import { TopicSelection } from "content-src/components/DiscoveryStreamComponents/TopicSelection/TopicSelection";
 import { DownloadMobilePromoHighlight } from "../DiscoveryStreamComponents/FeatureHighlight/DownloadMobilePromoHighlight";
 import { WallpaperFeatureHighlight } from "../DiscoveryStreamComponents/FeatureHighlight/WallpaperFeatureHighlight";
-import { ActivationWindowMessage } from "../ActivationWindowMessage/ActivationWindowMessage";
 import { MessageWrapper } from "content-src/components/MessageWrapper/MessageWrapper";
 import { selectWeatherPlacement } from "../../lib/utils";
 
@@ -621,8 +620,7 @@ export class BaseContent extends React.PureComponent {
 
   shouldShowOMCHighlight(componentId) {
     const messageData = this.props.Messages?.messageData;
-    const isVisible = this.props.Messages?.isVisible;
-    if (!messageData || Object.keys(messageData).length === 0 || !isVisible) {
+    if (!messageData || Object.keys(messageData).length === 0) {
       return false;
     }
     return messageData?.content?.messageType === componentId;
@@ -920,14 +918,6 @@ export class BaseContent extends React.PureComponent {
             {/* Bug 1914055: Show logo regardless if search is enabled */}
             {!prefs.showSearch && !noSectionsEnabled && <Logo />}
             <div className={`body-wrapper${initialized ? " on" : ""}`}>
-              {this.shouldShowOMCHighlight("ActivationWindowMessage") && (
-                <MessageWrapper dispatch={this.props.dispatch}>
-                  <ActivationWindowMessage
-                    dispatch={this.props.dispatch}
-                    messageData={this.props.Messages.messageData}
-                  />
-                </MessageWrapper>
-              )}
               {isDiscoveryStream ? (
                 <ErrorBoundary className="borderless-error">
                   <DiscoveryStreamBase

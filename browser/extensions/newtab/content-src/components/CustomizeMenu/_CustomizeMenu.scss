@@ -83,9 +83,7 @@
 }
 
 .personalize-button:hover,
-.personalize-button:focus-visible,
-.personalize-button.activation-window-variant-a,
-.personalize-button.activation-window-variant-b {
+.personalize-button:focus-visible {
   > label {
     opacity: 1;
     margin-inline-end: var(--space-medium);
