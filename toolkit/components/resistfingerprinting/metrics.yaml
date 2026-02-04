@@ -1438,6 +1438,578 @@ characteristics:
     data_sensitivity:
       - technical
 
+  canvasdata1_raw:
+    type: text
+    description: >
+      Gzip-compressed, base64-encoded raw pixel data from canvasdata1 rendering
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1894958
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1900693
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    expires: never
+    data_sensitivity:
+      # Text metrics are _required_ to be web_activity or highly_sensitive, so even though this
+      # is more like 'technical' (per the Data Review), I'm marking highly sensitive.
+      - highly_sensitive
+
+  canvasdata1_software_raw:
+    type: text
+    description: >
+      Gzip-compressed, base64-encoded raw pixel data from canvasdata1 software rendering
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1894958
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1900693
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    expires: never
+    data_sensitivity:
+      # Text metrics are _required_ to be web_activity or highly_sensitive, so even though this
+      # is more like 'technical' (per the Data Review), I'm marking highly sensitive.
+      - highly_sensitive
+
+  canvasdata2_raw:
+    type: text
+    description: >
+      Gzip-compressed, base64-encoded raw pixel data from canvasdata2 rendering
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1894958
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1900693
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    expires: never
+    data_sensitivity:
+      # Text metrics are _required_ to be web_activity or highly_sensitive, so even though this
+      # is more like 'technical' (per the Data Review), I'm marking highly sensitive.
+      - highly_sensitive
+
+  canvasdata2_software_raw:
+    type: text
+    description: >
+      Gzip-compressed, base64-encoded raw pixel data from canvasdata2 software rendering
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1894958
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1900693
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    expires: never
+    data_sensitivity:
+      # Text metrics are _required_ to be web_activity or highly_sensitive, so even though this
+      # is more like 'technical' (per the Data Review), I'm marking highly sensitive.
+      - highly_sensitive
+
+  canvasdata3_raw:
+    type: text
+    description: >
+      Gzip-compressed, base64-encoded raw pixel data from canvasdata3 rendering
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1894958
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1900693
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    expires: never
+    data_sensitivity:
+      # Text metrics are _required_ to be web_activity or highly_sensitive, so even though this
+      # is more like 'technical' (per the Data Review), I'm marking highly sensitive.
+      - highly_sensitive
+
+  canvasdata3_software_raw:
+    type: text
+    description: >
+      Gzip-compressed, base64-encoded raw pixel data from canvasdata3 software rendering
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1894958
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1900693
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    expires: never
+    data_sensitivity:
+      # Text metrics are _required_ to be web_activity or highly_sensitive, so even though this
+      # is more like 'technical' (per the Data Review), I'm marking highly sensitive.
+      - highly_sensitive
+
+  canvasdata4_raw:
+    type: text
+    description: >
+      Gzip-compressed, base64-encoded raw pixel data from canvasdata4 rendering
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1894958
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1900693
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    expires: never
+    data_sensitivity:
+      # Text metrics are _required_ to be web_activity or highly_sensitive, so even though this
+      # is more like 'technical' (per the Data Review), I'm marking highly sensitive.
+      - highly_sensitive
+
+  canvasdata4_software_raw:
+    type: text
+    description: >
+      Gzip-compressed, base64-encoded raw pixel data from canvasdata4 software rendering
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1894958
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1900693
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    expires: never
+    data_sensitivity:
+      # Text metrics are _required_ to be web_activity or highly_sensitive, so even though this
+      # is more like 'technical' (per the Data Review), I'm marking highly sensitive.
+      - highly_sensitive
+
+  canvasdata5_raw:
+    type: text
+    description: >
+      Gzip-compressed, base64-encoded raw pixel data from canvasdata5 rendering
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1894958
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1900693
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    expires: never
+    data_sensitivity:
+      # Text metrics are _required_ to be web_activity or highly_sensitive, so even though this
+      # is more like 'technical' (per the Data Review), I'm marking highly sensitive.
+      - highly_sensitive
+
+  canvasdata5_software_raw:
+    type: text
+    description: >
+      Gzip-compressed, base64-encoded raw pixel data from canvasdata5 software rendering
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1894958
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1900693
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    expires: never
+    data_sensitivity:
+      # Text metrics are _required_ to be web_activity or highly_sensitive, so even though this
+      # is more like 'technical' (per the Data Review), I'm marking highly sensitive.
+      - highly_sensitive
+
+  canvasdata6_raw:
+    type: text
+    description: >
+      Gzip-compressed, base64-encoded raw pixel data from canvasdata6 rendering
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1894958
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1900693
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    expires: never
+    data_sensitivity:
+      # Text metrics are _required_ to be web_activity or highly_sensitive, so even though this
+      # is more like 'technical' (per the Data Review), I'm marking highly sensitive.
+      - highly_sensitive
+
+  canvasdata6_software_raw:
+    type: text
+    description: >
+      Gzip-compressed, base64-encoded raw pixel data from canvasdata6 software rendering
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1894958
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1900693
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    expires: never
+    data_sensitivity:
+      # Text metrics are _required_ to be web_activity or highly_sensitive, so even though this
+      # is more like 'technical' (per the Data Review), I'm marking highly sensitive.
+      - highly_sensitive
+
+  canvasdata7_raw:
+    type: text
+    description: >
+      Gzip-compressed, base64-encoded raw pixel data from canvasdata7 rendering
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1894958
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1900693
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    expires: never
+    data_sensitivity:
+      # Text metrics are _required_ to be web_activity or highly_sensitive, so even though this
+      # is more like 'technical' (per the Data Review), I'm marking highly sensitive.
+      - highly_sensitive
+
+  canvasdata7_software_raw:
+    type: text
+    description: >
+      Gzip-compressed, base64-encoded raw pixel data from canvasdata7 software rendering
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1894958
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1900693
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    expires: never
+    data_sensitivity:
+      # Text metrics are _required_ to be web_activity or highly_sensitive, so even though this
+      # is more like 'technical' (per the Data Review), I'm marking highly sensitive.
+      - highly_sensitive
+
+  canvasdata8_raw:
+    type: text
+    description: >
+      Gzip-compressed, base64-encoded raw pixel data from canvasdata8 rendering
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1894958
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1900693
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    expires: never
+    data_sensitivity:
+      # Text metrics are _required_ to be web_activity or highly_sensitive, so even though this
+      # is more like 'technical' (per the Data Review), I'm marking highly sensitive.
+      - highly_sensitive
+
+  canvasdata8_software_raw:
+    type: text
+    description: >
+      Gzip-compressed, base64-encoded raw pixel data from canvasdata8 software rendering
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1894958
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1900693
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    expires: never
+    data_sensitivity:
+      # Text metrics are _required_ to be web_activity or highly_sensitive, so even though this
+      # is more like 'technical' (per the Data Review), I'm marking highly sensitive.
+      - highly_sensitive
+
+  canvasdata9_raw:
+    type: text
+    description: >
+      Gzip-compressed, base64-encoded raw pixel data from canvasdata9 rendering
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1894958
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1900693
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    expires: never
+    data_sensitivity:
+      # Text metrics are _required_ to be web_activity or highly_sensitive, so even though this
+      # is more like 'technical' (per the Data Review), I'm marking highly sensitive.
+      - highly_sensitive
+
+  canvasdata9_software_raw:
+    type: text
+    description: >
+      Gzip-compressed, base64-encoded raw pixel data from canvasdata9 software rendering
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1894958
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1900693
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    expires: never
+    data_sensitivity:
+      # Text metrics are _required_ to be web_activity or highly_sensitive, so even though this
+      # is more like 'technical' (per the Data Review), I'm marking highly sensitive.
+      - highly_sensitive
+
+  canvasdata10_raw:
+    type: text
+    description: >
+      Gzip-compressed, base64-encoded raw pixel data from canvasdata10 rendering
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1894958
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1900693
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    expires: never
+    data_sensitivity:
+      # Text metrics are _required_ to be web_activity or highly_sensitive, so even though this
+      # is more like 'technical' (per the Data Review), I'm marking highly sensitive.
+      - highly_sensitive
+
+  canvasdata10_software_raw:
+    type: text
+    description: >
+      Gzip-compressed, base64-encoded raw pixel data from canvasdata10 software rendering
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1894958
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1900693
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    expires: never
+    data_sensitivity:
+      # Text metrics are _required_ to be web_activity or highly_sensitive, so even though this
+      # is more like 'technical' (per the Data Review), I'm marking highly sensitive.
+      - highly_sensitive
+
+  canvasdata11_webgl_raw:
+    type: text
+    description: >
+      Gzip-compressed, base64-encoded raw pixel data from canvasdata11_webgl rendering
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1894958
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1900693
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    expires: never
+    data_sensitivity:
+      # Text metrics are _required_ to be web_activity or highly_sensitive, so even though this
+      # is more like 'technical' (per the Data Review), I'm marking highly sensitive.
+      - highly_sensitive
+
+  canvasdata11_webgl_software_raw:
+    type: text
+    description: >
+      Gzip-compressed, base64-encoded raw pixel data from canvasdata11_webgl software rendering
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1894958
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1900693
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    expires: never
+    data_sensitivity:
+      # Text metrics are _required_ to be web_activity or highly_sensitive, so even though this
+      # is more like 'technical' (per the Data Review), I'm marking highly sensitive.
+      - highly_sensitive
+
+  canvasdata12_fingerprintjs1_raw:
+    type: text
+    description: >
+      Gzip-compressed, base64-encoded raw pixel data from canvasdata12_fingerprintjs1 rendering
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1894958
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1900693
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    expires: never
+    data_sensitivity:
+      # Text metrics are _required_ to be web_activity or highly_sensitive, so even though this
+      # is more like 'technical' (per the Data Review), I'm marking highly sensitive.
+      - highly_sensitive
+
+  canvasdata12_fingerprintjs1_software_raw:
+    type: text
+    description: >
+      Gzip-compressed, base64-encoded raw pixel data from canvasdata12_fingerprintjs1 software rendering
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1894958
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1900693
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    expires: never
+    data_sensitivity:
+      # Text metrics are _required_ to be web_activity or highly_sensitive, so even though this
+      # is more like 'technical' (per the Data Review), I'm marking highly sensitive.
+      - highly_sensitive
+
+  canvasdata13_fingerprintjs2_raw:
+    type: text
+    description: >
+      Gzip-compressed, base64-encoded raw pixel data from canvasdata13_fingerprintjs2 rendering
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1894958
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1900693
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    expires: never
+    data_sensitivity:
+      # Text metrics are _required_ to be web_activity or highly_sensitive, so even though this
+      # is more like 'technical' (per the Data Review), I'm marking highly sensitive.
+      - highly_sensitive
+
+  canvasdata13_fingerprintjs2_software_raw:
+    type: text
+    description: >
+      Gzip-compressed, base64-encoded raw pixel data from canvasdata13_fingerprintjs2 software rendering
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1894958
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1900693
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2005867
+    expires: never
+    data_sensitivity:
+      # Text metrics are _required_ to be web_activity or highly_sensitive, so even though this
+      # is more like 'technical' (per the Data Review), I'm marking highly sensitive.
+      - highly_sensitive
+
   canvas_dpr:
     type: string
     description: >
