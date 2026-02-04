@@ -232,13 +232,27 @@ export const AIWindow = {
       }
       aiWindowURI.data = initialURL;
       args.appendElement(aiWindowURI);
+    }
 
-      const aiOption = Cc["@mozilla.org/hash-property-bag;1"].createInstance(
+    let propBag;
+    try {
+      propBag = args.length > 1 && args.queryElementAt(1, Ci.nsIPropertyBag2);
+    } catch (e) {
+      console.error(
+        new Error(
+          "Tried to create AI window but property bag argument is wrong"
+        ),
+        propBag
+      );
+      return args;
+    }
+    if (!propBag) {
+      propBag = Cc["@mozilla.org/hash-property-bag;1"].createInstance(
         Ci.nsIWritablePropertyBag2
       );
-      aiOption.setPropertyAsBool("ai-window", aiWindow);
-      args.appendElement(aiOption);
+      args.appendElement(propBag);
     }
+    propBag.setPropertyAsBool("ai-window", true);
 
     return args;
   },
