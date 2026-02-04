@@ -57,6 +57,9 @@
 #if defined(MOZ_WIDGET_GTK)
 #  include "mozilla/widget/GtkCompositorWidget.h"
 #endif
+#ifdef MOZ_WIDGET_ANDROID
+#  include "mozilla/layers/AndroidHardwareBuffer.h"
+#endif
 
 bool is_in_main_thread() { return NS_IsMainThread(); }
 
@@ -1825,15 +1828,16 @@ void WebRenderBridgeParent::UpdateBoolParameters() {
 
 #if defined(MOZ_WIDGET_ANDROID)
 RefPtr<WebRenderBridgeParent::ScreenPixelsPromise>
-WebRenderBridgeParent::RequestScreenPixels(
-    UiCompositorControllerParent* aController) {
+WebRenderBridgeParent::RequestScreenPixels(gfx::IntRect aSourceRect,
+                                           gfx::IntSize aDestSize) {
   if (!IsRootWebRenderBridgeParent()) {
     return ScreenPixelsPromise::CreateAndReject(NS_ERROR_ILLEGAL_VALUE,
                                                 __func__);
   }
 
   mScreenPixelsRequest.emplace(ScreenPixelsRequest{
-      .mTarget = aController,
+      .mSourceRect = aSourceRect,
+      .mDestSize = aDestSize,
       .mPromise = new ScreenPixelsPromise::Private(__func__),
   });
   return mScreenPixelsRequest->mPromise;
@@ -1853,31 +1857,8 @@ void WebRenderBridgeParent::MaybeCaptureScreenPixels() {
   MOZ_ASSERT(cbp && !cbp->IsPaused());
 #  endif
 
-  SurfaceFormat format = SurfaceFormat::R8G8B8A8;  // On android we use RGBA8
-  auto size = mWidget->GetClientSize().ToUnknownSize();
-  size_t bufferSize = size.width * size.height * BytesPerPixel(format);
-
-  ipc::Shmem mem;
-  if (!request.mTarget->AllocShmem(bufferSize, &mem)) {
-    request.mPromise->Reject(NS_ERROR_OUT_OF_MEMORY, __func__);
-    return;
-  }
-
-  mLateInit->mApi
-      ->RequestScreenPixels(size, wr::ImageFormat::RGBA8, mem.Range<uint8_t>())
-      ->Then(
-          GetCurrentSerialEventTarget(), __func__,
-          [promise = request.mPromise, mem, size](bool aNeedsYFlip) {
-            promise->Resolve(
-                std::make_tuple(mem, ScreenIntSize::FromUnknownSize(size),
-                                aNeedsYFlip),
-                __func__);
-          },
-          [promise = request.mPromise, target = request.mTarget,
-           mem](nsresult aError) mutable {
-            target->DeallocShmem(mem);
-            promise->Reject(aError, __func__);
-          });
+  mLateInit->mApi->RequestScreenPixels(request.mSourceRect, request.mDestSize)
+      ->ChainTo(request.mPromise.forget(), __func__);
 }
 #endif
 

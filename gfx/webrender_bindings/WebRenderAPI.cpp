@@ -27,6 +27,10 @@
 
 #include "source-repo.h"
 
+#ifdef MOZ_WIDGET_ANDROID
+#  include "mozilla/layers/AndroidHardwareBuffer.h"
+#endif
+
 static mozilla::LazyLogModule sWrDLLog("wr.dl");
 #define WRDL_LOG(...) \
   MOZ_LOG(sWrDLLog, LogLevel::Debug, ("WRDL(%p): " __VA_ARGS__))
@@ -967,14 +971,14 @@ RefPtr<WebRenderAPI::EndRecordingPromise> WebRenderAPI::EndRecording() {
   return promise;
 }
 
+#ifdef MOZ_WIDGET_ANDROID
 RefPtr<WebRenderAPI::ScreenPixelsPromise> WebRenderAPI::RequestScreenPixels(
-    gfx::IntSize aSize, wr::ImageFormat aFormat, Span<uint8_t> aBuffer) {
+    gfx::IntRect aSourceRect, gfx::IntSize aDestSize) {
   class ScreenshotEvent final : public RendererEvent {
    public:
-    explicit ScreenshotEvent(gfx::IntSize aSize, wr::ImageFormat aFormat,
-                             Span<uint8_t> aBuffer,
+    explicit ScreenshotEvent(gfx::IntRect aSourceRect, gfx::IntSize aDestSize,
                              RefPtr<ScreenPixelsPromise::Private> aPromise)
-        : mSize(aSize), mFormat(aFormat), mBuffer(aBuffer), mPromise(aPromise) {
+        : mSourceRect(aSourceRect), mDestSize(aDestSize), mPromise(aPromise) {
       MOZ_COUNT_CTOR(ScreenshotEvent);
     }
 
@@ -985,25 +989,25 @@ RefPtr<WebRenderAPI::ScreenPixelsPromise> WebRenderAPI::RequestScreenPixels(
       if (!renderer) {
         mPromise->Reject(NS_ERROR_FAILURE, __func__);
       }
-      renderer->RequestScreenPixels(mSize, mFormat, mBuffer)
+      renderer->RequestScreenPixels(mSourceRect, mDestSize)
           ->ChainTo(mPromise.forget(), __func__);
     }
 
     const char* Name() override { return "ScreenshotEvent"; }
 
    private:
-    const gfx::IntSize mSize;
-    const wr::ImageFormat mFormat;
-    const Span<uint8_t> mBuffer;
+    const gfx::IntRect mSourceRect;
+    const gfx::IntSize mDestSize;
     RefPtr<ScreenPixelsPromise::Private> mPromise;
   };
 
   auto promise = MakeRefPtr<ScreenPixelsPromise::Private>(__func__);
-  auto event = MakeUnique<ScreenshotEvent>(aSize, aFormat, aBuffer, promise);
+  auto event = MakeUnique<ScreenshotEvent>(aSourceRect, aDestSize, promise);
 
   RenderThread::Get()->PostEvent(mId, std::move(event));
   return promise;
 }
+#endif
 
 void TransactionBuilder::Clear() { wr_resource_updates_clear(mTxn); }
 

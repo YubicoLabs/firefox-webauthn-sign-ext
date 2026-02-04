@@ -309,14 +309,13 @@ class WebRenderBridgeParent final : public PWebRenderBridgeParent,
   void BeginRecording(const TimeStamp& aRecordingStart);
 
 #if defined(MOZ_WIDGET_ANDROID)
-  // The bool value indicates whether the captured pixels need to be Y flipped.
   using ScreenPixelsPromise =
-      MozPromise<std::tuple<ipc::Shmem, ScreenIntSize, bool>, nsresult, true>;
+      MozPromise<RefPtr<layers::AndroidHardwareBuffer>, nsresult, true>;
   /**
    * Request a screengrab for android
    */
-  RefPtr<ScreenPixelsPromise> RequestScreenPixels(
-      UiCompositorControllerParent* aController);
+  RefPtr<ScreenPixelsPromise> RequestScreenPixels(gfx::IntRect aSourceRect,
+                                                  gfx::IntSize aDestSize);
 #endif
 
   /**
@@ -525,7 +524,8 @@ class WebRenderBridgeParent final : public PWebRenderBridgeParent,
 
 #if defined(MOZ_WIDGET_ANDROID)
   struct ScreenPixelsRequest {
-    RefPtr<UiCompositorControllerParent> mTarget;
+    gfx::IntRect mSourceRect;
+    gfx::IntSize mDestSize;
     RefPtr<ScreenPixelsPromise::Private> mPromise;
   };
   Maybe<ScreenPixelsRequest> mScreenPixelsRequest;
