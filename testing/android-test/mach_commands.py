@@ -21,19 +21,20 @@ def classname_for_test(test, test_path):
         .removeprefix(os.path.sep)
         .replace(os.path.sep, ".")
         .removesuffix(".kt")
+        .removesuffix(".java")
     )
 
 
-def project_for_ac(test, test_path):
+def project_for_ac(test, prefix, test_path):
     """Get project name for android-component subprojects from path of test file"""
     # Example:
     # test      = mobile/android/android-components/components/feature/addons/src/test/java/mozilla/components/feature/addons/ui/PermissionsDialogFragmentTest.kt
+    # prefix    = mobile/android/android-components/components
     # test_path = src/test/java
     # returns   = feature-addons
-    dir = os.path.normpath("mobile/android/android-components/components")
     return (
         os.path.normpath(test)
-        .split(os.path.normpath(dir))[-1]
+        .split(os.path.normpath(prefix))[-1]
         .split(os.path.normpath(test_path))[0]
         .removeprefix(os.path.sep)
         .removesuffix(os.path.sep)
@@ -70,6 +71,7 @@ def run_android_test(command_context, subproject, test=None, test_objects=[], **
         test_path = os.path.join(subdir, "app", "src", "test", "java")
     elif subproject in AC:
         subdir = os.path.join("mobile", "android", "android-components")
+        project_prefix = os.path.join(subdir, "components")
         if not test_objects and not test:
             return command_context._mach_context.commands.dispatch(
                 "gradle",
@@ -83,7 +85,7 @@ def run_android_test(command_context, subproject, test=None, test_objects=[], **
         if subproject in AC:
             gradle_command.append(
                 ":components:"
-                + project_for_ac(test_object["name"], test_path)
+                + project_for_ac(test_object["name"], project_prefix, test_path)
                 + ":testDebugUnitTest"
             )
         gradle_command.append("--tests")
@@ -91,7 +93,9 @@ def run_android_test(command_context, subproject, test=None, test_objects=[], **
     if test:
         if subproject in AC:
             gradle_command.append(
-                ":components:" + project_for_ac(test, test_path) + ":testDebugUnitTest"
+                ":components:"
+                + project_for_ac(test, project_prefix, test_path)
+                + ":testDebugUnitTest"
             )
         gradle_command.append("--tests")
         gradle_command.append(classname_for_test(test, test_path))
