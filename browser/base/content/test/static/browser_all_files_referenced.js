@@ -329,6 +329,10 @@ var allowlist = [
     file: "resource://app/modules/backup/CookiesBackupResource.sys.mjs",
   },
 
+  // Bug 2006433 - Implement conversation starter/followup inference
+  {
+    file: "moz-src:///browser/components/aiwindow/models/ConversationSuggestions.sys.mjs",
+  },
   // Bug 1996315: QR code generation modules
   {
     file: "moz-src:///browser/components/qrcode/QRCodeGenerator.sys.mjs",
