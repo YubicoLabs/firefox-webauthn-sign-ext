@@ -26,6 +26,9 @@ from .util.ssh import get_ssh_user
 here = pathlib.Path(__file__).parent
 build = MozbuildObject.from_environment(cwd=str(here))
 
+# Set from mach settings in mach_commands.init()
+SKIP_ARTIFACT_BUILD_CHECK = False
+
 
 class ParameterConfig:
     __metaclass__ = ABCMeta
@@ -107,6 +110,11 @@ class Artifact(TryConfig):
             return {"use-artifact-builds": True, "disable-pgo": True}
 
         if no_artifact:
+            return
+
+        # If 'try.noartifact' is set in mach settings, default to non-artifact
+        # try instead of checking current build environment.
+        if SKIP_ARTIFACT_BUILD_CHECK:
             return
 
         if self.is_artifact_build():
