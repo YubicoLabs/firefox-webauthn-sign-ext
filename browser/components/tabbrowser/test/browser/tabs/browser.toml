@@ -463,6 +463,8 @@ tags = "vertical-tabs"
 support-files = ["tab_that_opens_dialog.html"]
 tags = "vertical-tabs"
 
+["browser_replacewithwindow_splitview.js"]
+
 ["browser_restore_isAppTab.js"]
 run-if = [
   "crashreporter", # test requires crashreporter due to 1536221

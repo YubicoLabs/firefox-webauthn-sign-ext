@@ -6601,7 +6601,7 @@
       if (contextTab.multiselected) {
         tabs = this.selectedElements;
       } else {
-        tabs = [contextTab];
+        tabs = [contextTab.splitview ?? contextTab];
       }
 
       if (this.tabs.length == tabs.length) {
