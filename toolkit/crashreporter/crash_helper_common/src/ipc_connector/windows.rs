@@ -40,17 +40,16 @@ use windows_sys::Win32::{
 };
 
 pub type AncillaryData = OwnedHandle;
-pub type RawAncillaryData = HANDLE;
 
-// This must match `kInvalidHandle` in `mfbt/UniquePtrExt.h`
-const INVALID_ANCILLARY_DATA: RawAncillaryData = 0;
+pub const CONNECTOR_ANCILLARY_DATA_LEN: usize = 1;
 
+const INVALID_ANCILLARY_DATA: HANDLE = 0;
 const HANDLE_SIZE: usize = size_of::<HANDLE>();
 
 // We encode handles at the beginning of every transmitted message. This
 // function extracts the handle (if present) and returns it together with
 // the rest of the buffer.
-fn extract_buffer_and_handle(buffer: Vec<u8>) -> Result<(Vec<u8>, Option<OwnedHandle>), IPCError> {
+fn extract_buffer_and_handle(buffer: Vec<u8>) -> Result<(Vec<u8>, Vec<OwnedHandle>), IPCError> {
     let handle_bytes = &buffer[0..HANDLE_SIZE];
     let data = &buffer[HANDLE_SIZE..];
     let handle_bytes: Result<[u8; HANDLE_SIZE], _> = handle_bytes.try_into();
@@ -58,8 +57,8 @@ fn extract_buffer_and_handle(buffer: Vec<u8>) -> Result<(Vec<u8>, Option<OwnedHa
         return Err(IPCError::ParseError);
     };
     let handle = match HANDLE::from_ne_bytes(handle_bytes) {
-        INVALID_ANCILLARY_DATA => None,
-        handle => Some(unsafe { OwnedHandle::from_raw_handle(handle as RawHandle) }),
+        INVALID_ANCILLARY_DATA => vec![],
+        handle => vec![unsafe { OwnedHandle::from_raw_handle(handle as RawHandle) }],
     };
 
     Ok((data.to_vec(), handle))
@@ -83,7 +82,7 @@ pub struct IPCConnector {
 }
 
 impl IPCConnector {
-    pub fn from_ancillary(handle: OwnedHandle) -> Result<IPCConnector, IPCError> {
+    pub(crate) fn from_handle(handle: OwnedHandle) -> Result<IPCConnector, IPCError> {
         let event = create_manual_reset_event().map_err(IPCError::CreationFailure)?;
 
         Ok(IPCConnector {
@@ -99,10 +98,14 @@ impl IPCConnector {
     ///
     /// The `ancillary_data` argument must be a valid HANDLE representing the
     /// endpoint of a named pipe.
-    pub unsafe fn from_raw_ancillary(
-        ancillary_data: RawAncillaryData,
+    unsafe fn from_raw_handle(handle: HANDLE) -> Result<IPCConnector, IPCError> {
+        IPCConnector::from_handle(OwnedHandle::from_raw_handle(handle as RawHandle))
+    }
+
+    pub fn from_ancillary(
+        ancillary_data: [AncillaryData; CONNECTOR_ANCILLARY_DATA_LEN],
     ) -> Result<IPCConnector, IPCError> {
-        IPCConnector::from_ancillary(OwnedHandle::from_raw_handle(ancillary_data as RawHandle))
+        IPCConnector::from_handle(ancillary_data.into_iter().next().unwrap())
     }
 
     /// Create a connector from a raw connector structure holding a HANDLE.
@@ -113,7 +116,7 @@ impl IPCConnector {
     /// the `handle` field of this structure must be a valid HANDLE representing
     /// a connected pipe.
     pub unsafe fn from_raw_connector(connector: RawIPCConnector) -> Result<IPCConnector, IPCError> {
-        IPCConnector::from_raw_ancillary(connector.handle)
+        IPCConnector::from_raw_handle(connector.handle)
     }
 
     pub fn set_process(&mut self, process: OwnedHandle) {
@@ -203,7 +206,7 @@ impl IPCConnector {
         }
 
         // SAFETY: We've verified above that the pipe handle is valid
-        unsafe { IPCConnector::from_raw_ancillary(pipe) }
+        unsafe { IPCConnector::from_raw_handle(pipe) }
     }
 
     /// Serialize this connector into a string that can be passed on the
@@ -219,11 +222,13 @@ impl IPCConnector {
         let string = string.to_str().map_err(|_e| IPCError::ParseError)?;
         let handle = usize::from_str(string).map_err(|_e| IPCError::ParseError)?;
         // SAFETY: This is a handle we passed in ourselves.
-        unsafe { IPCConnector::from_raw_ancillary(handle as HANDLE) }
+        unsafe { IPCConnector::from_raw_handle(handle as HANDLE) }
     }
 
-    pub fn into_ancillary(self) -> AncillaryData {
-        Rc::try_unwrap(self.handle).expect("Multiple references to the underlying handle")
+    pub fn into_ancillary(self) -> [AncillaryData; CONNECTOR_ANCILLARY_DATA_LEN] {
+        let handle =
+            Rc::try_unwrap(self.handle).expect("Multiple references to the underlying handle");
+        [handle]
     }
 
     pub fn into_raw_connector(self) -> RawIPCConnector {
@@ -246,17 +251,17 @@ impl IPCConnector {
         T: Message,
     {
         let expected_payload_len = message.payload_size();
-        let expected_ancillary_data = message.has_ancillary_data();
+        let expected_ancillary_data_len = message.ancillary_data_len();
         let header = message.header();
-        let (payload, ancillary_data) = message.into_payload();
+        let (payload, mut ancillary_data) = message.into_payload();
         assert!(payload.len() == expected_payload_len);
-        assert!(ancillary_data.is_some() == expected_ancillary_data);
+        assert!(ancillary_data.len() == expected_ancillary_data_len);
 
         // Send the message header
         OverlappedOperation::send(&self.handle, self.event.as_handle(), header)?;
 
         // Send the message payload plus the optional handles
-        let handle = if let Some(handle) = ancillary_data {
+        let handle = if let Some(handle) = ancillary_data.pop() {
             self.clone_handle(handle)?
         } else {
             INVALID_ANCILLARY_DATA
@@ -294,7 +299,7 @@ impl IPCConnector {
     pub(crate) fn recv(
         &self,
         expected_size: usize,
-    ) -> Result<(Vec<u8>, Option<AncillaryData>), IPCError> {
+    ) -> Result<(Vec<u8>, Vec<AncillaryData>), IPCError> {
         let buffer = self
             .recv_buffer(HANDLE_SIZE + expected_size)
             .map_err(IPCError::ReceptionFailure)?;

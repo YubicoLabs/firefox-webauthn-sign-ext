@@ -83,7 +83,7 @@ impl IPCListener {
 
         // We can guarantee that there's only one reference to this handle at
         // this point in time.
-        Ok(IPCConnector::from_ancillary(
+        Ok(IPCConnector::from_handle(
             Rc::<OwnedHandle>::try_unwrap(connected_pipe).unwrap(),
         )?)
     }

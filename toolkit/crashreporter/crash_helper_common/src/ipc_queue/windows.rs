@@ -128,7 +128,7 @@ impl IPCQueue {
             }
         }
 
-        if self.connectors.len() == 0 {
+        if self.connectors.is_empty() {
             // The last client disconnected.
             return Ok(events);
         }
