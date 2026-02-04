@@ -13,9 +13,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.DividerDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -24,7 +21,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.res.colorResource
-import androidx.compose.ui.unit.dp
 import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.view.updateLayoutParams
 import androidx.navigation.NavController
@@ -53,7 +49,6 @@ import org.mozilla.fenix.components.appstate.AppAction.SearchAction.SearchStarte
 import org.mozilla.fenix.components.metrics.MetricsUtils
 import org.mozilla.fenix.components.toolbar.ToolbarPosition.BOTTOM
 import org.mozilla.fenix.components.toolbar.ToolbarPosition.TOP
-import org.mozilla.fenix.components.toolbar.ui.SearchSuggestionsContainer
 import org.mozilla.fenix.databinding.FragmentHomeBinding
 import org.mozilla.fenix.theme.FirefoxTheme
 import org.mozilla.fenix.utils.Settings
@@ -69,8 +64,9 @@ import org.mozilla.fenix.wallpapers.Wallpaper
  * @param toolbarStore [BrowserToolbarStore] containing the composable toolbar state.
  * @param appStore [AppStore] to sync from.
  * @param browserStore [BrowserStore] to sync from.
+ * @param browsingModeManager [BrowsingModeManager] Manager holding current state of whether
+ * the browser is in private mode or not.
  * @param settings [Settings] for querying various application settings.
- * @param browsingModeManager [BrowsingModeManager] used to read/update the current [BrowsingMode].
  * @param directToSearchConfig [DirectToSearchConfig] configuration for starting with the toolbar in search mode.
  * @param tabStripContent [Composable] as the tab strip content to be displayed together with this toolbar.
  * @param searchSuggestionsContent [Composable] as the search suggestions content to be displayed
@@ -85,8 +81,8 @@ internal class HomeToolbarComposable(
     private val toolbarStore: BrowserToolbarStore,
     private val appStore: AppStore,
     private val browserStore: BrowserStore,
-    private val settings: Settings,
     private val browsingModeManager: BrowsingModeManager,
+    private val settings: Settings,
     private val directToSearchConfig: DirectToSearchConfig,
     private val tabStripContent: @Composable () -> Unit,
     private val searchSuggestionsContent: @Composable (Modifier) -> Unit,
@@ -116,7 +112,6 @@ internal class HomeToolbarComposable(
             val isSearchEmpty =
                 toolbarStore.observeAsComposableState { it.editState.query.current.isEmpty() }.value
             val shouldShowTabStrip: Boolean = remember { settings.isTabStripEnabled }
-            val shouldShowBrowserModeToggle: Boolean = remember { settings.enableBrowserModeToggle }
             val isAddressBarVisible = remember { addressBarVisibility }
 
             BackInvokedHandler(isSearching) {
@@ -134,31 +129,15 @@ internal class HomeToolbarComposable(
                         tabStripContent()
                     }
 
-                    val isSearchActive = appStore.state.searchState.isSearchActive
-                    val showBrowserModeToggle =
-                        shouldShowBrowserModeToggle && isSearchActive && !isSearchEmpty
-
                     if (settings.shouldUseBottomToolbar) {
-                        SearchSuggestionsContainer(
-                            selectedMode = browsingModeManager.mode,
-                            showBrowserModeToggle = showBrowserModeToggle,
-                            onModeSelected = { newMode ->
-                                browsingModeManager.mode = newMode
-                            },
-                            searchSuggestionsContent = {
-                                searchSuggestionsContent(Modifier.fillMaxSize())
-                            },
-                            browserModeSelectorModifier = Modifier.padding(bottom = 16.dp),
-                        )
+                        searchSuggestionsContent(Modifier.weight(1f))
                     }
-
                     Box {
                         if (settings.enableHomepageSearchBar) {
                             BrowserSimpleToolbar(toolbarStore, appStore)
                         }
-
                         this@Column.AnimatedVisibility(
-                            visible = isAddressBarVisible.value || isSearchActive,
+                            visible = isAddressBarVisible.value || appStore.state.searchState.isSearchActive,
                             enter = fadeIn(
                                 animationSpec = tween(
                                     durationMillis = 250,
@@ -173,7 +152,7 @@ internal class HomeToolbarComposable(
                             ),
                         ) {
                             val (backgroundColor, outlineColor) =
-                                if (browsingModeManager.mode.isPrivate) {
+                                if (browsingModeManager.mode == BrowsingMode.Private) {
                                     MaterialTheme.colorScheme.surface to
                                             colorResource(R.color.homepage_tab_edge_to_edge_private_toolbar_outline)
                                 } else if (isEdgeToEdgeBackgroundEnabled && isSearchEmpty) {
@@ -190,28 +169,15 @@ internal class HomeToolbarComposable(
                             )
                         }
                     }
-
                     if (settings.toolbarPosition == BOTTOM) {
                         navigationBarContent?.invoke()
                     }
-
                     if (!settings.shouldUseBottomToolbar) {
-                        SearchSuggestionsContainer(
-                            selectedMode = browsingModeManager.mode,
-                            showBrowserModeToggle = showBrowserModeToggle,
-                            onModeSelected = { newMode ->
-                                browsingModeManager.mode = newMode
-                            },
-                            searchSuggestionsContent = {
-                                searchSuggestionsContent(Modifier.fillMaxSize())
-                            },
-                            browserModeSelectorModifier = Modifier.imePadding(),
-                        )
+                        searchSuggestionsContent(Modifier.weight(1f))
                     }
                 }
             }
         }
-
         translationZ = context.resources.getDimension(R.dimen.browser_fragment_above_toolbar_panels_elevation)
         homeBinding.homeLayout.addView(this)
     }

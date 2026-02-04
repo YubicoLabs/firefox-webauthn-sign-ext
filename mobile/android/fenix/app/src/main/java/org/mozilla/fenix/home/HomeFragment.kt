@@ -668,8 +668,8 @@ class HomeFragment : Fragment() {
                     toolbarStore = toolbarStore,
                     appStore = activity.components.appStore,
                     browserStore = activity.components.core.store,
+                    browsingModeManager = activity.browsingModeManager,
                     settings = activity.settings(),
-                    browsingModeManager = browsingModeManager,
                     directToSearchConfig = DirectToSearchConfig(
                         startSearch = bundleArgs.getBoolean(FOCUS_ON_ADDRESS_BAR) ||
                                 FxNimbus.features.oneClickSearch.value().enabled,
