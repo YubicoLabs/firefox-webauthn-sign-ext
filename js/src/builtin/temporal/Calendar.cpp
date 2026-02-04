@@ -3838,14 +3838,21 @@ static bool DifferenceNonISODateWithLeapMonth(
     years -= sign;
   }
 
-  auto constrained = CreateDateFromCodes(
-      cx, calendarId, cal.get(), oneDate.year + years, oneDate.monthCode,
-      oneDate.day, TemporalOverflow::Constrain);
-  if (!constrained) {
+  auto constrainedStartOfMonth =
+      CreateDateFromCodes(cx, calendarId, cal.get(), oneDate.year + years,
+                          oneDate.monthCode, 1, TemporalOverflow::Constrain);
+  if (!constrainedStartOfMonth) {
     return false;
   }
 
-  auto constrainedDate = ToCalendarDate(calendarId, constrained.get());
+  auto constrainedDateStartOfMonth =
+      ToCalendarDate(calendarId, constrainedStartOfMonth.get());
+
+  auto constrainedDate = CalendarDate{
+      .year = constrainedDateStartOfMonth.year,
+      .monthCode = constrainedDateStartOfMonth.monthCode,
+      .day = oneDate.day,
+  };
   if (CompareSurpasses(sign, constrainedDate, twoDate)) {
     years -= sign;
   }
@@ -3915,7 +3922,7 @@ static bool DifferenceNonISODateWithLeapMonth(
     years = 0;
   }
 
-  constrained =
+  auto constrained =
       CreateDateFromCodes(cx, calendarId, cal.get(), constrainedDate.year,
                           constrainedDate.monthCode, constrainedDate.day,
                           TemporalOverflow::Constrain);
