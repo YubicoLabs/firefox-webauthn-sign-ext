@@ -69,6 +69,15 @@ const PREF_SOV_FRECENCY_EXPOSURE = "sov.frecency.exposure";
 const TOP_STORIES_SECTION_NAME = "top_stories_section";
 
 /**
+ * Glean session types for OHTTP ping optimization.
+ * Determines whether events are queued or sent immediately to OHTTP ping.
+ */
+const GleanSessionType = {
+  NormalGleanSession: "normal",
+  PrivateGleanSession: "private",
+};
+
+/**
     Additional parameters defined in the newTabTrainHop experimenter method
 
     trainhopConfig.newtabPrivatePing.randomContentProbabilityEpsilonMicro
@@ -153,6 +162,8 @@ export class TelemetryFeed {
     this.newtabContentPing = new lazy.NewTabContentPing();
     this._initialized = false;
 
+    this.gleanSessionType = GleanSessionType.PrivateGleanSession;
+
     XPCOMUtils.defineLazyPreferenceGetter(
       this,
       "SHOW_SPONSORED_STORIES_ENABLED",
@@ -192,6 +203,33 @@ export class TelemetryFeed {
     );
   }
 
+  /**
+   * Gets the clickOnly feature flag from Nimbus trainhop configuration.
+   * When enabled, events are queued and OHTTP is only used when clicks occur.
+   *
+   * @returns {boolean} true if clickOnly is enabled
+   */
+  get trainhopClickOnlyEnabled() {
+    return (
+      this.store.getState()?.Prefs.values?.trainhopConfig?.newtabPrivatePing
+        ?.clickOnly || false
+    );
+  }
+
+  /**
+   * Gets the optimizeInferred feature flag from Nimbus trainhop configuration.
+   * When enabled with inferred personalization, waits for CIV to have clicks
+   * before enabling private ping with inferred interests.
+   *
+   * @returns {boolean} true if optimizeInferred is enabled
+   */
+  get trainhopOptimizeInferredEnabled() {
+    return (
+      this.store.getState()?.Prefs.values?.trainhopConfig?.newtabPrivatePing
+        ?.optimizeInferred || false
+    );
+  }
+
   get sectionsPersonalizationEnabled() {
     return this._prefs.get(PREF_SECTIONS_PERSONALIZATION_ENABLED);
   }
@@ -199,6 +237,62 @@ export class TelemetryFeed {
   get inferredInterests() {
     return this.store.getState()?.InferredPersonalization
       ?.coarsePrivateInferredInterests;
+  }
+
+  /**
+   * Checks if the Coarse Interest Vector (CIV) has recorded any clicks.
+   * Used for the optimizeInferred feature to determine if private ping
+   * is necessary based on historical click activity.
+   *
+   * @returns {boolean} true if CIV has recorded clicks, false otherwise
+   */
+  hasRecordedClicksInCIV() {
+    const inferredPersonalization =
+      this.store.getState()?.InferredPersonalization;
+
+    if (!inferredPersonalization?.initialized) {
+      return false;
+    }
+
+    const clickCount = inferredPersonalization.inferredInterests?.clicks;
+    if (clickCount) {
+      return true;
+    }
+
+    const coarsePrivate =
+      inferredPersonalization.coarsePrivateInferredInterests;
+    if (
+      !coarsePrivate ||
+      !coarsePrivate.values ||
+      coarsePrivate.values.length === 0
+    ) {
+      return false;
+    }
+
+    return coarsePrivate.values.some(bitstring => bitstring !== "000");
+  }
+
+  /**
+   * Initializes the Glean session type based on configuration and CIV state.
+   * Determines whether to use NormalGleanSession (queue events) or
+   * PrivateGleanSession (send to both pings immediately).
+   */
+  initializeGleanSession() {
+    if (!this.privatePingEnabled || !this.trainhopClickOnlyEnabled) {
+      this.gleanSessionType = GleanSessionType.PrivateGleanSession;
+      return;
+    }
+
+    if (
+      this.trainhopOptimizeInferredEnabled &&
+      this.privatePingInferredInterestsEnabled &&
+      !this.hasRecordedClicksInCIV()
+    ) {
+      this.gleanSessionType = GleanSessionType.NormalGleanSession;
+      return;
+    }
+
+    this.gleanSessionType = GleanSessionType.NormalGleanSession;
   }
 
   get clientInfo() {
@@ -252,6 +346,8 @@ export class TelemetryFeed {
         "browser-open-newtab-start"
       );
     }
+
+    this.initializeGleanSession();
 
     // Set two scalars for the "deletion-request" ping (See bug 1602064 and 1729474)
     Glean.deletionRequest.impressionId.set(this._impressionId);
