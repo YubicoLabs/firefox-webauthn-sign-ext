@@ -15165,13 +15165,15 @@ class _CustomizeMenu extends (external_React_default()).PureComponent {
     }
   }
   render() {
+    const activationWindowVariant = this.props.Prefs.values["activationWindow.variant"];
+    const activationWindowClass = activationWindowVariant ? `activation-window-variant-${activationWindowVariant}` : "";
     return /*#__PURE__*/external_React_default().createElement("span", null, /*#__PURE__*/external_React_default().createElement(external_ReactTransitionGroup_namespaceObject.CSSTransition, {
       timeout: 300,
       classNames: "personalize-animate",
       in: !this.props.showing,
       appear: true
     }, /*#__PURE__*/external_React_default().createElement("button", {
-      className: "personalize-button",
+      className: `${activationWindowClass} personalize-button`,
       "data-l10n-id": "newtab-customize-panel-icon-button",
       onClick: () => this.props.onOpen(),
       onKeyDown: e => {
@@ -15230,7 +15232,8 @@ class _CustomizeMenu extends (external_React_default()).PureComponent {
   }
 }
 const CustomizeMenu = (0,external_ReactRedux_namespaceObject.connect)(state => ({
-  DiscoveryStream: state.DiscoveryStream
+  DiscoveryStream: state.DiscoveryStream,
+  Prefs: state.Prefs
 }))(_CustomizeMenu);
 ;// CONCATENATED MODULE: ./content-src/components/Logo/Logo.jsx
 /* This Source Code Form is subject to the terms of the Mozilla Public
