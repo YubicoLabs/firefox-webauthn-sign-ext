@@ -81,8 +81,8 @@ if (Services.prefs.getBoolPref("browser.settings-redesign.enabled")) {
     })
   );
 
-  // Set up `browser.startup.homepage` again to help make a pretty list of domains
-  // for displaying in the "Choose a specific website" link to the Custom Homepage subpage.
+  // Set up `browser.startup.homepage` again to update and display its value
+  // on the Homepage and Custom Homepage settings panes.
   Preferences.addSetting({
     id: "homepageDisplayPref",
     pref: "browser.startup.homepage",
@@ -149,6 +149,55 @@ if (Services.prefs.getBoolPref("browser.settings-redesign.enabled")) {
       .filter(Boolean);
   };
 
+  Preferences.addSetting(
+    /** @type {{ _inputValue: string } & SettingConfig } */ ({
+      id: "customHomepageAddUrlInput",
+      _inputValue: "",
+      get() {
+        return this._inputValue;
+      },
+
+      set(val, _, setting) {
+        this._inputValue = val.trim() ?? "";
+        setting.onChange();
+      },
+    })
+  );
+
+  Preferences.addSetting({
+    id: "customHomepageAddAddressButton",
+    deps: ["homepageDisplayPref", "customHomepageAddUrlInput"],
+    onUserClick(e, { homepageDisplayPref, customHomepageAddUrlInput }) {
+      // Focus is being stolen by a parent component here (moz-fieldset).
+      // Focus on the button to get the input value.
+      e.target.focus();
+
+      let inputVal = customHomepageAddUrlInput.value;
+
+      // Don't do anything for empty strings
+      if (!inputVal) {
+        return;
+      }
+
+      if (
+        [DEFAULT_HOMEPAGE_URL, BLANK_HOMEPAGE_URL].includes(
+          homepageDisplayPref.value.trim()
+        )
+      ) {
+        // Replace the default homepage value with the new Custom URL.
+        homepageDisplayPref.value = inputVal;
+      } else {
+        // Append this URL to the list of Custom URLs saved in prefs.
+        let urls = getURLs(homepageDisplayPref.value);
+        urls.push(inputVal);
+        homepageDisplayPref.value = urls.join("|");
+      }
+
+      // Reset the field to empty string
+      customHomepageAddUrlInput.value = "";
+    },
+  });
+
   Preferences.addSetting({
     id: "customHomepageBoxGroup",
     deps: ["homepageDisplayPref"],
@@ -208,7 +257,19 @@ if (Services.prefs.getBoolPref("browser.settings-redesign.enabled")) {
             id: "customHomepageBoxForm",
             control: "moz-box-item",
             slot: "header",
-            items: [], // "enter address" form
+            items: [
+              {
+                id: "customHomepageAddUrlInput",
+                l10nId: "home-custom-homepage-address",
+                control: "moz-input-text",
+              },
+              {
+                id: "customHomepageAddAddressButton",
+                l10nId: "home-custom-homepage-address-button",
+                control: "moz-button",
+                slot: "actions",
+              },
+            ],
           },
           ...listItems,
           {
