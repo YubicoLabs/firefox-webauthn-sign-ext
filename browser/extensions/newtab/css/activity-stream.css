@@ -2053,7 +2053,9 @@ main section {
 }
 
 .personalize-button:hover > label,
-.personalize-button:focus-visible > label {
+.personalize-button:focus-visible > label,
+.personalize-button.activation-window-variant-a > label,
+.personalize-button.activation-window-variant-b > label {
   opacity: 1;
   margin-inline-end: var(--space-medium);
   max-width: 30ch;
