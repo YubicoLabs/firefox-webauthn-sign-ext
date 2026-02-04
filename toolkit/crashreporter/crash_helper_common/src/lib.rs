@@ -20,8 +20,7 @@ use messages::MessageError;
 pub use crate::breakpad::{BreakpadChar, BreakpadData, BreakpadRawData, Pid};
 pub use crate::ipc_channel::{IPCChannel, IPCClientChannel};
 pub use crate::ipc_connector::{
-    AncillaryData, IPCConnector, IPCConnectorKey, IPCEvent, RawAncillaryData,
-    INVALID_ANCILLARY_DATA,
+    AncillaryData, IPCConnector, IPCConnectorKey, IPCEvent, RawIPCConnector,
 };
 pub use crate::ipc_listener::{IPCListener, IPCListenerError};
 pub use crate::ipc_queue::IPCQueue;
@@ -61,11 +60,6 @@ pub trait BreakpadString {
     /// The `ptr` argument must have been created via a call to the
     /// `BreakpadString::from_raw()` function.
     unsafe fn from_raw(ptr: *mut BreakpadChar) -> OsString;
-}
-
-/// Owned handle or file descriptor conversion to their respective raw versions
-pub trait IntoRawAncillaryData {
-    fn into_raw(self) -> RawAncillaryData;
 }
 
 pub const IO_TIMEOUT: u16 = 2 * 1000;
