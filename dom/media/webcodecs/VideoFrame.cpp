@@ -130,9 +130,21 @@ class I420BufferReader : public YUVBufferReaderBase {
         mStrideV(CeilingOfHalf(aWidth)) {}
   virtual ~I420BufferReader() = default;
 
-  const uint8_t* DataU() const { return &mBuffer[YByteSize().value()]; }
-  const uint8_t* DataV() const {
-    return &mBuffer[YByteSize().value() + UByteSize().value()];
+  Result<const uint8_t*, MediaResult> DataU() const {
+    auto offset = YByteSize();
+    if (!offset.isValid()) {
+      return Err(
+          MediaResult(NS_ERROR_INVALID_ARG, "offset for U plane overflow"_ns));
+    }
+    return &mBuffer[offset.value()];
+  }
+  Result<const uint8_t*, MediaResult> DataV() const {
+    auto offset = YByteSize() + UByteSize();
+    if (!offset.isValid()) {
+      return Err(
+          MediaResult(NS_ERROR_INVALID_ARG, "offset for V plane overflow"_ns));
+    }
+    return &mBuffer[offset.value()];
   }
   virtual I420ABufferReader* AsI420ABufferReader() { return nullptr; }
 
@@ -158,9 +170,13 @@ class I420ABufferReader final : public I420BufferReader {
   }
   virtual ~I420ABufferReader() = default;
 
-  const uint8_t* DataA() const {
-    return &mBuffer[YByteSize().value() + UByteSize().value() +
-                    VSize().value()];
+  Result<const uint8_t*, MediaResult> DataA() const {
+    auto offset = YByteSize() + UByteSize() + VSize();
+    if (!offset.isValid()) {
+      return Err(MediaResult(NS_ERROR_INVALID_ARG,
+                             "offset for Alpha plane overflow"_ns));
+    }
+    return &mBuffer[offset.value()];
   }
 
   virtual I420ABufferReader* AsI420ABufferReader() override { return this; }
@@ -176,7 +192,14 @@ class NV12BufferReader final : public YUVBufferReaderBase {
         mStrideUV(aWidth + aWidth % 2) {}
   virtual ~NV12BufferReader() = default;
 
-  const uint8_t* DataUV() const { return &mBuffer[YByteSize().value()]; }
+  Result<const uint8_t*, MediaResult> DataUV() const {
+    auto offset = YByteSize();
+    if (!offset.isValid()) {
+      return Err(
+          MediaResult(NS_ERROR_INVALID_ARG, "offset for UV plane overflow"_ns));
+    }
+    return &mBuffer[offset.value()];
+  }
 
   const int32_t mStrideUV;
 };
@@ -310,16 +333,16 @@ static Result<RefPtr<layers::Image>, MediaResult> CreateYUVImageFromBuffer(
     data.mYStride = reader->mStrideY;
     data.mYSkip = 0;
     // Cb plane.
-    data.mCbChannel = const_cast<uint8_t*>(reader->DataU());
+    data.mCbChannel = const_cast<uint8_t*>(MOZ_TRY(reader->DataU()));
     data.mCbSkip = 0;
     // Cr plane.
-    data.mCrChannel = const_cast<uint8_t*>(reader->DataV());
+    data.mCrChannel = const_cast<uint8_t*>(MOZ_TRY(reader->DataV()));
     data.mCbSkip = 0;
     // A plane.
     if (aFormat.PixelFormat() == VideoPixelFormat::I420A) {
       data.mAlpha.emplace();
       data.mAlpha->mChannel =
-          const_cast<uint8_t*>(reader->AsI420ABufferReader()->DataA());
+          const_cast<uint8_t*>(MOZ_TRY(reader->AsI420ABufferReader()->DataA()));
       data.mAlpha->mSize = data.mPictureRect.Size();
       // No values for mDepth and mPremultiplied.
     }
@@ -367,7 +390,7 @@ static Result<RefPtr<layers::Image>, MediaResult> CreateYUVImageFromBuffer(
     data.mYStride = reader.mStrideY;
     data.mYSkip = 0;
     // Cb plane.
-    data.mCbChannel = const_cast<uint8_t*>(reader.DataUV());
+    data.mCbChannel = const_cast<uint8_t*>(MOZ_TRY(reader.DataUV()));
     data.mCbSkip = 1;
     // Cr plane.
     data.mCrChannel = data.mCbChannel + 1;
