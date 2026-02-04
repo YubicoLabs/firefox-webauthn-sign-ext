@@ -67,7 +67,6 @@
 #include "memory_hooks.h"
 #include "memory_markers.h"
 #include "mozilla/ArrayAlgorithm.h"
-#include "mozilla/AutoProfilerLabel.h"
 #include "mozilla/BaseAndGeckoProfilerDetail.h"
 #include "mozilla/BaseProfiler.h"
 #include "mozilla/CycleCollectedJSContext.h"
@@ -5732,28 +5731,6 @@ static void locked_profiler_start(PSLockRef aLock, PowerOfTwo32 aCapacity,
                                   uint64_t aActiveTabID,
                                   const Maybe<double>& aDuration);
 
-// This basically duplicates AutoProfilerLabel's constructor.
-static void* MozGlueLabelEnter(const char* aLabel, const char* aDynamicString,
-                               void* aSp) {
-  ThreadRegistration::OnThreadPtr onThreadPtr =
-      ThreadRegistration::GetOnThreadPtr();
-  if (!onThreadPtr) {
-    return nullptr;
-  }
-  ProfilingStack& profilingStack =
-      onThreadPtr->UnlockedConstReaderAndAtomicRWRef().ProfilingStackRef();
-  profilingStack.pushLabelFrame(aLabel, aDynamicString, aSp,
-                                JS::ProfilingCategoryPair::OTHER);
-  return &profilingStack;
-}
-
-// This basically duplicates AutoProfilerLabel's destructor.
-static void MozGlueLabelExit(void* aProfilingStack) {
-  if (aProfilingStack) {
-    reinterpret_cast<ProfilingStack*>(aProfilingStack)->pop();
-  }
-}
-
 static Vector<const char*> SplitAtCommas(const char* aString,
                                          UniquePtr<char[]>& aStorage) {
   size_t len = strlen(aString);
@@ -6830,9 +6807,6 @@ static void locked_profiler_start(PSLockRef aLock, PowerOfTwo32 aCapacity,
     }
   }
 
-  // Setup support for pushing/popping labels in mozglue.
-  RegisterProfilerLabelEnterExit(MozGlueLabelEnter, MozGlueLabelExit);
-
 #if defined(GP_OS_android)
   if (ActivePS::FeatureJava(aLock)) {
     int javaInterval = interval;
@@ -7017,9 +6991,6 @@ void profiler_ensure_started(PowerOfTwo32 aCapacity, double aInterval,
     java::GeckoJavaSampler::Stop();
   }
 #endif
-
-  // Remove support for pushing/popping labels in mozglue.
-  RegisterProfilerLabelEnterExit(nullptr, nullptr);
 
   // Stop sampling live threads.
   ThreadRegistry::LockedRegistry lockedRegistry;
