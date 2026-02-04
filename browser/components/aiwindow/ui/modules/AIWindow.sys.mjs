@@ -17,6 +17,10 @@ ChromeUtils.defineESModuleGetters(lazy, {
   AIWindowMenu:
     "moz-src:///browser/components/aiwindow/ui/modules/AIWindowMenu.sys.mjs",
   BrowserWindowTracker: "resource:///modules/BrowserWindowTracker.sys.mjs",
+  AIWindowUI:
+    "moz-src:///browser/components/aiwindow/ui/modules/AIWindowUI.sys.mjs",
+  SearchService: "moz-src:///toolkit/components/search/SearchService.sys.mjs",
+  SearchUIUtils: "moz-src:///browser/components/search/SearchUIUtils.sys.mjs",
   ChatStore:
     "moz-src:///browser/components/aiwindow/ui/modules/ChatStore.sys.mjs",
   NewTabPagePreloading:
@@ -425,6 +429,51 @@ export const AIWindow = {
       searchUrlType: null,
       sapSource: "aiwindow_assistant",
     });
+  },
+
+  /**
+   * Moves a full-page AI Window conversation into the sidebar.
+   *
+   * @param {Window} win
+   * @param {object} tab
+   * @returns {Promise<XULElement|null>}
+   */
+  async moveConversationToSidebar(win, tab) {
+    return lazy.AIWindowUI.moveFullPageToSidebar(win, tab);
+  },
+
+  /**
+   * Opens the sidebar with the given conversation and continues streaming
+   * the model response after a tool result.
+   *
+   * @param {Window} win
+   * @param {ChatConversation} conversation
+   */
+  openSidebarAndContinue(win, conversation) {
+    lazy.AIWindowUI.openSidebar(win, conversation);
+
+    try {
+      const sidebar = win.document.getElementById("ai-window-box");
+      const aiBrowser = sidebar?.querySelector("#ai-window-browser");
+      const aiWindow = aiBrowser?.contentDocument?.querySelector("ai-window");
+      if (aiWindow?.reloadAndContinue) {
+        aiWindow.reloadAndContinue(conversation);
+        return;
+      }
+    } catch {
+      // Content may not be loaded yet
+    }
+
+    // Sidebar content isn't ready; set a flag for it to pick up on load
+    try {
+      const sidebar = win.document.getElementById("ai-window-box");
+      const aiBrowser = sidebar?.querySelector("#ai-window-browser");
+      if (aiBrowser) {
+        aiBrowser.setAttribute("data-continue-streaming", "true");
+      }
+    } catch {
+      // Sidebar may not be available
+    }
   },
 
   toggleAIWindow(win, isTogglingToAIWindow) {

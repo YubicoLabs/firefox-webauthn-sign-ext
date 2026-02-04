@@ -224,28 +224,28 @@ add_task(async function test_loadConfig_filters_by_major_version() {
     };
     sb.stub(openAIEngine, "_createEngine").resolves(fakeEngine);
 
-    // Add a v2.0 record to test data
-    const recordsWithV2 = [
+    // Add a v3.0 record to test data
+    const recordsWithV3 = [
       ...REAL_REMOTE_SETTINGS_SNAPSHOT,
       {
         model: "future-model",
         feature: "chat",
         prompts: "Future version prompt",
-        version: "v2.0",
+        version: "v3.0",
         is_default: true,
       },
     ];
 
     sb.stub(openAIEngine, "getRemoteClient").returns({
-      get: sb.stub().resolves(recordsWithV2),
+      get: sb.stub().resolves(recordsWithV3),
     });
 
     const engine = new openAIEngine();
     await engine.loadConfig(MODEL_FEATURES.CHAT);
 
     const config = engine.getConfig(MODEL_FEATURES.CHAT);
-    // Should get 1.x, not 2.0
-    Assert.ok(config.version.startsWith("1."), "Should select 1.x, not 2.0");
+    // Should get 1.x, not 3.0
+    Assert.ok(config.version.startsWith("1."), "Should select 1.x, not 3.0");
   } finally {
     sb.restore();
   }
