@@ -242,7 +242,7 @@ export class TelemetryFeed {
   }
 
   get inferredInterests() {
-    return this.store.getState()?.InferredPersonalization
+    return this.store?.getState()?.InferredPersonalization
       ?.coarsePrivateInferredInterests;
   }
 
@@ -292,7 +292,8 @@ export class TelemetryFeed {
       return;
     }
 
-    const trainhopConfig = this.store.getState()?.Prefs?.values?.trainhopConfig;
+    const trainhopConfig =
+      this.store?.getState()?.Prefs?.values?.trainhopConfig;
     if (!trainhopConfig || Object.keys(trainhopConfig).length === 0) {
       return;
     }
@@ -1416,7 +1417,7 @@ export class TelemetryFeed {
    */
   async configureContentPing() {
     let privateMetrics = {};
-    const prefs = this.store.getState()?.Prefs.values; // Needed for experimenter configs
+    const prefs = this.store?.getState()?.Prefs.values; // Needed for experimenter configs
     const inferredInterests =
       this.privatePingInferredInterestsEnabled && this.inferredInterests;
     if (inferredInterests) {
