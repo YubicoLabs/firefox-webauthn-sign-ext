@@ -658,21 +658,6 @@ skip script test262/language/statements/with/set-mutable-binding-idref-with-prox
 skip script test262/language/statements/with/get-binding-value-idref-with-proxy-env.js
 skip script test262/language/statements/with/set-mutable-binding-idref-compound-assign-with-proxy-env.js
 
-# https://bugzilla.mozilla.org/show_bug.cgi?id=1934808
-skip script test262/built-ins/Iterator/concat/fresh-iterator-result.js
-skip script test262/built-ins/Iterator/concat/next-method-returns-throwing-value.js
-
-# https://bugzilla.mozilla.org/show_bug.cgi?id=1970162
-# https://github.com/tc39/ecma402/pull/989
-skip script test262/intl402/PluralRules/constructor-options-throwing-getters.js
-skip script test262/intl402/PluralRules/default-options-object-prototype.js
-skip script test262/intl402/PluralRules/constructor-option-read-order.js
-skip script test262/intl402/PluralRules/prototype/select/notation.js
-skip script test262/intl402/PluralRules/prototype/resolvedOptions/properties.js
-skip script test262/intl402/PluralRules/prototype/resolvedOptions/order.js
-skip script test262/intl402/PluralRules/prototype/constructor/notation.js
-skip script test262/intl402/PluralRules/notation.js
-
 # See https://bugzilla.mozilla.org/show_bug.cgi?id=1983837
 skip script test262/staging/top-level-await/tla-hang-entry.js
 
