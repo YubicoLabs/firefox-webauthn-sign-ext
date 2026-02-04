@@ -2051,6 +2051,7 @@ class SamplerThread {
 
 #if defined(GP_OS_windows)
   bool mNoTimerResolutionChange = true;
+  HANDLE mHiResTimer;
 #endif
 
   SamplerThread(const SamplerThread&) = delete;
