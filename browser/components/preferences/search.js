@@ -572,87 +572,8 @@ Preferences.addSetting({
   id: "dismissedSuggestionsDescription",
 });
 
-/**
- * @type {?() => void}
- *   Enables notification for an engine update from outside the setting.
- */
-let searchEngineUpdateNotifier;
-Preferences.addSetting(
-  /** @type {{ _engineUpdateTriggered: boolean, _emitChange: Function } & SettingConfig} */ ({
-    id: "updateSearchEngineSuccess",
-    _engineUpdateTriggered: false,
-    _emitChange: null,
-    setup(emitChange) {
-      this._emitChange = emitChange;
-      searchEngineUpdateNotifier = () => {
-        this._engineUpdateTriggered = true;
-        emitChange();
-      };
-      return () => {
-        searchEngineUpdateNotifier = null;
-        this._emitChange = null;
-      };
-    },
-    onMessageBarDismiss(e) {
-      e.preventDefault();
-      this._engineUpdateTriggered = false;
-      this._emitChange?.();
-    },
-    visible() {
-      return this._engineUpdateTriggered;
-    },
-  })
-);
-
-function EngineListItemSetting(settingId, engine) {
-  return class extends Preferences.AsyncSetting {
-    static id = settingId;
-
-    setup() {
-      /** @type {(subject: {wrappedJSObject: SearchEngine}, topic: string, data: string) => void} */
-      let onTargetEngineChanged = (subject, _topic, data) => {
-        if (
-          (data == lazy.SearchUtils.MODIFIED_TYPE.CHANGED ||
-            data == lazy.SearchUtils.MODIFIED_TYPE.ICON_CHANGED) &&
-          subject.wrappedJSObject == engine
-        ) {
-          this.emitChange();
-        }
-      };
-
-      Services.obs.addObserver(
-        onTargetEngineChanged,
-        lazy.SearchUtils.TOPIC_ENGINE_MODIFIED
-      );
-      return () =>
-        Services.obs.removeObserver(
-          onTargetEngineChanged,
-          lazy.SearchUtils.TOPIC_ENGINE_MODIFIED
-        );
-    }
-
-    async getControlConfig() {
-      return {
-        iconSrc: await engine.getIconURL(),
-        controlAttrs: {
-          label: engine.name,
-          description: engine.aliases.join(", "),
-          layout: "medium-icon",
-        },
-      };
-    }
-  };
-}
-
 Preferences.addSetting({
   id: "addEngineButton",
-  onUserClick() {
-    gSubDialog.open(
-      "chrome://browser/content/search/addEngine.xhtml",
-      { features: "resizable=no, modal=yes" },
-      { mode: "NEW" }
-    );
-  },
 });
 
 Preferences.addSetting(
@@ -786,7 +707,9 @@ Preferences.addSetting(
         deletionOptions = {
           id: deletionId,
           control: "moz-button",
-          iconSrc: "chrome://global/skin/icons/delete.svg",
+          controlAttrs: {
+            iconsrc: "chrome://global/skin/icons/delete.svg",
+          },
           slot: "actions",
         };
       }
@@ -802,42 +725,41 @@ Preferences.addSetting(
       /** @type {SettingControlConfig[]} */
       let configs = [];
       for (let engine of await lazy.SearchService.getEngines()) {
-        let settingId = `engineList-${engine.id}`;
+        let setting = {
+          get id() {
+            return `engineList-${engine.id}`;
+          },
+        };
+        Preferences.addSetting(setting);
 
-        Preferences.addSetting(EngineListItemSetting(settingId, engine));
+        /** @type {SettingControlConfig} */
+        let config = {
+          id: setting.id,
+          control: "moz-box-item",
+          controlAttrs: {
+            label: engine.name,
+            description: engine.aliases.join(", "),
+            layout: "medium-icon",
+            iconsrc: await engine.getIconURL(),
+          },
+        };
 
         let editId = `editEngine-${engine.id}`;
         Preferences.addSetting({
           id: editId,
           onUserClick() {
-            gSubDialog.open(
-              "chrome://browser/content/search/addEngine.xhtml",
-              {
-                features: "resizable=no, modal=yes",
-                closingCallback: event => {
-                  if (event.detail.button == "accept") {
-                    searchEngineUpdateNotifier?.();
-                  }
-                },
-              },
-              { engine, mode: "EDIT" }
-            );
+            // TODO: call gSubDialog.open
           },
         });
 
-        /** @type {SettingControlConfig} */
-        let config = {
-          id: settingId,
-          control: "moz-box-item",
-          items: [
-            {
-              id: editId,
-              control: "moz-button",
-              iconSrc: "chrome://global/skin/icons/edit-outline.svg",
-              slot: "actions",
-            },
-          ],
-        };
+        config.items = [
+          {
+            id: editId,
+            control: "moz-button",
+            iconSrc: "chrome://global/skin/icons/edit-outline.svg",
+            slot: "actions",
+          },
+        ];
 
         // Addon search engines do need an edit button to edit the alias names,
         // but they should not have a toggle or a delete button.
@@ -877,11 +799,11 @@ Preferences.addSetting(
         configs.push({
           id,
           control: "moz-box-item",
-          iconSrc: searchMode.icon,
           controlAttrs: {
             label: l10nNames.get(searchMode.source)[0],
             description: keywords,
             layout: "medium-icon",
+            iconsrc: searchMode.icon,
             slot: "footer",
           },
         });

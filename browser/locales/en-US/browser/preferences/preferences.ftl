@@ -1139,9 +1139,6 @@ search-one-click-header-3 =
     .label = Additional search engines
     .description = Choose which search engines and shortcuts appear in your address bar.
 
-update-search-engine-success =
-    .message = Search engine successfully updated
-
 search-choose-engine-column =
     .label = Search Engine
 search-choose-keyword-column =

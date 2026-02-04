@@ -212,11 +212,8 @@ export class UserSearchEngine extends SearchEngine {
           );
         }
       })
-      .catch(e => {
-        console.warn(
-          `Unable to change icon of engine ${this.name}:`,
-          e.message
-        );
-      });
+      .catch(e =>
+        console.warn(`Unable to change icon of engine ${this.name}:`, e.message)
+      );
   }
 }
