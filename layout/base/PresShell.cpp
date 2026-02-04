@@ -11335,7 +11335,8 @@ nsIFrame* PresShell::GetAnchorPosAnchor(
   MOZ_ASSERT(!aName.mName->IsEmpty());
   MOZ_ASSERT(mLazyAnchorPosAnchorChanges.IsEmpty());
   if (aName.mName == nsGkAtoms::AnchorPosImplicitAnchor) {
-    return AnchorPositioningUtils::GetAnchorPosImplicitAnchor(aPositionedFrame);
+    return AnchorPositioningUtils::GetAnchorPosImplicitAnchor(aPositionedFrame)
+        .mAnchorFrame;
   }
   if (const auto& entry = mAnchorPosAnchors.Lookup(aName.mName)) {
     return AnchorPositioningUtils::FindFirstAcceptableAnchor(
