@@ -150,6 +150,12 @@ const TOP_SITES_BLOCKED_SPONSORS_PREF = "browser.topsites.blockedSponsors";
 const TOPIC_SELECTION_SELECTED_TOPICS_PREF =
   "browser.newtabpage.activity-stream.discoverystream.topicSelection.selectedTopics";
 export class TelemetryFeed {
+  /**
+   * Queue for telemetry events when in NormalGleanSession mode.
+   * Events are stored here and cleared at session end based on session type.
+   */
+  #eventBuffer = [];
+
   constructor() {
     this.sessions = new Map();
     this._prefs = new Prefs();
@@ -161,6 +167,7 @@ export class TelemetryFeed {
 
     this.newtabContentPing = new lazy.NewTabContentPing();
     this._initialized = false;
+    this._gleanSessionInitialized = false;
 
     this.gleanSessionType = GleanSessionType.PrivateGleanSession;
 
@@ -211,7 +218,7 @@ export class TelemetryFeed {
    */
   get trainhopClickOnlyEnabled() {
     return (
-      this.store.getState()?.Prefs.values?.trainhopConfig?.newtabPrivatePing
+      this.store?.getState()?.Prefs.values?.trainhopConfig?.newtabPrivatePing
         ?.clickOnly || false
     );
   }
@@ -225,7 +232,7 @@ export class TelemetryFeed {
    */
   get trainhopOptimizeInferredEnabled() {
     return (
-      this.store.getState()?.Prefs.values?.trainhopConfig?.newtabPrivatePing
+      this.store?.getState()?.Prefs.values?.trainhopConfig?.newtabPrivatePing
         ?.optimizeInferred || false
     );
   }
@@ -244,11 +251,11 @@ export class TelemetryFeed {
    * Used for the optimizeInferred feature to determine if private ping
    * is necessary based on historical click activity.
    *
-   * @returns {boolean} true if CIV has recorded clicks, false otherwise
+   * @returns {boolean} true if CIV has recorded clicks, otherwise false
    */
   hasRecordedClicksInCIV() {
     const inferredPersonalization =
-      this.store.getState()?.InferredPersonalization;
+      this.store?.getState()?.InferredPersonalization;
 
     if (!inferredPersonalization?.initialized) {
       return false;
@@ -276,8 +283,22 @@ export class TelemetryFeed {
    * Initializes the Glean session type based on configuration and CIV state.
    * Determines whether to use NormalGleanSession (queue events) or
    * PrivateGleanSession (send to both pings immediately).
+   *
+   * @backward-compat { version 149 } Checking for trainhopConfig length
+   * can be remove after 149 lands
    */
   initializeGleanSession() {
+    if (this._gleanSessionInitialized) {
+      return;
+    }
+
+    const trainhopConfig = this.store.getState()?.Prefs?.values?.trainhopConfig;
+    if (!trainhopConfig || Object.keys(trainhopConfig).length === 0) {
+      return;
+    }
+
+    this._gleanSessionInitialized = true;
+
     if (!this.privatePingEnabled || !this.trainhopClickOnlyEnabled) {
       this.gleanSessionType = GleanSessionType.PrivateGleanSession;
       return;
@@ -293,6 +314,62 @@ export class TelemetryFeed {
     }
 
     this.gleanSessionType = GleanSessionType.NormalGleanSession;
+  }
+
+  /**
+   * Clears the event queue, executing callbacks and optionally
+   * recording to newtab-content ping.
+   *
+   * @param {boolean} recordToContentPing - Whether to record events to newtab-content ping
+   */
+  #clearEventBuffer(recordToContentPing) {
+    if (!this.#eventBuffer.length) {
+      return;
+    }
+
+    const events = this.#eventBuffer;
+    this.#eventBuffer = [];
+
+    for (const { eventName, eventData, callback } of events) {
+      callback();
+      if (recordToContentPing && this.privatePingEnabled) {
+        this.newtabContentPing.recordEvent(eventName, eventData);
+      }
+    }
+  }
+
+  /**
+   * Records or queues an event based on the current Glean session type.
+   * For queueable events (impression, click, section_impression).
+   *
+   * @param {string} eventName - Name of the event for newtab-content ping
+   * @param {object} eventData - Event data for newtab-content ping
+   * @param {Function} callback - Function to record to non-private newtab ping
+   *  Called immediately if in PrivateGleanSession, otherwise its added to eventBuffer
+   *  and called when the eventBuffer is cleared. The return value is ignored.
+   */
+  recordOrQueueEvent(eventName, eventData, callback) {
+    if (this.gleanSessionType === GleanSessionType.NormalGleanSession) {
+      this.#eventBuffer.push({ eventName, eventData, callback });
+    } else {
+      callback();
+      if (this.privatePingEnabled) {
+        this.newtabContentPing.recordEvent(eventName, eventData);
+      }
+    }
+  }
+
+  /**
+   * Transitions from NormalGleanSession to PrivateGleanSession.
+   * clears the event buffer, sending events to both pings with redaction.
+   */
+  transitionToPrivateSession() {
+    if (this.gleanSessionType === GleanSessionType.PrivateGleanSession) {
+      return;
+    }
+
+    this.gleanSessionType = GleanSessionType.PrivateGleanSession;
+    this.#clearEventBuffer(true);
   }
 
   get clientInfo() {
@@ -346,8 +423,6 @@ export class TelemetryFeed {
         "browser-open-newtab-start"
       );
     }
-
-    this.initializeGleanSession();
 
     // Set two scalars for the "deletion-request" ping (See bug 1602064 and 1729474)
     Glean.deletionRequest.impressionId.set(this._impressionId);
@@ -585,6 +660,10 @@ export class TelemetryFeed {
       this.telemetryEnabled &&
       Services.prefs.getBoolPref(PREF_NEWTAB_PING_ENABLED, true)
     ) {
+      // clear event buffer based on session type
+      const recordToContentPing =
+        this.gleanSessionType === GleanSessionType.PrivateGleanSession;
+      this.#clearEventBuffer(recordToContentPing);
       GleanPings.newtab.submit("newtab_session_end");
       if (this.privatePingEnabled) {
         this.configureContentPing();
@@ -725,17 +804,17 @@ export class TelemetryFeed {
       ].add(1);
       if (session) {
         if (this.sovEnabled()) {
-          if (this.privatePingEnabled) {
-            this.newtabContentPing.recordEvent("topSitesImpression", {
-              advertiser_name,
-              tile_id,
-              is_sponsored: true,
-              position,
-              visible_topsites,
-              frecency_boosted,
-              frecency_boosted_has_exposure: this.frecencyBoostedHasExposure(),
-            });
-          }
+          const eventData = {
+            advertiser_name,
+            tile_id,
+            is_sponsored: true,
+            position,
+            visible_topsites,
+            frecency_boosted,
+            frecency_boosted_has_exposure: this.frecencyBoostedHasExposure(),
+          };
+          // In SOV mode, we only record to newtab-content ping, not to newtab ping
+          this.recordOrQueueEvent("topSitesImpression", eventData, () => {});
         } else {
           Glean.topsites.impression.record({
             advertiser_name,
@@ -754,17 +833,20 @@ export class TelemetryFeed {
       ].add(1);
       if (session) {
         if (this.sovEnabled()) {
-          if (this.privatePingEnabled) {
-            this.newtabContentPing.recordEvent("topSitesClick", {
-              advertiser_name,
-              tile_id,
-              is_sponsored: true,
-              position,
-              visible_topsites,
-              frecency_boosted,
-              frecency_boosted_has_exposure: this.frecencyBoostedHasExposure(),
-            });
+          if (this.trainhopClickOnlyEnabled) {
+            this.transitionToPrivateSession();
           }
+          const eventData = {
+            advertiser_name,
+            tile_id,
+            is_sponsored: true,
+            position,
+            visible_topsites,
+            frecency_boosted,
+            frecency_boosted_has_exposure: this.frecencyBoostedHasExposure(),
+          };
+          // In SOV mode, we only record to newtab-content ping, not to newtab ping
+          this.recordOrQueueEvent("topSitesClick", eventData, () => {});
         } else {
           Glean.topsites.click.record({
             advertiser_name,
@@ -1086,16 +1168,19 @@ export class TelemetryFeed {
                   recommendation_id,
                 }),
           };
-          Glean.pocket.click.record({
-            ...this.redactNewTabPing(gleanData, is_sponsored),
-            newtab_visit_id: session.session_id,
-          });
-          if (this.privatePingEnabled) {
-            this.newtabContentPing.recordEvent(
-              "click",
-              this.randomizeOrganicContentEvent(gleanData)
-            );
+          if (this.trainhopClickOnlyEnabled) {
+            this.transitionToPrivateSession();
           }
+          this.recordOrQueueEvent(
+            "click",
+            this.randomizeOrganicContentEvent(gleanData),
+            () => {
+              Glean.pocket.click.record({
+                ...this.redactNewTabPing(gleanData, is_sponsored),
+                newtab_visit_id: session.session_id,
+              });
+            }
+          );
           if (shim) {
             if (this.canSendUnifiedAdsSpocCallbacks) {
               // Send unified ads callback event
@@ -1493,6 +1578,17 @@ export class TelemetryFeed {
       case at.PROMO_CARD_IMPRESSION:
         this.handlePromoCardUserEvent(action);
         break;
+      case at.PREFS_INITIAL_VALUES:
+        this.initializeGleanSession();
+        break;
+      case at.PREF_CHANGED:
+        if (action.data.name === "trainhopConfig") {
+          // @backward-compat { version 149 } trainhopConfig may not have existed
+          // at PREFS_INITIAL_VALUES time, so we need to check for it here as well.
+          // can be removed once 149 lands.
+          this.initializeGleanSession();
+        }
+        break;
     }
   }
 
@@ -1683,18 +1779,18 @@ export class TelemetryFeed {
                 : {}),
               layout_name,
             };
-            Glean.newtab.sectionsImpression.record(
-              this.redactNewTabPing(gleanData)
-            );
-            if (this.privatePingEnabled) {
-              this.newtabContentPing.recordEvent("sectionsImpression", {
-                section,
-                section_position,
-                ...(this.sectionsPersonalizationEnabled
-                  ? { is_section_followed: !!is_section_followed }
-                  : {}),
-              });
-            }
+            const eventData = {
+              section,
+              section_position,
+              ...(this.sectionsPersonalizationEnabled
+                ? { is_section_followed: !!is_section_followed }
+                : {}),
+            };
+            this.recordOrQueueEvent("sectionsImpression", eventData, () => {
+              Glean.newtab.sectionsImpression.record(
+                this.redactNewTabPing(gleanData)
+              );
+            });
           }
           break;
         case "FOLLOW_SECTION": {
@@ -1937,14 +2033,15 @@ export class TelemetryFeed {
               }),
         };
 
-        Glean.pocket.dismiss.record({
-          ...this.redactNewTabPing(gleanData, gleanData.is_sponsored),
-          newtab_visit_id: session.session_id,
-        });
-
-        if (this.privatePingEnabled) {
-          this.newtabContentPing.recordEvent("dismiss", gleanData);
+        if (this.trainhopClickOnlyEnabled) {
+          this.transitionToPrivateSession();
         }
+        this.recordOrQueueEvent("dismiss", gleanData, () => {
+          Glean.pocket.dismiss.record({
+            ...this.redactNewTabPing(gleanData, gleanData.is_sponsored),
+            newtab_visit_id: session.session_id,
+          });
+        });
         continue;
       }
       // Only log a topsites.dismiss telemetry event if the action came from TopSites section
@@ -1952,14 +2049,20 @@ export class TelemetryFeed {
         const { position, advertiser_name, tile_id, isSponsoredTopSite } =
           datum;
         if (this.sovEnabled() && isSponsoredTopSite) {
-          if (this.privatePingEnabled) {
-            this.newtabContentPing.recordEvent("topSitesDismiss", {
+          if (this.trainhopClickOnlyEnabled) {
+            this.transitionToPrivateSession();
+          }
+          this.recordOrQueueEvent(
+            "topSitesDismiss",
+            {
               advertiser_name,
               tile_id,
               is_sponsored: !!isSponsoredTopSite,
               position,
-            });
-          }
+            },
+            // when sovEnbaled is true, only record to private ping, so callback is empty
+            () => {}
+          );
         } else {
           Glean.topsites.dismiss.record({
             advertiser_name,
@@ -2046,13 +2149,12 @@ export class TelemetryFeed {
               recommendation_id: tile.recommendation_id,
             }),
       };
-      Glean.pocket.impression.record({
-        ...this.redactNewTabPing(gleanData, is_sponsored),
-        newtab_visit_id: session.session_id,
+      this.recordOrQueueEvent("impression", gleanData, () => {
+        Glean.pocket.impression.record({
+          ...this.redactNewTabPing(gleanData, is_sponsored),
+          newtab_visit_id: session.session_id,
+        });
       });
-      if (this.privatePingEnabled) {
-        this.newtabContentPing.recordEvent("impression", gleanData);
-      }
 
       if (tile.shim) {
         if (this.canSendUnifiedAdsSpocCallbacks) {
