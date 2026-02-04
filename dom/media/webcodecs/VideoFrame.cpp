@@ -599,13 +599,13 @@ static Result<Ok, nsCString> ValidateVisibility(
   MOZ_ASSERT(aVisibleRect.Height() > 0);
 
   const auto w = CheckedInt<uint32_t>(aVisibleRect.Width()) + aVisibleRect.X();
-  if (w.value() > static_cast<uint32_t>(aPicSize.Width())) {
+  if (!w.isValid() || w.value() > static_cast<uint32_t>(aPicSize.Width())) {
     return Err(
         "Sum of visible rectangle's x and width exceeds the picture's width"_ns);
   }
 
   const auto h = CheckedInt<uint32_t>(aVisibleRect.Height()) + aVisibleRect.Y();
-  if (h.value() > static_cast<uint32_t>(aPicSize.Height())) {
+  if (!h.isValid() || h.value() > static_cast<uint32_t>(aPicSize.Height())) {
     return Err(
         "Sum of visible rectangle's y and height exceeds the picture's height"_ns);
   }
