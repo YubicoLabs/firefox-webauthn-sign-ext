@@ -9,9 +9,8 @@ const { UserCharacteristicsPageService, MAX_CANVAS_RAW_DATA_BUDGET_BYTES } =
     "resource://gre/modules/UserCharacteristicsPageService.sys.mjs"
   );
 
-const { CANVAS_HASH_PROBABILITIES } = ChromeUtils.importESModule(
-  "resource://gre/modules/CanvasHashData.sys.mjs"
-);
+const { CANVAS_HASH_PROBABILITIES, getHashProbability } =
+  ChromeUtils.importESModule("resource://gre/modules/CanvasHashData.sys.mjs");
 
 // Get a known hash from the probabilities map for testing
 const KNOWN_HASH = CANVAS_HASH_PROBABILITIES.keys().next().value;
@@ -69,30 +68,53 @@ function createAllKnownHashesData() {
   return data;
 }
 
-// Test 1: All known hashes should be removed
+// Test 1: Known hashes should be filtered probabilistically
 add_task(async function test_all_known_hashes_removed() {
-  info("Test 1: Submit all known hashes and ensure they are all removed");
+  info("Test 1: Submit all known hashes and verify probabilistic filtering");
 
-  const service = new UserCharacteristicsPageService();
-  const testData = createAllKnownHashesData();
+  // Get the actual probability for the known hash (includes channel multiplier)
+  const probability = getHashProbability(KNOWN_HASH);
+  info(`Known hash ${KNOWN_HASH} has probability ${probability}`);
 
-  const filtered = await service.filterAllCanvasRawData(testData);
+  // Run multiple iterations to verify statistical behavior
+  const iterations = 50;
+  const totalEntries = 26; // Number of canvas types
+  let totalKept = 0;
 
-  // Check that all raw data was removed (since all hashes are known and filtered by probability)
-  let rawCount = 0;
-  for (const key of filtered.keys()) {
-    if (key.endsWith("Raw")) {
-      rawCount++;
+  for (let i = 0; i < iterations; i++) {
+    const service = new UserCharacteristicsPageService();
+    const testData = createAllKnownHashesData();
+    const filtered = await service.filterAllCanvasRawData(testData);
+
+    let rawCount = 0;
+    for (const key of filtered.keys()) {
+      if (key.endsWith("Raw")) {
+        rawCount++;
+      }
     }
+    totalKept += rawCount;
   }
 
-  info(`After filtering: ${rawCount} raw entries remain`);
-  // With known hashes, probabilistic sampling will remove most/all
-  // We expect very few (likely 0) to remain
+  const avgKept = totalKept / iterations;
+  const expectedKept = totalEntries * probability;
+
+  info(
+    `After ${iterations} iterations: avg ${avgKept.toFixed(1)} raw entries kept (expected ~${expectedKept.toFixed(1)})`
+  );
+
+  // Allow 50% variance from expected value to account for randomness
+  const minExpected = Math.max(0, expectedKept * 0.5);
+  const maxExpected = Math.min(totalEntries, expectedKept * 1.5 + 3);
+
+  Assert.greaterOrEqual(
+    avgKept,
+    minExpected,
+    `Average kept (${avgKept.toFixed(1)}) should be >= ${minExpected.toFixed(1)}`
+  );
   Assert.lessOrEqual(
-    rawCount,
-    3,
-    "Most or all known hash raw data should be filtered out"
+    avgKept,
+    maxExpected,
+    `Average kept (${avgKept.toFixed(1)}) should be <= ${maxExpected.toFixed(1)}`
   );
 });
 
