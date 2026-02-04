@@ -24,6 +24,7 @@ impl CrashHelperClient {
     ) -> Result<CrashHelperClient> {
         let channel = IPCChannel::new()?;
         let (_listener, server_endpoint, client_endpoint) = channel.deconstruct();
+
         CrashHelperClient::spawn_crash_helper(
             program,
             breakpad_data,
@@ -49,7 +50,7 @@ impl CrashHelperClient {
         let breakpad_data_arg =
             unsafe { CString::from_vec_unchecked(breakpad_data.to_string().into_bytes()) };
         let minidump_path = unsafe { CStr::from_ptr(minidump_path) };
-        let endpoint_arg = endpoint.serialize();
+        let endpoint_arg = endpoint.serialize()?;
 
         let file_actions = PosixSpawnFileActions::init()?;
         let attr = PosixSpawnAttr::init()?;
