@@ -56,6 +56,19 @@ def project_for_ac(test, prefix, test_path):
     )
 
 
+def flavor_for_test(test):
+    """Get the type of the test"""
+    # Example:
+    # test      = mobile/android/fenix/app/src/androidTest/java/org/mozilla/fenix/components/MenuItemTest.kt
+    # returns   = android
+
+    android_prefix = os.path.join("src", "androidTest", "java")
+    if android_prefix in os.path.normpath(test):
+        return "android"
+    else:
+        return "unit"
+
+
 @Command(
     "android-test",
     category="testing",
@@ -66,6 +79,14 @@ def project_for_ac(test, prefix, test_path):
     default="fenix",
     choices=["fenix", "focus", "android-components", "ac", "geckoview", "gv"],
     help="Android subproject to run tests for.",
+)
+@CommandArgument(
+    "--flavor",
+    default="unit",
+    choices=["unit", "android", "both"],
+    help="The unit test suite runs on host using JUnit or Robolectric, while"
+    + " the android suite requires an emulator or device. This is determined"
+    + " automatically if a specific test is specified.",
 )
 @CommandArgument(
     "--gradle-variant",
@@ -80,6 +101,7 @@ def project_for_ac(test, prefix, test_path):
 def run_android_test(
     command_context,
     subproject,
+    flavor="unit",
     gradle_variant=None,
     test=None,
     test_objects=[],
@@ -124,27 +146,52 @@ def run_android_test(
     gradle_command.append("-p")
     gradle_command.append(subdir)
 
-    # This path fragment is used to split path between project and test class
-    test_path = os.path.join("src", "test", "java")
+    # Partition tests based on type
+    unit_tests = [t for t in tests if flavor_for_test(t) == "unit"]
+    android_tests = [t for t in tests if flavor_for_test(t) == "android"]
 
-    # Compute the gradle tasks we need
+    def project_name(test, test_path):
+        prefix = os.path.join(subdir, "components")
+        return project_for_ac(test, prefix, test_path)
+
+    # Tests based on 'testUnitTest' family of tasks
     gradle_unittest = f"test{gradle_variant}UnitTest"
-    if tests and (subproject == "android-components"):
-        # Identify the relevant a-c projects for the tests
-        def project_name(test):
-            prefix = os.path.join(subdir, "components")
-            return project_for_ac(test, prefix, test_path)
+    if unit_tests:
+        test_path = os.path.join("src", "test", "java")
+        if subproject == "android-components":
+            for p in dict.fromkeys(project_name(t, test_path) for t in unit_tests):
+                gradle_command.append(f":components:{p}:{gradle_unittest}")
+        else:
+            gradle_command.append(gradle_unittest)
 
-        for p in dict.fromkeys(project_name(t) for t in tests):
-            gradle_command.append(f":components:{p}:{gradle_unittest}")
-    else:
-        gradle_command.append(gradle_unittest)
+        # Compute the class names from file names
+        gradle_command.append("--rerun")
+        for t in unit_tests:
+            gradle_command.append("--tests")
+            gradle_command.append(classname_for_test(t, test_path))
 
-    # Compute the class names from file names
-    gradle_command.append("--rerun")
-    for t in tests:
-        gradle_command.append("--tests")
-        gradle_command.append(classname_for_test(t, test_path))
+    # Tests based on 'connectedAndroidTest' family of tasks
+    gradle_androidtest = f"connected{gradle_variant}AndroidTest"
+    if android_tests:
+        test_path = os.path.join("src", "androidTest", "java")
+        if subproject == "android-components":
+            for p in dict.fromkeys(project_name(t, test_path) for t in android_tests):
+                gradle_command.append(f":components:{p}:{gradle_androidtest}")
+        else:
+            gradle_command.append(gradle_androidtest)
+
+        for t in android_tests:
+            name = classname_for_test(t, test_path)
+            gradle_command.append(
+                f"-Pandroid.testInstrumentationRunnerArguments.class={name}"
+            )
+
+    # If no tests specified, run whole suite based on flavor
+    if not tests:
+        if flavor in ("both", "unit"):
+            gradle_command.append(gradle_unittest)
+        if flavor in ("both", "android"):
+            gradle_command.append(gradle_androidtest)
 
     return command_context._mach_context.commands.dispatch(
         "gradle", command_context._mach_context, args=gradle_command
