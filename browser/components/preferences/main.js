@@ -2556,53 +2556,15 @@ SettingGroupManager.registerGroups({
   customHomepage: {
     inProgress: true,
     headingLevel: 2,
+    l10nId: "home-custom-homepage-card-header",
+    iconSrc: "chrome://global/skin/icons/link.svg",
     items: [
       {
-        id: "customHomepageCard",
-        control: "moz-card",
-        l10nId: "home-custom-homepage-card",
-        iconSrc: "chrome://global/skin/icons/link.svg",
-        items: [
-          {
-            id: "customHomepageBoxGroup",
-            control: "moz-box-group",
-            controlAttrs: {
-              type: "list",
-            },
-            items: [
-              {
-                id: "customHomepageBoxForm",
-                control: "moz-box-item",
-                items: [
-                  {
-                    id: "customHomepagePlaceholderButton",
-                    control: "moz-button",
-                  },
-                ],
-              },
-              {
-                id: "customHomepageBoxUrlList",
-                control: "moz-box-item",
-                items: [
-                  {
-                    id: "customHomepagePlaceholderButton",
-                    control: "moz-button",
-                  },
-                ],
-              },
-              {
-                id: "customHomepageBoxActions",
-                control: "moz-box-item",
-                items: [
-                  {
-                    id: "customHomepagePlaceholderButton",
-                    control: "moz-button",
-                  },
-                ],
-              },
-            ],
-          },
-        ],
+        id: "customHomepageBoxGroup",
+        control: "moz-box-group",
+        controlAttrs: {
+          type: "list",
+        },
       },
     ],
   },
