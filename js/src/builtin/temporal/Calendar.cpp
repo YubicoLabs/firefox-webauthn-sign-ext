@@ -1900,6 +1900,123 @@ static bool CalendarDateToISO(JSContext* cx, CalendarId calendar,
 }
 
 /**
+ * NonISOMonthDayToISOReferenceDate ( calendar, fields, overflow )
+ *
+ * Return the reference ISO year for "chinese" and "dangi" calendars. Return
+ * zero if no reference ISO year can be determined.
+ */
+static int32_t EastAsianCalendarReferenceISOYear(CalendarId calendar,
+                                                 MonthCode monthCode,
+                                                 int32_t day) {
+  MOZ_ASSERT(calendar == CalendarId::Chinese || calendar == CalendarId::Dangi);
+  MOZ_ASSERT(day > 0);
+
+  if (day < 30) {
+    switch (monthCode.code()) {
+      case MonthCode::Code::M01:
+      case MonthCode::Code::M02:
+      case MonthCode::Code::M03:
+      case MonthCode::Code::M04:
+      case MonthCode::Code::M05:
+      case MonthCode::Code::M06:
+      case MonthCode::Code::M07:
+      case MonthCode::Code::M08:
+      case MonthCode::Code::M09:
+      case MonthCode::Code::M10:
+      case MonthCode::Code::M11:
+      case MonthCode::Code::M12:
+        return 1972;
+
+      case MonthCode::Code::M01L:
+        return 0;
+      case MonthCode::Code::M02L:
+        return 1947;
+      case MonthCode::Code::M03L:
+        return 1966;
+      case MonthCode::Code::M04L:
+        return 1963;
+      case MonthCode::Code::M05L:
+        return 1971;
+      case MonthCode::Code::M06L:
+        return 1960;
+      case MonthCode::Code::M07L:
+        return 1968;
+      case MonthCode::Code::M08L:
+        return 1957;
+      case MonthCode::Code::M09L:
+        return 2014;
+      case MonthCode::Code::M10L:
+        return 1984;
+      case MonthCode::Code::M11L:
+        return day <= 10 ? 2033 : 2034;
+      case MonthCode::Code::M12L:
+        return 0;
+
+      case MonthCode::Code::Invalid:
+      case MonthCode::Code::M13:
+        break;
+    }
+  } else {
+    switch (monthCode.code()) {
+      case MonthCode::Code::M01:
+        return 1970;
+      case MonthCode::Code::M02:
+        return 1972;
+      case MonthCode::Code::M03:
+        return calendar == CalendarId::Chinese ? 1966 : 1968;
+      case MonthCode::Code::M04:
+        return 1970;
+      case MonthCode::Code::M05:
+        return 1972;
+      case MonthCode::Code::M06:
+        return 1971;
+      case MonthCode::Code::M07:
+        return 1972;
+      case MonthCode::Code::M08:
+        return 1971;
+      case MonthCode::Code::M09:
+        return 1972;
+      case MonthCode::Code::M10:
+        return 1972;
+      case MonthCode::Code::M11:
+        return 1970;
+      case MonthCode::Code::M12:
+        return 1972;
+
+      case MonthCode::Code::M01L:
+        return 0;
+      case MonthCode::Code::M02L:
+        return 0;
+      case MonthCode::Code::M03L:
+        return 1955;
+      case MonthCode::Code::M04L:
+        return 1944;
+      case MonthCode::Code::M05L:
+        return 1952;
+      case MonthCode::Code::M06L:
+        return 1941;
+      case MonthCode::Code::M07L:
+        return 1938;
+      case MonthCode::Code::M08L:
+        return 0;
+      case MonthCode::Code::M09L:
+        return 0;
+      case MonthCode::Code::M10L:
+        return 0;
+      case MonthCode::Code::M11L:
+        return 0;
+      case MonthCode::Code::M12L:
+        return 0;
+
+      case MonthCode::Code::Invalid:
+      case MonthCode::Code::M13:
+        break;
+    }
+  }
+  MOZ_CRASH("unexpected month code");
+}
+
+/**
  * CalendarMonthDayToISOReferenceDate ( calendar, fields, overflow )
  */
 static bool NonISOMonthDayToISOReferenceDate(JSContext* cx, CalendarId calendar,
@@ -1907,7 +2024,7 @@ static bool NonISOMonthDayToISOReferenceDate(JSContext* cx, CalendarId calendar,
                                              ISODate startISODate,
                                              ISODate endISODate,
                                              MonthCode monthCode, int32_t day,
-                                             UniqueICU4XDate& resultDate) {
+                                             UniqueICU4XDate* resultDate) {
   MOZ_ASSERT(startISODate != endISODate);
 
   int32_t direction = startISODate > endISODate ? -1 : 1;
@@ -1948,11 +2065,11 @@ static bool NonISOMonthDayToISOReferenceDate(JSContext* cx, CalendarId calendar,
 
       // Stop searching if |endISODate| was reached.
       if (direction < 0 ? isoDate < endISODate : isoDate > endISODate) {
-        resultDate = nullptr;
+        *resultDate = nullptr;
         return true;
       }
 
-      resultDate = result.unwrap();
+      *resultDate = result.unwrap();
       return true;
     }
 
@@ -1996,7 +2113,7 @@ static bool NonISOMonthDayToISOReferenceDate(JSContext* cx, CalendarId calendar,
     return false;
   }
 
-  resultDate = nullptr;
+  *resultDate = nullptr;
   return true;
 }
 
@@ -2064,6 +2181,18 @@ static bool NonISOMonthDayToISOReferenceDate(JSContext* cx, CalendarId calendar,
   } else {
     MOZ_ASSERT(monthCode != MonthCode{});
 
+    if (calendar == CalendarId::Chinese || calendar == CalendarId::Dangi) {
+      int32_t referenceYear =
+          EastAsianCalendarReferenceISOYear(calendar, monthCode, day);
+      if (referenceYear == 0) {
+        if (overflow == TemporalOverflow::Reject) {
+          ReportCalendarFieldOverflow(cx, "day", day);
+          return false;
+        }
+        monthCode = MonthCode{monthCode.ordinal()};
+      }
+    }
+
     // Constrain `day` to maximum possible day of the input month.
     int32_t maxDaysInMonth = CalendarDaysInMonth(calendar, monthCode).second;
     if (overflow == TemporalOverflow::Constrain) {
@@ -2092,15 +2221,15 @@ static bool NonISOMonthDayToISOReferenceDate(JSContext* cx, CalendarId calendar,
       // If there is still no such date, it is the latest ISO 8601 date
       // corresponding to the calendar date on or before December 31, 1899.
       //
-      // Year -8000 is sufficient to find all possible month-days, even for
-      // rare cases like `{calendar: "chinese", monthCode: "M09L", day: 30}`.
-      {ISODate{1899, 12, 31}, ISODate{-8000, 1, 1}},
+      // Year 1600 is sufficient to find all possible month-days, even for
+      // rare cases like `{calendar: "chinese", monthCode: "M08L", day: 30}`.
+      {ISODate{1899, 12, 31}, ISODate{1600, 1, 1}},
   };
 
   UniqueICU4XDate date;
   for (auto& [start, end] : candidates) {
     if (!NonISOMonthDayToISOReferenceDate(cx, calendar, cal.get(), start, end,
-                                          monthCode, day, date)) {
+                                          monthCode, day, &date)) {
       return false;
     }
     if (date) {
@@ -2108,14 +2237,24 @@ static bool NonISOMonthDayToISOReferenceDate(JSContext* cx, CalendarId calendar,
     }
   }
 
-  // We shouldn't end up here with |maxIterations == 10'000|, but just in case
-  // still handle this case and report an error.
+  // We shouldn't end up here, but just in case still handle a missing date and
+  // report an error.
   if (!date) {
     ReportCalendarFieldOverflow(cx, "day", day);
     return false;
   }
 
   *result = ToISODate(date.get());
+
+  // FIXME: spec bug - missing handling for reference years when input fields
+  // have a year component:
+  // https://github.com/tc39/proposal-intl-era-monthcode/issues/113
+  MOZ_ASSERT_IF(
+      (calendar == CalendarId::Chinese || calendar == CalendarId::Dangi) &&
+          !(fields.has(CalendarField::Year) ||
+            fields.has(CalendarField::EraYear)),
+      result->year ==
+          EastAsianCalendarReferenceISOYear(calendar, monthCode, day));
   return true;
 }
 
