@@ -436,6 +436,101 @@ panel-item::part(button) {
   word-break: break-word;
 }
 
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+.activation-window-message {
+  --image-size-small: 60px;
+  --image-size-medium: 90px;
+  --image-size-large: 120px;
+  background-color: var(--background-color-canvas);
+  border: 2px solid var(--border-color-card);
+  color: var(--text-color);
+  padding: var(--space-large);
+  border-radius: var(--border-radius-medium);
+  margin-block: 0 var(--space-xlarge);
+  margin-inline: auto;
+  position: relative;
+}
+@media (min-width: 610px) {
+  .activation-window-message {
+    width: 360px;
+  }
+}
+@media (min-width: 866px) {
+  .activation-window-message {
+    width: 510px;
+  }
+}
+@media (min-width: 1122px) {
+  .activation-window-message {
+    width: 720px;
+  }
+}
+.activation-window-message .activation-window-message-dismiss {
+  position: absolute;
+  inset-inline-end: var(--space-medium);
+  inset-block-start: var(--space-medium);
+}
+.activation-window-message .activation-window-message-inner {
+  display: flex;
+  gap: var(--space-medium);
+  align-items: flex-start;
+  flex-direction: column;
+}
+.activation-window-message .activation-window-message-inner img {
+  max-width: var(--image-size-small);
+  max-height: var(--image-size-small);
+  object-fit: contain;
+  align-self: start;
+}
+.activation-window-message .activation-window-message-inner > div {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding-inline-end: var(--space-xxlarge);
+}
+.activation-window-message .activation-window-message-inner > div moz-button-group {
+  margin-block-start: var(--space-xlarge);
+}
+.activation-window-message .activation-window-message-inner h2 {
+  margin: 0;
+  font-size: var(--font-size-large);
+  font-weight: var(--heading-font-weight);
+}
+.activation-window-message .activation-window-message-inner p {
+  margin-block: var(--space-medium) 0;
+  color: var(--text-color-deemphasized);
+}
+@media (min-width: 866px) {
+  .activation-window-message .activation-window-message-inner {
+    flex-direction: row;
+    gap: var(--space-xlarge);
+  }
+  .activation-window-message .activation-window-message-inner img {
+    max-width: var(--image-size-medium);
+    max-height: var(--image-size-medium);
+  }
+  .activation-window-message.no-buttons .activation-window-message-inner img {
+    max-width: var(--image-size-medium);
+    max-height: var(--image-size-medium);
+  }
+}
+@media (min-width: 1122px) {
+  .activation-window-message .activation-window-message-inner img {
+    max-width: var(--image-size-large);
+    max-height: var(--image-size-large);
+  }
+}
+.activation-window-message moz-button-group {
+  display: flex;
+  gap: var(--space-small);
+  justify-content: start;
+}
+.activation-window-message moz-button {
+  min-width: fit-content;
+}
+
 .a11y-link-button {
   border: 0;
   padding: 0;
