@@ -562,8 +562,14 @@
     addTabs(tabsOrSplitViews, metricsContext = null) {
       for (let tabOrSplitView of tabsOrSplitViews) {
         if (gBrowser.isSplitViewWrapper(tabOrSplitView)) {
+          let splitViewToMove =
+            this.ownerGlobal === tabOrSplitView.ownerGlobal
+              ? tabOrSplitView
+              : gBrowser.adoptSplitView(tabOrSplitView, {
+                  elementIndex: gBrowser.tabs.at(-1)._tPos + 1,
+                });
           gBrowser.moveSplitViewToExistingGroup(
-            tabOrSplitView,
+            splitViewToMove,
             this,
             metricsContext
           );

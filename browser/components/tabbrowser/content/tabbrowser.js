@@ -10571,8 +10571,12 @@ var TabContextMenu = {
    * @param {MozTabbrowserTabGroup} group
    */
   moveTabsToGroup(group) {
+    let elementsToMove = new Set();
+    for (let tab of this.contextTabs) {
+      elementsToMove.add(tab.splitview ?? tab);
+    }
     group.addTabs(
-      this.contextTabs,
+      Array.from(elementsToMove.values()),
       gBrowser.TabMetrics.userTriggeredContext(
         gBrowser.TabMetrics.METRIC_SOURCE.TAB_MENU
       )
