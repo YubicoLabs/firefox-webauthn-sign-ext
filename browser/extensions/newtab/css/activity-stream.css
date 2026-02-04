@@ -6145,7 +6145,7 @@ hr {
     display: block;
   }
 }
-@media (min-width: 724px) {
+@media (724px <= width < 1122px) {
   .ds-section-grid.ds-card-grid .col-2-small .meta .info-wrap {
     max-width: 150px;
   }
