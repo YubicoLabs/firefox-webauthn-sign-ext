@@ -781,6 +781,12 @@ export function SyncEngine(name, service) {
     beforeSave: () => this._beforeSaveMetadata(),
   });
 
+  this._previousFailedOutStorage = new JSONFile({
+    path: Utils.jsonFilePath("failedOut", this.name),
+    dataPostProcessor: json => this._metadataPostProcessor(json),
+    beforeSave: () => this._beforeSaveMetadata(),
+  });
+
   XPCOMUtils.defineLazyPreferenceGetter(
     this,
     "_enabled",
@@ -854,6 +860,7 @@ SyncEngine.prototype = {
   async _beforeSaveMetadata() {
     await ensureDirectory(this._toFetchStorage.path);
     await ensureDirectory(this._previousFailedInStorage.path);
+    await ensureDirectory(this._previousFailedOutStorage.path);
   },
 
   // A relative priority to use when computing an order
@@ -876,6 +883,7 @@ SyncEngine.prototype = {
   async initialize() {
     await this._toFetchStorage.load();
     await this._previousFailedInStorage.load();
+    await this._previousFailedOutStorage.load();
     Services.prefs.addObserver(
       `${PREFS_BRANCH}engine.${this.prefName}`,
       this.asyncObserver,
@@ -1095,6 +1103,21 @@ SyncEngine.prototype = {
     }
     this._previousFailedInStorage.data = { ids };
     this._previousFailedInStorage.saveSoon();
+  },
+
+  get previousFailedOut() {
+    this._previousFailedOutStorage.ensureDataReady();
+    return this._previousFailedOutStorage.data.ids;
+  },
+
+  set previousFailedOut(ids) {
+    if (ids.constructor.name != "SerializableSet") {
+      throw new Error(
+        "Bug: Attempted to set previousFailedOut to something that isn't a SerializableSet"
+      );
+    }
+    this._previousFailedOutStorage.data = { ids };
+    this._previousFailedOutStorage.saveSoon();
   },
 
   /*
@@ -1871,8 +1894,19 @@ SyncEngine.prototype = {
           countTelemetry.addOutgoingFailedReason(message);
         });
 
+        for (const id of failed) {
+          // Retry once.
+          if (this.previousFailedOut.has(id)) {
+            this._modified.delete(id);
+            this.previousFailedOut.delete(id);
+          } else {
+            this.previousFailedOut.add(id);
+          }
+        }
+
         for (let id of successful) {
           this._modified.delete(id);
+          this.previousFailedOut.delete(id);
         }
 
         await this._onRecordsWritten(
@@ -2155,6 +2189,7 @@ SyncEngine.prototype = {
     await this.resetLastSync();
     this.hasSyncedThisSession = false;
     this.previousFailedIn = new SerializableSet();
+    this.previousFailedOut = new SerializableSet();
     this.toFetch = new SerializableSet();
   },
 
@@ -2192,6 +2227,7 @@ SyncEngine.prototype = {
     await this._tracker.finalize();
     await this._toFetchStorage.finalize();
     await this._previousFailedInStorage.finalize();
+    await this._previousFailedOutStorage.finalize();
   },
 
   // Returns a new watchdog. Exposed for tests.

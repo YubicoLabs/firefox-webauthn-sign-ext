@@ -95,6 +95,7 @@ export function RotaryEngine(service) {
   // Ensure that the engine starts with a clean slate.
   this.toFetch = new SerializableSet();
   this.previousFailedIn = new SerializableSet();
+  this.previousFailedOut = new SerializableSet();
 }
 
 RotaryEngine.prototype = {
