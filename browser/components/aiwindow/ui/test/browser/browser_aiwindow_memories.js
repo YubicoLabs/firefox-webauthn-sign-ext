@@ -68,7 +68,8 @@ add_task(async function test_memories_scheduler_on_init_with_aiwindow() {
 
   testWin.document.documentElement.setAttribute("ai-window", "");
 
-  AIWindow._initialized = false;
+  // Use uninit() to properly clean up observer before re-initializing
+  AIWindow.uninit();
   AIWindow.init(testWin);
 
   Assert.ok(
@@ -89,7 +90,8 @@ add_task(
       private: false,
     });
 
-    AIWindow._initialized = false;
+    // Use uninit() to properly clean up observer before re-initializing
+    AIWindow.uninit();
     AIWindow.init(testWin);
 
     Assert.ok(
