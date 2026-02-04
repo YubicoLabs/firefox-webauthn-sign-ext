@@ -676,7 +676,7 @@ add_task(async function test_processIncoming_resume_toFetch() {
   let engine = makeRotaryEngine();
   await engine.setLastSync(LASTSYNC);
   engine.toFetch = new SerializableSet(["flying", "scotsman"]);
-  engine.previousFailed = new SerializableSet([
+  engine.previousFailedIn = new SerializableSet([
     "failed0",
     "failed1",
     "failed2",
@@ -710,7 +710,7 @@ add_task(async function test_processIncoming_resume_toFetch() {
     Assert.equal(engine._store.items.failed0, "Record No. 0");
     Assert.equal(engine._store.items.failed1, "Record No. 1");
     Assert.equal(engine._store.items.failed2, "Record No. 2");
-    Assert.equal(engine.previousFailed.size, 0);
+    Assert.equal(engine.previousFailedIn.size, 0);
   } finally {
     await cleanAndGo(engine, server);
   }
@@ -763,7 +763,7 @@ add_task(async function test_processIncoming_notify_count() {
     // Confirm initial environment.
     Assert.equal(await engine.getLastSync(), 0);
     Assert.equal(engine.toFetch.size, 0);
-    Assert.equal(engine.previousFailed.size, 0);
+    Assert.equal(engine.previousFailedIn.size, 0);
     do_check_empty(engine._store.items);
 
     let called = 0;
@@ -782,7 +782,7 @@ add_task(async function test_processIncoming_notify_count() {
     // Confirm failures.
     do_check_attribute_count(engine._store.items, 12);
     Assert.deepEqual(
-      Array.from(engine.previousFailed).sort(),
+      Array.from(engine.previousFailedIn).sort(),
       ["record-no-00", "record-no-05", "record-no-10"].sort()
     );
 
@@ -802,7 +802,7 @@ add_task(async function test_processIncoming_notify_count() {
     do_check_attribute_count(engine._store.items, 14);
     // After failing twice the record that failed again [record-no-00]
     // should NOT be stored to try again
-    Assert.deepEqual(Array.from(engine.previousFailed), []);
+    Assert.deepEqual(Array.from(engine.previousFailedIn), []);
 
     Assert.equal(called, 2);
     Assert.equal(counts.failed, 1);
@@ -862,17 +862,17 @@ add_task(async function test_processIncoming_previousFailed() {
     // Confirm initial environment.
     Assert.equal(await engine.getLastSync(), 0);
     Assert.equal(engine.toFetch.size, 0);
-    Assert.equal(engine.previousFailed.size, 0);
+    Assert.equal(engine.previousFailedIn.size, 0);
     do_check_empty(engine._store.items);
 
-    // Initial failed items in previousFailed to be reset.
-    let previousFailed = new SerializableSet([
+    // Initial failed items in previousFailedIn to be reset.
+    let previousFailedIn = new SerializableSet([
       Utils.makeGUID(),
       Utils.makeGUID(),
       Utils.makeGUID(),
     ]);
-    engine.previousFailed = previousFailed;
-    Assert.equal(engine.previousFailed, previousFailed);
+    engine.previousFailedIn = previousFailedIn;
+    Assert.equal(engine.previousFailedIn, previousFailedIn);
 
     // Do sync.
     await engine._syncStartup();
@@ -881,7 +881,7 @@ add_task(async function test_processIncoming_previousFailed() {
     // Expected result: 4 sync batches with 2 failures each => 8 failures
     do_check_attribute_count(engine._store.items, 6);
     Assert.deepEqual(
-      Array.from(engine.previousFailed).sort(),
+      Array.from(engine.previousFailedIn).sort(),
       [
         "record-no-00",
         "record-no-01",
@@ -899,8 +899,8 @@ add_task(async function test_processIncoming_previousFailed() {
 
     do_check_attribute_count(engine._store.items, 10);
     // A second sync with the same failed items should NOT add the same items again.
-    // Items that did not fail a second time should no longer be in previousFailed.
-    Assert.deepEqual(Array.from(engine.previousFailed).sort(), []);
+    // Items that did not fail a second time should no longer be in previousFailedIn.
+    Assert.deepEqual(Array.from(engine.previousFailedIn).sort(), []);
 
     // Refetched items that didn't fail the second time are in engine._store.items.
     Assert.equal(engine._store.items["record-no-04"], "Record No. 4");
@@ -987,7 +987,7 @@ add_task(async function test_processIncoming_failed_records() {
     // Confirm initial environment
     Assert.equal(await engine.getLastSync(), 0);
     Assert.equal(engine.toFetch.size, 0);
-    Assert.equal(engine.previousFailed.size, 0);
+    Assert.equal(engine.previousFailedIn.size, 0);
     do_check_empty(engine._store.items);
 
     let observerSubject;
@@ -1008,9 +1008,9 @@ add_task(async function test_processIncoming_failed_records() {
     );
 
     // Ensure that the bogus records will be fetched again on the next sync.
-    Assert.equal(engine.previousFailed.size, BOGUS_RECORDS.length);
+    Assert.equal(engine.previousFailedIn.size, BOGUS_RECORDS.length);
     Assert.deepEqual(
-      Array.from(engine.previousFailed).sort(),
+      Array.from(engine.previousFailedIn).sort(),
       BOGUS_RECORDS.sort()
     );
 
@@ -1094,7 +1094,7 @@ add_task(async function test_processIncoming_decrypt_failed() {
   try {
     // Confirm initial state
     Assert.equal(engine.toFetch.size, 0);
-    Assert.equal(engine.previousFailed.size, 0);
+    Assert.equal(engine.previousFailedIn.size, 0);
 
     let observerSubject;
     let observerData;
@@ -1116,11 +1116,11 @@ add_task(async function test_processIncoming_decrypt_failed() {
     // There should be 4 of the same error
     Assert.equal(ping.engines[0].incoming.failedReasons[0].count, 4);
 
-    Assert.equal(engine.previousFailed.size, 4);
-    Assert.ok(engine.previousFailed.has("nojson"));
-    Assert.ok(engine.previousFailed.has("nojson2"));
-    Assert.ok(engine.previousFailed.has("nodecrypt"));
-    Assert.ok(engine.previousFailed.has("nodecrypt2"));
+    Assert.equal(engine.previousFailedIn.size, 4);
+    Assert.ok(engine.previousFailedIn.has("nojson"));
+    Assert.ok(engine.previousFailedIn.has("nojson2"));
+    Assert.ok(engine.previousFailedIn.has("nodecrypt"));
+    Assert.ok(engine.previousFailedIn.has("nodecrypt2"));
 
     // Ensure the observer was notified
     Assert.equal(observerData, engine.name);

@@ -185,43 +185,43 @@ add_task(async function test_toFetch() {
 });
 
 add_task(async function test_previousFailed() {
-  _("SyncEngine.previousFailed corresponds to file on disk");
+  _("SyncEngine.previousFailedIn corresponds to file on disk");
   await SyncTestingInfrastructure(server);
 
   await testSteamEngineStorage({
-    previousFailed: guidSetOfSize(3),
+    previousFailedIn: guidSetOfSize(3),
     setup(engine) {
       // Ensure pristine environment
-      Assert.equal(engine.previousFailed.size, 0);
+      Assert.equal(engine.previousFailedIn.size, 0);
 
       // Write file to disk
-      engine.previousFailed = this.previousFailed;
-      Assert.equal(engine.previousFailed, this.previousFailed);
+      engine.previousFailedIn = this.previousFailedIn;
+      Assert.equal(engine.previousFailedIn, this.previousFailedIn);
     },
     check(engine) {
-      // previousFailed is written asynchronously
-      assertSetsEqual(engine.previousFailed, this.previousFailed);
+      // previousFailedIn is written asynchronously
+      assertSetsEqual(engine.previousFailedIn, this.previousFailedIn);
     },
   });
 
   await testSteamEngineStorage({
-    previousFailed: guidSetOfSize(4),
+    previousFailedIn: guidSetOfSize(4),
     previousFailed2: guidSetOfSize(5),
     setup(engine) {
       // Make sure it work for consecutive writes before the callback is executed.
-      engine.previousFailed = this.previousFailed;
-      Assert.equal(engine.previousFailed, this.previousFailed);
+      engine.previousFailedIn = this.previousFailedIn;
+      Assert.equal(engine.previousFailedIn, this.previousFailedIn);
 
-      engine.previousFailed = this.previousFailed2;
-      Assert.equal(engine.previousFailed, this.previousFailed2);
+      engine.previousFailedIn = this.previousFailed2;
+      Assert.equal(engine.previousFailedIn, this.previousFailed2);
     },
     check(engine) {
-      assertSetsEqual(engine.previousFailed, this.previousFailed2);
+      assertSetsEqual(engine.previousFailedIn, this.previousFailed2);
     },
   });
 
   await testSteamEngineStorage({
-    previousFailed: guidSetOfSize(2),
+    previousFailedIn: guidSetOfSize(2),
     async beforeCheck() {
       let previousFailedPath = PathUtils.join(
         PathUtils.profileDir,
@@ -229,13 +229,13 @@ add_task(async function test_previousFailed() {
         "failed",
         "steam.json"
       );
-      await IOUtils.writeJSON(previousFailedPath, this.previousFailed, {
+      await IOUtils.writeJSON(previousFailedPath, this.previousFailedIn, {
         tmpPath: previousFailedPath + ".tmp",
       });
     },
     check(engine) {
       // Read file from disk
-      assertSetsEqual(engine.previousFailed, this.previousFailed);
+      assertSetsEqual(engine.previousFailedIn, this.previousFailedIn);
     },
   });
 });
@@ -254,12 +254,12 @@ add_task(async function test_resetClient() {
 
     await engine.setLastSync(123.45);
     engine.toFetch = guidSetOfSize(4);
-    engine.previousFailed = guidSetOfSize(3);
+    engine.previousFailedIn = guidSetOfSize(3);
 
     await engine.resetClient();
     Assert.equal(await engine.getLastSync(), 0);
     Assert.equal(engine.toFetch.size, 0);
-    Assert.equal(engine.previousFailed.size, 0);
+    Assert.equal(engine.previousFailedIn.size, 0);
   } finally {
     for (const pref of Svc.PrefBranch.getChildList("")) {
       Svc.PrefBranch.clearUserPref(pref);
