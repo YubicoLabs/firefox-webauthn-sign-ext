@@ -987,9 +987,7 @@ void PerfSpewer::saveWasmProfile(uintptr_t base, size_t size,
 }
 
 void PerfSpewer::disable(AutoLockPerfSpewer& lock) {
-  endRecording();
-  debugInfo_.clear();
-  irFileName_ = UniqueChars();
+  reset();
   DisablePerfSpewer(lock);
 }
 
@@ -1033,8 +1031,8 @@ void PerfSpewer::endRecording() {
 }
 
 PerfSpewer::~PerfSpewer() {
-  // Close the file, if it hasn't yet.
-  endRecording();
+  // Free the allocated resources if they haven’t been freed yet.
+  reset();
 }
 
 PerfSpewer::PerfSpewer(PerfSpewer&& other) {
