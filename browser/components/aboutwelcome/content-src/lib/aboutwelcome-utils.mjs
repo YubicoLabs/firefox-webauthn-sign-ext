@@ -14,7 +14,7 @@ export const AboutWelcomeUtils = {
   handleUserAction(action) {
     return window.AWSendToParent("SPECIAL_ACTION", action);
   },
-  sendImpressionTelemetry(messageId, context = {}) {
+  sendImpressionTelemetry(messageId, context) {
     window.AWSendEventTelemetry?.({
       event: "IMPRESSION",
       event_context: {
@@ -24,28 +24,22 @@ export const AboutWelcomeUtils = {
       message_id: messageId,
     });
   },
-  sendActionTelemetry(
-    messageId,
-    elementId,
-    eventName = "CLICK_BUTTON",
-    context = {}
-  ) {
+  sendActionTelemetry(messageId, elementId, eventName = "CLICK_BUTTON") {
     const ping = {
       event: eventName,
       event_context: {
         source: elementId,
         page,
-        ...context,
       },
       message_id: messageId,
     };
     window.AWSendEventTelemetry?.(ping);
   },
-  sendDismissTelemetry(messageId, elementId, context = {}) {
+  sendDismissTelemetry(messageId, elementId) {
     // Don't send DISMISS telemetry in spotlight modals since they already send
     // their own equivalent telemetry.
     if (page !== "spotlight") {
-      this.sendActionTelemetry(messageId, elementId, "DISMISS", context);
+      this.sendActionTelemetry(messageId, elementId, "DISMISS");
     }
   },
   async fetchFlowParams(metricsFlowUri) {
@@ -76,15 +70,10 @@ export const AboutWelcomeUtils = {
   getLoadingStrategyFor(url) {
     return url?.startsWith("http") ? "lazy" : "eager";
   },
-  handleCampaignAction(action, messageId, context) {
+  handleCampaignAction(action, messageId) {
     window.AWSendToParent("HANDLE_CAMPAIGN_ACTION", action).then(handled => {
       if (handled) {
-        this.sendActionTelemetry(
-          messageId,
-          "CAMPAIGN_ACTION",
-          "CLICK_BUTTON",
-          context
-        );
+        this.sendActionTelemetry(messageId, "CAMPAIGN_ACTION");
       }
     });
   },

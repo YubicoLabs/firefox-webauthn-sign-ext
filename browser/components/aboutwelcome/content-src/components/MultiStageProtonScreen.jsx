@@ -86,8 +86,6 @@ export const MultiStageProtonScreen = props => {
       setActiveMultiSelect={props.setActiveMultiSelect}
       activeSingleSelectSelections={props.activeSingleSelectSelections}
       setActiveSingleSelectSelection={props.setActiveSingleSelectSelection}
-      textInputs={props.textInputs}
-      setTextInput={props.setTextInput}
       totalNumberOfScreens={props.totalNumberOfScreens}
       handleAction={props.handleAction}
       isFirstScreen={props.isFirstScreen}
@@ -103,7 +101,6 @@ export const MultiStageProtonScreen = props => {
       addonIconURL={props.addonIconURL}
       themeScreenshots={props.themeScreenshots}
       messageId={props.messageId}
-      writeInMicrosurvey={props.writeInMicrosurvey}
       negotiatedLanguage={props.negotiatedLanguage}
       langPackInstallPhase={props.langPackInstallPhase}
       forceHideStepsIndicator={props.forceHideStepsIndicator}
@@ -122,7 +119,6 @@ export const ProtonScreenActionButtons = props => {
     addonType,
     addonName,
     activeMultiSelect,
-    textInputs,
     installedAddons,
   } = props;
   const defaultValue = content.checkbox?.defaultValue;
@@ -154,8 +150,8 @@ export const ProtonScreenActionButtons = props => {
 
   // If we have a multi-select screen, we want to disable the primary button
   // until the user has selected at least one item.
-  const isPrimaryDisabled = disabledValue => {
-    if (disabledValue === "hasActiveMultiSelect") {
+  const isPrimaryDisabled = primaryDisabledValue => {
+    if (primaryDisabledValue === "hasActiveMultiSelect") {
       if (!activeMultiSelect) {
         return true;
       }
@@ -168,17 +164,7 @@ export const ProtonScreenActionButtons = props => {
       }
       return true;
     }
-    if (disabledValue === "hasTextInput") {
-      // For text input, we check if the user has entered any text in the
-      // textarea(s) present on the screen.
-      if (!textInputs) {
-        return true;
-      }
-      return Object.values(textInputs).every(
-        input => !input.isValid || input.value.trim().length === 0
-      );
-    }
-    return disabledValue;
+    return primaryDisabledValue;
   };
 
   return (
@@ -226,12 +212,7 @@ export const ProtonScreenActionButtons = props => {
         </Localized>
       )}
       {content.additional_button ? (
-        <AdditionalCTA
-          content={content}
-          handleAction={props.handleAction}
-          activeMultiSelect={activeMultiSelect}
-          textInputs={textInputs}
-        />
+        <AdditionalCTA content={content} handleAction={props.handleAction} />
       ) : null}
       {content.checkbox ? (
         <div className="checkbox-container">
@@ -253,7 +234,6 @@ export const ProtonScreenActionButtons = props => {
           content={content}
           handleAction={props.handleAction}
           activeMultiSelect={activeMultiSelect}
-          textInputs={textInputs}
         />
       ) : null}
     </div>
@@ -392,7 +372,6 @@ export class ProtonScreen extends React.PureComponent {
         negotiatedLanguage={this.props.negotiatedLanguage}
         langPackInstallPhase={this.props.langPackInstallPhase}
         messageId={this.props.messageId}
-        writeInMicrosurvey={this.props.writeInMicrosurvey}
       />
     ) : null;
   }
@@ -636,7 +615,6 @@ export class ProtonScreen extends React.PureComponent {
         addonType={this.props.addonType}
         handleAction={this.props.handleAction}
         activeMultiSelect={this.props.activeMultiSelect}
-        textInputs={this.props.textInputs}
       />
     ) : null;
   }

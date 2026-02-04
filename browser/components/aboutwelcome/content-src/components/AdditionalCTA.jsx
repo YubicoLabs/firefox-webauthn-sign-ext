@@ -6,12 +6,7 @@ import React from "react";
 import { Localized } from "./MSLocalized";
 import { SubmenuButton } from "./SubmenuButton";
 
-export const AdditionalCTA = ({
-  content,
-  handleAction,
-  activeMultiSelect,
-  textInputs,
-}) => {
+export const AdditionalCTA = ({ content, handleAction }) => {
   let buttonStyle = "";
   const isSplitButton =
     content.submenu_button?.attached_to === "additional_button";
@@ -29,36 +24,6 @@ export const AdditionalCTA = ({
         : content.additional_button?.style;
   }
 
-  const computeDisabled = React.useCallback(
-    disabledValue => {
-      if (disabledValue === "hasActiveMultiSelect") {
-        if (!activeMultiSelect) {
-          return true;
-        }
-
-        for (const key in activeMultiSelect) {
-          if (activeMultiSelect[key]?.length > 0) {
-            return false;
-          }
-        }
-
-        return true;
-      }
-      if (disabledValue === "hasTextInput") {
-        // For text input, we check if the user has entered any text in the
-        // textarea(s) present on the screen.
-        if (!textInputs) {
-          return true;
-        }
-        return Object.values(textInputs).every(
-          input => !input.isValid || input.value.trim().length === 0
-        );
-      }
-      return disabledValue;
-    },
-    [activeMultiSelect, textInputs]
-  );
-
   return (
     <div className={className}>
       <Localized text={content.additional_button?.label}>
@@ -67,7 +32,7 @@ export const AdditionalCTA = ({
           className={`${buttonStyle} additional-cta`}
           onClick={handleAction}
           value="additional_button"
-          disabled={computeDisabled(content.additional_button?.disabled)}
+          disabled={content.additional_button?.disabled === true}
         />
       </Localized>
       {isSplitButton ? (

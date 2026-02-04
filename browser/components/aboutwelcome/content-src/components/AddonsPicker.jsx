@@ -15,7 +15,7 @@ export const AddonsPicker = props => {
   }
 
   function handleAction(event) {
-    const { message_id, writeInMicrosurvey } = props;
+    const { message_id } = props;
     let { action, source_id } = content.tiles.data[event.currentTarget.value];
     let { type, data } = action;
 
@@ -26,12 +26,7 @@ export const AddonsPicker = props => {
     }
 
     AboutWelcomeUtils.handleUserAction({ type, data });
-    AboutWelcomeUtils.sendActionTelemetry(
-      message_id,
-      source_id,
-      "CLICK_BUTTON",
-      { writeInMicrosurvey }
-    );
+    AboutWelcomeUtils.sendActionTelemetry(message_id, source_id);
   }
 
   function handleAuthorClick(event, authorId) {

@@ -527,6 +527,7 @@ export class PageAction {
     );
   }
 
+  // eslint-disable-next-line max-statements
   async _renderPopup(message, browser) {
     this.maybeLoadCustomElement(this.window);
 
