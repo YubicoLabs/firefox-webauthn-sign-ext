@@ -1204,7 +1204,7 @@ characteristics:
     data_sensitivity:
       - technical
 
-  canvasdata1software:
+  canvasdata1_software:
     type: string
     description: >
       The sha1 hash of an image rendered on a canvas. The image is a simple organge box and used as a control image
@@ -1222,7 +1222,7 @@ characteristics:
     data_sensitivity:
       - technical
 
-  canvasdata2software:
+  canvasdata2_software:
     type: string
     description: >
       The sha1 hash of an image rendered on a canvas. The image is a bordered triage, and used to test point interpolation
@@ -1240,7 +1240,7 @@ characteristics:
     data_sensitivity:
       - technical
 
-  canvasdata3software:
+  canvasdata3_software:
     type: string
     description: >
       The sha1 hash of an image rendered on a canvas. The image is a stretched photographic image, used to test image operations.
@@ -1258,7 +1258,7 @@ characteristics:
     data_sensitivity:
       - technical
 
-  canvasdata4software:
+  canvasdata4_software:
     type: string
     description: >
       The sha1 hash of an image rendered on a canvas. The image is two rotated, semi-transparenct overlapping squares, used to test transparency and point interpolation.
@@ -1276,7 +1276,7 @@ characteristics:
     data_sensitivity:
       - technical
 
-  canvasdata5software:
+  canvasdata5_software:
     type: string
     description: >
       The sha1 hash of an image rendered on a canvas. The image is a local font rendered normally.
@@ -1294,7 +1294,7 @@ characteristics:
     data_sensitivity:
       - technical
 
-  canvasdata6software:
+  canvasdata6_software:
     type: string
     description: >
       The sha1 hash of an image rendered on a canvas. The image is a local font rendered with italics, rotation, and shadow-blur.
@@ -1312,7 +1312,7 @@ characteristics:
     data_sensitivity:
       - technical
 
-  canvasdata7software:
+  canvasdata7_software:
     type: string
     description: >
       The sha1 hash of an image rendered on a canvas. The image is a system-ui font rendered normally.
@@ -1330,7 +1330,7 @@ characteristics:
     data_sensitivity:
       - technical
 
-  canvasdata8software:
+  canvasdata8_software:
     type: string
     description: >
       The sha1 hash of an image rendered on a canvas. The image is a system-ui font rendered with italics, rotation, and shadow-blur.
@@ -1348,7 +1348,7 @@ characteristics:
     data_sensitivity:
       - technical
 
-  canvasdata9software:
+  canvasdata9_software:
     type: string
     description: >
       The sha1 hash of an image rendered on a canvas. The image is a font shipped with Firefox rendered normally.
@@ -1366,7 +1366,7 @@ characteristics:
     data_sensitivity:
       - technical
 
-  canvasdata10software:
+  canvasdata10_software:
     type: string
     description: >
       The sha1 hash of an image rendered on a canvas. The image is a font shipped with Firefox rendered with italics, rotation, and shadow-blur.
@@ -1384,7 +1384,7 @@ characteristics:
     data_sensitivity:
       - technical
 
-  canvasdata11_webglsoftware:
+  canvasdata11_webgl_software:
     type: string
     description: >
       The sha1 hash of an image rendered on a WebGL canvas (instead of Canvas2D). IT is a RGB gradient cube.
@@ -1402,7 +1402,7 @@ characteristics:
     data_sensitivity:
       - technical
 
-  canvasdata12_fingerprintjs1software:
+  canvasdata12_fingerprintjs1_software:
     type: string
     description: >
       The sha1 hash of an image rendered on a canvas, it is a copy of fingerprintjs' text canvas
@@ -1420,7 +1420,7 @@ characteristics:
     data_sensitivity:
       - technical
 
-  canvasdata13_fingerprintjs2software:
+  canvasdata13_fingerprintjs2_software:
     type: string
     description: >
       The sha1 hash of an image rendered on a canvas, it is a copy of fingerprintjs' geometry canvas

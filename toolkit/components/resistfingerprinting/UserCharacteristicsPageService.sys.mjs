@@ -217,7 +217,16 @@ export class UserCharacteristicsPageService {
   ) {
     const entries = data instanceof Map ? data.entries() : Object.entries(data);
     for (const [key, value] of entries) {
-      Glean.characteristics[prefix + key + suffix][operation](value);
+      let metricName = prefix + key + suffix;
+      try {
+        Glean.characteristics[metricName][operation](value);
+      } catch (e) {
+        lazy.console.error(
+          `ERROR setting metric "${metricName}" (prefix: "${prefix}", key: "${key}", suffix: "${suffix}"):`,
+          e
+        );
+        throw e;
+      }
     }
   }
 
@@ -624,7 +633,7 @@ export class UserCharacteristicsPageService {
     const metrics = {
       set: [
         "canvasdata11Webgl",
-        "canvasdata11Webglsoftware",
+        "canvasdata11WebglSoftware",
         "voicesCount",
         "voicesLocalCount",
         "voicesDefault",
