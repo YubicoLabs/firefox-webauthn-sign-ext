@@ -23,15 +23,12 @@ ChromeUtils.defineESModuleGetters(lazy, {
     "moz-src:///browser/components/ipprotection/IPPSignInWatcher.sys.mjs",
   IPProtectionStates:
     "moz-src:///browser/components/ipprotection/IPProtectionService.sys.mjs",
-  SpecialMessageActions:
-    "resource://messaging-system/lib/SpecialMessageActions.sys.mjs",
 });
 import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 
 import {
   LINKS,
   ERRORS,
-  SIGNIN_DATA,
 } from "chrome://browser/content/ipprotection/ipprotection-constants.mjs";
 
 XPCOMUtils.defineLazyPreferenceGetter(
@@ -397,8 +394,8 @@ export class IPProtectionPanel {
    * @param {Window} window - which window to open the panel in.
    * @returns {Promise<void>}
    */
-  async open(window = this.#window.get()) {
-    if (!lazy.IPProtection.created || !window?.PanelUI || this.active) {
+  async open(window) {
+    if (!lazy.IPProtection.created || !window?.PanelUI) {
       return;
     }
 
@@ -422,42 +419,12 @@ export class IPProtectionPanel {
    * Start flow for signing in and then opening the panel on success
    */
   async startLoginFlow() {
-    let window = this.#window.get();
+    let window = this.panel.ownerGlobal;
     let browser = window.gBrowser;
-
-    if (lazy.IPPSignInWatcher.isSignedIn) {
-      return true;
-    }
-
-    // Close the panel if the user will need to sign in.
     this.close();
-
-    const signedIn = await lazy.SpecialMessageActions.fxaSignInFlow(
-      SIGNIN_DATA,
-      browser
-    );
-    return signedIn;
-  }
-
-  /**
-   * Ensure there is a signed in account and then open the panel after enrolling.
-   */
-  async enroll() {
-    const signedIn = await this.startLoginFlow();
-    if (!signedIn) {
-      return;
-    }
-
-    // Temporarily set the main panel view to show if enrolling.
-    this.setState({
-      unauthenticated: false,
-    });
-
-    // Asynchronously enroll and entitle the user.
-    // It will only need to finish before the proxy can start.
-    lazy.IPPEnrollAndEntitleManager.maybeEnrollAndEntitle();
-    if (!this.active) {
-      await this.open();
+    let isSignedIn = await lazy.IPProtectionService.startLoginFlow(browser);
+    if (isSignedIn) {
+      await this.open(window);
     }
   }
 
@@ -646,7 +613,7 @@ export class IPProtectionPanel {
       this.initiatedUpgrade = true;
       this.close();
     } else if (event.type == "IPProtection:OptIn") {
-      this.enroll();
+      this.startLoginFlow();
     } else if (
       event.type == "IPPProxyManager:StateChanged" ||
       event.type == "IPProtectionService:StateChanged" ||

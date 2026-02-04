@@ -22,6 +22,10 @@ export default class IPProtectionUnauthenticatedContentElement extends MozLitEle
     this.dispatchEvent(
       new CustomEvent("IPProtection:OptIn", { bubbles: true, composed: true })
     );
+    // Close the panel
+    this.dispatchEvent(
+      new CustomEvent("IPProtection:Close", { bubbles: true, composed: true })
+    );
   }
 
   render() {

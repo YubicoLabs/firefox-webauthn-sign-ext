@@ -22,41 +22,6 @@ const { TelemetryTestUtils } = ChromeUtils.importESModule(
 
 AddonTestUtils.initMochitest(this);
 
-async function optInUser() {
-  setupService({
-    isSignedIn: true,
-    isEnrolledAndEntitled: true,
-  });
-  let content = await openPanel();
-  let unauthenticatedContent = content.unauthenticatedEl;
-  let getStartedButton = unauthenticatedContent.shadowRoot.querySelector(
-    "#unauthenticated-get-started"
-  );
-  Assert.ok(getStartedButton, "Get Started button should be visible");
-
-  const waitForStateChange = BrowserTestUtils.waitForEvent(
-    IPProtectionService,
-    "IPProtectionService:StateChanged",
-    false,
-    () => IPProtectionService.state === IPProtectionStates.READY
-  );
-
-  const optInPromise = BrowserTestUtils.waitForEvent(
-    document,
-    "IPProtection:OptIn"
-  );
-
-  getStartedButton.click();
-
-  await optInPromise;
-
-  if (IPProtectionService.state !== IPProtectionStates.READY) {
-    await waitForStateChange;
-  }
-
-  await closePanel();
-}
-
 /**
  * Tests getting eligibility from a Nimbus experiment and
  * creating and destroying the widget.
@@ -120,7 +85,7 @@ add_task(async function test_IPProtectionService_updateEnrollment() {
 });
 
 /**
- * Tests a user in the experiment can enroll with Guardian by clicking get started.
+ * Tests a user in the experiment can enroll with Guardian on opening the panel.
  */
 add_task(async function test_IPProtectionService_enroll() {
   setupService({
@@ -139,16 +104,20 @@ add_task(async function test_IPProtectionService_enroll() {
   IPProtectionService.updateState();
   Assert.equal(
     IPProtectionService.state,
-    IPProtectionStates.UNAUTHENTICATED,
-    "User should now be unauthenticated"
+    IPProtectionStates.READY,
+    "User should now be enrolling"
   );
 
-  await optInUser();
+  setupService({
+    isEnrolledAndEntitled: true,
+  });
+  await openPanel();
+  await IPProtectionService.enrolling;
 
   Assert.equal(
     IPProtectionService.state,
     IPProtectionStates.READY,
-    "User should now be enrolling"
+    "User should now be enrolled"
   );
 
   cleanupService();
@@ -156,13 +125,14 @@ add_task(async function test_IPProtectionService_enroll() {
 });
 
 /**
- *  Tests the entitlement updates when in the experiment.
+ * Tests a user who has signed in is enrolled when enrolled in the experiment.
+ * This state is only likely when testing the experiment.
  */
 add_task(
-  async function test_IPProtectionService_updateEntitlement_in_experiment() {
+  async function test_IPProtectionService_enroll_when_enrolled_in_experiment() {
     Services.prefs.clearUserPref("browser.ipProtection.enabled");
     setupService({
-      isEnrolledAndEntitled: true,
+      isEnrolledAndEntitled: false,
       isSignedIn: true,
       canEnroll: true,
     });
@@ -173,6 +143,54 @@ add_task(
     });
 
     await waitForWidgetAdded();
+
+    setupService({
+      isEnrolledAndEntitled: true,
+    });
+    let content = await openPanel();
+
+    await IPProtectionService.enrolling;
+
+    Assert.equal(
+      IPProtectionService.state,
+      IPProtectionStates.READY,
+      "User should now be enrolled"
+    );
+
+    let statusCard = content.statusCardEl;
+
+    // User is already signed in so the turn on button should be available.
+    let turnOnButton = statusCard?.actionButtonEl;
+    Assert.ok(turnOnButton, "Status card turn on button should be present");
+
+    cleanupService();
+    await cleanupAlpha();
+  }
+);
+
+/**
+ *  Tests the entitlement updates when in the experiment.
+ */
+add_task(
+  async function test_IPProtectionService_updateEntitlement_in_experiment() {
+    setupService({
+      isEnrolledAndEntitled: false,
+      isSignedIn: true,
+      canEnroll: true,
+    });
+
+    let cleanupAlpha = await setupExperiment({
+      enabled: true,
+      variant: "alpha",
+    });
+
+    await waitForWidgetAdded();
+
+    setupService({
+      isEnrolledAndEntitled: true,
+    });
+    await openPanel();
+    await IPProtectionService.enrolling;
 
     Assert.equal(
       IPProtectionService.state,
@@ -419,7 +437,7 @@ add_task(async function test_IPProtectionService_reload() {
 
   let content = await openPanel();
   let statusCard = content.statusCardEl;
-
+  await IPProtectionService.enrolling;
   Assert.equal(
     IPProtectionService.state,
     IPProtectionStates.READY,

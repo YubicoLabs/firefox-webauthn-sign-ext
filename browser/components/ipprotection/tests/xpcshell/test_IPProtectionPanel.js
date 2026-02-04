@@ -241,15 +241,8 @@ add_task(async function test_IPProtectionPanel_started_stopped() {
     error: undefined,
     pass: new ProxyPass(createProxyPassToken()),
   });
-  sandbox.stub(IPProtectionService.guardian, "enroll").resolves({ ok: true });
 
   IPProtectionService.updateState();
-
-  Assert.equal(
-    IPProtectionService.state,
-    IPProtectionStates.READY,
-    "IP Protection service should be in READY state before starting"
-  );
 
   let startedEventPromise = waitForEvent(
     IPPProxyManager,

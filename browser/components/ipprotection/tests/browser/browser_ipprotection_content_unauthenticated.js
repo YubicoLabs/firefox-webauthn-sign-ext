@@ -17,8 +17,6 @@ ChromeUtils.defineESModuleGetters(lazy, {
     "moz-src:///browser/components/ipprotection/IPProtectionPanel.sys.mjs",
   IPProtectionService:
     "moz-src:///browser/components/ipprotection/IPProtectionService.sys.mjs",
-  IPProtection:
-    "moz-src:///browser/components/ipprotection/IPProtection.sys.mjs",
   SpecialMessageActions:
     "resource://messaging-system/lib/SpecialMessageActions.sys.mjs",
   IPProtectionStates:
@@ -135,7 +133,7 @@ add_task(async function test_signin_button() {
   await Promise.all([optInPromise, panelHiddenPromise]);
 
   let panelShownAgainPromise = waitForPanelEvent(document, "popupshown");
-  await lazy.IPProtection.getPanel(window).enroll();
+  await lazy.IPProtectionService.startLoginFlow(gBrowser);
   await panelShownAgainPromise;
 
   // Close the panel

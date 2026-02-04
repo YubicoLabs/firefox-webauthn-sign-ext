@@ -261,7 +261,7 @@ let DEFAULT_EXPERIMENT = {
 
 let DEFAULT_SERVICE_STATUS = {
   isSignedIn: false,
-  isEnrolledAndEntitled: undefined,
+  isEnrolledAndEntitled: false,
   canEnroll: true,
   entitlement: {
     status: 200,

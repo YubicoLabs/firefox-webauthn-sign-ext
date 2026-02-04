@@ -82,9 +82,15 @@ ChromeUtils.defineESModuleGetters(this, {
   Sanitizer: "resource:///modules/Sanitizer.sys.mjs",
   SelectableProfileService:
     "resource:///modules/profiles/SelectableProfileService.sys.mjs",
-  IPProtection:
-    "moz-src:///browser/components/ipprotection/IPProtection.sys.mjs",
+  IPPSignInWatcher:
+    "moz-src:///browser/components/ipprotection/IPPSignInWatcher.sys.mjs",
+  SpecialMessageActions:
+    "resource://messaging-system/lib/SpecialMessageActions.sys.mjs",
 });
+
+const { SIGNIN_DATA } = ChromeUtils.importESModule(
+  "chrome://browser/content/ipprotection/ipprotection-constants.mjs"
+);
 
 const SANITIZE_ON_SHUTDOWN_MAPPINGS = {
   history: "privacy.clearOnShutdown.history",
@@ -1457,7 +1463,10 @@ Preferences.addSetting({
   visible: ({ ipProtectionVisible, ipProtectionNotOptedIn }) =>
     ipProtectionVisible.value && ipProtectionNotOptedIn.value,
   onUserClick() {
-    IPProtection.getPanel(window.browsingContext.topChromeWindow)?.enroll();
+    SpecialMessageActions.fxaSignInFlow(
+      SIGNIN_DATA,
+      window.browsingContext.topChromeWindow.gBrowser
+    );
   },
 });
 

@@ -69,9 +69,6 @@ add_task(async function test_IPProtectionService_updateState_signedIn() {
 add_task(async function test_IPProtectionService_updateState_signedOut() {
   let sandbox = sinon.createSandbox();
   setupStubs(sandbox);
-  sandbox
-    .stub(IPPEnrollAndEntitleManager, "isEnrolledAndEntitled")
-    .get(() => true);
 
   await IPProtectionService.init();
 
@@ -111,9 +108,6 @@ add_task(
     );
 
     IPProtectionService.init();
-    await IPPEnrollAndEntitleManager.maybeEnrollAndEntitle();
-    IPProtectionService.updateState();
-
     await waitForReady;
 
     IPProtectionService.guardian.fetchUserInfo.resolves({
@@ -156,8 +150,6 @@ add_task(
     setupStubs(sandbox);
 
     await IPProtectionService.init();
-    await IPPEnrollAndEntitleManager.maybeEnrollAndEntitle();
-    IPProtectionService.updateState();
 
     IPProtectionService.guardian.fetchUserInfo.resolves({
       status: 404,
@@ -193,8 +185,6 @@ add_task(async function test_IPProtectionService_hasUpgraded_signed_out() {
   setupStubs(sandbox);
 
   await IPProtectionService.init();
-  await IPPEnrollAndEntitleManager.maybeEnrollAndEntitle();
-  IPProtectionService.updateState();
 
   sandbox.stub(IPPSignInWatcher, "isSignedIn").get(() => false);
 

@@ -21,7 +21,11 @@ ChromeUtils.defineESModuleGetters(lazy, {
     "moz-src:///browser/components/ipprotection/IPPSignInWatcher.sys.mjs",
   IPPStartupCache:
     "moz-src:///browser/components/ipprotection/IPPStartupCache.sys.mjs",
+  SpecialMessageActions:
+    "resource://messaging-system/lib/SpecialMessageActions.sys.mjs",
 });
+
+import { SIGNIN_DATA } from "chrome://browser/content/ipprotection/ipprotection-constants.mjs";
 
 const ENABLED_PREF = "browser.ipProtection.enabled";
 
@@ -138,6 +142,10 @@ class IPProtectionServiceSingleton extends EventTarget {
     );
   }
 
+  async startLoginFlow(browser) {
+    return lazy.SpecialMessageActions.fxaSignInFlow(SIGNIN_DATA, browser);
+  }
+
   /**
    * Recomputes the current state synchronously using the latest helper data.
    * Callers should update their own inputs before invoking this.
@@ -166,25 +174,19 @@ class IPProtectionServiceSingleton extends EventTarget {
       return lazy.IPPStartupCache.state;
     }
 
-    // If the device is not eligible no UI is shown.
-    if (!lazy.IPPNimbusHelper.isEligible) {
-      return IPProtectionStates.UNAVAILABLE;
-    }
-
-    // For non authenticated users, we don't know yet their enroll state so the UI
-    // is shown and they have to login.
+    // For non authenticated users, we can check if they are eligible (the UI
+    // is shown and they have to login) or we don't know yet their current
+    // enroll state (no UI is shown).
+    let eligible = lazy.IPPNimbusHelper.isEligible;
     if (!lazy.IPPSignInWatcher.isSignedIn) {
-      return IPProtectionStates.UNAUTHENTICATED;
+      return !eligible
+        ? IPProtectionStates.UNAVAILABLE
+        : IPProtectionStates.UNAUTHENTICATED;
     }
 
-    // If the current account is not enrolled and entitled, the UI is shown and
-    // they have to opt-in.
-    // If they are currently enrolling, they have already opted-in.
-    if (
-      !lazy.IPPEnrollAndEntitleManager.isEnrolledAndEntitled &&
-      !lazy.IPPEnrollAndEntitleManager.isEnrolling
-    ) {
-      return IPProtectionStates.UNAUTHENTICATED;
+    // Check if the current account is enrolled and has an entitlement.
+    if (!lazy.IPPEnrollAndEntitleManager.isEnrolledAndEntitled && !eligible) {
+      return IPProtectionStates.UNAVAILABLE;
     }
 
     // The proxy can be activated.
