@@ -18,7 +18,7 @@ Registrar.register_category("testing", "testing", "testing")
 
 # Add parent directory to path to import mach_commands
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from mach_commands import classname_for_test, project_for_ac
+from mach_commands import classname_for_test, project_for_ac, project_for_test
 
 
 class TestAndroidMachCommands(unittest.TestCase):
@@ -70,6 +70,15 @@ class TestAndroidMachCommands(unittest.TestCase):
                 result = classname_for_test(test_path, TEST_PATH_PREFIX)
                 self.assertEqual(result, expected)
 
+    def test_project_for_test(self):
+        """Test extraction of project name from test path."""
+        PROJECT_PREFIX = "mobile/android"
+
+        for test_path, expected, _, _ in self.TEST_CASES:
+            with self.subTest(project=expected):
+                result = project_for_test(test_path, PROJECT_PREFIX)
+                self.assertEqual(result, expected)
+
     def test_project_for_ac(self):
         """Test extraction of android-components subproject name."""
         COMPONENT_PREFIX = "mobile/android/android-components/components"
@@ -80,6 +89,31 @@ class TestAndroidMachCommands(unittest.TestCase):
             with self.subTest(component=expected):
                 result = project_for_ac(test_path, COMPONENT_PREFIX, TEST_PATH_PREFIX)
                 self.assertEqual(result, expected)
+
+    def test_android_test_implicit_subproject(self):
+        """Test that run_android_test derives subproject if a specific test is requested."""
+        from mach_commands import run_android_test
+
+        command_context = mock.MagicMock()
+        mock_dispatch = command_context._mach_context.commands.dispatch = (
+            mock.MagicMock(return_value=0)
+        )
+
+        TEST_PATH = "mobile/android/focus-android/app/src/test/java/org/mozilla/focus/components/EngineProviderTest.kt"
+        run_android_test(command_context, subproject=None, test=TEST_PATH)
+
+        mock_dispatch.assert_called_once()
+        gradle_args = mock_dispatch.call_args[1]["args"]
+        self.assertEqual(
+            self.cleanup_gradle_args(gradle_args),
+            [
+                "-p",
+                "mobile/android/focus-android/app",
+                "testFocusDebugUnitTest",
+                "--tests",
+                "org.mozilla.focus.components.EngineProviderTest",
+            ],
+        )
 
     def test_run_android_test_fenix(self):
         """Test that run_android_test calls dispatch with correct arguments for fenix."""
@@ -100,7 +134,7 @@ class TestAndroidMachCommands(unittest.TestCase):
 
         self.assertEqual(
             self.cleanup_gradle_args(gradle_args),
-            ["testDebug", "testDebugUnitTest", "-p", "mobile/android/fenix/app"],
+            ["-p", "mobile/android/fenix/app", "testDebugUnitTest"],
         )
 
     def test_run_android_test_with_multi_component(self):
@@ -133,17 +167,16 @@ class TestAndroidMachCommands(unittest.TestCase):
         self.assertEqual(
             self.cleanup_gradle_args(gradle_args),
             [
-                ":components:concept-engine:testDebugUnitTest",
-                "--tests",
-                "mozilla.components.concept.engine.EngineTest",
-                ":components:concept-engine:testDebugUnitTest",
-                "--tests",
-                "mozilla.components.concept.engine.EngineViewTest",
-                ":components:browser-engine-gecko:testDebugUnitTest",
-                "--tests",
-                "mozilla.components.browser.engine.gecko.GeckoEngineTest",
                 "-p",
                 "mobile/android/android-components",
+                ":components:concept-engine:testDebugUnitTest",
+                ":components:browser-engine-gecko:testDebugUnitTest",
+                "--tests",
+                "mozilla.components.concept.engine.EngineTest",
+                "--tests",
+                "mozilla.components.concept.engine.EngineViewTest",
+                "--tests",
+                "mozilla.components.browser.engine.gecko.GeckoEngineTest",
             ],
         )
 
