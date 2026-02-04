@@ -2513,6 +2513,7 @@ SettingGroupManager.registerGroups({
   homepage: {
     inProgress: true,
     headingLevel: 2,
+    iconSrc: "chrome://browser/skin/window-firefox.svg",
     l10nId: "home-homepage-title",
     items: [
       {
@@ -2572,8 +2573,7 @@ SettingGroupManager.registerGroups({
     inProgress: true,
     headingLevel: 2,
     l10nId: "home-prefs-content-header",
-    // Icons are not ready to be used yet.
-    // iconSrc: "chrome://browser/skin/home.svg",
+    iconSrc: "chrome://browser/skin/home.svg",
     items: [
       {
         id: "webSearch",
