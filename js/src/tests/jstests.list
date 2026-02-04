@@ -905,16 +905,6 @@ skip script test262/built-ins/Temporal/ZonedDateTime/prototype/equals/argument-s
 skip script test262/built-ins/Temporal/ZonedDateTime/prototype/since/argument-string-limits.js
 skip script test262/built-ins/Temporal/ZonedDateTime/prototype/until/argument-string-limits.js
 
-# https://github.com/tc39/proposal-temporal/pull/3253
-skip script test262/built-ins/Temporal/PlainYearMonth/prototype/add/overflow.js
-skip script test262/built-ins/Temporal/PlainYearMonth/prototype/add/subtract-from-last-representable-month.js
-skip script test262/built-ins/Temporal/PlainYearMonth/prototype/add/argument-lower-units.js
-skip script test262/built-ins/Temporal/PlainYearMonth/prototype/add/options-read-before-algorithmic-validation.js
-skip script test262/built-ins/Temporal/PlainYearMonth/prototype/subtract/overflow.js
-skip script test262/built-ins/Temporal/PlainYearMonth/prototype/subtract/subtract-from-last-representable-month.js
-skip script test262/built-ins/Temporal/PlainYearMonth/prototype/subtract/argument-lower-units.js
-skip script test262/built-ins/Temporal/PlainYearMonth/prototype/subtract/options-read-before-algorithmic-validation.js
-
 # https://github.com/tc39/proposal-intl-era-monthcode/pull/102
 skip script test262/intl402/Temporal/ZonedDateTime/from/era-boundary-japanese.js
 skip script test262/intl402/Temporal/PlainDate/from/era-boundary-japanese.js
@@ -966,31 +956,3 @@ skip script test262/intl402/Temporal/PlainDateTime/prototype/since/wrapping-at-e
 skip script test262/intl402/Temporal/PlainDateTime/prototype/until/wrapping-at-end-of-month-hebrew.js
 skip script test262/intl402/Temporal/PlainDateTime/prototype/until/wrapping-at-end-of-month-chinese.js
 skip script test262/intl402/Temporal/PlainDateTime/prototype/until/wrapping-at-end-of-month-dangi.js
-skip script test262/intl402/Temporal/PlainYearMonth/prototype/add/leap-year-japanese.js
-skip script test262/intl402/Temporal/PlainYearMonth/prototype/add/leap-year-roc.js
-skip script test262/intl402/Temporal/PlainYearMonth/prototype/add/leap-year-islamic-tbla.js
-skip script test262/intl402/Temporal/PlainYearMonth/prototype/add/leap-year-ethioaa.js
-skip script test262/intl402/Temporal/PlainYearMonth/prototype/add/leap-year-islamic-civil.js
-skip script test262/intl402/Temporal/PlainYearMonth/prototype/add/leap-year-gregory.js
-skip script test262/intl402/Temporal/PlainYearMonth/prototype/add/leap-year-coptic.js
-skip script test262/intl402/Temporal/PlainYearMonth/prototype/add/leap-year-ethiopic.js
-skip script test262/intl402/Temporal/PlainYearMonth/prototype/add/leap-months-dangi.js
-skip script test262/intl402/Temporal/PlainYearMonth/prototype/add/leap-year-persian.js
-skip script test262/intl402/Temporal/PlainYearMonth/prototype/add/leap-year-indian.js
-skip script test262/intl402/Temporal/PlainYearMonth/prototype/add/leap-months-hebrew.js
-skip script test262/intl402/Temporal/PlainYearMonth/prototype/add/leap-months-chinese.js
-skip script test262/intl402/Temporal/PlainYearMonth/prototype/add/leap-year-buddhist.js
-skip script test262/intl402/Temporal/PlainYearMonth/prototype/subtract/leap-year-japanese.js
-skip script test262/intl402/Temporal/PlainYearMonth/prototype/subtract/leap-year-roc.js
-skip script test262/intl402/Temporal/PlainYearMonth/prototype/subtract/leap-year-islamic-tbla.js
-skip script test262/intl402/Temporal/PlainYearMonth/prototype/subtract/leap-year-ethioaa.js
-skip script test262/intl402/Temporal/PlainYearMonth/prototype/subtract/leap-year-islamic-civil.js
-skip script test262/intl402/Temporal/PlainYearMonth/prototype/subtract/leap-year-coptic.js
-skip script test262/intl402/Temporal/PlainYearMonth/prototype/subtract/leap-year-gregory.js
-skip script test262/intl402/Temporal/PlainYearMonth/prototype/subtract/leap-year-ethiopic.js
-skip script test262/intl402/Temporal/PlainYearMonth/prototype/subtract/leap-months-dangi.js
-skip script test262/intl402/Temporal/PlainYearMonth/prototype/subtract/leap-year-persian.js
-skip script test262/intl402/Temporal/PlainYearMonth/prototype/subtract/leap-year-indian.js
-skip script test262/intl402/Temporal/PlainYearMonth/prototype/subtract/leap-months-hebrew.js
-skip script test262/intl402/Temporal/PlainYearMonth/prototype/subtract/leap-months-chinese.js
-skip script test262/intl402/Temporal/PlainYearMonth/prototype/subtract/leap-year-buddhist.js
