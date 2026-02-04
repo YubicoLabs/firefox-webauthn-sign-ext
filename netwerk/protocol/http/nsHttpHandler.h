@@ -10,11 +10,10 @@
 
 #include "nsHttp.h"
 #include "nsHttpAuthCache.h"
-#include "nsHttpConnectionInfo.h"
+#include "nsHttpConnectionMgr.h"
 #include "AlternateServices.h"
 #include "ASpdySession.h"
 #include "HttpTrafficAnalyzer.h"
-#include "EventTokenBucket.h"
 
 #include "mozilla/Mutex.h"
 #include "mozilla/StaticPtr.h"
@@ -23,7 +22,6 @@
 #include "nsCOMPtr.h"
 #include "nsWeakReference.h"
 #include "mozilla/net/Dictionary.h"
-#include "mozilla/net/HttpConnectionMgrShell.h"
 
 #include "nsIHttpProtocolHandler.h"
 #include "nsIObserver.h"
@@ -55,7 +53,6 @@ namespace mozilla::net {
 
 class ATokenBucketEvent;
 class EventTokenBucket;
-class HttpActivityArgs;
 class Tickler;
 class nsHttpConnection;
 class nsHttpConnectionInfo;

@@ -7,6 +7,7 @@
 #define nsHttpConnectionMgr_h_
 
 #include "DnsAndConnectSocket.h"
+#include "HttpConnectionBase.h"
 #include "HttpConnectionMgrShell.h"
 #include "nsHttpConnection.h"
 #include "nsHttpTransaction.h"
@@ -27,7 +28,6 @@ class nsIHttpUpgradeListener;
 
 namespace mozilla::net {
 class EventTokenBucket;
-class HttpConnectionBase;
 class NullHttpTransaction;
 struct HttpRetParams;
 struct Http3ConnectionStatsParams;

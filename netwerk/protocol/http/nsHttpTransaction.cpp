@@ -30,7 +30,6 @@
 #include "nsHttpChunkedDecoder.h"
 #include "nsHttpDigestAuth.h"
 #include "nsHttpHandler.h"
-#include "nsHttpConnectionMgr.h"
 #include "nsHttpNTLMAuth.h"
 #ifdef MOZ_AUTH_EXTENSION
 #  include "nsHttpNegotiateAuth.h"
