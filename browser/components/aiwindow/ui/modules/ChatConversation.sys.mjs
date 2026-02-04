@@ -84,23 +84,11 @@ export class ChatConversation {
    * @returns {Array<ChatMessage>}
    */
   renderState() {
-    return this.#messages.filter(message => {
-      const { role, content } = message;
-      if (!CHAT_ROLES.includes(role)) {
-        return false;
-      }
-      if (role !== MESSAGE_ROLE.ASSISTANT) {
-        return true;
-      }
-      const { type, body } = content ?? {};
-      if (type === "function") {
-        return false;
-      }
-      if (type === "text" && !body) {
-        return false;
-      }
-      return true;
+    const messages = this.#messages.filter(message => {
+      return CHAT_ROLES.includes(message.role);
     });
+
+    return messages;
   }
 
   /**

@@ -166,10 +166,6 @@ export class AIWindow extends MozLitElement {
     this.#loadPendingConversation();
   }
 
-  get conversationId() {
-    return this.#conversation?.id;
-  }
-
   handleEvent(event) {
     this.openConversation(event.detail);
   }
@@ -228,11 +224,6 @@ export class AIWindow extends MozLitElement {
       await lazy.AIWindow.chatStore.findConversationById(conversationId);
     if (conversation) {
       this.openConversation(conversation);
-    }
-
-    if (hostBrowser?.hasAttribute("data-continue-streaming")) {
-      hostBrowser.removeAttribute("data-continue-streaming");
-      this.#continueAfterToolResult();
     }
   }
 
@@ -503,9 +494,9 @@ export class AIWindow extends MozLitElement {
    * @private
    */
 
-  #fetchAIResponse = async (inputText = false, userOpts = undefined) => {
+  #fetchAIResponse = async (inputText, userOpts = undefined) => {
     const formattedPrompt = (inputText || "").trim();
-    if (!formattedPrompt && inputText !== false) {
+    if (!formattedPrompt) {
       return;
     }
     this.showStarters = false;
@@ -513,63 +504,38 @@ export class AIWindow extends MozLitElement {
 
     const nextTurnIndex = this.#conversation.currentTurnIndex() + 1;
     try {
-      let stream;
-
-      if (formattedPrompt) {
-        const pageUrl = URL.fromURI(
-          window.browsingContext.topChromeWindow.gBrowser.currentURI
-        );
-        stream = lazy.Chat.fetchWithHistory(
-          await this.#conversation.generatePrompt(
-            formattedPrompt,
-            pageUrl,
-            userOpts
-          ),
-          { win: window.browsingContext.topChromeWindow }
-        );
-
-        // Handle User Prompt
-        this.#dispatchMessageToChatContent(this.#conversation.messages.at(-1));
-
-        // @todo
-        // fill out these assistant message flags
-        const assistantRoleOpts = new lazy.AssistantRoleOpts();
-        this.#conversation.addAssistantMessage(
-          "text",
-          "",
-          nextTurnIndex,
-          assistantRoleOpts
-        );
-      } else {
-        stream = lazy.Chat.fetchWithHistory(this.#conversation, {
-          win: window.browsingContext.topChromeWindow,
-        });
-      }
-
+      const pageUrl = URL.fromURI(
+        window.browsingContext.topChromeWindow.gBrowser.currentURI
+      );
+      const stream = lazy.Chat.fetchWithHistory(
+        await this.#conversation.generatePrompt(
+          formattedPrompt,
+          pageUrl,
+          userOpts
+        )
+      );
       this.#updateConversation();
       this.#addConversationTitle();
 
+      // Handle User Prompt
+      this.#dispatchMessageToChatContent(this.#conversation.messages.at(-1));
+
+      // @todo
+      // fill out these assistant message flags
+      const assistantRoleOpts = new lazy.AssistantRoleOpts();
+      this.#conversation.addAssistantMessage(
+        "text",
+        "",
+        nextTurnIndex,
+        assistantRoleOpts
+      );
+
       const parserState = createParserState();
       const currentMessage = this.#conversation.messages
-        .filter(
-          message =>
-            message.role === lazy.MESSAGE_ROLE.ASSISTANT &&
-            (inputText !== false || message?.content?.type === "text")
-        )
+        .filter(message => message.role === lazy.MESSAGE_ROLE.ASSISTANT)
         .at(-1);
 
-      if (inputText === false) {
-        const separator = currentMessage?.content?.body ? "\n\n" : "";
-        if (currentMessage && separator) {
-          currentMessage.content.body += separator;
-        }
-      }
-
       for await (const chunk of stream) {
-        if (chunk && typeof chunk === "object" && "searching" in chunk) {
-          this.showSearchingIndicator(chunk.searching, chunk.query);
-          continue;
-        }
         const { plainText, tokens } = consumeStreamChunk(chunk, parserState);
 
         if (!currentMessage.tokens) {
@@ -605,7 +571,7 @@ export class AIWindow extends MozLitElement {
         this.requestUpdate?.();
       }
     } catch (e) {
-      this.showSearchingIndicator(false, null);
+      // TODO - handle error properly
       this.requestUpdate?.();
     }
   };
@@ -690,8 +656,13 @@ export class AIWindow extends MozLitElement {
 
     // @todo Bug2013096
     // Add way to batch these messages to the actor in one message
-    this.#conversation.renderState().forEach(message => {
-      this.#dispatchMessageToActor(actor, message);
+    this.#conversation.messages.forEach(message => {
+      if (
+        message.role === lazy.MESSAGE_ROLE.USER ||
+        message.role === lazy.MESSAGE_ROLE.ASSISTANT
+      ) {
+        this.#dispatchMessageToActor(actor, message);
+      }
     });
   }
 
@@ -728,48 +699,6 @@ export class AIWindow extends MozLitElement {
 
     // Hide chat-active state
     this.#setBrowserContainerActiveState(false);
-  }
-
-  showSearchingIndicator(isSearching, searchQuery) {
-    this.#dispatchMessageToChatContent({
-      role: "loading",
-      isSearching,
-      searchQuery,
-      convId: this.conversationId,
-      content: { body: "" },
-    });
-  }
-
-  async reloadAndContinue(conversation) {
-    if (!conversation) {
-      return;
-    }
-    this.openConversation(conversation);
-    this.#continueAfterToolResult();
-  }
-
-  async #continueAfterToolResult() {
-    // Show searching indicator if the last tool was run_search
-    const lastToolCall = this.#conversation.messages
-      .filter(
-        m =>
-          m.role === lazy.MESSAGE_ROLE.ASSISTANT &&
-          m?.content?.type === "function"
-      )
-      .at(-1);
-    const lastToolName =
-      lastToolCall?.content?.body?.tool_calls?.[0]?.function?.name;
-    if (lastToolName === "run_search") {
-      const args = lastToolCall.content.body.tool_calls[0].function.arguments;
-      try {
-        const { query } = JSON.parse(args || "{}");
-        if (query) {
-          this.showSearchingIndicator(true, query);
-        }
-      } catch {}
-    }
-
-    this.#fetchAIResponse();
   }
 
   render() {

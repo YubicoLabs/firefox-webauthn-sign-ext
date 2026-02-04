@@ -724,36 +724,6 @@ add_task(
   }
 );
 
-add_task(function test_ChatConversation_renderState_filters_phantom_messages() {
-  const conversation = new ChatConversation({});
-
-  conversation.addUserMessage("What's the weather?", "about:aiwindow");
-  conversation.addAssistantMessage("text", "");
-  conversation.addAssistantMessage("function", {
-    tool_calls: [
-      {
-        id: "call_1",
-        function: {
-          name: "run_search",
-          arguments: '{"query":"weather"}',
-        },
-      },
-    ],
-  });
-  conversation.addAssistantMessage("text", "Here is the weather forecast.");
-
-  const renderState = conversation.renderState();
-
-  Assert.equal(
-    renderState.length,
-    2,
-    "Should only contain user message and real assistant message"
-  );
-  Assert.equal(renderState[0].role, MESSAGE_ROLE.USER);
-  Assert.equal(renderState[1].role, MESSAGE_ROLE.ASSISTANT);
-  Assert.equal(renderState[1].content.body, "Here is the weather forecast.");
-});
-
 add_task(async function test_addUserMessage_sets_memories_fields() {
   const conversation = new ChatConversation({});
 
