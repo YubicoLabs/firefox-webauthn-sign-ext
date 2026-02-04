@@ -128,6 +128,10 @@ mozilla-central-workspace-hack = { path = "build/workspace-hack" }
 # crate, which we don't really need as we require MSVC anyways.
 windows-targets = { path = "build/rust/windows-targets" }
 
+# windows-link replacement that doesn't use raw-dylibs, which have problems on
+# the i686-pc-windows-gnu target.
+windows-link = { path = "build/rust/windows-link" }
+
 # Patch windows to use a non-vendored local copy of the crate.
 windows = { path = "build/rust/windows" }
 
