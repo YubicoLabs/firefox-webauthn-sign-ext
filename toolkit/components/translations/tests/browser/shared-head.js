@@ -133,49 +133,6 @@ function languageModelNames(languagePairs) {
 }
 
 /**
- * Start an HTTP server that serves page.html with the provided HTML.
- * Explicitly encode the text as UTF-8 to correctly handle characters outside Latin-1,
- * which the HttpServer renders incorrectly by default.
- *
- * @param {string} html
- */
-function serveOnce(html) {
-  /** @type {import("../../../../../netwerk/test/httpserver/httpd.sys.mjs")} */
-  const { HttpServer } = ChromeUtils.importESModule(
-    "resource://testing-common/httpd.sys.mjs"
-  );
-  info("Create server");
-  const server = new HttpServer();
-
-  const { promise, resolve } = Promise.withResolvers();
-  const encoder = new TextEncoder();
-  const htmlUtf8 = encoder.encode(html);
-
-  server.registerPathHandler("/page.html", (_request, response) => {
-    info("Request received for: " + url);
-    response.setHeader("Content-Type", "text/html");
-
-    const binaryOutputStream = Cc[
-      "@mozilla.org/binaryoutputstream;1"
-    ].createInstance(Ci.nsIBinaryOutputStream);
-
-    binaryOutputStream.setOutputStream(response.bodyOutputStream);
-    binaryOutputStream.writeByteArray(htmlUtf8);
-
-    resolve(server.stop());
-  });
-
-  server.start(-1);
-
-  let { primaryHost, primaryPort } = server.identity;
-  // eslint-disable-next-line @microsoft/sdl/no-insecure-url
-  const url = `http://${primaryHost}:${primaryPort}/page.html`;
-  info("Server listening for: " + url);
-
-  return { url, serverClosed: promise };
-}
-
-/**
  * Loads a new page in the given browser at the given URL.
  *
  * @param {object} browser
@@ -2705,44 +2662,11 @@ async function ensureWindowSize(win, width, height) {
   await resizePromise;
 }
 
-/**
- * Load a translations test page in a new tab and wire up utilities used by the browser tests.
- *
- * Exactly one of `page` or `html` must be provided. Supplying `page` will navigate to a
- * pre-defined test-file URL, while providing `html` serves the markup from a local server.
- *
- * @param {object} [options]
- * @param {Array<{fromLang: string, toLang: string}>} [options.languagePairs]
- * @param {boolean} [options.endToEndTest=false]
- * @param {boolean} [options.autoDownloadFromRemoteSettings=false]
- * @param {string} [options.page] - Fixture URL to load. Mutually exclusive with `html`.
- * @param {string} [options.html] - Raw HTML markup to serve once. Mutually exclusive with `page`.
- * @param {Array<[string, any]>} [options.prefs]
- * @param {boolean} [options.autoOffer]
- * @param {string[]} [options.permissionsUrls]
- * @param {string[]} [options.systemLocales=["en"]]
- * @param {string[]} [options.appLocales]
- * @param {string[]} [options.webLanguages]
- * @param {string} [options.architecture]
- * @param {boolean} [options.contentEagerMode=false]
- * @param {WindowProxy} [options.win=window]
- * @returns {Promise<{
- *   tab: object,
- *   remoteClients: (Record<string, any> | null),
- *   cleanup: () => Promise<void>,
- *   resolveDownloads: (count: number) => Promise<void>,
- *   rejectDownloads: (count: number) => Promise<void>,
- *   resolveBulkDownloads: (expectations: { expectedWasmDownloads: number, expectedLanguagePairDownloads: number }) => Promise<void>,
- *   rejectBulkDownloads: (expectations: { expectedWasmDownloads: number, expectedLanguagePairDownloads: number }) => Promise<void>,
- *   runInPage: RunInPageFn
- * }>}
- */
 async function loadTestPage({
   languagePairs,
   endToEndTest = false,
   autoDownloadFromRemoteSettings = false,
   page,
-  html,
   prefs,
   autoOffer,
   permissionsUrls,
@@ -2753,17 +2677,7 @@ async function loadTestPage({
   contentEagerMode = false,
   win = window,
 }) {
-  // Just one argument should be set
-  const hasPage = page !== undefined;
-  const hasHtml = html !== undefined;
-
-  if (hasPage === hasHtml) {
-    throw new Error(
-      "Provide either the `page` or the `html` option when loading a test page."
-    );
-  }
-
-  const { url, serverClosed } = hasHtml ? serveOnce(html) : {};
+  info(`Loading test page starting at url: ${page}`);
 
   // If there are multiple windows, only do the first time setup on the main window.
   const isFirstTimeSetup = win === window;
@@ -2859,13 +2773,7 @@ async function loadTestPage({
     );
   }
 
-  if (page) {
-    info(`Loading test page starting at url: ${page}`);
-    await loadNewPage(tab.linkedBrowser, page);
-  } else {
-    info(`Loading test html at: ${url}`);
-    await loadNewPage(tab.linkedBrowser, url);
-  }
+  await loadNewPage(tab.linkedBrowser, page);
 
   if (autoOffer && TranslationsParent.shouldAlwaysOfferTranslations()) {
     info("Waiting for the popup to be automatically shown.");
@@ -2965,9 +2873,6 @@ async function loadTestPage({
       await removeMocks();
       if (cleanupLocales) {
         await cleanupLocales();
-      }
-      if (serverClosed) {
-        await serverClosed;
       }
       restoreA11yUtils();
       TranslationsParent.testAutomaticPopup = false;
