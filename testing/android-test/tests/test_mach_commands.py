@@ -137,6 +137,29 @@ class TestAndroidMachCommands(unittest.TestCase):
             ["-p", "mobile/android/fenix/app", "testDebugUnitTest"],
         )
 
+    def test_run_android_test_gradle_variant(self):
+        """Test that run_android_test handles --gradle-variant."""
+        from mach_commands import run_android_test
+
+        command_context = mock.MagicMock()
+        mock_dispatch = command_context._mach_context.commands.dispatch = (
+            mock.MagicMock(return_value=0)
+        )
+
+        run_android_test(
+            command_context,
+            subproject="geckoview",
+            gradle_variant="Release",
+        )
+
+        mock_dispatch.assert_called_once()
+        gradle_args = mock_dispatch.call_args[1]["args"]
+
+        self.assertEqual(
+            self.cleanup_gradle_args(gradle_args),
+            ["-p", "mobile/android/geckoview", "testReleaseUnitTest"],
+        )
+
     def test_run_android_test_with_multi_component(self):
         """Test that multiple android-component tests resolve the their component projects"""
         from mach_commands import run_android_test

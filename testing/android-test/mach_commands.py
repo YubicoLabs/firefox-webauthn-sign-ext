@@ -68,11 +68,23 @@ def project_for_ac(test, prefix, test_path):
     help="Android subproject to run tests for.",
 )
 @CommandArgument(
+    "--gradle-variant",
+    default=None,
+    help="The gradle project variant to use (eg. Debug, FocusNightly).",
+)
+@CommandArgument(
     "--test",
     default=None,
     help="File path of test to run.",
 )
-def run_android_test(command_context, subproject, test=None, test_objects=[], **kwargs):
+def run_android_test(
+    command_context,
+    subproject,
+    gradle_variant=None,
+    test=None,
+    test_objects=[],
+    **kwargs,
+):
     # Test paths may be a single command line, or a list from the test harness
     tests = [test["name"] for test in test_objects]
     if test:
@@ -91,10 +103,14 @@ def run_android_test(command_context, subproject, test=None, test_objects=[], **
     }
     subproject = ALIASES.get(subproject, subproject)
 
-    # This path fragment is used to split path between project and test class
-    test_path = os.path.join("src", "test", "java")
+    # Determine default gradle variant
+    if not gradle_variant:
+        gradle_variant = "FocusDebug" if (subproject == "focus-android") else "Debug"
 
-    # Determine project directory
+    # Runs gradle in "quiet" mode
+    gradle_command = ["-q"]
+
+    # Determine gradle project directory
     if subproject == "fenix":
         subdir = os.path.join("mobile", "android", "fenix", "app")
     elif subproject == "focus-android":
@@ -105,27 +121,24 @@ def run_android_test(command_context, subproject, test=None, test_objects=[], **
         subdir = os.path.join("mobile", "android", "geckoview")
     else:
         return None
+    gradle_command.append("-p")
+    gradle_command.append(subdir)
+
+    # This path fragment is used to split path between project and test class
+    test_path = os.path.join("src", "test", "java")
 
     # Compute the gradle tasks we need
-    if subproject == "fenix":
-        gradle_command = ["testDebugUnitTest"]
-    elif subproject == "focus-android":
-        gradle_command = ["testFocusDebugUnitTest"]
-    elif subproject == "android-components":
-        if tests:
-            # Identify the relevant a-c projects for the tests
-            def project_name(test):
-                prefix = os.path.join(subdir, "components")
-                return project_for_ac(test, prefix, test_path)
+    gradle_unittest = f"test{gradle_variant}UnitTest"
+    if tests and (subproject == "android-components"):
+        # Identify the relevant a-c projects for the tests
+        def project_name(test):
+            prefix = os.path.join(subdir, "components")
+            return project_for_ac(test, prefix, test_path)
 
-            projects = dict.fromkeys(project_name(t) for t in tests)
-            gradle_command = [f":components:{p}:testDebugUnitTest" for p in projects]
-        else:
-            gradle_command = ["testDebugUnitTest"]
-    elif subproject == "geckoview":
-        gradle_command = ["testDebugUnitTest"]
+        for p in dict.fromkeys(project_name(t) for t in tests):
+            gradle_command.append(f":components:{p}:{gradle_unittest}")
     else:
-        return None
+        gradle_command.append(gradle_unittest)
 
     # Compute the class names from file names
     gradle_command.append("--rerun")
@@ -134,7 +147,5 @@ def run_android_test(command_context, subproject, test=None, test_objects=[], **
         gradle_command.append(classname_for_test(t, test_path))
 
     return command_context._mach_context.commands.dispatch(
-        "gradle",
-        command_context._mach_context,
-        args=["-q", "-p", subdir] + gradle_command,
+        "gradle", command_context._mach_context, args=gradle_command
     )
