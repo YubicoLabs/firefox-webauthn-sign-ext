@@ -740,7 +740,7 @@ bool nsListControlFrame::UpdateSelection() {
   return true;
 }
 
-NS_IMETHODIMP_(void)
+void
 nsListControlFrame::OnSetSelectedIndex(int32_t aOldIndex, int32_t aNewIndex) {
 #ifdef ACCESSIBILITY
   nsCOMPtr<nsIContent> prevOption = GetCurrentOption();
