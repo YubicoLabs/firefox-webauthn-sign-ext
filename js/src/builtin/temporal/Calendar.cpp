@@ -3320,6 +3320,31 @@ static int32_t CompareCalendarDate(const CalendarDateWithOrdinalMonth& one,
                         ISODate{two.year, two.month, two.day});
 }
 
+/**
+ * ISODateSurpasses ( sign, baseDate, isoDate2, years, months, weeks, days )
+ */
+static inline bool ISODateSurpasses(int32_t sign, const ISODate& one,
+                                    const ISODate& two) {
+  return CompareISODate(one, two) * sign > 0;
+}
+
+/**
+ * CompareSurpasses ( sign, year, monthOrCode, day, target )
+ */
+static inline bool CompareSurpasses(int32_t sign, const CalendarDate& one,
+                                    const CalendarDate& two) {
+  return CompareCalendarDate(one, two) * sign > 0;
+}
+
+/**
+ * CompareSurpasses ( sign, year, monthOrCode, day, target )
+ */
+static inline bool CompareSurpasses(int32_t sign,
+                                    const CalendarDateWithOrdinalMonth& one,
+                                    const CalendarDateWithOrdinalMonth& two) {
+  return CompareCalendarDate(one, two) * sign > 0;
+}
+
 static CalendarDate ToCalendarDate(CalendarId calendarId,
                                    const icu4x::capi::Date* dt) {
   int32_t year = CalendarDateYear(calendarId, dt);
@@ -3620,7 +3645,7 @@ static DateDuration DifferenceISODate(const ISODate& one, const ISODate& two,
     months = two.month - one.month;
 
     auto intermediate = ISODate{one.year + years, one.month, one.day};
-    if (CompareISODate(intermediate, two) * sign > 0) {
+    if (ISODateSurpasses(sign, intermediate, two)) {
       years -= sign;
       months += 12 * sign;
     }
@@ -3633,7 +3658,7 @@ static DateDuration DifferenceISODate(const ISODate& one, const ISODate& two,
       intermediate.month += 12;
       intermediate.year -= 1;
     }
-    if (CompareISODate(intermediate, two) * sign > 0) {
+    if (ISODateSurpasses(sign, intermediate, two)) {
       months -= sign;
     }
 
@@ -3716,7 +3741,7 @@ static bool DifferenceNonISODate(JSContext* cx, CalendarId calendarId,
   // result.
   auto intermediate = CalendarDateWithOrdinalMonth{oneDate.year + years,
                                                    oneDate.month, oneDate.day};
-  if (CompareCalendarDate(intermediate, twoDate) * sign > 0) {
+  if (CompareSurpasses(sign, intermediate, twoDate)) {
     years -= sign;
     months += monthsPerYear * sign;
   }
@@ -3734,7 +3759,7 @@ static bool DifferenceNonISODate(JSContext* cx, CalendarId calendarId,
   }
 
   // If |intermediate| surpasses |twoDate|, reduce |month| by one.
-  if (CompareCalendarDate(intermediate, twoDate) * sign > 0) {
+  if (CompareSurpasses(sign, intermediate, twoDate)) {
     months -= sign;
   }
 
@@ -3756,7 +3781,7 @@ static bool DifferenceNonISODate(JSContext* cx, CalendarId calendarId,
   }
 
   auto constrainedIso = ToISODate(constrained.get());
-  MOZ_ASSERT(CompareISODate(constrainedIso, two) * sign <= 0,
+  MOZ_ASSERT(!ISODateSurpasses(sign, constrainedIso, two),
              "constrained doesn't surpass two");
 
   int64_t days = MakeDay(two) - MakeDay(constrainedIso);
@@ -3809,7 +3834,7 @@ static bool DifferenceNonISODateWithLeapMonth(
   // step will balance the intermediate result.
   auto unconstrainedDate =
       CalendarDate{oneDate.year + years, oneDate.monthCode, oneDate.day};
-  if (CompareCalendarDate(unconstrainedDate, twoDate) * sign > 0) {
+  if (CompareSurpasses(sign, unconstrainedDate, twoDate)) {
     years -= sign;
   }
 
@@ -3821,7 +3846,7 @@ static bool DifferenceNonISODateWithLeapMonth(
   }
 
   auto constrainedDate = ToCalendarDate(calendarId, constrained.get());
-  if (CompareCalendarDate(constrainedDate, twoDate) * sign > 0) {
+  if (CompareSurpasses(sign, constrainedDate, twoDate)) {
     years -= sign;
   }
 
@@ -3834,7 +3859,7 @@ static bool DifferenceNonISODateWithLeapMonth(
                               TemporalOverflow::Constrain, &intermediateDate)) {
       return false;
     }
-    if (CompareCalendarDate(intermediateDate, twoDate) * sign > 0) {
+    if (CompareSurpasses(sign, intermediateDate, twoDate)) {
       break;
     }
     months += sign;
@@ -3899,7 +3924,7 @@ static bool DifferenceNonISODateWithLeapMonth(
   }
 
   auto constrainedIso = ToISODate(constrained.get());
-  MOZ_ASSERT(CompareISODate(constrainedIso, two) * sign <= 0,
+  MOZ_ASSERT(!ISODateSurpasses(sign, constrainedIso, two),
              "constrained doesn't surpass two");
 
   int64_t days = MakeDay(two) - MakeDay(constrainedIso);

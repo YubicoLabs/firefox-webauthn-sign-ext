@@ -682,7 +682,7 @@ static bool DifferenceZonedDateTime(JSContext* cx, const EpochNanoseconds& ns1,
   }
 
   // Step 4.
-  if (CompareISODate(startDateTime.date, endDateTime.date) == 0) {
+  if (startDateTime.date == endDateTime.date) {
     // Step 4.a.
     auto timeDuration = TimeDurationFromEpochNanosecondsDifference(ns2, ns1);
 
