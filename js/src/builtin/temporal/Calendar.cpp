@@ -3370,6 +3370,7 @@ static bool AddYearMonthDuration(JSContext* cx, CalendarId calendarId,
                                  const icu4x::capi::Calendar* calendar,
                                  const CalendarDate& calendarDate,
                                  const DateDuration& duration,
+                                 TemporalOverflow overflow,
                                  CalendarDate* result) {
   MOZ_ASSERT(CalendarHasLeapMonths(calendarId));
   MOZ_ASSERT(IsValidDuration(duration));
@@ -3385,17 +3386,17 @@ static bool AddYearMonthDuration(JSContext* cx, CalendarId calendarId,
   }
   year = durationYear.value();
 
+  // Regulate according to |overflow|.
+  auto firstDayOfMonth = CreateDateFromCodes(cx, calendarId, calendar, year,
+                                             monthCode, 1, overflow);
+  if (!firstDayOfMonth) {
+    return false;
+  }
+
   // Months per year are variable, so we have construct a new date for each
   // year to balance the years and months.
   int64_t months = duration.months;
   if (months != 0) {
-    auto firstDayOfMonth =
-        CreateDateFromCodes(cx, calendarId, calendar, year, monthCode, 1,
-                            TemporalOverflow::Constrain);
-    if (!firstDayOfMonth) {
-      return false;
-    }
-
     if (months > 0) {
       while (true) {
         // Check if adding |months| is still in the current year.
@@ -3477,7 +3478,7 @@ static bool AddNonISODate(JSContext* cx, CalendarId calendarId,
   } else {
     auto date = ToCalendarDate(calendarId, dt.get());
     if (!AddYearMonthDuration(cx, calendarId, cal.get(), date, duration,
-                              &calendarDate)) {
+                              overflow, &calendarDate)) {
       return false;
     }
   }
@@ -3797,8 +3798,9 @@ static bool DifferenceNonISODate(JSContext* cx, CalendarId calendarId,
     // Add as many months as possible without surpassing |twoDate|.
     while (true) {
       CalendarDate intermediateDate;
-      if (!AddYearMonthDuration(cx, calendarId, cal.get(), oneDate,
-                                {years, months + sign}, &intermediateDate)) {
+      if (!AddYearMonthDuration(
+              cx, calendarId, cal.get(), oneDate, {years, months + sign},
+              TemporalOverflow::Constrain, &intermediateDate)) {
         return false;
       }
       if (CompareCalendarDate(intermediateDate, twoDate) * sign > 0) {
