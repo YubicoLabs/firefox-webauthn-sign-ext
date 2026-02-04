@@ -69,6 +69,7 @@ projects:
     - components:lib-state
     - components:service-digitalassetlinks
     - components:service-firefox-accounts
+    - components:service-firefox-relay
     - components:service-glean
     - components:service-location
     - components:service-mars

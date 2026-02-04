@@ -597,6 +597,7 @@ dependencies {
     implementation project(':components:feature-webnotifications')
     implementation project(':components:service-digitalassetlinks')
     implementation project(':components:service-firefox-accounts')
+    implementation project(":components:service-firefox-relay")
     implementation project(':components:service-glean')
     implementation project(':components:service-location')
     implementation project(':components:service-mars')

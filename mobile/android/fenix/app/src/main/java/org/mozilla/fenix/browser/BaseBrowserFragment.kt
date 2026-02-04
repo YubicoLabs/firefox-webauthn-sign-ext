@@ -127,6 +127,8 @@ import mozilla.components.lib.state.ext.consumeFlow
 import mozilla.components.lib.state.ext.consumeFrom
 import mozilla.components.lib.state.ext.flowScoped
 import mozilla.components.lib.state.helpers.StoreProvider.Companion.fragmentStore
+import mozilla.components.service.fxrelay.eligibility.RelayEligibilityStore
+import mozilla.components.service.fxrelay.eligibility.RelayFeature
 import mozilla.components.service.sync.autofill.DefaultCreditCardValidationDelegate
 import mozilla.components.service.sync.logins.DefaultLoginValidationDelegate
 import mozilla.components.service.sync.logins.LoginsApiException
@@ -327,6 +329,7 @@ abstract class BaseBrowserFragment :
     private val shareResourceFeature = ViewBoundFeatureWrapper<ShareResourceFeature>()
     private val copyDownloadsFeature = ViewBoundFeatureWrapper<CopyDownloadFeature>()
     private val promptsFeature = ViewBoundFeatureWrapper<PromptFeature>()
+    private val relayFeature = ViewBoundFeatureWrapper<RelayFeature>()
 
     @VisibleForTesting
     internal val findInPageIntegration = ViewBoundFeatureWrapper<FindInPageIntegration>()
@@ -1207,6 +1210,20 @@ abstract class BaseBrowserFragment :
             owner = this,
             view = view,
         )
+
+        if (context.settings().isEmailMaskFeatureEnabled && context.settings().isEmailMaskSuggestionEnabled) {
+            relayFeature.set(
+                feature = RelayFeature(
+                    accountManager = requireComponents.backgroundServices.accountManager,
+                    // Recreating the store erases the time of the last entitlement check
+                    // and will result in a new fetch on every onResume().
+                    // Keeping track: https://bugzilla.mozilla.org/show_bug.cgi?id=2014028
+                    store = RelayEligibilityStore(),
+                ),
+                owner = this,
+                view = view,
+            )
+        }
 
         sessionFeature.set(
             feature = SessionFeature(
