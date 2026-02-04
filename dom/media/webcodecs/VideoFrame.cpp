@@ -1047,7 +1047,8 @@ static Result<RefPtr<VideoFrame>, MediaResult> CreateVideoFrameFromBuffer(
         // the data is 2 x 2 RGBA buffer (2 x 2 x 4 bytes), it pass the
         // above check. In this case, we can crop it to a 1 x 1-codedSize
         // image (Bug 1782128).
-        if (aData.Length() < format.ByteCount(codedSize)) {
+        size_t byteCount = MOZ_TRY(format.ByteCount(codedSize));
+        if (aData.Length() < byteCount) {
           return Err(MediaResult(NS_ERROR_INVALID_ARG, "data is too small"_ns));
         }
 
@@ -2669,7 +2670,8 @@ bool VideoFrame::Format::IsValidSize(const gfx::IntSize& aSize) const {
   return false;
 }
 
-size_t VideoFrame::Format::ByteCount(const gfx::IntSize& aSize) const {
+Result<size_t, MediaResult> VideoFrame::Format::ByteCount(
+    const gfx::IntSize& aSize) const {
   MOZ_ASSERT(IsValidSize(aSize));
 
   CheckedInt<size_t> bytes;
@@ -2685,6 +2687,11 @@ size_t VideoFrame::Format::ByteCount(const gfx::IntSize& aSize) const {
     planeBytes *= SampleBytes(p);
 
     bytes += planeBytes;
+  }
+
+  if (!bytes.isValid()) {
+    return Err(MediaResult(NS_ERROR_DOM_MEDIA_OVERFLOW_ERR,
+                           "VideoFrame buffer size overflow"_ns));
   }
 
   return bytes.value();
