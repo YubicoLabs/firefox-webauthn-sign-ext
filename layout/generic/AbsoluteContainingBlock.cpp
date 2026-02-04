@@ -1743,11 +1743,11 @@ void AbsoluteContainingBlock::ReflowAbsoluteFrame(
           AnchorPosResolutionParams::From(aKidFrame, aAnchorPosResolutionCache);
       if (aKidFrame->StylePosition()->ISize(wm, resolutionParams)->IsAuto()) {
         sizeOverrides.mStyleISize.emplace(
-            StyleSizeOverrides::SizeFrom(unfragmentedSize->ISize(wm)));
+            StyleSize::FromAppUnits(unfragmentedSize->ISize(wm)));
       }
       if (aKidFrame->StylePosition()->BSize(wm, resolutionParams)->IsAuto()) {
         sizeOverrides.mStyleBSize.emplace(
-            StyleSizeOverrides::SizeFrom(unfragmentedSize->BSize(wm)));
+            StyleSize::FromAppUnits(unfragmentedSize->BSize(wm)));
       }
     }
     const LogicalSize availSize(outerWM, cbSize.ISize(outerWM), availBSize);

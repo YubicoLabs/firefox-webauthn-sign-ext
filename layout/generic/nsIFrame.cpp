@@ -7332,8 +7332,7 @@ LogicalSize nsIFrame::ComputeAbsolutePosAutoSize(
 
       const nscoord bSize = ComputeBSizeValueAsPercentageBasis(
           styleBSize->IsAuto() && result.BSize(aWM) != NS_UNCONSTRAINEDSIZE
-              ? StyleSize::LengthPercentage(
-                    StyleLengthPercentage::FromAppUnits(result.BSize(aWM)))
+              ? StyleSize::FromAppUnits(result.BSize(aWM))
               : *styleBSize,
           *stylePos->MinBSize(aWM, anchorResolutionParams.mBaseParams),
           *stylePos->MaxBSize(aWM, anchorResolutionParams.mBaseParams),

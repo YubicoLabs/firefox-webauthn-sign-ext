@@ -27,11 +27,6 @@ struct StyleSizeOverrides {
   Maybe<StyleSize> mStyleBSize;
   Maybe<AspectRatio> mAspectRatio;
 
-  static StyleSize SizeFrom(nscoord aAppUnits) {
-    return StyleSize::LengthPercentage(
-        LengthPercentage::FromAppUnits(aAppUnits));
-  }
-
   bool HasAnyOverrides() const { return mStyleISize || mStyleBSize; }
   bool HasAnyLengthOverrides() const {
     return (mStyleISize && mStyleISize->ConvertsToLength()) ||
