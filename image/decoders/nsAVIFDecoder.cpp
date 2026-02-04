@@ -179,12 +179,14 @@ AVIFParser::~AVIFParser() {
 }
 
 Mp4parseStatus AVIFParser::Create(const Mp4parseIo* aIo, ByteStream* aBuffer,
-                                  UniquePtr<AVIFParser>& aParserOut) {
+                                  UniquePtr<AVIFParser>& aParserOut,
+                                  bool aAllowSequences,
+                                  bool aAnimateAVIFMajor) {
   MOZ_ASSERT(aIo);
   MOZ_ASSERT(!aParserOut);
 
   UniquePtr<AVIFParser> p(new AVIFParser(aIo));
-  Mp4parseStatus status = p->Init(aBuffer);
+  Mp4parseStatus status = p->Init(aBuffer, aAllowSequences, aAnimateAVIFMajor);
 
   if (status == MP4PARSE_STATUS_OK) {
     MOZ_ASSERT(p->mParser);
@@ -325,7 +327,8 @@ static Mp4parseStatus CreateSampleIterator(
   return MP4PARSE_STATUS_OK;
 }
 
-Mp4parseStatus AVIFParser::Init(ByteStream* aBuffer) {
+Mp4parseStatus AVIFParser::Init(ByteStream* aBuffer, bool aAllowSequences,
+                                bool aAnimateAVIFMajor) {
 #define CHECK_MP4PARSE_STATUS(v)     \
   do {                               \
     if ((v) != MP4PARSE_STATUS_OK) { \
@@ -352,14 +355,12 @@ Mp4parseStatus AVIFParser::Init(ByteStream* aBuffer) {
 
   bool useSequence = mInfo.has_sequence;
   if (useSequence) {
-    if (!StaticPrefs::image_avif_sequence_enabled_AtStartup()) {
+    if (!aAllowSequences) {
       MOZ_LOG(sAVIFLog, LogLevel::Debug,
               ("[this=%p] AVIF sequences disabled", this));
       useSequence = false;
-    } else if (
-        !StaticPrefs::
-            image_avif_sequence_animate_avif_major_branded_images_AtStartup() &&
-        !!memcmp(mInfo.major_brand, "avis", sizeof(mInfo.major_brand))) {
+    } else if (!aAnimateAVIFMajor &&
+               !!memcmp(mInfo.major_brand, "avis", sizeof(mInfo.major_brand))) {
       useSequence = false;
       MOZ_LOG(sAVIFLog, LogLevel::Debug,
               ("[this=%p] AVIF prefers still image", this));
@@ -1257,8 +1258,10 @@ Mp4parseStatus nsAVIFDecoder::CreateParser() {
     Mp4parseIo io = {nsAVIFDecoder::ReadSource, this};
     mBufferStream = new AVIFDecoderStream(&mBufferedData);
 
-    Mp4parseStatus status =
-        AVIFParser::Create(&io, mBufferStream.get(), mParser);
+    Mp4parseStatus status = AVIFParser::Create(
+        &io, mBufferStream.get(), mParser,
+        bool(GetDecoderFlags() & DecoderFlags::AVIF_SEQUENCES_ENABLED),
+        bool(GetDecoderFlags() & DecoderFlags::AVIF_ANIMATE_AVIF_MAJOR));
 
     if (status != MP4PARSE_STATUS_OK) {
       return status;
