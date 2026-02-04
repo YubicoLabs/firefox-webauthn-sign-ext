@@ -8635,16 +8635,16 @@
 
 # Whether to allow decoding of animated AVIF sequences.
 - name: image.avif.sequence.enabled
-  type: RelaxedAtomicBool
+  type: bool
   value: true
-  mirror: always
+  mirror: once
 
 # Whether AVIF files containing sequences should be animated even when the
 # major brand is set to 'avif'.
 - name: image.avif.sequence.animate_avif_major_branded_images
-  type: RelaxedAtomicBool
+  type: bool
   value: false
-  mirror: always
+  mirror: once
 
 # Whether we attempt to decode JXL images or not.
 - name: image.jxl.enabled
