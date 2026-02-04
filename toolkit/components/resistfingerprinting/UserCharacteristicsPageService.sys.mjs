@@ -632,8 +632,6 @@ export class UserCharacteristicsPageService {
     // usercharacteristics.js and the metric defined
     const metrics = {
       set: [
-        "canvasdata11Webgl",
-        "canvasdata11WebglSoftware",
         "voicesCount",
         "voicesLocalCount",
         "voicesDefault",
