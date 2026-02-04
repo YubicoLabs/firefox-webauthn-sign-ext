@@ -479,6 +479,12 @@ export class AIWindow extends MozLitElement {
       if (key === "existing_memory") {
         currentMessage.memoriesApplied.push(value);
       }
+
+      // Build web search queries
+      if (key === "search") {
+        currentMessage.webSearchQueries ??= [];
+        currentMessage.webSearchQueries.push(value);
+      }
     });
   };
 

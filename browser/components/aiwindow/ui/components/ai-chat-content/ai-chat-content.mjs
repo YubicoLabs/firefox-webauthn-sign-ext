@@ -126,6 +126,7 @@ export class AIChatContent extends MozLitElement {
       content,
       memoriesApplied,
       tokens,
+      webSearchQueries,
     } = event.detail;
 
     if (typeof content.body !== "string" || !content.body) {
@@ -138,7 +139,9 @@ export class AIChatContent extends MozLitElement {
       messageId,
       body: content.body,
       appliedMemories: memoriesApplied ?? [],
-      searchTokens: tokens?.search || [],
+      // The "webSearchQueries" are coming from a conversation that is being initialized
+      // and "tokens" are streaming in from a live conversation.
+      searchTokens: webSearchQueries ?? tokens?.search ?? [],
     };
 
     this.requestUpdate();
