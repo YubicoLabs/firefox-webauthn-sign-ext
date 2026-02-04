@@ -63,12 +63,12 @@ def run_android_test(command_context, subproject, test=None, test_objects=[], **
     AC = ("android-components", "ac")
     if subproject == "fenix":
         gradle_command = ["testDebug", "testDebugUnitTest"]
-        subdir = os.path.join("mobile", "android", "fenix")
-        test_path = os.path.join(subdir, "app", "src", "test", "java")
+        subdir = os.path.join("mobile", "android", "fenix", "app")
+        test_path = os.path.join(subdir, "src", "test", "java")
     elif subproject == "focus":
         gradle_command = ["testFocusDebugUnitTest"]
-        subdir = os.path.join("mobile", "android", "focus-android")
-        test_path = os.path.join(subdir, "app", "src", "test", "java")
+        subdir = os.path.join("mobile", "android", "focus-android", "app")
+        test_path = os.path.join(subdir, "src", "test", "java")
     elif subproject in AC:
         subdir = os.path.join("mobile", "android", "android-components")
         project_prefix = os.path.join(subdir, "components")

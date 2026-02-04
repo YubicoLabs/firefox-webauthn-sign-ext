@@ -100,7 +100,7 @@ class TestAndroidMachCommands(unittest.TestCase):
 
         self.assertEqual(
             self.cleanup_gradle_args(gradle_args),
-            ["testDebug", "testDebugUnitTest", "-p", "mobile/android/fenix"],
+            ["testDebug", "testDebugUnitTest", "-p", "mobile/android/fenix/app"],
         )
 
     def test_run_android_test_with_multi_component(self):
