@@ -27,7 +27,6 @@
 #include "nsError.h"
 #include "nsGkAtoms.h"
 #include "nsIFrame.h"
-#include "nsISelectControlFrame.h"
 #include "nsLayoutUtils.h"
 #include "nsListControlFrame.h"
 #include "nsTextNode.h"
@@ -349,21 +348,21 @@ void HTMLSelectElement::InsertOptionsIntoList(nsIContent* aOptions,
     // Get the frame stuff for notification. No need to flush here
     // since if there's no frame for the select yet the select will
     // get into the right state once it's created.
-    nsISelectControlFrame* selectFrame = nullptr;
+    nsListControlFrame* listBoxFrame = nullptr;
     AutoWeakFrame weakSelectFrame;
     bool didGetFrame = false;
 
     // Actually select the options if the added options warrant it
     for (int32_t i = aListIndex; i < insertIndex; i++) {
       // Notify the frame that the option is added
-      if (!didGetFrame || (selectFrame && !weakSelectFrame.IsAlive())) {
-        selectFrame = GetSelectFrame();
-        weakSelectFrame = do_QueryFrame(selectFrame);
+      if (!didGetFrame || (listBoxFrame && !weakSelectFrame.IsAlive())) {
+        listBoxFrame = GetListBoxFrame();
+        weakSelectFrame = do_QueryFrame(listBoxFrame);
         didGetFrame = true;
       }
 
-      if (selectFrame) {
-        selectFrame->AddOption(i);
+      if (listBoxFrame) {
+        listBoxFrame->AddOption(i);
       }
 
       RefPtr<HTMLOptionElement> option = Item(i);
@@ -379,7 +378,7 @@ void HTMLSelectElement::InsertOptionsIntoList(nsIContent* aOptions,
         // This is sort of a hack ... we need to notify that the option was
         // set and change selectedIndex even though we didn't really change
         // its value.
-        OnOptionSelected(selectFrame, i, true, false, aNotify);
+        OnOptionSelected(listBoxFrame, i, true, false, aNotify);
       }
     }
 
@@ -427,10 +426,10 @@ nsresult HTMLSelectElement::RemoveOptionsFromList(nsIContent* aOptions,
 
   if (numRemoved) {
     // Tell the widget we removed the options
-    if (nsISelectControlFrame* selectFrame = GetSelectFrame()) {
+    if (nsListControlFrame* listBoxFrame = GetListBoxFrame()) {
       nsAutoScriptBlocker scriptBlocker;
       for (int32_t i = aListIndex; i < aListIndex + numRemoved; ++i) {
-        selectFrame->RemoveOption(i);
+        listBoxFrame->RemoveOption(i);
       }
     }
 
@@ -607,7 +606,7 @@ int32_t HTMLSelectElement::GetFirstChildOptionIndex(nsIContent* aOptions,
   return retval;
 }
 
-nsISelectControlFrame* HTMLSelectElement::GetSelectFrame() {
+nsListControlFrame* HTMLSelectElement::GetListBoxFrame() {
   return do_QueryFrame(GetPrimaryFrame());
 }
 
@@ -748,8 +747,8 @@ void HTMLSelectElement::SetSelectedIndexInternal(int32_t aIndex, bool aNotify) {
 
   SetOptionsSelectedByIndex(aIndex, aIndex, mask);
 
-  if (nsISelectControlFrame* selectFrame = GetSelectFrame()) {
-    selectFrame->OnSetSelectedIndex(oldSelectedIndex, mSelectedIndex);
+  if (nsListControlFrame* listBoxFrame = GetListBoxFrame()) {
+    listBoxFrame->OnSetSelectedIndex(oldSelectedIndex, mSelectedIndex);
   }
   OnSelectionChanged();
 }
@@ -759,7 +758,7 @@ bool HTMLSelectElement::IsOptionSelectedByIndex(int32_t aIndex) const {
   return option && option->Selected();
 }
 
-void HTMLSelectElement::OnOptionSelected(nsISelectControlFrame* aSelectFrame,
+void HTMLSelectElement::OnOptionSelected(nsListControlFrame* aSelectFrame,
                                          int32_t aIndex, bool aSelected,
                                          bool aChangeOptionState,
                                          bool aNotify) {
@@ -858,7 +857,7 @@ bool HTMLSelectElement::SetOptionsSelectedByIndex(int32_t aStartIndex,
   bool optionsSelected = false;
   bool optionsDeselected = false;
 
-  nsISelectControlFrame* selectFrame = nullptr;
+  nsListControlFrame* listBoxFrame = nullptr;
   bool didGetFrame = false;
   AutoWeakFrame weakSelectFrame;
 
@@ -915,11 +914,11 @@ bool HTMLSelectElement::SetOptionsSelectedByIndex(int32_t aStartIndex,
           // to flush here, if there's no frame yet we don't need to
           // force it to be created just to notify it about a change
           // in the select.
-          selectFrame = GetSelectFrame();
-          weakSelectFrame = do_QueryFrame(selectFrame);
+          listBoxFrame = GetListBoxFrame();
+          weakSelectFrame = do_QueryFrame(listBoxFrame);
           didGetFrame = true;
 
-          OnOptionSelected(selectFrame, optIndex, true, !option->Selected(),
+          OnOptionSelected(listBoxFrame, optIndex, true, !option->Selected(),
                            aOptionsMask.contains(OptionFlag::Notify));
           optionsSelected = true;
         }
@@ -939,17 +938,17 @@ bool HTMLSelectElement::SetOptionsSelectedByIndex(int32_t aStartIndex,
           HTMLOptionElement* option = Item(optIndex);
           // If the index is already deselected, ignore it.
           if (option && option->Selected()) {
-            if (!didGetFrame || (selectFrame && !weakSelectFrame.IsAlive())) {
+            if (!didGetFrame || (listBoxFrame && !weakSelectFrame.IsAlive())) {
               // To notify the frame if anything gets changed, don't
               // flush, if the frame doesn't exist we don't need to
               // create it just to tell it about this change.
-              selectFrame = GetSelectFrame();
-              weakSelectFrame = do_QueryFrame(selectFrame);
+              listBoxFrame = GetListBoxFrame();
+              weakSelectFrame = do_QueryFrame(listBoxFrame);
 
               didGetFrame = true;
             }
 
-            OnOptionSelected(selectFrame, optIndex, false, true,
+            OnOptionSelected(listBoxFrame, optIndex, false, true,
                              aOptionsMask.contains(OptionFlag::Notify));
             optionsDeselected = true;
 
@@ -973,17 +972,17 @@ bool HTMLSelectElement::SetOptionsSelectedByIndex(int32_t aStartIndex,
 
       // If the index is already selected, ignore it.
       if (option && option->Selected()) {
-        if (!didGetFrame || (selectFrame && !weakSelectFrame.IsAlive())) {
+        if (!didGetFrame || (listBoxFrame && !weakSelectFrame.IsAlive())) {
           // To notify the frame if anything gets changed, don't
           // flush, if the frame doesn't exist we don't need to
           // create it just to tell it about this change.
-          selectFrame = GetSelectFrame();
-          weakSelectFrame = do_QueryFrame(selectFrame);
+          listBoxFrame = GetListBoxFrame();
+          weakSelectFrame = do_QueryFrame(listBoxFrame);
 
           didGetFrame = true;
         }
 
-        OnOptionSelected(selectFrame, optIndex, false, true,
+        OnOptionSelected(listBoxFrame, optIndex, false, true,
                          aOptionsMask.contains(OptionFlag::Notify));
         optionsDeselected = true;
       }
@@ -1234,8 +1233,8 @@ void HTMLSelectElement::DoneAddingChildren(bool aHaveNotified) {
   }
 
   // Notify the frame
-  if (nsISelectControlFrame* selectFrame = GetSelectFrame()) {
-    selectFrame->DoneAddingChildren();
+  if (auto* listBoxFrame = GetListBoxFrame()) {
+    listBoxFrame->DoneAddingChildren();
   }
 
   if (!mInhibitStateRestoration) {
@@ -1520,7 +1519,7 @@ HTMLSelectElement::SubmitNamesValues(FormData* aFormData) {
 }
 
 void HTMLSelectElement::DispatchContentReset() {
-  if (nsListControlFrame* listFrame = do_QueryFrame(GetPrimaryFrame())) {
+  if (nsListControlFrame* listFrame = GetListBoxFrame()) {
     listFrame->OnContentReset();
   }
 }

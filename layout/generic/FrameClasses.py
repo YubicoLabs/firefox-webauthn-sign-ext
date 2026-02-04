@@ -190,7 +190,6 @@ FRAME_CLASSES = [
     AbstractFrame("nsIPercentBSizeObserver"),
     AbstractFrame("nsIPopupContainer"),
     AbstractFrame("nsIScrollbarMediator"),
-    AbstractFrame("nsISelectControlFrame"),
     AbstractFrame("nsIStatefulFrame"),
     AbstractFrame("ISVGDisplayableFrame"),
     AbstractFrame("ISVGSVGFrame"),
