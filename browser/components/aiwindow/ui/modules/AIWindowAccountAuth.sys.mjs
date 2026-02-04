@@ -72,9 +72,9 @@ export const AIWindowAccountAuth = {
     try {
       const data = {
         autoClose: !!lazy.hasFirstrunCompleted,
-        entrypoint: "aiwindow",
+        entrypoint: "smartwindow",
         extraParams: {
-          service: "aiwindow",
+          service: "smartwindow",
         },
       };
       const signedIn = await lazy.SpecialMessageActions.fxaSignInFlow(
