@@ -2281,6 +2281,12 @@ bool js::temporal::CalendarEra(JSContext* cx, Handle<CalendarValue> calendar,
     return true;
   }
 
+  // TODO: Remove when we update to the next ICU4X release.
+  // See: https://github.com/unicode-org/icu4x/pull/7503
+  if (calendarId == CalendarId::Japanese && date.year <= 1872) {
+    calendarId = CalendarId::Gregorian;
+  }
+
   auto era = EraCode::Standard;
 
   // Call into ICU4X if the calendar has more than one era.
@@ -2340,6 +2346,12 @@ bool js::temporal::CalendarEraYear(JSContext* cx,
     return CalendarYear(cx, calendar, date, result);
   }
   MOZ_ASSERT(eras.size() > 1);
+
+  // TODO: Remove when we update to the next ICU4X release.
+  // See: https://github.com/unicode-org/icu4x/pull/7503
+  if (calendarId == CalendarId::Japanese && date.year <= 1872) {
+    calendarId = CalendarId::Gregorian;
+  }
 
   auto cal = CreateICU4XCalendar(calendarId);
   auto dt = CreateICU4XDate(cx, date, calendarId, cal.get());
