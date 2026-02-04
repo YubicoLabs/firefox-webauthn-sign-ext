@@ -461,8 +461,8 @@ abstract class BaseBrowserFragment :
             feature = AppLinksFeature(
                 context = requireContext(),
                 store = requireComponents.core.store,
-                sessionId = customTabSessionId,
                 fragmentManager = parentFragmentManager,
+                sessionId = customTabSessionId,
                 launchInApp = { requireContext().settings().shouldOpenLinksInApp(customTabSessionId != null) },
                 loadUrlUseCase = requireComponents.useCases.sessionUseCases.loadUrl,
                 shouldPrompt = { requireContext().settings().shouldPromptOpenLinksInApp() },
