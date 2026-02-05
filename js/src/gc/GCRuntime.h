@@ -871,6 +871,7 @@ class GCRuntime {
 
   template <class ZoneIterT>
   IncrementalProgress markWeakReferences(JS::SliceBudget& budget);
+  void markIncomingSymbolEdgesFromUncollectedZones();
   IncrementalProgress markWeakReferencesInCurrentGroup(JS::SliceBudget& budget);
   IncrementalProgress markGrayRoots(JS::SliceBudget& budget,
                                     gcstats::PhaseKind phase);
