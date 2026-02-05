@@ -31,10 +31,20 @@ import {
   ERRORS,
 } from "chrome://browser/content/ipprotection/ipprotection-constants.mjs";
 
+const EGRESS_LOCATION_PREF = "browser.ipProtection.egressLocationEnabled";
+const DEFAULT_EGRESS_LOCATION = { name: "United States", code: "us" };
+
 XPCOMUtils.defineLazyPreferenceGetter(
   lazy,
   "BANDWIDTH_USAGE_ENABLED",
   "browser.ipProtection.bandwidth.enabled",
+  false
+);
+
+XPCOMUtils.defineLazyPreferenceGetter(
+  lazy,
+  "EGRESS_LOCATION_ENABLED",
+  EGRESS_LOCATION_PREF,
   false
 );
 
@@ -163,6 +173,7 @@ export class IPProtectionPanel {
     this.#window = Cu.getWeakReference(window);
 
     this.handleEvent = this.#handleEvent.bind(this);
+    this.handlePrefChange = this.#handlePrefChange.bind(this);
 
     this.state = {
       isSignedOut: !lazy.IPPSignInWatcher.isSignedIn,
@@ -171,10 +182,7 @@ export class IPProtectionPanel {
         lazy.IPProtectionStates.UNAUTHENTICATED,
       isProtectionEnabled:
         lazy.IPPProxyManager.state === lazy.IPPProxyStates.ACTIVE,
-      location: {
-        name: "United States",
-        code: "us",
-      },
+      location: lazy.EGRESS_LOCATION_ENABLED ? DEFAULT_EGRESS_LOCATION : null,
       error: "",
       isAlpha: lazy.IPPEnrollAndEntitleManager.isAlpha,
       hasUpgraded: lazy.IPPEnrollAndEntitleManager.hasUpgraded,
@@ -222,6 +230,7 @@ export class IPProtectionPanel {
 
     this.#addProxyListeners();
     this.#addProgressListener();
+    this.#addPrefObserver();
   }
 
   /**
@@ -448,6 +457,7 @@ export class IPProtectionPanel {
     this.destroy();
     this.#removeProxyListeners();
     this.#removeProgressListener();
+    this.#removePrefObserver();
   }
 
   #addPanelListeners(doc) {
@@ -528,6 +538,23 @@ export class IPProtectionPanel {
   #removeProgressListener() {
     if (this.gBrowser) {
       this.gBrowser.removeTabsProgressListener(this.progressListener);
+    }
+  }
+
+  #addPrefObserver() {
+    Services.prefs.addObserver(EGRESS_LOCATION_PREF, this.handlePrefChange);
+  }
+
+  #removePrefObserver() {
+    Services.prefs.removeObserver(EGRESS_LOCATION_PREF, this.handlePrefChange);
+  }
+
+  #handlePrefChange(subject, topic, data) {
+    if (data === EGRESS_LOCATION_PREF) {
+      const isEnabled = Services.prefs.getBoolPref(EGRESS_LOCATION_PREF, false);
+      this.setState({
+        location: isEnabled ? DEFAULT_EGRESS_LOCATION : null,
+      });
     }
   }
 

@@ -21,7 +21,10 @@ const mockBandwidthUsage = {
   maxBandwidth: 50,
 };
 
-async function setupStatusCardTest() {
+async function setupStatusCardTest(
+  opts = { bandwidthEnabled: true, egressEnabled: true }
+) {
+  const { bandwidthEnabled, egressEnabled } = opts;
   setupService({
     isSignedIn: true,
     isEnrolledAndEntitled: true,
@@ -33,6 +36,13 @@ async function setupStatusCardTest() {
     },
   });
   await IPPEnrollAndEntitleManager.refetchEntitlement();
+
+  await SpecialPowers.pushPrefEnv({
+    set: [
+      ["browser.ipProtection.bandwidth.enabled", bandwidthEnabled],
+      ["browser.ipProtection.egressLocationEnabled", egressEnabled],
+    ],
+  });
 }
 
 async function cleanupStatusCardTest() {
@@ -325,5 +335,50 @@ add_task(async function test_status_card_connecting() {
   );
 
   await closePanel();
+  await cleanupStatusCardTest();
+});
+
+/**
+ * Tests that location is not displayed when the pref is disabled.
+ */
+add_task(async function test_status_card_location_disabled() {
+  // Reset service state.
+  cleanupService();
+  IPProtectionService.updateState();
+
+  await setupStatusCardTest({ egressEnabled: false });
+
+  let content = await openPanel({
+    isProtectionEnabled: true,
+    bandwidthUsage: mockBandwidthUsage,
+  });
+
+  Assert.ok(
+    BrowserTestUtils.isVisible(content),
+    "ipprotection content component should be present"
+  );
+
+  let statusCard = content.statusCardEl;
+  Assert.ok(content.statusCardEl, "ipprotection-status-card should be present");
+
+  let statusBoxEl = statusCard.statusBoxEl;
+  Assert.ok(statusBoxEl, "Status box should be present");
+
+  const locationElements = statusBoxEl.shadowRoot
+    .querySelector(`slot[name="location"]`)
+    .assignedElements();
+  Assert.ok(
+    !locationElements.length,
+    "Location element should not be present when pref is disabled"
+  );
+
+  const bandwidthEl = statusBoxEl.shadowRoot
+    .querySelector(`slot[name="bandwidth"]`)
+    .assignedElements()[0];
+  Assert.ok(
+    BrowserTestUtils.isVisible(bandwidthEl),
+    "bandwidth-usage should still be present and visible"
+  );
+
   await cleanupStatusCardTest();
 });

@@ -20,9 +20,18 @@ class FakeIPProtectionPanelElement {
       isProtectionEnabled: false,
     };
     this.isConnected = false;
+    this.ownerDocument = {
+      removeEventListener() {
+        /* NOOP */
+      },
+    };
   }
 
   requestUpdate() {
+    /* NOOP */
+  }
+
+  remove() {
     /* NOOP */
   }
 
@@ -350,4 +359,55 @@ add_task(async function test_IPProtectionPanel_isAlpha_false() {
   );
 
   sandbox.restore();
+});
+
+/**
+ * Tests that egress location preference changes update the state.
+ */
+add_task(async function test_IPProtectionPanel_egressLocation_pref() {
+  let ipProtectionPanel = new IPProtectionPanel();
+  let fakeElement = new FakeIPProtectionPanelElement();
+  ipProtectionPanel.panel = fakeElement;
+  fakeElement.isConnected = true;
+
+  const expectedLocation = {
+    name: "United States",
+    code: "us",
+  };
+
+  Services.prefs.setBoolPref(
+    "browser.ipProtection.egressLocationEnabled",
+    true
+  );
+
+  Assert.deepEqual(
+    ipProtectionPanel.state.location,
+    expectedLocation,
+    "location should be set when preference is true"
+  );
+
+  Assert.deepEqual(
+    fakeElement.state.location,
+    expectedLocation,
+    "location should be set on the fake element when preference is true"
+  );
+
+  Services.prefs.setBoolPref(
+    "browser.ipProtection.egressLocationEnabled",
+    false
+  );
+
+  Assert.ok(
+    !ipProtectionPanel.state.location,
+    "location should be null when preference is false"
+  );
+
+  Assert.ok(
+    !fakeElement.state.location,
+    "location should be null on the fake element when preference is false"
+  );
+
+  ipProtectionPanel.uninit();
+
+  Services.prefs.clearUserPref("browser.ipProtection.egressLocationEnabled");
 });
