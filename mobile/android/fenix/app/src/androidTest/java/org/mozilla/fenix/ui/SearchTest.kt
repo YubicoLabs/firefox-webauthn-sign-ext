@@ -293,6 +293,7 @@ class SearchTest : TestSetup() {
     }
 
     // TestRail link: https://mozilla.testrail.io/index.php?/cases/view/1623441
+    @Ignore("Failing: https://bugzilla.mozilla.org/show_bug.cgi?id=1930244")
     @SmokeTest
     @Test
     fun searchResultsOpenedInNewTabsGenerateSearchGroupsTest() {
