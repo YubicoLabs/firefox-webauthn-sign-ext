@@ -22,11 +22,9 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import mozilla.components.browser.domains.autocomplete.BaseDomainAutocompleteProvider
 import mozilla.components.browser.state.action.AwesomeBarAction.EngagementFinished
-import mozilla.components.browser.state.action.BrowserAction
 import mozilla.components.browser.state.action.SearchAction.ApplicationSearchEnginesLoaded
 import mozilla.components.browser.state.search.RegionState
 import mozilla.components.browser.state.search.SearchEngine
-import mozilla.components.browser.state.state.BrowserState
 import mozilla.components.browser.state.state.SearchState
 import mozilla.components.browser.state.state.selectedOrDefaultSearchEngine
 import mozilla.components.browser.state.store.BrowserStore
@@ -112,13 +110,11 @@ class BrowserToolbarSearchMiddlewareTest {
 
     private val testDispatcher = StandardTestDispatcher()
     private val testScope = CoroutineScope(testDispatcher)
-    private val captureBrowserActionsMiddleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
 
     val appStore = AppStore()
-    val browserStore = BrowserStore(
-        BrowserState(search = fakeSearchState()),
-        middleware = listOf(captureBrowserActionsMiddleware),
-    )
+    val browserStore: BrowserStore = mockk(relaxed = true) {
+        every { state.search } returns fakeSearchState()
+    }
     val components: Components = mockk()
     val settings: Settings = mockk(relaxed = true)
     val navController: NavController = mockk {
@@ -261,10 +257,7 @@ class BrowserToolbarSearchMiddlewareTest {
         assertFalse(appStore.state.searchState.isSearchActive)
         assertEquals("", store.state.editState.query.current)
         captorMiddleware.assertLastAction(SearchEnded::class) {}
-        captureBrowserActionsMiddleware.assertFirstAction(EngagementFinished::class) { action ->
-            assertTrue(action.abandoned)
-        }
-
+        verify { browserStore.dispatch(EngagementFinished(abandoned = true)) }
         verify {
             navController.navigate(
                 BrowserFragmentDirections.actionGlobalSearchEngineFragment(),
@@ -719,14 +712,11 @@ class BrowserToolbarSearchMiddlewareTest {
     fun `WHEN the search engine is added by the application THEN do not load URL`() {
         val captorMiddleware = CaptureActionsMiddleware<AppState, AppAction>()
         val appStore = AppStore(middlewares = listOf(captorMiddleware))
-        val browserStore = BrowserStore(
-            BrowserState(
-                search = fakeSearchState().copy(
-                    userSelectedSearchEngineId = TABS_SEARCH_ENGINE_ID,
-                ),
-            ),
-        )
-
+        val browserStore: BrowserStore = mockk(relaxed = true) {
+            every { state.search } returns fakeSearchState().copy(
+                userSelectedSearchEngineId = TABS_SEARCH_ENGINE_ID,
+            )
+        }
         val browserUseCases: FenixBrowserUseCases = mockk(relaxed = true)
         val components: Components = mockk(relaxed = true) {
             every { useCases.fenixBrowserUseCases } returns browserUseCases
@@ -772,9 +762,7 @@ class BrowserToolbarSearchMiddlewareTest {
         store.dispatch(CommitUrl("about:addons"))
 
         verify { navController.navigate(NavGraphDirections.actionGlobalAddonsManagementFragment()) }
-        captureBrowserActionsMiddleware.assertFirstAction(EngagementFinished::class) { action ->
-            assertFalse(action.abandoned)
-        }
+        verify { browserStore.dispatch(EngagementFinished(abandoned = false)) }
         captorMiddleware.assertLastAction(SearchEnded::class) {}
     }
 
@@ -828,9 +816,7 @@ class BrowserToolbarSearchMiddlewareTest {
             "false",
             Events.enteredUrl.testGetValue()!!.single().extra?.getValue("autocomplete"),
         )
-        captureBrowserActionsMiddleware.assertFirstAction(EngagementFinished::class) { action ->
-            assertFalse(action.abandoned)
-        }
+        verify { browserStore.dispatch(EngagementFinished(abandoned = false)) }
         captorMiddleware.assertLastAction(SearchEnded::class) {}
     }
 
@@ -842,9 +828,7 @@ class BrowserToolbarSearchMiddlewareTest {
 
         store.dispatch(CommitUrl(""))
 
-        captureBrowserActionsMiddleware.assertFirstAction(EngagementFinished::class) { action ->
-            assertTrue(action.abandoned)
-        }
+        verify { browserStore.dispatch(EngagementFinished(abandoned = true)) }
         captorMiddleware.assertLastAction(SearchEnded::class) {}
     }
 
@@ -890,9 +874,7 @@ class BrowserToolbarSearchMiddlewareTest {
             "false",
             Events.enteredUrl.testGetValue()!!.single().extra?.getValue("autocomplete"),
         )
-        captureBrowserActionsMiddleware.assertFirstAction(EngagementFinished::class) { action ->
-            assertFalse(action.abandoned)
-        }
+        verify { browserStore.dispatch(EngagementFinished(abandoned = false)) }
         captorMiddleware.assertLastAction(SearchEnded::class) {}
     }
 
@@ -930,9 +912,7 @@ class BrowserToolbarSearchMiddlewareTest {
                 searchEngine = any(),
             )
         }
-        captureBrowserActionsMiddleware.assertFirstAction(EngagementFinished::class) { action ->
-            assertFalse(action.abandoned)
-        }
+        verify { browserStore.dispatch(EngagementFinished(abandoned = false)) }
         captorMiddleware.assertLastAction(SearchEnded::class) {}
     }
 

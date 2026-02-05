@@ -13,16 +13,15 @@ import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import mozilla.components.browser.state.action.BrowserAction
 import mozilla.components.browser.state.action.RecentlyClosedAction
-import mozilla.components.browser.state.state.BrowserState
 import mozilla.components.browser.state.state.recover.TabState
 import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.concept.engine.prompt.ShareData
 import mozilla.components.feature.recentlyclosed.RecentlyClosedTabsStorage
 import mozilla.components.feature.tabs.TabsUseCases
-import mozilla.components.support.test.middleware.CaptureActionsMiddleware
 import mozilla.components.support.test.robolectric.testContext
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -45,9 +44,7 @@ import org.robolectric.RobolectricTestRunner
 class DefaultRecentlyClosedControllerTest {
     private val navController: NavController = mockk(relaxed = true)
     private var currentMode: BrowsingMode = BrowsingMode.Normal
-
-    private val captureActionsMiddleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
-    private val browserStore: BrowserStore = BrowserStore(middleware = listOf(captureActionsMiddleware))
+    private val browserStore: BrowserStore = mockk(relaxed = true)
     private val recentlyClosedStore: RecentlyClosedFragmentStore = mockk(relaxed = true)
     private val tabsUseCases: TabsUseCases = mockk(relaxed = true)
 
@@ -170,10 +167,9 @@ class DefaultRecentlyClosedControllerTest {
 
         createController().handleDelete(item)
 
-        captureActionsMiddleware.assertFirstAction(RecentlyClosedAction.RemoveClosedTabAction::class) { action ->
-            assertEquals(item, action.tab)
+        verify {
+            browserStore.dispatch(RecentlyClosedAction.RemoveClosedTabAction(item))
         }
-
         assertNotNull(RecentlyClosedTabs.deleteTab.testGetValue())
         assertEquals(1, RecentlyClosedTabs.deleteTab.testGetValue()!!.size)
         assertNull(RecentlyClosedTabs.deleteTab.testGetValue()!!.single().extra)
@@ -186,14 +182,10 @@ class DefaultRecentlyClosedControllerTest {
 
         createController().handleDelete(tabs.toSet())
 
-        captureActionsMiddleware.assertFirstAction(RecentlyClosedAction.RemoveClosedTabAction::class) { action ->
-            assertEquals(tabs[0], action.tab)
+        verify {
+            browserStore.dispatch(RecentlyClosedAction.RemoveClosedTabAction(tabs[0]))
+            browserStore.dispatch(RecentlyClosedAction.RemoveClosedTabAction(tabs[1]))
         }
-
-        captureActionsMiddleware.assertLastAction(RecentlyClosedAction.RemoveClosedTabAction::class) { action ->
-            assertEquals(tabs[1], action.tab)
-        }
-
         assertNotNull(RecentlyClosedTabs.menuDelete.testGetValue())
         assertNull(RecentlyClosedTabs.menuDelete.testGetValue()!!.last().extra)
     }
@@ -238,6 +230,7 @@ class DefaultRecentlyClosedControllerTest {
         assertNull(RecentlyClosedTabs.menuShare.testGetValue()!!.single().extra)
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class) // runCurrent
     @Test
     fun handleRestore() = runTest {
         val item: TabState = mockk(relaxed = true)
@@ -246,7 +239,7 @@ class DefaultRecentlyClosedControllerTest {
         assertNull(RecentlyClosedTabs.openTab.testGetValue())
 
         createController(scope = this).handleRestore(item)
-        testScheduler.advanceUntilIdle()
+        runCurrent()
 
         coVerify { tabsUseCases.restore.invoke(eq(item), any(), true) }
         verify { navController.navigate(R.id.browserFragment) }
@@ -255,6 +248,7 @@ class DefaultRecentlyClosedControllerTest {
         assertNull(RecentlyClosedTabs.openTab.testGetValue()!!.single().extra)
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class) // runCurrent
     @Test
     fun `GIVEN normal browsing mode WHEN handleRestore is called THEN restore and nav to browser`() = runTest {
         val item: TabState = mockk(relaxed = true)
@@ -266,17 +260,17 @@ class DefaultRecentlyClosedControllerTest {
 
         controller.handleRestore(item)
 
-        testScheduler.advanceUntilIdle()
+        runCurrent()
 
         coVerify { tabsUseCases.restore.invoke(eq(item), any(), true) }
 
-        captureActionsMiddleware.assertFirstAction(RecentlyClosedAction.RemoveClosedTabAction::class) { action ->
-            assertEquals(item, action.tab)
+        verify {
+            browserStore.dispatch(RecentlyClosedAction.RemoveClosedTabAction(item))
         }
-
         verify { navController.navigate(R.id.browserFragment) }
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class) // runCurrent
     @Test
     fun `GIVEN private browsing mode WHEN handleRestore is called THEN handleOpen is invoked with private mode`() = runTest {
         val item: TabState = mockk(relaxed = true)
@@ -293,7 +287,7 @@ class DefaultRecentlyClosedControllerTest {
 
         controller.handleRestore(item)
 
-        testScheduler.advanceUntilIdle()
+        runCurrent()
 
         assertEquals(item.url, capturedUrl)
     }

@@ -10,7 +10,6 @@ import io.mockk.mockk
 import io.mockk.spyk
 import io.mockk.verify
 import mozilla.appservices.places.BookmarkRoot
-import mozilla.components.browser.state.state.BrowserState
 import mozilla.components.browser.state.state.createTab
 import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.concept.engine.EngineSession
@@ -47,13 +46,13 @@ class DefaultBookmarksControllerTest {
     private val settings: Settings = mockk(relaxed = true)
     private val fenixBrowserUseCases: FenixBrowserUseCases = mockk(relaxed = true)
     private val selectTabUseCase: TabsUseCases = mockk(relaxed = true)
-    private lateinit var browserStore: BrowserStore
+    private val browserStore: BrowserStore = mockk(relaxed = true)
 
     private lateinit var controller: DefaultBookmarksController
 
     @Before
     fun setup() {
-        browserStore = BrowserStore()
+        every { browserStore.state.tabs }.returns(emptyList())
 
         controller = spyk(
             DefaultBookmarksController(
@@ -91,7 +90,7 @@ class DefaultBookmarksControllerTest {
         assertNull(HomeBookmarks.bookmarkClicked.testGetValue())
 
         val testTab = createTab("https://www.not_example.com")
-        browserStore = BrowserStore(BrowserState(tabs = listOf(testTab)))
+        every { browserStore.state.tabs }.returns(listOf(testTab))
 
         val bookmark = Bookmark(title = null, url = "https://www.example.com")
         controller.handleBookmarkClicked(bookmark)
@@ -114,7 +113,7 @@ class DefaultBookmarksControllerTest {
 
         val testUrl = "https://www.example.com"
         val testTab = createTab(testUrl)
-        browserStore = BrowserStore(BrowserState(tabs = listOf(testTab)))
+        every { browserStore.state.tabs }.returns(listOf(testTab))
 
         val bookmark = Bookmark(title = null, url = testUrl)
         controller.handleBookmarkClicked(bookmark)

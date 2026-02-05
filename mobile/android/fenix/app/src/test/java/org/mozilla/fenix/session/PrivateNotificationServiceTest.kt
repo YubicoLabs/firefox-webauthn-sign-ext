@@ -7,6 +7,7 @@ package org.mozilla.fenix.session
 import android.content.ComponentName
 import android.content.Intent
 import io.mockk.every
+import io.mockk.mockk
 import mozilla.components.browser.state.state.BrowserState
 import mozilla.components.browser.state.state.createTab
 import mozilla.components.browser.state.store.BrowserStore
@@ -33,12 +34,18 @@ import org.robolectric.android.controller.ServiceController
 class PrivateNotificationServiceTest {
 
     private lateinit var controller: ServiceController<PrivateNotificationService>
+    private lateinit var store: BrowserStore
 
     @get:Rule
     val coroutinesTestRule = MainCoroutineRule()
 
     @Before
     fun setup() {
+        store = mockk()
+        every { store.dispatch(any()) } returns mockk()
+        every { testContext.components.core.store } returns store
+        every { testContext.components.useCases.tabsUseCases } returns TabsUseCases(store)
+
         controller = Robolectric.buildService(
             PrivateNotificationService::class.java,
             Intent(ACTION_ERASE),
@@ -48,12 +55,7 @@ class PrivateNotificationServiceTest {
     @Test
     fun `service opens home activity in private mode if app is in private mode`() {
         val selectedPrivateTab = createTab("https://mozilla.org", private = true)
-        val store = BrowserStore(
-            BrowserState(tabs = listOf(selectedPrivateTab), selectedTabId = selectedPrivateTab.id),
-        )
-
-        every { testContext.components.core.store } returns store
-        every { testContext.components.useCases.tabsUseCases } returns TabsUseCases(store)
+        every { store.state } returns BrowserState(tabs = listOf(selectedPrivateTab), selectedTabId = selectedPrivateTab.id)
 
         val service = shadowOf(controller.get())
         controller.startCommand(0, 0)
@@ -68,12 +70,7 @@ class PrivateNotificationServiceTest {
     @Test
     fun `service starts no activity if app is in normal mode`() {
         val selectedPrivateTab = createTab("https://mozilla.org", private = false)
-        val store = BrowserStore(
-            BrowserState(tabs = listOf(selectedPrivateTab), selectedTabId = selectedPrivateTab.id),
-        )
-
-        every { testContext.components.core.store } returns store
-        every { testContext.components.useCases.tabsUseCases } returns TabsUseCases(store)
+        every { store.state } returns BrowserState(tabs = listOf(selectedPrivateTab), selectedTabId = selectedPrivateTab.id)
 
         val service = shadowOf(controller.get())
         controller.startCommand(0, 0)

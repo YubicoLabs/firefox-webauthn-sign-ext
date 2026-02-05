@@ -11,15 +11,12 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.launch
-import mozilla.components.browser.state.action.BrowserAction
 import mozilla.components.browser.state.action.HistoryMetadataAction
-import mozilla.components.browser.state.state.BrowserState
 import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.browser.storage.sync.PlacesHistoryStorage
 import mozilla.components.concept.engine.prompt.ShareData
 import mozilla.components.concept.storage.HistoryMetadataKey
 import mozilla.components.feature.tabs.TabsUseCases
-import mozilla.components.support.test.middleware.CaptureActionsMiddleware
 import mozilla.components.support.test.robolectric.testContext
 import mozilla.components.support.test.rule.MainCoroutineRule
 import mozilla.components.support.test.rule.runTestOnMain
@@ -61,9 +58,7 @@ class HistoryMetadataGroupControllerTest {
     private val activity: HomeActivity = mockk(relaxed = true)
     private val context: Context = mockk(relaxed = true)
     private val store: HistoryMetadataGroupFragmentStore = mockk(relaxed = true)
-    private val captureActionsMiddleware = CaptureActionsMiddleware<BrowserState, BrowserAction>()
-
-    private val browserStore = BrowserStore(middleware = listOf(captureActionsMiddleware))
+    private val browserStore: BrowserStore = mockk(relaxed = true)
     private val selectOrAddUseCase: TabsUseCases.SelectOrAddUseCase = mockk(relaxed = true)
     private val fenixBrowserUseCases: FenixBrowserUseCases = mockk(relaxed = true)
     private val navController: NavController = mockk(relaxed = true)
@@ -230,7 +225,11 @@ class HistoryMetadataGroupControllerTest {
         )
         // Here we don't expect the action to be dispatched, because items inside the store
         // we provided by getMetadataItemsList(), but only one item has been removed
-        captureActionsMiddleware.assertNotDispatched(HistoryMetadataAction.DisbandSearchGroupAction::class)
+        verify(exactly = 0) {
+            browserStore.dispatch(
+                HistoryMetadataAction.DisbandSearchGroupAction(searchTerm = searchTerm),
+            )
+        }
     }
 
     @Test
@@ -251,8 +250,10 @@ class HistoryMetadataGroupControllerTest {
         )
         // Here we expect the action to be dispatched, because both deleted items and items inside
         // the store were provided by the same method getMetadataItemsList()
-        captureActionsMiddleware.assertFirstAction(HistoryMetadataAction.DisbandSearchGroupAction::class) { action ->
-            assertEquals(searchTerm, action.searchTerm)
+        verify {
+            browserStore.dispatch(
+                HistoryMetadataAction.DisbandSearchGroupAction(searchTerm = searchTerm),
+            )
         }
     }
 
@@ -296,8 +297,10 @@ class HistoryMetadataGroupControllerTest {
         // Here we expect the action to be dispatched, because deleted items include the items
         // provided by getMetadataItemsList(), so that the store becomes empty and the event
         // should be sent
-        captureActionsMiddleware.assertFirstAction(HistoryMetadataAction.DisbandSearchGroupAction::class) { action ->
-            assertEquals(searchTerm, action.searchTerm)
+        verify {
+            browserStore.dispatch(
+                HistoryMetadataAction.DisbandSearchGroupAction(searchTerm = searchTerm),
+            )
         }
     }
 

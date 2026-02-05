@@ -165,7 +165,7 @@ class OpenInAppOnboardingObserverTest {
         openInAppOnboardingObserver = spyk(
             OpenInAppOnboardingObserver(
                 testContext,
-                BrowserStore(),
+                mockk(),
                 mockk(),
                 mockk(),
                 mockk(),
@@ -180,7 +180,7 @@ class OpenInAppOnboardingObserverTest {
         openInAppOnboardingObserver = spyk(
             OpenInAppOnboardingObserver(
                 testContext,
-                BrowserStore(),
+                mockk(),
                 mockk(),
                 mockk(),
                 mockk(),

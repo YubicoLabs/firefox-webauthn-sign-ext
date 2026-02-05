@@ -496,7 +496,7 @@ class AppStateTest {
             every { showRecentTabsFeature } returns true
         }
 
-        val state = AppState(recentSyncedTabState = RecentSyncedTabState.Success(emptyList()))
+        val state = AppState(recentSyncedTabState = RecentSyncedTabState.Success(mockk()))
 
         assertTrue(state.shouldShowRecentTabs(settings))
     }
@@ -509,7 +509,7 @@ class AppStateTest {
 
         val state = AppState(
             recentTabs = listOf(mockk()),
-            recentSyncedTabState = RecentSyncedTabState.Success(emptyList()),
+            recentSyncedTabState = RecentSyncedTabState.Success(mockk()),
         )
 
         assertTrue(state.shouldShowRecentTabs(settings))
