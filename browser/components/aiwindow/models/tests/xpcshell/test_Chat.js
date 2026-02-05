@@ -461,7 +461,7 @@ add_task(
 );
 
 add_task(async function test_Chat_modelId_reads_from_pref() {
-  const defaultModelId = "qwen3-235b-a22b-instruct-2507-maas";
+  const defaultModelId = "";
   const customModelId = "custom-model-id";
 
   Services.prefs.clearUserPref(PREF_MODEL);
@@ -469,7 +469,7 @@ add_task(async function test_Chat_modelId_reads_from_pref() {
   Assert.equal(
     Chat.modelId,
     defaultModelId,
-    "Should use default modelId when pref is not set"
+    "Should be '' when pref is not set"
   );
 
   Services.prefs.setStringPref(PREF_MODEL, customModelId);

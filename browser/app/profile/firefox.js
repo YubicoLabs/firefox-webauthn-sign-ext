@@ -2262,7 +2262,7 @@ pref("browser.smartwindow.memoriesLogLevel", "Warn");
 pref("browser.smartwindow.firstrun.autoAdvanceMS", 3000);
 pref("browser.smartwindow.firstrun.hasCompleted", false);
 pref("browser.smartwindow.firstrun.modelChoice", "");
-pref("browser.smartwindow.model", "qwen3-235b-a22b-instruct-2507-maas");
+pref("browser.smartwindow.model", "");
 pref("browser.smartwindow.preferences.enabled", false);
 pref("browser.smartwindow.preferences.endpoint", "");
 
