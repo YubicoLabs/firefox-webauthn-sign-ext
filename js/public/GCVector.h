@@ -87,6 +87,7 @@ class GCVector {
 
   void clear() { vector.clear(); }
   void clearAndFree() { vector.clearAndFree(); }
+  bool shrinkStorageToFit() { return vector.shrinkStorageToFit(); }
 
   template <typename U>
   bool append(U&& item) {
@@ -162,15 +163,21 @@ class GCVector {
     vector.swap(other.vector);
   }
 
+  // Get allocation sizes assuming malloc allocation.
   size_t sizeOfExcludingThis(mozilla::MallocSizeOf mallocSizeOf) const {
     return vector.sizeOfExcludingThis(mallocSizeOf);
   }
-
   size_t sizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf) const {
     return mallocSizeOf(this) + sizeOfExcludingThis(mallocSizeOf);
   }
 
-  void trace(JSTracer* trc) {
+  // Get size of allocations using the AllocPolicy.
+  size_t sizeOfOwnedAllocs(mozilla::MallocSizeOf mallocSizeOf) {
+    return SizeOfOwnedAllocs(vector, mallocSizeOf);
+  }
+
+  void trace(JSTracer* trc, js::gc::Cell* owner = nullptr) {
+    js::TraceOwnedAllocs(trc, owner, vector, "vector storage");
     for (auto& elem : vector) {
       GCPolicy<T>::trace(trc, &elem, "vector element");
     }

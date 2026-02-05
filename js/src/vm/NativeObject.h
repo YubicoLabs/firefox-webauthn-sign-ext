@@ -19,6 +19,7 @@
 #include "gc/Barrier.h"
 #include "gc/BufferAllocator.h"
 #include "gc/MaybeRooted.h"
+#include "gc/Tracer.h"
 #include "gc/ZoneAllocator.h"
 #include "js/shadow/Object.h"  // JS::shadow::Object
 #include "js/shadow/Zone.h"    // JS::shadow::Zone
@@ -1920,6 +1921,26 @@ template <typename T>
 inline void InitReservedSlot(NativeObject* obj, uint32_t slot, T* ptr,
                              MemoryUse use) {
   InitReservedSlot(obj, slot, ptr, sizeof(T), use);
+}
+
+inline void InitBufferSlot(NativeObject* obj, uint32_t slot, void* buffer) {
+  MOZ_ASSERT_IF(
+      buffer, gc::IsNurseryOwned(obj->zone(), buffer) == IsInsideNursery(obj));
+  obj->initReservedSlot(slot, PrivateValue(buffer));
+}
+
+inline void TraceBufferSlot(JSTracer* trc, NativeObject* obj, uint32_t slot,
+                            const char* name) {
+  Value value = obj->getSlot(slot);
+  if (value.isUndefined()) {
+    return;
+  }
+
+  void* buffer = value.toPrivate();
+  TraceBufferEdge(trc, obj, &buffer, name);
+  if (buffer != value.toPrivate()) {
+    obj->setSlot(slot, PrivateValue(buffer));
+  }
 }
 
 bool AddSlotAndCallAddPropHook(JSContext* cx, Handle<NativeObject*> obj,

@@ -14,10 +14,13 @@
 #ifndef js_AllocPolicy_h
 #define js_AllocPolicy_h
 
-#include "mozilla/mozalloc.h"  // For InfallibleAllocPolicy
+#include "mozilla/MemoryReporting.h"  // For MallocSizeOf
+#include "mozilla/mozalloc.h"         // For InfallibleAllocPolicy
 
 #include "js/TypeDecls.h"
 #include "js/Utility.h"
+
+class JS_PUBLIC_API JSTracer;
 
 extern MOZ_COLD JS_PUBLIC_API void JS_ReportOutOfMemory(JSContext* cx);
 
@@ -26,6 +29,10 @@ namespace js {
 class FrontendContext;
 
 enum class AllocFunction { Malloc, Calloc, Realloc };
+
+namespace gc {
+class Cell;
+}  // namespace gc
 
 // Base class for JS engine allocation policies. This provides default
 // implementations of some methods that may be overridden.
@@ -39,7 +46,54 @@ class AllocPolicyBase {
   // Used to trigger OOMs deterministically during testing. The default
   // behaviour is to support this feature.
   bool checkSimulatedOOM() const { return !js::oom::ShouldFailWithOOM(); }
+
+  // For allocation policies that support allocating GCed memory, update
+  // information about their owning GC thing. For policies that use malloc, this
+  // is a no-op.
+  void updateOwningGCThing(gc::Cell* maybeOwner) {}
+
+  // For allocation policies that support allocating GCed memory, trace an
+  // allocation. For policies that use malloc, this is a no-op.
+  template <typename T>
+  void traceOwnedAlloc(JSTracer* trc, gc::Cell* maybeOwner, T** ptrp,
+                       const char* name) {}
+
+  // For memory reporting, get the size of an allocation made with this policy.
+  // The parameter |mallocSizeOf| is only used for policies that use malloc.
+  size_t getAllocSize(void* ptr, mozilla::MallocSizeOf mallocSizeOf) {
+    return mallocSizeOf(ptr);
+  }
 };
+
+// Trace all owned allocations used by a container by calling the alloc
+// policy's traceOwnedAlloc method for each on them, and update alloc policy
+// information about the owning GC thing.
+//
+// Requires the following methods on the container:
+//  - allocPolicy -- gets the AllocPolicy
+//  - traceOwnedAllocs -- calls the passed closure on all allocations
+template <typename Container>
+void TraceOwnedAllocs(JSTracer* trc, gc::Cell* maybeOwner, Container& container,
+                      const char* name) {
+  auto& allocPolicy = container.allocPolicy();
+  allocPolicy.updateOwningGCThing(maybeOwner);
+  container.traceOwnedAllocs([&](auto** ptrp) {
+    allocPolicy.traceOwnedAlloc(trc, maybeOwner, ptrp, name);
+  });
+}
+
+// For containers implementing |traceOwnedAllocs| get the total size of owned
+// allocations.
+template <typename Container>
+size_t SizeOfOwnedAllocs(Container& container,
+                         mozilla::MallocSizeOf mallocSizeOf) {
+  size_t size = 0;
+  auto& allocPolicy = container.allocPolicy();
+  container.traceOwnedAllocs([&](auto** ptrp) {
+    size += allocPolicy.getAllocSize(*ptrp, mallocSizeOf);
+  });
+  return size;
+}
 
 // Base class for allocation policies that allocate using a specified malloc
 // arena.
