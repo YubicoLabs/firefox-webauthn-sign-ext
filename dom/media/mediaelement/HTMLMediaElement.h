@@ -915,11 +915,6 @@ class HTMLMediaElement : public nsGenericHTMLElement,
   virtual void WakeLockRelease();
   virtual void UpdateWakeLock();
 
-  // This must be called immediately after monitor attributes change, and cannot
-  // wait for the Watchable notification, because some pseudo-classes are
-  // required to be applied immediately after the change.
-  void UpdatePlaybackPseudoClasses();
-
   void CreateAudioWakeLockIfNeeded();
   void ReleaseAudioWakeLockIfExists();
   void ReleaseAudioWakeLockInternal();
@@ -1894,9 +1889,6 @@ class HTMLMediaElement : public nsGenericHTMLElement,
   // True if media element has been forced into being considered 'hidden'.
   // For use by mochitests. Enabling pref "media.test.video-suspend"
   bool mForcedHidden = false;
-
-  // https://html.spec.whatwg.org/multipage/media.html#is-currently-stalled
-  bool mIsCurrentlyStalled = false;
 
   Visibility mVisibilityState = Visibility::Untracked;
 
