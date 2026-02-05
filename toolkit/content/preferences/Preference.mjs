@@ -264,13 +264,6 @@ export class Preference extends EventEmitter {
    * @param {PreferenceValue} val
    */
   set value(val) {
-    // When clearing the user value we may or may not actually change. Go ahead
-    // and clear the value, if it changed an observer event will fire and
-    // this.value will be set by that.
-    if (Preferences.instantApply && val === undefined) {
-      this.valueFromPreferences = val;
-      return;
-    }
     if (this.value !== val) {
       this._value = val;
       if (Preferences.instantApply) {
@@ -417,9 +410,6 @@ export class Preference extends EventEmitter {
       default:
         this._reportUnknownType();
     }
-    // Ensure _value is synced after writing to prefs. The observer will also
-    // try to update it, but may hit the early return if already synced.
-    this._value = this.valueFromPreferences;
     if (!this.batching) {
       Services.prefs.savePrefFile(null);
     }
