@@ -774,6 +774,120 @@ async function populateCSSQueries() {
   };
 }
 
+async function populateCSSSystemColors() {
+  const systemColors = [
+    "Canvas",
+    "CanvasText",
+    "LinkText",
+    "VisitedText",
+    "ActiveText",
+    "ButtonFace",
+    "ButtonText",
+    "ButtonBorder",
+    "Field",
+    "FieldText",
+    "Highlight",
+    "HighlightText",
+    "SelectedItem",
+    "SelectedItemText",
+    "AccentColor",
+    "AccentColorText",
+    "Mark",
+    "MarkText",
+    "GrayText",
+    "ActiveBorder",
+    "ActiveCaption",
+    "AppWorkspace",
+    "Background",
+    "ButtonShadow",
+    "InactiveBorder",
+    "InactiveCaption",
+    "InactiveCaptionText",
+    "InfoBackground",
+    "InfoText",
+    "Menu",
+    "MenuText",
+    "Scrollbar",
+    "ThreeDDarkShadow",
+    "ThreeDFace",
+    "ThreeDHighlight",
+    "ThreeDLightShadow",
+    "ThreeDShadow",
+    "Window",
+    "WindowFrame",
+    "WindowText",
+  ];
+
+  const rgbToHex = rgb => {
+    const match = rgb.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+    if (!match) {
+      return rgb;
+    }
+    const [, r, g, b] = match;
+    return [r, g, b]
+      .map(x => parseInt(x, 10).toString(16).padStart(2, "0"))
+      .join("")
+      .toUpperCase();
+  };
+
+  const div = document.createElement("div");
+  document.body.appendChild(div);
+
+  const results = [];
+  for (const colorName of systemColors) {
+    div.style.backgroundColor = colorName;
+    const computed = getComputedStyle(div).backgroundColor;
+    results.push({ [colorName]: rgbToHex(computed) });
+  }
+
+  document.body.removeChild(div);
+
+  return {
+    cssSystemColors: JSON.stringify(results),
+  };
+}
+
+async function populateCSSSystemFonts() {
+  const systemFonts = [
+    "caption",
+    "icon",
+    "menu",
+    "message-box",
+    "small-caption",
+    "status-bar",
+    "serif",
+    "sans-serif",
+    "monospace",
+    "cursive",
+    "fantasy",
+    "system-ui",
+    "Arial",
+    "Helvetica",
+    "Times New Roman",
+    "Courier New",
+    "Verdana",
+    "Georgia",
+  ];
+
+  const div = document.createElement("div");
+  div.textContent = "Test";
+  document.body.appendChild(div);
+
+  const results = [];
+  for (const fontName of systemFonts) {
+    div.style.fontFamily = fontName;
+    const computed = getComputedStyle(div);
+    const value = computed.fontSize + " " + computed.fontFamily;
+    results.push({ [fontName]: value });
+  }
+
+  document.body.removeChild(div);
+
+  return {
+    cssSystemFonts: JSON.stringify(results),
+  };
+}
+
 async function populateNavigatorProperties() {
   return {
     oscpu: navigator.oscpu,
@@ -1106,6 +1220,8 @@ async function startPopulating() {
     populateSensorInfo,
     populateMathML,
     populateCSSQueries,
+    populateCSSSystemColors,
+    populateCSSSystemFonts,
     populateNavigatorProperties,
     populateAudioDeviceProperties,
     populateTimezoneWeb,

@@ -4559,6 +4559,55 @@ characteristics:
     data_sensitivity:
       - technical
 
+  css_system_colors:
+    type: text
+    description: >
+      JSON array containing CSS system color keywords and their computed values as
+      uppercase hex (without # prefix). System colors (like Canvas, ButtonFace,
+      LinkText, etc.) are CSS keywords that resolve to theme/OS-specific colors and
+      can be used for fingerprinting. This metric collects the computed backgroundColor
+      for each system color keyword. Data format: [{"Canvas": "FFFFFF"}, {"ButtonFace": "F0F0F0"}, ...].
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2010671
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2010671
+    expires: never
+    data_sensitivity:
+      # Text metrics are _required_ to be web_activity or highly_sensitive, so even though this
+      # is more like 'technical' (per the Data Review), I'm marking highly sensitive.
+      - highly_sensitive
+
+  css_system_fonts:
+    type: text
+    description: >
+      JSON array containing CSS system font keywords and their computed font properties.
+      System fonts (like caption, icon, menu, etc.) and common font families are tested
+      to determine their rendered fontSize and fontFamily values, which can vary by OS
+      and be used for fingerprinting. This metric collects computed fontSize + fontFamily
+      for each font keyword/name tested.
+      Data format: [{"caption": "11px system-ui"}, {"Arial": "16px Arial"}, ...].
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2010671
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2010671
+    expires: never
+    data_sensitivity:
+      # Text metrics are _required_ to be web_activity or highly_sensitive, so even though this
+      # is more like 'technical' (per the Data Review), I'm marking highly sensitive.
+      - highly_sensitive
+
   firefox_binary_arch:
     type: string
     description: >
