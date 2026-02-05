@@ -1703,8 +1703,6 @@ static bool EnqueueJob(JSContext* cx, JS::JSMicroTask* job) {
                                                       ObjectValue(*rootedJob));
 }
 
-static bool PromiseReactionJob(JSContext* cx, unsigned argc, Value* vp);
-
 /**
  * ES2022 draft rev d03c1ec6e235a5180fa772b6178727c17974cb14
  *
@@ -2668,19 +2666,6 @@ static bool PromiseReactionJob(JSContext* cx, HandleObject reactionObjIn) {
                                    reaction->unhandledRejectionBehavior());
 }
 
-static bool PromiseReactionJob(JSContext* cx, unsigned argc, Value* vp) {
-  CallArgs args = CallArgsFromVp(argc, vp);
-
-  RootedFunction job(cx, &args.callee().as<JSFunction>());
-
-  // Promise reactions don't return any value.
-  args.rval().setUndefined();
-
-  RootedObject reactionObj(
-      cx, &job->getExtendedSlot(ReactionJobSlot_ReactionRecord).toObject());
-  return PromiseReactionJob(cx, reactionObj);
-}
-
 /**
  * ES2022 draft rev d03c1ec6e235a5180fa772b6178727c17974cb14
  *
@@ -2732,25 +2717,6 @@ static bool PromiseResolveThenableJob(JSContext* cx, HandleObject promise,
   // Step 1.c.ii. Return Completion(status).
   RootedField<Value, 4> rejectVal(roots, ObjectValue(*rejectFn));
   return Call(cx, rejectVal, UndefinedHandleValue, rval, &rval);
-}
-
-/*
- * Usage of the function's extended slots is described in the ThenableJobSlots
- * enum.
- */
-static bool PromiseResolveThenableJob(JSContext* cx, unsigned argc, Value* vp) {
-  CallArgs args = CallArgsFromVp(argc, vp);
-
-  RootedTuple<JSFunction*, JSObject*, Value, JSObject*> roots(cx);
-  RootedField<JSFunction*, 0> job(roots, &args.callee().as<JSFunction>());
-  RootedField<JSObject*, 1> promise(
-      roots, &job->getExtendedSlot(ThenableJobSlot_Promise).toObject());
-  RootedField<Value, 2> thenable(
-      roots, job->getExtendedSlot(ThenableJobSlot_Thenable));
-  RootedField<JSObject*, 3> then(
-      roots, &job->getExtendedSlot(ThenableJobSlot_Handler).toObject());
-
-  return PromiseResolveThenableJob(cx, promise, thenable, then);
 }
 
 [[nodiscard]] static bool OriginalPromiseThenWithoutSettleHandlers(
@@ -2821,21 +2787,6 @@ static bool PromiseResolveBuiltinThenableJob(JSContext* cx,
   // Step 1.c.ii. Return Completion(status).
   return RejectPromiseInternal(cx, promise.as<PromiseObject>(), exception,
                                stack);
-}
-
-static bool PromiseResolveBuiltinThenableJob(JSContext* cx, unsigned argc,
-                                             Value* vp) {
-  CallArgs args = CallArgsFromVp(argc, vp);
-
-  RootedFunction job(cx, &args.callee().as<JSFunction>());
-  RootedObject promise(
-      cx, &job->getExtendedSlot(ThenableJobSlot_Promise).toObject());
-  RootedObject thenable(
-      cx, &job->getExtendedSlot(ThenableJobSlot_Thenable).toObject());
-  // The handler slot is not used for builtin `then`.
-  MOZ_ASSERT(job->getExtendedSlot(ThenableJobSlot_Handler).isUndefined());
-
-  return PromiseResolveBuiltinThenableJob(cx, promise, thenable);
 }
 
 /**
