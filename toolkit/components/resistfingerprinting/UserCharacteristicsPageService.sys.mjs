@@ -975,6 +975,11 @@ export class UserCharacteristicsPageService {
     Glean.characteristics.wgpuMaxcomputeworkgroupsperdimension.set(
       adapter.limits.maxComputeWorkgroupsPerDimension
     );
+
+    // Collect adapter metadata
+    Glean.characteristics.wgpuIsFallbackAdapter.set(
+      adapter.isFallbackAdapter || false
+    );
   }
 
   async populateUserAgent(window) {

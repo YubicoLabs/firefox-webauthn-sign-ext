@@ -4928,6 +4928,25 @@ characteristics:
     data_sensitivity:
       - technical
 
+  wgpu_is_fallback_adapter:
+    type: boolean
+    description: >
+      WebGPU adapter isFallbackAdapter property. Indicates whether the adapter
+      is a software renderer (true) or hardware GPU (false).
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2010672
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2010672
+    expires: never
+    data_sensitivity:
+      - technical
+
   wgpu_missing_features:
     type: string
     description: >
