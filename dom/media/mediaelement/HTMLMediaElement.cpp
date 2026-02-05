@@ -2474,6 +2474,11 @@ void HTMLMediaElement::AbortExistingLoads() {
 
   if (mDecoder) {
     fireTimeUpdate = mDecoder->GetCurrentTime() != 0.0;
+    // When aborting during seeking, remove the seeking state since the decoder
+    // won't call SeekCompleted() or SeekAborted() after being shut down.
+    if (Seeking()) {
+      RemoveStates(ElementState::SEEKING);
+    }
     ShutdownDecoder();
   }
   if (mSrcStream) {
@@ -3555,6 +3560,7 @@ void HTMLMediaElement::Seek(double aTime, SeekTarget::Type aSeekType,
   // The media backend is responsible for dispatching the timeupdate
   // event if it changes the playback position as a result of the seek.
   LOG(LogLevel::Debug, ("%p SetCurrentTime(%f) starting seek", this, aTime));
+  AddStates(ElementState::SEEKING);
   mDecoder->Seek(aTime, aSeekType);
 
   // We changed whether we're seeking so we need to AddRemoveSelfReference.
@@ -6182,6 +6188,7 @@ void HTMLMediaElement::SeekCompleted() {
   // (Step 16)
   // TODO (bug 1688131): run these steps in a stable state.
   FireTimeUpdate(TimeupdateType::eMandatory);
+  RemoveStates(ElementState::SEEKING);
   QueueEvent(u"seeked"_ns);
   // We changed whether we're seeking so we need to AddRemoveSelfReference
   AddRemoveSelfReference();
@@ -6199,6 +6206,7 @@ void HTMLMediaElement::SeekCompleted() {
 }
 
 void HTMLMediaElement::SeekAborted() {
+  RemoveStates(ElementState::SEEKING);
   if (mSeekDOMPromise) {
     AbstractMainThread()->Dispatch(NS_NewRunnableFunction(
         __func__, [promise = std::move(mSeekDOMPromise)] {
