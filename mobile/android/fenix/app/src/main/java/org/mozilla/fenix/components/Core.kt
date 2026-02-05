@@ -95,9 +95,7 @@ import mozilla.components.service.mars.Placement
 import mozilla.components.service.mars.contile.ContileTopSitesUpdater
 import mozilla.components.service.pocket.ContentRecommendationsRequestConfig
 import mozilla.components.service.pocket.PocketStoriesConfig
-import mozilla.components.service.pocket.PocketStoriesRequestConfig
 import mozilla.components.service.pocket.PocketStoriesService
-import mozilla.components.service.pocket.Profile
 import mozilla.components.service.pocket.mars.api.MarsSpocsRequestConfig
 import mozilla.components.service.pocket.mars.api.NEW_TAB_SPOCS_PLACEMENT_KEY
 import mozilla.components.service.sync.autofill.AutofillCreditCardsAddressesStorage
@@ -137,7 +135,6 @@ import org.mozilla.fenix.share.SaveToPDFMiddleware
 import org.mozilla.fenix.telemetry.TelemetryMiddleware
 import org.mozilla.fenix.utils.getUndoDelay
 import org.mozilla.geckoview.GeckoRuntime
-import java.util.UUID
 import java.util.concurrent.TimeUnit
 import mozilla.components.service.pocket.mars.api.Placement as MarsSpocsPlacement
 
@@ -571,19 +568,6 @@ class Core(
         PocketStoriesConfig(
             client,
             Frequency(4, TimeUnit.HOURS),
-            Profile(
-                profileId = UUID.fromString(context.settings().pocketSponsoredStoriesProfileId),
-                appId = BuildConfig.POCKET_CONSUMER_KEY,
-            ),
-            sponsoredStoriesParams = if (context.settings().useCustomConfigurationForSponsoredStories) {
-                PocketStoriesRequestConfig(
-                    context.settings().pocketSponsoredStoriesSiteId,
-                    context.settings().pocketSponsoredStoriesCountry,
-                    context.settings().pocketSponsoredStoriesCity,
-                )
-            } else {
-                PocketStoriesRequestConfig()
-            },
             contentRecommendationsParams = ContentRecommendationsRequestConfig(
                 locale = LocaleManager.getSelectedLocale(context).toLanguageTag(),
             ),

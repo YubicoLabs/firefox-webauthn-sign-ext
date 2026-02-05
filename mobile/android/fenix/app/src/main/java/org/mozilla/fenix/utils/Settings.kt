@@ -75,7 +75,6 @@ import org.mozilla.fenix.termsofuse.TOU_VERSION
 import org.mozilla.fenix.termsofuse.getApplicationInstalledTime
 import org.mozilla.fenix.wallpapers.Wallpaper
 import java.security.InvalidParameterException
-import java.util.UUID
 import java.util.concurrent.TimeUnit.MILLISECONDS
 
 private const val AUTOPLAY_USER_SETTING = "AUTOPLAY_USER_SETTING"
@@ -2064,47 +2063,6 @@ class Settings(
     var shouldSyncAddressesAcrossDevices by booleanPreference(
         appContext.getPreferenceKey(R.string.pref_key_addresses_sync_cards_across_devices),
         default = false,
-    )
-
-    /**
-     * Get the profile id to use in the sponsored stories communications with the Pocket endpoint.
-     */
-    val pocketSponsoredStoriesProfileId by stringPreference(
-        appContext.getPreferenceKey(R.string.pref_key_pocket_sponsored_stories_profile),
-        default = { UUID.randomUUID().toString() },
-        persistDefaultIfNotExists = true,
-    )
-
-    /**
-     *  Whether or not to display the Pocket sponsored stories parameter secret settings.
-     */
-    var useCustomConfigurationForSponsoredStories by booleanPreference(
-        appContext.getPreferenceKey(R.string.pref_key_custom_sponsored_stories_parameters_enabled),
-        default = false,
-    )
-
-    /**
-     * Site parameter used to set the spoc content.
-     */
-    var pocketSponsoredStoriesSiteId by stringPreference(
-        appContext.getPreferenceKey(R.string.pref_key_custom_sponsored_stories_site_id),
-        default = "",
-    )
-
-    /**
-     * Country parameter used to set the spoc content.
-     */
-    var pocketSponsoredStoriesCountry by stringPreference(
-        appContext.getPreferenceKey(R.string.pref_key_custom_sponsored_stories_country),
-        default = "",
-    )
-
-    /**
-     * City parameter used to set the spoc content.
-     */
-    var pocketSponsoredStoriesCity by stringPreference(
-        appContext.getPreferenceKey(R.string.pref_key_custom_sponsored_stories_city),
-        default = "",
     )
 
     /**
