@@ -1003,6 +1003,14 @@ export class UserCharacteristicsPageService {
       }
     }
 
+    // Handle mathmlDiagValues array (similar to mathOps)
+    const mathmlDiagValues = data.get("mathmlDiagValues");
+    if (mathmlDiagValues) {
+      Glean.characteristics.mathmlDiagValues.set(
+        JSON.stringify(mathmlDiagValues)
+      );
+    }
+
     // We set non-canvas data from usercharacteristics.js
     // Keys must match to data returned from
     // usercharacteristics.js and the metric defined
@@ -1044,6 +1052,7 @@ export class UserCharacteristicsPageService {
         "mathml8",
         "mathml9",
         "mathml10",
+        "mathmlDiagFontFamily",
         "monochrome",
         "cssSystemColors",
         "cssSystemFonts",

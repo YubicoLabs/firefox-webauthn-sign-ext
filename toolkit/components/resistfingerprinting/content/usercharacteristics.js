@@ -1221,13 +1221,33 @@ async function populateMathML() {
   // FPJS reports that height of elements fluctuates.
   // https://github.com/fingerprintjs/fingerprintjs/blob/143479cba3d4bfd6f2cd773c61c26e8e74a70c06/src/sources/font_preferences.ts#L128-L132
   // We use getBoundingClientRect().width and not offsetWidth as math elements don't have a offsetWidth property.
-  const mathElements = [...document.querySelectorAll("math[id]")];
 
-  return mathElements.reduce((acc, el) => {
-    // We multiply by 10^15 to include the decimal part.
+  // Old metrics: collect elements with numeric IDs (1-10)
+  const oldMathElements = [...document.querySelectorAll("math[id]")].filter(
+    el => /^\d+$/.test(el.id)
+  );
+  const oldMetrics = oldMathElements.reduce((acc, el) => {
     acc["mathml" + el.id] = el.getBoundingClientRect().width.toString();
     return acc;
   }, {});
+
+  // New metrics: collect elements with "new-" prefix as an array
+  const newMathElements = [...document.querySelectorAll("math[id^='new-']")];
+  const mathmlValues = newMathElements.map(
+    el => el.getBoundingClientRect().width
+  );
+
+  // Get the actual font-family being used for MathML rendering
+  const firstMathElement = document.querySelector("math");
+  const mathmlFontFamily = firstMathElement
+    ? getComputedStyle(firstMathElement).fontFamily
+    : "";
+
+  return {
+    ...oldMetrics,
+    mathmlDiagValues: mathmlValues,
+    mathmlDiagFontFamily: mathmlFontFamily,
+  };
 }
 
 async function populateAudioDeviceProperties() {

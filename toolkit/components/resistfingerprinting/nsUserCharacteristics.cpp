@@ -419,6 +419,38 @@ void PopulatePrefs() {
 
   glean::characteristics::prefs_network_cookie_cookiebehavior.Set(
       StaticPrefs::network_cookie_cookieBehavior());
+
+  // MathML prefs - only collect those modified from defaults
+  // Format: "shortname=val,..." (e.g. "dis=1,font=0")
+  // Shortnames: dis=disabled, str=scale_stretchy, spc=mathspace_names,
+  //   rtl=rtl_mirroring, var=mathvariant_fallback, shf=math_shift,
+  //   acc=accent, leg=legacy_mathvariant, fnt=font_family_math
+  nsAutoCString mathmlPrefs;
+  static const struct {
+    const char* pref;
+    const char* shortName;
+  } kMathMLPrefs[] = {
+      {"mathml.disabled", "dis"},
+      {"mathml.scale_stretchy_operators.enabled", "str"},
+      {"mathml.mathspace_names.disabled", "spc"},
+      {"mathml.rtl_operator_mirroring.enabled", "rtl"},
+      {"mathml.mathvariant_styling_fallback.disabled", "var"},
+      {"mathml.math_shift.enabled", "shf"},
+      {"mathml.operator_dictionary_accent.disabled", "acc"},
+      {"mathml.legacy_mathvariant_attribute.disabled", "leg"},
+      {"mathml.font_family_math.enabled", "fnt"},
+  };
+  for (const auto& p : kMathMLPrefs) {
+    if (Preferences::HasUserValue(p.pref)) {
+      if (!mathmlPrefs.IsEmpty()) {
+        mathmlPrefs.Append(',');
+      }
+      mathmlPrefs.Append(p.shortName);
+      mathmlPrefs.Append('=');
+      mathmlPrefs.Append(Preferences::GetBool(p.pref) ? '1' : '0');
+    }
+  }
+  glean::characteristics::mathml_diag_prefs_modified.Set(mathmlPrefs);
 }
 
 void PopulateKeyboardLayout() {

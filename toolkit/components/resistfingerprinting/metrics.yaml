@@ -4420,6 +4420,30 @@ characteristics:
     data_sensitivity:
       - interaction
 
+  mathml_diag_prefs_modified:
+    type: string
+    description: >
+      MathML prefs that have been modified from defaults. Format is
+      "shortname=val,..." (e.g. "dis=1,fnt=0"). Empty if no prefs modified.
+      Shortnames: dis=disabled, str=scale_stretchy_operators,
+      spc=mathspace_names, rtl=rtl_operator_mirroring,
+      var=mathvariant_styling_fallback, shf=math_shift,
+      acc=operator_dictionary_accent, leg=legacy_mathvariant_attribute,
+      fnt=font_family_math. Values are 1 (true) or 0 (false).
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2010669
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2010669
+    expires: never
+    data_sensitivity:
+      - technical
+
   voices_count:
     type: quantity
     unit: int
@@ -5962,6 +5986,48 @@ characteristics:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1907654
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1907654#c1
+    expires: never
+    data_sensitivity:
+      - technical
+
+  mathml_diag_values:
+    type: text
+    description: >
+      Array of widths from all MathML elements, collected similar to math_ops.
+      Each element represents the getBoundingClientRect().width of a rendered
+      MathML element. The array index corresponds to the element's id number.
+      Format is a JSON stringified array like: ["123.456", "789.012", ...]
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2010669
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2010669
+    expires: never
+    data_sensitivity:
+      # Text metrics are _required_ to be web_activity or highly_sensitive, so even though this
+      # is more like 'technical' (per the Data Review), I'm marking highly sensitive.
+      - highly_sensitive
+
+  mathml_diag_font_family:
+    type: string
+    description: >
+      The computed font-family value from a MathML element on the page.
+      Shows what font is actually being used for MathML rendering.
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2010669
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2010669
     expires: never
     data_sensitivity:
       - technical
