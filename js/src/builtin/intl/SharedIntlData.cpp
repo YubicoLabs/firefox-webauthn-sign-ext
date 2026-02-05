@@ -320,7 +320,7 @@ JSAtom* js::intl::SharedIntlData::canonicalizeAvailableTimeZone(
   auto result =
       TimeZone::GetCanonicalTimeZoneID(stableChars.twoByteRange(), buffer);
   if (result.isErr()) {
-    intl::ReportInternalError(cx, result.unwrapErr());
+    ReportInternalError(cx, result.unwrapErr());
     return nullptr;
   }
   MOZ_ASSERT(std::u16string_view(u"Etc/Unknown") !=
@@ -854,7 +854,7 @@ js::intl::SharedIntlData::getDateTimePatternGenerator(JSContext* cx,
 
   auto result = mozilla::intl::DateTimePatternGenerator::TryCreate(locale);
   if (result.isErr()) {
-    intl::ReportInternalError(cx, result.unwrapErr());
+    ReportInternalError(cx, result.unwrapErr());
     return nullptr;
   }
   // The UniquePtr needs to be recreated as it's using a different Deleter in

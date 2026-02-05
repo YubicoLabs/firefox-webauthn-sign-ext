@@ -85,15 +85,15 @@ class RelativeTimeFormatObject : public NativeObject {
     setFixedSlot(NUMBERING_SYSTEM, StringValue(numberingSystem));
   }
 
-  intl::RelativeTimeFormatOptions* getOptions() const {
+  RelativeTimeFormatOptions* getOptions() const {
     const auto& slot = getFixedSlot(OPTIONS);
     if (slot.isUndefined()) {
       return nullptr;
     }
-    return static_cast<intl::RelativeTimeFormatOptions*>(slot.toPrivate());
+    return static_cast<RelativeTimeFormatOptions*>(slot.toPrivate());
   }
 
-  void setOptions(intl::RelativeTimeFormatOptions* options) {
+  void setOptions(RelativeTimeFormatOptions* options) {
     setFixedSlot(OPTIONS, PrivateValue(options));
   }
 

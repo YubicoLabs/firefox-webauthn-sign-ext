@@ -164,15 +164,15 @@ class NumberFormatObject : public NativeObject {
     setFixedSlot(NUMBERING_SYSTEM_SLOT, JS::StringValue(numberingSystem));
   }
 
-  intl::NumberFormatOptions* getOptions() const {
+  NumberFormatOptions* getOptions() const {
     const auto& slot = getFixedSlot(OPTIONS_SLOT);
     if (slot.isUndefined()) {
       return nullptr;
     }
-    return static_cast<intl::NumberFormatOptions*>(slot.toPrivate());
+    return static_cast<NumberFormatOptions*>(slot.toPrivate());
   }
 
-  void setOptions(intl::NumberFormatOptions* options) {
+  void setOptions(NumberFormatOptions* options) {
     setFixedSlot(OPTIONS_SLOT, JS::PrivateValue(options));
   }
 

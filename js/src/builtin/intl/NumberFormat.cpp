@@ -2221,7 +2221,7 @@ static JSLinearString* FormattedResultToString(
     JSContext* cx,
     mozilla::Result<std::u16string_view, mozilla::intl::ICUError>& result) {
   if (result.isErr()) {
-    intl::ReportInternalError(cx, result.unwrapErr());
+    ReportInternalError(cx, result.unwrapErr());
     return nullptr;
   }
   return NewStringCopy<CanGC>(cx, result.unwrap());

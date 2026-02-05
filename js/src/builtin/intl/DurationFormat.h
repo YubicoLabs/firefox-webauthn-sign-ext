@@ -128,15 +128,15 @@ class DurationFormatObject : public NativeObject {
     setFixedSlot(NUMBERING_SYSTEM, JS::StringValue(numberingSystem));
   }
 
-  intl::DurationFormatOptions* getOptions() const {
+  DurationFormatOptions* getOptions() const {
     const auto& slot = getFixedSlot(OPTIONS_SLOT);
     if (slot.isUndefined()) {
       return nullptr;
     }
-    return static_cast<intl::DurationFormatOptions*>(slot.toPrivate());
+    return static_cast<DurationFormatOptions*>(slot.toPrivate());
   }
 
-  void setOptions(intl::DurationFormatOptions* options) {
+  void setOptions(DurationFormatOptions* options) {
     setFixedSlot(OPTIONS_SLOT, JS::PrivateValue(options));
   }
 

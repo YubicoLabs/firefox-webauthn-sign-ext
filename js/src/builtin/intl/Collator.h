@@ -91,15 +91,15 @@ class CollatorObject : public NativeObject {
     setFixedSlot(COLLATION_SLOT, JS::StringValue(collation));
   }
 
-  intl::CollatorOptions* getOptions() const {
+  CollatorOptions* getOptions() const {
     const auto& slot = getFixedSlot(OPTIONS_SLOT);
     if (slot.isUndefined()) {
       return nullptr;
     }
-    return static_cast<intl::CollatorOptions*>(slot.toPrivate());
+    return static_cast<CollatorOptions*>(slot.toPrivate());
   }
 
-  void setOptions(intl::CollatorOptions* options) {
+  void setOptions(CollatorOptions* options) {
     setFixedSlot(OPTIONS_SLOT, JS::PrivateValue(options));
   }
 

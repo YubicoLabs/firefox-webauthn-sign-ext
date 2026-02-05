@@ -186,15 +186,15 @@ class DateTimeFormatObject : public NativeObject {
     setFixedSlot(TIMEZONE_SLOT, JS::StringValue(timeZone));
   }
 
-  intl::DateTimeFormatOptions* getOptions() const {
+  DateTimeFormatOptions* getOptions() const {
     const auto& slot = getFixedSlot(OPTIONS_SLOT);
     if (slot.isUndefined()) {
       return nullptr;
     }
-    return static_cast<intl::DateTimeFormatOptions*>(slot.toPrivate());
+    return static_cast<DateTimeFormatOptions*>(slot.toPrivate());
   }
 
-  void setOptions(intl::DateTimeFormatOptions* options) {
+  void setOptions(DateTimeFormatOptions* options) {
     setFixedSlot(OPTIONS_SLOT, JS::PrivateValue(options));
   }
 

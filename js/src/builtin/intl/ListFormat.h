@@ -69,15 +69,15 @@ class ListFormatObject : public NativeObject {
     setFixedSlot(LOCALE, JS::StringValue(locale));
   }
 
-  intl::ListFormatOptions* getOptions() const {
+  ListFormatOptions* getOptions() const {
     const auto& slot = getFixedSlot(OPTIONS);
     if (slot.isUndefined()) {
       return nullptr;
     }
-    return static_cast<intl::ListFormatOptions*>(slot.toPrivate());
+    return static_cast<ListFormatOptions*>(slot.toPrivate());
   }
 
-  void setOptions(intl::ListFormatOptions* options) {
+  void setOptions(ListFormatOptions* options) {
     setFixedSlot(OPTIONS, JS::PrivateValue(options));
   }
 

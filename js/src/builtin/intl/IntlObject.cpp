@@ -308,7 +308,7 @@ static bool EnumerationIntoList(JSContext* cx, auto values,
                                 MutableHandle<StringList> list) {
   for (auto value : values) {
     if (value.isErr()) {
-      intl::ReportInternalError(cx);
+      ReportInternalError(cx);
       return false;
     }
     auto span = value.unwrap();
@@ -356,7 +356,7 @@ static ArrayObject* AvailableCalendars(JSContext* cx) {
     // separate block.
     auto keywords = mozilla::intl::Calendar::GetBcp47KeywordValuesForLocale("");
     if (keywords.isErr()) {
-      intl::ReportInternalError(cx, keywords.unwrapErr());
+      ReportInternalError(cx, keywords.unwrapErr());
       return nullptr;
     }
 
@@ -394,7 +394,7 @@ static ArrayObject* AvailableCollations(JSContext* cx) {
     // separate block.
     auto keywords = mozilla::intl::Collator::GetBcp47KeywordValues();
     if (keywords.isErr()) {
-      intl::ReportInternalError(cx, keywords.unwrapErr());
+      ReportInternalError(cx, keywords.unwrapErr());
       return nullptr;
     }
 
@@ -434,7 +434,7 @@ static ArrayObject* AvailableCurrencies(JSContext* cx) {
     // separate block.
     auto currencies = mozilla::intl::Currency::GetISOCurrencies();
     if (currencies.isErr()) {
-      intl::ReportInternalError(cx, currencies.unwrapErr());
+      ReportInternalError(cx, currencies.unwrapErr());
       return nullptr;
     }
 
@@ -465,7 +465,7 @@ static ArrayObject* AvailableTimeZones(JSContext* cx) {
   // Unsorted list of canonical time zone names, possibly containing duplicates.
   Rooted<StringList> timeZones(cx, StringList(cx));
 
-  intl::SharedIntlData& sharedIntlData = cx->runtime()->sharedIntlData.ref();
+  auto& sharedIntlData = cx->runtime()->sharedIntlData.ref();
   auto iterResult = sharedIntlData.availableTimeZonesIteration(cx);
   if (iterResult.isErr()) {
     return nullptr;

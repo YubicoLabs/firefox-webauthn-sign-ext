@@ -77,15 +77,15 @@ class PluralRulesObject : public NativeObject {
     setFixedSlot(LOCALE_SLOT, JS::StringValue(locale));
   }
 
-  intl::PluralRulesOptions* getOptions() const {
+  PluralRulesOptions* getOptions() const {
     const auto& slot = getFixedSlot(OPTIONS_SLOT);
     if (slot.isUndefined()) {
       return nullptr;
     }
-    return static_cast<intl::PluralRulesOptions*>(slot.toPrivate());
+    return static_cast<PluralRulesOptions*>(slot.toPrivate());
   }
 
-  void setOptions(intl::PluralRulesOptions* options) {
+  void setOptions(PluralRulesOptions* options) {
     setFixedSlot(OPTIONS_SLOT, JS::PrivateValue(options));
   }
 

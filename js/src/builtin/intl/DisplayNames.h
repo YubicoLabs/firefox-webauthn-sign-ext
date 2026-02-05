@@ -112,15 +112,15 @@ class DisplayNamesObject : public NativeObject {
     setFixedSlot(CALENDAR, StringValue(calendar));
   }
 
-  intl::DisplayNamesOptions* getOptions() const {
+  DisplayNamesOptions* getOptions() const {
     const auto& slot = getFixedSlot(OPTIONS);
     if (slot.isUndefined()) {
       return nullptr;
     }
-    return static_cast<intl::DisplayNamesOptions*>(slot.toPrivate());
+    return static_cast<DisplayNamesOptions*>(slot.toPrivate());
   }
 
-  void setOptions(intl::DisplayNamesOptions* options) {
+  void setOptions(DisplayNamesOptions* options) {
     setFixedSlot(OPTIONS, PrivateValue(options));
   }
 
