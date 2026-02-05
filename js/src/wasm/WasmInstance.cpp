@@ -2346,6 +2346,11 @@ JSObject* MaybeOptimizeFunctionCallBind(const wasm::FuncType& funcType,
     return nullptr;
   }
 
+  if (boundThis.toObject().is<JSFunction>() &&
+      boundThis.toObject().as<JSFunction>().isWasm()) {
+    return nullptr;
+  }
+
   return boundThis.toObjectOrNull();
 }
 
