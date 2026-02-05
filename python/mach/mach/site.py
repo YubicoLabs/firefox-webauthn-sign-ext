@@ -30,6 +30,15 @@ from mach.requirements import (
     UnexpectedFlexibleRequirementException,
 )
 
+
+class SiteLockTimeout(Exception):
+    def __init__(self, lock_file, site_name, timeout):
+        self.lock_file = lock_file
+        super().__init__(
+            f"Could not acquire the lock at {lock_file} for the {site_name} site after {timeout} seconds"
+        )
+
+
 PTH_FILENAME = "mach.pth"
 METADATA_FILENAME = "moz_virtualenv_metadata.json"
 # The following virtualenvs *may* be used in a context where they aren't allowed to
@@ -414,9 +423,7 @@ class MachSiteManager:
                 with SoftFileLock(lock_file, timeout=timeout):
                     self._ensure(force=force)
             except LockTimeout:
-                self._log(
-                    f"Could not acquire the lock at {lock_file} for the mach site after {timeout} seconds."
-                )
+                raise SiteLockTimeout(lock_file, "mach", timeout)
         else:
             self._ensure(force=force)
 
@@ -683,9 +690,7 @@ class CommandSiteManager:
                         self._metadata,
                     )
         except LockTimeout:
-            self._log(
-                f"Could not acquire the lock at {lock_file} for the {self._site_name} site after {timeout} seconds."
-            )
+            raise SiteLockTimeout(lock_file, self._site_name, timeout)
 
     def activate(self):
         """Activate this site in the current Python context.
