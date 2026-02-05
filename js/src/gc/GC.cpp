@@ -192,6 +192,7 @@
 
 #include "gc/GC-inl.h"
 
+#include "mozilla/Attributes.h"
 #include "mozilla/glue/Debug.h"
 #include "mozilla/ScopeExit.h"
 #include "mozilla/TextUtils.h"
@@ -5001,15 +5002,7 @@ void js::PrepareForDebugGC(JSRuntime* rt) {
 }
 
 void GCRuntime::onOutOfMallocMemory() {
-  // Stop allocating new chunks.
-  allocTask.cancelAndWait();
-
-  // Make sure we release anything queued for release.
-  decommitTask.join();
-  nursery().joinDecommitTask();
-
-  // Wait for background free of nursery huge slots to finish.
-  sweepTask.join();
+  waitForBackgroundTasksOnAllocFailure();
 
   AutoLockGC lock(this);
   onOutOfMallocMemory(lock);
@@ -5168,6 +5161,37 @@ void GCRuntime::waitForBackgroundTasks() {
   allocTask.join();
   freeTask.join();
   nursery().joinDecommitTask();
+}
+
+MOZ_COLD bool GCRuntime::waitForBackgroundTasksOnAllocFailure() {
+  bool waited = false;
+
+  // Stop allocating new chunks.
+  if (allocTask.cancelAndWait()) {
+    waited = true;
+  }
+
+  if (nursery().joinSweepTask()) {
+    waited = true;
+  }
+
+  if (nursery().joinDecommitTask()) {
+    waited = true;
+  }
+
+  if (sweepTask.join()) {
+    waited = true;
+  }
+
+  if (freeTask.join()) {
+    waited = true;
+  }
+
+  if (decommitTask.join()) {
+    waited = true;
+  }
+
+  return waited;
 }
 
 Realm* js::NewRealm(JSContext* cx, JSPrincipals* principals,

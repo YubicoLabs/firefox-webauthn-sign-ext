@@ -6,6 +6,7 @@
 
 #include "gc/BufferAllocator-inl.h"
 
+#include "mozilla/Likely.h"
 #include "mozilla/ScopeExit.h"
 
 #ifdef XP_DARWIN
@@ -2006,20 +2007,17 @@ void* BufferAllocator::refillFreeListsAndRetryAlloc(size_t sizeClass,
                                                     size_t maxSizeClass,
                                                     Alloc&& alloc,
                                                     GrowHeap&& growHeap) {
-  for (;;) {
-    RefillResult r = refillFreeLists(sizeClass, maxSizeClass, growHeap);
+  RefillResult r;
+  do {
+    r = refillFreeLists(sizeClass, maxSizeClass, growHeap);
     if (r == RefillResult::Fail) {
       return nullptr;
     }
+  } while (r == RefillResult::Retry);
 
-    if (r == RefillResult::Retry) {
-      continue;
-    }
-
-    void* ptr = alloc();
-    MOZ_ASSERT(ptr);
-    return ptr;
-  }
+  void* ptr = alloc();
+  MOZ_ASSERT(ptr);
+  return ptr;
 }
 
 template <typename GrowHeap>
@@ -2040,9 +2038,15 @@ BufferAllocator::RefillResult BufferAllocator::refillFreeLists(
     return RefillResult::Retry;
   }
 
-  // If all else fails try to grow the heap.
-  if (growHeap()) {
+  // Try to grow the heap.
+  if (MOZ_LIKELY(growHeap())) {
     return RefillResult::Success;
+  }
+
+  // If all else fails, try waiting for any background GC activity to finish.
+  GCRuntime* gc = &zone->runtimeFromMainThread()->gc;
+  if (gc->waitForBackgroundTasksOnAllocFailure()) {
+    return RefillResult::Retry;
   }
 
   return RefillResult::Fail;
@@ -2400,6 +2404,10 @@ static inline StallAndRetry ShouldStallAndRetry(bool inGC) {
 }
 
 bool BufferAllocator::allocNewChunk(bool inGC) {
+  if (!inGC && js::oom::ShouldFailWithOOM()) {
+    return false;
+  }
+
   GCRuntime* gc = &zone->runtimeFromMainThread()->gc;
   AutoLockGCBgAlloc lock(gc);
   ArenaChunk* baseChunk = gc->getOrAllocChunk(ShouldStallAndRetry(inGC), lock);

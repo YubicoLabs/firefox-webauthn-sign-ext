@@ -358,7 +358,6 @@ class GCRuntime {
 
   void shrinkBuffers();
   void onOutOfMallocMemory();
-  void onOutOfMallocMemory(const AutoLockGC& lock);
 
   Nursery& nursery() { return nursery_.ref(); }
   gc::StoreBuffer& storeBuffer() { return storeBuffer_.ref(); }
@@ -988,6 +987,9 @@ class GCRuntime {
   void releaseHeldRelocatedArenas();
   void releaseHeldRelocatedArenasWithoutUnlocking(const AutoLockGC& lock);
 #endif
+
+  bool waitForBackgroundTasksOnAllocFailure();
+  void onOutOfMallocMemory(const AutoLockGC& lock);
 
   IncrementalProgress waitForBackgroundTask(GCParallelTask& task,
                                             const JS::SliceBudget& budget,

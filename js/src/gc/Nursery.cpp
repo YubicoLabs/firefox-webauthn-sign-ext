@@ -2616,9 +2616,9 @@ void js::Nursery::sweepWeakMaps() {
       [&](WeakMapBase* wm) { return wm->sweepAfterMinorGC(); });
 }
 
-void js::Nursery::joinSweepTask() { sweepTask->join(); }
+bool js::Nursery::joinSweepTask() { return sweepTask->join(); }
 
-void js::Nursery::joinDecommitTask() { decommitTask->join(); }
+bool js::Nursery::joinDecommitTask() { return decommitTask->join(); }
 
 #ifdef DEBUG
 bool js::Nursery::sweepTaskIsIdle() { return sweepTask->isIdle(); }
