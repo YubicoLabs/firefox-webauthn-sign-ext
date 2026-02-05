@@ -39,12 +39,9 @@ NS_INTERFACE_MAP_BEGIN(nsStructuredCloneContainer)
 NS_INTERFACE_MAP_END
 
 nsStructuredCloneContainer::nsStructuredCloneContainer()
-    : nsStructuredCloneContainer(0) {}
-nsStructuredCloneContainer::nsStructuredCloneContainer(uint32_t aVersion)
     : mozilla::dom::ipc::StructuredCloneData(
           JS::StructuredCloneScope::DifferentProcess,
-          StructuredCloneHolder::TransferringNotSupported),
-      mVersion(0) {}
+          StructuredCloneHolder::TransferringNotSupported) {}
 
 nsStructuredCloneContainer::~nsStructuredCloneContainer() = default;
 
@@ -63,7 +60,6 @@ nsStructuredCloneContainer::InitFromJSVal(JS::Handle<JS::Value> aData,
     return NS_ERROR_DOM_DATA_CLONE_ERR;
   }
 
-  mVersion = JS_STRUCTURED_CLONE_VERSION;
   return NS_OK;
 }
 
@@ -80,11 +76,11 @@ nsStructuredCloneContainer::InitFromBase64(const nsAString& aData,
   nsresult rv = Base64Decode(data, binaryData);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  if (!CopyExternalData(binaryData.get(), binaryData.Length())) {
+  if (!CopyExternalData(binaryData.get(), binaryData.Length(),
+                        aFormatVersion)) {
     return NS_ERROR_OUT_OF_MEMORY;
   }
 
-  mVersion = aFormatVersion;
   return NS_OK;
 }
 
@@ -165,15 +161,15 @@ nsStructuredCloneContainer::GetFormatVersion(uint32_t* aFormatVersion) {
     return NS_ERROR_FAILURE;
   }
 
-  *aFormatVersion = mVersion;
+  *aFormatVersion = BufferVersion();
   return NS_OK;
 }
 
 void IPC::ParamTraits<nsStructuredCloneContainer*>::Write(
     IPC::MessageWriter* aWriter, paramType* aParam) {
-  Maybe<uint32_t> version = aParam ? Some(aParam->mVersion) : Nothing();
-  WriteParam(aWriter, version);
-  if (!version) {
+  bool isNull = !aParam;
+  WriteParam(aWriter, isNull);
+  if (isNull) {
     return;
   }
 
@@ -182,14 +178,14 @@ void IPC::ParamTraits<nsStructuredCloneContainer*>::Write(
 
 bool IPC::ParamTraits<nsStructuredCloneContainer*>::Read(
     IPC::MessageReader* aReader, RefPtr<paramType>* aResult) {
-  Maybe<uint32_t> version;
-  if (!ReadParam(aReader, &version)) {
+  bool isNull;
+  if (!ReadParam(aReader, &isNull)) {
     return false;
   }
-  if (!version) {
+  if (isNull) {
     *aResult = nullptr;
     return true;
   }
-  *aResult = new nsStructuredCloneContainer(*version);
+  *aResult = new nsStructuredCloneContainer();
   return (*aResult)->ReadIPCParams(aReader);
 }

@@ -36,6 +36,7 @@ void StructuredCloneData::WriteIPCParams(IPC::MessageWriter* aWriter) {
       CloneScope() == StructuredCloneScope::DifferentProcess,
       "Cannot serialize same-process StructuredCloneData over IPC");
 
+  WriteParam(aWriter, BufferVersion());
   WriteParam(aWriter, BufferData());
   if (SupportsTransferring()) {
     WriteParam(aWriter, PortIdentifiers());
@@ -50,12 +51,13 @@ void StructuredCloneData::WriteIPCParams(IPC::MessageWriter* aWriter) {
 bool StructuredCloneData::ReadIPCParams(IPC::MessageReader* aReader) {
   MOZ_ASSERT(!mBuffer, "StructuredCloneData was previously initialized");
 
+  uint32_t version;
   JSStructuredCloneData data(JS::StructuredCloneScope::DifferentProcess);
-  if (!ReadParam(aReader, &data)) {
+  if (!ReadParam(aReader, &version) || !ReadParam(aReader, &data)) {
     return false;
   }
 
-  Adopt(std::move(data));
+  Adopt(std::move(data), version);
 
   if (SupportsTransferring() && !ReadParam(aReader, &PortIdentifiers())) {
     return false;
@@ -66,7 +68,8 @@ bool StructuredCloneData::ReadIPCParams(IPC::MessageReader* aReader) {
 }
 
 bool StructuredCloneData::CopyExternalData(const char* aData,
-                                           size_t aDataLength) {
+                                           size_t aDataLength,
+                                           uint32_t aVersion) {
   MOZ_ASSERT(!mBuffer, "StructuredCloneData was previously initialized");
 
   JSStructuredCloneData data(JS::StructuredCloneScope::DifferentProcess);
@@ -74,7 +77,7 @@ bool StructuredCloneData::CopyExternalData(const char* aData,
     return false;
   }
 
-  Adopt(std::move(data));
+  Adopt(std::move(data), aVersion);
   return true;
 }
 
