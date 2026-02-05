@@ -4839,10 +4839,9 @@ mozilla::ipc::IPCResult ContentParent::RecvScriptErrorInternal(
     JSContext* cx = jsapi.cx();
 
     JS::Rooted<JS::Value> stack(cx);
-    ErrorResult rv;
+    IgnoredErrorResult rv;
     data.Read(cx, &stack, rv);
     if (rv.Failed() || !stack.isObject()) {
-      rv.SuppressException();
       return IPC_OK();
     }
 

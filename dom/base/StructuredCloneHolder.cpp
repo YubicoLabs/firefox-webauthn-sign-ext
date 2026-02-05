@@ -20,7 +20,6 @@
 #include "mozilla/ErrorResult.h"
 #include "mozilla/OwningNonNull.h"
 #include "mozilla/RefPtr.h"
-#include "mozilla/ScopeExit.h"
 #include "mozilla/StaticPrefs_dom.h"
 #ifdef MOZ_WEBRTC
 #  include "mozilla/StaticPrefs_media.h"
@@ -34,6 +33,8 @@
 #include "mozilla/dom/BrowsingContext.h"
 #include "mozilla/dom/ClonedErrorHolder.h"
 #include "mozilla/dom/ClonedErrorHolderBinding.h"
+#include "mozilla/dom/DOMException.h"
+#include "mozilla/dom/DOMExceptionBinding.h"
 #include "mozilla/dom/DOMJSClass.h"
 #include "mozilla/dom/DOMTypes.h"
 #include "mozilla/dom/Directory.h"
@@ -43,6 +44,7 @@
 #include "mozilla/dom/EncodedAudioChunkBinding.h"
 #include "mozilla/dom/EncodedVideoChunk.h"
 #include "mozilla/dom/EncodedVideoChunkBinding.h"
+#include "mozilla/dom/Exceptions.h"
 #include "mozilla/dom/File.h"
 #include "mozilla/dom/FileList.h"
 #include "mozilla/dom/FileListBinding.h"
@@ -113,8 +115,14 @@ JSObject* StructuredCloneCallbacksRead(
   StructuredCloneHolderBase* holder =
       static_cast<StructuredCloneHolderBase*>(aClosure);
   MOZ_ASSERT(holder);
-  return holder->CustomReadHandler(aCx, aReader, aCloneDataPolicy, aTag,
-                                   aIndex);
+  JSObject* obj =
+      holder->CustomReadHandler(aCx, aReader, aCloneDataPolicy, aTag, aIndex);
+  if (!obj) {
+    // NOTE: Does not clobber specific exceptions thrown by handler.
+    dom::Throw(aCx, NS_ERROR_DOM_DATA_CLONE_ERR);
+    return nullptr;
+  }
+  return obj;
 }
 
 bool StructuredCloneCallbacksWrite(JSContext* aCx,
@@ -125,8 +133,12 @@ bool StructuredCloneCallbacksWrite(JSContext* aCx,
   StructuredCloneHolderBase* holder =
       static_cast<StructuredCloneHolderBase*>(aClosure);
   MOZ_ASSERT(holder);
-  return holder->CustomWriteHandler(aCx, aWriter, aObj,
-                                    aSameProcessScopeRequired);
+  if (!holder->CustomWriteHandler(aCx, aWriter, aObj,
+                                  aSameProcessScopeRequired)) {
+    // NOTE: Does not clobber specific exceptions thrown by handler.
+    return dom::Throw(aCx, NS_ERROR_DOM_DATA_CLONE_ERR);
+  }
+  return true;
 }
 
 bool StructuredCloneCallbacksReadTransfer(
@@ -137,8 +149,13 @@ bool StructuredCloneCallbacksReadTransfer(
   StructuredCloneHolderBase* holder =
       static_cast<StructuredCloneHolderBase*>(aClosure);
   MOZ_ASSERT(holder);
-  return holder->CustomReadTransferHandler(aCx, aReader, aCloneDataPolicy, aTag,
-                                           aContent, aExtraData, aReturnObject);
+  if (!holder->CustomReadTransferHandler(aCx, aReader, aCloneDataPolicy, aTag,
+                                         aContent, aExtraData, aReturnObject)) {
+    // NOTE: Does not clobber specific exceptions thrown by handler.
+    return dom::Throw(aCx, NS_ERROR_DOM_DATA_CLONE_ERR,
+                      "invalid transferable array for structured clone"_ns);
+  }
+  return true;
 }
 
 bool StructuredCloneCallbacksWriteTransfer(
@@ -149,8 +166,13 @@ bool StructuredCloneCallbacksWriteTransfer(
   StructuredCloneHolderBase* holder =
       static_cast<StructuredCloneHolderBase*>(aClosure);
   MOZ_ASSERT(holder);
-  return holder->CustomWriteTransferHandler(aCx, aObj, aTag, aOwnership,
-                                            aContent, aExtraData);
+  if (!holder->CustomWriteTransferHandler(aCx, aObj, aTag, aOwnership, aContent,
+                                          aExtraData)) {
+    // NOTE: Does not clobber specific exceptions thrown by handler.
+    return dom::Throw(aCx, NS_ERROR_DOM_DATA_CLONE_ERR,
+                      "invalid transferable array for structured clone"_ns);
+  }
+  return true;
 }
 
 void StructuredCloneCallbacksFreeTransfer(uint32_t aTag,
@@ -210,10 +232,12 @@ bool StructuredCloneCallbacksSharedArrayBuffer(JSContext* cx, bool aReceiving,
 void StructuredCloneCallbacksError(JSContext* aCx, uint32_t aErrorId,
                                    void* aClosure, const char* aErrorMessage) {
   NS_WARNING("Failed to clone data.");
-  StructuredCloneHolderBase* holder =
-      static_cast<StructuredCloneHolderBase*>(aClosure);
-  MOZ_ASSERT(holder);
-  return holder->SetErrorMessage(aErrorMessage);
+  // Report the error as a DataCloneError, rather than a JS error, for spec
+  // compatibility. We don't stash the error message on aClosure here to avoid
+  // issues with concurrent deserialization of the same StructuredCloneHolder
+  // from multiple threads.
+  dom::Throw(aCx, NS_ERROR_DOM_DATA_CLONE_ERR,
+             nsDependentCString(aErrorMessage));
 }
 
 void AssertTagValues() {
@@ -278,17 +302,20 @@ void StructuredCloneHolderBase::Clear() {
   mBuffer = nullptr;
 }
 
-bool StructuredCloneHolderBase::Write(JSContext* aCx,
-                                      JS::Handle<JS::Value> aValue) {
-  return Write(aCx, aValue, JS::UndefinedHandleValue, JS::CloneDataPolicy());
+void StructuredCloneHolderBase::Write(JSContext* aCx,
+                                      JS::Handle<JS::Value> aValue,
+                                      ErrorResult& aRv) {
+  Write(aCx, aValue, JS::UndefinedHandleValue, JS::CloneDataPolicy(), aRv);
 }
 
-bool StructuredCloneHolderBase::Write(
+void StructuredCloneHolderBase::Write(
     JSContext* aCx, JS::Handle<JS::Value> aValue,
     JS::Handle<JS::Value> aTransfer,
-    const JS::CloneDataPolicy& aCloneDataPolicy) {
+    const JS::CloneDataPolicy& aCloneDataPolicy, ErrorResult& aRv) {
   MOZ_ASSERT(!mBuffer, "Double Write is not allowed");
   MOZ_ASSERT(!mClearCalled, "This method cannot be called after Clear.");
+
+  aRv.MightThrowJSException();
 
   mBuffer = MakeUnique<JSAutoStructuredCloneBuffer>(
       mStructuredCloneScope, &StructuredCloneHolder::sCallbacks, this);
@@ -296,30 +323,38 @@ bool StructuredCloneHolderBase::Write(
   if (!mBuffer->write(aCx, aValue, aTransfer, aCloneDataPolicy,
                       &StructuredCloneHolder::sCallbacks, this)) {
     mBuffer = nullptr;
-    return false;
+    // NOTE: We steal the exception from the context, as SuppressException in
+    // our caller cannot suppress JSContext exceptions.
+    aRv.StealExceptionFromJSContext(aCx);
+    return;
   }
 
   // Let's update our scope to the final one. The new one could be more
   // restrictive than the current one.
   MOZ_ASSERT(mStructuredCloneScope >= mBuffer->scope());
   mStructuredCloneScope = mBuffer->scope();
-  return true;
 }
 
-bool StructuredCloneHolderBase::Read(JSContext* aCx,
-                                     JS::MutableHandle<JS::Value> aValue) {
-  return Read(aCx, aValue, JS::CloneDataPolicy());
+void StructuredCloneHolderBase::Read(JSContext* aCx,
+                                     JS::MutableHandle<JS::Value> aValue,
+                                     ErrorResult& aRv) {
+  Read(aCx, aValue, JS::CloneDataPolicy(), aRv);
 }
 
-bool StructuredCloneHolderBase::Read(
+void StructuredCloneHolderBase::Read(
     JSContext* aCx, JS::MutableHandle<JS::Value> aValue,
-    const JS::CloneDataPolicy& aCloneDataPolicy) {
+    const JS::CloneDataPolicy& aCloneDataPolicy, ErrorResult& aRv) {
   MOZ_ASSERT(mBuffer, "Read() without Write() is not allowed.");
   MOZ_ASSERT(!mClearCalled, "This method cannot be called after Clear.");
 
-  bool ok = mBuffer->read(aCx, aValue, aCloneDataPolicy,
-                          &StructuredCloneHolder::sCallbacks, this);
-  return ok;
+  aRv.MightThrowJSException();
+
+  if (!mBuffer->read(aCx, aValue, aCloneDataPolicy,
+                     &StructuredCloneHolder::sCallbacks, this)) {
+    // NOTE: We steal the exception from the context, as SuppressException in
+    // our caller cannot suppress JSContext exceptions.
+    aRv.StealExceptionFromJSContext(aCx);
+  }
 }
 
 void StructuredCloneHolderBase::Adopt(JSStructuredCloneData&& aData) {
@@ -388,9 +423,9 @@ void StructuredCloneHolder::Write(JSContext* aCx, JS::Handle<JS::Value> aValue,
                                   JS::Handle<JS::Value> aTransfer,
                                   const JS::CloneDataPolicy& aCloneDataPolicy,
                                   ErrorResult& aRv) {
-  if (!StructuredCloneHolderBase::Write(aCx, aValue, aTransfer,
-                                        aCloneDataPolicy)) {
-    aRv.ThrowDataCloneError(mErrorMessage);
+  StructuredCloneHolderBase::Write(aCx, aValue, aTransfer, aCloneDataPolicy,
+                                   aRv);
+  if (aRv.Failed()) {
     return;
   }
 }
@@ -405,12 +440,9 @@ void StructuredCloneHolder::Read(JSContext* aCx,
                                  JS::MutableHandle<JS::Value> aValue,
                                  const JS::CloneDataPolicy& aCloneDataPolicy,
                                  ErrorResult& aRv) {
-  auto errorMessageGuard = MakeScopeExit([&] { mErrorMessage.Truncate(); });
-
-  if (!StructuredCloneHolderBase::Read(aCx, aValue, aCloneDataPolicy)) {
+  StructuredCloneHolderBase::Read(aCx, aValue, aCloneDataPolicy, aRv);
+  if (aRv.Failed()) {
     mTransferredPorts.Clear();
-    JS_ClearPendingException(aCx);
-    aRv.ThrowDataCloneError(mErrorMessage);
     return;
   }
 
@@ -438,12 +470,11 @@ void StructuredCloneHolder::ReadFromBuffer(
     const JS::CloneDataPolicy& aCloneDataPolicy, ErrorResult& aRv) {
   MOZ_ASSERT(!mBuffer, "ReadFromBuffer() must be called without a Write().");
 
-  auto errorMessageGuard = MakeScopeExit([&] { mErrorMessage.Truncate(); });
+  aRv.MightThrowJSException();
 
   if (!JS_ReadStructuredClone(aCx, aBuffer, aAlgorithmVersion, CloneScope(),
                               aValue, aCloneDataPolicy, &sCallbacks, this)) {
-    JS_ClearPendingException(aCx);
-    aRv.ThrowDataCloneError(mErrorMessage);
+    aRv.StealExceptionFromJSContext(aCx);
     return;
   }
 }

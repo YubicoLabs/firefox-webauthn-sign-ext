@@ -114,21 +114,22 @@ class StructuredCloneHolderBase {
 
   // Execute the serialization of aValue using the Structured Clone Algorithm.
   // The data can read back using Read().
-  bool Write(JSContext* aCx, JS::Handle<JS::Value> aValue);
+  void Write(JSContext* aCx, JS::Handle<JS::Value> aValue, ErrorResult& aRv);
 
   // Like Write() but it supports the transferring of objects and handling
   // of cloning policy.
-  bool Write(JSContext* aCx, JS::Handle<JS::Value> aValue,
+  void Write(JSContext* aCx, JS::Handle<JS::Value> aValue,
              JS::Handle<JS::Value> aTransfer,
-             const JS::CloneDataPolicy& aCloneDataPolicy);
+             const JS::CloneDataPolicy& aCloneDataPolicy, ErrorResult& aRv);
 
   // If Write() has been called, this method retrieves data and stores it into
   // aValue.
-  bool Read(JSContext* aCx, JS::MutableHandle<JS::Value> aValue);
+  void Read(JSContext* aCx, JS::MutableHandle<JS::Value> aValue,
+            ErrorResult& aRv);
 
   // Like Read() but it supports handling of clone policy.
-  bool Read(JSContext* aCx, JS::MutableHandle<JS::Value> aValue,
-            const JS::CloneDataPolicy& aCloneDataPolicy);
+  void Read(JSContext* aCx, JS::MutableHandle<JS::Value> aValue,
+            const JS::CloneDataPolicy& aCloneDataPolicy, ErrorResult& aRv);
 
   // Directly adopt a pre-existing data buffer which was previously serialized
   // elsewhere using this data structure.
@@ -150,19 +151,10 @@ class StructuredCloneHolderBase {
     return size;
   }
 
-  void SetErrorMessage(const char* aErrorMessage) {
-    mErrorMessage.Assign(aErrorMessage);
-  }
-
  protected:
   UniquePtr<JSAutoStructuredCloneBuffer> mBuffer;
 
   StructuredCloneScope mStructuredCloneScope;
-
-  // Error message when a data clone error is about to throw. It's held while
-  // the error callback is fired and it will be throw with a data clone error
-  // later.
-  nsCString mErrorMessage;
 
 #ifdef DEBUG
   bool mClearCalled;

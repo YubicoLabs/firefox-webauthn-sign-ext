@@ -164,7 +164,6 @@ void JSActorManager::ReceiveRawMessage(
       aStack->Read(cx, &stackVal, error);
       if (error.Failed()) {
         error.SuppressException();
-        JS_ClearPendingException(cx);
         stackVal.setUndefined();
       }
     }
