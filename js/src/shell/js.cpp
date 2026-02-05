@@ -1510,47 +1510,30 @@ static bool DrainJobQueue(JSContext* cx, unsigned argc, Value* vp) {
 static bool GlobalOfFirstJobInQueue(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
 
-  if (JS::Prefs::use_js_microtask_queue()) {
-    if (cx->microTaskQueues->microTaskQueue.empty()) {
-      JS_ReportErrorASCII(cx, "Job queue is empty");
-      return false;
-    }
-
-    auto& genericJob = cx->microTaskQueues->microTaskQueue.front();
-    JS::JSMicroTask* job = JS::ToUnwrappedJSMicroTask(genericJob);
-    if (!job) {
-      JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
-                                JSMSG_DEAD_OBJECT);
-
-      return false;
-    }
-
-    RootedObject global(cx, JS::GetExecutionGlobalFromJSMicroTask(job));
-    if (!global) {
-      JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
-                                JSMSG_DEAD_OBJECT);
-      return false;
-    }
-    MOZ_ASSERT(global);
-    if (!cx->compartment()->wrap(cx, &global)) {
-      return false;
-    }
-
-    args.rval().setObject(*global);
-  } else {
-    RootedObject job(cx, cx->internalJobQueue->maybeFront());
-    if (!job) {
-      JS_ReportErrorASCII(cx, "Job queue is empty");
-      return false;
-    }
-
-    RootedObject global(cx, &job->nonCCWGlobal());
-    if (!cx->compartment()->wrap(cx, &global)) {
-      return false;
-    }
-
-    args.rval().setObject(*global);
+  if (cx->microTaskQueues->microTaskQueue.empty()) {
+    JS_ReportErrorASCII(cx, "Job queue is empty");
+    return false;
   }
+
+  auto& genericJob = cx->microTaskQueues->microTaskQueue.front();
+  JS::JSMicroTask* job = JS::ToUnwrappedJSMicroTask(genericJob);
+  if (!job) {
+    JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_DEAD_OBJECT);
+
+    return false;
+  }
+
+  RootedObject global(cx, JS::GetExecutionGlobalFromJSMicroTask(job));
+  if (!global) {
+    JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_DEAD_OBJECT);
+    return false;
+  }
+  MOZ_ASSERT(global);
+  if (!cx->compartment()->wrap(cx, &global)) {
+    return false;
+  }
+
+  args.rval().setObject(*global);
 
   return true;
 }

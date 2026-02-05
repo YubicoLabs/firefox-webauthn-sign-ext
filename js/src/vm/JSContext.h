@@ -98,11 +98,8 @@ class InternalJobQueue : public JS::JobQueue {
   bool getHostDefinedGlobal(JSContext*,
                             JS::MutableHandle<JSObject*>) const override;
 
-  bool enqueuePromiseJob(JSContext* cx, JS::HandleObject promise,
-                         JS::HandleObject job, JS::HandleObject allocationSite,
-                         JS::HandleObject hostDefinedData) override;
   void runJobs(JSContext* cx) override;
-  bool empty() const override;
+
   bool isDrainingStopped() const override { return interrupted_; }
 
   // If we are currently in a call to runJobs(), make that call stop processing

@@ -621,25 +621,6 @@ JS::MaybeGetPromiseAllocationSiteFromPossiblyWrappedPromise(
   return nullptr;
 }
 
-bool JSRuntime::enqueuePromiseJob(JSContext* cx, HandleFunction job,
-                                  HandleObject promise,
-                                  HandleObject hostDefinedData) {
-  MOZ_ASSERT(cx->jobQueue,
-             "Must select a JobQueue implementation using JS::JobQueue "
-             "or js::UseInternalJobQueues before using Promises");
-
-  if (promise) {
-#ifdef DEBUG
-    AssertSameCompartment(job, promise);
-#endif
-  }
-
-  RootedObject allocationSite(
-      cx, JS::MaybeGetPromiseAllocationSiteFromPossiblyWrappedPromise(promise));
-  return cx->jobQueue->enqueuePromiseJob(cx, promise, job, allocationSite,
-                                         hostDefinedData);
-}
-
 void JSRuntime::addUnhandledRejectedPromise(JSContext* cx,
                                             js::HandleObject promise) {
   MOZ_ASSERT(promise->is<PromiseObject>());

@@ -497,16 +497,12 @@ class CycleCollectedJSContext : dom::PerThreadAtomCache, public JS::JobQueue {
   bool getHostDefinedGlobal(JSContext* cx,
                             JS::MutableHandle<JSObject*>) const override;
 
-  bool enqueuePromiseJob(JSContext* cx, JS::Handle<JSObject*> promise,
-                         JS::Handle<JSObject*> job,
-                         JS::Handle<JSObject*> allocationSite,
-                         JS::Handle<JSObject*> hostDefinedData) override;
   // MOZ_CAN_RUN_SCRIPT_BOUNDARY for now so we don't have to change SpiderMonkey
   // headers.  The caller presumably knows this can run script (like everything
   // in SpiderMonkey!) and will deal.
   MOZ_CAN_RUN_SCRIPT_BOUNDARY
   void runJobs(JSContext* cx) override;
-  bool empty() const override;
+
   bool isDrainingStopped() const override { return false; }
 
   // Trace hook for non-GCThing microtask values (e.g., Private values

@@ -1869,94 +1869,66 @@ static bool PromiseReactionJob(JSContext* cx, unsigned argc, Value* vp);
   // Step 1 (reordered). Let job be a new Job Abstract Closure with no
   //                     parameters that captures reaction and argument
   //                     and performs the following steps when called:
-  if (JS::Prefs::use_js_microtask_queue()) {
-    MOZ_ASSERT(reactionVal.isObject());
+  MOZ_ASSERT(reactionVal.isObject());
 
-    // Get a representative object for this global: We will use this later
-    // to extract the target global for execution. We don't store the global
-    // directly because CCWs to globals can change identity.
-    //
-    // So instead we simply store Object.prototype from the target global,
-    // an object which always exists.
-    RootedField<JSObject*, 6> globalRepresentative(
-        roots, &cx->global()->getObjectPrototype());
+  // Get a representative object for this global: We will use this later
+  // to extract the target global for execution. We don't store the global
+  // directly because CCWs to globals can change identity.
+  //
+  // So instead we simply store Object.prototype from the target global,
+  // an object which always exists.
+  RootedField<JSObject*, 6> globalRepresentative(
+      roots, &cx->global()->getObjectPrototype());
 
-    // PromiseReactionJob job will use the existence of a CCW as a signal
-    // to change to the reactionVal's realm for execution. I believe
-    // this is the right thing to do. As a result however we don't actually
-    // need to track the global. We simply allow PromiseReactionJob to
-    // do the right thing. We will need to enqueue a CCW however
-    {
-      AutoRealm ar(cx, reaction);
+  // PromiseReactionJob job will use the existence of a CCW as a signal
+  // to change to the reactionVal's realm for execution. I believe
+  // this is the right thing to do. As a result however we don't actually
+  // need to track the global. We simply allow PromiseReactionJob to
+  // do the right thing. We will need to enqueue a CCW however
+  {
+    AutoRealm ar(cx, reaction);
 
-      RootedField<JSObject*, 7> stack(
-          roots,
-          JS::MaybeGetPromiseAllocationSiteFromPossiblyWrappedPromise(promise));
-      if (!cx->compartment()->wrap(cx, &stack)) {
-        return false;
-      }
-      reaction->setAllocationStack(stack);
-
-      if (!reaction->getHostDefinedData().isObject()) {
-        // We do need to still provide an incumbentGlobal here
-        // MG:XXX: I'm pretty sure this can be appreciably more elegant later.
-        RootedField<JSObject*, 8> hostGlobal(roots);
-        if (!cx->jobQueue->getHostDefinedGlobal(cx, &hostGlobal)) {
-          return false;
-        }
-
-        if (hostGlobal) {
-          MOZ_ASSERT(hostGlobal->is<GlobalObject>());
-          // Recycle the root -- we store the prototype for the same
-          // reason as EnqueueGlobalRepresentative.
-          hostGlobal = &hostGlobal->as<GlobalObject>().getObjectPrototype();
-        }
-
-        if (!cx->compartment()->wrap(cx, &hostGlobal)) {
-          return false;
-        }
-        reaction->setHostDefinedGlobalRepresentative(hostGlobal);
-      }
-
-      if (!cx->compartment()->wrap(cx, &globalRepresentative)) {
-        return false;
-      }
-      reaction->setEnqueueGlobalRepresentative(globalRepresentative);
-    }
-
-    if (!cx->compartment()->wrap(cx, &reactionVal)) {
+    RootedField<JSObject*, 7> stack(
+        roots,
+        JS::MaybeGetPromiseAllocationSiteFromPossiblyWrappedPromise(promise));
+    if (!cx->compartment()->wrap(cx, &stack)) {
       return false;
     }
+    reaction->setAllocationStack(stack);
 
-    // HostEnqueuePromiseJob(job.[[Job]], job.[[Realm]]).
-    return EnqueueJob(cx, &reactionVal.toObject());
-  }
+    if (!reaction->getHostDefinedData().isObject()) {
+      // We do need to still provide an incumbentGlobal here
+      // MG:XXX: I'm pretty sure this can be appreciably more elegant later.
+      RootedField<JSObject*, 8> hostGlobal(roots);
+      if (!cx->jobQueue->getHostDefinedGlobal(cx, &hostGlobal)) {
+        return false;
+      }
 
-  RootedField<JSObject*, 6> hostDefinedData(roots);
-  if (JSObject* hostDefined = reaction->getAndClearHostDefinedData()) {
-    hostDefined = CheckedUnwrapStatic(hostDefined);
-    MOZ_ASSERT(hostDefined);
-    // If the hostDefined object becomes a dead wrapper here, the target
-    // global has already gone, and the job queue won't run the promise job
-    // anyway.
-    if (JS_IsDeadWrapper(hostDefined)) {
-      return true;
+      if (hostGlobal) {
+        MOZ_ASSERT(hostGlobal->is<GlobalObject>());
+        // Recycle the root -- we store the prototype for the same
+        // reason as EnqueueGlobalRepresentative.
+        hostGlobal = &hostGlobal->as<GlobalObject>().getObjectPrototype();
+      }
+
+      if (!cx->compartment()->wrap(cx, &hostGlobal)) {
+        return false;
+      }
+      reaction->setHostDefinedGlobalRepresentative(hostGlobal);
     }
-    hostDefinedData = hostDefined;
+
+    if (!cx->compartment()->wrap(cx, &globalRepresentative)) {
+      return false;
+    }
+    reaction->setEnqueueGlobalRepresentative(globalRepresentative);
   }
 
-  Handle<PropertyName*> funName = cx->names().empty_;
-  RootedField<JSFunction*, 5> job(
-      roots,
-      NewNativeFunction(cx, PromiseReactionJob, 0, funName,
-                        gc::AllocKind::FUNCTION_EXTENDED, GenericObject));
-  if (!job) {
+  if (!cx->compartment()->wrap(cx, &reactionVal)) {
     return false;
   }
 
-  job->setExtendedSlot(ReactionJobSlot_ReactionRecord, reactionVal);
-
-  return cx->runtime()->enqueuePromiseJob(cx, job, promise, hostDefinedData);
+  // HostEnqueuePromiseJob(job.[[Job]], job.[[Realm]]).
+  return EnqueueJob(cx, &reactionVal.toObject());
 }
 
 [[nodiscard]] static bool TriggerPromiseReactions(JSContext* cx,
@@ -2931,59 +2903,35 @@ static bool PromiseResolveBuiltinThenableJob(JSContext* cx, unsigned argc,
   // compartment.
   RootedField<JSObject*, 3> promise(roots, &promiseToResolve.toObject());
 
-  if (JS::Prefs::use_js_microtask_queue()) {
-    RootedField<JSObject*, 4> hostDefinedGlobalRepresentative(roots);
-    {
-      RootedField<JSObject*, 5> hostDefinedGlobal(roots);
-      if (!cx->jobQueue->getHostDefinedGlobal(cx, &hostDefinedGlobal)) {
-        return false;
-      }
-
-      MOZ_ASSERT_IF(hostDefinedGlobal, hostDefinedGlobal->is<GlobalObject>());
-      if (hostDefinedGlobal) {
-        hostDefinedGlobalRepresentative =
-            &hostDefinedGlobal->as<GlobalObject>().getObjectPrototype();
-      }
-    }
-
-    // Wrap the representative.
-    if (!cx->compartment()->wrap(cx, &hostDefinedGlobalRepresentative)) {
+  RootedField<JSObject*, 4> hostDefinedGlobalRepresentative(roots);
+  {
+    RootedField<JSObject*, 5> hostDefinedGlobal(roots);
+    if (!cx->jobQueue->getHostDefinedGlobal(cx, &hostDefinedGlobal)) {
       return false;
     }
 
-    ThenableJob* thenableJob =
-        NewThenableJob(cx, ThenableJob::PromiseResolveThenableJob, promise,
-                       thenable, then, HostDefinedDataIsOptimizedOut);
-    if (!thenableJob) {
-      return false;
+    MOZ_ASSERT_IF(hostDefinedGlobal, hostDefinedGlobal->is<GlobalObject>());
+    if (hostDefinedGlobal) {
+      hostDefinedGlobalRepresentative =
+          &hostDefinedGlobal->as<GlobalObject>().getObjectPrototype();
     }
-
-    thenableJob->setHostDefinedGlobalRepresentative(
-        hostDefinedGlobalRepresentative);
-    return EnqueueJob(cx, thenableJob);
   }
 
-  // Step 1. Let job be a new Job Abstract Closure with no parameters that
-  //         captures promiseToResolve, thenable, and then and performs the
-  //         following steps when called:
-  Handle<PropertyName*> funName = cx->names().empty_;
-  RootedField<JSFunction*, 6> job(
-      roots,
-      NewNativeFunction(cx, PromiseResolveThenableJob, 0, funName,
-                        gc::AllocKind::FUNCTION_EXTENDED, GenericObject));
-  if (!job) {
+  // Wrap the representative.
+  if (!cx->compartment()->wrap(cx, &hostDefinedGlobalRepresentative)) {
     return false;
   }
 
-  // Set the `promiseToResolve`, `thenable` and `then` arguments on the
-  // callback.
-  job->setExtendedSlot(ThenableJobSlot_Promise, promiseToResolve);
-  job->setExtendedSlot(ThenableJobSlot_Thenable, thenable);
-  job->setExtendedSlot(ThenableJobSlot_Handler, ObjectValue(*then));
+  ThenableJob* thenableJob =
+      NewThenableJob(cx, ThenableJob::PromiseResolveThenableJob, promise,
+                     thenable, then, HostDefinedDataIsOptimizedOut);
+  if (!thenableJob) {
+    return false;
+  }
 
-  // Step X. HostEnqueuePromiseJob(job.[[Job]], job.[[Realm]]).
-  return cx->runtime()->enqueuePromiseJob(cx, job, promise,
-                                          HostDefinedDataIsOptimizedOut);
+  thenableJob->setHostDefinedGlobalRepresentative(
+      hostDefinedGlobalRepresentative);
+  return EnqueueJob(cx, thenableJob);
 }
 
 /**
@@ -3005,53 +2953,23 @@ static bool PromiseResolveBuiltinThenableJob(JSContext* cx, unsigned argc,
   MOZ_ASSERT(promiseToResolve->is<PromiseObject>());
   MOZ_ASSERT(thenable->is<PromiseObject>());
 
-  if (JS::Prefs::use_js_microtask_queue()) {
-    // Step 1. Let job be a new Job Abstract Closure with no parameters that
-
-    Rooted<JSObject*> hostDefinedData(cx);
-    if (!cx->runtime()->getHostDefinedData(cx, &hostDefinedData)) {
-      return false;
-    }
-
-    RootedValue thenableValue(cx, ObjectValue(*thenable));
-    ThenableJob* thenableJob = NewThenableJob(
-        cx, ThenableJob::PromiseResolveBuiltinThenableJob, promiseToResolve,
-        thenableValue, nullptr, hostDefinedData);
-    if (!thenableJob) {
-      return false;
-    }
-
-    return EnqueueJob(cx, thenableJob);
-  }
-
   // Step 1. Let job be a new Job Abstract Closure with no parameters that
   //         captures promiseToResolve, thenable, and then and performs the
   //         following steps when called:
-  Handle<PropertyName*> funName = cx->names().empty_;
-  RootedFunction job(
-      cx, NewNativeFunction(cx, PromiseResolveBuiltinThenableJob, 0, funName,
-                            gc::AllocKind::FUNCTION_EXTENDED, GenericObject));
-  if (!job) {
-    return false;
-  }
-
-  // Steps 2-5.
-  // (implicit)
-  // `then` is built-in Promise.prototype.then in the current realm.,
-  // thus `thenRealm` is also current realm, and we have nothing to do here.
-
-  // Store the promise and the thenable on the reaction job.
-  job->setExtendedSlot(ThenableJobSlot_Promise, ObjectValue(*promiseToResolve));
-  job->setExtendedSlot(ThenableJobSlot_Thenable, ObjectValue(*thenable));
-
   Rooted<JSObject*> hostDefinedData(cx);
   if (!cx->runtime()->getHostDefinedData(cx, &hostDefinedData)) {
     return false;
   }
 
-  // HostEnqueuePromiseJob(job.[[Job]], job.[[Realm]]).
-  return cx->runtime()->enqueuePromiseJob(cx, job, promiseToResolve,
-                                          hostDefinedData);
+  RootedValue thenableValue(cx, ObjectValue(*thenable));
+  ThenableJob* thenableJob =
+      NewThenableJob(cx, ThenableJob::PromiseResolveBuiltinThenableJob,
+                     promiseToResolve, thenableValue, nullptr, hostDefinedData);
+  if (!thenableJob) {
+    return false;
+  }
+
+  return EnqueueJob(cx, thenableJob);
 }
 
 [[nodiscard]] static bool AddDummyPromiseReactionForDebugger(
@@ -7922,9 +7840,7 @@ JS::AutoDebuggerJobQueueInterruption::AutoDebuggerJobQueueInterruption()
 JS::AutoDebuggerJobQueueInterruption::~AutoDebuggerJobQueueInterruption() {
 #ifdef DEBUG
   if (initialized() && !cx->jobQueue->isDrainingStopped()) {
-    MOZ_ASSERT_IF(JS::Prefs::use_js_microtask_queue(),
-                  !JS::HasRegularMicroTasks(cx));
-    MOZ_ASSERT_IF(!JS::Prefs::use_js_microtask_queue(), cx->jobQueue->empty());
+    MOZ_ASSERT(!JS::HasRegularMicroTasks(cx));
   }
 #endif
 }
