@@ -521,6 +521,12 @@ void WebRenderBridgeParent::Destroy() {
   }
   mCompositables.clear();
   ClearResources();
+#ifdef MOZ_WIDGET_ANDROID
+  if (mScreenPixelsRequest) {
+    mScreenPixelsRequest->mPromise->Reject(NS_ERROR_ABORT, __func__);
+    mScreenPixelsRequest.reset();
+  }
+#endif
 }
 
 struct WROTSAlloc {
@@ -1830,6 +1836,9 @@ void WebRenderBridgeParent::UpdateBoolParameters() {
 RefPtr<WebRenderBridgeParent::ScreenPixelsPromise>
 WebRenderBridgeParent::RequestScreenPixels(gfx::IntRect aSourceRect,
                                            gfx::IntSize aDestSize) {
+  if (mDestroyed) {
+    return ScreenPixelsPromise::CreateAndReject(NS_ERROR_ABORT, __func__);
+  }
   if (!IsRootWebRenderBridgeParent()) {
     return ScreenPixelsPromise::CreateAndReject(NS_ERROR_ILLEGAL_VALUE,
                                                 __func__);
