@@ -348,27 +348,40 @@ bool WeakMap<K, V, AP>::markEntries(GCMarker* marker) {
 }
 
 template <class K, class V, class AP>
-void WeakMap<K, V, AP>::traceWeakEdges(JSTracer* trc) {
-  // This is used for sweeping but not for anything that can move GC things.
-  MOZ_ASSERT(!trc->isTenuringTracer() && trc->kind() != JS::TracerKind::Moving);
+void WeakMap<K, V, AP>::traceWeakEdgesDuringSweeping(JSTracer* trc) {
+  // This is only used for sweeping but. This cannot move GC things.
+  MOZ_ASSERT(trc->kind() == JS::TracerKind::Sweeping);
+  MOZ_ASSERT(zone()->isGCSweeping());
 
   // Scan the map, removing all entries whose keys remain unmarked. Rebuild
   // cached key state at the same time.
   mayHaveSymbolKeys = false;
   mayHaveKeyDelegates = false;
-  for (Enum e(*this); !e.empty(); e.popFront()) {
+
+  mozilla::Maybe<Enum> e;
+  e.emplace(*this);
+  for (; !e->empty(); e->popFront()) {
 #ifdef DEBUG
-    K prior = e.front().key();
+    K prior = e->front().key();
 #endif
-    if (TraceWeakEdge(trc, &e.front().mutableKey(), "WeakMap key")) {
-      MOZ_ASSERT(e.front().key() == prior);
-      keyKindBarrier(e.front().key());
+    if (TraceWeakEdge(trc, &e->front().mutableKey(), "WeakMap key")) {
+      MOZ_ASSERT(e->front().key() == prior);
+      keyKindBarrier(e->front().key());
     } else {
-      e.removeFront();
+      e->removeFront();
     }
   }
 
   // TODO: Shrink nurseryKeys storage?
+
+  {
+    // Destroy the iterator with lock held as this may shrink the table.
+    //
+    // Bug 2014486: Investigate not taking the lock when we don't need to
+    // shrink.
+    gc::AutoLockStoreBuffer lock(trc->runtime());
+    e.reset();
+  }
 
 #if DEBUG
   // Once we've swept, all remaining edges should stay within the known-live

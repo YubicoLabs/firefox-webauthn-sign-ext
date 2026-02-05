@@ -1407,9 +1407,6 @@ void GCRuntime::sweepWeakMaps() {
     /* No need to look up any more weakmap keys from this sweep group. */
     zone->gcEphemeronEdges().clearAndCompact();
 
-    // Lock the storebuffer since this may access it when rehashing or resizing
-    // the tables.
-    AutoLockStoreBuffer lock(rt);
     zone->sweepWeakMaps(&trc);
   }
 }
@@ -1656,6 +1653,8 @@ IncrementalProgress GCRuntime::beginSweepingSweepGroup(JS::GCContext* gcx,
     zone->arenas.unmarkPreMarkedFreeCells();
     zone->arenas.clearFreeLists();
 
+    zone->bufferAllocator.setMultiThreadedUse(&storeBufferLock);
+
     if (zone->isAtomsZone()) {
       sweepingAtoms = true;
     }
@@ -1763,6 +1762,7 @@ IncrementalProgress GCRuntime::beginSweepingSweepGroup(JS::GCContext* gcx,
   // or on the background thread.
 
   for (SweepGroupZonesIter zone(this); !zone.done(); zone.next()) {
+    zone->bufferAllocator.clearMultiThreadedUse();
     zone->arenas.queueForegroundThingsForSweep();
     constexpr AllocKinds backgroundKinds =
         BackgroundObjectFinalizePhase + BackgroundTrivialFinalizePhase;

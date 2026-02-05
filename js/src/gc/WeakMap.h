@@ -169,9 +169,10 @@ class WeakMapBase : public mozilla::LinkedListElement<WeakMapBase> {
  protected:
   // Instance member functions called by the above. Instantiations of WeakMap
   // override these with definitions appropriate for their Key and Value types.
+  virtual bool empty() const = 0;
   virtual void trace(JSTracer* tracer) = 0;
   virtual bool findSweepGroupEdges(Zone* atomsZone) = 0;
-  virtual void traceWeakEdges(JSTracer* trc) = 0;
+  virtual void traceWeakEdgesDuringSweeping(JSTracer* trc) = 0;
   virtual void traceMappings(WeakMapTracer* tracer) = 0;
   virtual void clearAndCompact() = 0;
 
@@ -367,7 +368,7 @@ class WeakMap : public WeakMapBase {
 
   Range all() const { return map().all(); }
   uint32_t count() const { return map().count(); }
-  bool empty() const { return map().empty(); }
+  bool empty() const override { return map().empty(); }
   bool has(const Lookup& lookup) const { return map().has(lookup); }
   void remove(const Lookup& lookup) { return map().remove(lookup); }
   void remove(Ptr ptr) { return map().remove(ptr.ptr); }
@@ -542,7 +543,7 @@ class WeakMap : public WeakMapBase {
 
   void addNurseryKey(const Key& key);
 
-  void traceWeakEdges(JSTracer* trc) override;
+  void traceWeakEdgesDuringSweeping(JSTracer* trc) override;
 
   void clearAndCompact() override {
     clear();

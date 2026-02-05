@@ -153,9 +153,13 @@ void Zone::sweepWeakMaps(JSTracer* trc) {
   for (WeakMapBase* m = gcWeakMapList().getFirst(); m;) {
     WeakMapBase* next = m->getNext();
     if (IsMarked(m->mapColor())) {
-      m->traceWeakEdges(trc);
+      m->traceWeakEdgesDuringSweeping(trc);
     } else {
-      m->clearAndCompact();
+      if (!m->empty()) {
+        // This may remove store buffer entries.
+        AutoLockStoreBuffer lock(trc->runtime());
+        m->clearAndCompact();
+      }
       m->removeFrom(gcWeakMapList());
     }
     m = next;
