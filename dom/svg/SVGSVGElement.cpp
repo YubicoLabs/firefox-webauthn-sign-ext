@@ -119,7 +119,7 @@ already_AddRefed<DOMSVGAnimatedLength> SVGSVGElement::Height() {
 }
 
 bool SVGSVGElement::UseCurrentView() const {
-  return mSVGView || !mCurrentViewID.IsVoid();
+  return mSVGView || mCurrentViewID;
 }
 
 float SVGSVGElement::CurrentScale() const { return mCurrentScale; }
@@ -611,11 +611,11 @@ SVGPreserveAspectRatio SVGSVGElement::GetPreserveAspectRatioWithOverride()
 }
 
 SVGViewElement* SVGSVGElement::GetCurrentViewElement() const {
-  if (!mCurrentViewID.IsVoid()) {
+  if (mCurrentViewID) {
     // XXXsmaug It is unclear how this should work in case we're in Shadow DOM.
     Document* doc = GetUncomposedDoc();
     if (doc) {
-      Element* element = doc->GetElementById(mCurrentViewID);
+      Element* element = doc->GetElementById(*mCurrentViewID);
       return SVGViewElement::FromNodeOrNull(element);
     }
   }

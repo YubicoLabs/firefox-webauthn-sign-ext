@@ -23,7 +23,7 @@ void SVGAnimatedClass::SetBaseValue(const nsAString& aValue,
   if (aDoSetAttr) {
     aSVGElement->SetAttr(kNameSpaceID_None, nsGkAtoms::_class, aValue, true);
   }
-  if (!mAnimVal.IsVoid()) {
+  if (mAnimVal) {
     aSVGElement->AnimationNeedsResample();
   }
 }
@@ -35,8 +35,8 @@ void SVGAnimatedClass::GetBaseValue(nsAString& aValue,
 
 void SVGAnimatedClass::GetAnimValue(nsAString& aResult,
                                     const SVGElement* aSVGElement) const {
-  if (!mAnimVal.IsVoid()) {
-    aResult = mAnimVal;
+  if (mAnimVal) {
+    aResult = *mAnimVal;
     return;
   }
 
@@ -45,10 +45,13 @@ void SVGAnimatedClass::GetAnimValue(nsAString& aResult,
 
 void SVGAnimatedClass::SetAnimValue(const nsAString& aValue,
                                     SVGElement* aSVGElement) {
-  if (!mAnimVal.IsVoid() && mAnimVal.Equals(aValue)) {
+  if (mAnimVal && mAnimVal->Equals(aValue)) {
     return;
   }
-  mAnimVal = aValue;
+  if (!mAnimVal) {
+    mAnimVal = std::make_unique<nsString>();
+  }
+  *mAnimVal = aValue;
   aSVGElement->SetMayHaveClass();
   aSVGElement->DidAnimateClass();
 }
@@ -76,8 +79,8 @@ SMILValue SVGAnimatedClass::SMILString::GetBaseValue() const {
 }
 
 void SVGAnimatedClass::SMILString::ClearAnimValue() {
-  if (!mVal->mAnimVal.IsVoid()) {
-    mVal->mAnimVal = VoidString();
+  if (mVal->mAnimVal) {
+    mVal->mAnimVal = nullptr;
     mSVGElement->DidAnimateClass();
   }
 }

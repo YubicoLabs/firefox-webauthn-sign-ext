@@ -26,7 +26,7 @@ class SVGAnimatedClass final : public SVGAnimatedClassOrString {
  public:
   using SVGElement = dom::SVGElement;
 
-  void Init() { mAnimVal = VoidString(); }
+  void Init() { mAnimVal = nullptr; }
 
   void SetBaseValue(const nsAString& aValue, SVGElement* aSVGElement,
                     bool aDoSetAttr) override;
@@ -36,12 +36,12 @@ class SVGAnimatedClass final : public SVGAnimatedClassOrString {
   void SetAnimValue(const nsAString& aValue, SVGElement* aSVGElement);
   void GetAnimValue(nsAString& aResult,
                     const SVGElement* aSVGElement) const override;
-  bool IsAnimated() const { return !mAnimVal.IsVoid(); }
+  bool IsAnimated() const { return !!mAnimVal; }
 
   std::unique_ptr<SMILAttr> ToSMILAttr(SVGElement* aSVGElement);
 
  private:
-  nsString mAnimVal = VoidString();
+  std::unique_ptr<nsString> mAnimVal;
 
  public:
   struct SMILString : public SMILAttr {
