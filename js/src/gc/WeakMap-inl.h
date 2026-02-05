@@ -110,11 +110,20 @@ static constexpr size_t InitialWeakMapLength = 0;
 
 template <class K, class V, class AP>
 WeakMap<K, V, AP>::WeakMap(JSContext* cx, JSObject* memOf)
-    : WeakMap(cx->zone(), memOf) {}
+    : WeakMapBase(memOf, cx->zone()), map_(cx->zone(), InitialWeakMapLength) {
+  staticAssertions();
+  MOZ_ASSERT(memOf);
+}
 
 template <class K, class V, class AP>
-WeakMap<K, V, AP>::WeakMap(JS::Zone* zone, JSObject* memOf)
-    : WeakMapBase(memOf, zone), map_(zone, InitialWeakMapLength) {
+WeakMap<K, V, AP>::WeakMap(JS::Zone* zone)
+    : WeakMapBase(nullptr, zone), map_(zone, InitialWeakMapLength) {
+  staticAssertions();
+}
+
+template <class K, class V, class AP>
+/* static */
+MOZ_ALWAYS_INLINE void WeakMap<K, V, AP>::staticAssertions() {
   static_assert(std::is_same_v<typename RemoveBarrier<K>::Type, K>);
   static_assert(std::is_same_v<typename RemoveBarrier<V>::Type, V>);
 
@@ -126,11 +135,6 @@ WeakMap<K, V, AP>::WeakMap(JS::Zone* zone, JSObject* memOf)
     using NonPtrType = std::remove_pointer_t<K>;
     static_assert(JS::IsCCTraceKind(NonPtrType::TraceKind),
                   "Object's TraceKind should be added to CC graph.");
-  }
-
-  zone->gcWeakMapList().insertFront(this);
-  if (zone->gcState() > Zone::Prepare) {
-    setMapColor(CellColor::Black);
   }
 }
 

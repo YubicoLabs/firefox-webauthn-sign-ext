@@ -19,6 +19,11 @@ WeakMapBase::WeakMapBase(JSObject* memOf, Zone* zone)
     : memberOf(memOf), zone_(zone) {
   MOZ_ASSERT_IF(memberOf, memberOf->compartment()->zone() == zone);
   MOZ_ASSERT(!IsMarked(mapColor()));
+
+  zone->gcWeakMapList().insertFront(this);
+  if (zone->gcState() > Zone::Prepare) {
+    setMapColor(CellColor::Black);
+  }
 }
 
 void WeakMapBase::unmarkZone(JS::Zone* zone) {

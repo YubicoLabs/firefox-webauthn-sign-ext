@@ -362,8 +362,12 @@ class WeakMap : public WeakMapBase {
     explicit Enum(WeakMap& map) : Map::Enum(map.map()) {}
   };
 
-  explicit WeakMap(JSContext* cx, JSObject* memOf = nullptr);
-  explicit WeakMap(JS::Zone* zone, JSObject* memOf = nullptr);
+  // Create a weak map owned by a JS object. Used for script-facing objects.
+  explicit WeakMap(JSContext* cx, JSObject* memOf);
+
+  // Create a weak map associated with a zone. For internal use by the engine.
+  explicit WeakMap(JS::Zone* zone);
+
   ~WeakMap() override;
 
   Range all() const { return map().all(); }
@@ -492,6 +496,8 @@ class WeakMap : public WeakMapBase {
 #endif
 
  private:
+  static void staticAssertions();
+
   // Map accessor uses a cast to add barriers.
   Map& map() { return reinterpret_cast<Map&>(map_); }
   const Map& map() const { return reinterpret_cast<const Map&>(map_); }
