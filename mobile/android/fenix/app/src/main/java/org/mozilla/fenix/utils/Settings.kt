@@ -724,16 +724,6 @@ class Settings(
         defaultValue = { appContext.components.nimbus.sdk.rolloutParticipation },
     )
 
-    /**
-     * Timestamp in milliseconds when the "Set as default browser" system prompt was requested.
-     * Used to calculate the response time and detect if the prompt was automatically suppressed
-     * by the system (e.g., when "Don't ask again" is active).
-     */
-    var setToDefaultPromptRequested by longPreference(
-        appContext.getPreferenceKey(R.string.pref_key_last_set_as_default_prompt_request_time),
-        default = 0L,
-    )
-
     var isOverrideTPPopupsForPerformanceTest = false
 
     // We do not use `booleanPreference` because we only want the "read" part of this setting to be
