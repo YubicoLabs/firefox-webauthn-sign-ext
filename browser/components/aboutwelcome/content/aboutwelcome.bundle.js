@@ -1585,10 +1585,10 @@ class ProtonScreen extends (react__WEBPACK_IMPORTED_MODULE_0___default().PureCom
 
     // Check if hero_text is a string or an object with string_id property
     // essentially checking if we're using old or new design
-    const isSimpleText = typeof hero_text === "string" || typeof hero_text === "object" && hero_text !== null && "string_id" in hero_text;
+    const isSimpleText = typeof hero_text === "string" || typeof hero_text === "object" && hero_text !== null && ("string_id" in hero_text || "raw" in hero_text);
     const HeroTextWrapper = ({
       children,
-      className = ""
+      className
     }) => /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement((react__WEBPACK_IMPORTED_MODULE_0___default().Fragment), null, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
       className: `message-text ${className}`
     }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("div", {
@@ -1597,7 +1597,9 @@ class ProtonScreen extends (react__WEBPACK_IMPORTED_MODULE_0___default().PureCom
       className: "spacer-bottom"
     })));
     if (isSimpleText) {
-      return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement(HeroTextWrapper, null, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement(_MSLocalized__WEBPACK_IMPORTED_MODULE_1__.Localized, {
+      return /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement(HeroTextWrapper, {
+        className: "simple"
+      }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement(_MSLocalized__WEBPACK_IMPORTED_MODULE_1__.Localized, {
         text: hero_text
       }, /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_0___default().createElement("h1", null)));
     }

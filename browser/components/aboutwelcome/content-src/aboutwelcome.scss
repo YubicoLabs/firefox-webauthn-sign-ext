@@ -1174,6 +1174,22 @@ html {
               width: 100%;
             }
           }
+
+          .message-text.simple {
+            margin-block: auto;
+            margin-inline: 17% auto;
+            text-align: start;
+            width: 100%;
+            max-width: 450px;
+
+            h1 {
+              font-weight: var(--heading-font-weight);
+              font-size: 84px;
+              margin: 0;
+              width: 100%;
+              max-width: 100%;
+            }
+          }
         }
 
         .addons-picker-container {

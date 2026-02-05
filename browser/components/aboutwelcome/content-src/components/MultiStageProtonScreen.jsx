@@ -496,9 +496,9 @@ export class ProtonScreen extends React.PureComponent {
       typeof hero_text === "string" ||
       (typeof hero_text === "object" &&
         hero_text !== null &&
-        "string_id" in hero_text);
+        ("string_id" in hero_text || "raw" in hero_text));
 
-    const HeroTextWrapper = ({ children, className = "" }) => (
+    const HeroTextWrapper = ({ children, className }) => (
       <React.Fragment>
         <div className={`message-text ${className}`}>
           <div className="spacer-top" />
@@ -510,7 +510,7 @@ export class ProtonScreen extends React.PureComponent {
 
     if (isSimpleText) {
       return (
-        <HeroTextWrapper>
+        <HeroTextWrapper className="simple">
           <Localized text={hero_text}>
             <h1 />
           </Localized>

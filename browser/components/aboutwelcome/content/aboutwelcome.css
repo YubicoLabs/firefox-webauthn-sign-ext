@@ -2005,6 +2005,20 @@ html {
   font-weight: var(--heading-font-weight);
   width: 100%;
 }
+.onboardingContainer .screen[pos=split][fullscreen] .section-secondary .message-text.simple {
+  margin-block: auto;
+  margin-inline: 17% auto;
+  text-align: start;
+  width: 100%;
+  max-width: 450px;
+}
+.onboardingContainer .screen[pos=split][fullscreen] .section-secondary .message-text.simple h1 {
+  font-weight: var(--heading-font-weight);
+  font-size: 84px;
+  margin: 0;
+  width: 100%;
+  max-width: 100%;
+}
 .onboardingContainer .screen[pos=split][fullscreen] .addons-picker-container {
   background: none;
 }
