@@ -204,6 +204,21 @@ class SettingsSearchMiddlewareTest {
         assert(store.state.searchResults == indexer.results["query3"])
     }
 
+    @Test
+    fun `GIVEN Init action THEN indexAllSettings is called`() = runTest {
+        val indexer = spyk(TestSettingsIndexer())
+        val middleware = buildMiddleware(
+            fenixSettingsIndexer = indexer,
+            dispatcher = coroutineRule.testDispatcher,
+        )
+        val store = SettingsSearchStore(middleware = listOf(middleware))
+
+        store.dispatch(SettingsSearchAction.Init)
+        coroutineRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        coVerify { indexer.indexAllSettings() }
+    }
+
     @After
     fun tearDown() = runTest {
         lifecycleOwner.destroy()
@@ -236,7 +251,7 @@ val testList = listOf(
 
 class TestSettingsIndexer : SettingsIndexer {
 
-    override fun indexAllSettings() {
+    override suspend fun indexAllSettings() {
         // no op
     }
 
@@ -246,7 +261,7 @@ class TestSettingsIndexer : SettingsIndexer {
 }
 
 class EmptyTestSettingsIndexer : SettingsIndexer {
-    override fun indexAllSettings() {
+    override suspend fun indexAllSettings() {
         // no op
     }
 
@@ -259,7 +274,7 @@ class SlowTestSettingsIndexer(
     private val delayMs: Long = 1000L,
     private val results: List<SettingsSearchItem> = testList,
 ) : SettingsIndexer {
-    override fun indexAllSettings() {
+    override suspend fun indexAllSettings() {
         // no op
     }
 
@@ -274,7 +289,7 @@ class DelayedTestSettingsIndexer(
 ) : SettingsIndexer {
     val queryCalls = mutableListOf<String>()
 
-    override fun indexAllSettings() {
+    override suspend fun indexAllSettings() {
         // no op
     }
 
@@ -298,7 +313,7 @@ class VariableDelayTestSettingsIndexer : SettingsIndexer {
         "query3" to 200L,
     )
 
-    override fun indexAllSettings() {
+    override suspend fun indexAllSettings() {
         // no op
     }
 

@@ -13,6 +13,7 @@ import kotlinx.coroutines.withContext
 import mozilla.components.support.base.log.logger.Logger
 import org.mozilla.fenix.R
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Indexes Settings preferences for the Settings Search screen.
@@ -20,20 +21,22 @@ import java.io.IOException
  * All the preference files that are parsed and indexed are listed in the companion object.
  */
 class DefaultFenixSettingsIndexer(private val context: Context) : SettingsIndexer {
-    private val settings: MutableList<SettingsSearchItem> = mutableListOf()
+    private val settings = AtomicReference<List<SettingsSearchItem>>(emptyList())
 
     /**
      * Index all settings.
      */
-    override fun indexAllSettings() {
-        settings.clear()
+    override suspend fun indexAllSettings() = withContext(Dispatchers.IO) {
+        val newSettings = mutableListOf<SettingsSearchItem>()
 
         for (preferenceFileInformation in preferenceFileInformationList) {
             val settingFileParser = getXmlParserForFile(preferenceFileInformation.xmlResourceId)
             if (settingFileParser != null) {
-                parseXmlFile(settingFileParser, preferenceFileInformation)
+                parseXmlFile(settingFileParser, preferenceFileInformation, newSettings)
             }
         }
+
+        settings.set(newSettings)
     }
 
     /**
@@ -48,9 +51,11 @@ class DefaultFenixSettingsIndexer(private val context: Context) : SettingsIndexe
         val trimmedQuery = query.trim()
 
         return withContext(Dispatchers.Default) {
-            settings.distinctBy { it.preferenceKey }.filter { item ->
-                item.title.contains(trimmedQuery, ignoreCase = true)
-            }
+            settings.get()
+                .filter { item ->
+                    item.title.contains(trimmedQuery, ignoreCase = true)
+                }
+            .distinctBy { it.preferenceKey }
         }
     }
 
@@ -70,6 +75,7 @@ class DefaultFenixSettingsIndexer(private val context: Context) : SettingsIndexe
     private fun parseXmlFile(
         parser: XmlResourceParser,
         preferenceFileInformation: PreferenceFileInformation,
+        settingsList: MutableList<SettingsSearchItem>,
     ) {
         try {
             var eventType = parser.next()
@@ -99,7 +105,7 @@ class DefaultFenixSettingsIndexer(private val context: Context) : SettingsIndexe
                                     preferenceFileInformation = preferenceFileInformation,
                                 )
                                     if (item != null) {
-                                        settings.add(item)
+                                        settingsList.add(item)
                                     }
                             }
                             RADIO_BUTTON_PREFERENCE_TAG,
@@ -117,7 +123,7 @@ class DefaultFenixSettingsIndexer(private val context: Context) : SettingsIndexe
                                     categoryItemAdded = true
                                     val preferenceKey = getPreferenceKeyForRadioButtonPref(parser)
                                     if (preferenceKey != null) {
-                                        settings.add(categoryItem.copy(preferenceKey = preferenceKey))
+                                        settingsList.add(categoryItem.copy(preferenceKey = preferenceKey))
                                     }
                                     // Clear categoryItem to prevent reusing it for subsequent radio buttons
                                     categoryItem = null
@@ -127,7 +133,7 @@ class DefaultFenixSettingsIndexer(private val context: Context) : SettingsIndexe
                                         preferenceFileInformation,
                                     )
                                     if (item != null) {
-                                        settings.add(item)
+                                        settingsList.add(item)
                                     }
                                 }
                             }

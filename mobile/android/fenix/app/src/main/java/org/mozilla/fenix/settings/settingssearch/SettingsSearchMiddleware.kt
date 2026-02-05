@@ -39,7 +39,9 @@ class SettingsSearchMiddleware(
         when (action) {
             is SettingsSearchAction.Init -> {
                 next(action)
-                fenixSettingsIndexer.indexAllSettings()
+                scope.launch(dispatcher) {
+                    fenixSettingsIndexer.indexAllSettings()
+                }
                 scope.launch { observeRecentSearches(store) }
             }
             is SettingsSearchAction.SearchQueryUpdated -> {
