@@ -1674,6 +1674,16 @@ class TimeZoneOffsetString {
     return mozilla::Span(timeZone_);
   }
 
+  static TimeZoneOffsetString GMTZero() {
+    static constexpr std::u16string_view gmtZero = u"GMT+00:00";
+    static_assert(gmtZero.length() ==
+                  std::extent_v<decltype(TimeZoneOffsetString::timeZone_)>);
+
+    TimeZoneOffsetString result{};
+    gmtZero.copy(result.timeZone_, gmtZero.length());
+    return result;
+  }
+
   /**
    * |timeZone| is either a canonical IANA time zone identifier or a normalized
    * time zone offset string.
@@ -1695,14 +1705,15 @@ class TimeZoneOffsetString {
     // Release assert because we don't want CopyChars to write out-of-bounds.
     MOZ_RELEASE_ASSERT(timeZone->length() == offsetLength);
 
-    // Self-hosted code has normalized offset strings to the format "±hh:mm".
+    // ToValidCanonicalTimeZoneIdentifier normalizes offset strings to the
+    // format "±hh:mm".
     MOZ_ASSERT(mozilla::IsAsciiDigit(timeZone->latin1OrTwoByteChar(1)));
     MOZ_ASSERT(mozilla::IsAsciiDigit(timeZone->latin1OrTwoByteChar(2)));
     MOZ_ASSERT(timeZone->latin1OrTwoByteChar(3) == ':');
     MOZ_ASSERT(mozilla::IsAsciiDigit(timeZone->latin1OrTwoByteChar(4)));
     MOZ_ASSERT(mozilla::IsAsciiDigit(timeZone->latin1OrTwoByteChar(5)));
 
-    // Self-hosted code has verified the offset is at most ±23:59.
+    // ToValidCanonicalTimeZoneIdentifier verifies the offset is at most ±23:59.
 #ifdef DEBUG
     auto twoDigit = [&](size_t offset) {
       auto c1 = timeZone->latin1OrTwoByteChar(offset);
@@ -1761,7 +1772,27 @@ class TimeZoneChars final {
     }
     return timeZone_.initTwoByte(cx, timeZone);
   }
+
+  void setToOffset(const TimeZoneOffsetString& offset) {
+    timeZoneOffset_ = mozilla::Some(offset);
+  }
 };
+
+static bool IsPlainDateTimeValue(DateTimeValueKind kind) {
+  switch (kind) {
+    case DateTimeValueKind::Number:
+    case DateTimeValueKind::TemporalZonedDateTime:
+    case DateTimeValueKind::TemporalInstant:
+      return false;
+    case DateTimeValueKind::TemporalDate:
+    case DateTimeValueKind::TemporalTime:
+    case DateTimeValueKind::TemporalDateTime:
+    case DateTimeValueKind::TemporalYearMonth:
+    case DateTimeValueKind::TemporalMonthDay:
+      return true;
+  }
+  MOZ_CRASH("invalid date time value kind");
+}
 
 /**
  * Returns a new mozilla::intl::DateTimeFormat with the locale and date-time
@@ -1781,8 +1812,12 @@ static mozilla::intl::DateTimeFormat* NewDateTimeFormat(
   }
 
   TimeZoneChars timeZone(cx);
-  if (!timeZone.init(cx, dateTimeFormat->getTimeZone())) {
-    return nullptr;
+  if (IsPlainDateTimeValue(kind)) {
+    timeZone.setToOffset(TimeZoneOffsetString::GMTZero());
+  } else {
+    if (!timeZone.init(cx, dateTimeFormat->getTimeZone())) {
+      return nullptr;
+    }
   }
 
   // This is a DateTimeFormat defined by a pattern option. This is internal
@@ -2196,36 +2231,6 @@ static bool ResolveCalendarValue(JSContext* cx,
 }
 
 /**
- * Ensure the time zone value is resolved.
- */
-static bool ResolveTimeZoneValue(JSContext* cx,
-                                 Handle<DateTimeFormatObject*> dateTimeFormat) {
-  if (dateTimeFormat->getTimeZoneValue()) {
-    return true;
-  }
-
-  Rooted<JSString*> timeZoneString(cx, dateTimeFormat->getTimeZone());
-
-  Rooted<ParsedTimeZone> parsedTimeZone(cx);
-  Rooted<TimeZoneValue> timeZone(cx);
-  if (!ParseTemporalTimeZoneString(cx, timeZoneString, &parsedTimeZone) ||
-      !ToTemporalTimeZone(cx, parsedTimeZone, &timeZone)) {
-    return false;
-  }
-  dateTimeFormat->setTimeZoneValue(timeZone);
-  return true;
-}
-
-/**
- * Ensure the calendar and time zone values are resolved.
- */
-static inline bool ResolveCalendarAndTimeZoneValues(
-    JSContext* cx, Handle<DateTimeFormatObject*> dateTimeFormat) {
-  return ResolveCalendarValue(cx, dateTimeFormat) &&
-         ResolveTimeZoneValue(cx, dateTimeFormat);
-}
-
-/**
  * HandleDateTimeTemporalDate ( dateTimeFormat, temporalDate )
  *
  * https://tc39.es/proposal-temporal/#sec-temporal-handledatetimetemporaldate
@@ -2236,11 +2241,10 @@ static bool HandleDateTimeTemporalDate(
   auto isoDate = unwrappedTemporalDate->date();
   auto calendarId = unwrappedTemporalDate->calendar().identifier();
 
-  if (!ResolveCalendarAndTimeZoneValues(cx, dateTimeFormat)) {
+  if (!ResolveCalendarValue(cx, dateTimeFormat)) {
     return false;
   }
   Rooted<CalendarValue> calendar(cx, dateTimeFormat->getCalendarValue());
-  Rooted<TimeZoneValue> timeZone(cx, dateTimeFormat->getTimeZoneValue());
 
   // Step 1.
   if (calendarId != CalendarId::ISO8601 &&
@@ -2256,11 +2260,7 @@ static bool HandleDateTimeTemporalDate(
   auto isoDateTime = ISODateTime{isoDate, {12, 0, 0}};
 
   // Step 3.
-  EpochNanoseconds epochNs;
-  if (!GetEpochNanosecondsFor(cx, timeZone, isoDateTime,
-                              TemporalDisambiguation::Compatible, &epochNs)) {
-    return false;
-  }
+  auto epochNs = GetUTCEpochNanoseconds(isoDateTime);
 
   // Steps 4-5. (Performed in NewDateTimeFormat)
 
@@ -2282,11 +2282,10 @@ static bool HandleDateTimeTemporalYearMonth(
   auto isoDate = unwrappedTemporalYearMonth->date();
   auto calendarId = unwrappedTemporalYearMonth->calendar().identifier();
 
-  if (!ResolveCalendarAndTimeZoneValues(cx, dateTimeFormat)) {
+  if (!ResolveCalendarValue(cx, dateTimeFormat)) {
     return false;
   }
   Rooted<CalendarValue> calendar(cx, dateTimeFormat->getCalendarValue());
-  Rooted<TimeZoneValue> timeZone(cx, dateTimeFormat->getTimeZoneValue());
 
   // Step 1.
   if (calendarId != calendar.identifier()) {
@@ -2301,11 +2300,7 @@ static bool HandleDateTimeTemporalYearMonth(
   auto isoDateTime = ISODateTime{isoDate, {12, 0, 0}};
 
   // Step 3.
-  EpochNanoseconds epochNs;
-  if (!GetEpochNanosecondsFor(cx, timeZone, isoDateTime,
-                              TemporalDisambiguation::Compatible, &epochNs)) {
-    return false;
-  }
+  auto epochNs = GetUTCEpochNanoseconds(isoDateTime);
 
   // Steps 4-5. (Performed in NewDateTimeFormat)
 
@@ -2327,11 +2322,10 @@ static bool HandleDateTimeTemporalMonthDay(
   auto isoDate = unwrappedTemporalMonthDay->date();
   auto calendarId = unwrappedTemporalMonthDay->calendar().identifier();
 
-  if (!ResolveCalendarAndTimeZoneValues(cx, dateTimeFormat)) {
+  if (!ResolveCalendarValue(cx, dateTimeFormat)) {
     return false;
   }
   Rooted<CalendarValue> calendar(cx, dateTimeFormat->getCalendarValue());
-  Rooted<TimeZoneValue> timeZone(cx, dateTimeFormat->getTimeZoneValue());
 
   // Step 1.
   if (calendarId != calendar.identifier()) {
@@ -2346,11 +2340,7 @@ static bool HandleDateTimeTemporalMonthDay(
   auto isoDateTime = ISODateTime{isoDate, {12, 0, 0}};
 
   // Step 3.
-  EpochNanoseconds epochNs;
-  if (!GetEpochNanosecondsFor(cx, timeZone, isoDateTime,
-                              TemporalDisambiguation::Compatible, &epochNs)) {
-    return false;
-  }
+  auto epochNs = GetUTCEpochNanoseconds(isoDateTime);
 
   // Steps 4-5. (Performed in NewDateTimeFormat)
 
@@ -2365,25 +2355,15 @@ static bool HandleDateTimeTemporalMonthDay(
  *
  * https://tc39.es/proposal-temporal/#sec-temporal-handledatetimetemporaltime
  */
-static bool HandleDateTimeTemporalTime(
-    JSContext* cx, Handle<DateTimeFormatObject*> dateTimeFormat,
-    Handle<PlainTimeObject*> unwrappedTemporalTime, ClippedTime* result) {
+static bool HandleDateTimeTemporalTime(PlainTimeObject* unwrappedTemporalTime,
+                                       ClippedTime* result) {
   auto time = unwrappedTemporalTime->time();
-
-  if (!ResolveTimeZoneValue(cx, dateTimeFormat)) {
-    return false;
-  }
-  Rooted<TimeZoneValue> timeZone(cx, dateTimeFormat->getTimeZoneValue());
 
   // Steps 1-2.
   auto isoDateTime = ISODateTime{{1970, 1, 1}, time};
 
   // Step 3.
-  EpochNanoseconds epochNs;
-  if (!GetEpochNanosecondsFor(cx, timeZone, isoDateTime,
-                              TemporalDisambiguation::Compatible, &epochNs)) {
-    return false;
-  }
+  auto epochNs = GetUTCEpochNanoseconds(isoDateTime);
 
   // Steps 4-5. (Performed in NewDateTimeFormat)
 
@@ -2404,11 +2384,10 @@ static bool HandleDateTimeTemporalDateTime(
   auto isoDateTime = unwrappedDateTime->dateTime();
   auto calendarId = unwrappedDateTime->calendar().identifier();
 
-  if (!ResolveCalendarAndTimeZoneValues(cx, dateTimeFormat)) {
+  if (!ResolveCalendarValue(cx, dateTimeFormat)) {
     return false;
   }
   Rooted<CalendarValue> calendar(cx, dateTimeFormat->getCalendarValue());
-  Rooted<TimeZoneValue> timeZone(cx, dateTimeFormat->getTimeZoneValue());
 
   // Step 1.
   if (calendarId != CalendarId::ISO8601 &&
@@ -2421,11 +2400,7 @@ static bool HandleDateTimeTemporalDateTime(
   }
 
   // Step 2.
-  EpochNanoseconds epochNs;
-  if (!GetEpochNanosecondsFor(cx, timeZone, isoDateTime,
-                              TemporalDisambiguation::Compatible, &epochNs)) {
-    return false;
-  }
+  auto epochNs = GetUTCEpochNanoseconds(isoDateTime);
 
   // Step 3. (Performed in NewDateTimeFormat)
 
@@ -2540,8 +2515,8 @@ static bool HandleDateTimeValue(JSContext* cx, const char* method,
 
   // Step 1.d.
   if (unwrapped->is<PlainTimeObject>()) {
-    return HandleDateTimeTemporalTime(cx, dateTimeFormat,
-                                      unwrapped.as<PlainTimeObject>(), result);
+    return HandleDateTimeTemporalTime(&unwrapped->as<PlainTimeObject>(),
+                                      result);
   }
 
   // Step 1.e.
@@ -2942,7 +2917,7 @@ bool js::intl::FormatDateTime(JSContext* cx,
  */
 static mozilla::intl::DateIntervalFormat* NewDateIntervalFormat(
     JSContext* cx, Handle<DateTimeFormatObject*> dateTimeFormat,
-    mozilla::intl::DateTimeFormat& mozDtf) {
+    mozilla::intl::DateTimeFormat& mozDtf, DateTimeValueKind kind) {
   if (!ResolveLocale(cx, dateTimeFormat)) {
     return nullptr;
   }
@@ -2962,9 +2937,13 @@ static mozilla::intl::DateIntervalFormat* NewDateIntervalFormat(
     return nullptr;
   }
 
-  TimeZoneChars timeZoneChars(cx);
-  if (!timeZoneChars.init(cx, dateTimeFormat->getTimeZone())) {
-    return nullptr;
+  TimeZoneChars timeZone(cx);
+  if (IsPlainDateTimeValue(kind)) {
+    timeZone.setToOffset(TimeZoneOffsetString::GMTZero());
+  } else {
+    if (!timeZone.init(cx, dateTimeFormat->getTimeZone())) {
+      return nullptr;
+    }
   }
 
   FormatBuffer<char16_t, INITIAL_CHAR_BUFFER_SIZE> skeleton(cx);
@@ -2975,7 +2954,7 @@ static mozilla::intl::DateIntervalFormat* NewDateIntervalFormat(
   }
 
   auto dif = mozilla::intl::DateIntervalFormat::TryCreate(
-      mozilla::MakeStringSpan(locale.get()), skeleton, timeZoneChars);
+      mozilla::MakeStringSpan(locale.get()), skeleton, timeZone);
   if (dif.isErr()) {
     ReportInternalError(cx, dif.unwrapErr());
     return nullptr;
@@ -2993,7 +2972,7 @@ static mozilla::intl::DateIntervalFormat* GetOrCreateDateIntervalFormat(
     return dif;
   }
 
-  auto* dif = NewDateIntervalFormat(cx, dateTimeFormat, mozDtf);
+  auto* dif = NewDateIntervalFormat(cx, dateTimeFormat, mozDtf, kind);
   if (!dif) {
     return nullptr;
   }

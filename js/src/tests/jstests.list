@@ -702,6 +702,9 @@ skip script test262/staging/explicit-resource-management/await-using-in-switch-c
 # https://github.com/tc39/test262/pull/4898
 skip script test262/staging/sm/String/string-upper-lower-mapping.js
 
+# https://github.com/tc39/test262/pull/4910
+skip script test262/staging/Intl402/Temporal/old/datetime-toLocaleString.js
+
 
 ##############################################
 # Enable Iterator Helpers tests in the shell #
@@ -889,11 +892,3 @@ skip script test262/built-ins/Temporal/ZonedDateTime/from/argument-string-limits
 skip script test262/built-ins/Temporal/ZonedDateTime/prototype/equals/argument-string-limits.js
 skip script test262/built-ins/Temporal/ZonedDateTime/prototype/since/argument-string-limits.js
 skip script test262/built-ins/Temporal/ZonedDateTime/prototype/until/argument-string-limits.js
-
-# https://github.com/tc39/proposal-temporal/pull/3246
-skip script test262/intl402/DateTimeFormat/prototype/formatRange/temporal-objects-ignore-timezone.js
-skip script test262/intl402/DateTimeFormat/prototype/formatToParts/temporal-objects-ignore-timezone.js
-skip script test262/intl402/DateTimeFormat/prototype/formatRangeToParts/temporal-objects-ignore-timezone.js
-skip script test262/intl402/DateTimeFormat/prototype/format/temporal-objects-ignore-timezone.js
-skip script test262/intl402/Temporal/PlainDate/prototype/toLocaleString/ignore-timezone.js
-skip script test262/intl402/Temporal/PlainDateTime/prototype/toLocaleString/ignore-timezone.js
