@@ -199,6 +199,7 @@ add_task(async function test_firstrun_explainer_page_opens() {
     set: [
       ["browser.smartwindow.enabled", true],
       ["browser.smartwindow.firstrun.hasCompleted", false],
+      ["browser.smartwindow.firstrun.modelChoice", ""],
       [explainerPref, exampleURL],
     ],
   });
