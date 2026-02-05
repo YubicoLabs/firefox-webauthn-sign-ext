@@ -21,10 +21,10 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, Optional
 
-from filelock import FileLock, Timeout
 from mozfile import json
 from packaging.specifiers import SpecifierSet
 
+from mach.filelock import LockTimeout, SoftFileLock
 from mach.requirements import (
     MachEnvRequirements,
     UnexpectedFlexibleRequirementException,
@@ -400,7 +400,7 @@ class MachSiteManager:
                 root = os.path.join(workspace, "mach_virtualenv")
 
         # Although `root` should never be `None` here, let's guard against
-        # that edge case by skipping the FileLock step if it is.
+        # that edge case by skipping the SoftFileLock step if it is.
         if root:
             lock_file = Path(root).with_suffix(".lock")
             timeout = 60
@@ -411,9 +411,9 @@ class MachSiteManager:
             # to date, while the other(s) wait(s). Once the first releases the lock, the others will
             # continue one-by-one and determine it's up-to-date.
             try:
-                with FileLock(lock_file, timeout=timeout):
+                with SoftFileLock(lock_file, timeout=timeout):
                     self._ensure(force=force)
-            except Timeout:
+            except LockTimeout:
                 self._log(
                     f"Could not acquire the lock at {lock_file} for the mach site after {timeout} seconds."
                 )
@@ -661,7 +661,7 @@ class CommandSiteManager:
         # to date, while the other(s) wait(s). Once the first releases the lock, the others
         # will continue one-by-one and determine it's up-to-date.
         try:
-            with FileLock(lock_file, timeout=timeout):
+            with SoftFileLock(lock_file, timeout=timeout):
                 result = self._up_to_date()
                 if not result.is_up_to_date:
                     active_site = MozSiteMetadata.from_runtime()
@@ -682,7 +682,7 @@ class CommandSiteManager:
                         self._requirements,
                         self._metadata,
                     )
-        except Timeout:
+        except LockTimeout:
             self._log(
                 f"Could not acquire the lock at {lock_file} for the {self._site_name} site after {timeout} seconds."
             )
