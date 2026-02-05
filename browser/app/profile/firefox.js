@@ -2264,6 +2264,7 @@ pref("browser.smartwindow.firstrun.hasCompleted", false);
 pref("browser.smartwindow.firstrun.modelChoice", "");
 pref("browser.smartwindow.model", "qwen3-235b-a22b-instruct-2507-maas");
 pref("browser.smartwindow.preferences.enabled", false);
+pref("browser.smartwindow.preferences.endpoint", "");
 
 // Block insecure active content on https pages
 pref("security.mixed_content.block_active_content", true);

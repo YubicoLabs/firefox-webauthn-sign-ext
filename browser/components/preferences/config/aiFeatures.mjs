@@ -29,9 +29,14 @@ const lazy = XPCOMUtils.declareLazy({
 Preferences.addAll([
   // browser.ai.control.* prefs defined in main.js
   { id: "browser.ml.chat.provider", type: "string" },
-  { id: "browser.smartwindow.preferences.enabled", type: "bool" },
+  { id: "browser.smartwindow.apiKey", type: "string" },
   { id: "browser.smartwindow.enabled", type: "bool" },
+  { id: "browser.smartwindow.endpoint", type: "string" },
+  { id: "browser.smartwindow.firstrun.modelChoice", type: "string" },
   { id: "browser.smartwindow.memories", type: "bool" },
+  { id: "browser.smartwindow.model", type: "string" },
+  { id: "browser.smartwindow.preferences.enabled", type: "bool" },
+  { id: "browser.smartwindow.preferences.endpoint", type: "string" },
 ]);
 
 Preferences.addSetting({ id: "aiControlsDescription" });
@@ -224,6 +229,28 @@ const AI_CONTROL_OPTIONS = [
     l10nId: "preferences-ai-controls-state-blocked",
   },
 ];
+
+/**
+ * Validates that a URL is trustworthy (HTTPS or localhost).
+ *
+ * @param {string} url - The URL to validate.
+ * @returns {boolean} True if URL is HTTPS or localhost, otherwise false.
+ */
+function validateEndpointUrl(url) {
+  if (!url) {
+    return false;
+  }
+  try {
+    const uri = Services.io.newURI(url);
+    const principal = Services.scriptSecurityManager.createContentPrincipal(
+      uri,
+      {}
+    );
+    return principal.isOriginPotentiallyTrustworthy;
+  } catch {
+    return false;
+  }
+}
 
 Preferences.addSetting({
   id: "aiControlDefaultToggle",
@@ -448,12 +475,12 @@ Preferences.addSetting(
 );
 
 Preferences.addSetting({
-  id: "AIWindowPreferencesEnabled",
+  id: "smartWindowPreferencesEnabled",
   pref: "browser.smartwindow.preferences.enabled",
 });
 
 Preferences.addSetting({
-  id: "AIWindowEnabled",
+  id: "smartWindowEnabled",
   pref: "browser.smartwindow.enabled",
 });
 
@@ -461,8 +488,8 @@ Preferences.addSetting({
 // feature isn't enabled.
 Preferences.addSetting({
   id: "smartWindowFieldset",
-  deps: ["AIWindowPreferencesEnabled"],
-  visible: deps => deps.AIWindowPreferencesEnabled.value,
+  deps: ["smartWindowPreferencesEnabled"],
+  visible: deps => deps.smartWindowPreferencesEnabled.value,
 });
 
 Preferences.addSetting({
@@ -471,21 +498,195 @@ Preferences.addSetting({
 
 Preferences.addSetting({
   id: "activateSmartWindowLink",
-  deps: ["AIWindowEnabled", "AIWindowPreferencesEnabled"],
+  deps: ["smartWindowEnabled", "smartWindowPreferencesEnabled"],
   visible: deps => {
-    return deps.AIWindowPreferencesEnabled.value && !deps.AIWindowEnabled.value;
+    return (
+      deps.smartWindowPreferencesEnabled.value && !deps.smartWindowEnabled.value
+    );
   },
 });
 
 Preferences.addSetting({
   id: "personalizeSmartWindowButton",
-  deps: ["AIWindowEnabled", "AIWindowPreferencesEnabled"],
+  deps: ["smartWindowEnabled", "smartWindowPreferencesEnabled"],
   visible: deps => {
-    return deps.AIWindowPreferencesEnabled.value && deps.AIWindowEnabled.value;
+    return (
+      deps.smartWindowPreferencesEnabled.value && deps.smartWindowEnabled.value
+    );
   },
   onUserClick(e) {
     e.preventDefault();
     window.gotoPref("panePersonalizeSmartWindow");
+  },
+});
+
+Preferences.addSetting({
+  id: "smartWindowEndpoint",
+  pref: "browser.smartwindow.endpoint",
+});
+
+Preferences.addSetting({
+  id: "smartWindowModel",
+  pref: "browser.smartwindow.model",
+});
+
+Preferences.addSetting({
+  id: "smartWindowApiKey",
+  pref: "browser.smartwindow.apiKey",
+});
+
+Preferences.addSetting({
+  id: "smartWindowPreferencesEndpoint",
+  pref: "browser.smartwindow.preferences.endpoint",
+});
+
+Preferences.addSetting({
+  id: "smartWindowFirstRunModelChoice",
+  pref: "browser.smartwindow.firstrun.modelChoice",
+});
+
+Preferences.addSetting({
+  id: "modelSelection",
+  deps: [
+    "smartWindowModel",
+    "smartWindowFirstRunModelChoice",
+    "smartWindowEndpoint",
+    "smartWindowPreferencesEndpoint",
+  ],
+  get(_, deps) {
+    const modelChoice = deps.smartWindowFirstRunModelChoice.value;
+    if (modelChoice) {
+      return modelChoice;
+    }
+
+    // Fall back to no selection
+    return null;
+  },
+  set(value, deps) {
+    // Save model selection
+    // Preset models save pref immediately, "Custom" waits for clicking the Save button
+    if (value !== "0") {
+      // Switching to preset
+      const endpointEl = document.getElementById("customModelEndpoint");
+      const currentEndpoint = endpointEl?.value?.trim();
+      if (currentEndpoint) {
+        deps.smartWindowPreferencesEndpoint.value = currentEndpoint;
+      }
+
+      Services.prefs.clearUserPref("browser.smartwindow.endpoint");
+    }
+
+    // Write index to firstrun.modelChoice
+    deps.smartWindowFirstRunModelChoice.value = value;
+  },
+});
+
+Preferences.addSetting({
+  id: "customModelName",
+  deps: [
+    "smartWindowFirstRunModelChoice",
+    "smartWindowModel",
+    "smartWindowEndpoint",
+    "smartWindowPreferencesEndpoint",
+  ],
+  visible: deps => deps.smartWindowFirstRunModelChoice.value === "0",
+  get(_, deps) {
+    return deps.smartWindowModel.value || "";
+  },
+});
+
+Preferences.addSetting({
+  id: "customModelEndpoint",
+  deps: [
+    "smartWindowFirstRunModelChoice",
+    "smartWindowEndpoint",
+    "smartWindowPreferencesEndpoint",
+  ],
+  visible: deps => deps.smartWindowFirstRunModelChoice.value === "0",
+  get(_, deps) {
+    const defaultEndpoint = Services.prefs
+      .getDefaultBranch("")
+      .getStringPref("browser.smartwindow.endpoint", "");
+
+    // Show saved endpoint if user has set a custom value if its different from default
+    if (
+      deps.smartWindowEndpoint.value &&
+      deps.smartWindowEndpoint.value !== defaultEndpoint
+    ) {
+      return deps.smartWindowEndpoint.value;
+    }
+
+    // Show backup endpoint when switching back to custom
+    if (deps.smartWindowPreferencesEndpoint.value) {
+      return deps.smartWindowPreferencesEndpoint.value;
+    }
+    return "";
+  },
+  onUserChange(value) {
+    const saveButton = document.getElementById("customModelSaveButton");
+    if (saveButton) {
+      saveButton.disabled = !validateEndpointUrl(value?.trim());
+    }
+  },
+});
+
+Preferences.addSetting({
+  id: "customModelAuthToken",
+  deps: ["smartWindowFirstRunModelChoice", "smartWindowApiKey"],
+  visible: deps => deps.smartWindowFirstRunModelChoice.value === "0",
+  get(_, deps) {
+    if (deps.smartWindowApiKey.value) {
+      return deps.smartWindowApiKey.value;
+    }
+    return "";
+  },
+});
+
+Preferences.addSetting({
+  id: "customModelHelpLink",
+  deps: ["smartWindowFirstRunModelChoice"],
+  visible: deps => deps.smartWindowFirstRunModelChoice.value === "0",
+});
+
+Preferences.addSetting({
+  id: "customModelSaveButton",
+  deps: [
+    "smartWindowFirstRunModelChoice",
+    "smartWindowModel",
+    "smartWindowEndpoint",
+    "smartWindowApiKey",
+    "smartWindowPreferencesEndpoint",
+  ],
+  visible: deps => deps.smartWindowFirstRunModelChoice.value === "0",
+  disabled() {
+    // Read from input element since setting only updates on Save button
+    const endpoint = document
+      .getElementById("customModelEndpoint")
+      ?.value?.trim();
+    return !validateEndpointUrl(endpoint);
+  },
+  onUserClick(e, deps) {
+    const doc = e.target.ownerDocument;
+    // TODO: (bug 2014287) Utilize ways of handling the input changes instead of using document.getElementById()
+    const modelName =
+      doc.getElementById("customModelName")?.value?.trim() || "";
+    const modelEndpoint =
+      doc.getElementById("customModelEndpoint")?.value?.trim() || "";
+    const modelAuthToken =
+      doc.getElementById("customModelAuthToken")?.value?.trim() || "";
+
+    if (!validateEndpointUrl(modelEndpoint)) {
+      console.warn("For custom setting URL must be HTTPS or localhost");
+      e.target.disabled = true;
+      return;
+    }
+
+    // custom uses .model pref
+    deps.smartWindowModel.value = modelName;
+    deps.smartWindowEndpoint.value = modelEndpoint;
+    deps.smartWindowApiKey.value = modelAuthToken;
+    // Update backup custom endpoint when saving
+    deps.smartWindowPreferencesEndpoint.value = modelEndpoint;
   },
 });
 
@@ -921,6 +1122,81 @@ SettingGroupManager.registerGroups({
                   },
                   { control: "hr" },
                 ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  assistantModelGroup: {
+    l10nId: "smart-window-model-section",
+    headingLevel: 2,
+    supportPage: "smart-window-model",
+    items: [
+      {
+        id: "modelSelection",
+        control: "moz-radio-group",
+        options: [
+          {
+            value: "1",
+            l10nId: "smart-window-model-fast",
+            l10nArgs: { modelName: "gemini-flash-lite" },
+          },
+          {
+            value: "2",
+            l10nId: "smart-window-model-flexible",
+            l10nArgs: { modelName: "Qwen3-235B-A22B-throughput" },
+          },
+          {
+            value: "3",
+            l10nId: "smart-window-model-personal",
+            l10nArgs: { modelName: "gpt-oss-120b" },
+          },
+          {
+            value: "0",
+            l10nId: "smart-window-model-custom",
+            items: [
+              {
+                id: "customModelName",
+                l10nId: "smart-window-model-custom-name",
+                control: "moz-input-text",
+              },
+              {
+                id: "customModelEndpoint",
+                l10nId: "smart-window-model-custom-url",
+                control: "moz-input-url",
+              },
+              {
+                id: "customModelAuthToken",
+                l10nId: "smart-window-model-custom-token",
+                control: "moz-input-password",
+              },
+              {
+                id: "customModelHelpLink",
+                control: "moz-message-bar",
+                l10nId: "smart-window-model-custom-help",
+                controlAttrs: {
+                  type: "info",
+                },
+                options: [
+                  {
+                    control: "a",
+                    l10nId: "smart-window-model-custom-more-link",
+                    slot: "support-link",
+                    controlAttrs: {
+                      href: "",
+                    },
+                  },
+                ],
+              },
+              {
+                id: "customModelSaveButton",
+                control: "moz-button",
+                l10nId: "smart-window-model-custom-save",
+                controlAttrs: {
+                  type: "primary",
+                },
               },
             ],
           },
