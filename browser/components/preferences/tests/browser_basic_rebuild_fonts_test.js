@@ -11,19 +11,48 @@ add_task(async function () {
   let defaultFontType = Services.prefs.getCharPref("font.default." + langGroup);
   let fontFamilyPref = "font.name." + defaultFontType + "." + langGroup;
   let fontFamily = Services.prefs.getCharPref(fontFamilyPref);
+  let fontFamilyField = doc.getElementById("defaultFont");
+  is(fontFamilyField.value, fontFamily, "Font family should be set correctly.");
+  is(
+    fontFamilyField.getAttribute("preference"),
+    fontFamilyPref,
+    "langGroup is used in defaultFont preference"
+  );
 
-  let fontsGroup = doc.querySelector('setting-group[groupid="fonts"]');
-  ok(fontsGroup, "Fonts setting-group exists");
+  function dispatchMenuItemCommand(menuItem) {
+    const cmdEvent = doc.createEvent("xulcommandevent");
+    cmdEvent.initCommandEvent(
+      "command",
+      true,
+      true,
+      contentWindow,
+      0,
+      false,
+      false,
+      false,
+      false,
+      0,
+      null,
+      0
+    );
+    menuItem.dispatchEvent(cmdEvent);
+  }
 
-  let mozSelect = fontsGroup.querySelector("#defaultFont");
-  ok(mozSelect, "defaultFont moz-select exists");
-  is(mozSelect.localName, "moz-select", "Control is a moz-select");
-  is(mozSelect.value, fontFamily, "Font family should be set correctly.");
-
+  /**
+   * Return a promise that resolves when the fontFamilyPref changes.
+   *
+   * Font prefs are the only ones whose form controls set "delayprefsave",
+   * which delays the pref change when a user specifies a new value
+   * for the pref.  Thus, in order to confirm that the pref gets changed
+   * when the test selects a new value in a font field, we need to await
+   * the change.  Awaiting this function does so for fontFamilyPref.
+   */
   function fontFamilyPrefChanged() {
     return new Promise(resolve => {
       const observer = {
         observe(aSubject, aTopic, aData) {
+          // Check for an exact match to avoid the ambiguity of nsIPrefBranch's
+          // prefix-matching algorithm for notifying pref observers.
           if (aData == fontFamilyPref) {
             Services.prefs.removeObserver(fontFamilyPref, observer);
             resolve();
@@ -34,59 +63,41 @@ add_task(async function () {
     });
   }
 
-  let selectEl = mozSelect.inputEl;
-  let options = [...selectEl.options];
-  Assert.greater(options.length, 1, "There are multiple font options.");
-  is(selectEl.selectedIndex, 0, "The first (default) font option is selected.");
+  const menuItems = fontFamilyField.querySelectorAll("menuitem");
+  Assert.greater(menuItems.length, 1, "There are multiple font menuitems.");
+  ok(menuItems[0].selected, "The first (default) font menuitem is selected.");
 
-  let prefChangePromise = fontFamilyPrefChanged();
-  let pickerOpened = BrowserTestUtils.waitForSelectPopupShown(window);
-  mozSelect.focus();
-  EventUtils.synthesizeKey(" ", {}, contentWindow);
-  await pickerOpened;
-  EventUtils.synthesizeKey("KEY_ArrowDown", {}, contentWindow);
-  EventUtils.synthesizeKey("KEY_Enter", {}, contentWindow);
-  await prefChangePromise;
+  dispatchMenuItemCommand(menuItems[1]);
+  ok(menuItems[1].selected, "The second font menuitem is selected.");
 
+  await fontFamilyPrefChanged();
   fontFamily = Services.prefs.getCharPref(fontFamilyPref);
-  is(mozSelect.value, fontFamily, "The font family has been updated.");
-  is(selectEl.selectedIndex, 1, "The second font option is now selected.");
+  is(fontFamilyField.value, fontFamily, "The font family has been updated.");
 
-  prefChangePromise = fontFamilyPrefChanged();
-  pickerOpened = BrowserTestUtils.waitForSelectPopupShown(window);
-  mozSelect.focus();
-  EventUtils.synthesizeKey(" ", {}, contentWindow);
-  await pickerOpened;
-  EventUtils.synthesizeKey("KEY_ArrowUp", {}, contentWindow);
-  EventUtils.synthesizeKey("KEY_Enter", {}, contentWindow);
-  await prefChangePromise;
-
-  fontFamily = Services.prefs.getCharPref(fontFamilyPref);
-  is(mozSelect.value, fontFamily, "The font family has been updated.");
-  is(
-    selectEl.selectedIndex,
-    0,
-    "The first (default) font option is selected again."
+  dispatchMenuItemCommand(menuItems[0]);
+  ok(
+    menuItems[0].selected,
+    "The first (default) font menuitem is selected again."
   );
+
+  await fontFamilyPrefChanged();
+  fontFamily = Services.prefs.getCharPref(fontFamilyPref);
+  is(fontFamilyField.value, fontFamily, "The font family has been updated.");
 
   let defaultFontSize = Services.prefs.getIntPref(
     "font.size.variable." + langGroup
   );
-  let sizeSelect = fontsGroup.querySelector("#defaultFontSize");
-  ok(sizeSelect, "defaultFontSize moz-select exists");
-  is(sizeSelect.localName, "moz-select", "Size control is a moz-select");
+  let fontSizeField = doc.getElementById("defaultFontSize");
   is(
-    sizeSelect.value,
-    String(defaultFontSize),
+    fontSizeField.value,
+    "" + defaultFontSize,
     "Font size should be set correctly."
   );
 
-  let advancedButton = fontsGroup.querySelector("#advancedFonts");
-  ok(advancedButton, "advancedFonts button exists");
   let promiseSubDialogLoaded = promiseLoadSubDialog(
     "chrome://browser/content/preferences/dialogs/fonts.xhtml"
   );
-  advancedButton.click();
+  doc.getElementById("advancedFonts").click();
   let win = await promiseSubDialogLoaded;
   doc = win.document;
 

@@ -192,7 +192,7 @@ export class Setting extends EventEmitter {
   /**
    * @type {Preference}
    */
-  _pref;
+  pref;
 
   /**
    * Keeps a cache of each dep's Setting so that
@@ -206,22 +206,6 @@ export class Setting extends EventEmitter {
    * @type {SettingConfig | AsyncSettingHandler}
    */
   config;
-
-  get pref() {
-    return this._pref;
-  }
-
-  set pref(newPref) {
-    if (this._pref) {
-      this._pref.off("change", this.onChange);
-    }
-
-    this._pref = newPref;
-
-    if (this._pref) {
-      this._pref.on("change", this.onChange);
-    }
-  }
 
   /**
    * @param {SettingConfig['id']} id
@@ -256,6 +240,9 @@ export class Setting extends EventEmitter {
     this.controllingExtensionInfo = {
       ...this.config.controllingExtensionInfo,
     };
+    if (this.pref) {
+      this.pref.on("change", this.onChange);
+    }
     if (this.config.controllingExtensionInfo?.storeId) {
       this._checkForControllingExtension();
       this.watchExtensionPrefChange();
@@ -449,10 +436,6 @@ export class Setting extends EventEmitter {
     if (typeof this._teardown === "function") {
       this._teardown();
       this._teardown = null;
-    }
-
-    if (this.pref) {
-      this.pref.off("change", this.onChange);
     }
 
     if (this.config.controllingExtensionInfo?.storeId) {

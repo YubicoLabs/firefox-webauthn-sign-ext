@@ -41,6 +41,8 @@ run-if = [
 
 ["browser_backup_visibility.js"]
 
+["browser_basic_rebuild_fonts_test.js"]
+
 ["browser_browser_languages_subdialog.js"]
 skip-if = [
   "tsan",
@@ -62,8 +64,6 @@ support-files = ["browser_bug1184989_prevent_scrolling_when_preferences_flipped.
 ["browser_bug1547020_lockedDownloadDir.js"]
 
 ["browser_bug1579418.js"]
-
-["browser_build_font_options_test.js"]
 
 ["browser_capability_filter.js"]
 
