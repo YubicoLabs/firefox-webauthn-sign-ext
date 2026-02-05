@@ -21,9 +21,8 @@ namespace mozilla::intl {
 class RelativeTimeFormat;
 }
 
-namespace js {
+namespace js::intl {
 
-namespace intl {
 // Similar to mozilla::intl::RelativeTimeFormatOptions, except uses smaller
 // int types to require less memory when allocating on the heap.
 struct RelativeTimeFormatOptions {
@@ -33,7 +32,6 @@ struct RelativeTimeFormatOptions {
   enum class Numeric : int8_t { Always, Auto };
   Numeric numeric = Numeric::Always;
 };
-}  // namespace intl
 
 class RelativeTimeFormatObject : public NativeObject {
  public:
@@ -118,8 +116,6 @@ class RelativeTimeFormatObject : public NativeObject {
   static void finalize(JS::GCContext* gcx, JSObject* obj);
 };
 
-namespace intl {
-
 using RelativeTimeFormatUnit =
     js::ImmutableTenuredPtr<PropertyName*> JSAtomState::*;
 
@@ -128,7 +124,6 @@ using RelativeTimeFormatUnit =
     const mozilla::intl::NumberPartVector& parts,
     RelativeTimeFormatUnit relativeTimeUnit, MutableHandleValue result);
 
-}  // namespace intl
-}  // namespace js
+}  // namespace js::intl
 
 #endif /* builtin_intl_RelativeTimeFormat_h */

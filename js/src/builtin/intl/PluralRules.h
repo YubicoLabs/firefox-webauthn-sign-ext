@@ -20,9 +20,8 @@ namespace mozilla::intl {
 class PluralRules;
 }
 
-namespace js {
+namespace js::intl {
 
-namespace intl {
 struct PluralRulesOptions {
   NumberFormatDigitOptions digitOptions{};
 
@@ -35,7 +34,6 @@ struct PluralRulesOptions {
   using CompactDisplay = NumberFormatOptions::CompactDisplay;
   CompactDisplay compactDisplay = CompactDisplay::Short;
 };
-}  // namespace intl
 
 class PluralRulesObject : public NativeObject {
  public:
@@ -110,6 +108,6 @@ class PluralRulesObject : public NativeObject {
   static void finalize(JS::GCContext* gcx, JSObject* obj);
 };
 
-}  // namespace js
+}  // namespace js::intl
 
 #endif /* builtin_intl_PluralRules_h */

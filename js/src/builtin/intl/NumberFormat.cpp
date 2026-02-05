@@ -1435,7 +1435,7 @@ NumberFormatObject* js::intl::GetOrCreateNumberFormat(JSContext* cx,
   return CreateNumberFormat(cx, locales, options);
 }
 
-void js::NumberFormatObject::finalize(JS::GCContext* gcx, JSObject* obj) {
+void js::intl::NumberFormatObject::finalize(JS::GCContext* gcx, JSObject* obj) {
   auto* numberFormat = &obj->as<NumberFormatObject>();
   auto* nf = numberFormat->getNumberFormatter();
   auto* nrf = numberFormat->getNumberRangeFormatter();

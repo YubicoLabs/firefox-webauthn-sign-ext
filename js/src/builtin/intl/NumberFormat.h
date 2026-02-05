@@ -23,10 +23,10 @@ struct PluralRulesOptions;
 }  // namespace mozilla::intl
 
 namespace js {
-
 class ArrayObject;
+}
 
-namespace intl {
+namespace js::intl {
 
 struct NumberFormatDigitOptions {
   // integer ∈ (1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500,
@@ -104,8 +104,6 @@ struct NumberFormatOptions {
   enum class SignDisplay : int8_t { Auto, Never, Always, ExceptZero, Negative };
   SignDisplay signDisplay = SignDisplay::Auto;
 };
-
-}  // namespace intl
 
 class NumberFormatObject : public NativeObject {
  public:
@@ -221,7 +219,6 @@ class NumberFormatObject : public NativeObject {
   static void finalize(JS::GCContext* gcx, JSObject* obj);
 };
 
-namespace intl {
 struct PluralRulesOptions;
 
 /**
@@ -293,8 +290,6 @@ using NumberFormatUnit = js::ImmutableTenuredPtr<PropertyName*> JSAtomState::*;
     JSContext* cx, mozilla::intl::NumberFormat* numberFormat,
     std::string_view x, NumberFormatUnit unit = nullptr);
 
-}  // namespace intl
-
-}  // namespace js
+}  // namespace js::intl
 
 #endif /* builtin_intl_NumberFormat_h */

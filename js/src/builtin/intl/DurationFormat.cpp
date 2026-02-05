@@ -133,7 +133,8 @@ const ClassSpec DurationFormatObject::classSpec_ = {
     ClassSpec::DontDefineConstructor,
 };
 
-void js::DurationFormatObject::finalize(JS::GCContext* gcx, JSObject* obj) {
+void js::intl::DurationFormatObject::finalize(JS::GCContext* gcx,
+                                              JSObject* obj) {
   auto* durationFormat = &obj->as<DurationFormatObject>();
 
   for (auto unit : durationUnits) {
@@ -2169,8 +2170,8 @@ static bool durationFormat_supportedLocalesOf(JSContext* cx, unsigned argc,
   return true;
 }
 
-bool js::TemporalDurationToLocaleString(JSContext* cx,
-                                        const JS::CallArgs& args) {
+bool js::intl::TemporalDurationToLocaleString(JSContext* cx,
+                                              const JS::CallArgs& args) {
   MOZ_ASSERT(args.thisv().isObject());
   MOZ_ASSERT(args.thisv().toObject().is<temporal::DurationObject>());
 

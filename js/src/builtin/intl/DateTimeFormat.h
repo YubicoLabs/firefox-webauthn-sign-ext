@@ -24,9 +24,8 @@ class DateTimeFormat;
 class DateIntervalFormat;
 }  // namespace mozilla::intl
 
-namespace js {
+namespace js::intl {
 
-namespace intl {
 struct DateTimeFormatOptions {
   enum class Required : int8_t { Any, Date, Time };
   Required required = Required::Any;
@@ -88,7 +87,6 @@ struct DateTimeFormatOptions {
   };
   mozilla::Maybe<TimeZoneName> timeZoneName{};
 };
-}  // namespace intl
 
 enum class DateTimeValueKind {
   Number,
@@ -296,8 +294,6 @@ class DateTimeFormatObject : public NativeObject {
   static void finalize(JS::GCContext* gcx, JSObject* obj);
 };
 
-namespace intl {
-
 enum class DateTimeFormatKind {
   /**
    * Call CreateDateTimeFormat with `required = Any` and `defaults = All`.
@@ -346,8 +342,6 @@ enum class DateTimeFormatKind {
     JSContext* cx, const JS::CallArgs& args, DateTimeFormatKind formatKind,
     JS::Handle<JSLinearString*> toLocaleStringTimeZone = nullptr);
 
-}  // namespace intl
-
-}  // namespace js
+}  // namespace js::intl
 
 #endif /* builtin_intl_DateTimeFormat_h */

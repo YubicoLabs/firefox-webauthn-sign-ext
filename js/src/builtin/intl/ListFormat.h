@@ -20,9 +20,8 @@ namespace mozilla::intl {
 class ListFormat;
 }  // namespace mozilla::intl
 
-namespace js {
+namespace js::intl {
 
-namespace intl {
 struct ListFormatOptions {
   enum class Type : int8_t { Conjunction, Disjunction, Unit };
   Type type = Type::Conjunction;
@@ -30,7 +29,6 @@ struct ListFormatOptions {
   enum class Style : int8_t { Long, Short, Narrow };
   Style style = Style::Long;
 };
-}  // namespace intl
 
 class ListFormatObject : public NativeObject {
  public:
@@ -102,6 +100,6 @@ class ListFormatObject : public NativeObject {
   static void finalize(JS::GCContext* gcx, JSObject* obj);
 };
 
-}  // namespace js
+}  // namespace js::intl
 
 #endif /* builtin_intl_ListFormat_h */

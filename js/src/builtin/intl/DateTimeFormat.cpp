@@ -872,7 +872,8 @@ DateTimeFormatObject* js::intl::GetOrCreateDateTimeFormat(
   return CreateDateTimeFormat(cx, locales, options, nullptr, kind);
 }
 
-void js::DateTimeFormatObject::finalize(JS::GCContext* gcx, JSObject* obj) {
+void js::intl::DateTimeFormatObject::finalize(JS::GCContext* gcx,
+                                              JSObject* obj) {
   auto* dateTimeFormat = &obj->as<DateTimeFormatObject>();
   auto* df = dateTimeFormat->getDateFormat();
   auto* dif = dateTimeFormat->getDateIntervalFormat();
@@ -1977,7 +1978,7 @@ static mozilla::intl::DateTimeFormat* NewDateTimeFormat(
   return dfResult.unwrap().release();
 }
 
-void js::DateTimeFormatObject::maybeClearCache(DateTimeValueKind kind) {
+void js::intl::DateTimeFormatObject::maybeClearCache(DateTimeValueKind kind) {
   if (getDateTimeValueKind() == kind) {
     return;
   }
