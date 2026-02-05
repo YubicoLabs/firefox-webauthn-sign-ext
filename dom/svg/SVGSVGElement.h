@@ -10,6 +10,7 @@
 #include "SVGAnimatedEnumeration.h"
 #include "SVGViewportElement.h"
 #include "mozilla/SVGImageContext.h"
+#include "nsString.h"
 
 nsresult NS_NewSVGSVGElement(
     nsIContent** aResult, already_AddRefed<mozilla::dom::NodeInfo>&& aNodeInfo,
@@ -135,7 +136,7 @@ class SVGSVGElement final : public SVGSVGElementBase {
   // Returns true IFF our attributes are currently overridden by a <view>
   // element and that element's ID matches the passed-in string.
   bool IsOverriddenBy(const nsAString& aViewID) const {
-    return mCurrentViewID && mCurrentViewID->Equals(aViewID);
+    return !mCurrentViewID.IsVoid() && mCurrentViewID.Equals(aViewID);
   }
 
   SMILTimeContainer* GetTimedDocumentRoot();
@@ -219,9 +220,8 @@ class SVGSVGElement final : public SVGSVGElementBase {
 
   bool mImageNeedsTransformInvalidation;
 
-  // mCurrentViewID and mSVGView are mutually exclusive; we can have
-  // at most one non-null.
-  std::unique_ptr<nsString> mCurrentViewID;
+  // mCurrentViewID and mSVGView are mutually exclusive.
+  nsString mCurrentViewID = VoidString();
   std::unique_ptr<SVGView> mSVGView;
 };
 
