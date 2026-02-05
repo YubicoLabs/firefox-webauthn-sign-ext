@@ -132,8 +132,8 @@ pub fn prepare_quad(
         pic_context.raster_spatial_node_index,
     );
 
-    let can_use_nine_patch = map_prim_to_raster.is_2d_scale_translation()
-        && pattern_builder.can_use_nine_patch();
+    let prim_is_scale_offset = map_prim_to_raster.is_2d_scale_translation();
+    let can_use_nine_patch = prim_is_scale_offset && pattern_builder.can_use_nine_patch();
 
     let strategy = match cache_key {
         Some(_) => QuadRenderStrategy::Indirect,
@@ -143,6 +143,7 @@ pub fn prepare_quad(
             frame_state.clip_store,
             interned_clips,
             can_use_nine_patch,
+            prim_is_scale_offset,
             pattern_ctx.spatial_tree,
         ),
     };
@@ -215,8 +216,8 @@ pub fn prepare_repeatable_quad(
         pic_context.raster_spatial_node_index,
     );
 
-    let can_use_nine_patch = map_prim_to_raster.is_2d_scale_translation()
-        && pattern_builder.can_use_nine_patch();
+    let prim_is_scale_offset = map_prim_to_raster.is_2d_scale_translation();
+    let can_use_nine_patch = prim_is_scale_offset && pattern_builder.can_use_nine_patch();
 
     // This could move back into preapre_quad_impl if it took the tile's
     // coverage rect into account rather than the whole primitive's, but
@@ -230,6 +231,7 @@ pub fn prepare_repeatable_quad(
             frame_state.clip_store,
             interned_clips,
             can_use_nine_patch,
+            prim_is_scale_offset,
             pattern_ctx.spatial_tree,
         ),
     };
@@ -1039,24 +1041,36 @@ fn get_prim_render_strategy(
     clip_store: &ClipStore,
     interned_clips: &DataStore<ClipIntern>,
     can_use_nine_patch: bool,
+    prim_is_scale_offset: bool,
     spatial_tree: &SpatialTree,
 ) -> QuadRenderStrategy {
     if !clip_chain.needs_mask {
         return QuadRenderStrategy::Direct
     }
 
-    // TODO: we should compute x_tiles and y_tiles based on the tightest
-    // possible rect in device space instead of a rect in picture space.
-    let prim_coverage_size = clip_chain.pic_coverage_rect.size();
-    let x_tiles = (prim_coverage_size.width / MIN_QUAD_SPLIT_SIZE)
-        .min(MAX_TILES_PER_QUAD_X as f32)
-        .max(1.0)
-        .ceil() as u16;
-    let y_tiles = (prim_coverage_size.height / MIN_QUAD_SPLIT_SIZE)
-        .min(MAX_TILES_PER_QUAD_Y as f32)
-        .max(1.0)
-        .ceil() as u16;
-    let try_split_prim = x_tiles > 1 || y_tiles > 1;
+    // Both the nine-patch and tiled paths rely on axis-aligned primitive for now.
+    // In the case of nine-patch this is currently a hard requirement, while the
+    // tiling path works with non-axis-aligned primitives but less efficiently than
+    // the indirect path since all tiles end up treated as masks.
+    let mut x_tiles = 0;
+    let mut y_tiles = 0;
+    let try_split_prim = if prim_is_scale_offset {
+        // TODO: we should compute x_tiles and y_tiles based on the (tightest
+        // possible) rect in device space instead of a rect in picture space.
+        let prim_coverage_size = clip_chain.pic_coverage_rect.size();
+        x_tiles = (prim_coverage_size.width / MIN_QUAD_SPLIT_SIZE)
+            .min(MAX_TILES_PER_QUAD_X as f32)
+            .max(1.0)
+            .ceil() as u16;
+        y_tiles = (prim_coverage_size.height / MIN_QUAD_SPLIT_SIZE)
+            .min(MAX_TILES_PER_QUAD_Y as f32)
+            .max(1.0)
+            .ceil() as u16;
+
+        x_tiles > 1 || y_tiles > 1
+    } else {
+        false
+    };
 
     if !try_split_prim {
         return QuadRenderStrategy::Indirect;
