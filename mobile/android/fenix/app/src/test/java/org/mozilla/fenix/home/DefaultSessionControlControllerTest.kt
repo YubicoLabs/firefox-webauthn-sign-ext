@@ -99,6 +99,7 @@ class DefaultSessionControlControllerTest {
     private lateinit var store: BrowserStore
     private val appState: AppState = mockk(relaxed = true)
     private var showAddSearchWidgetPromptCalled = false
+    private var requestSetDefaultBrowserPromptCalled = false
 
     @Before
     fun setup() {
@@ -566,14 +567,13 @@ class DefaultSessionControlControllerTest {
 
     @Test
     fun `GIVEN item is a task WHEN onChecklistItemClicked is called THEN performs the expected actions`() {
-        every { activity.showSetDefaultBrowserPrompt() } just Runs
         val controller = createController()
         val task = mockk<ChecklistItem.Task>()
         every { task.type } returns ChecklistItem.Task.Type.SET_AS_DEFAULT
 
         controller.onChecklistItemClicked(task)
 
-        verify { activity.showSetDefaultBrowserPrompt() }
+        assertTrue("Should have called the new requestSetDefaultBrowserPrompt", requestSetDefaultBrowserPromptCalled)
         verify { appStore.dispatch(AppAction.SetupChecklistAction.ChecklistItemClicked(task)) }
     }
 
@@ -581,12 +581,11 @@ class DefaultSessionControlControllerTest {
     fun `WHEN set as default task THEN navigationActionFor calls the set to default prompt`() {
         val controller = createController()
         val task = mockk<ChecklistItem.Task>()
-        every { activity.showSetDefaultBrowserPrompt() } just Runs
         every { task.type } returns ChecklistItem.Task.Type.SET_AS_DEFAULT
 
         controller.navigationActionFor(task)
 
-        verify { activity.showSetDefaultBrowserPrompt() }
+        assertTrue("Should have called the new requestSetDefaultBrowserPrompt", requestSetDefaultBrowserPromptCalled)
     }
 
     @Test
@@ -707,6 +706,7 @@ class DefaultSessionControlControllerTest {
             navControllerRef = WeakReference(navController),
             viewLifecycleScope = scope,
             showAddSearchWidgetPrompt = { showAddSearchWidgetPromptCalled = true },
+            requestSetDefaultBrowserPrompt = { requestSetDefaultBrowserPromptCalled = true },
         ).apply {
             registerCallback(object : SessionControlControllerCallback {
                 override fun registerCollectionStorageObserver() {
