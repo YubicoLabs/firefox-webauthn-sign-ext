@@ -888,6 +888,130 @@ async function populateCSSSystemFonts() {
   };
 }
 
+async function populateClientRects() {
+  function serializeDOMRect(rect) {
+    if (!rect) {
+      return null;
+    }
+    return {
+      b: rect.bottom,
+      h: rect.height,
+      l: rect.left,
+      r: rect.right,
+      t: rect.top,
+      w: rect.width,
+      x: rect.x,
+      y: rect.y,
+    };
+  }
+
+  const container = document.createElement("div");
+  container.style.cssText = "position: absolute; left: -9999px; width: 100px;";
+  document.body.appendChild(container);
+
+  const testElements = [
+    { border: "2.715px", padding: "3.98px", marginLeft: "12.12px" },
+    { border: "5px", padding: "10px", marginLeft: "20px" },
+    { border: "1.5px", padding: "2.5px", marginLeft: "5.5px" },
+    { border: "3px", padding: "7px", marginLeft: "15px" },
+    { border: "4.25px", padding: "6.75px", marginLeft: "10.5px" },
+    { border: "2px", padding: "5px", marginLeft: "8px" },
+    { border: "6px", padding: "12px", marginLeft: "25px" },
+    { border: "1px", padding: "1px", marginLeft: "3px" },
+    { border: "3.5px", padding: "8.5px", marginLeft: "18.5px" },
+    { border: "4px", padding: "9px", marginLeft: "22px" },
+    { border: "2.25px", padding: "4.25px", marginLeft: "7.25px" },
+    { border: "5.5px", padding: "11.5px", marginLeft: "28.5px" },
+  ];
+
+  const elementMeasurements = [];
+  for (let i = 0; i < testElements.length; i++) {
+    const elem = document.createElement("div");
+    const style = testElements[i];
+    elem.style.cssText = `
+      border: ${style.border} solid red;
+      padding: ${style.padding};
+      margin-left: ${style.marginLeft};
+      width: 50px;
+      height: 20px;
+    `;
+    elem.textContent = "test";
+    container.appendChild(elem);
+    elementMeasurements.push(elem);
+  }
+
+  const results = {};
+
+  for (let i = 0; i < elementMeasurements.length; i++) {
+    const elem = elementMeasurements[i];
+    const metricNum = String(i + 1).padStart(2, "0");
+
+    const elemGCR = elem.getClientRects()[0];
+    results[`clientrectsElementGcr${metricNum}`] = JSON.stringify(
+      serializeDOMRect(elemGCR)
+    );
+
+    const elemGBCR = elem.getBoundingClientRect();
+    results[`clientrectsElementGbcr${metricNum}`] = JSON.stringify(
+      serializeDOMRect(elemGBCR)
+    );
+
+    const range = document.createRange();
+    range.selectNodeContents(elem);
+    const rangeGCR = range.getClientRects()[0];
+    results[`clientrectsRangeGcr${metricNum}`] = JSON.stringify(
+      serializeDOMRect(rangeGCR)
+    );
+
+    const rangeNode = document.createRange();
+    rangeNode.selectNode(elem);
+    const rangeNodeGBCR = rangeNode.getBoundingClientRect();
+    results[`clientrectsRangeGbcr${metricNum}`] = JSON.stringify(
+      serializeDOMRect(rangeNodeGBCR)
+    );
+  }
+
+  const knownElement = document.createElement("div");
+  knownElement.style.cssText =
+    "width: 100px; height: 100px; border: 10px solid red;";
+  knownElement.textContent = "known";
+  container.appendChild(knownElement);
+  const knownRect = knownElement.getBoundingClientRect();
+  results.clientrectsKnownDimensions = JSON.stringify(
+    serializeDOMRect(knownRect)
+  );
+
+  const ghostElement = document.createElement("div");
+  ghostElement.style.cssText = "width: 0; height: 0;";
+  container.appendChild(ghostElement);
+  const ghostRect = ghostElement.getBoundingClientRect();
+  results.clientrectsGhostDimensions = JSON.stringify(
+    serializeDOMRect(ghostRect)
+  );
+
+  results.clientrectsTextFontFamily = getComputedStyle(knownElement).fontFamily;
+
+  const emojiDiv = document.createElement("div");
+  emojiDiv.style.cssText = "font-size: 200px;";
+  container.appendChild(emojiDiv);
+
+  const emojis = ["👾", "🤖", "🦄", "🎃", "🎨", "🌈"];
+
+  for (let i = 0; i < emojis.length; i++) {
+    emojiDiv.textContent = emojis[i];
+    const rect = emojiDiv.getBoundingClientRect();
+    const metricNum = String(i + 1).padStart(2, "0");
+    results[`clientrectsEmoji${metricNum}`] = JSON.stringify(
+      serializeDOMRect(rect)
+    );
+  }
+  results.clientrectsEmojiFontFamily = getComputedStyle(emojiDiv).fontFamily;
+
+  document.body.removeChild(container);
+
+  return results;
+}
+
 async function populateNavigatorProperties() {
   return {
     oscpu: navigator.oscpu,
@@ -1222,6 +1346,7 @@ async function startPopulating() {
     populateCSSQueries,
     populateCSSSystemColors,
     populateCSSSystemFonts,
+    populateClientRects,
     populateNavigatorProperties,
     populateAudioDeviceProperties,
     populateTimezoneWeb,
