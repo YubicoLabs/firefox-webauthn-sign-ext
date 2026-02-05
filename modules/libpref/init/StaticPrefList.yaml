@@ -9227,7 +9227,7 @@
   type: bool
   value: false
   mirror: always
-  set_spidermonkey_pref: startup
+  set_spidermonkey_pref: always
 
   # Experimental support for Temporal in JavaScript.
 - name: javascript.options.experimental.temporal
