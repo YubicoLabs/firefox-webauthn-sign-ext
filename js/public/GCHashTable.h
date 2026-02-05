@@ -445,7 +445,7 @@ class WeakCache<
 
     // Potentially take a lock while the Enum's destructor is called as this can
     // rehash/resize the table and access the store buffer.
-    mozilla::Maybe<js::gc::AutoLockStoreBuffer> lock;
+    mozilla::Maybe<js::gc::AutoLockSweepingLock> lock;
     if (needsLock) {
       lock.emplace(trc->runtime());
     }
@@ -633,7 +633,7 @@ class WeakCache<GCHashSet<T, HashPolicy, AllocPolicy>> final
     size_t steps = set.count();
 
     // Create an Enum and sweep the table entries. It's not necessary to take
-    // the store buffer lock yet.
+    // the sweeping lock yet.
     mozilla::Maybe<typename Set::Enum> e;
     e.emplace(set);
     set.traceWeakEntries(trc, e.ref());
@@ -641,7 +641,7 @@ class WeakCache<GCHashSet<T, HashPolicy, AllocPolicy>> final
     // Destroy the Enum, potentially rehashing or resizing the table. Since this
     // can access the store buffer, we need to take a lock for this if we're
     // called off main thread.
-    mozilla::Maybe<js::gc::AutoLockStoreBuffer> lock;
+    mozilla::Maybe<js::gc::AutoLockSweepingLock> lock;
     if (needsLock) {
       lock.emplace(trc->runtime());
     }

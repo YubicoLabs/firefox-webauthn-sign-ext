@@ -436,15 +436,15 @@ class GCRuntime {
   void lockGC() { lock.lock(); }
   void unlockGC() { lock.unlock(); }
 
-  void lockStoreBuffer() { storeBufferLock.lock(); }
-  void unlockStoreBuffer() { storeBufferLock.unlock(); }
+  void lockSweepingLock() { sweepingLock.lock(); }
+  void unlockSweepingLock() { sweepingLock.unlock(); }
 
 #ifdef DEBUG
   void assertCurrentThreadHasLockedGC() const {
     lock.assertOwnedByCurrentThread();
   }
-  void assertCurrentThreadHasLockedStoreBuffer() const {
-    storeBufferLock.assertOwnedByCurrentThread();
+  void assertCurrentThreadHasLockedSweepingLock() const {
+    sweepingLock.assertOwnedByCurrentThread();
   }
 #endif  // DEBUG
 
@@ -1439,10 +1439,10 @@ class GCRuntime {
   Mutex lock MOZ_UNANNOTATED;
 
   /*
-   * Lock used to synchronise access to the store buffer during parallel
-   * sweeping.
+   * Lock used to synchronise access to resources that would normally only be
+   * accessed on the main thread during parallel sweeping.
    */
-  Mutex storeBufferLock MOZ_UNANNOTATED;
+  Mutex sweepingLock MOZ_UNANNOTATED;
 
   /* Lock used to synchronise access to delayed marking state. */
   Mutex delayedMarkingLock MOZ_UNANNOTATED;

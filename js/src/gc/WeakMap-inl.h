@@ -379,7 +379,7 @@ void WeakMap<K, V, AP>::traceWeakEdgesDuringSweeping(JSTracer* trc) {
     //
     // Bug 2014486: Investigate not taking the lock when we don't need to
     // shrink.
-    gc::AutoLockStoreBuffer lock(trc->runtime());
+    gc::AutoLockSweepingLock lock(trc->runtime());
     e.reset();
   }
 
