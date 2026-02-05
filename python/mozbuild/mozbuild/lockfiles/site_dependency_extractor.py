@@ -147,7 +147,7 @@ class SiteDependencyExtractor:
                 if line.startswith("-"):
                     continue
 
-                pypi_requirement_spec = line.split("\\")[0].strip().rstrip()
+                pypi_requirement_spec = line.split("#")[0].split("\\")[0].strip()
                 if pypi_requirement_spec:
                     self._handle_pypi(pypi_requirement_spec)
 
