@@ -1265,6 +1265,35 @@ ArrayObject* js::intl::SupportedLocalesOf(JSContext* cx,
   return LocalesListToArray(cx, supportedLocales);
 }
 
+/**
+ * Certain old, commonly-used language tags that lack a script, are expected to
+ * nonetheless imply one. This object maps these old-style tags to modern
+ * equivalents.
+ */
+struct OldStyleLanguageTagMapping {
+  std::string_view oldStyle;
+  std::string_view modernStyle;
+
+  // Provide a constructor to catch missing initializers in the mappings array.
+  constexpr OldStyleLanguageTagMapping(std::string_view oldStyle,
+                                       std::string_view modernStyle)
+      : oldStyle(oldStyle), modernStyle(modernStyle) {}
+};
+
+static constexpr OldStyleLanguageTagMapping oldStyleLanguageTagMappings[] = {
+    {"pa-PK", "pa-Arab-PK"}, {"zh-CN", "zh-Hans-CN"}, {"zh-HK", "zh-Hant-HK"},
+    {"zh-SG", "zh-Hans-SG"}, {"zh-TW", "zh-Hant-TW"},
+};
+
+static std::string_view AddImplicitScriptToLocale(std::string_view locale) {
+  for (const auto& [oldStyle, modernStyle] : oldStyleLanguageTagMappings) {
+    if (locale == oldStyle) {
+      return modernStyle;
+    }
+  }
+  return {};
+}
+
 JSLinearString* js::intl::ComputeDefaultLocale(JSContext* cx) {
   const char* locale = cx->realm()->getLocale();
   if (!locale) {
@@ -1297,25 +1326,17 @@ JSLinearString* js::intl::ComputeDefaultLocale(JSContext* cx) {
       return nullptr;
     }
 
-    candidate = buffer.toAsciiString(cx);
+    // Certain old-style language tags lack a script code, but in current usage
+    // they *would* include a script code. Map these over to modern forms.
+    auto modernStyle =
+        AddImplicitScriptToLocale({buffer.data(), buffer.length()});
+    if (modernStyle.empty()) {
+      candidate = buffer.toAsciiString(cx);
+    } else {
+      candidate = NewStringCopy<CanGC>(cx, modernStyle);
+    }
     if (!candidate) {
       return nullptr;
-    }
-
-    // Certain old-style language tags lack a script code, but in current
-    // usage they *would* include a script code. Map these over to modern
-    // forms.
-    for (const auto& mapping : oldStyleLanguageTagMappings) {
-      const char* oldStyle = mapping.oldStyle;
-      const char* modernStyle = mapping.modernStyle;
-
-      if (StringEqualsAscii(candidate, oldStyle)) {
-        candidate = NewStringCopyZ<CanGC>(cx, modernStyle);
-        if (!candidate) {
-          return nullptr;
-        }
-        break;
-      }
     }
   }
 
