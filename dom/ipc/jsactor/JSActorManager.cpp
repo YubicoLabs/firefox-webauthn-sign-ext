@@ -133,9 +133,9 @@ already_AddRefed<JSActor> JSActorManager::GetExistingActor(
     }                                      \
   } while (0)
 
-void JSActorManager::ReceiveRawMessage(
-    const JSActorMessageMeta& aMetadata, JSIPCValue&& aData,
-    UniquePtr<ipc::StructuredCloneData> aStack) {
+void JSActorManager::ReceiveRawMessage(const JSActorMessageMeta& aMetadata,
+                                       JSIPCValue&& aData,
+                                       ipc::StructuredCloneData* aStack) {
   MOZ_ASSERT(nsContentUtils::IsSafeToRunScript());
 
   CrashReporter::AutoRecordAnnotation autoActorName(

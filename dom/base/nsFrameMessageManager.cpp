@@ -242,16 +242,6 @@ void MessageManagerCallback::DoGetRemoteType(nsACString& aRemoteType,
   parent->GetRemoteType(aRemoteType, aError);
 }
 
-bool MessageManagerCallback::BuildClonedMessageData(
-    StructuredCloneData& aData, ClonedMessageData& aClonedData) {
-  return aData.BuildClonedMessageData(aClonedData);
-}
-
-void mozilla::dom::ipc::UnpackClonedMessageData(
-    const ClonedMessageData& aClonedData, StructuredCloneData& aData) {
-  aData.BorrowFromClonedMessageData(aClonedData);
-}
-
 void nsFrameMessageManager::AddMessageListener(const nsAString& aMessageName,
                                                MessageListener& aListener,
                                                bool aListenWhenClosed,
@@ -356,15 +346,14 @@ void nsFrameMessageManager::GetDelayedScripts(
 }
 
 /* static */
-bool nsFrameMessageManager::GetParamsForMessage(JSContext* aCx,
-                                                const JS::Value& aValue,
-                                                const JS::Value& aTransfer,
-                                                StructuredCloneData& aData) {
+bool nsFrameMessageManager::GetParamsForMessage(
+    JSContext* aCx, const JS::Value& aValue, const JS::Value& aTransfer,
+    NotNull<StructuredCloneData*> aData) {
   // First try to use structured clone on the whole thing.
   JS::Rooted<JS::Value> v(aCx, aValue);
   JS::Rooted<JS::Value> t(aCx, aTransfer);
   IgnoredErrorResult rv;
-  aData.Write(aCx, v, t, JS::CloneDataPolicy(), rv);
+  aData->Write(aCx, v, t, JS::CloneDataPolicy(), rv);
   if (!rv.Failed()) {
     return true;
   }
@@ -407,7 +396,7 @@ bool nsFrameMessageManager::GetParamsForMessage(JSContext* aCx,
     return false;
   }
 
-  aData.Write(aCx, val, rv);
+  aData->Write(aCx, val, rv);
   if (NS_WARN_IF(rv.Failed())) {
     rv.SuppressException();
     return false;
@@ -439,16 +428,15 @@ void nsFrameMessageManager::SendSyncMessage(JSContext* aCx,
     return;
   }
 
-  StructuredCloneData data;
-  if (!aObj.isUndefined() &&
-      !GetParamsForMessage(aCx, aObj, JS::UndefinedHandleValue, data)) {
+  auto data = MakeNotNull<RefPtr<StructuredCloneData>>();
+  if (!GetParamsForMessage(aCx, aObj, JS::UndefinedHandleValue, data)) {
     aError.Throw(NS_ERROR_DOM_DATA_CLONE_ERR);
     return;
   }
 
 #ifdef FUZZING
-  if (data.DataLength() > 0) {
-    MessageManagerFuzzer::TryMutate(aCx, aMessageName, &data,
+  if (data->HasData()) {
+    MessageManagerFuzzer::TryMutate(aCx, aMessageName, data,
                                     JS::UndefinedHandleValue);
   }
 #endif
@@ -458,7 +446,7 @@ void nsFrameMessageManager::SendSyncMessage(JSContext* aCx,
     return;
   }
 
-  nsTArray<UniquePtr<StructuredCloneData>> retval;
+  nsTArray<NotNull<RefPtr<StructuredCloneData>>> retval;
 
   sSendingSyncMessage = true;
   bool ok = mCallback->DoSendBlockingMessage(aMessageName, data, &retval);
@@ -482,7 +470,8 @@ void nsFrameMessageManager::SendSyncMessage(JSContext* aCx,
 }
 
 nsresult nsFrameMessageManager::DispatchAsyncMessageInternal(
-    JSContext* aCx, const nsAString& aMessage, StructuredCloneData& aData) {
+    JSContext* aCx, const nsAString& aMessage,
+    NotNull<StructuredCloneData*> aData) {
   if (mIsBroadcaster) {
     uint32_t len = mChildManagers.Length();
     for (uint32_t i = 0; i < len; ++i) {
@@ -505,12 +494,11 @@ nsresult nsFrameMessageManager::DispatchAsyncMessageInternal(
 void nsFrameMessageManager::DispatchAsyncMessage(
     JSContext* aCx, const nsAString& aMessageName, JS::Handle<JS::Value> aObj,
     JS::Handle<JS::Value> aTransfers, ErrorResult& aError) {
-  StructuredCloneData data(JS::StructuredCloneScope::DifferentProcess,
-                           IsBroadcaster()
-                               ? StructuredCloneHolder::TransferringNotSupported
-                               : StructuredCloneHolder::TransferringSupported);
-  if (!aObj.isUndefined() &&
-      !GetParamsForMessage(aCx, aObj, aTransfers, data)) {
+  auto data = MakeNotNull<RefPtr<StructuredCloneData>>(
+      JS::StructuredCloneScope::DifferentProcess,
+      IsBroadcaster() ? StructuredCloneHolder::TransferringNotSupported
+                      : StructuredCloneHolder::TransferringSupported);
+  if (!GetParamsForMessage(aCx, aObj, aTransfers, data)) {
     aError.Throw(NS_ERROR_DOM_DATA_CLONE_ERR);
     return;
   }
@@ -519,8 +507,8 @@ void nsFrameMessageManager::DispatchAsyncMessage(
                       FrameMessageMarker{}, aMessageName, false);
 
 #ifdef FUZZING
-  if (data.DataLength()) {
-    MessageManagerFuzzer::TryMutate(aCx, aMessageName, &data, aTransfers);
+  if (data->HasData()) {
+    MessageManagerFuzzer::TryMutate(aCx, aMessageName, data, aTransfers);
   }
 #endif
 
@@ -548,8 +536,9 @@ class MMListenerRemover {
 
 void nsFrameMessageManager::ReceiveMessage(
     nsISupports* aTarget, nsFrameLoader* aTargetFrameLoader,
-    const nsAString& aMessage, bool aIsSync, StructuredCloneData* aCloneData,
-    nsTArray<UniquePtr<StructuredCloneData>>* aRetVal) {
+    const nsAString& aMessage, bool aIsSync,
+    NotNull<StructuredCloneData*> aCloneData,
+    nsTArray<NotNull<RefPtr<StructuredCloneData>>>* aRetVal) {
   MOZ_ASSERT(aTarget);
   profiler_add_marker("ReceiveMessage", geckoprofiler::category::IPC, {},
                       FrameMessageMarker{}, aMessage, aIsSync);
@@ -566,7 +555,7 @@ void nsFrameMessageManager::ReceiveMessage(
   argument.mTargetFrameLoader = aTargetFrameLoader;
 
   // Initialize the argument.{mData, mJson, mPorts} members.
-  if (aCloneData && aCloneData->DataLength()) {
+  if (aCloneData->HasData()) {
     // aCloneData may contain transferrables (which can only be received once),
     // yet can have multiple distinct listeners. Deserialize the data structure
     // up-front, and use the same value for all callbacks. This is OK as all
@@ -631,7 +620,9 @@ void nsFrameMessageManager::ReceiveMessage(
         }
 
         if (aRetVal) {
-          auto data = MakeUnique<StructuredCloneData>();
+          auto data = MakeNotNull<RefPtr<StructuredCloneData>>(
+              JS::StructuredCloneScope::DifferentProcess,
+              StructuredCloneHolder::TransferringNotSupported);
           data->Write(cx, rval, error);
           if (NS_WARN_IF(error.Failed())) {
             nsString msg = aMessage +
@@ -1254,7 +1245,7 @@ class SameParentProcessMessageManagerCallback : public MessageManagerCallback {
   }
 
   nsresult DoSendAsyncMessage(const nsAString& aMessage,
-                              StructuredCloneData& aData) override {
+                              NotNull<StructuredCloneData*> aData) override {
     RefPtr<nsAsyncMessageToSameProcessChild> ev =
         new nsAsyncMessageToSameProcessChild();
 
@@ -1283,30 +1274,22 @@ class ChildProcessMessageManagerCallback : public MessageManagerCallback {
   }
 
   bool DoSendBlockingMessage(
-      const nsAString& aMessage, StructuredCloneData& aData,
-      nsTArray<UniquePtr<StructuredCloneData>>* aRetVal) override {
+      const nsAString& aMessage, NotNull<StructuredCloneData*> aData,
+      nsTArray<NotNull<RefPtr<StructuredCloneData>>>* aRetVal) override {
     mozilla::dom::ContentChild* cc = mozilla::dom::ContentChild::GetSingleton();
     if (!cc) {
       return true;
     }
-    ClonedMessageData data;
-    if (!BuildClonedMessageData(aData, data)) {
-      return false;
-    }
-    return cc->SendSyncMessage(PromiseFlatString(aMessage), data, aRetVal);
+    return cc->SendSyncMessage(PromiseFlatString(aMessage), aData, aRetVal);
   }
 
   nsresult DoSendAsyncMessage(const nsAString& aMessage,
-                              StructuredCloneData& aData) override {
+                              NotNull<StructuredCloneData*> aData) override {
     mozilla::dom::ContentChild* cc = mozilla::dom::ContentChild::GetSingleton();
     if (!cc) {
       return NS_OK;
     }
-    ClonedMessageData data;
-    if (!BuildClonedMessageData(aData, data)) {
-      return NS_ERROR_DOM_DATA_CLONE_ERR;
-    }
-    if (!cc->SendAsyncMessage(PromiseFlatString(aMessage), data)) {
+    if (!cc->SendAsyncMessage(PromiseFlatString(aMessage), aData)) {
       return NS_ERROR_UNEXPECTED;
     }
 
@@ -1340,21 +1323,21 @@ class SameChildProcessMessageManagerCallback : public MessageManagerCallback {
   }
 
   bool DoSendBlockingMessage(
-      const nsAString& aMessage, StructuredCloneData& aData,
-      nsTArray<UniquePtr<StructuredCloneData>>* aRetVal) override {
+      const nsAString& aMessage, NotNull<StructuredCloneData*> aData,
+      nsTArray<NotNull<RefPtr<StructuredCloneData>>>* aRetVal) override {
     SameProcessMessageQueue* queue = SameProcessMessageQueue::Get();
     queue->Flush();
 
     if (nsFrameMessageManager::sSameProcessParentManager) {
       RefPtr<nsFrameMessageManager> ppm =
           nsFrameMessageManager::sSameProcessParentManager;
-      ppm->ReceiveMessage(ppm, nullptr, aMessage, true, &aData, aRetVal);
+      ppm->ReceiveMessage(ppm, nullptr, aMessage, true, aData, aRetVal);
     }
     return true;
   }
 
   nsresult DoSendAsyncMessage(const nsAString& aMessage,
-                              StructuredCloneData& aData) override {
+                              NotNull<StructuredCloneData*> aData) override {
     SameProcessMessageQueue* queue = SameProcessMessageQueue::Get();
     RefPtr<nsAsyncMessageToSameProcessParent> ev =
         new nsAsyncMessageToSameProcessParent();
@@ -1445,12 +1428,9 @@ nsSameProcessAsyncMessageBase::nsSameProcessAsyncMessageBase()
 {
 }
 
-nsresult nsSameProcessAsyncMessageBase::Init(const nsAString& aMessage,
-                                             StructuredCloneData& aData) {
-  if (!mData.Copy(aData)) {
-    return NS_ERROR_OUT_OF_MEMORY;
-  }
-
+nsresult nsSameProcessAsyncMessageBase::Init(
+    const nsAString& aMessage, NotNull<StructuredCloneData*> aData) {
+  mData = aData;
   mMessage = aMessage;
 #ifdef DEBUG
   mCalledInit = true;
@@ -1466,7 +1446,7 @@ void nsSameProcessAsyncMessageBase::ReceiveMessage(
   MOZ_ASSERT(mCalledInit);
   if (aManager) {
     RefPtr<nsFrameMessageManager> mm = aManager;
-    mm->ReceiveMessage(aTarget, aTargetFrameLoader, mMessage, false, &mData,
-                       nullptr);
+    mm->ReceiveMessage(aTarget, aTargetFrameLoader, mMessage, false,
+                       WrapNotNull(mData.get()), nullptr);
   }
 }

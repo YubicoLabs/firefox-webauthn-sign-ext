@@ -7,13 +7,9 @@
 #ifndef nsStructuredCloneContainer_h_
 #define nsStructuredCloneContainer_h_
 
-#include <cstdint>
-
 #include "mozilla/dom/ipc/StructuredCloneData.h"
 #include "nsIStructuredCloneContainer.h"
 #include "nsISupports.h"
-
-class nsIVariant;
 
 #define NS_STRUCTUREDCLONECONTAINER_CONTRACTID \
   "@mozilla.org/docshell/structured-clone-container;1"
@@ -31,13 +27,28 @@ class nsStructuredCloneContainer final
   nsStructuredCloneContainer();
   explicit nsStructuredCloneContainer(uint32_t aVersion);
 
-  NS_DECL_ISUPPORTS
+  NS_DECL_ISUPPORTS_INHERITED
   NS_DECL_NSISTRUCTUREDCLONECONTAINER
 
  private:
+  friend struct IPC::ParamTraits<nsStructuredCloneContainer*>;
+
   ~nsStructuredCloneContainer();
 
   uint32_t mVersion;
 };
+
+namespace IPC {
+
+// XXX: Should this be on nsIStructuredCloneContainer and do the casting within
+// the ParamTraits?
+template <>
+struct ParamTraits<nsStructuredCloneContainer*> {
+  using paramType = nsStructuredCloneContainer;
+  static void Write(IPC::MessageWriter* aWriter, paramType* aParam);
+  static bool Read(IPC::MessageReader* aReader, RefPtr<paramType>* aResult);
+};
+
+}  // namespace IPC
 
 #endif
