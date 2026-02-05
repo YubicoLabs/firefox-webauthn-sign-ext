@@ -9,6 +9,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string_view>
 
 #include "js/ProtoKey.h"
 #include "js/RootingAPI.h"
@@ -54,7 +55,7 @@ extern void ReportInternalError(JSContext* cx, mozilla::intl::ICUError error);
  * an implementation, and that en-GB is more representative of the English used
  * in other locales.
  */
-static inline const char* LastDitchLocale() { return "en-GB"; }
+static constexpr std::string_view LastDitchLocale() { return "en-GB"; }
 
 extern JS::UniqueChars EncodeLocale(JSContext* cx, JSString* locale);
 

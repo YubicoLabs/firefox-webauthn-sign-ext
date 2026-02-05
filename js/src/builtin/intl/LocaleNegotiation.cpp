@@ -1310,7 +1310,7 @@ JSLinearString* js::intl::ComputeDefaultLocale(JSContext* cx) {
 
   Rooted<JSLinearString*> candidate(cx);
   if (!canParseLocale) {
-    candidate = NewStringCopyZ<CanGC>(cx, LastDitchLocale());
+    candidate = NewStringCopy<CanGC>(cx, LastDitchLocale());
     if (!candidate) {
       return nullptr;
     }
@@ -1399,5 +1399,5 @@ JSLinearString* js::intl::ComputeDefaultLocale(JSContext* cx) {
   }
 
   // Return the last ditch locale if the candidate locale isn't supported.
-  return NewStringCopyZ<CanGC>(cx, LastDitchLocale());
+  return NewStringCopy<CanGC>(cx, LastDitchLocale());
 }
