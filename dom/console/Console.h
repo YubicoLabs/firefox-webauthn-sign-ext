@@ -356,6 +356,8 @@ class Console final : public nsIObserver, public nsSupportsWeakReference {
                       const Sequence<JS::Value>& aData,
                       DOMHighResTimeStamp* aTimeStamp);
 
+  mozilla::TimeStamp GetCreationTimeStamp() const;
+
   void StringifyElement(Element* aElement, nsAString& aOut);
 
   MOZ_CAN_RUN_SCRIPT
