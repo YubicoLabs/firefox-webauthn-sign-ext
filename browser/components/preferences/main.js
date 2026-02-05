@@ -2385,19 +2385,6 @@ function createDefaultBrowserConfig({
 }
 
 SettingGroupManager.registerGroups({
-  containers: {
-    // This section is marked as in progress for testing purposes
-    inProgress: true,
-    items: [
-      {
-        id: "containersPlaceholder",
-        control: "moz-message-bar",
-        controlAttrs: {
-          message: "Placeholder for updated containers",
-        },
-      },
-    ],
-  },
   profilePane: {
     headingLevel: 2,
     id: "browserProfilesGroupPane",

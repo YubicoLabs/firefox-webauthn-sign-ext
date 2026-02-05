@@ -233,11 +233,6 @@ var SettingGroupManager = ChromeUtils.importESModule(
  * @type {Record<string, SettingPaneConfig>}
  */
 const CONFIG_PANES = Object.freeze({
-  containers2: {
-    parent: "general",
-    l10nId: "containers-section-header",
-    groupIds: ["containers"],
-  },
   dnsOverHttps: {
     parent: "privacy",
     l10nId: "preferences-doh-header2",
