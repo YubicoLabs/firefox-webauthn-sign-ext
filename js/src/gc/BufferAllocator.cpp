@@ -454,7 +454,7 @@ BufferAllocator::FreeRegion* AllocSpace<D, S, G>::findPrecedingFreeRegion(
 }
 
 BufferChunk::BufferChunk(Zone* zone)
-    : ChunkBase(zone->runtimeFromMainThread(), ChunkKind::Buffers) {
+    : ChunkBase(zone->runtimeFromAnyThread(), ChunkKind::Buffers) {
 #ifdef DEBUG
   this->zone = zone;
   MOZ_ASSERT(decommittedPages.ref().IsEmpty());
@@ -533,6 +533,7 @@ BufferAllocator::~BufferAllocator() {
 }
 
 bool BufferAllocator::isEmpty() const {
+  checkMainThread();
   MOZ_ASSERT(!zone->wasGCStarted() || zone->isGCFinished());
   MOZ_ASSERT(minorState == State::NotCollecting);
   MOZ_ASSERT(majorState == State::NotCollecting);
@@ -547,8 +548,42 @@ Mutex& BufferAllocator::lock() const {
   return zone->runtimeFromAnyThread()->gc.bufferAllocatorLock;
 }
 
+void BufferAllocator::setMultiThreadedUse(Mutex* mutex) {
+#ifdef DEBUG
+  MOZ_ASSERT(CurrentThreadCanAccessZone(zone));
+  MOZ_ASSERT(!multiThreadedMutex);
+  MOZ_ASSERT(majorState != State::Sweeping);
+  multiThreadedMutex = mutex;
+#endif
+}
+
+void BufferAllocator::clearMultiThreadedUse() {
+#ifdef DEBUG
+  MOZ_ASSERT(CurrentThreadCanAccessZone(zone));
+  MOZ_ASSERT(multiThreadedMutex);
+  MOZ_ASSERT(majorState != State::Sweeping);
+  multiThreadedMutex = nullptr;
+#endif
+}
+
+void BufferAllocator::checkAccess() const {
+#ifdef DEBUG
+  if (multiThreadedMutex) {
+    MOZ_ASSERT(multiThreadedMutex->isOwnedByCurrentThread());
+  } else {
+    MOZ_ASSERT(CurrentThreadCanAccessZone(zone));
+  }
+#endif
+}
+
+void BufferAllocator::checkMainThread() const {
+  MOZ_ASSERT(!multiThreadedMutex);
+  MOZ_ASSERT(CurrentThreadCanAccessZone(zone));
+}
+
 void* BufferAllocator::alloc(size_t bytes, bool nurseryOwned) {
   MOZ_ASSERT_IF(zone->isGCMarkingOrSweeping(), majorState == State::Marking);
+  checkAccess();
 
   if (IsLargeAllocSize(bytes)) {
     return allocLarge(bytes, nurseryOwned, false);
@@ -566,6 +601,7 @@ void* BufferAllocator::allocInGC(size_t bytes, bool nurseryOwned) {
   MOZ_ASSERT(minorState == State::Marking);
 
   MOZ_ASSERT_IF(zone->isGCMarkingOrSweeping(), majorState == State::Marking);
+  checkAccess();
 
   void* result;
   if (IsLargeAllocSize(bytes)) {
@@ -623,6 +659,8 @@ void* BufferAllocator::realloc(void* alloc, size_t bytes, bool nurseryOwned) {
   // Reallocate a buffer. This has the same semantics as standard libarary
   // realloc: if |ptr| is null it creates a new allocation, and if it fails it
   // returns |nullptr| and the original |ptr| is still valid.
+
+  checkAccess();
 
   if (!alloc) {
     return this->alloc(bytes, nurseryOwned);
@@ -696,6 +734,7 @@ void* BufferAllocator::realloc(void* alloc, size_t bytes, bool nurseryOwned) {
 
 void BufferAllocator::free(void* alloc) {
   MOZ_ASSERT(alloc);
+  checkAccess();
 
   if (IsLargeAlloc(alloc)) {
     freeLarge(alloc);
@@ -742,6 +781,8 @@ bool BufferAllocator::hasAlloc(void* alloc) {
 #endif
 
 size_t BufferAllocator::getAllocSize(void* alloc) {
+  checkAccess();
+
   if (IsLargeAlloc(alloc)) {
     LargeBuffer* buffer = lookupLargeBuffer(alloc);
     return buffer->allocBytes();
@@ -879,6 +920,8 @@ void BufferAllocator::markLargeNurseryOwnedBuffer(LargeBuffer* buffer,
 }
 
 bool BufferAllocator::isMarkedBlack(void* alloc) {
+  checkMainThread();
+
   if (IsLargeAlloc(alloc)) {
     // The buffer metadata is held in a small buffer.
     alloc = lookupLargeBuffer(alloc);
@@ -1036,6 +1079,7 @@ bool BufferAllocator::markMediumTenuredAlloc(void* alloc) {
 }
 
 void BufferAllocator::startMinorCollection(MaybeLock& lock) {
+  checkMainThread();
   maybeMergeSweptData(lock);
 
 #ifdef DEBUG
@@ -1062,6 +1106,7 @@ bool BufferAllocator::startMinorSweeping() {
   // sweep' lists do not contain nursery owned allocations.
 
 #ifdef DEBUG
+  checkMainThread();
   MOZ_ASSERT(minorState == State::Marking);
   {
     AutoLock lock(this);
@@ -1209,6 +1254,8 @@ void BufferAllocator::sweepForMinorCollection() {
 }
 
 void BufferAllocator::startMajorCollection(MaybeLock& lock) {
+  checkMainThread();
+
   maybeMergeSweptData(lock);
 
 #ifdef DEBUG
@@ -1270,6 +1317,7 @@ void BufferAllocator::startMajorSweeping(MaybeLock& lock) {
   // Called when a zone transitions from marking to sweeping.
 
 #ifdef DEBUG
+  checkMainThread();
   MOZ_ASSERT(majorState == State::Marking);
   MOZ_ASSERT(zone->isGCFinished());
   MOZ_ASSERT(!majorSweepingFinished.refNoCheck());
@@ -1346,6 +1394,7 @@ void BufferAllocator::finishMajorCollection(const AutoLock& lock) {
   //  - Sweeping:      if sweeping has finished and mergeSweptData has not been
   //                   called yet.
 
+  checkMainThread();
   MOZ_ASSERT_IF(majorState == State::Sweeping, majorSweepingFinished);
 
   if (minorState == State::Sweeping || majorState == State::Sweeping) {
@@ -1366,6 +1415,7 @@ void BufferAllocator::abortMajorSweeping(const AutoLock& lock) {
   // the original state.
 
 #ifdef DEBUG
+  checkMainThread();
   MOZ_ASSERT(majorState == State::Marking);
   MOZ_ASSERT(sweptTenuredChunks.ref().isEmpty());
   for (auto chunk = availableTenuredChunks.ref().chunkIter(); !chunk.done();
@@ -1455,6 +1505,7 @@ void BufferAllocator::maybeMergeSweptData(MaybeLock& lock) {
 }
 
 void BufferAllocator::mergeSweptData(const AutoLock& lock) {
+  checkAccess();
   MOZ_ASSERT(minorState == State::Sweeping || majorState == State::Sweeping);
 
   if (majorSweepingFinished) {
@@ -1536,6 +1587,7 @@ void BufferAllocator::mergeSweptData(const AutoLock& lock) {
 }
 
 void BufferAllocator::clearMarkStateAfterBarrierVerification() {
+  checkMainThread();
   MOZ_ASSERT(!zone->wasGCStarted());
 
   maybeMergeSweptData();
@@ -1561,6 +1613,8 @@ void BufferAllocator::clearMarkStateAfterBarrierVerification() {
 }
 
 void BufferAllocator::clearChunkMarkBits(BufferChunk* chunk) {
+  checkMainThread();
+
   chunk->markBits.ref().clear();
   for (auto iter = chunk->smallRegionIter(); !iter.done(); iter.next()) {
     SmallBufferRegion* region = iter.get();
@@ -1569,6 +1623,8 @@ void BufferAllocator::clearChunkMarkBits(BufferChunk* chunk) {
 }
 
 bool BufferAllocator::isPointerWithinBuffer(void* ptr) {
+  checkMainThread();
+
   maybeMergeSweptData();
 
   MOZ_ASSERT(mixedChunksToSweep.ref().isEmpty());
@@ -2408,7 +2464,7 @@ bool BufferAllocator::allocNewChunk(bool inGC) {
     return false;
   }
 
-  GCRuntime* gc = &zone->runtimeFromMainThread()->gc;
+  GCRuntime* gc = &zone->runtimeFromAnyThread()->gc;
   AutoLockGCBgAlloc lock(gc);
   ArenaChunk* baseChunk = gc->getOrAllocChunk(ShouldStallAndRetry(inGC), lock);
   if (!baseChunk) {
@@ -3302,7 +3358,7 @@ bool BufferAllocator::isLargeTenuredMarked(LargeBuffer* buffer) {
 void BufferAllocator::freeLarge(void* alloc) {
   MaybeLock lock;
   LargeBuffer* buffer = lookupLargeBuffer(alloc, lock);
-  MOZ_ASSERT(buffer->zone() == zone);
+  MOZ_ASSERT(buffer->zoneFromAnyThread() == zone);
 
   DebugOnlyPoison(alloc, JS_FREED_BUFFER_PATTERN, buffer->allocBytes(),
                   MemCheckKind::MakeUndefined);
@@ -3476,6 +3532,8 @@ void BufferAllocator::printStats(GCRuntime* gc, mozilla::TimeStamp creationTime,
 }
 
 size_t BufferAllocator::getSizeOfNurseryBuffers() {
+  checkMainThread();
+
   maybeMergeSweptData();
 
   MOZ_ASSERT(minorState == State::NotCollecting);
@@ -3501,6 +3559,8 @@ size_t BufferAllocator::getSizeOfNurseryBuffers() {
 void BufferAllocator::addSizeOfExcludingThis(size_t* usedBytesOut,
                                              size_t* freeBytesOut,
                                              size_t* adminBytesOut) {
+  checkMainThread();
+
   maybeMergeSweptData();
 
   MOZ_ASSERT(minorState == State::NotCollecting);
@@ -3529,6 +3589,8 @@ static void GetChunkStats(BufferChunk* chunk, BufferAllocator::Stats& stats) {
 }
 
 void BufferAllocator::getStats(Stats& stats) {
+  checkMainThread();
+
   maybeMergeSweptData();
 
   MOZ_ASSERT(minorState == State::NotCollecting);
