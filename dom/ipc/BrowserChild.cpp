@@ -2735,7 +2735,7 @@ mozilla::ipc::IPCResult BrowserChild::RecvAsyncMessage(
   StructuredCloneData data;
   UnpackClonedMessageData(aData, data);
   mm->ReceiveMessage(static_cast<EventTarget*>(mBrowserChildMessageManager),
-                     nullptr, aMessage, false, &data, nullptr, IgnoreErrors());
+                     nullptr, aMessage, false, &data, nullptr);
   return IPC_OK();
 }
 
