@@ -88,7 +88,7 @@ struct AutoResolving;
 class InternalJobQueue : public JS::JobQueue {
  public:
   explicit InternalJobQueue(JSContext* cx)
-      : queue(cx, SystemAllocPolicy()), draining_(false), interrupted_(false) {}
+      : draining_(false), interrupted_(false) {}
   ~InternalJobQueue() = default;
 
   // JS::JobQueue methods.
@@ -109,19 +109,11 @@ class InternalJobQueue : public JS::JobQueue {
 
   void uninterrupt() { interrupted_ = false; }
 
-  // Return the front element of the queue, or nullptr if the queue is empty.
-  // This is only used by shell testing functions.
-  JSObject* maybeFront() const;
-
 #ifdef DEBUG
   JSObject* copyJobs(JSContext* cx);
 #endif
 
  private:
-  using Queue = js::TraceableFifo<JSObject*, 0, SystemAllocPolicy>;
-
-  JS::PersistentRooted<Queue> queue;
-
   // True if we are in the midst of draining jobs from this queue. We use this
   // to avoid re-entry (nested calls simply return immediately).
   bool draining_;
