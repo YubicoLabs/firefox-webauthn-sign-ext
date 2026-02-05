@@ -110,14 +110,18 @@ static constexpr size_t InitialWeakMapLength = 0;
 
 template <class K, class V, class AP>
 WeakMap<K, V, AP>::WeakMap(JSContext* cx, JSObject* memOf)
-    : WeakMapBase(memOf, cx->zone()), map_(cx->zone(), InitialWeakMapLength) {
+    : WeakMapBase(memOf, cx->zone()),
+      map_(AP(cx->zone()), InitialWeakMapLength),
+      nurseryKeys(AP(cx->zone())) {
   staticAssertions();
   MOZ_ASSERT(memOf);
 }
 
 template <class K, class V, class AP>
 WeakMap<K, V, AP>::WeakMap(JS::Zone* zone)
-    : WeakMapBase(nullptr, zone), map_(zone, InitialWeakMapLength) {
+    : WeakMapBase(nullptr, zone),
+      map_(AP(zone), InitialWeakMapLength),
+      nurseryKeys(AP(zone)) {
   staticAssertions();
 }
 
@@ -276,6 +280,10 @@ void WeakMap<K, V, AP>::trace(JSTracer* trc) {
   MOZ_ASSERT(isInList());
 
   TraceNullableEdge(trc, &memberOf, "WeakMap owner");
+
+  // Trace memory owned by our containers but not their contents.
+  TraceOwnedAllocs(trc, memberOf, map_, "WeakMap storage");
+  TraceOwnedAllocs(trc, memberOf, nurseryKeys, "WeakMap nursery keys");
 
   if (trc->isMarkingTracer()) {
     MOZ_ASSERT(trc->weakMapAction() == JS::WeakMapTraceAction::Expand);
@@ -678,9 +686,10 @@ bool WeakMap<K, V, AP>::findSweepGroupEdges(Zone* atomsZone) {
 }
 
 template <class K, class V, class AP>
-size_t WeakMap<K, V, AP>::sizeOfIncludingThis(
+size_t WeakMap<K, V, AP>::shallowSizeOfExcludingThis(
     mozilla::MallocSizeOf mallocSizeOf) {
-  return mallocSizeOf(this) + shallowSizeOfExcludingThis(mallocSizeOf);
+  return SizeOfOwnedAllocs(map(), mallocSizeOf) +
+         SizeOfOwnedAllocs(nurseryKeys, mallocSizeOf);
 }
 
 #if DEBUG

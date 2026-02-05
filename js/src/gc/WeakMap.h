@@ -322,7 +322,7 @@ class WeakMap : public WeakMapBase {
 
   // The keys of entries where either the key or value is allocated in the
   // nursery.
-  GCVector<Key, 0, SystemAllocPolicy> nurseryKeys;
+  GCVector<Key, 0, AllocPolicy> nurseryKeys;
 
  public:
   using Lookup = typename Map::Lookup;
@@ -376,13 +376,6 @@ class WeakMap : public WeakMapBase {
   bool has(const Lookup& lookup) const { return map().has(lookup); }
   void remove(const Lookup& lookup) { return map().remove(lookup); }
   void remove(Ptr ptr) { return map().remove(ptr.ptr); }
-
-  size_t shallowSizeOfExcludingThis(mozilla::MallocSizeOf aMallocSizeOf) const {
-    return map().shallowSizeOfExcludingThis(aMallocSizeOf);
-  }
-  size_t shallowSizeOfIncludingThis(mozilla::MallocSizeOf aMallocSizeOf) const {
-    return aMallocSizeOf(this) + shallowSizeOfExcludingThis(aMallocSizeOf);
-  }
 
   // Get the value associated with a key, or a default constructed Value if the
   // key is not present in the map.
@@ -462,7 +455,7 @@ class WeakMap : public WeakMapBase {
   void traceKeys(JSTracer* trc);
   void traceKey(JSTracer* trc, Enum& iter);
 
-  size_t sizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf);
+  size_t shallowSizeOfExcludingThis(mozilla::MallocSizeOf mallocSizeOf);
 
   static size_t offsetOfHashShift() {
     return offsetof(WeakMap, map_) + UnbarrieredMap::offsetOfHashShift();

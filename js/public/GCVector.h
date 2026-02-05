@@ -59,6 +59,9 @@ class GCVector {
     return *this;
   }
 
+  AllocPolicy& allocPolicy() { return vector.allocPolicy(); }
+  const AllocPolicy& allocPolicy() const { return vector.allocPolicy(); }
+
   size_t length() const { return vector.length(); }
   bool empty() const { return vector.empty(); }
   size_t capacity() const { return vector.capacity(); }
@@ -187,6 +190,11 @@ class GCVector {
     mutableEraseIf(
         [trc](T& elem) { return !GCPolicy<T>::traceWeak(trc, &elem); });
     return !empty();
+  }
+
+  template <typename F>
+  void traceOwnedAllocs(F&& traceFunc) {
+    vector.traceOwnedAllocs(std::forward<F>(traceFunc));
   }
 
   // Like eraseIf, but may mutate the contents of the vector. Iterates from

@@ -401,8 +401,8 @@ class BufferAllocPolicy : public AllocPolicyBase {
 namespace gc {
 template <typename T, typename... Args>
 T* NewBuffer(Cell* owner, Args&&... args) {
-  return NewBuffer<T>(owner->zone(), sizeof(T), IsInsideNursery(owner),
-                      std::forward<Args>(args)...);
+  return NewSizedBuffer<T>(owner->zone(), sizeof(T), IsInsideNursery(owner),
+                           std::forward<Args>(args)...);
 }
 }  // namespace gc
 

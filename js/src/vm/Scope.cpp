@@ -238,7 +238,7 @@ static typename ConcreteScope::RuntimeData* NewEmptyScopeData(
   using Data = typename ConcreteScope::RuntimeData;
 
   size_t dataSize = SizeOfScopeData<Data>(length);
-  Data* data = gc::NewBuffer<Data>(cx->zone(), dataSize, false, length);
+  Data* data = gc::NewSizedBuffer<Data>(cx->zone(), dataSize, false, length);
   if (!data) {
     ReportOutOfMemory(cx);
     return nullptr;

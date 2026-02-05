@@ -32,6 +32,7 @@
 #include "wasm/WasmInstance.h"
 
 #include "gc/Marking-inl.h"
+#include "gc/WeakMap-inl.h"
 #include "vm/JSObject-inl.h"
 
 using namespace js;
@@ -597,12 +598,13 @@ void ObjectRealm::addSizeOfExcludingThis(
 
   if (objectMetadataTable) {
     *objectMetadataTablesArg +=
-        objectMetadataTable->shallowSizeOfIncludingThis(mallocSizeOf);
+        mallocSizeOf(objectMetadataTable.get()) +
+        objectMetadataTable->shallowSizeOfExcludingThis(mallocSizeOf);
   }
 
   if (auto& map = nonSyntacticLexicalEnvironments_) {
     *nonSyntacticLexicalEnvironmentsArg +=
-        map->shallowSizeOfIncludingThis(mallocSizeOf);
+        mallocSizeOf(map.get()) + map->shallowSizeOfExcludingThis(mallocSizeOf);
   }
 }
 
