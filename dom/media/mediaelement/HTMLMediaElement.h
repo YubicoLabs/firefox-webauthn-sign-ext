@@ -915,6 +915,11 @@ class HTMLMediaElement : public nsGenericHTMLElement,
   virtual void WakeLockRelease();
   virtual void UpdateWakeLock();
 
+  // This must be called immediately after monitor attributes change, and cannot
+  // wait for the Watchable notification, because some pseudo-classes are
+  // required to be applied immediately after the change.
+  void UpdatePlaybackPseudoClasses();
+
   void CreateAudioWakeLockIfNeeded();
   void ReleaseAudioWakeLockIfExists();
   void ReleaseAudioWakeLockInternal();

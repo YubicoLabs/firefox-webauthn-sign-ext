@@ -2526,6 +2526,7 @@ void HTMLMediaElement::AbortExistingLoads() {
     // indirectly which depends on mPaused. So we need to update mPaused first.
     if (!mPaused) {
       mPaused = true;
+      UpdatePlaybackPseudoClasses();
       PlayPromise::RejectPromises(TakePendingPlayPromises(),
                                   NS_ERROR_DOM_MEDIA_ABORT_ERR);
     }
@@ -3626,6 +3627,7 @@ void HTMLMediaElement::PauseInternal() {
   }
   bool oldPaused = mPaused;
   mPaused = true;
+  UpdatePlaybackPseudoClasses();
   // Step 1,
   // https://html.spec.whatwg.org/multipage/media.html#internal-pause-steps
   mCanAutoplayFlag = false;
@@ -4761,6 +4763,7 @@ void HTMLMediaElement::Init() {
 
   OwnerDoc()->SetDocTreeHadMedia();
   mShutdownObserver->Subscribe(this);
+  UpdatePlaybackPseudoClasses();
   mInitialized = true;
 }
 
@@ -5008,6 +5011,7 @@ void HTMLMediaElement::PlayInternal(bool aHandlingUserInput) {
 
   const bool oldPaused = mPaused;
   mPaused = false;
+  UpdatePlaybackPseudoClasses();
   // Step 5,
   // https://html.spec.whatwg.org/multipage/media.html#internal-play-steps
   mCanAutoplayFlag = false;
@@ -5097,6 +5101,18 @@ void HTMLMediaElement::UpdateWakeLock() {
     CreateAudioWakeLockIfNeeded();
   } else {
     ReleaseAudioWakeLockIfExists();
+  }
+}
+
+void HTMLMediaElement::UpdatePlaybackPseudoClasses() {
+  MOZ_ASSERT(NS_IsMainThread());
+  if (mPaused) {
+    // We don’t need to update the playing state because these states are
+    // exclusive, and the `:playing` pseudo-class is determined by checking
+    // the element's PAUSED state.
+    AddStates(ElementState::PAUSED);
+  } else {
+    RemoveStates(ElementState::PAUSED);
   }
 }
 
@@ -6725,6 +6741,8 @@ void HTMLMediaElement::CheckAutoplayDataReady() {
 void HTMLMediaElement::RunAutoplay() {
   mAllowedToPlayPromise.ResolveIfExists(true, __func__);
   mPaused = false;
+  UpdatePlaybackPseudoClasses();
+
   // We changed mPaused which can affect AddRemoveSelfReference
   AddRemoveSelfReference();
   UpdateSrcMediaStreamPlaying();
@@ -8068,6 +8086,7 @@ void HTMLMediaElement::AsyncResolvePendingPlayPromises() {
 void HTMLMediaElement::AsyncRejectPendingPlayPromises(nsresult aError) {
   if (!mPaused) {
     mPaused = true;
+    UpdatePlaybackPseudoClasses();
     QueueEvent(u"pause"_ns);
   }
 
