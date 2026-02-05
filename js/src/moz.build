@@ -276,6 +276,11 @@ UNIFIED_SOURCES += [
     "jsfriendapi.cpp",
 ]
 
+# Must be in SOURCES so that Glean symbols from xul will take priority over the
+# no-op symbols implemented in jsglean.cpp
+SOURCES += [
+    "jsglean.cpp",
+]
 
 if CONFIG["MOZ_INSTRUMENTS"]:
     OS_LIBS += ["-framework CoreFoundation"]
