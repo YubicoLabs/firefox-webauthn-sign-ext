@@ -327,7 +327,6 @@ class CanonicalBrowsingContext final : public BrowsingContext {
   void GetLoadingSessionHistoryInfoFromParent(
       Maybe<LoadingSessionHistoryInfo>& aLoadingInfo);
 
-  MOZ_CAN_RUN_SCRIPT
   void HistoryCommitIndexAndLength();
 
   void SynchronizeLayoutHistoryState();

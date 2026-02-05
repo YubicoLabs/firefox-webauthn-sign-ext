@@ -85,6 +85,4 @@ interface nsISHistoryListener : nsISupports
    * @param aNumEvicted - number of content viewers evicted
    */
   void OnDocumentViewerEvicted(in unsigned long aNumEvicted);
-
-  void OnHistoryCommit();
 };
