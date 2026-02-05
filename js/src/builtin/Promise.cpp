@@ -123,37 +123,6 @@ enum PromiseCombinatorElementFunctionSlots {
   PromiseCombinatorElementFunctionSlot_Data
 };
 
-enum ReactionJobSlots {
-  ReactionJobSlot_ReactionRecord = 0,
-};
-
-// Extended function slots used to pass arguments through to either
-// PromiseResolveThenableJob, or PromiseResolveBuiltinThenableJob when calling
-// the built-in `then`.
-enum ThenableJobSlots {
-  // The Promise to resolve using the given thenable.
-  //
-  // This can be a CCW when used for PromiseResolveThenableJob, otherwise it is
-  // guaranteed not to be.
-  ThenableJobSlot_Promise = 0,
-
-  // The thenable to use as the receiver when calling the `then` function.
-  //
-  // This can be a CCW when used for PromiseResolveThenableJob, otherwise it is
-  // guaranteed not to be.
-  ThenableJobSlot_Thenable,
-
-  // The handler to use as the Promise reaction, when not calling the built-in
-  // `then`. It is a callable object that's guaranteed to be from the same
-  // compartment as the PromiseReactionJob.
-  ThenableJobSlot_Handler,
-
-  ThenableJobSlot_Count
-};
-
-static_assert(size_t(ThenableJobSlot_Count) <=
-              size_t(FunctionExtended::SlotCount));
-
 struct PromiseCapability {
   JSObject* promise = nullptr;
   JSObject* resolve = nullptr;
