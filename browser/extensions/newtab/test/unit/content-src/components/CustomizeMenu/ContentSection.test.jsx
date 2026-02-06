@@ -218,4 +218,41 @@ describe("ContentSection", () => {
     });
     assert.isFalse(wrapper.find("#timer-widget-section").exists());
   });
+
+  it("should dispatch WIDGETS_ENABLED with widget_size=medium when widgetsMayBeMaximized is false", () => {
+    const dispatch = sinon.spy();
+    wrapper = mount(
+      <ContentSection
+        {...DEFAULT_PROPS}
+        dispatch={dispatch}
+        enabledWidgets={{
+          listsEnabled: false,
+          timerEnabled: false,
+          widgetsMaximized: false,
+          widgetsMayBeMaximized: false,
+        }}
+      />
+    );
+
+    wrapper.instance().onPreferenceSelect({
+      target: {
+        nodeName: "INPUT",
+        checked: true,
+        dataset: {
+          preference: "widgets.lists.enabled",
+          eventSource: "WIDGET_LISTS",
+        },
+      },
+    });
+
+    const widgetsEnabledCall = dispatch
+      .getCalls()
+      .find(call => call.args[0].type === "WIDGETS_ENABLED");
+    assert.ok(widgetsEnabledCall, "Expected WIDGETS_ENABLED to be dispatched");
+    assert.equal(
+      widgetsEnabledCall.args[0].data.widget_size,
+      "medium",
+      "widget_size should be medium when widgets.system.maximized is false"
+    );
+  });
 });
