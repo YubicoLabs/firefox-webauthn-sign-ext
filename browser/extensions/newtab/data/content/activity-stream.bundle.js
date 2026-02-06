@@ -14548,7 +14548,7 @@ class ContentSection extends (external_React_default()).PureComponent {
       pressed: weatherEnabled || null,
       onToggle: this.onPreferenceSelect,
       "data-preference": "showWeather",
-      "data-eventSource": "WEATHER",
+      "data-event-source": "WEATHER",
       "data-l10n-id": "newtab-custom-widget-weather-toggle"
     })), mayHaveListsWidget && /*#__PURE__*/external_React_default().createElement("div", {
       id: "lists-widget-section",
@@ -14558,7 +14558,7 @@ class ContentSection extends (external_React_default()).PureComponent {
       pressed: listsEnabled || null,
       onToggle: this.onPreferenceSelect,
       "data-preference": "widgets.lists.enabled",
-      "data-eventSource": "WIDGET_LISTS",
+      "data-event-source": "WIDGET_LISTS",
       "data-l10n-id": "newtab-custom-widget-lists-toggle"
     })), mayHaveTimerWidget && /*#__PURE__*/external_React_default().createElement("div", {
       id: "timer-widget-section",
@@ -14568,7 +14568,7 @@ class ContentSection extends (external_React_default()).PureComponent {
       pressed: timerEnabled || null,
       onToggle: this.onPreferenceSelect,
       "data-preference": "widgets.focusTimer.enabled",
-      "data-eventSource": "WIDGET_TIMER",
+      "data-event-source": "WIDGET_TIMER",
       "data-l10n-id": "newtab-custom-widget-timer-toggle"
     })), /*#__PURE__*/external_React_default().createElement("span", {
       className: "divider",
@@ -14583,7 +14583,7 @@ class ContentSection extends (external_React_default()).PureComponent {
       pressed: weatherEnabled || null,
       onToggle: this.onPreferenceSelect,
       "data-preference": "showWeather",
-      "data-eventSource": "WEATHER",
+      "data-event-source": "WEATHER",
       "data-l10n-id": "newtab-custom-weather-toggle"
     })), /*#__PURE__*/external_React_default().createElement("div", {
       id: "shortcuts-section",
@@ -14593,7 +14593,7 @@ class ContentSection extends (external_React_default()).PureComponent {
       pressed: topSitesEnabled || null,
       onToggle: this.onPreferenceSelect,
       "data-preference": "feeds.topsites",
-      "data-eventSource": "TOP_SITES",
+      "data-event-source": "TOP_SITES",
       "data-l10n-id": "newtab-custom-shortcuts-toggle"
     }, /*#__PURE__*/external_React_default().createElement("div", {
       slot: "nested"
@@ -14636,7 +14636,7 @@ class ContentSection extends (external_React_default()).PureComponent {
       onToggle: this.onPreferenceSelect,
       "aria-describedby": "custom-pocket-subtitle",
       "data-preference": "feeds.section.topstories",
-      "data-eventSource": "TOP_STORIES"
+      "data-event-source": "TOP_STORIES"
     }, mayHaveInferredPersonalization ? {
       "data-l10n-id": "newtab-custom-stories-personalized-toggle"
     } : {
@@ -14659,7 +14659,7 @@ class ContentSection extends (external_React_default()).PureComponent {
       type: "checkbox",
       onChange: this.onPreferenceSelect,
       "data-preference": "discoverystream.sections.personalization.inferred.user.enabled",
-      "data-eventSource": "INFERRED_PERSONALIZATION"
+      "data-event-source": "INFERRED_PERSONALIZATION"
     }), /*#__PURE__*/external_React_default().createElement("label", {
       className: "customize-menu-checkbox-label",
       htmlFor: "inferred-personalization",

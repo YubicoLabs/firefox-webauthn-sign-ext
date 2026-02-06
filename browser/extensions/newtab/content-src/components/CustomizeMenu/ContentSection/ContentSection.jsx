@@ -152,7 +152,7 @@ export class ContentSection extends React.PureComponent {
                     pressed={weatherEnabled || null}
                     onToggle={this.onPreferenceSelect}
                     data-preference="showWeather"
-                    data-eventSource="WEATHER"
+                    data-event-source="WEATHER"
                     data-l10n-id="newtab-custom-widget-weather-toggle"
                   />
                 </div>
@@ -166,7 +166,7 @@ export class ContentSection extends React.PureComponent {
                     pressed={listsEnabled || null}
                     onToggle={this.onPreferenceSelect}
                     data-preference="widgets.lists.enabled"
-                    data-eventSource="WIDGET_LISTS"
+                    data-event-source="WIDGET_LISTS"
                     data-l10n-id="newtab-custom-widget-lists-toggle"
                   />
                 </div>
@@ -180,7 +180,7 @@ export class ContentSection extends React.PureComponent {
                     pressed={timerEnabled || null}
                     onToggle={this.onPreferenceSelect}
                     data-preference="widgets.focusTimer.enabled"
-                    data-eventSource="WIDGET_TIMER"
+                    data-event-source="WIDGET_TIMER"
                     data-l10n-id="newtab-custom-widget-timer-toggle"
                   />
                 </div>
@@ -198,7 +198,7 @@ export class ContentSection extends React.PureComponent {
                 pressed={weatherEnabled || null}
                 onToggle={this.onPreferenceSelect}
                 data-preference="showWeather"
-                data-eventSource="WEATHER"
+                data-event-source="WEATHER"
                 data-l10n-id="newtab-custom-weather-toggle"
               />
             </div>
@@ -210,7 +210,7 @@ export class ContentSection extends React.PureComponent {
               pressed={topSitesEnabled || null}
               onToggle={this.onPreferenceSelect}
               data-preference="feeds.topsites"
-              data-eventSource="TOP_SITES"
+              data-event-source="TOP_SITES"
               data-l10n-id="newtab-custom-shortcuts-toggle"
             >
               <div slot="nested">
@@ -264,7 +264,7 @@ export class ContentSection extends React.PureComponent {
                 onToggle={this.onPreferenceSelect}
                 aria-describedby="custom-pocket-subtitle"
                 data-preference="feeds.section.topstories"
-                data-eventSource="TOP_STORIES"
+                data-event-source="TOP_STORIES"
                 {...(mayHaveInferredPersonalization
                   ? {
                       "data-l10n-id":
@@ -291,7 +291,7 @@ export class ContentSection extends React.PureComponent {
                               type="checkbox"
                               onChange={this.onPreferenceSelect}
                               data-preference="discoverystream.sections.personalization.inferred.user.enabled"
-                              data-eventSource="INFERRED_PERSONALIZATION"
+                              data-event-source="INFERRED_PERSONALIZATION"
                             />
                             <label
                               className="customize-menu-checkbox-label"
