@@ -1144,10 +1144,14 @@ void Console::ProfileMethod(const GlobalObject& aGlobal, MethodName aName,
 void Console::ProfileMethodInternal(JSContext* aCx, MethodName aMethodName,
                                     const nsAString& aAction,
                                     const Sequence<JS::Value>& aData) {
+  if (ShouldLogToMozLog(aMethodName)) {
+    LogToMozLog(aCx, aMethodName, aAction, aData, nullptr,
+                DOMHighResTimeStamp(0.0));
+  }
+
   if (!ShouldProceed(aMethodName)) {
     return;
   }
-
   MaybeExecuteDumpFunction(aCx, aMethodName, aAction, aData, nullptr,
                            DOMHighResTimeStamp(0.0));
 
@@ -1320,7 +1324,9 @@ struct ConsoleTimingMarker : public BaseMarkerType<ConsoleTimingMarker> {
 void Console::MethodInternal(JSContext* aCx, MethodName aMethodName,
                              const nsAString& aMethodString,
                              const Sequence<JS::Value>& aData) {
-  if (!ShouldProceed(aMethodName)) {
+  // Drop any further computation if the console **and* moz_log levels
+  // are not matching the current call's level.
+  if (!ShouldProceed(aMethodName) && !ShouldLogToMozLog(aMethodName)) {
     return;
   }
 
@@ -1409,6 +1415,15 @@ void Console::MethodInternal(JSContext* aCx, MethodName aMethodName,
   if ((aMethodName == MethodTime || aMethodName == MethodTimeLog ||
        aMethodName == MethodTimeEnd || aMethodName == MethodTimeStamp) &&
       !MonotonicTimer(aCx, aMethodName, aData, &monotonicTimer)) {
+    return;
+  }
+
+  if (ShouldLogToMozLog(aMethodName)) {
+    LogToMozLog(aCx, aMethodName, aMethodString, aData, stack, monotonicTimer);
+  }
+
+  // Stop any further computation if we only had to log to moz_log
+  if (!ShouldProceed(aMethodName)) {
     return;
   }
 
@@ -2803,19 +2818,23 @@ void Console::StringifyElement(Element* aElement, nsAString& aOut) {
   aOut.AppendLiteral(">");
 }
 
+void Console::LogToMozLog(JSContext* aCx, MethodName aMethodName,
+                          const nsAString& aMethodString,
+                          const Sequence<JS::Value>& aData,
+                          nsIStackFrame* aStack,
+                          DOMHighResTimeStamp aMonotonicTimer) {
+  nsString message = GetDumpMessage(aCx, aMethodName, aMethodString, aData,
+                                    aStack, aMonotonicTimer, true);
+
+  MOZ_LOG(mLogModule, InternalLogLevelToMozLog(aMethodName),
+          ("%s", NS_ConvertUTF16toUTF8(message).get()));
+}
+
 void Console::MaybeExecuteDumpFunction(JSContext* aCx, MethodName aMethodName,
                                        const nsAString& aMethodString,
                                        const Sequence<JS::Value>& aData,
                                        nsIStackFrame* aStack,
                                        DOMHighResTimeStamp aMonotonicTimer) {
-  if (mLogModule->ShouldLog(InternalLogLevelToMozLog(aMethodName))) {
-    nsString message = GetDumpMessage(aCx, aMethodName, aMethodString, aData,
-                                      aStack, aMonotonicTimer, true);
-
-    MOZ_LOG(mLogModule, InternalLogLevelToMozLog(aMethodName),
-            ("%s", NS_ConvertUTF16toUTF8(message).get()));
-  }
-
   if (!mDumpFunction && !mDumpToStdout) {
     return;
   }
@@ -2941,6 +2960,10 @@ void Console::ExecuteDumpFunction(const nsAString& aMessage) {
 #endif
   fputs(str.get(), stdout);
   fflush(stdout);
+}
+
+bool Console::ShouldLogToMozLog(MethodName aName) const {
+  return mLogModule->ShouldLog(InternalLogLevelToMozLog(aName));
 }
 
 bool Console::ShouldProceed(MethodName aName) const {
