@@ -32,6 +32,20 @@ export class AIChatContent extends MozLitElement {
     this.dispatchEvent(
       new CustomEvent("AIChatContent:Ready", { bubbles: true })
     );
+    this.#initFooterActionListeners();
+  }
+
+  #dispatchFooterAction(action, detail) {
+    this.dispatchEvent(
+      new CustomEvent("AIChatContent:DispatchFooterAction", {
+        bubbles: true,
+        composed: true,
+        detail: {
+          action,
+          ...(detail ?? {}),
+        },
+      })
+    );
   }
 
   /**
@@ -43,6 +57,53 @@ export class AIChatContent extends MozLitElement {
       "aiChatContentActor:message",
       this.messageEvent.bind(this)
     );
+
+    this.addEventListener(
+      "aiChatContentActor:truncate",
+      this.truncateEvent.bind(this)
+    );
+
+    this.addEventListener(
+      "aiChatContentActor:remove-applied-memory",
+      this.removeAppliedMemoryEvent.bind(this)
+    );
+  }
+
+  /**
+   * Initialize event listeners for footer actions (retry, copy, etc.)
+   * emitted by child components.
+   */
+
+  #initFooterActionListeners() {
+    this.addEventListener("copy-message", event => {
+      const { messageId } = event.detail ?? {};
+      const text = this.#getAssistantMessageBody(messageId);
+      this.#dispatchFooterAction("copy", { messageId, text });
+    });
+
+    this.addEventListener("retry-message", event => {
+      this.#dispatchFooterAction("retry", event.detail);
+    });
+
+    this.addEventListener("retry-without-memories", event => {
+      this.#dispatchFooterAction("retry-without-memories", event.detail);
+    });
+
+    this.addEventListener("remove-applied-memory", event => {
+      this.#dispatchFooterAction("remove-applied-memory", event.detail);
+    });
+  }
+
+  #getAssistantMessageBody(messageId) {
+    if (!messageId) {
+      return "";
+    }
+
+    const msg = this.conversationState.find(m => {
+      return m?.role === "assistant" && m?.messageId === messageId;
+    });
+
+    return msg?.body ?? "";
   }
 
   messageEvent(event) {
@@ -154,6 +215,36 @@ export class AIChatContent extends MozLitElement {
         wrapper.scrollTop = wrapper.scrollHeight;
       }
     });
+  }
+
+  truncateEvent(event) {
+    const { messageId } = event.detail ?? {};
+    if (!messageId) {
+      return;
+    }
+
+    const idx = this.conversationState.findIndex(m => {
+      return m?.role === "assistant" && m?.messageId === messageId;
+    });
+
+    if (idx === -1) {
+      return;
+    }
+
+    this.conversationState = this.conversationState.slice(0, idx);
+    this.requestUpdate();
+  }
+
+  removeAppliedMemoryEvent(event) {
+    const { messageId, memoryId } = event.detail ?? {};
+    const msg = this.conversationState.find(m => {
+      return m?.role === "assistant" && m?.messageId === messageId;
+    });
+
+    msg.appliedMemories = msg.appliedMemories.filter(
+      memory => memory?.id !== memoryId
+    );
+    this.requestUpdate();
   }
 
   render() {

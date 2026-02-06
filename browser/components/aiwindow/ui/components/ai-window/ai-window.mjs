@@ -39,6 +39,8 @@ ChromeUtils.defineESModuleGetters(lazy, {
     "moz-src:///browser/components/aiwindow/models/ConversationSuggestions.sys.mjs",
   generateConversationStartersSidebar:
     "moz-src:///browser/components/aiwindow/models/ConversationSuggestions.sys.mjs",
+  MemoryStore:
+    "moz-src:///browser/components/aiwindow/services/MemoryStore.sys.mjs",
 });
 
 ChromeUtils.defineLazyGetter(lazy, "log", function () {
@@ -508,9 +510,19 @@ export class AIWindow extends MozLitElement {
    * and dispatches updates to the browser actor.
    *
    * @private
+   *
+   * @param {string} inputText
+   * @param {object} [options]
+   * @param {boolean} [options.skipUserDispatch=false] - If true, do not dispatch
+   * a user message into chat content (used for retries to avoid duplicate
+   * user messages).
+   * @param {boolean} [options.memoriesEnabled] - Optional per-call override for
+   * memory injection; undefined falls back to use global/default behavior.
    */
-
-  #fetchAIResponse = async (inputText = false, userOpts = undefined) => {
+  #fetchAIResponse = async (
+    inputText = false,
+    { skipUserDispatch = false, ...userOpts } = {}
+  ) => {
     const formattedPrompt = (inputText || "").trim();
     if (!formattedPrompt && inputText !== false) {
       return;
@@ -536,7 +548,11 @@ export class AIWindow extends MozLitElement {
         );
 
         // Handle User Prompt
-        this.#dispatchMessageToChatContent(this.#conversation.messages.at(-1));
+        if (!skipUserDispatch) {
+          this.#dispatchMessageToChatContent(
+            this.#conversation.messages.at(-1)
+          );
+        }
 
         // @todo
         // fill out these assistant message flags
@@ -777,6 +793,87 @@ export class AIWindow extends MozLitElement {
     }
 
     this.#fetchAIResponse();
+  }
+
+  handleFooterAction(data) {
+    const { action, messageId, memory } = data ?? {};
+
+    switch (action) {
+      case "retry":
+        this.#retryFromAssistantMessageId(messageId, undefined);
+        break;
+
+      case "retry-without-memories":
+        this.#retryFromAssistantMessageId(messageId, false);
+        break;
+
+      case "remove-applied-memory":
+        this.#removeAppliedMemory(messageId, memory);
+        break;
+    }
+  }
+
+  #getMessageById(id) {
+    return this.#conversation.messages.find(m => m.id === id) ?? null;
+  }
+
+  #getUserMessageForAssistantId(assistantMessageId) {
+    const assistantMsg = this.#getMessageById(assistantMessageId);
+    if (!assistantMsg?.parentMessageId) {
+      return null;
+    }
+
+    return this.#getMessageById(assistantMsg.parentMessageId) ?? null;
+  }
+
+  async #retryFromAssistantMessageId(assistantMessageId, withMemories) {
+    if (this._isRetrying) {
+      console.warn("ai-window: retry already in progress");
+      return;
+    }
+
+    const userMsg = this.#getUserMessageForAssistantId(assistantMessageId);
+    if (!userMsg) {
+      return;
+    }
+
+    this._isRetrying = true;
+    try {
+      const actor = this.#getAIChatContentActor();
+
+      // Truncate to the retried turn so retry regenerates only that response.
+      actor?.dispatchTruncateToChatContent({ messageId: assistantMessageId });
+
+      // Retry is delete-only here; generation happens via fetchAIResponse below.
+      const messagesToDelete = await this.#conversation.retryMessage(userMsg);
+      await lazy.AIWindow.chatStore.deleteMessages(messagesToDelete);
+      await this.#updateConversation();
+      await this.#fetchAIResponse(userMsg.content.body, {
+        skipUserDispatch: true,
+        memoriesEnabled: withMemories ?? userMsg.memoriesEnabled,
+      });
+    } catch (e) {
+      console.error("ai-window: retry failed", e);
+    } finally {
+      this._isRetrying = false;
+    }
+  }
+
+  async #removeAppliedMemory(messageId, memory) {
+    try {
+      const deleted = await lazy.MemoryStore.hardDeleteMemory(memory);
+      if (!deleted) {
+        console.warn("hardDeleteMemory returned false", memory);
+      }
+
+      const actor = this.#getAIChatContentActor();
+      actor?.dispatchRemoveAppliedMemoryToChatContent({
+        messageId,
+        memory,
+      });
+    } catch (e) {
+      console.error("Failed to delete memory", memory, e);
+    }
   }
 
   render() {
