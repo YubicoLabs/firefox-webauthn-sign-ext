@@ -1456,6 +1456,9 @@ class UrlbarInputTestUtils {
   }
 
   async openSearchModeSwitcher(win) {
+    //Flush the popup previous state since it might be still remaining.
+    await new Promise(resolve => win.requestAnimationFrame(resolve));
+
     let popup = this.searchModeSwitcherPopup(win);
     let button = this.#urlbar(win).querySelector(".searchmode-switcher");
     this.Assert.ok(lazy.BrowserTestUtils.isVisible(button));
