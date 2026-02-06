@@ -799,12 +799,12 @@ Preferences.addSetting(
         configs.push({
           id,
           control: "moz-box-item",
+          slot: "static",
           controlAttrs: {
             label: l10nNames.get(searchMode.source)[0],
             description: keywords,
             layout: "medium-icon",
             iconsrc: searchMode.icon,
-            slot: "footer",
           },
         });
       }
