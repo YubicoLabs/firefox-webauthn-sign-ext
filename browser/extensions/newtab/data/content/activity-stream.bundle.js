@@ -2060,77 +2060,6 @@ const LinkMenuOptions = {
       : LinkMenuOptions.PinTopSite(site, index),
   OpenInPrivateWindow: (site, index, eventSource, isEnabled) =>
     isEnabled ? _OpenInPrivateWindow(site) : LinkMenuOptions.EmptyItem(),
-  ChangeWeatherLocation: () => ({
-    id: "newtab-weather-menu-change-location",
-    action: actionCreators.BroadcastToContent({
-      type: actionTypes.WEATHER_SEARCH_ACTIVE,
-      data: true,
-    }),
-  }),
-  DetectLocation: () => ({
-    id: "newtab-weather-menu-detect-my-location",
-    action: actionCreators.AlsoToMain({
-      type: actionTypes.WEATHER_USER_OPT_IN_LOCATION,
-    }),
-    userEvent: "WEATHER_DETECT_LOCATION",
-  }),
-  ChangeWeatherDisplaySimple: () => ({
-    id: "newtab-weather-menu-change-weather-display-simple",
-    action: actionCreators.OnlyToMain({
-      type: actionTypes.SET_PREF,
-      data: {
-        name: "weather.display",
-        value: "simple",
-      },
-    }),
-  }),
-  ChangeWeatherDisplayDetailed: () => ({
-    id: "newtab-weather-menu-change-weather-display-detailed",
-    action: actionCreators.OnlyToMain({
-      type: actionTypes.SET_PREF,
-      data: {
-        name: "weather.display",
-        value: "detailed",
-      },
-    }),
-  }),
-  ChangeTempUnitFahrenheit: () => ({
-    id: "newtab-weather-menu-change-temperature-units-fahrenheit",
-    action: actionCreators.OnlyToMain({
-      type: actionTypes.SET_PREF,
-      data: {
-        name: "weather.temperatureUnits",
-        value: "f",
-      },
-    }),
-  }),
-  ChangeTempUnitCelsius: () => ({
-    id: "newtab-weather-menu-change-temperature-units-celsius",
-    action: actionCreators.OnlyToMain({
-      type: actionTypes.SET_PREF,
-      data: {
-        name: "weather.temperatureUnits",
-        value: "c",
-      },
-    }),
-  }),
-  HideWeather: () => ({
-    id: "newtab-weather-menu-hide-weather-v2",
-    action: actionCreators.OnlyToMain({
-      type: actionTypes.SET_PREF,
-      data: {
-        name: "showWeather",
-        value: false,
-      },
-    }),
-  }),
-  OpenLearnMoreURL: site => ({
-    id: "newtab-weather-menu-learn-more",
-    action: actionCreators.OnlyToMain({
-      type: actionTypes.OPEN_LINK,
-      data: { url: site.url },
-    }),
-  }),
   SectionBlock: ({
     sectionPersonalization,
     sectionKey,
@@ -15391,7 +15320,6 @@ const Search_Search = (0,external_ReactRedux_namespaceObject.connect)(state => (
 
 
 
-
 const Weather_VISIBLE = "visible";
 const Weather_VISIBILITY_CHANGE_EVENT = "visibilitychange";
 const PREF_SYSTEM_SHOW_WEATHER = "system.showWeather";
@@ -15423,8 +15351,6 @@ class _Weather extends (external_React_default()).PureComponent {
   constructor(props) {
     super(props);
     this.state = {
-      contextMenuKeyboard: false,
-      showContextMenu: false,
       url: "https://example.com",
       impressionSeen: false,
       errorSeen: false
@@ -15435,10 +15361,12 @@ class _Weather extends (external_React_default()).PureComponent {
     this.setErrorRef = element => {
       this.errorElement = element;
     };
-    this.onClick = this.onClick.bind(this);
-    this.onKeyDown = this.onKeyDown.bind(this);
-    this.onUpdate = this.onUpdate.bind(this);
+    this.setPanelRef = element => {
+      this.panelElement = element;
+    };
     this.onProviderClick = this.onProviderClick.bind(this);
+    this.onMenuButtonClick = this.onMenuButtonClick.bind(this);
+    this.onMenuButtonKeyDown = this.onMenuButtonKeyDown.bind(this);
   }
   componentDidMount() {
     const {
@@ -15524,33 +15452,6 @@ class _Weather extends (external_React_default()).PureComponent {
       }
     }
   }
-  openContextMenu(isKeyBoard) {
-    if (this.props.onUpdate) {
-      this.props.onUpdate(true);
-    }
-    this.setState({
-      showContextMenu: true,
-      contextMenuKeyboard: isKeyBoard
-    });
-  }
-  onClick(event) {
-    event.preventDefault();
-    this.openContextMenu(false, event);
-  }
-  onKeyDown(event) {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      this.openContextMenu(true, event);
-    }
-  }
-  onUpdate(showContextMenu) {
-    if (this.props.onUpdate) {
-      this.props.onUpdate(showContextMenu);
-    }
-    this.setState({
-      showContextMenu
-    });
-  }
   onProviderClick() {
     this.props.dispatch(actionCreators.OnlyToMain({
       type: actionTypes.WEATHER_OPEN_PROVIDER_URL,
@@ -15558,6 +15459,88 @@ class _Weather extends (external_React_default()).PureComponent {
         source: "WEATHER"
       }
     }));
+  }
+  handleChangeLocation = () => {
+    if (this.panelElement) {
+      this.panelElement.hide();
+    }
+    this.props.dispatch(actionCreators.BroadcastToContent({
+      type: actionTypes.WEATHER_SEARCH_ACTIVE,
+      data: true
+    }));
+  };
+  handleDetectLocation = () => {
+    if (this.panelElement) {
+      this.panelElement.hide();
+    }
+    this.props.dispatch(actionCreators.AlsoToMain({
+      type: actionTypes.WEATHER_USER_OPT_IN_LOCATION
+    }));
+  };
+  handleChangeTempUnit = value => {
+    if (this.panelElement) {
+      this.panelElement.hide();
+    }
+    this.props.dispatch(actionCreators.OnlyToMain({
+      type: actionTypes.SET_PREF,
+      data: {
+        name: "weather.temperatureUnits",
+        value
+      }
+    }));
+  };
+  handleChangeDisplay = value => {
+    if (this.panelElement) {
+      this.panelElement.hide();
+    }
+    this.props.dispatch(actionCreators.OnlyToMain({
+      type: actionTypes.SET_PREF,
+      data: {
+        name: "weather.display",
+        value
+      }
+    }));
+  };
+  handleHideWeather = () => {
+    if (this.panelElement) {
+      this.panelElement.hide();
+    }
+    this.props.dispatch(actionCreators.OnlyToMain({
+      type: actionTypes.SET_PREF,
+      data: {
+        name: "showWeather",
+        value: false
+      }
+    }));
+  };
+  handleLearnMore = () => {
+    if (this.panelElement) {
+      this.panelElement.hide();
+    }
+    this.props.dispatch(actionCreators.OnlyToMain({
+      type: actionTypes.OPEN_LINK,
+      data: {
+        url: "https://support.mozilla.org/kb/customize-items-on-firefox-new-tab-page"
+      }
+    }));
+  };
+  onMenuButtonClick(e) {
+    e.preventDefault();
+    if (this.panelElement) {
+      this.panelElement.toggle(e.currentTarget);
+    }
+  }
+  onMenuButtonKeyDown(e) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      if (this.panelElement) {
+        this.panelElement.toggle(e.currentTarget);
+      }
+    } else if (e.key === "Escape") {
+      if (this.panelElement) {
+        this.panelElement.hide();
+      }
+    }
   }
   handleRejectOptIn = () => {
     (0,external_ReactRedux_namespaceObject.batch)(() => {
@@ -15597,13 +15580,9 @@ class _Weather extends (external_React_default()).PureComponent {
       return /*#__PURE__*/external_React_default().createElement(WeatherPlaceholder, null);
     }
     const {
-      showContextMenu
-    } = this.state;
-    const {
       props
     } = this;
     const {
-      dispatch,
       Prefs,
       Weather
     } = props;
@@ -15644,30 +15623,54 @@ class _Weather extends (external_React_default()).PureComponent {
     // - weather opt-in pref is enabled
     // - static weather data is enabled
     const showStaticData = isOptInEnabled && staticWeather;
-
-    // Note: The temperature units/display options will become secondary menu items
-    const WEATHER_SOURCE_CONTEXT_MENU_OPTIONS = [...(Prefs.values["weather.locationSearchEnabled"] ? ["ChangeWeatherLocation"] : []), ...(isOptInEnabled ? ["DetectLocation"] : []), ...(Prefs.values["weather.temperatureUnits"] === "f" ? ["ChangeTempUnitCelsius"] : ["ChangeTempUnitFahrenheit"]), ...(Prefs.values["weather.display"] === "simple" ? ["ChangeWeatherDisplayDetailed"] : ["ChangeWeatherDisplaySimple"]), "HideWeather", "OpenLearnMoreURL"];
-    const WEATHER_SOURCE_SHORTENED_CONTEXT_MENU_OPTIONS = [...(Prefs.values["weather.locationSearchEnabled"] ? ["ChangeWeatherLocation"] : []), ...(isOptInEnabled ? ["DetectLocation"] : []), "HideWeather", "OpenLearnMoreURL"];
-    const contextMenu = contextOpts => /*#__PURE__*/external_React_default().createElement("div", {
+    const showFullMenu = !showStaticData;
+    const isLocationSearchEnabled = Prefs.values["weather.locationSearchEnabled"];
+    const isFahrenheit = Prefs.values["weather.temperatureUnits"] === "f";
+    const isSimpleDisplay = Prefs.values["weather.display"] === "simple";
+    const contextMenu = (showFullContextMenu = true) => /*#__PURE__*/external_React_default().createElement("div", {
       className: "weatherButtonContextMenuWrapper"
     }, /*#__PURE__*/external_React_default().createElement("button", {
       "aria-haspopup": "true",
-      onKeyDown: this.onKeyDown,
-      onClick: this.onClick,
+      onKeyDown: this.onMenuButtonKeyDown,
+      onClick: this.onMenuButtonClick,
       "data-l10n-id": "newtab-menu-section-tooltip",
       className: "weatherButtonContextMenu"
-    }, showContextMenu ? /*#__PURE__*/external_React_default().createElement(LinkMenu, {
-      dispatch: dispatch,
-      index: 0,
-      source: "WEATHER",
-      onUpdate: this.onUpdate,
-      options: contextOpts,
-      site: {
-        url: "https://support.mozilla.org/kb/customize-items-on-firefox-new-tab-page"
-      },
-      link: "https://support.mozilla.org/kb/customize-items-on-firefox-new-tab-page",
-      shouldSendImpressionStats: false
-    }) : null));
+    }), /*#__PURE__*/external_React_default().createElement("panel-list", {
+      id: "weather-context-menu",
+      ref: this.setPanelRef
+    }, isLocationSearchEnabled && /*#__PURE__*/external_React_default().createElement("panel-item", {
+      id: "weather-menu-change-location",
+      "data-l10n-id": "newtab-weather-menu-change-location",
+      onClick: this.handleChangeLocation
+    }), isOptInEnabled && /*#__PURE__*/external_React_default().createElement("panel-item", {
+      id: "weather-menu-detect-location",
+      "data-l10n-id": "newtab-weather-menu-detect-my-location",
+      onClick: this.handleDetectLocation
+    }), showFullContextMenu && (isFahrenheit ? /*#__PURE__*/external_React_default().createElement("panel-item", {
+      id: "weather-menu-temp-celsius",
+      "data-l10n-id": "newtab-weather-menu-change-temperature-units-celsius",
+      onClick: () => this.handleChangeTempUnit("c")
+    }) : /*#__PURE__*/external_React_default().createElement("panel-item", {
+      id: "weather-menu-temp-fahrenheit",
+      "data-l10n-id": "newtab-weather-menu-change-temperature-units-fahrenheit",
+      onClick: () => this.handleChangeTempUnit("f")
+    })), showFullContextMenu && (isSimpleDisplay ? /*#__PURE__*/external_React_default().createElement("panel-item", {
+      id: "weather-menu-display-detailed",
+      "data-l10n-id": "newtab-weather-menu-change-weather-display-detailed",
+      onClick: () => this.handleChangeDisplay("detailed")
+    }) : /*#__PURE__*/external_React_default().createElement("panel-item", {
+      id: "weather-menu-display-simple",
+      "data-l10n-id": "newtab-weather-menu-change-weather-display-simple",
+      onClick: () => this.handleChangeDisplay("simple")
+    })), /*#__PURE__*/external_React_default().createElement("panel-item", {
+      id: "weather-menu-hide",
+      "data-l10n-id": "newtab-weather-menu-hide-weather-v2",
+      onClick: this.handleHideWeather
+    }), /*#__PURE__*/external_React_default().createElement("panel-item", {
+      id: "weather-menu-learn-more",
+      "data-l10n-id": "newtab-weather-menu-learn-more",
+      onClick: this.handleLearnMore
+    })));
     if (Weather.searchActive) {
       return /*#__PURE__*/external_React_default().createElement(LocationSearch, {
         outerClassName: outerClassName
@@ -15722,7 +15725,7 @@ class _Weather extends (external_React_default()).PureComponent {
         className: "weatherHighLowTemps"
       }, /*#__PURE__*/external_React_default().createElement("span", null, WEATHER_SUGGESTION.forecast.high[Prefs.values["weather.temperatureUnits"]], "\xB0", Prefs.values["weather.temperatureUnits"]), /*#__PURE__*/external_React_default().createElement("span", null, "\u2022"), /*#__PURE__*/external_React_default().createElement("span", null, WEATHER_SUGGESTION.forecast.low[Prefs.values["weather.temperatureUnits"]], "\xB0", Prefs.values["weather.temperatureUnits"])), /*#__PURE__*/external_React_default().createElement("span", {
         className: "weatherTextSummary"
-      }, WEATHER_SUGGESTION.current_conditions.summary)) : null)), contextMenu(showStaticData ? WEATHER_SOURCE_SHORTENED_CONTEXT_MENU_OPTIONS : WEATHER_SOURCE_CONTEXT_MENU_OPTIONS)), /*#__PURE__*/external_React_default().createElement("span", {
+      }, WEATHER_SUGGESTION.current_conditions.summary)) : null)), contextMenu(showFullMenu)), /*#__PURE__*/external_React_default().createElement("span", {
         className: "weatherSponsorText",
         "aria-hidden": "true"
       }, /*#__PURE__*/external_React_default().createElement("span", {
@@ -15765,7 +15768,7 @@ class _Weather extends (external_React_default()).PureComponent {
       className: "icon icon-info-warning"
     }), " ", /*#__PURE__*/external_React_default().createElement("p", {
       "data-l10n-id": "newtab-weather-error-not-available"
-    }), contextMenu(WEATHER_SOURCE_SHORTENED_CONTEXT_MENU_OPTIONS)));
+    }), contextMenu(false)));
   }
 }
 const Weather_Weather = (0,external_ReactRedux_namespaceObject.connect)(state => ({
