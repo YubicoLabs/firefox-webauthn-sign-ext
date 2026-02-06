@@ -4,7 +4,7 @@
 
 "use strict";
 
-const { LINKS } = ChromeUtils.importESModule(
+const { LINKS, ERRORS } = ChromeUtils.importESModule(
   "chrome://browser/content/ipprotection/ipprotection-constants.mjs"
 );
 const lazy = {};
@@ -101,4 +101,38 @@ add_task(async function test_paused_content_upgraded() {
   Assert.ok(!content.statusCardEl, "Status card should be hidden when paused");
 
   await setPanelState();
+  await closePanel();
+});
+
+/**
+ * Tests the generic error type.
+ */
+add_task(async function test_generic_error() {
+  let content = await openPanel({
+    isSignedOut: false,
+    unauthenticated: false,
+    error: ERRORS.GENERIC,
+  });
+
+  let statusBox = content.statusBoxEl;
+  Assert.ok(statusBox, "Status box should be shown when there is an error");
+
+  let errorTitle = statusBox.titleEl;
+  let errorDescription = statusBox.descriptionEl;
+
+  Assert.ok(errorTitle, "Error title should be present");
+  Assert.ok(errorDescription, "Error description should be present");
+
+  Assert.equal(
+    statusBox.getAttribute("type"),
+    ERRORS.GENERIC,
+    "Status box type should be generic-error"
+  );
+
+  Assert.ok(!content.statusCardEl, "Status card should be hidden when error");
+
+  let footerButton = content.settingsButtonEl;
+  Assert.ok(footerButton, "Settings button should be present in footer");
+
+  await closePanel();
 });

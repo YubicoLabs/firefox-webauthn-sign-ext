@@ -239,7 +239,7 @@ add_task(async function test_ipprotection_ready() {
 });
 
 /**
- * Tests showing an error and dismissing it on panel close.
+ * Tests showing an error state UI and dismissing it on panel close.
  */
 add_task(async function test_IPProtectionService_pass_errors() {
   setupService({
@@ -255,10 +255,10 @@ add_task(async function test_IPProtectionService_pass_errors() {
 
   let content = await openPanel();
 
-  let messageBarLoadedPromise = BrowserTestUtils.waitForMutationCondition(
+  let statusBoxLoadedPromise = BrowserTestUtils.waitForMutationCondition(
     content.shadowRoot,
     { childList: true, subtree: true },
-    () => content.shadowRoot.querySelector("ipprotection-message-bar")
+    () => content.shadowRoot.querySelector("ipprotection-status-box")
   );
 
   let statusCard = content.statusCardEl;
@@ -267,7 +267,7 @@ add_task(async function test_IPProtectionService_pass_errors() {
 
   turnOnButton.click();
 
-  await messageBarLoadedPromise;
+  await statusBoxLoadedPromise;
 
   Assert.equal(
     IPPProxyManager.state,
@@ -275,13 +275,18 @@ add_task(async function test_IPProtectionService_pass_errors() {
     "Proxy is not active"
   );
 
-  let messageBar = content.shadowRoot.querySelector("ipprotection-message-bar");
+  let statusBox = content.statusBoxEl;
 
   Assert.ok(
-    turnOnButton,
-    "Turn on button is still present because of an error"
+    !content.statusCardEl,
+    "Status card should be hidden when there's an error"
   );
-  Assert.ok(messageBar, "Message bar should be present");
+  Assert.ok(statusBox, "Status box should be present for generic error");
+  Assert.equal(
+    statusBox.getAttribute("type"),
+    ERRORS.GENERIC,
+    "Status box type should be generic-error"
+  );
   Assert.equal(
     content.state.error,
     ERRORS.GENERIC,

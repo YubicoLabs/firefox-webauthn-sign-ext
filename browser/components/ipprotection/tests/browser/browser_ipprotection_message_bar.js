@@ -4,51 +4,6 @@
 
 "use strict";
 
-const { ERRORS } = ChromeUtils.importESModule(
-  "chrome://browser/content/ipprotection/ipprotection-constants.mjs"
-);
-
-/**
- * Tests the generic error message bar.
- */
-add_task(async function test_generic_error() {
-  let content = await openPanel({
-    isSignedOut: false,
-    error: "",
-  });
-
-  let messageBar = content.shadowRoot.querySelector("ipprotection-message-bar");
-
-  Assert.ok(!messageBar, "Message bar should not be present");
-
-  let messageBarLoadedPromise = BrowserTestUtils.waitForMutationCondition(
-    content.shadowRoot,
-    { childList: true, subtree: true },
-    () => content.shadowRoot.querySelector("ipprotection-message-bar")
-  );
-
-  await setPanelState({
-    isSignedOut: false,
-    error: ERRORS.GENERIC,
-  });
-  await messageBarLoadedPromise;
-
-  messageBar = content.shadowRoot.querySelector("ipprotection-message-bar");
-
-  Assert.ok(messageBar, "Message bar should be present");
-  Assert.ok(
-    messageBar.mozMessageBarEl,
-    "Wrapped moz-message-bar should be present"
-  );
-  Assert.equal(
-    messageBar.type,
-    ERRORS.GENERIC,
-    "Message bar should be generic error"
-  );
-
-  await closePanel();
-});
-
 /**
  * Tests the warning message bar triggered by bandwidth threshold preference
  */
@@ -241,10 +196,11 @@ add_task(async function test_dismiss() {
     () => content.shadowRoot.querySelector("ipprotection-message-bar")
   );
 
-  // Use generic error as a fallback
+  // Use bandwidth warning to test message bar dismiss functionality
   await setPanelState({
     isSignedOut: false,
-    error: ERRORS.GENERIC,
+    error: "",
+    bandwidthWarning: true,
   });
   await messageBarLoadedPromise;
 
