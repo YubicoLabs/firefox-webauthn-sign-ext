@@ -231,7 +231,7 @@ const PREF_URLBAR_DEFAULTS = /** @type {PreferenceDefinition[]} */ ([
   ["merino.clientVariants", ""],
 
   // The Merino endpoint URL, not including parameters.
-  ["merino.endpointURL", "https://merino.services.mozilla.com/api/v1/suggest"],
+  ["merino.endpointURL", ""],
 
   // OHTTP config URL for Merino requests.
   ["merino.ohttpConfigURL", ""],
