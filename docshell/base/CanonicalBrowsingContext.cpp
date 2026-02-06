@@ -720,15 +720,18 @@ CanonicalBrowsingContext::ReplaceLoadingSessionHistoryEntryForLoad(
       }
 
       auto result = MakeUnique<LoadingSessionHistoryInfo>(loadingEntry, aInfo);
-      MOZ_LOG_FMT(
-          gNavigationAPILog, LogLevel::Debug,
-          "CanonicalBrowsingContext::ReplaceLoadingSessionHistoryEntryForLoad: "
-          "Recreating the contiguous entries list after redirected navigation "
-          "to {}.",
-          ToMaybeRef(result->mInfo.GetURI())
-              .map(std::mem_fn(&nsIURI::GetSpecOrDefault))
-              .valueOr("(null URI)."_ns));
-      GetContiguousEntriesForLoad(*result, loadingEntry);
+      if (Navigation::IsAPIEnabled()) {
+        MOZ_LOG_FMT(gNavigationAPILog, LogLevel::Debug,
+                    "CanonicalBrowsingContext::"
+                    "ReplaceLoadingSessionHistoryEntryForLoad: "
+                    "Recreating the contiguous entries list after redirected "
+                    "navigation "
+                    "to {}.",
+                    ToMaybeRef(result->mInfo.GetURI())
+                        .map(std::mem_fn(&nsIURI::GetSpecOrDefault))
+                        .valueOr("(null URI)."_ns));
+        GetContiguousEntriesForLoad(*result, loadingEntry);
+      }
       return result;
     }
   }
@@ -738,6 +741,7 @@ CanonicalBrowsingContext::ReplaceLoadingSessionHistoryEntryForLoad(
 void CanonicalBrowsingContext::GetContiguousEntriesForLoad(
     LoadingSessionHistoryInfo& aLoadingInfo,
     const RefPtr<SessionHistoryEntry>& aEntry) {
+  MOZ_DIAGNOSTIC_ASSERT(Navigation::IsAPIEnabled());
   nsCOMPtr<nsIURI> uri =
       mActiveEntry ? mActiveEntry->GetURIOrInheritedForAboutBlank() : nullptr;
   nsCOMPtr<nsIURI> targetURI = aEntry->GetURIOrInheritedForAboutBlank();

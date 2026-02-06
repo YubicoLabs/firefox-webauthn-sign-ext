@@ -11043,7 +11043,9 @@ nsresult nsDocShell::DoURILoad(nsDocShellLoadState* aLoadState,
         aLoadState->PolicyContainer(), mContentTypeHint);
     entry->SetTransient();
     mozilla::dom::LoadingSessionHistoryInfo info(*entry);
-    info.mContiguousEntries.AppendElement(*entry);
+    if (Navigation::IsAPIEnabled()) {
+      info.mContiguousEntries.AppendElement(*entry);
+    }
     SetLoadingSessionHistoryInfo(info, true);
   }
 
