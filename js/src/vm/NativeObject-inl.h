@@ -241,13 +241,23 @@ inline bool NativeObject::initDenseElementsFromRange(JSContext* cx, Iter begin,
   return true;
 }
 
+bool NativeObject::canMoveElementsHeader() const {
+#ifdef JS_GC_CONCURRENT_MARKING
+  // We can't move the elements header when concurrent marking may be marking
+  // the elements on another thread.
+  return !zone()->needsMarkingBarrier(JS::shadow::Zone::Concurrent);
+#else
+  return true;
+#endif
+}
+
 inline bool NativeObject::tryShiftDenseElements(uint32_t count) {
   MOZ_ASSERT(isExtensible());
 
   ObjectElements* header = getElementsHeader();
   if (header->initializedLength == count ||
       count > ObjectElements::MaxShiftedElements ||
-      header->hasNonwritableArrayLength()) {
+      header->hasNonwritableArrayLength() || !canMoveElementsHeader()) {
     return false;
   }
 
@@ -261,6 +271,7 @@ inline void NativeObject::shiftDenseElementsUnchecked(uint32_t count) {
   ObjectElements* header = getElementsHeader();
   MOZ_ASSERT(count > 0);
   MOZ_ASSERT(count < header->initializedLength);
+  MOZ_ASSERT(canMoveElementsHeader());
 
   if (MOZ_UNLIKELY(header->numShiftedElements() + count >
                    ObjectElements::MaxShiftedElements)) {

@@ -656,6 +656,7 @@ DenseElementResult NativeObject::maybeDensifySparseElements(
 
 void NativeObject::moveShiftedElements() {
   MOZ_ASSERT(isExtensible());
+  MOZ_ASSERT(canMoveElementsHeader());
 
   ObjectElements* header = getElementsHeader();
   uint32_t numShifted = header->numShiftedElements();
@@ -703,6 +704,10 @@ void NativeObject::maybeMoveShiftedElements() {
 bool NativeObject::tryUnshiftDenseElements(uint32_t count) {
   MOZ_ASSERT(isExtensible());
   MOZ_ASSERT(count > 0);
+
+  if (!canMoveElementsHeader()) {
+    return false;
+  }
 
   ObjectElements* header = getElementsHeader();
   uint32_t numShifted = header->numShiftedElements();
@@ -890,7 +895,7 @@ bool NativeObject::growElements(JSContext* cx, uint32_t reqCapacity) {
   // move them here, the code below will include the shifted elements in the
   // resize.
   uint32_t numShifted = getElementsHeader()->numShiftedElements();
-  if (numShifted > 0) {
+  if (numShifted > 0 && canMoveElementsHeader()) {
     // If the number of elements is small, it's cheaper to just move them as
     // it may avoid a malloc/realloc. Note that there's no technical reason
     // for using this particular value, but it works well in real-world use
@@ -1021,7 +1026,7 @@ void NativeObject::shrinkElements(JSContext* cx, uint32_t reqCapacity) {
 
   // If we have shifted elements, consider moving them.
   uint32_t numShifted = getElementsHeader()->numShiftedElements();
-  if (numShifted > 0) {
+  if (numShifted > 0 && canMoveElementsHeader()) {
     maybeMoveShiftedElements();
     numShifted = getElementsHeader()->numShiftedElements();
   }
@@ -1068,7 +1073,8 @@ void NativeObject::shrinkCapacityToInitializedLength(JSContext* cx) {
   // length never exceed the length. This mechanism is also used when an object
   // becomes non-extensible.
 
-  if (getElementsHeader()->numShiftedElements() > 0) {
+  if (getElementsHeader()->numShiftedElements() > 0 &&
+      canMoveElementsHeader()) {
     moveShiftedElements();
   }
 

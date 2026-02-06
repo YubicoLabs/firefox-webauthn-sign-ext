@@ -1479,6 +1479,8 @@ class NativeObject : public JSObject {
   // single step.
   inline void elementsRangePostWriteBarrier(uint32_t start, uint32_t count);
 
+  inline bool canMoveElementsHeader() const;
+
  public:
   void shrinkCapacityToInitializedLength(JSContext* cx);
 
