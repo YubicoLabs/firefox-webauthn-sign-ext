@@ -108,4 +108,55 @@ if (!window.chrome) {
       return loadTimes;
     },
   };
+
+  const ua = navigator.userAgent;
+  const mobile = ua.includes("Android");
+
+  // Very roughly matches Chromium's GetPlatformForUAMetadata()
+  let platform = "Linux";
+  if (mobile) {
+    platform = "Android";
+  } else if (navigator.platform.startsWith("Win")) {
+    platform = "Windows";
+  } else if (navigator.platform.startsWith("Mac")) {
+    platform = "macOS";
+  }
+
+  const version = ua.match(/Chrome\/([0-9]+)/)[1];
+
+  // These match Chrome's output as of version 126.
+  const brands = [
+    {
+      brand: "Not/A)Brand",
+      version: "8",
+    },
+    {
+      brand: "Chromium",
+      version,
+    },
+    {
+      brand: "Google Chrome",
+      version,
+    },
+  ];
+
+  // Site checks the high-entropy platformVersion on Windows.
+  const userAgentData = {
+    brands,
+    mobile,
+    platform,
+    getHighEntropyValues() {
+      return Promise.resolve({
+        brands,
+        mobile,
+        platform,
+        platformVersion: "19.0.0",
+      });
+    },
+  };
+
+  Object.defineProperty(nav, "userAgentData", {
+    get: () => userAgentData,
+    set: () => {},
+  });
 }
