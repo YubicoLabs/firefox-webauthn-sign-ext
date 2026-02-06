@@ -83,6 +83,12 @@ static MOZ_ALWAYS_INLINE void Debug_SetSlotRangeToCrashOnTouch(HeapSlot* begin,
 #endif
 }
 
+static inline void InitializeSlotRange(HeapSlot* start, HeapSlot* end) {
+  for (HeapSlot* sp = start; sp < end; sp++) {
+    sp->initAsUndefined();
+  }
+}
+
 class ArrayObject;
 
 /**
@@ -494,6 +500,8 @@ class alignas(HeapSlot) ObjectSlots {
     return maybeUniqueId_ == NoUniqueIdInSharedEmptySlots;
   }
 
+  inline void initSlots();
+
   constexpr bool hasUniqueId() const {
     return maybeUniqueId_ > LastNoUniqueIdValue;
   }
@@ -808,6 +816,12 @@ class NativeObject : public JSObject {
       Debug_SetSlotRangeToCrashOnTouch(slotsStart, slotsEnd);
     });
 #endif /* DEBUG */
+  }
+
+  void initializeSlotRange(uint32_t start, uint32_t end) {
+    forEachSlotRange(start, end, [](HeapSlot* slotsStart, HeapSlot* slotsEnd) {
+      InitializeSlotRange(slotsStart, slotsEnd);
+    });
   }
 
   void initFixedSlots(uint32_t numSlots) {

@@ -359,8 +359,12 @@ bool NativeObject::growSlots(JSContext* cx, uint32_t oldCapacity,
       new (allocation) ObjectSlots(newCapacity, dictionarySpan, uid);
   slots_ = newHeaderSlots->slots();
 
+#ifdef JS_GC_CONCURRENT_MARKING
+  InitializeSlotRange(slots_ + oldCapacity, slots_ + newCapacity);
+#else
   Debug_SetSlotRangeToCrashOnTouch(slots_ + oldCapacity,
                                    newCapacity - oldCapacity);
+#endif
 
   MOZ_ASSERT(hasDynamicSlots());
   return true;
@@ -394,9 +398,16 @@ bool NativeObject::allocateInitialSlots(JSContext* cx, uint32_t capacity) {
 
   auto* headerSlots = new (allocation)
       ObjectSlots(capacity, 0, ObjectSlots::NoUniqueIdInDynamicSlots);
-  slots_ = headerSlots->slots();
+  HeapSlot* slots = headerSlots->slots();
 
-  Debug_SetSlotRangeToCrashOnTouch(slots_, capacity);
+#ifdef JS_GC_CONCURRENT_MARKING
+  // TODO: This (and the other uses of InitializeSlotRange in this file) may
+  // unnecessarily initialize slots that get explicitly initialized later.
+  InitializeSlotRange(slots, slots + capacity);
+#else
+  Debug_SetSlotRangeToCrashOnTouch(slots, capacity);
+#endif
+  slots_ = slots;
 
   MOZ_ASSERT(hasDynamicSlots());
   return true;
@@ -420,7 +431,11 @@ bool NativeObject::allocateSlots(Nursery& nursery, uint32_t newCapacity) {
       newCapacity, dictionarySpan, ObjectSlots::NoUniqueIdInDynamicSlots);
   slots_ = newHeaderSlots->slots();
 
+#ifdef JS_GC_CONCURRENT_MARKING
+  InitializeSlotRange(slots_, slots_ + newCapacity);
+#else
   Debug_SetSlotRangeToCrashOnTouch(slots_, newCapacity);
+#endif
 
   MOZ_ASSERT(hasDynamicSlots());
   return true;
