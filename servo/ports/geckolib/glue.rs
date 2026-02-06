@@ -1586,22 +1586,6 @@ pub extern "C" fn Servo_Element_MayHaveStartingStyle(element: &RawGeckoElement) 
         .contains(data::ElementDataFlags::MAY_HAVE_STARTING_STYLE)
 }
 
-#[no_mangle]
-pub extern "C" fn Servo_Element_ReferencesAttribute(
-    element: &RawGeckoElement,
-    attr: *const nsAtom,
-) -> bool {
-    let element = GeckoElement(element);
-    let Some(data) = element.borrow_data() else {
-        return false;
-    };
-    let Some(ref attrs) = data.styles.primary().attribute_references else {
-        return false;
-    };
-
-    unsafe { Atom::with(attr, |attr| attrs.contains(AtomIdent::cast(attr))) }
-}
-
 fn mode_to_origin(mode: SheetParsingMode) -> Origin {
     match mode {
         SheetParsingMode::eAuthorSheetFeatures => Origin::Author,
