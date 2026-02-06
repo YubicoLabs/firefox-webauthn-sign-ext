@@ -6868,6 +6868,78 @@ characteristics:
     data_sensitivity:
       - technical
 
+  fonts_variant_c_allowlisted:
+    type: string
+    description: >
+      SHA256 of allowlisted fonts queried of variant C
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2014267
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2014267
+    expires: never
+    data_sensitivity:
+      - technical
+
+  fonts_variant_c_nonallowlisted:
+    type: string
+    description: >
+      SHA256 of non-allowlisted fonts queried of variant C
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2014267
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2014267
+    expires: never
+    data_sensitivity:
+      - technical
+
+  fonts_variant_d_allowlisted:
+    type: string
+    description: >
+      SHA256 of allowlisted fonts queried of variant D
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2014267
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2014267
+    expires: never
+    data_sensitivity:
+      - technical
+
+  fonts_variant_d_nonallowlisted:
+    type: string
+    description: >
+      SHA256 of non-allowlisted fonts queried of variant D
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2014267
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2014267
+    expires: never
+    data_sensitivity:
+      - technical
+
   screens:
     type: text
     description: >

@@ -835,3 +835,20 @@ const char* variantB[] = {"ms pmincho",
                           "nanummyeongjo",
                           "stixintegralsupd-regular",
                           nullptr};
+
+const char* variantC[] = {"arial",
+                          "cambria math",
+                          "dejavu sans",
+                          "droid sans",
+                          "geneva",
+                          "helvetica neue",
+                          "segoe ui",
+                          "source code pro",
+                          "ubuntu",
+                          nullptr};
+
+const char* variantD[] = {"dejavu sans",
+                          "droid sans",
+                          "source code pro",
+                          "ubuntu",
+                          nullptr};
