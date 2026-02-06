@@ -1252,6 +1252,9 @@ void HTMLSelectElement::DoneAddingChildren(bool aHaveNotified) {
 
     // And now make sure we update our content state too
     UpdateValidityElementStates(aHaveNotified);
+
+    // Similar deal with the selected option text.
+    SelectedContentTextMightHaveChanged();
   }
 
   mDefaultSelectionSet = true;
