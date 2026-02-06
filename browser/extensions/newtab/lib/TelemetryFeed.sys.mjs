@@ -1597,7 +1597,7 @@ export class TelemetryFeed {
     const session = this.sessions.get(au.getPortIdOfSender(action));
     if (session) {
       const payload = {
-        newtab_visit_id: session.visit_id,
+        newtab_visit_id: session.session_id,
       };
 
       switch (action.type) {
@@ -1618,7 +1618,7 @@ export class TelemetryFeed {
     const session = this.sessions.get(au.getPortIdOfSender(action));
     if (session) {
       const payload = {
-        newtab_visit_id: session.visit_id,
+        newtab_visit_id: session.session_id,
       };
       switch (action.type) {
         case "WIDGETS_LISTS_USER_EVENT":
