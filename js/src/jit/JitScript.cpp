@@ -11,6 +11,7 @@
 
 #include <utility>
 
+#include "gc/GCMarker.h"
 #include "jit/BaselineIC.h"
 #include "jit/BaselineJIT.h"
 #include "jit/BytecodeAnalysis.h"
@@ -187,6 +188,10 @@ void JSScript::releaseJitScriptOnFinalize(JS::GCContext* gcx) {
 }
 
 void JitScript::trace(JSTracer* trc) {
+  // This is not safe to call concurrently with the mutator.
+  MOZ_ASSERT_IF(trc->isMarkingTracer(),
+                !GCMarker::fromTracer(trc)->isConcurrentMarking());
+
   TraceEdge(trc, &owningScript_, "JitScript::owningScript_");
 
   icScript_.trace(trc);

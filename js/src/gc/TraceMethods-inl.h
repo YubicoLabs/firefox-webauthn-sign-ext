@@ -35,10 +35,22 @@
 #include "vm/StringType-inl.h"
 
 inline void js::BaseScript::traceChildren(JSTracer* trc) {
+  traceChildrenCommon(trc);
+  warmUpData_.trace(trc);
+}
+inline void js::BaseScript::traceChildrenConcurrently(JSTracer* trc,
+                                                      bool* skippedJitScript) {
+  traceChildrenCommon(trc);
+
+  ScriptWarmUpData warmUpData = warmUpData_;
+  if (!warmUpData.isJitScript()) {
+    warmUpData.trace(trc);
+  }
+  *skippedJitScript = warmUpData.isJitScript();
+}
+inline void js::BaseScript::traceChildrenCommon(JSTracer* trc) {
   TraceNullableEdge(trc, &function_, "function");
   TraceEdge(trc, &sourceObject_, "sourceObject");
-
-  warmUpData_.trace(trc);
 
   if (data_) {
     data_->trace(trc);
@@ -373,7 +385,8 @@ void js::GCMarker::eagerlyMarkChildren(PropMap* map) {
       // Special case: if a map has a table then all its pointers must point to
       // this map or an ancestor. Since these pointers will be traced by this
       // loop they do not need to be traced here as well.
-      MOZ_ASSERT(map->asLinked()->canSkipMarkingTable());
+      MOZ_ASSERT_IF(state != MarkingState::ConcurrentMarking,
+                    map->asLinked()->canSkipMarkingTable());
     }
 
     if (map->isDictionary()) {
