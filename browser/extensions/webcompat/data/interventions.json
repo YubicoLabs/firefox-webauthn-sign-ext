@@ -485,10 +485,7 @@
         "platforms": ["linux", "android"],
         "content_scripts": {
           "all_frames": true,
-          "js": [
-            "lib/ua_helpers.js",
-            "bug1724868-news.yahoo.co.jp-ua-override.js"
-          ]
+          "js": ["bug1724868-news.yahoo.co.jp-ua-override.js"]
         }
       }
     ]
@@ -2158,10 +2155,7 @@
       {
         "platforms": ["all"],
         "content_scripts": {
-          "js": [
-            "lib/ua_helpers.js",
-            "bug1898929-app.sessionlinkpro.com-spoof-user-agent.js"
-          ]
+          "js": ["bug1898929-app.sessionlinkpro.com-spoof-user-agent.js"]
         }
       }
     ]
@@ -2701,10 +2695,7 @@
       {
         "platforms": ["all"],
         "content_scripts": {
-          "js": [
-            "lib/ua_helpers.js",
-            "bug1902379-adl.edu.tw-hide-unsupported-popup.js"
-          ]
+          "js": ["bug1902379-adl.edu.tw-hide-unsupported-popup.js"]
         }
       }
     ]
@@ -2868,6 +2859,7 @@
       {
         "platforms": ["all"],
         "content_scripts": {
+          "isolated": true,
           "js": ["bug1902399-recochoku.jp-hide-unsupported-browser-warning.js"]
         }
       }
@@ -2964,10 +2956,7 @@
       {
         "platforms": ["all"],
         "content_scripts": {
-          "js": [
-            "lib/ua_helpers.js",
-            "bug1902407-www.sigadoc.mt.gov.br-user-agent-spoof.js"
-          ]
+          "js": ["bug1902407-www.sigadoc.mt.gov.br-user-agent-spoof.js"]
         }
       }
     ]
@@ -3355,7 +3344,6 @@
         "platforms": ["android"],
         "content_scripts": {
           "js": [
-            "lib/ua_helpers.js",
             "bug1904952-idserver.servizicie.interno.gov.it-spoof-as-chrome.js"
           ]
         }
@@ -5069,10 +5057,7 @@
       {
         "platforms": ["android"],
         "content_scripts": {
-          "js": [
-            "lib/ua_helpers.js",
-            "bug1975651-comic.k-manga.jp-ua-override.js"
-          ]
+          "js": ["bug1975651-comic.k-manga.jp-ua-override.js"]
         }
       }
     ]
@@ -5186,10 +5171,7 @@
         "platforms": ["android"],
         "content_scripts": {
           "all_frames": true,
-          "js": [
-            "lib/ua_helpers.js",
-            "bug1934908-www.cbsnews.com-ua-override.js"
-          ]
+          "js": ["bug1934908-www.cbsnews.com-ua-override.js"]
         }
       }
     ]
@@ -5630,6 +5612,7 @@
       {
         "platforms": ["desktop"],
         "content_scripts": {
+          "isolated": true,
           "js": ["1986438-gamma.app-hide-unsupported.js"]
         }
       }

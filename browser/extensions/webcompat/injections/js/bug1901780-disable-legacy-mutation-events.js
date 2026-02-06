@@ -8,13 +8,16 @@
  * Bugs 1901780 - Disable legacy DOM Mutation Events to prevent performance issues.
  */
 
-/* globals exportFunction */
+if (!window.__firefoxWebCompatFixBug1901780) {
+  Object.defineProperty(window, "__firefoxWebCompatFixBug1901780", {
+    configurable: false,
+    value: true,
+  });
 
-console.info(
-  "DOM Mutation Events have been disabled to prevent performance issues. See https://bugzilla.mozilla.org/show_bug.cgi?id=1901780 for details."
-);
+  console.info(
+    "DOM Mutation Events have been disabled to prevent performance issues. See https://bugzilla.mozilla.org/show_bug.cgi?id=1901780 for details."
+  );
 
-(function disableMutationEvents() {
   const whichEvents = [
     "domattrmodified",
     "domcharacterdatamodified",
@@ -25,15 +28,15 @@ console.info(
     "domsubtreemodified",
   ];
 
-  const { prototype } = window.wrappedJSObject.EventTarget;
+  const { prototype } = window.EventTarget;
   const { addEventListener } = prototype;
   Object.defineProperty(prototype, "addEventListener", {
-    value: exportFunction(function (_type, b, c, d) {
+    value(_type, b, c, d) {
       const type = _type?.toLowerCase();
       if (whichEvents.includes(type)) {
         return undefined;
       }
       return addEventListener.call(this, type, b, c, d);
-    }, window),
+    },
   });
-})();
+}

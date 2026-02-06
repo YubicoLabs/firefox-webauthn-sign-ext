@@ -4,8 +4,6 @@
 
 "use strict";
 
-/* globals exportFunction */
-
 /**
  * Bug 1993517 - onlinebank.resursbank.se - extra browser tabs for bankid logins remain open
  *
@@ -13,19 +11,26 @@
  * Chrome and Safari seem to autoclose such tabs incorrectly.
  */
 
-console.info(
-  'Dropping target="_blank" attribute for bankid logins for compatibility reasons. See https://bugzilla.mozilla.org/show_bug.cgi?id=1993517 for details.'
-);
+if (!window.__firefoxWebCompatFixBug1993517) {
+  Object.defineProperty(window, "__firefoxWebCompatFixBug1993517", {
+    configurable: false,
+    value: true,
+  });
 
-if (/Win32|Win64|Windows|WinCE/i.test(navigator.platform)) {
-  const nav = Object.getPrototypeOf(navigator.wrappedJSObject);
-  const platform = Object.getOwnPropertyDescriptor(nav, "platform");
-  platform.get = exportFunction(() => "MacIntel", window);
-  Object.defineProperty(nav, "platform", platform);
+  console.info(
+    'Dropping target="_blank" attribute for bankid logins for compatibility reasons. See https://bugzilla.mozilla.org/show_bug.cgi?id=1993517 for details.'
+  );
+
+  if (/Win32|Win64|Windows|WinCE/i.test(navigator.platform)) {
+    const nav = Object.getPrototypeOf(navigator);
+    const platform = Object.getOwnPropertyDescriptor(nav, "platform");
+    platform.get = () => "MacIntel";
+    Object.defineProperty(nav, "platform", platform);
+  }
+
+  document.addEventListener(
+    "click",
+    e => e.target?.closest("a[href^='bankid://']")?.removeAttribute("target"),
+    true
+  );
 }
-
-document.addEventListener(
-  "click",
-  e => e.target?.closest("a[href^='bankid://']")?.removeAttribute("target"),
-  true
-);
