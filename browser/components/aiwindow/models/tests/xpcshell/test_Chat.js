@@ -50,6 +50,11 @@ add_task(async function test_Chat_real_tools_are_registered() {
     "function",
     "get_page_content should be registered in toolMap"
   );
+  Assert.strictEqual(
+    typeof Chat.toolMap.get_user_memories,
+    "function",
+    "get_user_memories should be registered in the toolMap"
+  );
 });
 
 add_task(

@@ -12,6 +12,9 @@ const { MESSAGE_ROLE } = ChromeUtils.importESModule(
 const { Chat } = ChromeUtils.importESModule(
   "moz-src:///browser/components/aiwindow/models/Chat.sys.mjs"
 );
+const { MemoryStore } = ChromeUtils.importESModule(
+  "moz-src:///browser/components/aiwindow/services/MemoryStore.sys.mjs"
+);
 
 const { PlacesTestUtils } = ChromeUtils.importESModule(
   "resource://testing-common/PlacesTestUtils.sys.mjs"
@@ -247,5 +250,92 @@ add_task(async function test_chat_tool_call_get_page_content() {
   } finally {
     BrowserTestUtils.removeTab(tab);
     await new Promise(resolve => pageServer.stop(resolve));
+  }
+});
+
+add_task(async function test_chat_tool_call_get_user_memories() {
+  // Clear existing memories
+  const preTestMemories = await MemoryStore.getMemories({
+    includeSoftDeleted: true,
+  });
+  for (const memory of preTestMemories) {
+    await MemoryStore.hardDeleteMemory(memory.id);
+  }
+
+  // Add temp test memories
+  const testMemories = [
+    {
+      memory_summary: "Loves drinking coffee",
+      category: "Food & Drink",
+      intent: "Plan / Organize",
+      score: 3,
+    },
+    {
+      memory_summary: "Buys dog food online",
+      category: "Pets & Animals",
+      intent: "Buy / Acquire",
+      score: 4,
+    },
+  ];
+  for (const memory of testMemories) {
+    await MemoryStore.addMemory(memory);
+  }
+
+  try {
+    await withServer(
+      {
+        toolCall: {
+          name: "get_user_memories",
+          args: "{}",
+        },
+        followupChunks: ["Memories ready."],
+      },
+      async () => {
+        const conversation = new ChatConversation({
+          title: "chat title",
+          description: "chat desc",
+          pageUrl: new URL("https://example.com"),
+          pageMeta: {},
+        });
+        conversation.addUserMessage(
+          "Tell me everything you know about me",
+          "https://example.com",
+          0
+        );
+
+        let responseText = "";
+        for await (const chunk of Chat.fetchWithHistory(conversation)) {
+          if (typeof chunk === "string") {
+            responseText += chunk;
+          }
+        }
+
+        Assert.equal(
+          responseText,
+          "Memories ready.",
+          "Assistant should stream follow-up text"
+        );
+
+        const toolMessages = conversation.messages.filter(
+          message => message.role === MESSAGE_ROLE.TOOL
+        );
+        Assert.equal(toolMessages.length, 1, "Tool result recorded");
+        const returnedMemories = toolMessages[0].content.body;
+        info("got memories: " + returnedMemories);
+        Assert.deepEqual(
+          returnedMemories,
+          ["Loves drinking coffee", "Buys dog food online"],
+          "Memories tool returns should match the expected set"
+        );
+      }
+    );
+  } finally {
+    // Clear temp memories
+    const postTestMemories = await MemoryStore.getMemories({
+      includeSoftDeleted: true,
+    });
+    for (const memory of postTestMemories) {
+      await MemoryStore.hardDeleteMemory(memory.id);
+    }
   }
 });
