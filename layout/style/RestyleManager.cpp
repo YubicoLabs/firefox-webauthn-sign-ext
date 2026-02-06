@@ -2245,12 +2245,12 @@ void ServoRestyleState::AddPendingWrapperRestyle(nsIFrame* aWrapperFrame) {
   MOZ_ASSERT(aWrapperFrame->Style()->IsInheritingAnonBox(),
              "All our wrappers are anon boxes, and why would we restyle "
              "non-inheriting ones?");
-  MOZ_ASSERT(aWrapperFrame->Style()->GetPseudoType() !=
-                 PseudoStyleType::MozCellContent,
-             "Someone should be using TableAwareParentFor");
-  MOZ_ASSERT(aWrapperFrame->Style()->GetPseudoType() !=
-                 PseudoStyleType::MozTableWrapper,
-             "Someone should be using TableAwareParentFor");
+  MOZ_ASSERT(
+      aWrapperFrame->Style()->GetPseudoType() != PseudoStyleType::cellContent,
+      "Someone should be using TableAwareParentFor");
+  MOZ_ASSERT(
+      aWrapperFrame->Style()->GetPseudoType() != PseudoStyleType::tableWrapper,
+      "Someone should be using TableAwareParentFor");
   // Make sure we only add first continuations.
   aWrapperFrame = aWrapperFrame->FirstContinuation();
   nsIFrame* last = mPendingWrapperRestyles.SafeLastElement(nullptr);
@@ -2371,7 +2371,7 @@ nsIFrame* ServoRestyleState::TableAwareParentFor(const nsIFrame* aChild) {
 
   nsIFrame* parent = aChild->GetParent();
   // Now if parent is a cell-content frame, we actually want the cellframe.
-  if (parent->Style()->GetPseudoType() == PseudoStyleType::MozCellContent) {
+  if (parent->Style()->GetPseudoType() == PseudoStyleType::cellContent) {
     return parent->GetParent();
   }
   if (const nsTableWrapperFrame* wrapper = do_QueryFrame(parent)) {
@@ -2540,14 +2540,14 @@ struct RestyleManager::TextPostTraversalState {
   void ComputeHintIfNeeded(nsIContent* aContent, nsIFrame* aTextFrame,
                            ComputedStyle& aNewStyle) {
     MOZ_ASSERT(aTextFrame);
-    MOZ_ASSERT(aNewStyle.GetPseudoType() == PseudoStyleType::MozText);
+    MOZ_ASSERT(aNewStyle.GetPseudoType() == PseudoStyleType::mozText);
 
     if (MOZ_LIKELY(!mShouldPostHints)) {
       return;
     }
 
     ComputedStyle* oldStyle = aTextFrame->Style();
-    MOZ_ASSERT(oldStyle->GetPseudoType() == PseudoStyleType::MozText);
+    MOZ_ASSERT(oldStyle->GetPseudoType() == PseudoStyleType::mozText);
 
     // We rely on the fact that all the text children for the same element share
     // style to avoid recomputing style differences for all of them.
@@ -2614,7 +2614,8 @@ static void UpdateOneAdditionalComputedStyle(nsIFrame* aFrame, uint32_t aIndex,
                                              ServoRestyleState& aRestyleState) {
   auto pseudoType = aOldContext.GetPseudoType();
   MOZ_ASSERT(pseudoType != PseudoStyleType::NotPseudo);
-  MOZ_ASSERT(!PseudoStyle::SupportsUserActionState(pseudoType));
+  MOZ_ASSERT(
+      !nsCSSPseudoElements::PseudoElementSupportsUserActionState(pseudoType));
 
   RefPtr<ComputedStyle> newStyle =
       aRestyleState.StyleSet().ResolvePseudoElementStyle(
@@ -2777,7 +2778,7 @@ static bool NeedsToReframeForConditionallyCreatedPseudoElement(
       !nsLayoutUtils::GetMarkerPseudo(aElement)) {
     RefPtr<ComputedStyle> pseudoStyle =
         aRestyleState.StyleSet().ProbePseudoElementStyle(
-            *aElement, PseudoStyleType::Marker, nullptr, aNewStyle);
+            *aElement, PseudoStyleType::marker, nullptr, aNewStyle);
     if (pseudoStyle) {
       return true;
     }
@@ -2787,7 +2788,7 @@ static bool NeedsToReframeForConditionallyCreatedPseudoElement(
       !nsLayoutUtils::GetBackdropPseudo(aElement)) {
     RefPtr<ComputedStyle> pseudoStyle =
         aRestyleState.StyleSet().ProbePseudoElementStyle(
-            *aElement, PseudoStyleType::Backdrop, nullptr, aNewStyle);
+            *aElement, PseudoStyleType::backdrop, nullptr, aNewStyle);
     if (pseudoStyle) {
       return true;
     }

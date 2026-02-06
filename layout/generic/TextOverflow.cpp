@@ -15,6 +15,7 @@
 #include "mozilla/ScrollContainerFrame.h"
 #include "mozilla/dom/Selection.h"
 #include "nsBlockFrame.h"
+#include "nsCSSAnonBoxes.h"
 #include "nsCaret.h"
 #include "nsContentUtils.h"
 #include "nsFontMetrics.h"

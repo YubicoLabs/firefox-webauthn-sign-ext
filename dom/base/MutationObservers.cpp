@@ -7,7 +7,6 @@
 #include "MutationObservers.h"
 
 #include "PLDHashTable.h"
-#include "PseudoStyleType.h"
 #include "mozilla/AnimationTarget.h"
 #include "mozilla/Assertions.h"
 #include "mozilla/ErrorResult.h"
@@ -23,6 +22,7 @@
 #include "mozilla/dom/KeyframeEffect.h"
 #include "mozilla/dom/ShadowRoot.h"
 #include "nsCOMArray.h"
+#include "nsCSSPseudoElements.h"
 #include "nsContentUtils.h"
 #include "nsDOMMutationObserver.h"
 #include "nsGenericHTMLElement.h"

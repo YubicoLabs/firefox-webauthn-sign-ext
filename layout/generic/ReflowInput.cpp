@@ -2289,7 +2289,7 @@ void ReflowInput::InitConstraints(
           }
         }
         if (cb->Style()->GetPseudoType() ==
-            PseudoStyleType::MozColumnSpanWrapper) {
+            PseudoStyleType::columnSpanWrapper) {
           MOZ_ASSERT(mFrame->StyleColumn()->mColumnSpan !=
                      StyleColumnSpan::None);
           // Note(dshin, bug 2013429): `:-moz-column-span-wrapper` is a
@@ -2297,7 +2297,7 @@ void ReflowInput::InitConstraints(
           auto* p = cb->GetParent();
           while (p) {
             if (p->Style()->GetPseudoType() !=
-                PseudoStyleType::MozColumnSpanWrapper) {
+                PseudoStyleType::columnSpanWrapper) {
               return p;
             }
             p = p->GetParent();
@@ -2412,13 +2412,13 @@ void ReflowInput::InitConstraints(
           return false;
         }
         const auto pseudoType = mFrame->Style()->GetPseudoType();
-        if (pseudoType == PseudoStyleType::Marker &&
+        if (pseudoType == PseudoStyleType::marker &&
             mFrame->GetParent()->StyleList()->mListStylePosition ==
                 StyleListStylePosition::Outside) {
           // Exclude outside ::markers.
           return false;
         }
-        if (pseudoType == PseudoStyleType::MozColumnContent) {
+        if (pseudoType == PseudoStyleType::columnContent) {
           // Exclude -moz-column-content since it cannot have any margin.
           return false;
         }

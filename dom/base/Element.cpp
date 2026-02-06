@@ -20,7 +20,6 @@
 #include "DOMMatrix.h"
 #include "ExpandedPrincipal.h"
 #include "PresShellInlines.h"
-#include "PseudoStyleType.h"
 #include "jsapi.h"
 #include "mozAutoDocUpdate.h"
 #include "mozilla/AnimationComparator.h"
@@ -134,6 +133,7 @@
 #include "nsBaseHashtable.h"
 #include "nsBlockFrame.h"
 #include "nsCOMPtr.h"
+#include "nsCSSPseudoElements.h"
 #include "nsCompatibility.h"
 #include "nsComputedDOMStyle.h"
 #include "nsContainerFrame.h"
@@ -4834,7 +4834,7 @@ static void GetAnimationsUnsorted(const Element* aElement,
 
 static inline bool IsSupportedForGetAnimationsSubtree(PseudoStyleType aType) {
   return aType == PseudoStyleType::NotPseudo ||
-         aType == PseudoStyleType::MozSnapshotContainingBlock ||
+         aType == PseudoStyleType::mozSnapshotContainingBlock ||
          PseudoStyle::IsViewTransitionPseudoElement(aType);
 }
 
@@ -4918,16 +4918,16 @@ void Element::GetAnimationsWithoutFlush(
   // on the parent element.
   if (IsGeneratedContentContainerForBefore()) {
     elem = GetParentElement();
-    pseudoRequest.mType = PseudoStyleType::Before;
+    pseudoRequest.mType = PseudoStyleType::before;
   } else if (IsGeneratedContentContainerForAfter()) {
     elem = GetParentElement();
-    pseudoRequest.mType = PseudoStyleType::After;
+    pseudoRequest.mType = PseudoStyleType::after;
   } else if (IsGeneratedContentContainerForMarker()) {
     elem = GetParentElement();
-    pseudoRequest.mType = PseudoStyleType::Marker;
+    pseudoRequest.mType = PseudoStyleType::marker;
   } else if (IsGeneratedContentContainerForBackdrop()) {
     elem = GetParentElement();
-    pseudoRequest.mType = PseudoStyleType::Backdrop;
+    pseudoRequest.mType = PseudoStyleType::backdrop;
   }
 
   if (!elem) {
@@ -4935,10 +4935,10 @@ void Element::GetAnimationsWithoutFlush(
   }
 
   // FIXME: Bug 1935557. Rewrite this to support pseudoElement option.
-  if (!aOptions.mSubtree || (pseudoRequest.mType == PseudoStyleType::Before ||
-                             pseudoRequest.mType == PseudoStyleType::After ||
-                             pseudoRequest.mType == PseudoStyleType::Backdrop ||
-                             pseudoRequest.mType == PseudoStyleType::Marker)) {
+  if (!aOptions.mSubtree || (pseudoRequest.mType == PseudoStyleType::before ||
+                             pseudoRequest.mType == PseudoStyleType::after ||
+                             pseudoRequest.mType == PseudoStyleType::backdrop ||
+                             pseudoRequest.mType == PseudoStyleType::marker)) {
     // Case 1: Non-subtree, or |this| is ::before, ::after, or ::marker.
     //
     // ::before, ::after, and ::marker doesn't have subtree on themself, so we
@@ -4962,9 +4962,9 @@ void Element::CloneAnimationsFrom(const Element& aOther) {
   // support view transitions. We have to revisit here after we support view
   // transitions to make sure we clone the animations properly.
   for (PseudoStyleType pseudoType :
-       {PseudoStyleType::NotPseudo, PseudoStyleType::Before,
-        PseudoStyleType::After, PseudoStyleType::Marker,
-        PseudoStyleType::Backdrop}) {
+       {PseudoStyleType::NotPseudo, PseudoStyleType::before,
+        PseudoStyleType::after, PseudoStyleType::marker,
+        PseudoStyleType::backdrop}) {
     // If the element has an effect set for this pseudo type (or not pseudo)
     // then copy the effects and animation properties.
     const PseudoStyleRequest request(pseudoType);
@@ -5326,7 +5326,7 @@ void Element::GetImplementedPseudoElement(nsAString& aPseudo) const {
   if (pseudoType == PseudoStyleType::NotPseudo) {
     return SetDOMStringToNull(aPseudo);
   }
-  nsDependentAtomString pseudo(PseudoStyle::GetAtom(pseudoType));
+  nsDependentAtomString pseudo(nsCSSPseudoElements::GetPseudoAtom(pseudoType));
 
   // We want to use the modern syntax (::placeholder, etc), but the atoms only
   // contain one semi-colon.
@@ -5362,19 +5362,19 @@ Element* Element::GetPseudoElement(const PseudoStyleRequest& aRequest) const {
       // It's unfortunate we have to do const cast, so we don't have to write
       // the almost duplicate function for the non-const function.
       return const_cast<Element*>(this);
-    case PseudoStyleType::Before:
+    case PseudoStyleType::before:
       return nsLayoutUtils::GetBeforePseudo(this);
-    case PseudoStyleType::After:
+    case PseudoStyleType::after:
       return nsLayoutUtils::GetAfterPseudo(this);
-    case PseudoStyleType::Marker:
+    case PseudoStyleType::marker:
       return nsLayoutUtils::GetMarkerPseudo(this);
-    case PseudoStyleType::Backdrop:
+    case PseudoStyleType::backdrop:
       return nsLayoutUtils::GetBackdropPseudo(this);
-    case PseudoStyleType::ViewTransition:
-    case PseudoStyleType::ViewTransitionGroup:
-    case PseudoStyleType::ViewTransitionImagePair:
-    case PseudoStyleType::ViewTransitionOld:
-    case PseudoStyleType::ViewTransitionNew: {
+    case PseudoStyleType::viewTransition:
+    case PseudoStyleType::viewTransitionGroup:
+    case PseudoStyleType::viewTransitionImagePair:
+    case PseudoStyleType::viewTransitionOld:
+    case PseudoStyleType::viewTransitionNew: {
       Element* result = SearchViewTransitionPseudo(this, aRequest);
       MOZ_ASSERT(!result || result->GetPseudoElementType() == aRequest.mType,
                  "The type should match");

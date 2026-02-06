@@ -13,6 +13,7 @@
 
 #include "mozilla/FunctionRef.h"
 #include "mozilla/LinkedList.h"
+#include "nsCSSPseudoElements.h"
 #include "nsStyleStruct.h"
 #include "nsTextNode.h"
 

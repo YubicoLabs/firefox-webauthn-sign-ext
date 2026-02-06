@@ -334,7 +334,7 @@ static void MaybeMarkAncestorsAsHavingDescendantDependentOnItsStaticPos(
 
 static bool IsSnapshotContainingBlock(const nsIFrame* aFrame) {
   return aFrame->Style()->GetPseudoType() ==
-         PseudoStyleType::MozSnapshotContainingBlock;
+         PseudoStyleType::mozSnapshotContainingBlock;
 }
 
 static PhysicalAxes CheckEarlyCompensatingForScroll(const nsIFrame* aKidFrame) {
@@ -376,8 +376,8 @@ static nsRect ComputeScrollableContainingBlock(
     const nsContainerFrame* aDelegatingFrame, const nsRect& aContainingBlock,
     const OverflowAreas* aOverflowAreas) {
   switch (aDelegatingFrame->Style()->GetPseudoType()) {
-    case PseudoStyleType::MozScrolledContent:
-    case PseudoStyleType::MozScrolledCanvas: {
+    case PseudoStyleType::scrolledContent:
+    case PseudoStyleType::scrolledCanvas: {
       if (!aOverflowAreas) {
         break;
       }

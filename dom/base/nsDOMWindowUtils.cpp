@@ -101,7 +101,6 @@
 // #include "nsWidgetsCID.h"
 #include "HTMLCanvasElement.h"
 #include "HTMLImageElement.h"
-#include "PseudoStyleType.h"  // for PseudoStyleType
 #include "mozilla/CSSPropertyId.h"
 #include "mozilla/CycleCollectedJSContext.h"
 #include "mozilla/DisplayPortUtils.h"
@@ -126,6 +125,7 @@
 #include "mozilla/layers/IAPZCTreeManager.h"  // for layers::ZoomToRectBehavior
 #include "mozilla/layers/WebRenderBridgeChild.h"
 #include "mozilla/layers/WebRenderLayerManager.h"
+#include "nsCSSPseudoElements.h"  // for PseudoStyleType
 #include "nsContentPermissionHelper.h"
 #include "nsDisplayList.h"
 #include "nsIBaseWindow.h"
@@ -3126,7 +3126,8 @@ nsDOMWindowUtils::GetUnanimatedComputedStyle(Element* aElement,
     return NS_ERROR_FAILURE;
   }
 
-  Maybe<PseudoStyleRequest> pseudo = PseudoStyleRequest::Parse(aPseudoElement);
+  Maybe<PseudoStyleRequest> pseudo =
+      nsCSSPseudoElements::ParsePseudoElement(aPseudoElement);
   if (!pseudo) {
     return NS_ERROR_FAILURE;
   }

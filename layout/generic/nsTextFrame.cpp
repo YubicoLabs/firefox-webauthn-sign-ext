@@ -13,7 +13,6 @@
 
 #include "MathMLTextRunFactory.h"
 #include "PresShellInlines.h"
-#include "PseudoStyleType.h"
 #include "TextDrawTarget.h"
 #include "gfx2DGlue.h"
 #include "gfxContext.h"
@@ -46,6 +45,7 @@
 #include "nsCOMPtr.h"
 #include "nsCSSColorUtils.h"
 #include "nsCSSFrameConstructor.h"
+#include "nsCSSPseudoElements.h"
 #include "nsCSSRendering.h"
 #include "nsCompatibility.h"
 #include "nsContentUtils.h"
@@ -5401,7 +5401,7 @@ void nsTextFrame::GetTextDecorations(
       break;
     }
 
-    if (context->GetPseudoType() == PseudoStyleType::Marker &&
+    if (context->GetPseudoType() == PseudoStyleType::marker &&
         (context->StyleList()->mListStylePosition ==
              StyleListStylePosition::Outside ||
          !context->StyleDisplay()->IsInlineOutsideStyle())) {

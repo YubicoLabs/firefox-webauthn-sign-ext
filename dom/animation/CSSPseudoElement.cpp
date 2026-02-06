@@ -6,7 +6,7 @@
 
 #include "mozilla/dom/CSSPseudoElement.h"
 
-#include "mozilla/AnimationUtils.h"
+#include "mozilla/AnimationComparator.h"
 #include "mozilla/dom/CSSPseudoElementBinding.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/KeyframeEffectBinding.h"
@@ -71,13 +71,13 @@ already_AddRefed<CSSPseudoElement> CSSPseudoElement::GetCSSPseudoElement(
 nsAtom* CSSPseudoElement::GetCSSPseudoElementPropertyAtom(
     PseudoStyleType aType) {
   switch (aType) {
-    case PseudoStyleType::Before:
+    case PseudoStyleType::before:
       return nsGkAtoms::cssPseudoElementBeforeProperty;
 
-    case PseudoStyleType::After:
+    case PseudoStyleType::after:
       return nsGkAtoms::cssPseudoElementAfterProperty;
 
-    case PseudoStyleType::Marker:
+    case PseudoStyleType::marker:
       return nsGkAtoms::cssPseudoElementMarkerProperty;
 
     default:
@@ -86,10 +86,6 @@ nsAtom* CSSPseudoElement::GetCSSPseudoElementPropertyAtom(
           "other than ::before, ::after or ::marker");
       return nullptr;
   }
-}
-
-void CSSPseudoElement::GetType(nsString& aRetVal) const {
-  PseudoStyleRequest(mPseudoType).ToString(aRetVal);
 }
 
 }  // namespace mozilla::dom

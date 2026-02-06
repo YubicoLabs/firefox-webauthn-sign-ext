@@ -27,16 +27,16 @@ nsresult NS_NewXMLElement(
 void nsXMLElement::UnbindFromTree(UnbindContext& aContext) {
   nsAtom* property;
   switch (GetPseudoElementType()) {
-    case PseudoStyleType::Marker:
+    case PseudoStyleType::marker:
       property = nsGkAtoms::markerPseudoProperty;
       break;
-    case PseudoStyleType::Before:
+    case PseudoStyleType::before:
       property = nsGkAtoms::beforePseudoProperty;
       break;
-    case PseudoStyleType::After:
+    case PseudoStyleType::after:
       property = nsGkAtoms::afterPseudoProperty;
       break;
-    case PseudoStyleType::Backdrop:
+    case PseudoStyleType::backdrop:
       property = nsGkAtoms::backdropPseudoProperty;
       break;
     default:

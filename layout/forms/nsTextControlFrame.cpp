@@ -8,7 +8,6 @@
 
 #include <algorithm>
 
-#include "PseudoStyleType.h"
 #include "gfxContext.h"
 #include "mozilla/EventStateManager.h"
 #include "mozilla/PresShell.h"
@@ -24,6 +23,7 @@
 #include "mozilla/dom/Text.h"
 #include "nsAttrValueInlines.h"
 #include "nsCOMPtr.h"
+#include "nsCSSPseudoElements.h"
 #include "nsCaret.h"
 #include "nsContentUtils.h"
 #include "nsDisplayList.h"
@@ -333,13 +333,13 @@ already_AddRefed<Element> nsTextControlFrame::MakeAnonElement(
   Document* doc = PresContext()->Document();
   RefPtr<Element> element = doc->CreateHTMLElement(aTag);
   element->SetPseudoElementType(aPseudoType);
-  if (aPseudoType == PseudoStyleType::MozTextControlEditingRoot) {
+  if (aPseudoType == PseudoStyleType::mozTextControlEditingRoot) {
     // Make our root node editable
     element->SetFlags(NODE_IS_EDITABLE);
   }
 
-  if (aPseudoType == PseudoStyleType::MozNumberSpinDown ||
-      aPseudoType == PseudoStyleType::MozNumberSpinUp) {
+  if (aPseudoType == PseudoStyleType::mozNumberSpinDown ||
+      aPseudoType == PseudoStyleType::mozNumberSpinUp) {
     element->SetAttr(kNameSpaceID_None, nsGkAtoms::aria_hidden, u"true"_ns,
                      false);
   }
@@ -361,7 +361,7 @@ already_AddRefed<Element> nsTextControlFrame::MakeAnonDivWithTextNode(
   // If the anonymous div element is not for the placeholder, we should
   // mark the text node as "maybe modified frequently" for avoiding ASCII
   // range checks at every input.
-  if (aPseudoType != PseudoStyleType::Placeholder) {
+  if (aPseudoType != PseudoStyleType::placeholder) {
     textNode->MarkAsMaybeModifiedFrequently();
     // Additionally, this is a password field, the text node needs to be
     // marked as "maybe masked" unless it's in placeholder.
@@ -379,7 +379,7 @@ nsresult nsTextControlFrame::CreateAnonymousContent(
   MOZ_ASSERT(mContent, "We should have a content!");
 
   RefPtr<TextControlElement> textControlElement = ControlElement();
-  mRootNode = MakeAnonElement(PseudoStyleType::MozTextControlEditingRoot);
+  mRootNode = MakeAnonElement(PseudoStyleType::mozTextControlEditingRoot);
   if (NS_WARN_IF(!mRootNode)) {
     return NS_ERROR_FAILURE;
   }
@@ -421,7 +421,7 @@ nsresult nsTextControlFrame::CreateAnonymousContent(
       IsPasswordTextControl() &&
       StyleDisplay()->EffectiveAppearance() != StyleAppearance::Textfield) {
     mButton =
-        MakeAnonElement(PseudoStyleType::MozReveal, nullptr, nsGkAtoms::button);
+        MakeAnonElement(PseudoStyleType::mozReveal, nullptr, nsGkAtoms::button);
     mButton->SetAttr(kNameSpaceID_None, nsGkAtoms::aria_hidden, u"true"_ns,
                      false);
     mButton->SetAttr(kNameSpaceID_None, nsGkAtoms::tabindex, u"-1"_ns, false);
@@ -471,7 +471,7 @@ void nsTextControlFrame::CreatePlaceholderIfNeeded() {
     return;
   }
 
-  mPlaceholderDiv = MakeAnonDivWithTextNode(PseudoStyleType::Placeholder);
+  mPlaceholderDiv = MakeAnonDivWithTextNode(PseudoStyleType::placeholder);
   UpdatePlaceholderText(placeholder, false);
 }
 
@@ -510,7 +510,7 @@ void nsTextControlFrame::CreatePreviewIfNeeded() {
   if (!ControlElement()->IsPreviewEnabled()) {
     return;
   }
-  mPreviewDiv = MakeAnonDivWithTextNode(PseudoStyleType::MozTextControlPreview);
+  mPreviewDiv = MakeAnonDivWithTextNode(PseudoStyleType::mozTextControlPreview);
 }
 
 void nsTextControlFrame::AppendAnonymousContentTo(

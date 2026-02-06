@@ -90,7 +90,7 @@ static already_AddRefed<Element> MakeAnonButton(
   // NOTE: SetIsNativeAnonymousRoot() has to be called before setting any
   // attribute.
   button->SetIsNativeAnonymousRoot();
-  button->SetPseudoElementType(PseudoStyleType::FileSelectorButton);
+  button->SetPseudoElementType(PseudoStyleType::fileSelectorButton);
 
   // Set the file picking button text depending on the current locale.
   nsAutoString buttonTxt;
@@ -133,7 +133,7 @@ nsresult nsFileControlFrame::CreateAnonymousContent(
   // NOTE: SetIsNativeAnonymousRoot() has to be called before setting any
   // attribute.
   mTextContent->SetIsNativeAnonymousRoot();
-  mTextContent->SetPseudoElementType(PseudoStyleType::MozFileContent);
+  mTextContent->SetPseudoElementType(PseudoStyleType::mozFileContent);
   RefPtr<nsTextNode> text = doc->CreateEmptyTextNode();
   mTextContent->AppendChildTo(text, false, IgnoreErrors());
 

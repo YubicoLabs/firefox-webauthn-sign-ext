@@ -33,8 +33,8 @@ namespace {
 
 bool IsScrolled(const nsIFrame* aFrame) {
   switch (aFrame->Style()->GetPseudoType()) {
-    case PseudoStyleType::MozScrolledContent:
-    case PseudoStyleType::MozScrolledCanvas:
+    case PseudoStyleType::scrolledContent:
+    case PseudoStyleType::scrolledCanvas:
       return true;
     default:
       return false;
@@ -245,9 +245,9 @@ bool IsFullyStyleableTreeAbidingOrNotPseudoElement(const nsIFrame* aFrame) {
   const PseudoStyleType pseudoElementType = aFrame->Style()->GetPseudoType();
 
   // See https://www.w3.org/TR/css-pseudo-4/#treelike
-  return pseudoElementType == PseudoStyleType::Before ||
-         pseudoElementType == PseudoStyleType::After ||
-         pseudoElementType == PseudoStyleType::Marker;
+  return pseudoElementType == PseudoStyleType::before ||
+         pseudoElementType == PseudoStyleType::after ||
+         pseudoElementType == PseudoStyleType::marker;
 }
 
 size_t GetTopLayerIndex(const nsIFrame* aFrame) {

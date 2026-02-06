@@ -9,6 +9,7 @@
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/HTMLSlotElement.h"
 #include "mozilla/dom/ShadowRoot.h"
+#include "nsCSSAnonBoxes.h"
 #include "nsContentUtils.h"
 #include "nsIAnonymousContentCreator.h"
 #include "nsIFrame.h"

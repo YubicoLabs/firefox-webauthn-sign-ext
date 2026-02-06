@@ -214,7 +214,8 @@ struct AnimationEventInfo {
       InternalTransitionEvent event(true, data.mMessage);
       data.mProperty.ToString(event.mPropertyName);
       event.mElapsedTime = data.mElapsedTime;
-      data.mTarget.mPseudoRequest.ToString(event.mPseudoElement);
+      event.mPseudoElement = nsCSSPseudoElements::PseudoRequestAsString(
+          data.mTarget.mPseudoRequest);
       event.AssignEventTime(WidgetEventTime(data.mEventEnqueueTimeStamp));
       RefPtr target = data.mTarget.mElement;
       EventDispatcher::Dispatch(target, aPresContext, &event);
@@ -225,7 +226,8 @@ struct AnimationEventInfo {
     InternalAnimationEvent event(true, data.mMessage);
     data.mAnimationName->ToString(event.mAnimationName);
     event.mElapsedTime = data.mElapsedTime;
-    data.mTarget.mPseudoRequest.ToString(event.mPseudoElement);
+    event.mPseudoElement =
+        nsCSSPseudoElements::PseudoRequestAsString(data.mTarget.mPseudoRequest);
     event.AssignEventTime(WidgetEventTime(data.mEventEnqueueTimeStamp));
     RefPtr target = data.mTarget.mElement;
     EventDispatcher::Dispatch(target, aPresContext, &event);

@@ -163,7 +163,7 @@ static void DumpContentRecur(nsIDocShell* aDocShell, FILE* out,
       fputs("--\n", out);
       if (current->IsElement() &&
           current->AsElement()->GetPseudoElementType() ==
-              PseudoStyleType::MozSnapshotContainingBlock) {
+              PseudoStyleType::mozSnapshotContainingBlock) {
         fprintf(out,
                 "View Transition Tree "
                 "[parent=%p][active-view-transition=%p]:\n",

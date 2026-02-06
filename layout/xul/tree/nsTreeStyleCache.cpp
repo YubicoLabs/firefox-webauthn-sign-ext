@@ -29,11 +29,11 @@ uint32_t nsTreeStyleCache::Transition::Hash() const {
 }
 
 // The ComputedStyle cache impl
-ComputedStyle* nsTreeStyleCache::GetComputedStyle(nsPresContext* aPresContext,
-                                                  nsIContent* aContent,
-                                                  ComputedStyle* aStyle,
-                                                  PseudoStyleType aPseudoType,
-                                                  const AtomArray& aInputWord) {
+ComputedStyle* nsTreeStyleCache::GetComputedStyle(
+    nsPresContext* aPresContext, nsIContent* aContent, ComputedStyle* aStyle,
+    nsCSSAnonBoxPseudoStaticAtom* aPseudoElement, const AtomArray& aInputWord) {
+  MOZ_ASSERT(nsCSSAnonBoxes::IsTreePseudoElement(aPseudoElement));
+
   uint32_t count = aInputWord.Length();
 
   // Go ahead and init the transition table.
@@ -42,9 +42,8 @@ ComputedStyle* nsTreeStyleCache::GetComputedStyle(nsPresContext* aPresContext,
     mTransitionTable = MakeUnique<TransitionTable>();
   }
 
-  // The first transition is always made off the atom for the pseudo-element.
-  const nsStaticAtom* pseudoAtom = PseudoStyle::GetAtom(aPseudoType);
-  Transition transition(0, const_cast<nsStaticAtom*>(pseudoAtom));
+  // The first transition is always made off the supplied pseudo-element.
+  Transition transition(0, aPseudoElement);
   DFAState currState = mTransitionTable->Get(transition);
 
   if (!currState) {
@@ -76,12 +75,21 @@ ComputedStyle* nsTreeStyleCache::GetComputedStyle(nsPresContext* aPresContext,
     // We missed the cache. Resolve this pseudo-style.
     RefPtr<ComputedStyle> newResult =
         aPresContext->StyleSet()->ResolveXULTreePseudoStyle(
-            aContent->AsElement(), aPseudoType, aStyle, aInputWord);
+            aContent->AsElement(), aPseudoElement, aStyle, aInputWord);
 
     // Normally we rely on nsIFrame::Init / RestyleManager to call this, but
     // these are weird and don't use a frame, yet ::-moz-tree-twisty definitely
     // pokes at list-style-image.
     newResult->StartImageLoads(*aPresContext->Document());
+
+    // Even though xul-tree pseudos are defined in nsCSSAnonBoxList, nothing has
+    // ever treated them as an anon box, and they don't ever get boxes anyway.
+    //
+    // This is really weird, and probably nothing really relies on the result of
+    // these assert, but it's here just to avoid changing them accidentally.
+    MOZ_ASSERT(newResult->GetPseudoType() == PseudoStyleType::XULTree);
+    MOZ_ASSERT(!newResult->IsAnonBox());
+    MOZ_ASSERT(!newResult->IsPseudoElement());
 
     // Put the ComputedStyle in our table, transferring the owning reference to
     // the table.

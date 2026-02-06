@@ -8,8 +8,9 @@
 #define mozilla_AnimationCollection_h
 
 #include "mozilla/LinkedList.h"
-#include "mozilla/PseudoStyleRequest.h"
+#include "mozilla/PseudoStyleType.h"
 #include "mozilla/RefPtr.h"
+#include "nsCSSPseudoElements.h"
 #include "nsTArrayForwardDeclare.h"
 
 class nsAtom;

@@ -564,10 +564,10 @@ EffectCompositor::GetAnimationElementAndPseudoForFrame(const nsIFrame* aFrame) {
 
   Element* element = content->AsElement();
   switch (request.mType) {
-    case PseudoStyleType::Before:
-    case PseudoStyleType::After:
-    case PseudoStyleType::Marker:
-    case PseudoStyleType::Backdrop: {
+    case PseudoStyleType::before:
+    case PseudoStyleType::after:
+    case PseudoStyleType::marker:
+    case PseudoStyleType::backdrop: {
       nsIContent* parent = element->GetParent();
       if (!parent || !parent->IsElement()) {
         return result;
@@ -575,11 +575,11 @@ EffectCompositor::GetAnimationElementAndPseudoForFrame(const nsIFrame* aFrame) {
       element = parent->AsElement();
       break;
     }
-    case PseudoStyleType::ViewTransition:
-    case PseudoStyleType::ViewTransitionGroup:
-    case PseudoStyleType::ViewTransitionImagePair:
-    case PseudoStyleType::ViewTransitionOld:
-    case PseudoStyleType::ViewTransitionNew: {
+    case PseudoStyleType::viewTransition:
+    case PseudoStyleType::viewTransitionGroup:
+    case PseudoStyleType::viewTransitionImagePair:
+    case PseudoStyleType::viewTransitionOld:
+    case PseudoStyleType::viewTransitionNew: {
       request.mIdentifier =
           element->HasName()
               ? element->GetParsedAttr(nsGkAtoms::name)->GetAtomValue()

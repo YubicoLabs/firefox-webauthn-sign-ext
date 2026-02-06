@@ -8,7 +8,6 @@
 
 #include "mozilla/ComputedStyle.h"
 
-#include "PseudoStyleType.h"
 #include "RubyUtils.h"
 #include "mozilla/ComputedStyleInlines.h"
 #include "mozilla/DebugOnly.h"
@@ -19,6 +18,8 @@
 #include "mozilla/ToString.h"
 #include "mozilla/dom/Document.h"
 #include "nsCOMPtr.h"
+#include "nsCSSAnonBoxes.h"
+#include "nsCSSPseudoElements.h"
 #include "nsCSSVisitedDependentPropList.h"
 #include "nsCoord.h"
 #include "nsFontMetrics.h"
@@ -393,7 +394,8 @@ ComputedStyle* ComputedStyle::GetCachedLazyPseudoStyle(
     const PseudoStyleRequest& aRequest) const {
   MOZ_ASSERT(PseudoStyle::IsPseudoElement(aRequest.mType));
 
-  if (PseudoStyle::SupportsUserActionState(aRequest.mType)) {
+  if (nsCSSPseudoElements::PseudoElementSupportsUserActionState(
+          aRequest.mType)) {
     return nullptr;
   }
 

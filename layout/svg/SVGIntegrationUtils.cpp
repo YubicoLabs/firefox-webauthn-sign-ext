@@ -20,6 +20,7 @@
 #include "mozilla/StaticPrefs_layers.h"
 #include "mozilla/dom/SVGElement.h"
 #include "mozilla/gfx/Point.h"
+#include "nsCSSAnonBoxes.h"
 #include "nsCSSRendering.h"
 #include "nsDisplayList.h"
 #include "nsLayoutUtils.h"

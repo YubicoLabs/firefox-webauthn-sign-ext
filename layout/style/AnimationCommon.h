@@ -154,23 +154,23 @@ class OwningElementRef final {
       switch (aPseudoRequest.mType) {
         case PseudoStyleType::NotPseudo:
           return SortingIndex::NotPseudo;
-        case PseudoStyleType::Backdrop:
+        case PseudoStyleType::backdrop:
           return SortingIndex::Backdrop;
-        case PseudoStyleType::Marker:
+        case PseudoStyleType::marker:
           return SortingIndex::Marker;
-        case PseudoStyleType::Before:
+        case PseudoStyleType::before:
           return SortingIndex::Before;
-        case PseudoStyleType::After:
+        case PseudoStyleType::after:
           return SortingIndex::After;
-        case PseudoStyleType::ViewTransition:
+        case PseudoStyleType::viewTransition:
           return SortingIndex::ViewTransition;
-        case PseudoStyleType::ViewTransitionGroup:
+        case PseudoStyleType::viewTransitionGroup:
           return SortingIndex::ViewTransitionGroup;
-        case PseudoStyleType::ViewTransitionImagePair:
+        case PseudoStyleType::viewTransitionImagePair:
           return SortingIndex::ViewTransitionImagePair;
-        case PseudoStyleType::ViewTransitionOld:
+        case PseudoStyleType::viewTransitionOld:
           return SortingIndex::ViewTransitionOld;
-        case PseudoStyleType::ViewTransitionNew:
+        case PseudoStyleType::viewTransitionNew:
           return SortingIndex::ViewTransitionNew;
         default:
           MOZ_ASSERT_UNREACHABLE("Unexpected pseudo type");

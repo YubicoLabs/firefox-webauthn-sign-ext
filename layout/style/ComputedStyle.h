@@ -15,6 +15,7 @@
 #include "mozilla/PseudoStyleType.h"
 #include "mozilla/ServoComputedData.h"
 #include "mozilla/ServoStyleConsts.h"
+#include "nsCSSPseudoElements.h"
 #include "nsColor.h"
 #include "nsStyleStructFwd.h"
 
@@ -96,7 +97,7 @@ class ComputedStyle {
 
   bool IsLazilyCascadedPseudoElement() const {
     return IsPseudoElement() &&
-           !PseudoStyle::IsEagerlyCascadedInServo(GetPseudoType());
+           !nsCSSPseudoElements::IsEagerlyCascadedInServo(GetPseudoType());
   }
 
   PseudoStyleType GetPseudoType() const { return mPseudoType; }
@@ -236,7 +237,8 @@ class ComputedStyle {
     //
     // The one place this optimization breaks is with pseudo-elements that
     // support state (like :hover). So we just avoid sharing in those cases.
-    if (PseudoStyle::SupportsUserActionState(aStyle->GetPseudoType())) {
+    if (nsCSSPseudoElements::PseudoElementSupportsUserActionState(
+            aStyle->GetPseudoType())) {
       return;
     }
 

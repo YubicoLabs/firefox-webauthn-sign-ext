@@ -454,7 +454,8 @@ void InspectorUtils::GetMatchingCSSRules(
     GlobalObject& aGlobalObject, Element& aElement, const nsAString& aPseudo,
     bool aIncludeVisitedStyle, bool aWithStartingStyle,
     nsTArray<OwningCSSRuleOrInspectorDeclaration>& aResult) {
-  auto pseudo = PseudoStyleRequest::Parse(aPseudo);
+  auto pseudo = nsCSSPseudoElements::ParsePseudoElement(
+      aPseudo, CSSEnabledState::ForAllContent);
   if (!pseudo) {
     return;
   }
@@ -958,17 +959,17 @@ static ElementState GetStatesForPseudoClass(const nsAString& aStatePseudo) {
 /* static */
 void InspectorUtils::GetCSSPseudoElementNames(GlobalObject& aGlobalObject,
                                               nsTArray<nsString>& aResult) {
-  const auto kPseudoCount = static_cast<size_t>(PseudoStyleType::MAX);
+  const auto kPseudoCount =
+      static_cast<size_t>(PseudoStyleType::CSSPseudoElementsEnd);
   for (size_t i = 0; i < kPseudoCount; ++i) {
     PseudoStyleType type = static_cast<PseudoStyleType>(i);
-    if (type == PseudoStyleType::NotPseudo ||
-        !Servo_PseudoStyleType_EnabledForAllContent(type)) {
+    if (!nsCSSPseudoElements::IsEnabled(type, CSSEnabledState::ForAllContent)) {
       continue;
     }
     auto& string = *aResult.AppendElement();
     // Use two semi-colons (though internally we use one).
     string.Append(u':');
-    const nsStaticAtom* atom = PseudoStyle::GetAtom(type);
+    nsAtom* atom = nsCSSPseudoElements::GetPseudoAtom(type);
     string.Append(nsDependentAtomString(atom));
   }
 }

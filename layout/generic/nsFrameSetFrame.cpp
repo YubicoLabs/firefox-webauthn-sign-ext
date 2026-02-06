@@ -25,6 +25,7 @@
 #include "mozilla/gfx/2D.h"
 #include "mozilla/gfx/Helpers.h"
 #include "nsAttrValueInlines.h"
+#include "nsCSSAnonBoxes.h"
 #include "nsContainerFrame.h"
 #include "nsDisplayList.h"
 #include "nsGenericHTMLElement.h"
@@ -312,7 +313,7 @@ void nsHTMLFramesetFrame::Init(nsIContent* aContent, nsContainerFrame* aParent,
   for (int blankX = mChildCount; blankX < numCells; blankX++) {
     RefPtr<ComputedStyle> pseudoComputedStyle =
         presShell->StyleSet()->ResolveNonInheritingAnonymousBoxStyle(
-            PseudoStyleType::MozFramesetBlank);
+            PseudoStyleType::framesetBlank);
 
     // XXX the blank frame is using the content of its parent - at some point it
     // should just have null content, if we support that
@@ -868,7 +869,7 @@ void nsHTMLFramesetFrame::Reflow(nsPresContext* aPresContext,
 
         RefPtr<ComputedStyle> pseudoComputedStyle;
         pseudoComputedStyle = styleSet->ResolveNonInheritingAnonymousBoxStyle(
-            PseudoStyleType::MozHframesetBorder);
+            PseudoStyleType::horizontalFramesetBorder);
 
         borderFrame = new (presShell) nsHTMLFramesetBorderFrame(
             pseudoComputedStyle, PresContext(), borderWidth, false, false);
@@ -897,7 +898,7 @@ void nsHTMLFramesetFrame::Reflow(nsPresContext* aPresContext,
             RefPtr<ComputedStyle> pseudoComputedStyle;
             pseudoComputedStyle =
                 styleSet->ResolveNonInheritingAnonymousBoxStyle(
-                    PseudoStyleType::MozVframesetBorder);
+                    PseudoStyleType::verticalFramesetBorder);
 
             borderFrame = new (presShell) nsHTMLFramesetBorderFrame(
                 pseudoComputedStyle, PresContext(), borderWidth, true, false);

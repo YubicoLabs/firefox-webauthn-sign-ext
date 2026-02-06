@@ -49,7 +49,7 @@ void nsColorControlFrame::Destroy(DestroyContext& aContext) {
 nsresult nsColorControlFrame::CreateAnonymousContent(
     nsTArray<ContentInfo>& aElements) {
   mColorContent = mContent->OwnerDoc()->CreateHTMLElement(nsGkAtoms::div);
-  mColorContent->SetPseudoElementType(PseudoStyleType::MozColorSwatch);
+  mColorContent->SetPseudoElementType(PseudoStyleType::mozColorSwatch);
   // Mark the element to be native anonymous before setting any attributes.
   mColorContent->SetIsNativeAnonymousRoot();
   UpdateColor();

@@ -18,6 +18,7 @@
 #include "mozilla/gfx/2D.h"
 #include "mozilla/webrender/WebRenderAPI.h"
 #include "nsBlockFrame.h"
+#include "nsCSSAnonBoxes.h"
 #include "nsCSSFrameConstructor.h"
 #include "nsCSSRendering.h"
 #include "nsDisplayList.h"
@@ -82,8 +83,7 @@ nsRect nsFieldSetFrame::VisualBorderRectRelativeToSelf() const {
 
 nsContainerFrame* nsFieldSetFrame::GetInner() const {
   for (nsIFrame* child : mFrames) {
-    if (child->Style()->GetPseudoType() ==
-        PseudoStyleType::MozFieldsetContent) {
+    if (child->Style()->GetPseudoType() == PseudoStyleType::fieldsetContent) {
       return static_cast<nsContainerFrame*>(child);
     }
   }
@@ -92,8 +92,7 @@ nsContainerFrame* nsFieldSetFrame::GetInner() const {
 
 nsIFrame* nsFieldSetFrame::GetLegend() const {
   for (nsIFrame* child : mFrames) {
-    if (child->Style()->GetPseudoType() !=
-        PseudoStyleType::MozFieldsetContent) {
+    if (child->Style()->GetPseudoType() != PseudoStyleType::fieldsetContent) {
       return child;
     }
   }
