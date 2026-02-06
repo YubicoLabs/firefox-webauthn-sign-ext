@@ -368,6 +368,8 @@ class ObjectElements {
 
   bool isSharedMemory() const { return flags & SHARED_MEMORY; }
 
+  uint32_t getInitializedLength() const { return initializedLength; }
+
   static int offsetOfFlags() {
     return int(offsetof(ObjectElements, flags)) - int(sizeof(ObjectElements));
   }
@@ -388,6 +390,8 @@ class ObjectElements {
   [[nodiscard]] static bool FreezeOrSeal(JSContext* cx,
                                          Handle<NativeObject*> obj,
                                          IntegrityLevel level);
+
+  bool isFixed() const { return flags & FIXED; }
 
   bool isSealed() const { return flags & SEALED; }
 
@@ -424,6 +428,11 @@ class ObjectElements {
   bool maybeInIteration() { return flags & MAYBE_IN_ITERATION; }
 
   bool isNotExtensible() { return flags & NOT_EXTENSIBLE; }
+
+  void* getUnshiftedHeader() {
+    HeapSlot* unshiftedElements = elements() - numShiftedElements();
+    return fromElements(unshiftedElements);
+  }
 
   // This is enough slots to store an object of this class. See the static
   // assertion below.
@@ -586,6 +595,46 @@ enum class CanReuseShape {
   // Neither the PropMap nor Shape can be reused.
   NoReuse,
 };
+
+// Utility functions used by the GC to determine object layout.
+
+inline uint32_t NativeObjectSlotSpan(Shape* shape, ObjectSlots* slotsHeader) {
+  if (shape->isDictionary()) {
+    return slotsHeader->dictionarySlotSpan();
+  }
+
+  MOZ_ASSERT(slotsHeader->dictionarySlotSpan() == 0);
+  return shape->asShared().slotSpan();
+}
+
+inline uint32_t NumNativeObjectFixedSlots(Shape* shape) {
+  auto* shadowShape = reinterpret_cast<JS::shadow::Shape*>(shape);
+  return JS::shadow::NumObjectFixedSlots(shadowShape);
+}
+
+inline uint32_t NumNativeObjectUsedFixedSlots(Shape* shape) {
+  uint32_t nslots = shape->asShared().slotSpan();
+  return std::min(nslots, NumNativeObjectFixedSlots(shape));
+}
+
+inline bool IsNativeObjectDynamicSlots(HeapSlot* slots) {
+  return !ObjectSlots::fromSlots(slots)->isSharedEmptySlots();
+}
+
+inline bool IsNativeObjectEmptyElements(HeapSlot* elements) {
+  return elements == emptyObjectElements ||
+         elements == emptyObjectElementsShared;
+}
+
+inline bool IsNativeObjectFixedElements(HeapSlot* elements) {
+  ObjectElements* elementsHeader = ObjectElements::fromElements(elements);
+  return elementsHeader->isFixed();
+}
+
+inline bool IsNativeObjectDynamicElements(HeapSlot* elements) {
+  return !IsNativeObjectEmptyElements(elements) &&
+         !IsNativeObjectFixedElements(elements);
+}
 
 /*
  * [SMDOC] NativeObject layout
@@ -902,9 +951,7 @@ class NativeObject : public JSObject {
         "int32_t, too)");
   }
 
-  uint32_t numFixedSlots() const {
-    return reinterpret_cast<const JS::shadow::Object*>(this)->numFixedSlots();
-  }
+  uint32_t numFixedSlots() const { return NumNativeObjectFixedSlots(shape()); }
 
   // Get the number of fixed slots when the shape pointer may have been
   // forwarded by a moving GC. You need to use this rather that
@@ -913,16 +960,11 @@ class NativeObject : public JSObject {
   inline uint32_t numFixedSlotsMaybeForwarded() const;
 
   uint32_t numUsedFixedSlots() const {
-    uint32_t nslots = sharedShape()->slotSpan();
-    return std::min(nslots, numFixedSlots());
+    return NumNativeObjectUsedFixedSlots(shape());
   }
 
   uint32_t slotSpan() const {
-    if (inDictionaryMode()) {
-      return dictionaryModeSlotSpan();
-    }
-    MOZ_ASSERT(getSlotsHeader()->dictionarySlotSpan() == 0);
-    return sharedShape()->slotSpan();
+    return NativeObjectSlotSpan(shape(), getSlotsHeader());
   }
 
   uint32_t dictionaryModeSlotSpan() const {
@@ -1001,9 +1043,7 @@ class NativeObject : public JSObject {
    * Indicates whether this object has an ObjectSlots allocation attached. The
    * capacity of this can be zero if it is only used to hold a unique ID.
    */
-  bool hasDynamicSlots() const {
-    return !getSlotsHeader()->isSharedEmptySlots();
-  }
+  bool hasDynamicSlots() const { return IsNativeObjectDynamicSlots(slots_); }
 
   /* Compute the number of dynamic slots required for this object. */
   MOZ_ALWAYS_INLINE uint32_t calculateDynamicSlots() const;
@@ -1439,7 +1479,7 @@ class NativeObject : public JSObject {
   // This is mainly useful for free()ing dynamic elements: the pointer
   // returned here is the one we got from malloc.
   void* getUnshiftedElementsHeader() const {
-    return ObjectElements::fromElements(unshiftedElements());
+    return getElementsHeader()->getUnshiftedHeader();
   }
 
   uint32_t unshiftedIndex(uint32_t index) const {
@@ -1664,18 +1704,17 @@ class NativeObject : public JSObject {
   }
 
   inline bool hasDynamicElements() const {
-    return !hasEmptyElements() && !hasFixedElements();
+    return IsNativeObjectDynamicElements(elements_);
   }
 
   inline bool hasFixedElements() const {
-    bool fixed = getElementsHeader()->flags & ObjectElements::FIXED;
+    bool fixed = IsNativeObjectFixedElements(elements_);
     MOZ_ASSERT_IF(fixed, unshiftedElements() == fixedElements());
     return fixed;
   }
 
   inline bool hasEmptyElements() const {
-    return elements_ == emptyObjectElements ||
-           elements_ == emptyObjectElementsShared;
+    return IsNativeObjectEmptyElements(elements_);
   }
 
   /*
