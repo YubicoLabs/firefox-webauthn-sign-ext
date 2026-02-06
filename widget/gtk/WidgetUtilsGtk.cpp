@@ -198,9 +198,7 @@ static void DoRegisterHostApp() {
       ->Then(GetCurrentSerialEventTarget(), __func__,
              [](const DBusCallPromise::ResolveOrRejectValue& aValue) {
                if (aValue.IsReject()) {
-                 NS_WARNING(
-                     "Failed to register host application for "
-                     "portals\n");
+                 NS_WARNING("Failed to register host application for portals");
                }
              });
 }

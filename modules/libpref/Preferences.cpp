@@ -4995,7 +4995,7 @@ struct Internals {
       // (Note that this case won't happen for a deletion via DeleteBranch()
       // unless bug 343600 is fixed, but it will happen for a deletion via
       // ClearUserPref().)
-      NS_WARNING(nsPrintfCString("Pref changed failure: %s\n", aPref).get());
+      NS_WARNING(nsPrintfCString("Pref changed failure: %s", aPref).get());
       MOZ_ASSERT(false);
     }
   }
