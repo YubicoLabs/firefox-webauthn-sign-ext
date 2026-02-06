@@ -3489,6 +3489,9 @@ void RestyleManager::AttributeWillChange(Element* aElement,
                                          int32_t aNameSpaceID,
                                          nsAtom* aAttribute,
                                          AttrModType aModType) {
+  if (Servo_Element_ReferencesAttribute(aElement, aAttribute)) {
+    PostRestyleEvent(aElement, RestyleHint::RECASCADE_SELF, nsChangeHint(0));
+  }
   TakeSnapshotForAttributeChange(*aElement, aNameSpaceID, aAttribute);
 }
 
