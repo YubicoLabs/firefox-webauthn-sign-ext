@@ -2774,7 +2774,7 @@ void CanonicalBrowsingContext::HistoryCommitIndexAndLength(
     return;
   }
 
-  nsCOMPtr<nsISHistory> shistory = GetSessionHistory();
+  nsISHistory* shistory = GetSessionHistory();
   if (!shistory) {
     return;
   }
@@ -2790,8 +2790,6 @@ void CanonicalBrowsingContext::HistoryCommitIndexAndLength(
     (void)aParent->SendHistoryCommitIndexAndLength(this, index, length,
                                                    aChangeID);
   });
-
-  shistory->NotifyOnHistoryCommit();
 }
 
 void CanonicalBrowsingContext::SynchronizeLayoutHistoryState() {
