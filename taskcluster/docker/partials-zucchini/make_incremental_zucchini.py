@@ -177,7 +177,7 @@ def check_for_add_if_not_update(filename):
 
 def make_patch_instruction(filename, manifest):
     with open(manifest, "a") as manifest_file:
-        manifest_file.write(f'patch "{filename}"\n')
+        manifest_file.write(f'patch "{filename}.patch" "{filename}"\n')
 
 
 def add_remove_instructions(remove_array, manifest):
@@ -326,6 +326,9 @@ def make_partial(
     # Process files for patching
     # Note: these files are already XZ compressed
     for rel_path in oldfiles:
+        # updatev3.manifest is the partial manifest, not a patch[able] file
+        if rel_path == "updatev3.manifest":
+            continue
         new_file_abs = os.path.join(to_mar_dir, rel_path)
         old_file_abs = os.path.join(from_mar_dir, rel_path)
 
@@ -358,9 +361,8 @@ def make_partial(
                     shutil.copy2(new_file_abs, patch_file)
                     archivefiles.append(rel_path)
                 else:
-                    make_patch_instruction(patch_file, manifest_file)
-                    path_relpath = os.path.relpath(patch_file, partials_dir)
-                    archivefiles.append(f"{path_relpath}.patch")
+                    make_patch_instruction(rel_path, manifest_file)
+                    archivefiles.append(f"{rel_path}.patch")
 
         else:
             remove_array.append(rel_path)
