@@ -3358,7 +3358,7 @@ void ReadBarrier(gc::Cell* cell) {
   MOZ_ASSERT(!gc::detail::TenuredCellIsMarkedBlack(tenured));
 
   Zone* zone = tenured->zone();
-  if (zone->needsIncrementalBarrier()) {
+  if (zone->needsMarkingBarrier()) {
     gc::PerformIncrementalReadBarrier(tenured);
   } else if (!zone->isGCPreparing() &&
              gc::detail::NonBlackCellIsMarkedGray(tenured)) {

@@ -74,7 +74,7 @@ class WeakCacheBase : public mozilla::LinkedListElement<WeakCacheBase> {
     // Derived classes do not support incremental barriers by default.
     return false;
   }
-  virtual bool needsIncrementalBarrier() const {
+  virtual bool needsMarkingBarrier() const {
     // Derived classes do not support incremental barriers by default.
     return false;
   }

@@ -8241,7 +8241,7 @@ void MacroAssembler::emitValueReadBarrierFastPath(
 
   // Otherwise, we don't need a barrier unless we're in the middle of
   // an incremental GC.
-  branchTestNeedsIncrementalBarrierAnyZone(Assembler::NonZero, barrier, temp1);
+  branchTestNeedsMarkingBarrierAnyZone(Assembler::NonZero, barrier, temp1);
   bind(&done);
 }
 

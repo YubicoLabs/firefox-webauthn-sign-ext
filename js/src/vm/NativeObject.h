@@ -1789,7 +1789,7 @@ class NativeObject : public JSObject {
 
 inline void NativeObject::privatePreWriteBarrier(HeapSlot* pprivate) {
   JS::shadow::Zone* shadowZone = this->shadowZoneFromAnyThread();
-  if (shadowZone->needsIncrementalBarrier() && pprivate->get().toPrivate() &&
+  if (shadowZone->needsMarkingBarrier() && pprivate->get().toPrivate() &&
       getClass()->hasTrace()) {
     getClass()->doTrace(shadowZone->barrierTracer(), this);
   }

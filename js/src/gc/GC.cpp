@@ -1081,7 +1081,7 @@ bool GCRuntime::freezeSharedAtomsZone() {
   MOZ_ASSERT(zones().length() == 1);
   MOZ_ASSERT(atomsZone());
   MOZ_ASSERT(!atomsZone()->wasGCStarted());
-  MOZ_ASSERT(!atomsZone()->needsIncrementalBarrier());
+  MOZ_ASSERT(!atomsZone()->needsMarkingBarrier());
 
   AutoAssertEmptyNursery nurseryIsEmpty(rt->mainContextFromOwnThread());
 
@@ -2759,7 +2759,7 @@ bool GCRuntime::prepareZonesForCollection(JS::GCReason reason,
     bool shouldCollect = ShouldCollectZone(zone, reason);
     if (shouldCollect) {
       any = true;
-      zone->changeGCState(Zone::NoGC, Zone::Prepare);
+      zone->changeGCState(this, Zone::NoGC, Zone::Prepare);
     } else {
       *isFullOut = false;
     }
@@ -3153,7 +3153,7 @@ void GCRuntime::beginMarkPhase(AutoGCSession& session) {
 #endif
 
       // Incremental marking barriers are enabled at this point.
-      zone->changeGCState(Zone::Prepare, zone->initialMarkingState());
+      zone->changeGCState(this, Zone::Prepare, zone->initialMarkingState());
 
       // Merge arenas allocated during the prepare phase, then move all arenas
       // to the collecting arena lists.
@@ -3559,7 +3559,7 @@ void GCRuntime::finishCollection(JS::GCReason reason) {
   updateSchedulingStateOnGCEnd(currentTime);
 
   for (GCZonesIter zone(this); !zone.done(); zone.next()) {
-    zone->changeGCState(Zone::Finished, Zone::NoGC);
+    zone->changeGCState(this, Zone::Finished, Zone::NoGC);
     zone->notifyObservingDebuggers();
     zone->gcNextGraphNode = nullptr;
     zone->gcNextGraphComponent = nullptr;
@@ -3593,7 +3593,7 @@ void GCRuntime::checkGCStateNotInUse() {
       zone->arenas.checkGCStateNotInUse();
     }
     MOZ_ASSERT(!zone->wasGCStarted());
-    MOZ_ASSERT(!zone->needsIncrementalBarrier());
+    MOZ_ASSERT(!zone->needsMarkingBarrier());
     MOZ_ASSERT(!zone->isOnList());
     MOZ_ASSERT(!zone->gcNextGraphNode);
     MOZ_ASSERT(!zone->gcNextGraphComponent);
@@ -3803,7 +3803,7 @@ GCRuntime::IncrementalResult GCRuntime::resetIncrementalGC(
     case State::MarkRoots:
       // We haven't done any marking yet at this point.
       for (GCZonesIter zone(this); !zone.done(); zone.next()) {
-        zone->changeGCState(zone->gcState(), Zone::NoGC);
+        zone->changeGCState(this, zone->gcState(), Zone::NoGC);
         zone->clearGCSliceThresholds();
         zone->arenas.clearFreeLists();
         zone->arenas.mergeArenasFromCollectingLists();
@@ -3839,7 +3839,7 @@ GCRuntime::IncrementalResult GCRuntime::resetIncrementalGC(
       {
         BufferAllocator::AutoLock lock(this);
         for (GCZonesIter zone(this); !zone.done(); zone.next()) {
-          zone->changeGCState(zone->initialMarkingState(), Zone::NoGC);
+          zone->changeGCState(this, zone->initialMarkingState(), Zone::NoGC);
           zone->clearGCSliceThresholds();
           zone->arenas.unmarkPreMarkedFreeCells();
           zone->arenas.mergeArenasFromCollectingLists();
@@ -3914,24 +3914,24 @@ void GCRuntime::setGrayBitsInvalid() {
 }
 
 void GCRuntime::disableIncrementalBarriers() {
-  // Clear needsIncrementalBarrier so we don't do any write barriers during
+  // Clear needsMarkingBarrier so we don't do any write barriers during
   // foreground finalization. This would otherwise happen when destroying
   // HeapPtr<>s to GC things in zones which are still marking.
 
   for (GCZonesIter zone(this); !zone.done(); zone.next()) {
     if (zone->isGCMarking()) {
-      MOZ_ASSERT(zone->needsIncrementalBarrier());
-      zone->setNeedsIncrementalBarrier(false);
+      MOZ_ASSERT(zone->needsMarkingBarrier());
+      zone->setNeedsMarkingBarrier(this, false);
     }
-    MOZ_ASSERT(!zone->needsIncrementalBarrier());
+    MOZ_ASSERT(!zone->needsMarkingBarrier());
   }
 }
 
 void GCRuntime::enableIncrementalBarriers() {
   for (GCZonesIter zone(this); !zone.done(); zone.next()) {
-    MOZ_ASSERT(!zone->needsIncrementalBarrier());
+    MOZ_ASSERT(!zone->needsMarkingBarrier());
     if (zone->isGCMarking()) {
-      zone->setNeedsIncrementalBarrier(true);
+      zone->setNeedsMarkingBarrier(this, true);
     }
   }
 }

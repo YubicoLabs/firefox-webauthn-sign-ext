@@ -408,7 +408,7 @@ inline JS::TraceKind Cell::getTraceKind() const {
 }
 
 /* static */ MOZ_ALWAYS_INLINE bool Cell::needPreWriteBarrier(JS::Zone* zone) {
-  return JS::shadow::Zone::from(zone)->needsIncrementalBarrier();
+  return JS::shadow::Zone::from(zone)->needsMarkingBarrier();
 }
 
 MOZ_ALWAYS_INLINE bool TenuredCell::isMarkedAny() const {
@@ -490,7 +490,7 @@ MOZ_ALWAYS_INLINE void ReadBarrierImpl(TenuredCell* thing) {
   MOZ_ASSERT(thing);
 
   JS::shadow::Zone* shadowZone = thing->shadowZoneFromAnyThread();
-  if (shadowZone->needsIncrementalBarrier()) {
+  if (shadowZone->needsMarkingBarrier()) {
     PerformIncrementalReadBarrier(thing);
     return;
   }
@@ -530,7 +530,7 @@ MOZ_ALWAYS_INLINE void PreWriteBarrierImpl(TenuredCell* thing) {
   // AutoDisableBarriers.
 
   JS::shadow::Zone* zone = thing->shadowZoneFromAnyThread();
-  if (zone->needsIncrementalBarrier()) {
+  if (zone->needsMarkingBarrier()) {
     PerformIncrementalPreWriteBarrier(thing);
   }
 }
@@ -564,7 +564,7 @@ MOZ_ALWAYS_INLINE void PreWriteBarrier(JS::Zone* zone, T* data,
   MOZ_ASSERT(!CurrentThreadIsGCMarking());
 
   auto* shadowZone = JS::shadow::Zone::from(zone);
-  if (!shadowZone->needsIncrementalBarrier()) {
+  if (!shadowZone->needsMarkingBarrier()) {
     return;
   }
 

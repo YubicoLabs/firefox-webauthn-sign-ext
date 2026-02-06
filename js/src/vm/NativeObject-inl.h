@@ -106,7 +106,7 @@ inline void NativeObject::copyDenseElements(uint32_t dstStart, const Value* src,
   if (count == 0) {
     return;
   }
-  if (zone()->needsIncrementalBarrier()) {
+  if (zone()->needsMarkingBarrier()) {
     uint32_t numShifted = getElementsHeader()->numShiftedElements();
     for (uint32_t i = 0; i < count; ++i) {
       elements_[dstStart + i].set(this, HeapSlot::Element,
@@ -294,7 +294,7 @@ inline void NativeObject::moveDenseElements(uint32_t dstStart,
    * write barrier is invoked here on B, despite the fact that it exists in
    * the array before and after the move.
    */
-  if (zone()->needsIncrementalBarrier()) {
+  if (zone()->needsMarkingBarrier()) {
     uint32_t numShifted = getElementsHeader()->numShiftedElements();
     if (dstStart < srcStart) {
       HeapSlot* dst = elements_ + dstStart;
@@ -317,7 +317,7 @@ inline void NativeObject::moveDenseElements(uint32_t dstStart,
 }
 
 inline void NativeObject::reverseDenseElementsNoPreBarrier(uint32_t length) {
-  MOZ_ASSERT(!zone()->needsIncrementalBarrier());
+  MOZ_ASSERT(!zone()->needsMarkingBarrier());
 
   MOZ_ASSERT(isExtensible());
 

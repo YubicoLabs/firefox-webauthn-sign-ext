@@ -1400,7 +1400,7 @@ AbortReasonOr<bool> WarpScriptOracle::maybeInlineCall(
 
   // Read barrier for weak stub data copied into the snapshot.
   Zone* zone = jitCode->zone();
-  if (zone->needsIncrementalBarrier()) {
+  if (zone->needsMarkingBarrier()) {
     TraceWeakCacheIRStub(zone->barrierTracer(), stub, stub->stubInfo());
   }
 

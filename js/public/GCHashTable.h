@@ -460,7 +460,7 @@ class WeakCache<
     return true;
   }
 
-  bool needsIncrementalBarrier() const override { return barrierTracer; }
+  bool needsMarkingBarrier() const override { return barrierTracer; }
 
  private:
   using Entry = typename Map::Entry;
@@ -658,7 +658,7 @@ class WeakCache<GCHashSet<T, HashPolicy, AllocPolicy>> final
     return true;
   }
 
-  bool needsIncrementalBarrier() const override { return barrierTracer; }
+  bool needsMarkingBarrier() const override { return barrierTracer; }
 
   // Steal the contents of this weak cache.
   Set stealContents() {

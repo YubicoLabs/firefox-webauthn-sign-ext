@@ -218,17 +218,25 @@ bool Zone::init() {
   return !!regExps_.ref();
 }
 
-void Zone::setNeedsIncrementalBarrier(bool needs) {
-  needsIncrementalBarrier_ = needs;
+void Zone::setNeedsMarkingBarrier(GCRuntime* gc, bool needs) {
+  uint32_t newState = 0;
+  if (needs) {
+    newState = Incremental;
+    if (gc->isConcurrentMarkingEnabled()) {
+      newState |= Concurrent;
+    }
+  }
+
+  needsMarkingBarrier_ = newState;
 }
 
-void Zone::changeGCState(GCState prev, GCState next) {
+void Zone::changeGCState(GCRuntime* gc, GCState prev, GCState next) {
   MOZ_ASSERT(RuntimeHeapIsBusy());
   MOZ_ASSERT(gcState() == prev);
-  MOZ_ASSERT_IF(isGCMarkingOrVerifyingPreBarriers(), needsIncrementalBarrier_);
+  MOZ_ASSERT_IF(isGCMarkingOrVerifyingPreBarriers(), needsMarkingBarrier_);
 
   gcState_ = next;
-  needsIncrementalBarrier_ = isGCMarkingOrVerifyingPreBarriers();
+  setNeedsMarkingBarrier(gc, isGCMarkingOrVerifyingPreBarriers());
 }
 
 template <class Pred>
@@ -465,7 +473,7 @@ void JS::Zone::beforeClearDelegateInternal(JSObject* wrapper,
                                            JSObject* delegate) {
   // 'delegate' is no longer the delegate of 'wrapper'.
   MOZ_ASSERT(js::gc::detail::GetDelegate(wrapper) == delegate);
-  MOZ_ASSERT(needsIncrementalBarrier());
+  MOZ_ASSERT(needsMarkingBarrier());
   MOZ_ASSERT(!RuntimeFromMainThreadIsHeapMajorCollecting(this));
 
   // |wrapper| might be a key in a weak map, so trigger a barrier to account for

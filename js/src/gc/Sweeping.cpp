@@ -971,7 +971,7 @@ void GCRuntime::moveToNextSweepGroup() {
     // Abort collection of subsequent sweep groups.
     for (SweepGroupZonesIter zone(this); !zone.done(); zone.next()) {
       MOZ_ASSERT(!zone->gcNextGraphComponent);
-      zone->changeGCState(zone->initialMarkingState(), Zone::Finished);
+      zone->changeGCState(this, zone->initialMarkingState(), Zone::Finished);
       zone->arenas.unmarkPreMarkedFreeCells();
       zone->arenas.mergeArenasFromCollectingLists();
       zone->clearGCSliceThresholds();
@@ -1268,7 +1268,8 @@ IncrementalProgress GCRuntime::beginMarkingSweepGroup(JS::GCContext* gcx,
   for (SweepGroupZonesIter zone(this); !zone.done(); zone.next()) {
     MOZ_ASSERT_IF(!zone->isGCMarkingBlackAndGray(),
                   zone->cellsToAssertNotGray().empty());
-    zone->changeGCState(zone->initialMarkingState(), Zone::MarkBlackAndGray);
+    zone->changeGCState(this, zone->initialMarkingState(),
+                        Zone::MarkBlackAndGray);
   }
 
   AutoSetMarkColor setColorGray(marker(), MarkColor::Gray);
@@ -1633,7 +1634,7 @@ static void SweepAllWeakCachesOnMainThread(JSRuntime* rt) {
   gcstats::AutoPhase ap(rt->gc.stats(), gcstats::PhaseKind::SWEEP_WEAK_CACHES);
   SweepingTracer trc(rt);
   IterateWeakCaches(rt, [&](JS::detail::WeakCacheBase* cache, Zone* zone) {
-    if (cache->needsIncrementalBarrier()) {
+    if (cache->needsMarkingBarrier()) {
       cache->setIncrementalBarrierTracer(nullptr);
     }
     cache->traceWeak(&trc, JS::detail::WeakCacheBase::Lock);
@@ -1678,7 +1679,7 @@ IncrementalProgress GCRuntime::beginSweepingSweepGroup(JS::GCContext* gcx,
   bool sweepingAtoms = false;
   for (SweepGroupZonesIter zone(this); !zone.done(); zone.next()) {
     /* Set the GC state to sweeping. */
-    zone->changeGCState(Zone::MarkBlackAndGray, Zone::Sweep);
+    zone->changeGCState(this, Zone::MarkBlackAndGray, Zone::Sweep);
 
     /* Purge the ArenaLists before sweeping. */
     zone->arenas.checkSweepStateNotInUse();
@@ -1853,7 +1854,7 @@ IncrementalProgress GCRuntime::endSweepingSweepGroup(JS::GCContext* gcx,
       jitZone->execAlloc().purge();
     }
     AutoLockGC lock(this);
-    zone->changeGCState(Zone::Sweep, Zone::Finished);
+    zone->changeGCState(this, Zone::Sweep, Zone::Finished);
     zone->arenas.unmarkPreMarkedFreeCells();
     zone->arenas.checkNoArenasToUpdate();
     zone->pretenuring.clearCellCountsInNewlyCreatedArenas();
@@ -2073,7 +2074,7 @@ static size_t IncrementalSweepWeakCache(GCRuntime* gc,
   AutoSetThreadIsSweeping threadIsSweeping(item.zone);
 
   JS::detail::WeakCacheBase* cache = item.cache;
-  MOZ_ASSERT(cache->needsIncrementalBarrier());
+  MOZ_ASSERT(cache->needsMarkingBarrier());
 
   SweepingTracer trc(gc->rt);
   size_t steps = cache->traceWeak(&trc, JS::detail::WeakCacheBase::Lock);
@@ -2104,7 +2105,7 @@ void WeakCacheSweepIterator::next() {
 
 void WeakCacheSweepIterator::settle() {
   while (sweepZone) {
-    while (sweepCache && !sweepCache->needsIncrementalBarrier()) {
+    while (sweepCache && !sweepCache->needsMarkingBarrier()) {
       sweepCache = sweepCache->getNext();
     }
 
@@ -2119,7 +2120,7 @@ void WeakCacheSweepIterator::settle() {
   }
 
   MOZ_ASSERT((!sweepZone && !sweepCache) ||
-             (sweepCache && sweepCache->needsIncrementalBarrier()));
+             (sweepCache && sweepCache->needsMarkingBarrier()));
 }
 
 IncrementalProgress GCRuntime::sweepWeakCaches(JS::GCContext* gcx,

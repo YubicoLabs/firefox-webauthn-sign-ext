@@ -740,8 +740,7 @@ void* JSRuntime::onOutOfMemoryCanGC(AllocFunction allocFunc, arena_id_t arena,
 
 bool JSRuntime::activeGCInAtomsZone() {
   Zone* zone = unsafeAtomsZone();
-  return (zone->needsIncrementalBarrier() &&
-          !gc.isVerifyPreBarriersEnabled()) ||
+  return (zone->needsMarkingBarrier() && !gc.isVerifyPreBarriersEnabled()) ||
          zone->wasGCStarted();
 }
 

@@ -908,7 +908,7 @@ JS_PUBLIC_API void js::gc::PerformIncrementalReadBarrier(JS::GCCellPtr thing) {
   MOZ_ASSERT(!cell->isMarkedBlack());
 
   Zone* zone = cell->zone();
-  MOZ_ASSERT(zone->needsIncrementalBarrier());
+  MOZ_ASSERT(zone->needsMarkingBarrier());
 
   // Skip dispatching on known tracer type.
   GCMarker* gcmarker = GCMarker::fromTracer(zone->barrierTracer());
@@ -926,7 +926,7 @@ void js::gc::PerformIncrementalReadBarrier(TenuredCell* cell) {
   }
 
   Zone* zone = cell->zone();
-  MOZ_ASSERT(zone->needsIncrementalBarrier());
+  MOZ_ASSERT(zone->needsMarkingBarrier());
 
   // Skip dispatching on known tracer type.
   GCMarker* gcmarker = GCMarker::fromTracer(zone->barrierTracer());
@@ -954,7 +954,7 @@ void js::gc::PerformIncrementalPreWriteBarrier(TenuredCell* cell) {
     return;
   }
 
-  MOZ_ASSERT(zone->needsIncrementalBarrier());
+  MOZ_ASSERT(zone->needsMarkingBarrier());
   MOZ_ASSERT(CurrentThreadIsMainThread());
   MOZ_ASSERT(!JS::RuntimeHeapIsMajorCollecting());
 
@@ -1122,7 +1122,7 @@ inline void GCMarker::checkTraversedEdge(S source, T* target) {
   if (target->isPermanentAndMayBeShared()) {
     Zone* zone = target->zoneFromAnyThread();
     MOZ_ASSERT(!zone->wasGCStarted());
-    MOZ_ASSERT(!zone->needsIncrementalBarrier());
+    MOZ_ASSERT(!zone->needsMarkingBarrier());
     MOZ_ASSERT(target->isMarkedBlack());
     MOZ_ASSERT(!target->maybeCompartment());
     return;
@@ -2646,7 +2646,7 @@ static inline void CheckIsMarkedThing(T* thing) {
       MOZ_ASSERT(!zone->runtimeFromAnyThread()->gc.maybeSharedAtomsZone());
       return;
     }
-    MOZ_ASSERT(!zone->needsIncrementalBarrier());
+    MOZ_ASSERT(!zone->needsMarkingBarrier());
     MOZ_ASSERT(thing->isMarkedBlack());
     return;
   }

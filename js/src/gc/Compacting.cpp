@@ -86,14 +86,14 @@ IncrementalProgress GCRuntime::compactPhase(JS::GCReason reason,
     zonesToMaybeCompact.ref().removeFront();
 
     MOZ_ASSERT(nursery().isEmpty());
-    zone->changeGCState(Zone::Finished, Zone::Compact);
+    zone->changeGCState(this, Zone::Finished, Zone::Compact);
 
     if (relocateArenas(zone, reason, relocatedArenas, sliceBudget)) {
       updateZonePointersToRelocatedCells(zone);
       relocatedZones.append(zone);
       zonesCompacted++;
     } else {
-      zone->changeGCState(Zone::Compact, Zone::Finished);
+      zone->changeGCState(this, Zone::Compact, Zone::Finished);
     }
 
     if (sliceBudget.isOverBudget()) {
@@ -107,7 +107,7 @@ IncrementalProgress GCRuntime::compactPhase(JS::GCReason reason,
     do {
       Zone* zone = relocatedZones.front();
       relocatedZones.removeFront();
-      zone->changeGCState(Zone::Compact, Zone::Finished);
+      zone->changeGCState(this, Zone::Compact, Zone::Finished);
     } while (!relocatedZones.isEmpty());
   }
 
