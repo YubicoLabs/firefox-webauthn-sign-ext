@@ -10439,7 +10439,7 @@ const PersonalizedCard = ({
     type: "icon ghost",
     iconSrc: "chrome://global/skin/icons/close.svg",
     onClick: onDismiss,
-    "data-l10n-id": "newtab-toast-dismiss-button"
+    "data-l10n-id": "newtab-card-dismiss-button"
   })), /*#__PURE__*/external_React_default().createElement("div", {
     className: "personalized-card-inner"
   }, /*#__PURE__*/external_React_default().createElement("img", {
