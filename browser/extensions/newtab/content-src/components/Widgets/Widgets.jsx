@@ -11,11 +11,6 @@ import { MessageWrapper } from "content-src/components/MessageWrapper/MessageWra
 import { WidgetsFeatureHighlight } from "../DiscoveryStreamComponents/FeatureHighlight/WidgetsFeatureHighlight";
 import { actionCreators as ac, actionTypes as at } from "common/Actions.mjs";
 
-const CONTAINER_ACTION_TYPES = {
-  HIDE_ALL: "hide_all",
-  CHANGE_SIZE_ALL: "change_size_all",
-};
-
 const PREF_WIDGETS_LISTS_ENABLED = "widgets.lists.enabled";
 const PREF_WIDGETS_SYSTEM_LISTS_ENABLED = "widgets.system.lists.enabled";
 const PREF_WIDGETS_TIMER_ENABLED = "widgets.focusTimer.enabled";
@@ -63,7 +58,6 @@ function Widgets() {
   const timerType = useSelector(state => state.TimerWidget.timerType);
   const timerData = useSelector(state => state.TimerWidget);
   const isMaximized = prefs[PREF_WIDGETS_MAXIMIZED];
-  const widgetsMayBeMaximized = prefs[PREF_WIDGETS_SYSTEM_MAXIMIZED];
   const dispatch = useDispatch();
 
   const nimbusListsEnabled = prefs.widgetsConfig?.listsEnabled;
@@ -93,10 +87,6 @@ function Widgets() {
     nimbusWeatherForecastTrainhopEnabled ||
     prefs[PREF_WIDGETS_SYSTEM_WEATHER_FORECAST_ENABLED];
 
-  // Widget size is "small" only when maximize feature is enabled and widgets
-  // are currently minimized. Otherwise defaults to "medium".
-  const widgetSize = widgetsMayBeMaximized && !isMaximized ? "small" : "medium";
-
   // track previous timerEnabled state to detect when it becomes disabled
   const prevTimerEnabledRef = useRef(timerEnabled);
 
@@ -114,101 +104,35 @@ function Widgets() {
     prevTimerEnabledRef.current = isTimerEnabled;
   }, [timerEnabled, timerData, dispatch, timerType]);
 
-  // Bug 2013978 - Replace hardcoded widget list with programmatic registry
-  function hideAllWidgets() {
+  // Sends a dispatch to disable all widgets
+  function handleHideAllWidgetsClick(e) {
+    e.preventDefault();
     batch(() => {
       dispatch(ac.SetPref(PREF_WIDGETS_LISTS_ENABLED, false));
       dispatch(ac.SetPref(PREF_WIDGETS_TIMER_ENABLED, false));
-
-      const telemetryData = {
-        action_type: CONTAINER_ACTION_TYPES.HIDE_ALL,
-        widget_size: widgetSize,
-      };
-
-      dispatch(
-        ac.OnlyToMain({
-          type: at.WIDGETS_CONTAINER_ACTION,
-          data: telemetryData,
-        })
-      );
-
-      // Dispatch WIDGETS_ENABLED for each widget being hidden
-      if (listsEnabled) {
-        dispatch(
-          ac.OnlyToMain({
-            type: at.WIDGETS_ENABLED,
-            data: {
-              widget_name: "lists",
-              widget_source: "widget",
-              enabled: false,
-              widget_size: widgetSize,
-            },
-          })
-        );
-      }
-
-      if (timerEnabled) {
-        dispatch(
-          ac.OnlyToMain({
-            type: at.WIDGETS_ENABLED,
-            data: {
-              widget_name: "focus_timer",
-              widget_source: "widget",
-              enabled: false,
-              widget_size: widgetSize,
-            },
-          })
-        );
-      }
     });
-  }
-
-  function handleHideAllWidgetsClick(e) {
-    e.preventDefault();
-    hideAllWidgets();
   }
 
   function handleHideAllWidgetsKeyDown(e) {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      hideAllWidgets();
+      batch(() => {
+        dispatch(ac.SetPref(PREF_WIDGETS_LISTS_ENABLED, false));
+        dispatch(ac.SetPref(PREF_WIDGETS_TIMER_ENABLED, false));
+      });
     }
   }
 
-  function toggleMaximize() {
-    const newMaximizedState = !isMaximized;
-    const newWidgetSize =
-      widgetsMayBeMaximized && !newMaximizedState ? "small" : "medium";
-
-    batch(() => {
-      dispatch(ac.SetPref(PREF_WIDGETS_MAXIMIZED, newMaximizedState));
-
-      const telemetryData = {
-        action_type: CONTAINER_ACTION_TYPES.CHANGE_SIZE_ALL,
-        action_value: newMaximizedState
-          ? "maximize_widgets"
-          : "minimize_widgets",
-        widget_size: newWidgetSize,
-      };
-
-      dispatch(
-        ac.OnlyToMain({
-          type: at.WIDGETS_CONTAINER_ACTION,
-          data: telemetryData,
-        })
-      );
-    });
-  }
-
+  // Toggles the maximized state of widgets
   function handleToggleMaximizeClick(e) {
     e.preventDefault();
-    toggleMaximize();
+    dispatch(ac.SetPref(PREF_WIDGETS_MAXIMIZED, !isMaximized));
   }
 
   function handleToggleMaximizeKeyDown(e) {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      toggleMaximize();
+      dispatch(ac.SetPref(PREF_WIDGETS_MAXIMIZED, !isMaximized));
     }
   }
 
@@ -265,7 +189,6 @@ function Widgets() {
               dispatch={dispatch}
               handleUserInteraction={handleUserInteraction}
               isMaximized={isMaximized}
-              widgetsMayBeMaximized={widgetsMayBeMaximized}
             />
           )}
           {timerEnabled && (
@@ -273,7 +196,6 @@ function Widgets() {
               dispatch={dispatch}
               handleUserInteraction={handleUserInteraction}
               isMaximized={isMaximized}
-              widgetsMayBeMaximized={widgetsMayBeMaximized}
             />
           )}
           {weatherForecastEnabled && (
@@ -281,7 +203,6 @@ function Widgets() {
               dispatch={dispatch}
               handleUserInteraction={handleUserInteraction}
               isMaximized={isMaximized}
-              widgetsMayBeMaximized={widgetsMayBeMaximized}
             />
           )}
         </div>

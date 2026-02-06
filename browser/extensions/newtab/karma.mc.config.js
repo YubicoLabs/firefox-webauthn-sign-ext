@@ -299,8 +299,8 @@ module.exports = function (config) {
               branches: 0,
             },
             "content-src/components/Weather/Weather.jsx": {
-              statements: 48,
-              lines: 49,
+              statements: 50,
+              lines: 50.94,
               functions: 31.2,
               branches: 31.2,
             },
@@ -333,10 +333,10 @@ module.exports = function (config) {
               branches: 0,
             },
             "content-src/components/CustomizeMenu/ContentSection/*.jsx": {
-              statements: 65,
-              lines: 65,
+              statements: 80,
+              lines: 80,
               functions: 99,
-              branches: 56,
+              branches: 62,
             },
             "content-src/components/CustomizeMenu/**/*.jsx": {
               statements: 68,

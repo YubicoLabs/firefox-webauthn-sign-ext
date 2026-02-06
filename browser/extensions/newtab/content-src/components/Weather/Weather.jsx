@@ -3,20 +3,11 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import { connect, batch } from "react-redux";
+import { LinkMenu } from "content-src/components/LinkMenu/LinkMenu";
 import { LocationSearch } from "content-src/components/Weather/LocationSearch";
 import { actionCreators as ac, actionTypes as at } from "common/Actions.mjs";
 import { useIntersectionObserver } from "../../lib/utils";
 import React, { useState } from "react";
-
-const USER_ACTION_TYPES = {
-  CHANGE_DISPLAY: "change_weather_display",
-  CHANGE_LOCATION: "change_location",
-  CHANGE_TEMP_UNIT: "change_temperature_units",
-  DETECT_LOCATION: "detect_location",
-  LEARN_MORE: "learn_more",
-  OPT_IN_ACCEPTED: "opt_in_accepted",
-  PROVIDER_LINK_CLICK: "provider_link_click",
-};
 
 const VISIBLE = "visible";
 const VISIBILITY_CHANGE_EVENT = "visibilitychange";
@@ -53,6 +44,8 @@ export class _Weather extends React.PureComponent {
   constructor(props) {
     super(props);
     this.state = {
+      contextMenuKeyboard: false,
+      showContextMenu: false,
       url: "https://example.com",
       impressionSeen: false,
       errorSeen: false,
@@ -63,12 +56,10 @@ export class _Weather extends React.PureComponent {
     this.setErrorRef = element => {
       this.errorElement = element;
     };
-    this.setPanelRef = element => {
-      this.panelElement = element;
-    };
+    this.onClick = this.onClick.bind(this);
+    this.onKeyDown = this.onKeyDown.bind(this);
+    this.onUpdate = this.onUpdate.bind(this);
     this.onProviderClick = this.onProviderClick.bind(this);
-    this.onMenuButtonClick = this.onMenuButtonClick.bind(this);
-    this.onMenuButtonKeyDown = this.onMenuButtonKeyDown.bind(this);
   }
 
   componentDidMount() {
@@ -144,25 +135,11 @@ export class _Weather extends React.PureComponent {
           this.observer.unobserve(this.impressionElement);
         }
 
-        batch(() => {
-          // Old event (keep for backward compatibility)
-          this.props.dispatch(
-            ac.OnlyToMain({
-              type: at.WEATHER_IMPRESSION,
-            })
-          );
-
-          // New unified event
-          this.props.dispatch(
-            ac.OnlyToMain({
-              type: at.WIDGETS_IMPRESSION,
-              data: {
-                widget_name: "weather",
-                widget_size: "mini",
-              },
-            })
-          );
-        });
+        this.props.dispatch(
+          ac.OnlyToMain({
+            type: at.WEATHER_IMPRESSION,
+          })
+        );
 
         // Stop observing since element has been seen
         this.setState({
@@ -181,26 +158,11 @@ export class _Weather extends React.PureComponent {
           this.observer.unobserve(this.errorElement);
         }
 
-        batch(() => {
-          // Old event (keep for backward compatibility)
-          this.props.dispatch(
-            ac.OnlyToMain({
-              type: at.WEATHER_LOAD_ERROR,
-            })
-          );
-
-          // New unified event
-          this.props.dispatch(
-            ac.OnlyToMain({
-              type: at.WIDGETS_ERROR,
-              data: {
-                widget_name: "weather",
-                widget_size: "mini",
-                error_type: "load_error",
-              },
-            })
-          );
-        });
+        this.props.dispatch(
+          ac.OnlyToMain({
+            type: at.WEATHER_LOAD_ERROR,
+          })
+        );
 
         // Stop observing since element has been seen
         this.setState({
@@ -210,226 +172,44 @@ export class _Weather extends React.PureComponent {
     }
   }
 
+  openContextMenu(isKeyBoard) {
+    if (this.props.onUpdate) {
+      this.props.onUpdate(true);
+    }
+    this.setState({
+      showContextMenu: true,
+      contextMenuKeyboard: isKeyBoard,
+    });
+  }
+
+  onClick(event) {
+    event.preventDefault();
+    this.openContextMenu(false, event);
+  }
+
+  onKeyDown(event) {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      this.openContextMenu(true, event);
+    }
+  }
+
+  onUpdate(showContextMenu) {
+    if (this.props.onUpdate) {
+      this.props.onUpdate(showContextMenu);
+    }
+    this.setState({ showContextMenu });
+  }
+
   onProviderClick() {
-    batch(() => {
-      // Old event (keep for backward compatibility)
-      this.props.dispatch(
-        ac.OnlyToMain({
-          type: at.WEATHER_OPEN_PROVIDER_URL,
-          data: {
-            source: "WEATHER",
-          },
-        })
-      );
-
-      // New unified event
-      this.props.dispatch(
-        ac.OnlyToMain({
-          type: at.WIDGETS_USER_EVENT,
-          data: {
-            widget_name: "weather",
-            widget_source: "widget",
-            user_action: USER_ACTION_TYPES.PROVIDER_LINK_CLICK,
-            widget_size: "mini",
-          },
-        })
-      );
-    });
-  }
-
-  handleChangeLocation = () => {
-    if (this.panelElement) {
-      this.panelElement.hide();
-    }
-    batch(() => {
-      this.props.dispatch(
-        ac.BroadcastToContent({
-          type: at.WEATHER_SEARCH_ACTIVE,
-          data: true,
-        })
-      );
-
-      this.props.dispatch(
-        ac.OnlyToMain({
-          type: at.WIDGETS_USER_EVENT,
-          data: {
-            widget_name: "weather",
-            widget_source: "context_menu",
-            user_action: USER_ACTION_TYPES.CHANGE_LOCATION,
-            widget_size: "mini",
-          },
-        })
-      );
-    });
-  };
-
-  handleDetectLocation = () => {
-    if (this.panelElement) {
-      this.panelElement.hide();
-    }
-    batch(() => {
-      // Old event (keep for backward compatibility)
-      this.props.dispatch(
-        ac.AlsoToMain({
-          type: at.WEATHER_USER_OPT_IN_LOCATION,
-        })
-      );
-
-      // New unified event
-      this.props.dispatch(
-        ac.OnlyToMain({
-          type: at.WIDGETS_USER_EVENT,
-          data: {
-            widget_name: "weather",
-            widget_source: "context_menu",
-            user_action: USER_ACTION_TYPES.DETECT_LOCATION,
-            widget_size: "mini",
-          },
-        })
-      );
-    });
-  };
-
-  handleChangeTempUnit = value => {
-    if (this.panelElement) {
-      this.panelElement.hide();
-    }
-    batch(() => {
-      this.props.dispatch(
-        ac.OnlyToMain({
-          type: at.SET_PREF,
-          data: {
-            name: "weather.temperatureUnits",
-            value,
-          },
-        })
-      );
-
-      this.props.dispatch(
-        ac.OnlyToMain({
-          type: at.WIDGETS_USER_EVENT,
-          data: {
-            widget_name: "weather",
-            widget_source: "context_menu",
-            user_action: USER_ACTION_TYPES.CHANGE_TEMP_UNIT,
-            widget_size: "mini",
-            action_value: value,
-          },
-        })
-      );
-    });
-  };
-
-  handleChangeDisplay = value => {
-    const weatherForecastEnabled =
-      this.props.Prefs.values["widgets.system.weatherForecast.enabled"];
-
-    if (this.panelElement) {
-      this.panelElement.hide();
-    }
-    batch(() => {
-      this.props.dispatch(
-        ac.OnlyToMain({
-          type: at.SET_PREF,
-          data: {
-            name: "weather.display",
-            value,
-          },
-        })
-      );
-
-      this.props.dispatch(
-        ac.OnlyToMain({
-          type: at.WIDGETS_USER_EVENT,
-          data: {
-            widget_name: "weather",
-            widget_source: "context_menu",
-            user_action: USER_ACTION_TYPES.CHANGE_DISPLAY,
-            widget_size: "mini",
-            action_value: weatherForecastEnabled
-              ? "switch_to_forecast_widget"
-              : value,
-          },
-        })
-      );
-    });
-  };
-
-  handleHideWeather = () => {
-    if (this.panelElement) {
-      this.panelElement.hide();
-    }
-    batch(() => {
-      this.props.dispatch(
-        ac.OnlyToMain({
-          type: at.SET_PREF,
-          data: {
-            name: "showWeather",
-            value: false,
-          },
-        })
-      );
-
-      this.props.dispatch(
-        ac.OnlyToMain({
-          type: at.WIDGETS_ENABLED,
-          data: {
-            widget_name: "weather",
-            widget_source: "context_menu",
-            enabled: false,
-            widget_size: "mini",
-          },
-        })
-      );
-    });
-  };
-
-  handleLearnMore = () => {
-    if (this.panelElement) {
-      this.panelElement.hide();
-    }
-    batch(() => {
-      this.props.dispatch(
-        ac.OnlyToMain({
-          type: at.OPEN_LINK,
-          data: {
-            url: "https://support.mozilla.org/kb/customize-items-on-firefox-new-tab-page",
-          },
-        })
-      );
-
-      this.props.dispatch(
-        ac.OnlyToMain({
-          type: at.WIDGETS_USER_EVENT,
-          data: {
-            widget_name: "weather",
-            widget_source: "context_menu",
-            user_action: USER_ACTION_TYPES.LEARN_MORE,
-            widget_size: "mini",
-          },
-        })
-      );
-    });
-  };
-
-  onMenuButtonClick(e) {
-    e.preventDefault();
-    if (this.panelElement) {
-      this.panelElement.toggle(e.currentTarget);
-    }
-  }
-
-  onMenuButtonKeyDown(e) {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      if (this.panelElement) {
-        this.panelElement.toggle(e.currentTarget);
-      }
-    } else if (e.key === "Escape") {
-      if (this.panelElement) {
-        this.panelElement.hide();
-      }
-    }
+    this.props.dispatch(
+      ac.OnlyToMain({
+        type: at.WEATHER_OPEN_PROVIDER_URL,
+        data: {
+          source: "WEATHER",
+        },
+      })
+    );
   }
 
   handleRejectOptIn = () => {
@@ -437,25 +217,10 @@ export class _Weather extends React.PureComponent {
       this.props.dispatch(ac.SetPref("weather.optInAccepted", false));
       this.props.dispatch(ac.SetPref("weather.optInDisplayed", false));
 
-      // Old event (keep for backward compatibility)
       this.props.dispatch(
         ac.AlsoToMain({
           type: at.WEATHER_OPT_IN_PROMPT_SELECTION,
           data: "rejected opt-in",
-        })
-      );
-
-      // New unified event
-      this.props.dispatch(
-        ac.OnlyToMain({
-          type: at.WIDGETS_USER_EVENT,
-          data: {
-            widget_name: "weather",
-            widget_source: "widget",
-            user_action: USER_ACTION_TYPES.OPT_IN_ACCEPTED,
-            widget_size: "mini",
-            action_value: false,
-          },
         })
       );
     });
@@ -463,7 +228,6 @@ export class _Weather extends React.PureComponent {
 
   handleAcceptOptIn = () => {
     batch(() => {
-      // Old events (keep for backward compatibility)
       this.props.dispatch(
         ac.AlsoToMain({
           type: at.WEATHER_USER_OPT_IN_LOCATION,
@@ -474,20 +238,6 @@ export class _Weather extends React.PureComponent {
         ac.AlsoToMain({
           type: at.WEATHER_OPT_IN_PROMPT_SELECTION,
           data: "accepted opt-in",
-        })
-      );
-
-      // New unified event
-      this.props.dispatch(
-        ac.OnlyToMain({
-          type: at.WIDGETS_USER_EVENT,
-          data: {
-            widget_name: "weather",
-            widget_source: "widget",
-            user_action: USER_ACTION_TYPES.OPT_IN_ACCEPTED,
-            widget_size: "mini",
-            action_value: true,
-          },
         })
       );
     });
@@ -514,9 +264,11 @@ export class _Weather extends React.PureComponent {
       return <WeatherPlaceholder />;
     }
 
+    const { showContextMenu } = this.state;
+
     const { props } = this;
 
-    const { Prefs, Weather } = props;
+    const { dispatch, Prefs, Weather } = props;
 
     const WEATHER_SUGGESTION = Weather.suggestions?.[0];
 
@@ -572,78 +324,55 @@ export class _Weather extends React.PureComponent {
     // - weather opt-in pref is enabled
     // - static weather data is enabled
     const showStaticData = isOptInEnabled && staticWeather;
-    const showFullMenu = !showStaticData;
-    const isLocationSearchEnabled =
-      Prefs.values["weather.locationSearchEnabled"];
-    const isFahrenheit = Prefs.values["weather.temperatureUnits"] === "f";
-    const isSimpleDisplay = Prefs.values["weather.display"] === "simple";
 
-    const contextMenu = (showFullContextMenu = true) => (
+    // Note: The temperature units/display options will become secondary menu items
+    const WEATHER_SOURCE_CONTEXT_MENU_OPTIONS = [
+      ...(Prefs.values["weather.locationSearchEnabled"]
+        ? ["ChangeWeatherLocation"]
+        : []),
+      ...(isOptInEnabled ? ["DetectLocation"] : []),
+      ...(Prefs.values["weather.temperatureUnits"] === "f"
+        ? ["ChangeTempUnitCelsius"]
+        : ["ChangeTempUnitFahrenheit"]),
+      ...(Prefs.values["weather.display"] === "simple"
+        ? ["ChangeWeatherDisplayDetailed"]
+        : ["ChangeWeatherDisplaySimple"]),
+      "HideWeather",
+      "OpenLearnMoreURL",
+    ];
+    const WEATHER_SOURCE_SHORTENED_CONTEXT_MENU_OPTIONS = [
+      ...(Prefs.values["weather.locationSearchEnabled"]
+        ? ["ChangeWeatherLocation"]
+        : []),
+      ...(isOptInEnabled ? ["DetectLocation"] : []),
+      "HideWeather",
+      "OpenLearnMoreURL",
+    ];
+
+    const contextMenu = contextOpts => (
       <div className="weatherButtonContextMenuWrapper">
-        {/* Bug 2013136 - Using a custom button instead of moz-button due to styling constraints.
-            The moz-button component cannot be styled to match the existing design,
-            so we use a standard button element that can be fully controlled with CSS. */}
         <button
           aria-haspopup="true"
-          onKeyDown={this.onMenuButtonKeyDown}
-          onClick={this.onMenuButtonClick}
+          onKeyDown={this.onKeyDown}
+          onClick={this.onClick}
           data-l10n-id="newtab-menu-section-tooltip"
           className="weatherButtonContextMenu"
-        />
-        <panel-list id="weather-context-menu" ref={this.setPanelRef}>
-          {isLocationSearchEnabled && (
-            <panel-item
-              id="weather-menu-change-location"
-              data-l10n-id="newtab-weather-menu-change-location"
-              onClick={this.handleChangeLocation}
+        >
+          {showContextMenu ? (
+            <LinkMenu
+              dispatch={dispatch}
+              index={0}
+              source="WEATHER"
+              onUpdate={this.onUpdate}
+              options={contextOpts}
+              site={{
+                url: "https://support.mozilla.org/kb/customize-items-on-firefox-new-tab-page",
+              }}
+              link="https://support.mozilla.org/kb/customize-items-on-firefox-new-tab-page"
+              shouldSendImpressionStats={false}
             />
-          )}
-          {isOptInEnabled && (
-            <panel-item
-              id="weather-menu-detect-location"
-              data-l10n-id="newtab-weather-menu-detect-my-location"
-              onClick={this.handleDetectLocation}
-            />
-          )}
-          {showFullContextMenu &&
-            (isFahrenheit ? (
-              <panel-item
-                id="weather-menu-temp-celsius"
-                data-l10n-id="newtab-weather-menu-change-temperature-units-celsius"
-                onClick={() => this.handleChangeTempUnit("c")}
-              />
-            ) : (
-              <panel-item
-                id="weather-menu-temp-fahrenheit"
-                data-l10n-id="newtab-weather-menu-change-temperature-units-fahrenheit"
-                onClick={() => this.handleChangeTempUnit("f")}
-              />
-            ))}
-          {showFullContextMenu &&
-            (isSimpleDisplay ? (
-              <panel-item
-                id="weather-menu-display-detailed"
-                data-l10n-id="newtab-weather-menu-change-weather-display-detailed"
-                onClick={() => this.handleChangeDisplay("detailed")}
-              />
-            ) : (
-              <panel-item
-                id="weather-menu-display-simple"
-                data-l10n-id="newtab-weather-menu-change-weather-display-simple"
-                onClick={() => this.handleChangeDisplay("simple")}
-              />
-            ))}
-          <panel-item
-            id="weather-menu-hide"
-            data-l10n-id="newtab-weather-menu-hide-weather-v2"
-            onClick={this.handleHideWeather}
-          />
-          <panel-item
-            id="weather-menu-learn-more"
-            data-l10n-id="newtab-weather-menu-learn-more"
-            onClick={this.handleLearnMore}
-          />
-        </panel-list>
+          ) : null}
+        </button>
       </div>
     );
 
@@ -734,7 +463,11 @@ export class _Weather extends React.PureComponent {
               </a>
             )}
 
-            {contextMenu(showFullMenu)}
+            {contextMenu(
+              showStaticData
+                ? WEATHER_SOURCE_SHORTENED_CONTEXT_MENU_OPTIONS
+                : WEATHER_SOURCE_CONTEXT_MENU_OPTIONS
+            )}
           </div>
           <span className="weatherSponsorText" aria-hidden="true">
             <span
@@ -780,8 +513,7 @@ export class _Weather extends React.PureComponent {
         <div className="weatherNotAvailable">
           <span className="icon icon-info-warning" />{" "}
           <p data-l10n-id="newtab-weather-error-not-available"></p>
-          {/* We're passing false to only render applicable menu items during an error */}
-          {contextMenu(false)}
+          {contextMenu(WEATHER_SOURCE_SHORTENED_CONTEXT_MENU_OPTIONS)}
         </div>
       </div>
     );

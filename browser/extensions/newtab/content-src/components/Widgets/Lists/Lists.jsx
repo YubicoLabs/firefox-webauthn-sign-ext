@@ -34,13 +34,7 @@ const PREF_WIDGETS_LISTS_MAX_LISTITEMS = "widgets.lists.maxListItems";
 const PREF_WIDGETS_LISTS_BADGE_ENABLED = "widgets.lists.badge.enabled";
 const PREF_WIDGETS_LISTS_BADGE_LABEL = "widgets.lists.badge.label";
 
-// eslint-disable-next-line max-statements
-function Lists({
-  dispatch,
-  handleUserInteraction,
-  isMaximized,
-  widgetsMayBeMaximized,
-}) {
+function Lists({ dispatch, handleUserInteraction, isMaximized }) {
   const prefs = useSelector(state => state.Prefs.values);
   const { selected, lists } = useSelector(state => state.ListsWidget);
   const [newTask, setNewTask] = useState("");
@@ -48,16 +42,11 @@ function Lists({
   const [pendingNewList, setPendingNewList] = useState(null);
   const selectedList = useMemo(() => lists[selected], [lists, selected]);
 
-  // Bug 2012829 - Calculate widget size dynamically based on isMaximized prop.
-  // Future sizes: mini, medium, large.
-  const widgetSize = isMaximized ? "medium" : "small";
-
   const prevCompletedCount = useRef(selectedList?.completed?.length || 0);
   const inputRef = useRef(null);
   const selectRef = useRef(null);
   const reorderListRef = useRef(null);
   const [canvasRef, fireConfetti] = useConfetti();
-  const impressionFired = useRef(false);
 
   const handleListInteraction = useCallback(
     () => handleUserInteraction("lists"),
@@ -68,29 +57,12 @@ function Lists({
   const isValidUrl = useCallback(str => URL.canParse(str), []);
 
   const handleIntersection = useCallback(() => {
-    if (impressionFired.current) {
-      return;
-    }
-    impressionFired.current = true;
-
-    batch(() => {
-      dispatch(
-        ac.AlsoToMain({
-          type: at.WIDGETS_LISTS_USER_IMPRESSION,
-        })
-      );
-      const telemetryData = {
-        widget_name: "lists",
-        widget_size: widgetsMayBeMaximized ? widgetSize : "medium",
-      };
-      dispatch(
-        ac.AlsoToMain({
-          type: at.WIDGETS_IMPRESSION,
-          data: telemetryData,
-        })
-      );
-    });
-  }, [dispatch, widgetsMayBeMaximized, widgetSize]);
+    dispatch(
+      ac.AlsoToMain({
+        type: at.WIDGETS_LISTS_USER_IMPRESSION,
+      })
+    );
+  }, [dispatch]);
 
   const listsRef = useIntersectionObserver(handleIntersection);
 
@@ -232,18 +204,6 @@ function Lists({
             data: { userAction: USER_ACTION_TYPES.TASK_CREATE },
           })
         );
-        const telemetryData = {
-          widget_name: "lists",
-          widget_source: "widget",
-          user_action: USER_ACTION_TYPES.TASK_CREATE,
-          widget_size: widgetsMayBeMaximized ? widgetSize : "medium",
-        };
-        dispatch(
-          ac.OnlyToMain({
-            type: at.WIDGETS_USER_EVENT,
-            data: telemetryData,
-          })
-        );
       });
       setNewTask("");
       handleListInteraction();
@@ -313,18 +273,6 @@ function Lists({
             data: { userAction },
           })
         );
-        const telemetryData = {
-          widget_name: "lists",
-          widget_source: "widget",
-          user_action: userAction,
-          widget_size: widgetsMayBeMaximized ? widgetSize : "medium",
-        };
-        dispatch(
-          ac.AlsoToMain({
-            type: at.WIDGETS_USER_EVENT,
-            data: telemetryData,
-          })
-        );
       }
     });
     handleListInteraction();
@@ -352,18 +300,6 @@ function Lists({
         ac.OnlyToMain({
           type: at.WIDGETS_LISTS_USER_EVENT,
           data: { userAction: USER_ACTION_TYPES.TASK_DELETE },
-        })
-      );
-      const telemetryData = {
-        widget_name: "lists",
-        widget_source: "widget",
-        user_action: USER_ACTION_TYPES.TASK_DELETE,
-        widget_size: widgetsMayBeMaximized ? widgetSize : "medium",
-      };
-      dispatch(
-        ac.OnlyToMain({
-          type: at.WIDGETS_USER_EVENT,
-          data: telemetryData,
         })
       );
     });
@@ -405,18 +341,6 @@ function Lists({
             data: { userAction: USER_ACTION_TYPES.LIST_EDIT },
           })
         );
-        const telemetryData = {
-          widget_name: "lists",
-          widget_source: "widget",
-          user_action: USER_ACTION_TYPES.LIST_EDIT,
-          widget_size: widgetsMayBeMaximized ? widgetSize : "medium",
-        };
-        dispatch(
-          ac.OnlyToMain({
-            type: at.WIDGETS_USER_EVENT,
-            data: telemetryData,
-          })
-        );
       });
       setIsEditing(false);
       handleListInteraction();
@@ -453,18 +377,6 @@ function Lists({
           data: { userAction: USER_ACTION_TYPES.LIST_CREATE },
         })
       );
-      const telemetryData = {
-        widget_name: "lists",
-        widget_source: "widget",
-        user_action: USER_ACTION_TYPES.LIST_CREATE,
-        widget_size: widgetsMayBeMaximized ? widgetSize : "medium",
-      };
-      dispatch(
-        ac.OnlyToMain({
-          type: at.WIDGETS_USER_EVENT,
-          data: telemetryData,
-        })
-      );
     });
     setPendingNewList(id);
     handleListInteraction();
@@ -495,18 +407,6 @@ function Lists({
           ac.OnlyToMain({
             type: at.WIDGETS_LISTS_USER_EVENT,
             data: { userAction: USER_ACTION_TYPES.LIST_DELETE },
-          })
-        );
-        const telemetryData = {
-          widget_name: "lists",
-          widget_source: "widget",
-          user_action: USER_ACTION_TYPES.LIST_DELETE,
-          widget_size: widgetsMayBeMaximized ? widgetSize : "medium",
-        };
-        dispatch(
-          ac.OnlyToMain({
-            type: at.WIDGETS_USER_EVENT,
-            data: telemetryData,
           })
         );
       });
@@ -551,47 +451,21 @@ function Lists({
             data: { userAction: USER_ACTION_TYPES.LIST_DELETE },
           })
         );
-        const telemetryData = {
-          widget_name: "lists",
-          widget_source: "widget",
-          user_action: USER_ACTION_TYPES.LIST_DELETE,
-          widget_size: widgetsMayBeMaximized ? widgetSize : "medium",
-        };
-        dispatch(
-          ac.OnlyToMain({
-            type: at.WIDGETS_USER_EVENT,
-            data: telemetryData,
-          })
-        );
       });
     }
     handleListInteraction();
   }
 
   function handleHideLists() {
-    batch(() => {
-      dispatch(
-        ac.OnlyToMain({
-          type: at.SET_PREF,
-          data: {
-            name: "widgets.lists.enabled",
-            value: false,
-          },
-        })
-      );
-      const telemetryData = {
-        widget_name: "lists",
-        widget_source: "context_menu",
-        enabled: false,
-        widget_size: widgetsMayBeMaximized ? widgetSize : "medium",
-      };
-      dispatch(
-        ac.OnlyToMain({
-          type: at.WIDGETS_ENABLED,
-          data: telemetryData,
-        })
-      );
-    });
+    dispatch(
+      ac.OnlyToMain({
+        type: at.SET_PREF,
+        data: {
+          name: "widgets.lists.enabled",
+          value: false,
+        },
+      })
+    );
     handleListInteraction();
   }
 
@@ -622,26 +496,12 @@ function Lists({
       console.error("Copy failed", err);
     }
 
-    batch(() => {
-      dispatch(
-        ac.OnlyToMain({
-          type: at.WIDGETS_LISTS_USER_EVENT,
-          data: { userAction: USER_ACTION_TYPES.LIST_COPY },
-        })
-      );
-      const telemetryData = {
-        widget_name: "lists",
-        widget_source: "widget",
-        user_action: USER_ACTION_TYPES.LIST_COPY,
-        widget_size: widgetsMayBeMaximized ? widgetSize : "medium",
-      };
-      dispatch(
-        ac.OnlyToMain({
-          type: at.WIDGETS_USER_EVENT,
-          data: telemetryData,
-        })
-      );
-    });
+    dispatch(
+      ac.OnlyToMain({
+        type: at.WIDGETS_LISTS_USER_EVENT,
+        data: { userAction: USER_ACTION_TYPES.LIST_COPY },
+      })
+    );
     handleListInteraction();
   }
 
