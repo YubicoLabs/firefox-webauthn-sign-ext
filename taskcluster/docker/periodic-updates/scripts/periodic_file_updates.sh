@@ -119,7 +119,11 @@ if [ "${TOPSRCDIR}" == "" ]; then
 fi
 
 case "${BRANCH}" in
-  mozilla-central|comm-central|try )
+  try)
+    # don't clone try, that can only end in sadness
+    HGREPO="https://${HGHOST}/mozilla-central"
+    ;;
+  mozilla-central|comm-central )
     HGREPO="https://${HGHOST}/${BRANCH}"
     ;;
   mozilla-*|comm-* )
