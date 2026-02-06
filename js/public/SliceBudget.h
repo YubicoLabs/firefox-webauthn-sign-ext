@@ -92,16 +92,17 @@ class JS_PUBLIC_API SliceBudget {
   bool keepGoing = false;
 
  private:
-  explicit SliceBudget(InterruptRequestFlag* irqPtr)
-      : counter(irqPtr ? StepsPerExpensiveCheck : UnlimitedCounter),
-        interruptRequested(irqPtr),
-        budget(UnlimitedBudget()) {}
-
   bool checkOverBudget();
 
  public:
   // Use to create an unlimited budget.
-  static SliceBudget unlimited() { return SliceBudget(nullptr); }
+  static SliceBudget unlimited() { return SliceBudget(UnlimitedBudget()); }
+
+  explicit SliceBudget(UnlimitedBudget unlimited,
+                       InterruptRequestFlag* irqPtr = nullptr)
+      : counter(irqPtr ? StepsPerExpensiveCheck : UnlimitedCounter),
+        interruptRequested(irqPtr),
+        budget(unlimited) {}
 
   // Instantiate as SliceBudget(TimeBudget(n)).
   explicit SliceBudget(TimeBudget time,

@@ -1901,7 +1901,6 @@ int SliceBudget::describe(char* buffer, size_t maxlen) const {
 
 bool SliceBudget::checkOverBudget() {
   MOZ_ASSERT(counter <= 0);
-  MOZ_ASSERT(!isUnlimited());
 
   if (isWorkBudget()) {
     return true;
@@ -1915,7 +1914,7 @@ bool SliceBudget::checkOverBudget() {
     return true;
   }
 
-  if (TimeStamp::Now() >= budget.as<TimeBudget>().deadline) {
+  if (isTimeBudget() && TimeStamp::Now() >= budget.as<TimeBudget>().deadline) {
     return true;
   }
 
