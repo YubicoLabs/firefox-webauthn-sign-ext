@@ -1223,6 +1223,7 @@ const MESSAGES = () => {
       },
       targeting:
         "isAIWindow && 'browser.smartwindow.firstrun.hasCompleted' | preferenceValue",
+      skip_in_tests: "it's not tested in automation",
       trigger: {
         id: "smartWindowNewTab",
       },

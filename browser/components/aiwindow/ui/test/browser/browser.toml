@@ -28,6 +28,8 @@ support-files = [
 
 ["browser_aiwindow_firstrun.js"]
 
+["browser_aiwindow_immersive.js"]
+
 ["browser_aiwindow_integration.js"]
 
 ["browser_aiwindow_memories.js"]
