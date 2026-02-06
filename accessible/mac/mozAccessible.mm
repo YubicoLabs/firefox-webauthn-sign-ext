@@ -1158,7 +1158,6 @@ static bool ProvidesTitle(const Accessible* aAccessible, nsString& aName) {
 }
 
 - (void)maybePostValidationErrorChanged {
-  CacheDomainActivationBlocker cacheBlocker;
   NSArray* relations =
       [self getRelationsByType:(mozilla::a11y::RelationType::ERRORMSG_FOR)];
   if ([relations count] > 0) {
