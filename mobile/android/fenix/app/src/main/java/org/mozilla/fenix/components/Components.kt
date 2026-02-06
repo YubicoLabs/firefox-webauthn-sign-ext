@@ -19,6 +19,7 @@ import mozilla.components.feature.autofill.AutofillConfiguration
 import mozilla.components.lib.crash.store.CrashAction
 import mozilla.components.lib.crash.store.CrashMiddleware
 import mozilla.components.lib.publicsuffixlist.PublicSuffixList
+import mozilla.components.service.fxrelay.eligibility.RelayEligibilityStore
 import mozilla.components.support.base.android.DefaultProcessInfoProvider
 import mozilla.components.support.base.android.NotificationsDelegate
 import mozilla.components.support.base.worker.Frequency
@@ -367,6 +368,10 @@ class Components(private val context: Context) {
 
     val ads by lazyMonitored {
         Ads(context = context)
+    }
+
+    val relayEligibilityStore by lazyMonitored {
+        RelayEligibilityStore()
     }
 }
 
