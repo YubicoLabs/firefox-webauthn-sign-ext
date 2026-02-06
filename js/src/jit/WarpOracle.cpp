@@ -527,14 +527,6 @@ AbortReasonOr<WarpScriptSnapshot*> WarpScriptOracle::createScriptSnapshot() {
       case JSOp::GetElem:
       case JSOp::SetProp:
       case JSOp::StrictSetProp:
-      case JSOp::Call:
-      case JSOp::CallContent:
-      case JSOp::CallIgnoresRv:
-      case JSOp::CallIter:
-      case JSOp::CallContentIter:
-      case JSOp::New:
-      case JSOp::NewContent:
-      case JSOp::SuperCall:
       case JSOp::SpreadCall:
       case JSOp::SpreadNew:
       case JSOp::SpreadSuperCall:
@@ -604,7 +596,19 @@ AbortReasonOr<WarpScriptSnapshot*> WarpScriptOracle::createScriptSnapshot() {
       case JSOp::OptimizeGetIterator:
         MOZ_TRY(maybeInlineIC(opSnapshots, loc));
         break;
-
+      case JSOp::Call:
+      case JSOp::CallContent:
+      case JSOp::CallIgnoresRv:
+      case JSOp::CallIter:
+      case JSOp::CallContentIter:
+      case JSOp::New:
+      case JSOp::NewContent:
+      case JSOp::SuperCall:
+        if (MOZ_UNLIKELY(loc.getCallArgc() > JIT_ARGS_LENGTH_MAX)) {
+          return abort(AbortReason::Disable, "Call with too many arguments");
+        }
+        MOZ_TRY(maybeInlineIC(opSnapshots, loc));
+        break;
       case JSOp::Nop:
       case JSOp::NopDestructuring:
       case JSOp::NopIsAssignOp:
