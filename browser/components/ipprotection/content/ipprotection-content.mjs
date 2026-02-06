@@ -177,7 +177,14 @@ export default class IPProtectionContentElement extends MozLitElement {
       this._showMessageBar = false;
       this._messageDismissed = true;
       this.state.error = "";
-      this.state.bandwidthWarning = false;
+
+      if (this.state.bandwidthWarning) {
+        this.dispatchEvent(
+          new CustomEvent("IPProtection:DismissBandwidthWarning", {
+            bubbles: true,
+          })
+        );
+      }
     }
   }
 
@@ -232,9 +239,10 @@ export default class IPProtectionContentElement extends MozLitElement {
       messageId = "ipprotection-message-bandwidth-warning";
       messageType = "warning";
       messageLinkL10nArgs = JSON.stringify({
-        usageLeft:
+        usageLeft: (
           this.state.bandwidthUsage.maxBandwidth -
-          this.state.bandwidthUsage.currentBandwidthUsage,
+          this.state.bandwidthUsage.currentBandwidthUsage
+        ).toFixed(0),
         maxUsage: this.state.bandwidthUsage.maxBandwidth,
       });
     } else if (this.state.onboardingMessage) {
@@ -263,6 +271,7 @@ export default class IPProtectionContentElement extends MozLitElement {
         .messageLink=${ifDefined(messageLink)}
         .messageLinkl10nId=${ifDefined(messageLinkl10nId)}
         .messageLinkL10nArgs=${ifDefined(messageLinkL10nArgs)}
+        .bandwidthUsage=${ifDefined(this.state.bandwidthUsage)}
       ></ipprotection-message-bar>
     `;
   }

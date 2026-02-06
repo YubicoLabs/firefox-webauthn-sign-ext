@@ -46,6 +46,7 @@ async function setupStatusCardTest(
 }
 
 async function cleanupStatusCardTest() {
+  await SpecialPowers.popPrefEnv();
   cleanupService();
 }
 
