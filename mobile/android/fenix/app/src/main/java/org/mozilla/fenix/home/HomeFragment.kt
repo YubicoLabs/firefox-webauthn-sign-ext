@@ -621,7 +621,7 @@ class HomeFragment : Fragment() {
                 appStore = components.appStore,
             ),
             topSiteController = DefaultTopSiteController(
-                activityRef = WeakReference(activity),
+                activityRef = WeakReference(requireActivity()),
                 store = store,
                 navControllerRef = WeakReference(findNavController()),
                 settings = components.settings,
