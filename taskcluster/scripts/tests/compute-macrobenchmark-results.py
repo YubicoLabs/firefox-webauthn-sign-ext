@@ -1,19 +1,9 @@
-#!/usr/bin/env python3
-
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at http://mozilla.org/MPL/2.0/.
-
 import json
 import pathlib
 import sys
 from collections import defaultdict
 from os import environ, listdir
 from os.path import isfile, join
-
-# Script that parses the results of a Macrobenchmark test run.
-# Intended to be used within CI to parse and display the results of various Macrobenchmark properties:
-# frame drops, time to initial display, etc.
 
 
 def read_benchmark_data_from_directory(directory):
@@ -37,43 +27,12 @@ def read_benchmark_data(file_path, results):
     benchmarks = data["benchmarks"]
     for benchmark in benchmarks:
         name = benchmark["name"]
-        metrics = benchmark["metrics"]
-        sampled_metrics = benchmark["sampledMetrics"]
-
-        results[name] = {}
-
-        if "timeToInitialDisplayMs" in metrics:
-            time_metrics = metrics["timeToInitialDisplayMs"]
-            results[name]["ttid"] = {
-                "median": time_metrics["median"],
-                "minimum": time_metrics["minimum"],
-                "maximum": time_metrics["maximum"],
-            }
-
-        if "frameCount" in metrics:
-            frame_counts = metrics["frameCount"]
-            results[name]["frame_counts"] = {
-                "median": frame_counts["median"],
-                "minimum": frame_counts["minimum"],
-                "maximum": frame_counts["maximum"],
-            }
-
-        if "frameDurationCpuMs" in sampled_metrics:
-            frame_duration_cpu = sampled_metrics["frameDurationCpuMs"]
-            results[name]["frame_duration_cpu"] = {
-                "P50": frame_duration_cpu["P50"],
-                "P90": frame_duration_cpu["P90"],
-                "P99": frame_duration_cpu["P99"],
-            }
-
-        if "frameOverrunMs" in sampled_metrics:
-            frame_overruns = sampled_metrics["frameOverrunMs"]
-            results[name]["frame_overruns"] = {
-                "P50": frame_overruns["P50"],
-                "P90": frame_overruns["P90"],
-                "P99": frame_overruns["P99"],
-            }
-
+        time_metrics = benchmark["metrics"]["timeToInitialDisplayMs"]
+        results[name] = {
+            "median": time_metrics["median"],
+            "minimum": time_metrics["minimum"],
+            "maximum": time_metrics["maximum"],
+        }
     return results
 
 
@@ -82,25 +41,15 @@ def format_output_content(results):
 
     # Construct the subtests list
     subtests = []
-    for result_name, categories in results.items():
-        for category_name, metrics in categories.items():
-            for metric_name, value in metrics.items():
-                if "frame_count" in category_name:
-                    subtest = {
-                        "name": f"{result_name}.{category_name}.{metric_name}",
-                        "lowerIsBetter": False,
-                        "value": value,
-                        "unit": "count",
-                    }
-                    subtests.append(subtest)
-                else:
-                    subtest = {
-                        "name": f"{result_name}.{category_name}.{metric_name}",
-                        "lowerIsBetter": True,
-                        "value": value,
-                        "unit": "ms",
-                    }
-                    subtests.append(subtest)
+    for result_name, metrics in results.items():
+        for metric_name, value in metrics.items():
+            subtest = {
+                "name": f"{result_name}.{metric_name}",
+                "lowerIsBetter": True,
+                "value": value,
+                "unit": "ms",
+            }
+            subtests.append(subtest)
 
     # Define the base JSON structure using the subtests list
     output_json = {
@@ -140,31 +89,23 @@ def output_results(output_json, output_file_path):
     print(f"Results have been written to {output_file_path}")
 
 
-# Prints a table comparing the impact of startup with baseline profile to without
 def generate_markdown_table(results):
     # Step 1: Organize the data
-    table_data = defaultdict(lambda: {"Median": None, "median None": None})
-    benchmark_title_size = 0
+    table_data = defaultdict(lambda: {"median": None, "median None": None})
 
-    for result_name, categories in results.items():
-        for category_name, metrics in categories.items():
-            for metric_name, value in metrics.items():
-                if "median" in metric_name and "frame_counts" not in metric_name:
-                    if "None" in result_name:
-                        base_name = result_name.replace("None", "")
-                        table_data[base_name]["median None"] = value
-                    else:
-                        table_data[result_name]["median"] = value
-                        benchmark_title_size = max(
-                            benchmark_title_size, len(result_name)
-                        )
+    for name, metrics in results.items():
+        base_name = name.replace("PartialWithBaselineProfiles", "")
+        if "None" in base_name:
+            main_name = base_name.replace("None", "")
+            table_data[main_name]["median None"] = metrics["median"]
+        else:
+            table_data[base_name]["median"] = metrics["median"]
 
     # Step 2: Prepare markdown rows
     headers = ["Benchmark", "median", "median None", "% diff"]
-    title_string = "-" * (benchmark_title_size - 5)
     lines = [
-        f"|{' ' + headers[0] + ' ' * (benchmark_title_size - len(headers[0])) + '| ' + ' | '.join(headers[1:])} |",
-        f"|{':-' + title_string + '-:|:-'.join(['-' * len(h) for h in headers[1:]])}-:|",
+        f"| {' | '.join(headers)} |",
+        f"|{':-' + '-:|:-'.join(['-' * len(h) for h in headers])}-:|",
     ]
 
     for benchmark, values in sorted(table_data.items()):
@@ -175,15 +116,7 @@ def generate_markdown_table(results):
         else:
             percent_diff = ""
 
-        # Avoid NoneType format error
-        if median is None:
-            median = 0.0
-        if median_none is None:
-            median_none = 0.0
-
-        benchmark_spacing = " " * (benchmark_title_size - len(benchmark))
-
-        row = f"| {benchmark}{benchmark_spacing} | {median:.3f} | {median_none:.3f} | {percent_diff} |"
+        row = f"| {benchmark} | {median:.3f} | {median_none:.3f} | {percent_diff} |"
         lines.append(row)
 
     return "\n".join(lines)
@@ -199,6 +132,6 @@ if __name__ == "__main__":
 
         # Process the benchmark data
         results = read_benchmark_data_from_directory(input_json_path)
+        print(generate_markdown_table(results))
         output_json = format_output_content(results)
         output_results(output_json, output_file_path)
-        print(generate_markdown_table(results))

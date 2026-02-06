@@ -9,12 +9,4 @@ import androidx.core.net.toUri
 const val TARGET_PACKAGE = "org.mozilla.fenix"
 const val DEFAULT_ITERATIONS = 5
 const val EXTRA_COMPOSABLE_TOOLBAR = "EXTRA_COMPOSABLE_TOOLBAR"
-// Extra to enable or disable TabsTray animation
-const val EXTRA_TAB_TRAY_ANIMATION = "EXTRA_TAB_TRAY_ANIMATION"
-// Intent extra to enable or disable TabTray enhancements setting for testing
-const val EXTRA_TAB_TRAY_ENHANCEMENTS = "EXTRA_TAB_MANAGER_ENHANCEMENTS"
-// Trace for the animation from TabManager -> BrowserFragment
-const val TRACE_NAME_ANIMATION_TAB_MANAGER_TO_THUMBNAIL = "TabManagerAnimationState.TabManagerToThumbnail"
-// Trace for the animation from BrowserFragment -> TabManager
-const val TRACE_NAME_ANIMATION_THUMBNAIL_TO_TAB_MANAGER = "TabManagerAnimationState.ThumbnailToTabManager"
 val FENIX_HOME_DEEP_LINK = "fenix-nightly://home".toUri()

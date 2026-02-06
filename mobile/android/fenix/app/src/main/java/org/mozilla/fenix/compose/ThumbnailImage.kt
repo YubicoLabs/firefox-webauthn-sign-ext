@@ -29,7 +29,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.util.trace
 import kotlinx.coroutines.launch
 import mozilla.components.browser.state.state.TabSessionState
 import mozilla.components.browser.state.state.createTab
@@ -101,47 +100,45 @@ fun ThumbnailImage(
     if (inComposePreview) {
         Box(modifier = modifier)
     } else {
-        trace("ThumbnailImageCreation") {
-            var state by remember { mutableStateOf(ThumbnailImageState(null, false)) }
-            val scope = rememberCoroutineScope()
-            val storage = components.core.thumbnailStorage
+        var state by remember { mutableStateOf(ThumbnailImageState(null, false)) }
+        val scope = rememberCoroutineScope()
+        val storage = components.core.thumbnailStorage
 
-            DisposableEffect(Unit) {
-                if (!state.hasLoaded) {
-                    scope.launch {
-                        val thumbnailBitmap = storage.loadThumbnail(request).await()
-                        thumbnailBitmap?.prepareToDraw()
-                        state = ThumbnailImageState(
-                            bitmap = thumbnailBitmap,
-                            hasLoaded = true,
-                        )
-                    }
-                }
-
-                onDispose {
-                    // Recycle the bitmap to liberate the RAM. Without this, a list of [ThumbnailImage]
-                    // will bloat the memory. This is a trade-off, however, as the bitmap
-                    // will be re-fetched if this Composable is disposed and re-loaded.
-                    state.bitmap?.recycle()
+        DisposableEffect(Unit) {
+            if (!state.hasLoaded) {
+                scope.launch {
+                    val thumbnailBitmap = storage.loadThumbnail(request).await()
+                    thumbnailBitmap?.prepareToDraw()
                     state = ThumbnailImageState(
-                        bitmap = null,
-                        hasLoaded = false,
+                        bitmap = thumbnailBitmap,
+                        hasLoaded = true,
                     )
                 }
             }
 
-            if (state.bitmap == null && state.hasLoaded) {
-                fallbackContent()
-            } else {
-                state.bitmap?.let { bitmap ->
-                    Image(
-                        bitmap = bitmap.asImageBitmap(),
-                        contentDescription = null,
-                        modifier = modifier,
-                        contentScale = contentScale,
-                        alignment = alignment,
-                    )
-                }
+            onDispose {
+                // Recycle the bitmap to liberate the RAM. Without this, a list of [ThumbnailImage]
+                // will bloat the memory. This is a trade-off, however, as the bitmap
+                // will be re-fetched if this Composable is disposed and re-loaded.
+                state.bitmap?.recycle()
+                state = ThumbnailImageState(
+                    bitmap = null,
+                    hasLoaded = false,
+                )
+            }
+        }
+
+        if (state.bitmap == null && state.hasLoaded) {
+            fallbackContent()
+        } else {
+            state.bitmap?.let { bitmap ->
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = null,
+                    modifier = modifier,
+                    contentScale = contentScale,
+                    alignment = alignment,
+                )
             }
         }
     }
