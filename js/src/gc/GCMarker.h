@@ -217,10 +217,14 @@ class MarkStack {
 
   void poisonUnused();
 
+  // Ensuring there is space to push |count| more words, growing the stack if
+  // necessary.
+  template <bool checkMaxCapacity = true>
   [[nodiscard]] bool ensureSpace(size_t count);
 
-  static size_t moveWork(GCMarker* marker, MarkStack& dst, MarkStack& src,
-                         bool allowDistribute);
+  static void moveAllWork(MarkStack& dst, MarkStack& src);
+  static size_t moveSomeWork(GCMarker* marker, MarkStack& dst, MarkStack& src,
+                             bool allowDistribute);
 
   size_t sizeOfExcludingThis(mozilla::MallocSizeOf mallocSizeOf) const;
 
@@ -238,9 +242,6 @@ class MarkStack {
 
   // Return a pointer to the first unused word beyond the top of the stack.
   uintptr_t* end() { return ptr(topIndex_); }
-
-  // Grow the stack, ensuring there is space to push |count| more words.
-  [[nodiscard]] bool enlarge(size_t count);
 
   [[nodiscard]] bool resize(size_t newCapacity);
 
@@ -437,7 +438,9 @@ class GCMarker {
   template <uint32_t markingOptions, gc::MarkColor>
   bool markOneColor(JS::SliceBudget& budget);
 
-  static size_t moveWork(GCMarker* dst, GCMarker* src, bool allowDistribute);
+  static void moveAllWork(GCMarker* dst, GCMarker* src);
+  static size_t moveSomeWork(GCMarker* dst, GCMarker* src,
+                             bool allowDistribute);
 
   [[nodiscard]] bool initStack();
   void resetStackCapacity();

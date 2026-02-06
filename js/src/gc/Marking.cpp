@@ -1261,11 +1261,21 @@ static gcstats::PhaseKind GrayMarkingPhaseForCurrentPhase(
   }
 }
 
-size_t GCMarker::moveWork(GCMarker* dst, GCMarker* src, bool allowDistribute) {
+/* static */
+void GCMarker::moveAllWork(GCMarker* dst, GCMarker* src) {
+  MOZ_ASSERT(dst->markColor() == src->markColor());
+  MarkStack::moveAllWork(dst->stack, src->stack);
+  MarkStack::moveAllWork(dst->otherStack, src->otherStack);
+}
+
+/* static */
+size_t GCMarker::moveSomeWork(GCMarker* dst, GCMarker* src,
+                              bool allowDistribute) {
+  MOZ_ASSERT(dst->markColor() == src->markColor());
   MOZ_ASSERT(dst->stack.isEmpty());
   MOZ_ASSERT(src->canDonateWork());
 
-  return MarkStack::moveWork(src, dst->stack, src->stack, allowDistribute);
+  return MarkStack::moveSomeWork(src, dst->stack, src->stack, allowDistribute);
 }
 
 bool GCMarker::initStack() {
@@ -1908,8 +1918,31 @@ MOZ_ALWAYS_INLINE bool MarkStack::indexIsEntryBase(size_t index) const {
 }
 
 /* static */
-size_t MarkStack::moveWork(GCMarker* marker, MarkStack& dst, MarkStack& src,
-                           bool allowDistribute) {
+void MarkStack::moveAllWork(MarkStack& dst, MarkStack& src) {
+  MOZ_ASSERT(src.elementsRangesAreValid == dst.elementsRangesAreValid);
+
+  if (dst.isEmpty()) {
+    dst.swap(src);
+    return;
+  }
+
+  size_t wordsToMove = src.position();
+
+  AutoEnterOOMUnsafeRegion oomUnsafe;
+  if (!dst.ensureSpace<false>(wordsToMove)) {
+    oomUnsafe.crash("MarkStack::moveAllWork");
+  }
+
+  mozilla::PodCopy(dst.end(), src.ptr(0), wordsToMove);
+  dst.topIndex_ += wordsToMove;
+  src.topIndex_ = 0;  // Doesn't reset capacity.
+
+  MOZ_ASSERT(src.isEmpty());
+}
+
+/* static */
+size_t MarkStack::moveSomeWork(GCMarker* marker, MarkStack& dst, MarkStack& src,
+                               bool allowDistribute) {
   // Move some work from |src| to |dst|. Assumes |dst| is empty.
   //
   // When this method runs during parallel marking, we are on the thread that
@@ -2101,22 +2134,21 @@ inline MarkStack::SlotsOrElementsRange MarkStack::popSlotsOrElementsRange() {
   return SlotsOrElementsRange::fromBits(end()[0], end()[1]);
 }
 
+template <bool checkMaxCapacity>
 inline bool MarkStack::ensureSpace(size_t count) {
-  if (MOZ_LIKELY((topIndex_ + count) <= capacity())) {
+  size_t required = topIndex_ + count;
+  if (MOZ_LIKELY(required <= capacity())) {
     return true;
   }
 
-  return enlarge(count);
-}
-
-MOZ_NEVER_INLINE bool MarkStack::enlarge(size_t count) {
-  size_t required = capacity() + count;
   size_t newCapacity = mozilla::RoundUpPow2(required);
 
 #ifdef JS_GC_ZEAL
-  newCapacity = std::min(newCapacity, maxCapacity_.ref());
-  if (newCapacity < required) {
-    return false;
+  if constexpr (checkMaxCapacity) {
+    newCapacity = std::min(newCapacity, maxCapacity_.ref());
+    if (newCapacity < required) {
+      return false;
+    }
   }
 #endif
 
