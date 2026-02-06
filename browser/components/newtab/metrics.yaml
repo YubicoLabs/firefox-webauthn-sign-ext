@@ -1285,6 +1285,33 @@ newtab:
     send_in_pings:
       - newtab
 
+  widgets_container_action:
+    type: event
+    description: >
+      Recorded when user interacts with widget container controls.
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2012821
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2012821
+    data_sensitivity:
+      - interaction
+    notification_emails:
+      - mcrawford@mozilla.com
+    expires: never
+    extra_keys:
+      newtab_visit_id: *newtab_visit_id
+      widget_size: *widget_size
+      action_type:
+        description: >
+          Type of container action. (hide_all, toggle_maximize)
+        type: string
+      action_value:
+        description: >
+          Optional value for the action.
+        type: string
+    send_in_pings:
+      - newtab
+
   spons_nav_traffic_sent:
     type: memory_distribution
     memory_unit: kilobyte
