@@ -124,18 +124,6 @@ void* ReallocBuffer(JS::Zone* zone, void* alloc, size_t bytes,
                     bool nurseryOwned);
 void FreeBuffer(JS::Zone* zone, void* alloc);
 
-template <typename T, typename... Args>
-T* NewSizedBuffer(JS::Zone* zone, size_t bytes, bool nurseryOwned,
-                  Args&&... args) {
-  MOZ_ASSERT(sizeof(T) <= bytes);
-  void* ptr = AllocBuffer(zone, bytes, nurseryOwned);
-  if (!ptr) {
-    return nullptr;
-  }
-
-  return new (ptr) T(std::forward<Args>(args)...);
-}
-
 // Indicate whether |alloc| is a buffer allocation as opposed to a fixed size GC
 // cell. Does not work for malloced memory.
 bool IsBufferAlloc(void* alloc);

@@ -1126,6 +1126,12 @@ class GCRuntime {
    */
   MainThreadData<JS::CreateSliceBudgetCallback> createBudgetCallback;
 
+#ifdef MOZ_TSAN
+  // TSAN doesn't understand use of atomic_thread_fence to synchronize relaxed
+  // atomics so use reads/writes to this atomic instead.
+  mozilla::Atomic<int, mozilla::SequentiallyConsistent> tsanMemoryBarrier;
+#endif
+
  private:
   // Arenas used for permanent things created at startup and shared by child
   // runtimes.

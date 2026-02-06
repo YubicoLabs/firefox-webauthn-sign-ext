@@ -41,6 +41,10 @@ extern void TraceManuallyBarrieredGenericPointerEdge(JSTracer* trc,
                                                      gc::Cell** thingp,
                                                      const char* name);
 
+#ifdef MOZ_TSAN
+extern void FullMemoryFence(JSRuntime* runtime);
+#endif
+
 namespace gc {
 
 enum class AllocKind : uint8_t;
@@ -580,6 +584,44 @@ template <typename T>
 MOZ_ALWAYS_INLINE void PreWriteBarrier(JS::Zone* zone, T* data) {
   MOZ_ASSERT(data);
   PreWriteBarrier(zone, data, [](JSTracer* trc, T* data) { data->trace(trc); });
+}
+
+MOZ_ALWAYS_INLINE void MemoryReleaseFence(JS::Zone* zone) {
+#ifdef JS_GC_CONCURRENT_MARKING
+  MOZ_ASSERT(!CurrentThreadIsIonCompiling());
+  MOZ_ASSERT(!CurrentThreadIsGCMarking());
+
+  if (JS::shadow::Zone::from(zone)->needsMarkingBarrier(
+          JS::shadow::Zone::Concurrent)) {
+#  ifdef MOZ_TSAN
+    FullMemoryFence(JS::shadow::Zone::from(zone)->runtimeFromMainThread());
+#  else
+    std::atomic_thread_fence(std::memory_order_release);
+#  endif
+  }
+#endif
+}
+
+template <typename T>
+MOZ_ALWAYS_INLINE void MemoryReleaseFence(T* thing) {
+#ifdef JS_GC_CONCURRENT_MARKING
+  static_assert(std::is_base_of_v<Cell, T>);
+
+  MOZ_ASSERT(!CurrentThreadIsIonCompiling());
+  MOZ_ASSERT(!CurrentThreadIsGCMarking());
+
+  // todo: may not be worth doing isPermanentAndMayBeShared check.
+  // todo: may or may not have concrete type
+  if (!thing) {
+    return;
+  }
+
+  // todo: Ideally this would be zone() but stencil writes into objects
+  // off-thread during under PrivateScriptData::InitFromStencil.
+  JS::Zone* zone = thing->zoneFromAnyThread();
+
+  MemoryReleaseFence(zone);
+#endif
 }
 
 #ifdef DEBUG

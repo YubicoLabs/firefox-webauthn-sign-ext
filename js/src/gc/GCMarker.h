@@ -11,6 +11,7 @@
 #include "mozilla/XorShift128PlusRNG.h"
 
 #include "gc/Barrier.h"
+#include "gc/Cell.h"
 #include "js/HashTable.h"
 #include "js/TracingAPI.h"
 #include "js/TypeDecls.h"
@@ -720,6 +721,32 @@ class MOZ_RAII AutoSetMarkColor {
 
   ~AutoSetMarkColor() { marker_.setMarkColor(initialColor_); }
 };
+
+MOZ_ALWAYS_INLINE void MemoryAcquireFence(JSTracer* trc) {
+#ifdef JS_GC_CONCURRENT_MARKING
+  if (trc->isMarkingTracer() &&
+      GCMarker::fromTracer(trc)->isConcurrentMarking()) {
+#  ifdef MOZ_TSAN
+    FullMemoryFence(trc->runtime());
+#  else
+    std::atomic_thread_fence(std::memory_order_acquire);
+#  endif
+  }
+#endif
+}
+
+template <uint32_t markingOptions>
+MOZ_ALWAYS_INLINE void MemoryAcquireFence(JSRuntime* runtime) {
+#ifdef JS_GC_CONCURRENT_MARKING
+  if (bool(markingOptions & MarkingOptions::ConcurrentMarking)) {
+#  ifdef MOZ_TSAN
+    FullMemoryFence(runtime);
+#  else
+    std::atomic_thread_fence(std::memory_order_acquire);
+#  endif
+  }
+#endif
+}
 
 } /* namespace gc */
 

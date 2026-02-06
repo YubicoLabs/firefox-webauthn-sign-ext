@@ -5911,3 +5911,13 @@ void GCRuntime::setPerformanceHint(PerformanceHint hint) {
     inPageLoadCount--;
   }
 }
+
+#ifdef MOZ_TSAN
+void js::FullMemoryFence(JSRuntime* runtime) {
+  // TSAN doesn't understand use of atomic_thread_fence to synchronize relaxed
+  // atomics. Do a full memory barrier to tell TSAN it's OK. Note
+  // std::atomic_thread_fence is stronger than an atomic store-release
+  // operation.
+  runtime->gc.tsanMemoryBarrier++;
+}
+#endif

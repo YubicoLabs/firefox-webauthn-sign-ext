@@ -992,6 +992,8 @@ void js::GCMarker::markAndTraverse(T* thing) {
     constexpr uint32_t traverseOpts =
         opts & ~MarkingOptions::MarkRootCompartments;
 
+    MemoryAcquireFence<opts>(runtime());
+
     traverse<traverseOpts>(thing);
 
     if constexpr (bool(opts & MarkingOptions::MarkRootCompartments)) {
@@ -1170,6 +1172,7 @@ void js::GCMarker::markAndTraverseEdge(S* source, T* target) {
       gc->atomMarking.maybeUnmarkGrayAtomically(source->zone(), target);
     }
   }
+
   checkTraversedEdge(source, target);
   markAndTraverse<opts>(target);
 }
@@ -1701,6 +1704,8 @@ inline bool GCMarker::processMarkStackTop(SliceBudget& budget) {
   return true;
 
 scan_value_range:
+  MemoryAcquireFence<opts>(runtime());
+
   while (index < end) {
     MOZ_ASSERT(stack.capacity() >= stack.position() + ValueRangeWords);
 

@@ -357,14 +357,17 @@ bool NativeObject::growSlots(JSContext* cx, uint32_t oldCapacity,
 
   auto* newHeaderSlots =
       new (allocation) ObjectSlots(newCapacity, dictionarySpan, uid);
-  slots_ = newHeaderSlots->slots();
 
+  HeapSlot* newSlots = newHeaderSlots->slots();
 #ifdef JS_GC_CONCURRENT_MARKING
-  InitializeSlotRange(slots_ + oldCapacity, slots_ + newCapacity);
+  InitializeSlotRange(newSlots + oldCapacity, newSlots + newCapacity);
 #else
-  Debug_SetSlotRangeToCrashOnTouch(slots_ + oldCapacity,
+  Debug_SetSlotRangeToCrashOnTouch(newSlots + oldCapacity,
                                    newCapacity - oldCapacity);
 #endif
+
+  gc::MemoryReleaseFence(zone());
+  slots_ = newSlots;
 
   MOZ_ASSERT(hasDynamicSlots());
   return true;
@@ -407,6 +410,12 @@ bool NativeObject::allocateInitialSlots(JSContext* cx, uint32_t capacity) {
 #else
   Debug_SetSlotRangeToCrashOnTouch(slots, capacity);
 #endif
+
+  // Fence between initializing slot data and writing the slots_ pointer ensure
+  // marking doesn't observe uninitialized memory.
+  // todo: may be moot because the object isn't reachable yet
+  gc::MemoryReleaseFence(this);
+
   slots_ = slots;
 
   MOZ_ASSERT(hasDynamicSlots());
@@ -429,13 +438,16 @@ bool NativeObject::allocateSlots(Nursery& nursery, uint32_t newCapacity) {
 
   auto* newHeaderSlots = new (allocation) ObjectSlots(
       newCapacity, dictionarySpan, ObjectSlots::NoUniqueIdInDynamicSlots);
-  slots_ = newHeaderSlots->slots();
 
+  HeapSlot* newSlots = newHeaderSlots->slots();
 #ifdef JS_GC_CONCURRENT_MARKING
-  InitializeSlotRange(slots_, slots_ + newCapacity);
+  InitializeSlotRange(newSlots, newSlots + newCapacity);
 #else
-  Debug_SetSlotRangeToCrashOnTouch(slots_, newCapacity);
+  Debug_SetSlotRangeToCrashOnTouch(newSlots, newCapacity);
 #endif
+
+  gc::MemoryReleaseFence(zone());
+  slots_ = newSlots;
 
   MOZ_ASSERT(hasDynamicSlots());
   return true;
@@ -522,6 +534,7 @@ void NativeObject::shrinkSlots(JSContext* cx, uint32_t oldCapacity,
 
   auto* newHeaderSlots =
       new (allocation) ObjectSlots(newCapacity, dictionarySpan, uid);
+  gc::MemoryReleaseFence(zone());
   slots_ = newHeaderSlots->slots();
 }
 
@@ -1002,16 +1015,20 @@ bool NativeObject::growElements(JSContext* cx, uint32_t reqCapacity) {
   }
 
   ObjectElements* newheader = reinterpret_cast<ObjectElements*>(newHeaderSlots);
-  // Update the elements pointer to point to the new elements buffer.
-  elements_ = newheader->elements() + numShifted;
+  HeapSlot* newElements = newheader->elements() + numShifted;
 
   // Clear the "fixed elements" flag, because if this code has been reached,
   // this object now has dynamic elements.
-  getElementsHeader()->flags &= ~ObjectElements::FIXED;
-  getElementsHeader()->capacity = newCapacity;
+  ObjectElements::fromElements(newElements)->flags &= ~ObjectElements::FIXED;
+  ObjectElements::fromElements(newElements)->capacity = newCapacity;
 
   // Poison the uninitialized portion of the new elements buffer.
-  Debug_SetSlotRangeToCrashOnTouch(elements_ + initlen, newCapacity - initlen);
+  Debug_SetSlotRangeToCrashOnTouch(newElements + initlen,
+                                   newCapacity - initlen);
+
+  // Update the elements pointer to point to the new elements buffer.
+  gc::MemoryReleaseFence(zone());
+  elements_ = newElements;
 
   return true;
 }
@@ -1059,9 +1076,12 @@ void NativeObject::shrinkElements(JSContext* cx, uint32_t reqCapacity) {
     return;  // Leave elements at its old size.
   }
 
-  ObjectElements* newheader = reinterpret_cast<ObjectElements*>(newHeaderSlots);
-  elements_ = newheader->elements() + numShifted;
-  getElementsHeader()->capacity = newCapacity;
+  ObjectElements* newHeader = reinterpret_cast<ObjectElements*>(newHeaderSlots);
+  HeapSlot* newElements = newHeader->elements() + numShifted;
+  ObjectElements::fromElements(newElements)->capacity = newCapacity;
+
+  gc::MemoryReleaseFence(zone());
+  elements_ = newElements;
 }
 
 void NativeObject::shrinkCapacityToInitializedLength(JSContext* cx) {
