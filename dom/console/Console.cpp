@@ -2914,33 +2914,36 @@ nsString Console::GetDumpMessage(JSContext* aCx, MethodName aMethodName,
 
   message.AppendLiteral("\n");
 
-  // aStack can be null.
+  // When logging to MOZ_LOG, only dump stack willingly when MOZ_LOG includes
+  // "jsstacks".
+  if (!aIsForMozLog || mLogModule->GetLogJSStacks()) {
+    // aStack can be null.
+    nsCOMPtr<nsIStackFrame> stack(aStack);
 
-  nsCOMPtr<nsIStackFrame> stack(aStack);
+    while (stack) {
+      nsAutoCString filename;
+      stack->GetFilename(aCx, filename);
 
-  while (stack) {
-    nsAutoCString filename;
-    stack->GetFilename(aCx, filename);
+      AppendUTF8toUTF16(filename, message);
+      message.AppendLiteral(" ");
 
-    AppendUTF8toUTF16(filename, message);
-    message.AppendLiteral(" ");
+      message.AppendInt(stack->GetLineNumber(aCx));
+      message.AppendLiteral(" ");
 
-    message.AppendInt(stack->GetLineNumber(aCx));
-    message.AppendLiteral(" ");
+      nsAutoString functionName;
+      stack->GetName(aCx, functionName);
 
-    nsAutoString functionName;
-    stack->GetName(aCx, functionName);
+      message.Append(functionName);
+      message.AppendLiteral("\n");
 
-    message.Append(functionName);
-    message.AppendLiteral("\n");
+      nsCOMPtr<nsIStackFrame> caller = stack->GetCaller(aCx);
 
-    nsCOMPtr<nsIStackFrame> caller = stack->GetCaller(aCx);
+      if (!caller) {
+        caller = stack->GetAsyncCaller(aCx);
+      }
 
-    if (!caller) {
-      caller = stack->GetAsyncCaller(aCx);
+      stack.swap(caller);
     }
-
-    stack.swap(caller);
   }
 
   return message;

@@ -66,6 +66,13 @@ add_task(async function test_console_to_mozlog() {
     "The 'limited-level' logger will be completely disabled as it isn't enabled in MOZ_LOG"
   );
 
+  ok(
+    !lines.some(line =>
+      line.includes("BackgroundTask_console.sys.mjs 36 runBackgroundTask")
+    ),
+    "Stack trace for console calls are **not** logged"
+  );
+
   // The console.log call with my-prefix isn't logged because of log level set to "2" for my-prefix
   ok(
     !lines.some(line => line.includes("not-logged")),
@@ -80,7 +87,7 @@ add_task(async function test_console_to_mozlog_level_override() {
       lines.push(line);
     },
     extraEnv: {
-      MOZ_LOG: "limited-level:5",
+      MOZ_LOG: "limited-level:5,jsstacks",
     },
   });
   const exitCode = await promise;
@@ -107,6 +114,13 @@ add_task(async function test_console_to_mozlog_level_override() {
       `Found ${expected}`
     );
   }
+
+  ok(
+    lines.some(line =>
+      line.includes("BackgroundTask_console.sys.mjs 36 runBackgroundTask")
+    ),
+    "Stack trace for console calls are logged"
+  );
 
   // The console.log call with my-prefix isn't logged because of log level set to "2" for my-prefix
   ok(
