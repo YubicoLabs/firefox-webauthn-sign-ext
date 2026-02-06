@@ -25,17 +25,26 @@ ipprotection-title = VPN
 
 ## Feature introduction callout
 
-ipprotection-feature-introduction-title = Free VPN, right inside your browser
-ipprotection-feature-introduction-link-text = You’ve been selected for early access to our new, <a data-l10n-name="learn-more-vpn">built-in VPN</a>. Hide your location and add extra encryption to your browsing in { -brand-product-name }. Sign in to get started.
+ipprotection-feature-introduction-title = Introducing VPN, now right inside your browser
+ipprotection-feature-introduction-link-text = Use our new <a data-l10n-name="learn-more-vpn">built-in VPN</a> to hide your location and protect your data with extra encryption.
+ipprotection-feature-introduction-link-text-private-browsing = Use our new <a data-l10n-name="learn-more-vpn">built-in VPN</a> to hide your location and protect your data with extra encryption, even when you’re in a Private Window.
 ipprotection-feature-introduction-button-primary = Next
 ipprotection-feature-introduction-button-secondary-not-now = Not now
 ipprotection-feature-introduction-button-secondary-no-thanks = No thanks
 
+## Site settings callout
+
+ipprotection-site-settings-callout-title = Choose where you use VPN
+ipprotection-site-settings-callout-subtitle = Turn VPN off for a specific site and we’ll remember it next time you visit.
+ipprotection-site-settings-callout-button = Got it
+
 ## Panel
 
-unauthenticated-vpn-title =Try { -brand-product-name }’s built-in VPN
+unauthenticated-vpn-title = Try { -brand-product-name }’s built-in VPN
 unauthenticated-hide-location-message = Hide your location and add extra encryption to your browsing inside { -brand-product-name }.
-unauthenticated-bandwidth-limit-message = Get 150 GB of free VPN data every month.
+# Variables
+#   $maxUsage (number) - The maximum amount of data a user can use in a month (in GB)
+unauthenticated-bandwidth-limit-message = Get { $maxUsage } GB of free VPN data every month.
 unauthenticated-get-started = Get started
 
 site-exclusion-toggle-label = Use VPN for this site
@@ -76,6 +85,13 @@ upgrade-vpn-button = Try { -mozilla-vpn-brand-name }
 
 ## Messages and errors
 
+ipprotection-connection-status-generic-error-title = Couldn’t connect to VPN
+ipprotection-connection-status-generic-error-description = Try again in a few minutes.
+
+ipprotection-connection-status-network-error-title = Check your internet connection
+ipprotection-connection-status-network-error-description = Connect to the internet, then try turning VPN on.
+
+
 ipprotection-message-generic-error =
   .heading = Couldn’t connect to VPN
   .message = Try again in a few minutes.
@@ -84,7 +100,7 @@ ipprotection-message-generic-error =
 #   $usageLeft (number) - The amount of data a user has left in a month (in GB)
 #   $maxUsage (number) - The maximum amount of data a user can use in a month (in GB)
 ipprotection-message-bandwidth-warning =
-  .heading = You’re almost at your bandwidth limit
+  .heading = Getting close to your VPN limit
   .message = You have { $usageLeft } GB of { $maxUsage } GB left this month.
 
 ipprotection-message-continuous-onboarding-intro = Turn on VPN to hide your location and add extra encryption to your browsing.
@@ -93,11 +109,26 @@ ipprotection-message-continuous-onboarding-site-settings = { -brand-short-name }
 
 confirmation-hint-ipprotection-navigated-to-excluded-site = VPN is off for this site
 
+## IP Protection bandwidth callouts
+
+ipprotection-bandwidth-upgrade-title = Like built-in VPN? Get even more protection outside { -brand-product-name } with { -mozilla-vpn-brand-name }.
+ipprotection-bandwidth-upgrade-text = Choose a VPN location and add protection to all your apps on up to 5 devices, whether you’re at home or on public Wi-Fi.
+
+## IP Protection bandwidth warning infobar
+
+# Variables
+#   $usageLeft (number) - The amount of data a user has left in a month (in GB)
+ip-protection-bandwidth-warning-infobar-message-75 = <strong>Getting close to your VPN limit.</strong> You have { $usageLeft } GB left. Your data will reset at the start of next month.
+
+# Variables
+#   $usageLeft (number) - The amount of data a user has left in a month (in GB)
+ip-protection-bandwidth-warning-infobar-message-90 = <strong>You’re almost out of VPN data.</strong> You have { $usageLeft } GB left. Once you use it all, your VPN will pause until your data resets on the first of next month.
+
 ## IP Protection Settings
 
 ip-protection-description =
   .label = VPN
-  .description = Hides your location and adds extra encryption to your browsing in { -brand-short-name }.
+  .description = Built-in VPN to enhance your privacy while browsing on { -brand-short-name }.
 ip-protection-learn-more = Learn more
 
 ip-protection-site-exceptions =
@@ -134,31 +165,39 @@ ip-protection-vpn-upgrade-link =
 ## IP Protection dialogs
 
 ip-protection-exceptions-dialog-window =
-  .title = Where to use VPN
-ip-protection-exclusions-desc = Use VPN for all websites except ones on this list. Add websites to this list by turning VPN on or off for any site in the VPN panel.
+  .title = Manage website settings
+ip-protection-exclusions-desc = Use VPN for all websites except ones on this list. Add a website here or by opening VPN.
 
-## IP Proctection Bandwidth
+## IP Protection Bandwidth
 
 ip-protection-bandwidth-header = Monthly VPN data
 
-## Variables
-##   $usageLeft (number) - The amount of data a user has left in a month (in GB)
-##   $maxUsage (number) - The maximum amount of data a user can use in a month (in GB)
-
+# Variables
+#   $usageLeft (number) - The amount of data a user has left in a month (in GB)
+#   $maxUsage (number) - The maximum amount of data a user can use in a month (in GB)
 ip-protection-bandwidth-left-this-month-gb = { $usageLeft } GB of { $maxUsage } GB left this month
+
+# Variables
+#   $usageLeft (number) - The amount of data a user has left in a month (in GB)
+#   $maxUsage (number) - The maximum amount of data a user can use in a month (in GB)
 ip-protection-bandwidth-left-gb = { $usageLeft } GB of { $maxUsage } GB left
 
-## Variables
-##   $usageLeft (number) - The amount of data a user has left in a month (in MB)
-##   $maxUsage (number) - The maximum amount of data a user can use in a month (in GB)
-
+# Variables
+#   $usageLeft (number) - The amount of data a user has left in a month (in MB)
+#   $maxUsage (number) - The maximum amount of data a user can use in a month (in GB)
 ip-protection-bandwidth-left-this-month-mb = { $usageLeft } MB of { $maxUsage } GB left this month
+
+# Variables
+#   $usageLeft (number) - The amount of data a user has left in a month (in MB)
+#   $maxUsage (number) - The maximum amount of data a user can use in a month (in GB)
 ip-protection-bandwidth-left-mb = { $usageLeft } MB of { $maxUsage } GB left
 
-## Variables
-##   $maxUsage (number) - The maximum amount of data a user can use in a month (in GB)
-
+# Variables
+#   $maxUsage (number) - The maximum amount of data a user can use in a month (in GB)
 ip-protection-bandwidth-hit-for-the-month = You’ve used all { $maxUsage } GB of your VPN data. Access will reset next month.
+
+# Variables
+#   $maxUsage (number) - The maximum amount of data a user can use in a month (in GB)
 ip-protection-bandwidth-help-text = Resets to { $maxUsage } GB on the first of every month.
 
 ## IP Protection alerts
