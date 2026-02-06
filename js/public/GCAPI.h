@@ -524,6 +524,15 @@ typedef enum JSGCParamKey {
    */
   JSGC_STORE_BUFFER_ENTRIES = 58,
   JSGC_STORE_BUFFER_SCALING = 59,
+
+  /**
+   * Whether experimental concurrent marking support is enabled. This also
+   * requires that the code has been built with --enable-gc-concurrent-marking
+   * configuration flag.
+   *
+   * Default: false
+   */
+  JSGC_CONCURRENT_MARKING_ENABLED = 60,
 } JSGCParamKey;
 
 /*
