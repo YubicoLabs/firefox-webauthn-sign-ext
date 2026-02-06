@@ -110,7 +110,7 @@ export class IPProtectionPanel {
    *  The location country name
    * @property {string} location.code
    *  The location country code
-   * @property {"generic" | ""} error
+   * @property {"generic-error" | "network-error" | ""} error
    *  The error type as a string if an error occurred, or empty string if there are no errors.
    * @property {boolean} isAlpha
    *  True if we're running the Alpha variant, else false.
@@ -326,6 +326,7 @@ export class IPProtectionPanel {
     }
 
     this.#updateSiteData();
+
     this.setState({
       isSiteExceptionsEnabled: this.isExceptionsFeatureEnabled,
     });
@@ -722,7 +723,16 @@ export class IPProtectionPanel {
     ) {
       let hasError =
         lazy.IPPProxyManager.state === lazy.IPPProxyStates.ERROR &&
-        lazy.IPPProxyManager.errors.includes(ERRORS.GENERIC);
+        (lazy.IPPProxyManager.errors.includes(ERRORS.GENERIC) ||
+          lazy.IPPProxyManager.errors.includes(ERRORS.NETWORK));
+
+      let errorType = "";
+      if (hasError) {
+        // Prioritize network error over generic error
+        errorType = lazy.IPPProxyManager.errors.includes(ERRORS.NETWORK)
+          ? ERRORS.NETWORK
+          : ERRORS.GENERIC;
+      }
 
       this.setState({
         isSignedOut: !lazy.IPPSignInWatcher.isSignedIn,
@@ -732,7 +742,7 @@ export class IPProtectionPanel {
         isProtectionEnabled:
           lazy.IPPProxyManager.state === lazy.IPPProxyStates.ACTIVE,
         hasUpgraded: lazy.IPPEnrollAndEntitleManager.hasUpgraded,
-        error: hasError ? ERRORS.GENERIC : "",
+        error: errorType,
         isActivating:
           lazy.IPPProxyManager.state === lazy.IPPProxyStates.ACTIVATING,
       });

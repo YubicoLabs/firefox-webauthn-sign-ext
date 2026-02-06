@@ -283,7 +283,7 @@ add_task(async function test_IPProtectionService_pass_errors() {
   );
   Assert.ok(statusBox, "Status box should be present for generic error");
   Assert.equal(
-    statusBox.getAttribute("type"),
+    statusBox.type,
     ERRORS.GENERIC,
     "Status box type should be generic-error"
   );

@@ -319,13 +319,35 @@ export default class IPProtectionContentElement extends MozLitElement {
     </div>`;
   }
 
-  genericErrorTemplate() {
+  errorTemplate() {
+    const isNetworkError = this.state.error === ERRORS.NETWORK;
+
+    const headerL10nId = isNetworkError
+      ? "ipprotection-connection-status-network-error-title"
+      : "ipprotection-connection-status-generic-error-title";
+
+    const descriptionL10nId = isNetworkError
+      ? "ipprotection-connection-status-network-error-description"
+      : "ipprotection-connection-status-generic-error-description";
+
+    const errorType = isNetworkError ? ERRORS.NETWORK : ERRORS.GENERIC;
+
     return html`
       <ipprotection-status-box
-        headerL10nId="ipprotection-connection-status-generic-error-title"
-        descriptionL10nId="ipprotection-connection-status-generic-error-description"
-        type=${ERRORS.GENERIC}
+        .headerL10nId=${headerL10nId}
+        .descriptionL10nId=${descriptionL10nId}
+        .type=${errorType}
       >
+        ${isNetworkError
+          ? html`
+              <img
+                slot="icon"
+                role="presentation"
+                class="icon"
+                src="chrome://browser/content/ipprotection/assets/states/ipprotection-error.svg"
+              />
+            `
+          : null}
       </ipprotection-status-box>
     `;
   }
@@ -406,7 +428,7 @@ export default class IPProtectionContentElement extends MozLitElement {
     }
 
     if (this.#hasErrors) {
-      return html` ${this.genericErrorTemplate()}${this.footerTemplate()}`;
+      return html` ${this.errorTemplate()}${this.footerTemplate()}`;
     }
 
     if (this.state.paused) {

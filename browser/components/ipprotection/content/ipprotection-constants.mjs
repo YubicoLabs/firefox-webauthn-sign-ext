@@ -19,6 +19,7 @@ export const LINKS = Object.freeze({
 
 export const ERRORS = Object.freeze({
   GENERIC: "generic-error",
+  NETWORK: "network-error",
 });
 
 export const SIGNIN_DATA = Object.freeze({

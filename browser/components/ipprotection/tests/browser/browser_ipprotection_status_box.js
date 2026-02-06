@@ -124,10 +124,47 @@ add_task(async function test_generic_error() {
   Assert.ok(errorDescription, "Error description should be present");
 
   Assert.equal(
-    statusBox.getAttribute("type"),
+    statusBox.type,
     ERRORS.GENERIC,
     "Status box type should be generic-error"
   );
+
+  Assert.ok(!content.statusCardEl, "Status card should be hidden when error");
+
+  let footerButton = content.settingsButtonEl;
+  Assert.ok(footerButton, "Settings button should be present in footer");
+
+  await closePanel();
+});
+
+/**
+ * Tests the network error type in the status box component.
+ */
+add_task(async function test_network_error() {
+  let content = await openPanel({
+    isSignedOut: false,
+    unauthenticated: false,
+    error: ERRORS.NETWORK,
+  });
+
+  let statusBox = content.statusBoxEl;
+  Assert.ok(statusBox, "Status box should be shown when there is an error");
+
+  let errorTitle = statusBox.titleEl;
+  let errorDescription = statusBox.descriptionEl;
+
+  Assert.ok(errorTitle, "Error title should be present");
+  Assert.ok(errorDescription, "Error description should be present");
+
+  Assert.equal(
+    statusBox.type,
+    ERRORS.NETWORK,
+    "Status box type should be network-error"
+  );
+
+  // Check for the error icon in the network error case
+  let errorIcon = statusBox.querySelector('img[slot="icon"]');
+  Assert.ok(errorIcon, "Error icon should be present for network error");
 
   Assert.ok(!content.statusCardEl, "Status card should be hidden when error");
 

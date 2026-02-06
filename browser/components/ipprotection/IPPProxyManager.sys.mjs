@@ -9,6 +9,8 @@ ChromeUtils.defineESModuleGetters(lazy, {
     "moz-src:///browser/components/ipprotection/IPPEnrollAndEntitleManager.sys.mjs",
   IPPChannelFilter:
     "moz-src:///browser/components/ipprotection/IPPChannelFilter.sys.mjs",
+  IPPNetworkUtils:
+    "moz-src:///browser/components/ipprotection/IPPNetworkUtils.sys.mjs",
   IPProtectionUsage:
     "moz-src:///browser/components/ipprotection/IPProtectionUsage.sys.mjs",
   IPPNetworkErrorObserver:
@@ -208,12 +210,23 @@ class IPPProxyManagerSingleton extends EventTarget {
       return this.#activatingPromise;
     }
 
+    // Check network status before attempting connection
+    if (lazy.IPPNetworkUtils.isOffline) {
+      this.#setErrorState(ERRORS.NETWORK, "Network is offline");
+      this.cancelChannelFilter();
+      return null;
+    }
+
     const activating = async () => {
       let started = false;
       try {
         started = await this.#startInternal();
       } catch (error) {
-        this.#setErrorState(ERRORS.GENERIC, error);
+        if (lazy.IPPNetworkUtils.isOffline) {
+          this.#setErrorState(ERRORS.NETWORK, error);
+        } else {
+          this.#setErrorState(ERRORS.GENERIC, error);
+        }
         this.cancelChannelFilter();
         return;
       }
@@ -321,16 +334,21 @@ class IPPProxyManagerSingleton extends EventTarget {
       return;
     }
 
-    if (this.#state !== IPPProxyStates.ACTIVE) {
+    if (
+      this.#state !== IPPProxyStates.ACTIVE &&
+      this.#state !== IPPProxyStates.ERROR
+    ) {
       return;
     }
 
-    this.cancelChannelFilter();
+    if (this.#connection) {
+      this.cancelChannelFilter();
 
-    lazy.clearTimeout(this.#rotationTimer);
-    this.#rotationTimer = 0;
+      lazy.clearTimeout(this.#rotationTimer);
+      this.#rotationTimer = 0;
 
-    this.networkErrorObserver.stop();
+      this.networkErrorObserver.stop();
+    }
 
     lazy.logConsole.info("Stopped");
 
