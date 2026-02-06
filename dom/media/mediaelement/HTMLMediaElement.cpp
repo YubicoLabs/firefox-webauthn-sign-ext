@@ -4739,6 +4739,8 @@ void HTMLMediaElement::Init() {
   mWatchManager.Watch(mTracksCaptured,
                       &HTMLMediaElement::UpdateOutputTrackSources);
   mWatchManager.Watch(mReadyState, &HTMLMediaElement::UpdateOutputTrackSources);
+  mWatchManager.Watch(mReadyState,
+                      &HTMLMediaElement::UpdatePlaybackPseudoClasses);
 
   mWatchManager.Watch(mDownloadSuspendedByCache,
                       &HTMLMediaElement::UpdateReadyStateInternal);
@@ -5112,13 +5114,28 @@ void HTMLMediaElement::UpdateWakeLock() {
 
 void HTMLMediaElement::UpdatePlaybackPseudoClasses() {
   MOZ_ASSERT(NS_IsMainThread());
+  LOG(LogLevel::Debug,
+      ("%p UpdatePlaybackPseudoClasses: mPaused=%d, mNetworkState=%d, "
+       "mReadyState=%d, mIsCurrentlyStalled=%d",
+       this, mPaused.Ref(), mNetworkState, mReadyState.Ref(),
+       mIsCurrentlyStalled));
+  AutoStateChangeNotifier notifier(*this, /*aNotify=*/true);
+  RemoveStatesSilently(ElementState::PAUSED | ElementState::BUFFERING |
+                       ElementState::STALLED);
+  // We don’t need to update the playing state because these states are
+  // exclusive, and the `:playing` pseudo-class is determined by checking
+  // the element's PAUSED state.
   if (mPaused) {
-    // We don’t need to update the playing state because these states are
-    // exclusive, and the `:playing` pseudo-class is determined by checking
-    // the element's PAUSED state.
-    AddStates(ElementState::PAUSED);
-  } else {
-    RemoveStates(ElementState::PAUSED);
+    AddStatesSilently(ElementState::PAUSED);
+    return;
+  }
+  // https://html.spec.whatwg.org/multipage/semantics-other.html#selector-buffering
+  if (mNetworkState == NETWORK_LOADING && mReadyState <= HAVE_CURRENT_DATA) {
+    AddStatesSilently(ElementState::BUFFERING);
+    // https://html.spec.whatwg.org/multipage/semantics-other.html#selector-stalled
+    if (mIsCurrentlyStalled) {
+      AddStatesSilently(ElementState::STALLED);
+    }
   }
 }
 
@@ -6224,6 +6241,8 @@ void HTMLMediaElement::NotifySuspendedByCache(bool aSuspendedByCache) {
 
 void HTMLMediaElement::DownloadSuspended() {
   if (mNetworkState == NETWORK_LOADING) {
+    mIsCurrentlyStalled = false;
+    UpdatePlaybackPseudoClasses();
     QueueEvent(u"progress"_ns);
   }
   ChangeNetworkState(NETWORK_IDLE);
@@ -6254,6 +6273,8 @@ void HTMLMediaElement::CheckProgress(bool aHaveNewProgress) {
           : (now - mProgressTime >=
                  TimeDuration::FromMilliseconds(PROGRESS_MS) &&
              mDataTime > mProgressTime)) {
+    mIsCurrentlyStalled = false;
+    UpdatePlaybackPseudoClasses();
     QueueEvent(u"progress"_ns);
     // Going back 1ms ensures that future data will have now > mProgressTime,
     // and so will trigger another event.  mDataTime is not reset because it
@@ -6279,6 +6300,8 @@ void HTMLMediaElement::CheckProgress(bool aHaveNewProgress) {
 
   if (now - mDataTime >= TimeDuration::FromMilliseconds(STALL_MS)) {
     if (!mMediaSource) {
+      mIsCurrentlyStalled = true;
+      UpdatePlaybackPseudoClasses();
       QueueEvent(u"stalled"_ns);
     } else {
       ChangeDelayLoadStatus(false);
@@ -6631,6 +6654,7 @@ void HTMLMediaElement::ChangeNetworkState(nsMediaNetworkState aState) {
 
   nsMediaNetworkState oldState = mNetworkState;
   mNetworkState = aState;
+  UpdatePlaybackPseudoClasses();
   LOG(LogLevel::Debug,
       ("%p Network state changed to %s", this, gNetworkStateToString[aState]));
   DDLOG(DDLogCategory::Property, "network_state",

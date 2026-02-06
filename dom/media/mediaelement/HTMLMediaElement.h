@@ -1895,6 +1895,9 @@ class HTMLMediaElement : public nsGenericHTMLElement,
   // For use by mochitests. Enabling pref "media.test.video-suspend"
   bool mForcedHidden = false;
 
+  // https://html.spec.whatwg.org/multipage/media.html#is-currently-stalled
+  bool mIsCurrentlyStalled = false;
+
   Visibility mVisibilityState = Visibility::Untracked;
 
   UniquePtr<ErrorSink> mErrorSink;
