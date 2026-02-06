@@ -6,6 +6,8 @@ import { html, nothing } from "chrome://global/content/vendor/lit.all.mjs";
 import { MozLitElement } from "chrome://global/content/lit-utils.mjs";
 // eslint-disable-next-line import/no-unassigned-import
 import "chrome://browser/content/aiwindow/components/assistant-message-footer.mjs";
+// eslint-disable-next-line import/no-unassigned-import
+import "chrome://browser/content/aiwindow/components/chat-assistant-loader.mjs";
 
 /**
  * A custom element for managing AI Chat Content
@@ -15,14 +17,14 @@ export class AIChatContent extends MozLitElement {
     conversationState: { type: Array },
     tokens: { type: Object },
     isSearching: { type: Boolean },
-    searchQuery: { type: String },
+    assistantIsLoading: { type: Boolean },
   };
 
   constructor() {
     super();
     this.conversationState = [];
     this.isSearching = false;
-    this.searchQuery = null;
+    this.assistantIsLoading = false;
   }
 
   connectedCallback() {
@@ -145,9 +147,9 @@ export class AIChatContent extends MozLitElement {
   }
 
   handleLoadingEvent(event) {
-    const { isSearching, searchQuery } = event.detail;
+    const { isSearching } = event.detail;
     this.isSearching = !!isSearching;
-    this.searchQuery = searchQuery || null;
+    this.assistantIsLoading = true;
     this.requestUpdate();
     this.#scrollToBottom();
   }
@@ -160,6 +162,7 @@ export class AIChatContent extends MozLitElement {
 
   handleUserPromptEvent(event) {
     const { convId, content, ordinal } = event.detail;
+    this.assistantIsLoading = true;
     this.conversationState[ordinal] = {
       role: "user",
       body: content.body,
@@ -178,7 +181,7 @@ export class AIChatContent extends MozLitElement {
 
   handleAIResponseEvent(event) {
     this.isSearching = false;
-    this.searchQuery = null;
+    this.assistantIsLoading = false;
 
     const {
       convId,
@@ -277,18 +280,10 @@ export class AIChatContent extends MozLitElement {
             </div>
           `;
         })}
-        ${this.isSearching
-          ? html`
-              <div
-                class="chat-bubble chat-bubble-assistant searching-indicator"
-              >
-                <span class="searching-text">
-                  ${this.searchQuery
-                    ? `Searching for: "${this.searchQuery}"`
-                    : "Searching the web..."}
-                </span>
-              </div>
-            `
+        ${this.assistantIsLoading
+          ? html`<chat-assistant-loader
+              .isSearch=${this.isSearching}
+            ></chat-assistant-loader>`
           : nothing}
       </div>
     `;
