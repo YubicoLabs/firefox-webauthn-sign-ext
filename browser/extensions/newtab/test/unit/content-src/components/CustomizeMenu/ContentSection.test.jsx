@@ -57,7 +57,7 @@ describe("ContentSection", () => {
     assert.ok(wrapper.exists());
   });
 
-  it("should look for a data-eventSource attribute and dispatch an event for INPUT", () => {
+  it("should look for a data-event-source attribute and dispatch an event for INPUT", () => {
     wrapper.instance().onPreferenceSelect({
       target: {
         nodeName: "INPUT",
@@ -77,18 +77,18 @@ describe("ContentSection", () => {
     assert.calledWith(DEFAULT_PROPS.setPref, "foo", true);
   });
 
-  it("should have data-eventSource attributes on relevant pref changing inputs", () => {
+  it("should have data-event-source attributes on relevant pref changing inputs", () => {
     wrapper = mount(<ContentSection {...DEFAULT_PROPS} />);
     assert.equal(
-      wrapper.find("#weather-toggle").prop("data-eventSource"),
+      wrapper.find("#weather-toggle").prop("data-event-source"),
       "WEATHER"
     );
     assert.equal(
-      wrapper.find("#shortcuts-toggle").prop("data-eventSource"),
+      wrapper.find("#shortcuts-toggle").prop("data-event-source"),
       "TOP_SITES"
     );
     assert.equal(
-      wrapper.find("#pocket-toggle").prop("data-eventSource"),
+      wrapper.find("#pocket-toggle").prop("data-event-source"),
       "TOP_STORIES"
     );
   });
