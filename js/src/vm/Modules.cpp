@@ -277,6 +277,9 @@ JS_PUBLIC_API JSObject* JS::CompileJsonModule(
 
 JS_PUBLIC_API JSObject* JS::CreateDefaultExportSyntheticModule(
     JSContext* cx, const Value& defaultExport) {
+  CHECK_THREAD(cx);
+  cx->check(defaultExport);
+
   Rooted<ExportNameVector> exportNames(cx);
   if (!exportNames.append(cx->names().default_)) {
     ReportOutOfMemory(cx);
@@ -349,7 +352,7 @@ JS_PUBLIC_API bool JS::LoadRequestedModules(
     JS::LoadModuleRejectedCallback rejected) {
   AssertHeapIsIdle();
   CHECK_THREAD(cx);
-  cx->releaseCheck(moduleArg);
+  cx->releaseCheck(moduleArg, hostDefined);
 
   return js::LoadRequestedModules(cx, moduleArg.as<ModuleObject>(), hostDefined,
                                   resolved, rejected);
@@ -360,7 +363,7 @@ JS_PUBLIC_API bool JS::LoadRequestedModules(
     MutableHandle<JSObject*> promiseOut) {
   AssertHeapIsIdle();
   CHECK_THREAD(cx);
-  cx->releaseCheck(moduleArg);
+  cx->releaseCheck(moduleArg, hostDefined);
 
   return js::LoadRequestedModules(cx, moduleArg.as<ModuleObject>(), hostDefined,
                                   promiseOut);
@@ -744,7 +747,14 @@ bool js::HostLoadImportedModule(JSContext* cx, Handle<JSScript*> referrer,
                                 Handle<Value> payload, uint32_t lineNumber,
                                 JS::ColumnNumberOneOrigin columnNumber) {
   MOZ_ASSERT(moduleRequest);
-  MOZ_ASSERT(!payload.isUndefined());
+  MOZ_ASSERT(payload.isObject());
+  cx->releaseCheck(referrer, moduleRequest, hostDefined, payload);
+
+  // TODO: The modules system doesn't support passing a wrapped promise from
+  // another compartment, which can happen when this is called from
+  // ShadowRealmImportValue.
+  MOZ_RELEASE_ASSERT(payload.toObject().is<GraphLoadingStateRecordObject>() ||
+                     payload.toObject().is<PromiseObject>());
 
   JS::ModuleLoadHook moduleLoadHook = cx->runtime()->moduleLoadHook;
   if (!moduleLoadHook) {
@@ -2871,6 +2881,7 @@ bool ContinueDynamicImport(JSContext* cx, Handle<JSScript*> referrer,
   // only need to do _linkAndEvaluate_ part defined in the spec. Create a
   // promise that we'll resolve immediately.
   JS::Rooted<PromiseObject*> loadPromise(cx, CreatePromiseObjectForAsync(cx));
+
   if (!loadPromise) {
     return RejectPromiseWithPendingError(cx, promiseCapability);
   }
