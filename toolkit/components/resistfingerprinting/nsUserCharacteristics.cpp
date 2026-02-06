@@ -399,10 +399,10 @@ already_AddRefed<PopulatePromise> PopulateFingerprintedFonts() {
   }
   std::pair<const char**,
             std::pair<glean::impl::StringMetric, glean::impl::StringMetric>>
-      fontLists[] = {FONT_PAIR(fpjs, fpjs), FONT_PAIR(variantA, variant_a),
-                     FONT_PAIR(variantB, variant_b),
-                     FONT_PAIR(variantC, variant_c),
-                     FONT_PAIR(variantD, variant_d)};
+      fontLists[] = {
+          FONT_PAIR(fpjs, fpjs),          FONT_PAIR(variantA, variant_a),
+          FONT_PAIR(variantB, variant_b), FONT_PAIR(variantC, variant_c),
+          FONT_PAIR(variantD, variant_d), FONT_PAIR(variantE, variant_e)};
 
 #undef FONT_PAIR
 
