@@ -1580,6 +1580,9 @@ export class TelemetryFeed {
       case at.WIDGETS_IMPRESSION:
         this.handleUnifiedWidgetImpression(action);
         break;
+      case at.WIDGETS_CONTAINER_ACTION:
+        this.handleUnifiedWidgetContainerAction(action);
+        break;
       case at.WIDGETS_ENABLED:
         this.handleUnifiedWidgetEnabled(action);
         break;
@@ -1692,6 +1695,26 @@ export class TelemetryFeed {
       }
 
       Glean.newtab.widgetsImpression.record(payload);
+    }
+  }
+
+  handleUnifiedWidgetContainerAction(action) {
+    const session = this.sessions.get(au.getPortIdOfSender(action));
+    if (session) {
+      const payload = {
+        newtab_visit_id: session.session_id,
+        action_type: action.data.action_type,
+      };
+
+      if (action.data.widget_size) {
+        payload.widget_size = action.data.widget_size;
+      }
+
+      if (action.data.action_value) {
+        payload.action_value = action.data.action_value;
+      }
+
+      Glean.newtab.widgetsContainerAction.record(payload);
     }
   }
 
