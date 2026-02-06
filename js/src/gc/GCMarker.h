@@ -583,11 +583,11 @@ class GCMarker {
   void pushThing(T* thing);
 
   template <uint32_t markingOptions>
+  void eagerlyMarkChildren(JSString* str);
+  template <uint32_t markingOptions>
   void eagerlyMarkChildren(JSLinearString* str);
   template <uint32_t markingOptions>
   void eagerlyMarkChildren(JSRope* rope);
-  template <uint32_t markingOptions>
-  void eagerlyMarkChildren(JSString* str);
   template <uint32_t markingOptions>
   void eagerlyMarkChildren(Shape* shape);
   template <uint32_t markingOptions>
@@ -697,6 +697,11 @@ class GCMarker {
   MainThreadOrGCTaskData<Zone*> tracingZone;
 #endif  // DEBUG
 };
+
+inline bool IsConcurrentMarkingTracer(JSTracer* trc) {
+  return trc->isMarkingTracer() &&
+         GCMarker::fromTracer(trc)->isConcurrentMarking();
+}
 
 namespace gc {
 
