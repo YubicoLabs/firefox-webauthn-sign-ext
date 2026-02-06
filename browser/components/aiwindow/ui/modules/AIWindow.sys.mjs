@@ -12,6 +12,8 @@ const FIRSTRUN_URI = Services.io.newURI(FIRSTRUN_URL);
 
 const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
+  AIWindowTabStatesManager:
+    "moz-src:///browser/components/aiwindow/ui/modules/AIWindowTabStatesManager.sys.mjs",
   AIWindowAccountAuth:
     "moz-src:///browser/components/aiwindow/ui/modules/AIWindowAccountAuth.sys.mjs",
   AIWindowMenu:
@@ -49,6 +51,12 @@ export const AIWindow = {
   _aiWindowMenu: null,
 
   /**
+   * A WeakMap<window, AIWindowTabStatesManager> that keeps references
+   * of AIWindowTabStatesManager per window.
+   */
+  _aiWindowTabStateManagers: new WeakMap(),
+
+  /**
    * Handles startup tasks
    */
 
@@ -58,6 +66,13 @@ export const AIWindow = {
       this.initializeAITabsToolbar(win);
       this._initializeAskButtonOnToolbox(win);
       this._updateWindowSwitcherPosition(win);
+    }
+
+    if (!this._aiWindowTabStateManagers.has(win)) {
+      this._aiWindowTabStateManagers.set(
+        win,
+        new lazy.AIWindowTabStatesManager(win)
+      );
     }
 
     if (this._initialized) {
