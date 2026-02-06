@@ -3437,20 +3437,14 @@ nsCSSFrameConstructor::FindHTMLData(const Element& aElement,
       return &sViewTransitionData;
     }
     case PseudoStyleType::MozSelectContent: {
-      if (aParentFrame && aParentFrame->IsComboboxControlFrame()) {
-        static constexpr FrameConstructionData sComboboxLabelData(
-            NS_NewComboboxLabelFrame);
-        return &sComboboxLabelData;
-      }
-      break;
+      static constexpr FrameConstructionData sComboboxLabelData(
+          NS_NewComboboxLabelFrame);
+      return &sComboboxLabelData;
     }
     case PseudoStyleType::MozFileContent: {
-      if (aParentFrame && aParentFrame->IsFileControlFrame()) {
-        static constexpr FrameConstructionData sFileLabelData(
-            NS_NewFileControlLabelFrame);
-        return &sFileLabelData;
-      }
-      break;
+      static constexpr FrameConstructionData sFileLabelData(
+          NS_NewFileControlLabelFrame);
+      return &sFileLabelData;
     }
     default:
       break;
