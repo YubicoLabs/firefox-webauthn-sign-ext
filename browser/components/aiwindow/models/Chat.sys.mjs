@@ -17,7 +17,6 @@ import {
   searchBrowsingHistory,
   GetPageContent,
   RunSearch,
-  getUserMemories,
 } from "moz-src:///browser/components/aiwindow/models/Tools.sys.mjs";
 
 const lazy = {};
@@ -45,7 +44,6 @@ Object.assign(Chat, {
     search_browsing_history: searchBrowsingHistory,
     get_page_content: GetPageContent.getPageContent,
     run_search: RunSearch.runSearch.bind(RunSearch),
-    get_user_memories: getUserMemories,
   },
 
   /**
