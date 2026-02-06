@@ -969,6 +969,10 @@ export class BaseContent extends React.PureComponent {
             mayHaveWidgets={mayHaveWidgets}
             mayHaveTimerWidget={mayHaveTimerWidget}
             mayHaveListsWidget={mayHaveListsWidget}
+            mayHaveWeatherForecast={
+              prefs["widgets.system.weatherForecast.enabled"]
+            }
+            weatherDisplay={prefs["weather.display"]}
             showing={customizeMenuVisible}
             toggleSectionsMgmtPanel={this.toggleSectionsMgmtPanel}
             showSectionsMgmtPanel={this.state.showSectionsMgmtPanel}

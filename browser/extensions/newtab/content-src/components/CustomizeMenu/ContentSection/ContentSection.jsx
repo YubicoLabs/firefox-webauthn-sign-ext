@@ -50,7 +50,15 @@ export class ContentSection extends React.PureComponent {
 
         let widgetSize;
         if (widgetName === "weather") {
-          widgetSize = "mini";
+          if (
+            this.props.mayHaveWeatherForecast &&
+            this.props.weatherDisplay === "detailed"
+          ) {
+            widgetSize =
+              widgetsMayBeMaximized && !widgetsMaximized ? "small" : "medium";
+          } else {
+            widgetSize = "mini";
+          }
         } else {
           widgetSize =
             widgetsMayBeMaximized && !widgetsMaximized ? "small" : "medium";
