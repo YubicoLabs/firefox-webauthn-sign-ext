@@ -555,8 +555,13 @@ export const AIWindow = {
     root.toggleAttribute("aiwindow-first-run", isFirstRun && isImmersiveView);
     root.toggleAttribute("aiwindow-immersive-view", isImmersiveView);
 
-    /* disabling the current tab from being clicked from the keyboard */
+    // Set attr on the specific browser that has content to override color scheme
+    win.gBrowser.selectedBrowser?.toggleAttribute(
+      "smartwindow-content",
+      isImmersiveView
+    );
 
+    /* disabling the current tab from being clicked from the keyboard */
     const selectedTab = win.gBrowser.selectedTab;
     if (isFirstRun) {
       selectedTab?.setAttribute("tabindex", -1);

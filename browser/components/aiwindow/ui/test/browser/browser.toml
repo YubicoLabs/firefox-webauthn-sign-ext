@@ -60,6 +60,8 @@ support-files = [
 
 ["browser_sidebar_aiwindow.js"]
 
+["browser_smartwindow_content.js"]
+
 ["browser_smartwindow_init.js"]
 
 ["browser_smartwindow_prompts.js"]
