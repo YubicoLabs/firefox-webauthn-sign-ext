@@ -186,8 +186,8 @@ function Widgets() {
       const telemetryData = {
         action_type: CONTAINER_ACTION_TYPES.CHANGE_SIZE_ALL,
         action_value: newMaximizedState
-          ? "maximize widgets"
-          : "minimize widgets",
+          ? "maximize_widgets"
+          : "minimize_widgets",
         widget_size: newWidgetSize,
       };
 
@@ -281,6 +281,7 @@ function Widgets() {
               dispatch={dispatch}
               handleUserInteraction={handleUserInteraction}
               isMaximized={isMaximized}
+              widgetsMayBeMaximized={widgetsMayBeMaximized}
             />
           )}
         </div>

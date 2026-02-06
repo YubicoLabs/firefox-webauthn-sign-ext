@@ -761,7 +761,7 @@ describe("<Widgets>", () => {
         "should dispatch WIDGETS_CONTAINER_ACTION event"
       );
       assert.equal(containerAction.data.action_type, "change_size_all");
-      assert.equal(containerAction.data.action_value, "maximize widgets");
+      assert.equal(containerAction.data.action_value, "maximize_widgets");
       assert.equal(containerAction.data.widget_size, "medium");
     });
 
@@ -805,7 +805,7 @@ describe("<Widgets>", () => {
       assert.equal(containerAction.data.action_type, "change_size_all");
       assert.equal(
         containerAction.data.action_value,
-        "minimize widgets",
+        "minimize_widgets",
         "action_value should indicate minimize widgets"
       );
       assert.equal(

@@ -12990,11 +12990,40 @@ function LocationSearch({
 
 
 
+
+const WeatherForecast_USER_ACTION_TYPES = {
+  CHANGE_LOCATION: "change_location",
+  DETECT_LOCATION: "detect_location",
+  CHANGE_TEMP_UNIT: "change_temperature_units",
+  CHANGE_DISPLAY: "change_weather_display",
+  LEARN_MORE: "learn_more",
+  PROVIDER_LINK_CLICK: "provider_link_click"
+};
 function WeatherForecast({
-  dispatch
+  dispatch,
+  isMaximized,
+  widgetsMayBeMaximized
 }) {
   const prefs = (0,external_ReactRedux_namespaceObject.useSelector)(state => state.Prefs.values);
   const weatherData = (0,external_ReactRedux_namespaceObject.useSelector)(state => state.Weather);
+  const impressionFired = (0,external_React_namespaceObject.useRef)(false);
+  const isSmallSize = !isMaximized && widgetsMayBeMaximized;
+  const widgetSize = isSmallSize ? "small" : "medium";
+  const handleIntersection = (0,external_React_namespaceObject.useCallback)(() => {
+    if (impressionFired.current) {
+      return;
+    }
+    impressionFired.current = true;
+    const telemetryData = {
+      widget_name: "weather",
+      widget_size: widgetsMayBeMaximized ? widgetSize : "medium"
+    };
+    dispatch(actionCreators.AlsoToMain({
+      type: actionTypes.WIDGETS_IMPRESSION,
+      data: telemetryData
+    }));
+  }, [dispatch, widgetSize, widgetsMayBeMaximized]);
+  const forecastRef = useIntersectionObserver(handleIntersection);
   const WEATHER_SUGGESTION = weatherData.suggestions?.[0];
   const nimbusWeatherDisplay = prefs.trainhopConfig?.weather?.display;
   const showDetailedView = nimbusWeatherDisplay === "detailed" || prefs["weather.display"] === "detailed";
@@ -13025,55 +13054,143 @@ function WeatherForecast({
   const {
     searchActive
   } = weatherData;
-  const maximizedWidgets = prefs["widgets.maximized"];
   function handleChangeLocation() {
-    dispatch(actionCreators.BroadcastToContent({
-      type: actionTypes.WEATHER_SEARCH_ACTIVE,
-      data: true
-    }));
+    (0,external_ReactRedux_namespaceObject.batch)(() => {
+      dispatch(actionCreators.BroadcastToContent({
+        type: actionTypes.WEATHER_SEARCH_ACTIVE,
+        data: true
+      }));
+      const telemetryData = {
+        widget_name: "weather",
+        widget_source: "context_menu",
+        user_action: WeatherForecast_USER_ACTION_TYPES.CHANGE_LOCATION,
+        widget_size: widgetsMayBeMaximized ? widgetSize : "medium"
+      };
+      dispatch(actionCreators.OnlyToMain({
+        type: actionTypes.WIDGETS_USER_EVENT,
+        data: telemetryData
+      }));
+    });
   }
   function handleDetectLocation() {
-    dispatch(actionCreators.AlsoToMain({
-      type: actionTypes.WEATHER_USER_OPT_IN_LOCATION
-    }));
+    (0,external_ReactRedux_namespaceObject.batch)(() => {
+      dispatch(actionCreators.AlsoToMain({
+        type: actionTypes.WEATHER_USER_OPT_IN_LOCATION
+      }));
+      const telemetryData = {
+        widget_name: "weather",
+        widget_source: "context_menu",
+        user_action: WeatherForecast_USER_ACTION_TYPES.DETECT_LOCATION,
+        widget_size: widgetsMayBeMaximized ? widgetSize : "medium"
+      };
+      dispatch(actionCreators.OnlyToMain({
+        type: actionTypes.WIDGETS_USER_EVENT,
+        data: telemetryData
+      }));
+    });
   }
   function handleChangeTempUnit(unit) {
-    dispatch(actionCreators.OnlyToMain({
-      type: actionTypes.SET_PREF,
-      data: {
-        name: "weather.temperatureUnits",
-        value: unit
-      }
-    }));
+    (0,external_ReactRedux_namespaceObject.batch)(() => {
+      dispatch(actionCreators.OnlyToMain({
+        type: actionTypes.SET_PREF,
+        data: {
+          name: "weather.temperatureUnits",
+          value: unit
+        }
+      }));
+      const telemetryData = {
+        widget_name: "weather",
+        widget_source: "context_menu",
+        user_action: WeatherForecast_USER_ACTION_TYPES.CHANGE_TEMP_UNIT,
+        widget_size: widgetsMayBeMaximized ? widgetSize : "medium",
+        action_value: unit
+      };
+      dispatch(actionCreators.OnlyToMain({
+        type: actionTypes.WIDGETS_USER_EVENT,
+        data: telemetryData
+      }));
+    });
   }
   function handleChangeDisplay(display) {
-    dispatch(actionCreators.OnlyToMain({
-      type: actionTypes.SET_PREF,
-      data: {
-        name: "weather.display",
-        value: display
-      }
-    }));
+    (0,external_ReactRedux_namespaceObject.batch)(() => {
+      dispatch(actionCreators.OnlyToMain({
+        type: actionTypes.SET_PREF,
+        data: {
+          name: "weather.display",
+          value: display
+        }
+      }));
+      const telemetryData = {
+        widget_name: "weather",
+        widget_source: "context_menu",
+        user_action: WeatherForecast_USER_ACTION_TYPES.CHANGE_DISPLAY,
+        action_value: "switch_to_mini_widget",
+        widget_size: widgetsMayBeMaximized ? widgetSize : "medium"
+      };
+      dispatch(actionCreators.OnlyToMain({
+        type: actionTypes.WIDGETS_USER_EVENT,
+        data: telemetryData
+      }));
+    });
   }
   function handleHideWeather() {
-    dispatch(actionCreators.OnlyToMain({
-      type: actionTypes.SET_PREF,
-      data: {
-        name: "showWeather",
-        value: false
-      }
-    }));
+    (0,external_ReactRedux_namespaceObject.batch)(() => {
+      dispatch(actionCreators.OnlyToMain({
+        type: actionTypes.SET_PREF,
+        data: {
+          name: "showWeather",
+          value: false
+        }
+      }));
+      const telemetryData = {
+        widget_name: "weather",
+        widget_source: "context_menu",
+        enabled: false,
+        widget_size: widgetsMayBeMaximized ? widgetSize : "medium"
+      };
+      dispatch(actionCreators.OnlyToMain({
+        type: actionTypes.WIDGETS_ENABLED,
+        data: telemetryData
+      }));
+    });
   }
   function handleLearnMore() {
+    (0,external_ReactRedux_namespaceObject.batch)(() => {
+      dispatch(actionCreators.OnlyToMain({
+        type: actionTypes.OPEN_LINK,
+        data: {
+          url: "https://support.mozilla.org/kb/firefox-new-tab-widgets"
+        }
+      }));
+      const telemetryData = {
+        widget_name: "weather",
+        widget_source: "context_menu",
+        user_action: WeatherForecast_USER_ACTION_TYPES.LEARN_MORE,
+        widget_size: widgetsMayBeMaximized ? widgetSize : "medium"
+      };
+      dispatch(actionCreators.OnlyToMain({
+        type: actionTypes.WIDGETS_USER_EVENT,
+        data: telemetryData
+      }));
+    });
+  }
+  function handleProviderLinkClick() {
+    const telemetryData = {
+      widget_name: "weather",
+      widget_source: "widget",
+      user_action: WeatherForecast_USER_ACTION_TYPES.PROVIDER_LINK_CLICK,
+      widget_size: widgetsMayBeMaximized ? widgetSize : "medium"
+    };
     dispatch(actionCreators.OnlyToMain({
-      type: actionTypes.OPEN_LINK,
-      data: {
-        url: "https://support.mozilla.org/kb/firefox-new-tab-widgets"
-      }
+      type: actionTypes.WIDGETS_USER_EVENT,
+      data: telemetryData
     }));
   }
   return /*#__PURE__*/external_React_default().createElement("article", {
-    className: `weather-forecast-widget${maximizedWidgets ? "" : " small-widget"}`
+    className: `weather-forecast-widget${isSmallSize ? " small-widget" : ""}`,
+    ref: el => {
+      forecastRef.current = [el];
+    }
   }, /*#__PURE__*/external_React_default().createElement("div", {
     className: "city-wrapper"
   }, /*#__PURE__*/external_React_default().createElement("div", {
@@ -13087,7 +13204,7 @@ function WeatherForecast({
     iconSrc: "chrome://global/skin/icons/more.svg",
     menuId: "weather-forecast-context-menu",
     type: "ghost",
-    size: `${maximizedWidgets ? "default" : "small"}`
+    size: `${isSmallSize ? "small" : "default"}`
   }), /*#__PURE__*/external_React_default().createElement("panel-list", {
     id: "weather-forecast-context-menu"
   }, prefs["weather.locationSearchEnabled"] && /*#__PURE__*/external_React_default().createElement("panel-item", {
@@ -13114,7 +13231,7 @@ function WeatherForecast({
   }), /*#__PURE__*/external_React_default().createElement("panel-item", {
     "data-l10n-id": "newtab-weather-menu-learn-more",
     onClick: handleLearnMore
-  })))), maximizedWidgets && /*#__PURE__*/external_React_default().createElement((external_React_default()).Fragment, null, /*#__PURE__*/external_React_default().createElement("div", {
+  })))), !isSmallSize && /*#__PURE__*/external_React_default().createElement((external_React_default()).Fragment, null, /*#__PURE__*/external_React_default().createElement("div", {
     className: "current-weather-wrapper"
   }, /*#__PURE__*/external_React_default().createElement("div", {
     className: "weather-icon-column"
@@ -13138,7 +13255,7 @@ function WeatherForecast({
     className: "arrow-icon arrow-down"
   }), WEATHER_SUGGESTION.forecast.low[prefs["weather.temperatureUnits"]], "\xB0"))), /*#__PURE__*/external_React_default().createElement("hr", null)), /*#__PURE__*/external_React_default().createElement("div", {
     className: "forecast-row"
-  }, maximizedWidgets && /*#__PURE__*/external_React_default().createElement("p", {
+  }, !isSmallSize && /*#__PURE__*/external_React_default().createElement("p", {
     className: "today-forecast",
     "data-l10n-id": "newtab-weather-todays-forecast"
   }), /*#__PURE__*/external_React_default().createElement("ul", {
@@ -13156,9 +13273,10 @@ function WeatherForecast({
   }), /*#__PURE__*/external_React_default().createElement("span", null, "7:00")))), /*#__PURE__*/external_React_default().createElement("div", {
     className: "forecast-footer"
   }, /*#__PURE__*/external_React_default().createElement("a", {
-    href: "#",
+    href: WEATHER_SUGGESTION.forecast.url,
     className: "full-forecast",
-    "data-l10n-id": "newtab-weather-see-full-forecast"
+    "data-l10n-id": "newtab-weather-see-full-forecast",
+    onClick: handleProviderLinkClick
   }), /*#__PURE__*/external_React_default().createElement("span", {
     className: "sponsored-text",
     "data-l10n-id": "newtab-weather-sponsored",
@@ -13356,7 +13474,7 @@ function Widgets() {
       dispatch(actionCreators.SetPref(PREF_WIDGETS_MAXIMIZED, newMaximizedState));
       const telemetryData = {
         action_type: CONTAINER_ACTION_TYPES.CHANGE_SIZE_ALL,
-        action_value: newMaximizedState ? "maximize widgets" : "minimize widgets",
+        action_value: newMaximizedState ? "maximize_widgets" : "minimize_widgets",
         widget_size: newWidgetSize
       };
       dispatch(actionCreators.OnlyToMain({
@@ -13427,7 +13545,8 @@ function Widgets() {
   }), weatherForecastEnabled && /*#__PURE__*/external_React_default().createElement(WeatherForecast, {
     dispatch: dispatch,
     handleUserInteraction: handleUserInteraction,
-    isMaximized: isMaximized
+    isMaximized: isMaximized,
+    widgetsMayBeMaximized: widgetsMayBeMaximized
   }))), messageData?.content?.messageType === "WidgetMessage" && /*#__PURE__*/external_React_default().createElement(MessageWrapper, {
     dispatch: dispatch
   }, /*#__PURE__*/external_React_default().createElement(WidgetsFeatureHighlight, {
@@ -14689,7 +14808,11 @@ class ContentSection extends (external_React_default()).PureComponent {
         } = this.props.enabledWidgets;
         let widgetSize;
         if (widgetName === "weather") {
-          widgetSize = "mini";
+          if (this.props.mayHaveWeatherForecast && this.props.weatherDisplay === "detailed") {
+            widgetSize = widgetsMayBeMaximized && !widgetsMaximized ? "small" : "medium";
+          } else {
+            widgetSize = "mini";
+          }
         } else {
           widgetSize = widgetsMayBeMaximized && !widgetsMaximized ? "small" : "medium";
         }
@@ -15049,6 +15172,8 @@ class _CustomizeMenu extends (external_React_default()).PureComponent {
       mayHaveInferredPersonalization: this.props.mayHaveInferredPersonalization,
       mayHaveWeather: this.props.mayHaveWeather,
       mayHaveWidgets: this.props.mayHaveWidgets,
+      mayHaveWeatherForecast: this.props.mayHaveWeatherForecast,
+      weatherDisplay: this.props.weatherDisplay,
       mayHaveTimerWidget: this.props.mayHaveTimerWidget,
       mayHaveListsWidget: this.props.mayHaveListsWidget,
       dispatch: this.props.dispatch,
@@ -15640,6 +15765,7 @@ class _Weather extends (external_React_default()).PureComponent {
     });
   };
   handleChangeDisplay = value => {
+    const weatherForecastEnabled = this.props.Prefs.values["widgets.system.weatherForecast.enabled"];
     if (this.panelElement) {
       this.panelElement.hide();
     }
@@ -15658,7 +15784,7 @@ class _Weather extends (external_React_default()).PureComponent {
           widget_source: "context_menu",
           user_action: USER_ACTION_TYPES.CHANGE_DISPLAY,
           widget_size: "mini",
-          action_value: value
+          action_value: weatherForecastEnabled ? "switch_to_forecast_widget" : value
         }
       }));
     });
@@ -17355,6 +17481,8 @@ class BaseContent extends (external_React_default()).PureComponent {
       mayHaveWidgets: mayHaveWidgets,
       mayHaveTimerWidget: mayHaveTimerWidget,
       mayHaveListsWidget: mayHaveListsWidget,
+      mayHaveWeatherForecast: prefs["widgets.system.weatherForecast.enabled"],
+      weatherDisplay: prefs["weather.display"],
       showing: customizeMenuVisible,
       toggleSectionsMgmtPanel: this.toggleSectionsMgmtPanel,
       showSectionsMgmtPanel: this.state.showSectionsMgmtPanel

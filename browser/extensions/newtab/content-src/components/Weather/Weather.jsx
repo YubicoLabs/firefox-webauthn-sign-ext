@@ -321,6 +321,9 @@ export class _Weather extends React.PureComponent {
   };
 
   handleChangeDisplay = value => {
+    const weatherForecastEnabled =
+      this.props.Prefs.values["widgets.system.weatherForecast.enabled"];
+
     if (this.panelElement) {
       this.panelElement.hide();
     }
@@ -343,7 +346,9 @@ export class _Weather extends React.PureComponent {
             widget_source: "context_menu",
             user_action: USER_ACTION_TYPES.CHANGE_DISPLAY,
             widget_size: "mini",
-            action_value: value,
+            action_value: weatherForecastEnabled
+              ? "switch_to_forecast_widget"
+              : value,
           },
         })
       );
