@@ -490,8 +490,7 @@ pref("browser.urlbar.suggest.quicksuggest.nonsponsored", false, sticky);
 pref("browser.urlbar.suggest.quicksuggest.sponsored", false, sticky);
 
 // Whether online Firefox Suggest is available to the user. This is only
-// relevant when Suggest overall is enabled [1]. When true, a checkbox will be
-// shown in the settings UI allowing to the user to toggle online Suggest.
+// relevant when Suggest overall is enabled [1].
 //
 // [1] browser.urlbar.quicksuggest.enabled
 pref("browser.urlbar.quicksuggest.online.available", false);
