@@ -11376,7 +11376,7 @@
 # internal language x-math.
 - name: mathml.font_family_math.enabled
   type: RelaxedAtomicBool
-  value: @IS_NIGHTLY_BUILD@
+  value: true
   mirror: always
   rust: true
 
