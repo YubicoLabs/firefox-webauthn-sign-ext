@@ -14628,7 +14628,7 @@ class _WallpaperCategories extends (external_React_default()).PureComponent {
       }
       let style = {};
       if (thumbnail?.wallpaperUrl) {
-        style.backgroundImage = `url(${thumbnail.wallpaperUrl})`;
+        style.backgroundImage = `url(${thumbnail?.thumbnail || thumbnail?.wallpaperUrl})`;
         style.backgroundPosition = thumbnail.background_position || "center";
       } else {
         style.backgroundColor = thumbnail?.solid_color || "";
@@ -14713,11 +14713,12 @@ class _WallpaperCategories extends (external_React_default()).PureComponent {
       solid_color,
       theme,
       title,
+      thumbnail,
       wallpaperUrl
     }, index) => {
       let style = {};
       if (wallpaperUrl) {
-        style.backgroundImage = `url(${wallpaperUrl})`;
+        style.backgroundImage = `url(${thumbnail || wallpaperUrl})`;
         style.backgroundPosition = background_position || "center";
       } else {
         style.backgroundColor = solid_color || "";
