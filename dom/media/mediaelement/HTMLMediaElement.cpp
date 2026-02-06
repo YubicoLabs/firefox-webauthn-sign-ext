@@ -3718,6 +3718,8 @@ void HTMLMediaElement::SetMutedInternal(uint32_t aMuted) {
     return;
   }
 
+  // https://html.spec.whatwg.org/multipage/semantics-other.html#selector-muted
+  SetStates(ElementState::MUTED, mMuted & MUTED_BY_CONTENT);
   SetVolumeInternal();
 }
 
