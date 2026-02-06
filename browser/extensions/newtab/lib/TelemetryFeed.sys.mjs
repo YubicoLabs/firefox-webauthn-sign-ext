@@ -1574,6 +1574,15 @@ export class TelemetryFeed {
       case at.WIDGETS_TIMER_USER_IMPRESSION:
         this.handleWidgetsUserEvent(action);
         break;
+      case at.WIDGETS_USER_EVENT:
+        this.handleUnifiedWidgetUserEvent(action);
+        break;
+      case at.WIDGETS_IMPRESSION:
+        this.handleUnifiedWidgetImpression(action);
+        break;
+      case at.WIDGETS_ENABLED:
+        this.handleUnifiedWidgetEnabled(action);
+        break;
       case at.PROMO_CARD_CLICK:
       case at.PROMO_CARD_DISMISS:
       case at.PROMO_CARD_IMPRESSION:
@@ -1614,6 +1623,8 @@ export class TelemetryFeed {
     }
   }
 
+  // TODO Bug 2012779 - Remove this method and legacy widget-specific telemetry
+  // events once migration to unified telemetry is complete.
   handleWidgetsUserEvent(action) {
     const session = this.sessions.get(au.getPortIdOfSender(action));
     if (session) {
@@ -1640,6 +1651,62 @@ export class TelemetryFeed {
           Glean.newtab.widgetsTimerImpression.record(payload);
           break;
       }
+    }
+  }
+
+  handleUnifiedWidgetUserEvent(action) {
+    const session = this.sessions.get(au.getPortIdOfSender(action));
+    if (session) {
+      const payload = {
+        newtab_visit_id: session.session_id,
+        widget_name: action.data.widget_name,
+        widget_source: action.data.widget_source || "widget",
+        user_action: action.data.user_action,
+      };
+
+      if (action.data.widget_size) {
+        payload.widget_size = action.data.widget_size;
+      }
+
+      if (action.data.action_value !== undefined) {
+        payload.action_value = String(action.data.action_value);
+      }
+
+      Glean.newtab.widgetsUserEvent.record(payload);
+    }
+  }
+
+  handleUnifiedWidgetImpression(action) {
+    const session = this.sessions.get(au.getPortIdOfSender(action));
+    if (session) {
+      const payload = {
+        newtab_visit_id: session.session_id,
+        widget_name: action.data.widget_name,
+      };
+
+      if (action.data.widget_size) {
+        payload.widget_size = action.data.widget_size;
+      }
+
+      Glean.newtab.widgetsImpression.record(payload);
+    }
+  }
+
+  handleUnifiedWidgetEnabled(action) {
+    const session = this.sessions.get(au.getPortIdOfSender(action));
+    if (session) {
+      const payload = {
+        newtab_visit_id: session.session_id,
+        widget_name: action.data.widget_name,
+        widget_source: action.data.widget_source || "widget",
+        enabled: action.data.enabled,
+      };
+
+      if (action.data.widget_size) {
+        payload.widget_size = action.data.widget_size;
+      }
+
+      Glean.newtab.widgetsEnabled.record(payload);
     }
   }
 

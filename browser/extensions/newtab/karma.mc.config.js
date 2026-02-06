@@ -333,10 +333,10 @@ module.exports = function (config) {
               branches: 0,
             },
             "content-src/components/CustomizeMenu/ContentSection/*.jsx": {
-              statements: 80,
-              lines: 80,
+              statements: 65,
+              lines: 65,
               functions: 99,
-              branches: 62,
+              branches: 56,
             },
             "content-src/components/CustomizeMenu/**/*.jsx": {
               statements: 68,

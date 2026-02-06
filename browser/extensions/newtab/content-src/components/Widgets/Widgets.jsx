@@ -58,6 +58,7 @@ function Widgets() {
   const timerType = useSelector(state => state.TimerWidget.timerType);
   const timerData = useSelector(state => state.TimerWidget);
   const isMaximized = prefs[PREF_WIDGETS_MAXIMIZED];
+  const widgetsMayBeMaximized = prefs[PREF_WIDGETS_SYSTEM_MAXIMIZED];
   const dispatch = useDispatch();
 
   const nimbusListsEnabled = prefs.widgetsConfig?.listsEnabled;
@@ -189,6 +190,7 @@ function Widgets() {
               dispatch={dispatch}
               handleUserInteraction={handleUserInteraction}
               isMaximized={isMaximized}
+              widgetsMayBeMaximized={widgetsMayBeMaximized}
             />
           )}
           {timerEnabled && (

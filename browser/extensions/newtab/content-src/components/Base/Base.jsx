@@ -788,6 +788,8 @@ export class BaseContent extends React.PureComponent {
       listsEnabled: prefs["widgets.lists.enabled"],
       timerEnabled: prefs["widgets.focusTimer.enabled"],
       weatherEnabled: prefs.showWeather,
+      widgetsMaximized: prefs["widgets.maximized"],
+      widgetsMayBeMaximized: prefs["widgets.system.maximized"],
     };
 
     // Mobile Download Promo Pref Checks

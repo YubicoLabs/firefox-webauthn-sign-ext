@@ -3,7 +3,8 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import React from "react";
-import { actionCreators as ac } from "common/Actions.mjs";
+import { batch } from "react-redux";
+import { actionCreators as ac, actionTypes as at } from "common/Actions.mjs";
 import { SectionsMgmtPanel } from "../SectionsMgmtPanel/SectionsMgmtPanel";
 import { WallpaperCategories } from "../../WallpaperCategories/WallpaperCategories";
 
@@ -18,13 +19,48 @@ export class ContentSection extends React.PureComponent {
   }
 
   inputUserEvent(eventSource, eventValue) {
-    this.props.dispatch(
-      ac.UserEvent({
-        event: "PREF_CHANGED",
-        source: eventSource,
-        value: { status: eventValue, menu_source: "CUSTOMIZE_MENU" },
-      })
-    );
+    batch(() => {
+      this.props.dispatch(
+        ac.UserEvent({
+          event: "PREF_CHANGED",
+          source: eventSource,
+          value: { status: eventValue, menu_source: "CUSTOMIZE_MENU" },
+        })
+      );
+
+      // Dispatch unified widget telemetry for widget toggles.
+      // Map the event source from the customize panel to the widget name
+      // for the unified telemetry event.
+      let widgetName;
+      switch (eventSource) {
+        case "WIDGET_LISTS":
+          widgetName = "lists";
+          break;
+        case "WIDGET_TIMER":
+          widgetName = "focus_timer";
+          break;
+      }
+
+      if (widgetName) {
+        const { widgetsMaximized, widgetsMayBeMaximized } =
+          this.props.enabledWidgets;
+
+        const data = {
+          widget_name: widgetName,
+          widget_source: "customize_panel",
+          enabled: eventValue,
+          widget_size:
+            widgetsMayBeMaximized && !widgetsMaximized ? "small" : "medium",
+        };
+
+        this.props.dispatch(
+          ac.OnlyToMain({
+            type: at.WIDGETS_ENABLED,
+            data,
+          })
+        );
+      }
+    });
   }
 
   onPreferenceSelect(e) {
