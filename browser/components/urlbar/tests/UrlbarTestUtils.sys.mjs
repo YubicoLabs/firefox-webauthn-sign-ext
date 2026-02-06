@@ -254,6 +254,16 @@ class UrlbarInputTestUtils {
   }
 
   /**
+   * Returns the UrlbarInput input element for the requested window.
+   *
+   * @param {ChromeWindow} window
+   * @returns {UrlbarInput}
+   */
+  getUrlbar(window) {
+    return this.#urlbar(window);
+  }
+
+  /**
    * Show the result menu button regardless of the result being hovered or
    + selected.
    *
