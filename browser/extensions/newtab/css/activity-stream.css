@@ -2773,11 +2773,6 @@ main section {
     inset-inline-end: var(--space-xxlarge);
   }
 }
-.weather .context-menu {
-  inset-inline-end: 100%;
-  inset-inline-start: auto;
-  margin-inline-end: var(--space-xsmall);
-}
 
 .weather-placeholder {
   width: 240px;
