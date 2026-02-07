@@ -3571,12 +3571,6 @@
 #endif
   mirror: always
 
-# Enable/disable KeyboardEvent.initKeyEvent function
-- name: dom.keyboardevent.init_key_event.enabled
-  type: bool
-  value: false
-  mirror: always
-
 # Enable/disable KeyboardEvent.initKeyEvent function in addons even if it's
 # disabled.
 - name: dom.keyboardevent.init_key_event.enabled_in_addons
