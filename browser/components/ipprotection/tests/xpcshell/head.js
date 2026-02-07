@@ -13,7 +13,7 @@ const { IPPProxyManager, IPPProxyStates } = ChromeUtils.importESModule(
 const { IPPSignInWatcher } = ChromeUtils.importESModule(
   "moz-src:///browser/components/ipprotection/IPPSignInWatcher.sys.mjs"
 );
-const { ProxyPass, Entitlement } = ChromeUtils.importESModule(
+const { ProxyPass, ProxyUsage, Entitlement } = ChromeUtils.importESModule(
   "moz-src:///browser/components/ipprotection/GuardianClient.sys.mjs"
 );
 const { RemoteSettings } = ChromeUtils.importESModule(
@@ -92,6 +92,11 @@ function setupStubs(
       options.validProxyPass
         ? createProxyPassToken()
         : createExpiredProxyPassToken()
+    ),
+    usage: new ProxyUsage(
+      "5368709120",
+      "4294967296",
+      "2026-02-01T00:00:00.000Z"
     ),
   });
 }

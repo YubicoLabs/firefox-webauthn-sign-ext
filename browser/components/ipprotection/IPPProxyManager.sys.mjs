@@ -85,6 +85,8 @@ class IPPProxyManagerSingleton extends EventTarget {
   #activatingPromise = null;
 
   #pass = null;
+  /**@type {import("./GuardianClient.sys.mjs").ProxyUsage | null} */
+  #usage = null;
   /**@type {import("./IPPChannelFilter.sys.mjs").IPPChannelFilter | null} */
   #connection = null;
   #usageObserver = null;
@@ -171,6 +173,16 @@ class IPPProxyManagerSingleton extends EventTarget {
 
   get hasValidProxyPass() {
     return !!this.#pass?.isValid();
+  }
+  /**
+   * Gets the current usage info.
+   * This will be updated on every new ProxyPass fetch,
+   * changes to the usage will be notified via the "IPPProxyManager:UsageChanged" event.
+   *
+   * @returns {import("./GuardianClient.sys.mjs").ProxyUsage | null}
+   */
+  get usageInfo() {
+    return this.#usage;
   }
 
   createChannelFilter() {
@@ -287,7 +299,14 @@ class IPPProxyManagerSingleton extends EventTarget {
     // If the current proxy pass is valid, no need to re-authenticate.
     // Throws an error if the proxy pass is not available.
     if (this.#pass == null || this.#pass.shouldRotate()) {
-      this.#pass = await this.#getProxyPass();
+      const { pass, usage } = await this.#getPassAndUsage();
+      if (usage) {
+        this.#setUsage(usage);
+      }
+      if (!pass) {
+        throw new Error("No valid ProxyPass available");
+      }
+      this.#pass = pass;
     }
     this.#schedulePassRotation(this.#pass);
 
@@ -382,6 +401,7 @@ class IPPProxyManagerSingleton extends EventTarget {
    */
   async reset() {
     this.#pass = null;
+    this.#usage = null;
     if (
       this.#state === IPPProxyStates.ACTIVE ||
       this.#state === IPPProxyStates.ACTIVATING
@@ -400,8 +420,8 @@ class IPPProxyManagerSingleton extends EventTarget {
    *
    * @returns {Promise<ProxyPass|Error>} - the proxy pass if it available.
    */
-  async #getProxyPass() {
-    let { status, error, pass } =
+  async #getPassAndUsage() {
+    let { status, error, pass, usage } =
       await lazy.IPProtectionService.guardian.fetchProxyPass();
     lazy.logConsole.debug("ProxyPass:", {
       status,
@@ -409,11 +429,20 @@ class IPPProxyManagerSingleton extends EventTarget {
       error,
     });
 
+    // Handle quota exceeded as a special case - return null pass with usage
+    if (status === 429 && error === "quota_exceeded") {
+      lazy.logConsole.info("Quota exceeded", {
+        usage: usage ? `${usage.remaining} / ${usage.max}` : "unknown",
+      });
+      return { pass: null, usage };
+    }
+
+    // All other error cases
     if (error || !pass || status != 200) {
       throw error || new Error(`Status: ${status}`);
     }
 
-    return pass;
+    return { pass, usage };
   }
 
   /**
@@ -457,10 +486,15 @@ class IPPProxyManagerSingleton extends EventTarget {
     if (this.#rotateProxyPassPromise) {
       return this.#rotateProxyPassPromise;
     }
-    this.#rotateProxyPassPromise = this.#getProxyPass();
-    const pass = await this.#rotateProxyPassPromise;
+    this.#rotateProxyPassPromise = this.#getPassAndUsage();
+    const { pass, usage } = await this.#rotateProxyPassPromise;
     this.#rotateProxyPassPromise = null;
+
+    if (usage) {
+      this.#setUsage(usage);
+    }
     if (!pass) {
+      lazy.logConsole.debug("Failed to rotate token!");
       return null;
     }
     // Inject the new token in the current connection
@@ -527,6 +561,28 @@ class IPPProxyManagerSingleton extends EventTarget {
     this.#setState(IPPProxyStates.ERROR);
     lazy.logConsole.error(errorContext || error);
     Glean.ipprotection.error.record({ source: "ProxyManager" });
+  }
+  /**
+   *
+   * @param {import("./GuardianClient.sys.mjs").ProxyUsage } usage
+   */
+  #setUsage(usage) {
+    this.#usage = usage;
+    const now = Temporal.Now.instant();
+    const daysUntilReset = now.until(usage.reset).total("days");
+    lazy.logConsole.debug("ProxyPass:", {
+      usage: `${usage.remaining} / ${usage.max}`,
+      resetsIn: `${daysUntilReset.toFixed(1)} days`,
+    });
+    this.dispatchEvent(
+      new CustomEvent("IPPProxyManager:UsageChanged", {
+        bubbles: true,
+        composed: true,
+        detail: {
+          usage,
+        },
+      })
+    );
   }
 
   #setState(state) {

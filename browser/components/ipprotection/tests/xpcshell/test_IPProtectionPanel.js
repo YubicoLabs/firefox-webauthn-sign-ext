@@ -241,6 +241,11 @@ add_task(async function test_IPProtectionPanel_started_stopped() {
     status: 200,
     error: undefined,
     pass: new ProxyPass(createProxyPassToken()),
+    usage: new ProxyUsage(
+      "5368709120",
+      "4294967296",
+      "2026-02-01T00:00:00.000Z"
+    ),
   });
   sandbox.stub(IPProtectionService.guardian, "enroll").resolves({ ok: true });
 

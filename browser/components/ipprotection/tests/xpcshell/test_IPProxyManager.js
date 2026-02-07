@@ -47,7 +47,6 @@ add_task(async function test_IPPProxyManager_start() {
     IPPProxyStates.ACTIVATING,
     "Proxy activation"
   );
-
   await startedEventPromise;
 
   Assert.equal(
@@ -62,6 +61,16 @@ add_task(async function test_IPPProxyManager_start() {
   Assert.ok(
     IPPProxyManager.active,
     "IP Protection service should have an active connection"
+  );
+
+  Assert.notEqual(
+    IPPProxyManager.usageInfo,
+    null,
+    "IP Protection service should have usage info after starting"
+  );
+  Assert.ok(
+    IPPProxyManager.usageInfo instanceof ProxyUsage,
+    "usageInfo should be an instance of ProxyUsage"
   );
 
   IPProtectionService.uninit();
@@ -106,6 +115,15 @@ add_task(async function test_IPPProxyManager_stop() {
   Assert.ok(
     !IPProtectionService.connection,
     "IP Protection service should not have an active connection"
+  );
+  Assert.notEqual(
+    IPPProxyManager.usageInfo,
+    null,
+    "IP Protection service should still have usage info after stopping"
+  );
+  Assert.ok(
+    IPPProxyManager.usageInfo instanceof ProxyUsage,
+    "usageInfo should be an instance of ProxyUsage"
   );
 
   IPProtectionService.uninit();
@@ -165,6 +183,11 @@ add_task(async function test_IPPProxyManager_reset() {
     status: 200,
     error: undefined,
     pass: new ProxyPass(createProxyPassToken()),
+    usage: new ProxyUsage(
+      "5368709120",
+      "4294967296",
+      "2026-02-01T00:00:00.000Z"
+    ),
   });
 
   await IPPProxyManager.start();
@@ -183,16 +206,22 @@ add_task(async function test_IPPProxyManager_reset() {
 
   await IPPProxyManager.reset();
 
-  Assert.ok(!IPPProxyManager.active, "Should not be active after starting");
+  Assert.ok(!IPPProxyManager.active, "Should not be active after reset");
 
   Assert.ok(
     !IPPProxyManager.isolationKey,
-    "Should not have an isolationKey after stopping"
+    "Should not have an isolationKey after reset"
+  );
+
+  Assert.equal(
+    IPPProxyManager.usageInfo,
+    null,
+    "Should not have usage info after reset"
   );
 
   Assert.ok(
     !IPPProxyManager.hasValidProxyPass,
-    "Should not have a proxy pass after stopping"
+    "Should not have a proxy pass after reset"
   );
 
   sandbox.restore();
@@ -237,6 +266,102 @@ add_task(async function test_IPPProxyStates_error() {
 });
 
 /**
+ * Tests that usage data is preserved when quota is exceeded.
+ */
+add_task(async function test_IPPProxyManager_quota_exceeded() {
+  let sandbox = sinon.createSandbox();
+
+  sandbox.stub(IPPSignInWatcher, "isSignedIn").get(() => true);
+  sandbox
+    .stub(IPProtectionService.guardian, "isLinkedToGuardian")
+    .resolves(true);
+  sandbox.stub(IPProtectionService.guardian, "fetchUserInfo").resolves({
+    status: 200,
+    error: undefined,
+    entitlement: createTestEntitlement(),
+  });
+  await putServerInRemoteSettings();
+
+  sandbox.stub(IPProtectionService.guardian, "fetchProxyPass").resolves({
+    status: 429,
+    error: "quota_exceeded",
+    pass: undefined,
+    usage: new ProxyUsage("5368709120", "0", "2026-02-02T00:00:00.000Z"),
+  });
+
+  // Initialize service and wait for READY state
+  const readyEvent = waitForEvent(
+    IPProtectionService,
+    "IPProtectionService:StateChanged",
+    () => IPProtectionService.state === IPProtectionStates.READY
+  );
+
+  IPProtectionService.init();
+  await readyEvent;
+
+  // Setup event listener to capture usage change
+  let usageChanged = false;
+  let capturedUsage = null;
+  const usageListener = event => {
+    usageChanged = true;
+    capturedUsage = event.detail.usage;
+  };
+  IPPProxyManager.addEventListener(
+    "IPPProxyManager:UsageChanged",
+    usageListener
+  );
+
+  // Try to start - should fail but still set usage
+  try {
+    await IPPProxyManager.start();
+  } catch (error) {
+    // Expected to fail
+  }
+
+  // Verify usage was set before error
+  Assert.ok(usageChanged, "UsageChanged event should have fired");
+  Assert.notEqual(capturedUsage, null, "Usage should be captured");
+  Assert.equal(
+    capturedUsage.remaining,
+    BigInt("0"),
+    "Usage remaining should be 0"
+  );
+  Assert.equal(
+    capturedUsage.max,
+    BigInt("5368709120"),
+    "Usage max should be set"
+  );
+
+  // Verify the proxy is in ERROR state because no pass was available
+  Assert.equal(
+    IPPProxyManager.state,
+    IPPProxyStates.ERROR,
+    "Should be in ERROR state"
+  );
+
+  // Verify usage is still accessible in manager
+  Assert.notEqual(IPPProxyManager.usageInfo, null, "Usage should be stored");
+  Assert.equal(
+    IPPProxyManager.usageInfo.remaining,
+    BigInt("0"),
+    "Stored usage remaining should be 0"
+  );
+  Assert.equal(
+    IPPProxyManager.usageInfo.max,
+    BigInt("5368709120"),
+    "Stored usage max should be set"
+  );
+
+  // Cleanup
+  IPPProxyManager.removeEventListener(
+    "IPPProxyManager:UsageChanged",
+    usageListener
+  );
+  IPProtectionService.uninit();
+  sandbox.restore();
+});
+
+/**
  * Tests the active state.
  */
 add_task(async function test_IPPProxytates_active() {
@@ -257,6 +382,11 @@ add_task(async function test_IPPProxytates_active() {
       options.validProxyPass
         ? createProxyPassToken()
         : createExpiredProxyPassToken()
+    ),
+    usage: new ProxyUsage(
+      "5368709120",
+      "4294967296",
+      "2026-02-01T00:00:00.000Z"
     ),
   });
 
@@ -331,6 +461,11 @@ add_task(async function test_IPPProxytates_start_stop() {
       options.validProxyPass
         ? createProxyPassToken()
         : createExpiredProxyPassToken()
+    ),
+    usage: new ProxyUsage(
+      "5368709120",
+      "4294967296",
+      "2026-02-01T00:00:00.000Z"
     ),
   });
 

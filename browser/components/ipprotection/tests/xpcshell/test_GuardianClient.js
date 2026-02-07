@@ -12,9 +12,6 @@ const { GuardianClient } = ChromeUtils.importESModule(
 const { JsonSchemaValidator } = ChromeUtils.importESModule(
   "resource://gre/modules/components-utils/JsonSchemaValidator.sys.mjs"
 );
-const { ProxyUsage } = ChromeUtils.importESModule(
-  "moz-src:///browser/components/ipprotection/GuardianClient.sys.mjs"
-);
 
 function makeGuardianServer(
   arg = {

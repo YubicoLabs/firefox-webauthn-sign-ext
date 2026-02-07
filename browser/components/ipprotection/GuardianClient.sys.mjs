@@ -641,7 +641,9 @@ export class ProxyUsage {
 const CLIENT_ID_MAP = {
   "http://localhost:3000": "6089c54fdc970aed",
   "https://guardian-dev.herokuapp.com": "64ef9b544a31bca8",
+  "https://dev.vpn.nonprod.webservices.mozgcp.net": "64ef9b544a31bca8",
   "https://stage.guardian.nonprod.cloudops.mozgcp.net": "e6eb0d1e856335fc",
+  "https://stage.vpn.nonprod.webservices.mozgcp.net": "e6eb0d1e856335fc",
   "https://fpn.firefox.com": "e6eb0d1e856335fc",
   "https://vpn.mozilla.org": "e6eb0d1e856335fc",
 };
