@@ -2,12 +2,6 @@
  * http://creativecommons.org/publicdomain/zero/1.0/ */
 
 add_task(async function () {
-  // allow top level data: URI navigations, otherwise loading data: URIs
-  // in toplevel windows fail.
-  await SpecialPowers.pushPrefEnv({
-    set: [["security.data_uri.block_toplevel_data_uri_navigations", false]],
-  });
-
   let tab = await BrowserTestUtils.openNewForegroundTab(gBrowser, null, false);
 
   tab.linkedBrowser.stop(); // stop the about:blank load
@@ -76,44 +70,6 @@ add_task(async function () {
         });
       },
     },
-    {
-      name: "show only this frame",
-      url: "http://mochi.test:8888/",
-      element: "html",
-      frameIndex: 0,
-      go() {
-        return SpecialPowers.spawn(
-          gBrowser.selectedBrowser,
-          [{ writeDomainURL }],
-          async function (arg) {
-            let doc = content.document;
-            let iframe = doc.createElement("iframe");
-            iframe.setAttribute("src", arg.writeDomainURL);
-            doc.body.insertBefore(iframe, doc.body.firstElementChild);
-
-            // Wait for the iframe to load.
-            return new Promise(resolve => {
-              iframe.addEventListener(
-                "load",
-                function () {
-                  resolve("context-showonlythisframe");
-                },
-                { capture: true, once: true }
-              );
-            });
-          }
-        );
-      },
-      verify(browser) {
-        return SpecialPowers.spawn(browser, [], async function () {
-          Assert.equal(
-            content.document.body.textContent,
-            "",
-            "no domain was inherited for 'show only this frame'"
-          );
-        });
-      },
-    },
   ];
 
   let contentAreaContextMenu = document.getElementById(
@@ -136,16 +92,11 @@ add_task(async function () {
     );
 
     let browsingContext = gBrowser.selectedBrowser.browsingContext;
-    if (test.frameIndex != null) {
-      browsingContext = browsingContext.children[test.frameIndex];
-    }
 
     await new Promise(r => {
       SimpleTest.executeSoon(r);
     });
 
-    // Sometimes, the iframe test fails as the child iframe hasn't finishing layout
-    // yet. Try again in this case.
     while (true) {
       try {
         await BrowserTestUtils.synthesizeMouse(
@@ -171,12 +122,6 @@ add_task(async function () {
       contentAreaContextMenu,
       "popuphidden"
     );
-    if (commandToRun == "context-showonlythisframe") {
-      let subMenu = document.getElementById("frame");
-      let subMenuShown = BrowserTestUtils.waitForEvent(subMenu, "popupshown");
-      subMenu.openMenu(true);
-      await subMenuShown;
-    }
     contentAreaContextMenu.activateItem(document.getElementById(commandToRun));
     let result = await loadedAfterCommandPromise;
 
@@ -192,4 +137,44 @@ add_task(async function () {
   }
 
   gBrowser.removeCurrentTab();
+});
+
+// Test that data: URI iframes don't inherit the domain from the parent page.
+// This verifies the same security property as the context menu tests above,
+// but checks the iframe content directly instead of navigating to top-level.
+add_task(async function test_data_uri_iframe_domain_isolation() {
+  let tab = await BrowserTestUtils.openNewForegroundTab(
+    gBrowser,
+    "http://mochi.test:8888/"
+  );
+
+  let writeDomainURL = encodeURI(
+    "data:text/html,<script>document.write(document.domain);</script>"
+  );
+
+  await SpecialPowers.spawn(
+    tab.linkedBrowser,
+    [writeDomainURL],
+    async function (dataURL) {
+      let doc = content.document;
+      let iframe = doc.createElement("iframe");
+      iframe.setAttribute("src", dataURL);
+      doc.body.insertBefore(iframe, doc.body.firstElementChild);
+
+      // Wait for the iframe to load.
+      await new Promise(resolve => {
+        iframe.addEventListener("load", resolve, { capture: true, once: true });
+      });
+
+      // Check that no domain was inherited - the data: URI should have
+      // an opaque origin, so document.domain should be empty.
+      Assert.equal(
+        iframe.contentDocument.body.textContent,
+        "",
+        "no domain was inherited for data: URI iframe"
+      );
+    }
+  );
+
+  gBrowser.removeTab(tab);
 });

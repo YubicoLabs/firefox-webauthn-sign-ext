@@ -36,6 +36,7 @@ support-files = [
   "browser_662743_sample.html",
   "browser_739531_sample.html",
   "browser_739531_frame.html",
+  "browser_911547_blob_nav.js",
   "browser_911547_sample.html",
   "browser_911547_sample.html^headers^",
   "coopHeaderCommon.sjs",

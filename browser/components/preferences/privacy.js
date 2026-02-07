@@ -377,10 +377,6 @@ if (SECURITY_PRIVACY_STATUS_CARD_ENABLED) {
       type: "bool",
     },
     {
-      id: "browser.preferences.config_warning.warningTopLevelDataURI.dismissed",
-      type: "bool",
-    },
-    {
       id: "browser.preferences.config_warning.warningActiveMixedContent.dismissed",
       type: "bool",
     },
@@ -442,10 +438,6 @@ if (SECURITY_PRIVACY_STATUS_CARD_ENABLED) {
     },
     {
       id: "security.block_Worker_with_wrong_mime",
-      type: "bool",
-    },
-    {
-      id: "security.data_uri.block_toplevel_data_uri_navigations",
       type: "bool",
     },
     {
@@ -1123,17 +1115,6 @@ if (SECURITY_PRIVACY_STATUS_CARD_ENABLED) {
 
   Preferences.addSetting(
     new WarningSettingConfig(
-      "warningTopLevelDataURI",
-      {
-        blockNav: "security.data_uri.block_toplevel_data_uri_navigations",
-      },
-      ({ blockNav }) => !blockNav.value && !blockNav.locked,
-      true
-    )
-  );
-
-  Preferences.addSetting(
-    new WarningSettingConfig(
       "warningActiveMixedContent",
       {
         blockedMixedContent: "security.mixed_content.block_active_content",
@@ -1347,10 +1328,6 @@ if (SECURITY_PRIVACY_STATUS_CARD_ENABLED) {
     {
       l10nId: "security-privacy-issue-warning-worker-mime",
       id: "warningWorkerMIME",
-    },
-    {
-      l10nId: "security-privacy-issue-warning-top-level-data-uri",
-      id: "warningTopLevelDataURI",
     },
     {
       l10nId: "security-privacy-issue-warning-active-mixed-content",

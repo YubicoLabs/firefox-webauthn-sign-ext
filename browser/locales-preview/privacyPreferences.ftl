@@ -121,10 +121,6 @@ security-privacy-issue-warning-worker-mime =
   .label = Worker MIME type restriction is disabled
   .description = Content not hosted as Javascript may be run in a worker
 
-security-privacy-issue-warning-top-level-data-uri =
-  .label = Data URI navigations are not blocked
-  .description = Phishing sites may use this technique to trick you into entering your information
-
 security-privacy-issue-warning-active-mixed-content =
   .label = Active mixed content is not blocked
   .description = Network attackers can inject malicious scripts into some pages you visit

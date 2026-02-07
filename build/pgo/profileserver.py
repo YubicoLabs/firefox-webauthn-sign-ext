@@ -155,7 +155,7 @@ if __name__ == "__main__":
         runner = FirefoxRunner(
             profile=profile,
             binary=binary,
-            cmdargs=["data:text/html,<script>Quitter.quit()</script>"],
+            cmdargs=["http://localhost:%d/quit.html" % PORT],
             env=env,
             process_args=process_args,
         )
