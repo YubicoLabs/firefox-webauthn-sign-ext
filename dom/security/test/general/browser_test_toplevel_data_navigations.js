@@ -12,6 +12,9 @@ const kRedirectURI = kTestPath + "file_toplevel_data_navigations.sjs";
 const kMetaRedirectURI = kTestPath + "file_toplevel_data_meta_redirect.html";
 
 add_task(async function test_nav_data_uri() {
+  await SpecialPowers.pushPrefEnv({
+    set: [["security.data_uri.block_toplevel_data_uri_navigations", true]],
+  });
   await BrowserTestUtils.withNewTab(kDataURI, async function () {
     await SpecialPowers.spawn(
       gBrowser.selectedBrowser,
@@ -29,6 +32,9 @@ add_task(async function test_nav_data_uri() {
 });
 
 add_task(async function test_nav_data_uri_redirect() {
+  await SpecialPowers.pushPrefEnv({
+    set: [["security.data_uri.block_toplevel_data_uri_navigations", true]],
+  });
   let tab = BrowserTestUtils.addTab(gBrowser, kRedirectURI);
   registerCleanupFunction(async function () {
     BrowserTestUtils.removeTab(tab);
@@ -45,6 +51,9 @@ add_task(async function test_nav_data_uri_redirect() {
 });
 
 add_task(async function test_nav_data_uri_meta_redirect() {
+  await SpecialPowers.pushPrefEnv({
+    set: [["security.data_uri.block_toplevel_data_uri_navigations", true]],
+  });
   let tab = BrowserTestUtils.addTab(gBrowser, kMetaRedirectURI);
   registerCleanupFunction(async function () {
     BrowserTestUtils.removeTab(tab);

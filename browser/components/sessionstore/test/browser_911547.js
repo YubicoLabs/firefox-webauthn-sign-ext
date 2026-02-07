@@ -6,10 +6,15 @@
 // disallows inline scripts).
 
 add_task(async function test() {
+  // allow top level data: URI navigations, otherwise clicking a data: link fails
+  await SpecialPowers.pushPrefEnv({
+    set: [["security.data_uri.block_toplevel_data_uri_navigations", false]],
+  });
   // create a tab that has a CSP
   let testURL =
     "http://mochi.test:8888/browser/browser/components/sessionstore/test/browser_911547_sample.html";
   let tab = (gBrowser.selectedTab = BrowserTestUtils.addTab(gBrowser, testURL));
+  gBrowser.selectedTab = tab;
 
   let browser = tab.linkedBrowser;
   await promiseBrowserLoaded(browser);
@@ -21,33 +26,44 @@ add_task(async function test() {
     `document.getElementById("test_id1").value = "id1_modified";`
   );
 
+  let loadedPromise = promiseBrowserLoaded(browser);
   await SpecialPowers.spawn(browser, [], function () {
     is(
       content.document.getElementById("test_id1").value,
       "id1_initial",
       "CSP should block the inline script that modifies test_id"
     );
+    content.document.getElementById("test_data_link").click();
   });
 
-  // close the tab while on the CSP page (no blob: URL in session history)
+  await loadedPromise;
+
+  await SpecialPowers.spawn(browser, [], function () {
+    // eslint-disable-line
+    // the data: URI inherits the CSP and the inline script needs to be blocked
+    is(
+      content.document.getElementById("test_id2").value,
+      "id2_initial",
+      "CSP should block the script loaded by the clicked data URI"
+    );
+  });
+
+  // close the tab
   await promiseRemoveTabAndSessionState(tab);
 
-  // restore the tab
+  // open new tab and recover the state
   tab = ss.undoCloseTab(window, 0);
   await promiseTabRestored(tab);
   browser = tab.linkedBrowser;
 
-  // navigate to a blob: URI to verify CSP still works after restore
-  let loadedPromise = promiseBrowserLoaded(browser);
-  BrowserTestUtils.synthesizeMouseAtCenter("#blob_nav_link", {}, browser);
-  await loadedPromise;
-
   await SpecialPowers.spawn(browser, [], function () {
-    // the blob: URI inherits the CSP and the inline script should be blocked
+    // eslint-disable-line
+    // the data: URI should be restored including the inherited CSP and the
+    // inline script should be blocked.
     is(
       content.document.getElementById("test_id2").value,
       "id2_initial",
-      "CSP should block the inline script in the blob: URI after restore"
+      "CSP should block the script loaded by the clicked data URI after restore"
     );
   });
 

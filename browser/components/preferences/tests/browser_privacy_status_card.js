@@ -44,6 +44,7 @@ const RESET_PROBLEMATIC_TEST_DEFAULTS = [
     true,
   ],
   ["browser.preferences.config_warning.warningWorkerMIME.dismissed", true],
+  ["browser.preferences.config_warning.warningTopLevelDataURI.dismissed", true],
   [
     "browser.preferences.config_warning.warningActiveMixedContent.dismissed",
     true,

@@ -30,7 +30,9 @@ function test_toplevel_data_json() {
   }, 200);
 }
 
-test_toplevel_data_json();
+SpecialPowers.pushPrefEnv({
+  set: [["security.data_uri.block_toplevel_data_uri_navigations", true]]
+}, test_toplevel_data_json);
 
 </script>
 </body>
