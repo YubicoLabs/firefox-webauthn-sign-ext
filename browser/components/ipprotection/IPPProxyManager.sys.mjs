@@ -21,6 +21,8 @@ ChromeUtils.defineESModuleGetters(lazy, {
     "moz-src:///browser/components/ipprotection/IPProtectionService.sys.mjs",
   IPProtectionStates:
     "moz-src:///browser/components/ipprotection/IPProtectionService.sys.mjs",
+  IPPStartupCache:
+    "moz-src:///browser/components/ipprotection/IPPStartupCache.sys.mjs",
 });
 
 ChromeUtils.defineLazyGetter(
@@ -112,6 +114,10 @@ class IPPProxyManagerSingleton extends EventTarget {
       "IPProtectionService:StateChanged",
       this.handleEvent
     );
+
+    if (!this.#usage) {
+      this.#usage = lazy.IPPStartupCache.usageInfo;
+    }
   }
 
   initOnStartupCompleted() {}

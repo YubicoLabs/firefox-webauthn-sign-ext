@@ -515,3 +515,46 @@ add_task(async function test_IPPProxytates_start_stop() {
   IPProtectionService.uninit();
   sandbox.restore();
 });
+
+add_task(async function test_IPPProxyManager_restores_cached_usage() {
+  Services.prefs.setBoolPref("browser.ipProtection.cacheDisabled", false);
+
+  const { ProxyUsage } = ChromeUtils.importESModule(
+    "moz-src:///browser/components/ipprotection/GuardianClient.sys.mjs"
+  );
+  const { IPPStartupCache } = ChromeUtils.importESModule(
+    "moz-src:///browser/components/ipprotection/IPPStartupCache.sys.mjs"
+  );
+
+  const cachedUsage = new ProxyUsage(
+    "5000000000",
+    "2500000000",
+    "2026-03-01T00:00:00Z"
+  );
+  IPPStartupCache.storeUsageInfo(cachedUsage);
+
+  const { IPPProxyManager } = ChromeUtils.importESModule(
+    "moz-src:///browser/components/ipprotection/IPPProxyManager.sys.mjs"
+  );
+  IPPProxyManager.init();
+
+  const loadedUsage = IPPProxyManager.usageInfo;
+  Assert.notEqual(loadedUsage, null, "Manager loaded usage from cache");
+  Assert.equal(
+    loadedUsage.max.toString(),
+    cachedUsage.max.toString(),
+    "Cached max loaded correctly"
+  );
+  Assert.equal(
+    loadedUsage.remaining.toString(),
+    cachedUsage.remaining.toString(),
+    "Cached remaining loaded correctly"
+  );
+  Assert.equal(
+    loadedUsage.reset.toString(),
+    cachedUsage.reset.toString(),
+    "Cached reset loaded correctly"
+  );
+
+  Services.prefs.clearUserPref("browser.ipProtection.usageCache");
+});

@@ -795,3 +795,42 @@ add_task(async function test_entitlement_toString_schema_validation() {
     }
   }
 });
+
+add_task(async function test_ProxyUsage_serialization() {
+  const originalUsage = new ProxyUsage(
+    "1000000000",
+    "750000000",
+    "2026-02-01T00:00:00Z"
+  );
+
+  const serialized = JSON.stringify({
+    max: originalUsage.max.toString(),
+    remaining: originalUsage.remaining.toString(),
+    reset: originalUsage.reset.toString(),
+  });
+
+  Assert.greater(serialized.length, 0, "Serialization produces output");
+
+  const data = JSON.parse(serialized);
+  const deserializedUsage = new ProxyUsage(
+    data.max,
+    data.remaining,
+    data.reset
+  );
+
+  Assert.equal(
+    deserializedUsage.max.toString(),
+    originalUsage.max.toString(),
+    "max preserved through serialization"
+  );
+  Assert.equal(
+    deserializedUsage.remaining.toString(),
+    originalUsage.remaining.toString(),
+    "remaining preserved through serialization"
+  );
+  Assert.equal(
+    deserializedUsage.reset.toString(),
+    originalUsage.reset.toString(),
+    "reset preserved through serialization"
+  );
+});

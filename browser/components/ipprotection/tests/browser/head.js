@@ -308,6 +308,7 @@ add_setup(async function setupVPN() {
     Services.prefs.clearUserPref("browser.ipProtection.stateCache");
     Services.prefs.clearUserPref("browser.ipProtection.entitlementCache");
     Services.prefs.clearUserPref("browser.ipProtection.locationListCache");
+    Services.prefs.clearUserPref("browser.ipProtection.usageCache");
     Services.prefs.clearUserPref("browser.ipProtection.onboardingMessageMask");
     Services.prefs.clearUserPref("browser.ipProtection.egressLocationEnabled");
   });
