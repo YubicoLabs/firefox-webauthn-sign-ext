@@ -2,20 +2,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-const {
-  openAIEngine,
-  MODEL_FEATURES,
-  DEFAULT_MODEL,
-  parseVersion,
-  FEATURE_MAJOR_VERSIONS,
-} = ChromeUtils.importESModule(
-  "moz-src:///browser/components/aiwindow/models/Utils.sys.mjs"
-);
-
-function getVersionForFeature(feature) {
-  const major = FEATURE_MAJOR_VERSIONS[feature] || 1;
-  return `${major}.0`;
-}
+const { openAIEngine, MODEL_FEATURES, DEFAULT_MODEL, parseVersion } =
+  ChromeUtils.importESModule(
+    "moz-src:///browser/components/aiwindow/models/Utils.sys.mjs"
+  );
 
 const { sinon } = ChromeUtils.importESModule(
   "resource://testing-common/Sinon.sys.mjs"
@@ -202,11 +192,8 @@ add_task(async function test_loadConfig_filters_by_major_version() {
     await engine.loadConfig(MODEL_FEATURES.CHAT);
 
     const config = engine.getConfig(MODEL_FEATURES.CHAT);
-    const expectedMajor = FEATURE_MAJOR_VERSIONS[MODEL_FEATURES.CHAT];
-    Assert.ok(
-      config.version.startsWith(`${expectedMajor}.`),
-      `Should select ${expectedMajor}.x, not 3.0`
-    );
+    // Should get 1.x, not 3.0
+    Assert.ok(config.version.startsWith("1."), "Should select 1.x, not 3.0");
   } finally {
     sb.restore();
   }
@@ -246,11 +233,7 @@ add_task(async function test_loadConfig_fallback_when_user_model_not_found() {
       engine.model,
       "Engine model should match the default config's model"
     );
-    Assert.equal(
-      config.version,
-      getVersionForFeature(MODEL_FEATURES.CHAT),
-      "Should use current chat version"
-    );
+    Assert.equal(config.version, "1.0", "Should use 1.0");
   } finally {
     sb.restore();
     Services.prefs.clearUserPref(PREF_MODEL);
@@ -267,7 +250,7 @@ add_task(async function test_loadConfig_custom_endpoint_with_custom_model() {
     const fakeRecords = [
       {
         feature: MODEL_FEATURES.CHAT,
-        version: getVersionForFeature(MODEL_FEATURES.CHAT),
+        version: "1.0",
         model: "some-other-model",
         is_default: true,
       },
@@ -305,7 +288,7 @@ add_task(async function test_loadConfig_custom_endpoint_without_custom_model() {
     const fakeRecords = [
       {
         feature: MODEL_FEATURES.CHAT,
-        version: getVersionForFeature(MODEL_FEATURES.CHAT),
+        version: "1.0",
         model: "remote-default-model",
         is_default: true,
       },
@@ -544,7 +527,7 @@ add_task(async function test_loadConfig_with_model_choice_id_found() {
     const fakeRecords = [
       {
         feature: MODEL_FEATURES.CHAT,
-        version: getVersionForFeature(MODEL_FEATURES.CHAT),
+        version: "1.0",
         model: "model-for-choice-123",
         model_choice_id: "1",
         prompts: "Test prompt",
@@ -552,7 +535,7 @@ add_task(async function test_loadConfig_with_model_choice_id_found() {
       },
       {
         feature: MODEL_FEATURES.CHAT,
-        version: getVersionForFeature(MODEL_FEATURES.CHAT),
+        version: "1.0",
         model: "my-other-model",
         model_choice_id: "2",
         prompts: "Test prompt",
@@ -560,7 +543,7 @@ add_task(async function test_loadConfig_with_model_choice_id_found() {
       },
       {
         feature: MODEL_FEATURES.CHAT,
-        version: getVersionForFeature(MODEL_FEATURES.CHAT),
+        version: "1.0",
         model: "default-model",
         prompts: "Default prompt",
         is_default: true,
@@ -614,7 +597,7 @@ add_task(async function test_loadConfig_with_model_choice_id_not_found() {
     const fakeRecords = [
       {
         feature: MODEL_FEATURES.CHAT,
-        version: getVersionForFeature(MODEL_FEATURES.CHAT),
+        version: "1.0",
         model: "model-for-choice-123",
         model_choice_id: "1",
         prompts: "Test prompt",
@@ -622,7 +605,7 @@ add_task(async function test_loadConfig_with_model_choice_id_not_found() {
       },
       {
         feature: MODEL_FEATURES.TITLE_GENERATION,
-        version: getVersionForFeature(MODEL_FEATURES.TITLE_GENERATION),
+        version: "1.0",
         model: "default-model",
         prompts: "Default prompt",
         is_default: true,
@@ -664,7 +647,7 @@ add_task(
       const fakeRecords = [
         {
           feature: MODEL_FEATURES.CHAT,
-          version: getVersionForFeature(MODEL_FEATURES.CHAT),
+          version: "1.0",
           model: "model-for-choice-1",
           model_choice_id: "1",
           prompts: "Test prompt",
@@ -672,7 +655,7 @@ add_task(
         },
         {
           feature: MODEL_FEATURES.CHAT,
-          version: getVersionForFeature(MODEL_FEATURES.CHAT),
+          version: "1.0",
           model: "model-for-choice-2",
           model_choice_id: "2",
           prompts: "Test prompt",
@@ -680,7 +663,7 @@ add_task(
         },
         {
           feature: MODEL_FEATURES.CHAT,
-          version: getVersionForFeature(MODEL_FEATURES.CHAT),
+          version: "1.0",
           model: "default-model",
           prompts: "Default prompt",
           is_default: true,
@@ -725,7 +708,7 @@ add_task(
       const fakeRecords = [
         {
           feature: MODEL_FEATURES.CHAT,
-          version: getVersionForFeature(MODEL_FEATURES.CHAT),
+          version: "1.0",
           model: "model-for-choice-1",
           model_choice_id: "1",
           prompts: "Test prompt",
@@ -733,7 +716,7 @@ add_task(
         },
         {
           feature: MODEL_FEATURES.CHAT,
-          version: getVersionForFeature(MODEL_FEATURES.CHAT),
+          version: "1.0",
           model: "model-for-choice-2",
           model_choice_id: "2",
           prompts: "Test prompt",
@@ -741,7 +724,7 @@ add_task(
         },
         {
           feature: MODEL_FEATURES.CHAT,
-          version: getVersionForFeature(MODEL_FEATURES.CHAT),
+          version: "1.0",
           model: "default-model",
           prompts: "Default prompt",
           is_default: true,
@@ -784,7 +767,7 @@ add_task(
       const fakeRecords = [
         {
           feature: MODEL_FEATURES.CHAT,
-          version: getVersionForFeature(MODEL_FEATURES.CHAT),
+          version: "1.0",
           model: "model-for-choice-1",
           model_choice_id: "1",
           prompts: "Test prompt",
@@ -792,14 +775,14 @@ add_task(
         },
         {
           feature: MODEL_FEATURES.TITLE_GENERATION,
-          version: getVersionForFeature(MODEL_FEATURES.TITLE_GENERATION),
+          version: "1.0",
           model: "model-for-choice-1",
           prompts: "Test prompt",
           is_default: false,
         },
         {
           feature: MODEL_FEATURES.TITLE_GENERATION,
-          version: getVersionForFeature(MODEL_FEATURES.TITLE_GENERATION),
+          version: "1.0",
           model: "default-title-model",
           prompts: "Default prompt",
           is_default: true,
@@ -838,7 +821,7 @@ add_task(async function test_loadConfig_no_feature_prefs_exist() {
     const fakeRecords = [
       {
         feature: MODEL_FEATURES.CHAT,
-        version: getVersionForFeature(MODEL_FEATURES.CHAT),
+        version: "1.0",
         model: "model-1",
         model_choice_id: "1",
         prompts: "Test prompt",
@@ -846,7 +829,7 @@ add_task(async function test_loadConfig_no_feature_prefs_exist() {
       },
       {
         feature: MODEL_FEATURES.CHAT,
-        version: getVersionForFeature(MODEL_FEATURES.CHAT),
+        version: "1.0",
         model: "model-2",
         model_choice_id: "2",
         prompts: "Test prompt",
@@ -854,7 +837,7 @@ add_task(async function test_loadConfig_no_feature_prefs_exist() {
       },
       {
         feature: MODEL_FEATURES.CHAT,
-        version: getVersionForFeature(MODEL_FEATURES.CHAT),
+        version: "1.0",
         model: "default-model",
         model_choice_id: "3",
         prompts: "Test prompt",
@@ -896,7 +879,7 @@ add_task(async function test_custom_endpoint_override() {
     const fakeRecords = [
       {
         feature: MODEL_FEATURES.CHAT,
-        version: getVersionForFeature(MODEL_FEATURES.CHAT),
+        version: "2.0",
         model: "future-model",
         model_choice_id: "1",
         prompts: "Test prompt",
@@ -904,7 +887,7 @@ add_task(async function test_custom_endpoint_override() {
       },
       {
         feature: MODEL_FEATURES.CHAT,
-        version: getVersionForFeature(MODEL_FEATURES.CHAT),
+        version: "2.0",
         model: "future-default",
         prompts: "Default prompt",
         is_default: true,

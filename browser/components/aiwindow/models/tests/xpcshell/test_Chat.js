@@ -12,15 +12,9 @@ const { SYSTEM_PROMPT_TYPE, MESSAGE_ROLE } = ChromeUtils.importESModule(
 const { Chat } = ChromeUtils.importESModule(
   "moz-src:///browser/components/aiwindow/models/Chat.sys.mjs"
 );
-const { MODEL_FEATURES, openAIEngine, FEATURE_MAJOR_VERSIONS } =
-  ChromeUtils.importESModule(
-    "moz-src:///browser/components/aiwindow/models/Utils.sys.mjs"
-  );
-
-function getVersionForFeature(feature) {
-  const major = FEATURE_MAJOR_VERSIONS[feature] || 1;
-  return `${major}.0`;
-}
+const { MODEL_FEATURES, openAIEngine } = ChromeUtils.importESModule(
+  "moz-src:///browser/components/aiwindow/models/Utils.sys.mjs"
+);
 
 const { sinon } = ChromeUtils.importESModule(
   "resource://testing-common/Sinon.sys.mjs"
@@ -504,7 +498,7 @@ add_task(async function test_Chat_fetchWithHistory_uses_modelId_from_pref() {
     const fakeRecords = [
       {
         feature: MODEL_FEATURES.CHAT,
-        version: getVersionForFeature(MODEL_FEATURES.CHAT),
+        version: "v1.0",
         model: customModelId,
         is_default: true,
       },
