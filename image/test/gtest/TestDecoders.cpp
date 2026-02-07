@@ -535,8 +535,12 @@ static void CheckDecoderFrameFirst(const ImageTestCase& aTestCase) {
 
   Progress imageProgress = tracker->GetProgress();
 
-  EXPECT_TRUE(bool(imageProgress & FLAG_HAS_TRANSPARENCY) == false);
   EXPECT_TRUE(bool(imageProgress & FLAG_IS_ANIMATED) == true);
+
+  EXPECT_EQ(bool(aTestCase.mFlags & TEST_CASE_IS_TRANSPARENT),
+            bool(imageProgress & FLAG_HAS_TRANSPARENCY));
+  EXPECT_EQ(bool(aTestCase.mFlags & TEST_CASE_IS_ANIMATED),
+            bool(imageProgress & FLAG_IS_ANIMATED));
 
   // Ensure that we decoded the static version of the image.
   {
@@ -643,8 +647,12 @@ static void CheckDecoderFrameCurrent(const ImageTestCase& aTestCase) {
 
   Progress imageProgress = tracker->GetProgress();
 
-  EXPECT_TRUE(bool(imageProgress & FLAG_HAS_TRANSPARENCY) == false);
   EXPECT_TRUE(bool(imageProgress & FLAG_IS_ANIMATED) == true);
+
+  EXPECT_EQ(bool(aTestCase.mFlags & TEST_CASE_IS_TRANSPARENT),
+            bool(imageProgress & FLAG_HAS_TRANSPARENCY));
+  EXPECT_EQ(bool(aTestCase.mFlags & TEST_CASE_IS_ANIMATED),
+            bool(imageProgress & FLAG_IS_ANIMATED));
 
   // Ensure that we decoded both frames of the animated version of the image.
   {
@@ -1055,8 +1063,12 @@ TEST_F(ImageDecoders, AnimatedGIFWithExtraImageSubBlocks) {
   RefPtr<ProgressTracker> tracker = image->GetProgressTracker();
   Progress imageProgress = tracker->GetProgress();
 
-  EXPECT_TRUE(bool(imageProgress & FLAG_HAS_TRANSPARENCY) == false);
   EXPECT_TRUE(bool(imageProgress & FLAG_IS_ANIMATED) == true);
+
+  EXPECT_EQ(bool(testCase.mFlags & TEST_CASE_IS_TRANSPARENT),
+            bool(imageProgress & FLAG_HAS_TRANSPARENCY));
+  EXPECT_EQ(bool(testCase.mFlags & TEST_CASE_IS_ANIMATED),
+            bool(imageProgress & FLAG_IS_ANIMATED));
 
   // Ensure that we decoded both frames of the image.
   LookupResult result =
