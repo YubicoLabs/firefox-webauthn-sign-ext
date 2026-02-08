@@ -629,9 +629,21 @@ export class AIWindow extends MozLitElement {
       }
     } catch (e) {
       this.showSearchingIndicator(false, null);
+      this.#handleError(e);
       this.requestUpdate?.();
     }
   };
+
+  #handleError(error) {
+    const newErrorMessage = {
+      role: "",
+      content: {
+        isError: true,
+        status: error?.status,
+      },
+    };
+    this.#dispatchMessageToChatContent(newErrorMessage);
+  }
 
   /**
    * Retrieves the AIChatContent actor from the browser's window global.
