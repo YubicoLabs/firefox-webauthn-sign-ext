@@ -123,6 +123,9 @@ export class AIChatContent extends MozLitElement {
         this.#checkConversationState(message);
         this.handleUserPromptEvent(event);
         break;
+      // Used to clear the conversation state via side effects ( new conv id )
+      case "clear-conversation":
+        this.#checkConversationState(message);
     }
   }
 

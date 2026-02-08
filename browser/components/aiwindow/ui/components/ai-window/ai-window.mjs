@@ -745,7 +745,7 @@ export class AIWindow extends MozLitElement {
     // Submitting a message with a new convoId here.
     // This will clear the chat content area in the child process via side effect.
     this.#dispatchMessageToChatContent({
-      role: "", // wont be checked.
+      role: "clear-conversation",
       content: { body: "" },
     });
 
