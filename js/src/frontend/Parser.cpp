@@ -5650,6 +5650,21 @@ inline bool PerHandlerParser<SyntaxParseHandler>::processImport(
   return false;
 }
 
+#ifdef ENABLE_SOURCE_PHASE_IMPORTS
+template <>
+inline bool PerHandlerParser<FullParseHandler>::processImportSource(
+    BinaryNodeType node) {
+  return pc_->sc()->asModuleContext()->builder.processImportSource(node);
+}
+
+template <>
+inline bool PerHandlerParser<SyntaxParseHandler>::processImportSource(
+    BinaryNodeType node) {
+  MOZ_ALWAYS_FALSE(abortIfSyntaxParser());
+  return false;
+}
+#endif
+
 template <class ParseHandler, typename Unit>
 typename ParseHandler::BinaryNodeResult
 GeneralParser<ParseHandler, Unit>::exportFrom(uint32_t begin, Node specList) {
