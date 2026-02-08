@@ -4,8 +4,6 @@
 
 smartwindow-messages-document-title = Smart window chat messages
 
-smartwindow-document-title = Smart window chat
-
 ## TO BE UPDATED: https://mozilla-hub.atlassian.net/browse/GENAI-3450
 ## Error messages in the chat content
 

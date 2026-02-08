@@ -53,6 +53,8 @@ ChromeUtils.defineLazyGetter(lazy, "log", function () {
 const FULLPAGE = "fullpage";
 const SIDEBAR = "sidebar";
 const PREF_MEMORIES = "browser.smartwindow.memories";
+const TAB_FAVICON_CHAT =
+  "chrome://browser/content/aiwindow/assets/ask-icon.svg";
 
 /**
  * A custom element for managing AI Window
@@ -462,7 +464,16 @@ export class AIWindow extends MozLitElement {
     );
 
     this.#conversation.title = title;
+    document.title = title;
     this.#updateConversation();
+  }
+
+  #updateTabFavicon() {
+    if (this.classList.contains("chat-active") || this.mode !== FULLPAGE) {
+      return;
+    }
+    const link = document.getElementById("tabIcon");
+    link.href = TAB_FAVICON_CHAT;
   }
 
   /**
@@ -528,6 +539,7 @@ export class AIWindow extends MozLitElement {
       return;
     }
     this.showStarters = false;
+    this.#updateTabFavicon();
     this.#setBrowserContainerActiveState(true);
 
     const nextTurnIndex = this.#conversation.currentTurnIndex() + 1;
@@ -737,6 +749,10 @@ export class AIWindow extends MozLitElement {
    */
   openConversation(conversation) {
     this.#conversation = conversation;
+    if (conversation.title) {
+      document.title = conversation.title;
+    }
+    this.#updateTabFavicon();
 
     const actor = this.#getAIChatContentActor();
     if (this.#browser && actor) {
