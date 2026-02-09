@@ -2791,11 +2791,15 @@ export class UrlbarInput extends HTMLElement {
           case lazy.SearchUtils.MODIFIED_TYPE.DEFAULT:
             if (!this.isPrivate) {
               this._updatePlaceholder(engine.name);
+              // The cached result might use the old default engine.
+              this._resultForCurrentValue = null;
             }
             break;
           case lazy.SearchUtils.MODIFIED_TYPE.DEFAULT_PRIVATE:
             if (this.isPrivate) {
               this._updatePlaceholder(engine.name);
+              // The cached result might use the old default private engine.
+              this._resultForCurrentValue = null;
             }
             break;
         }
