@@ -126,12 +126,11 @@ using mozilla::dom::ipc::StructuredCloneData;
 // incoming messages and as an interface to DispatchMessage().
 struct MOZ_HEAP_CLASS ServiceWorkerContainer::ReceivedMessage {
   explicit ReceivedMessage(const ClientPostMessageArgs& aArgs)
-      : mServiceWorker(aArgs.serviceWorker()) {
-    mClonedData.CopyFromClonedMessageData(aArgs.clonedData());
-  }
+      : mServiceWorker(aArgs.serviceWorker()),
+        mClonedData(aArgs.clonedData()) {}
 
   ServiceWorkerDescriptor mServiceWorker;
-  StructuredCloneData mClonedData;
+  NotNull<RefPtr<StructuredCloneData>> mClonedData;
 
   NS_INLINE_DECL_REFCOUNTING(ReceivedMessage)
 
@@ -759,14 +758,14 @@ Result<Ok, bool> ServiceWorkerContainer::FillInMessageEventInit(
 
   IgnoredErrorResult readError;
   JS::Rooted<JS::Value> messageData(aCx);
-  aMessage.mClonedData.Read(aCx, &messageData, readError);
+  aMessage.mClonedData->Read(aCx, &messageData, readError);
   if (readError.Failed()) {
     return Err(true);
   }
 
   aInit.mData = messageData;
 
-  if (!aMessage.mClonedData.TakeTransferredPortsAsSequence(aInit.mPorts)) {
+  if (!aMessage.mClonedData->TakeTransferredPortsAsSequence(aInit.mPorts)) {
     xpc::Throw(aCx, NS_ERROR_OUT_OF_MEMORY);
     return Err(false);
   }

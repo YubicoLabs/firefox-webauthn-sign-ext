@@ -548,22 +548,19 @@ ConsoleListener::Observe(nsIConsoleMessage* aMessage) {
 
         JSAutoRealm ar(cx, &stackGlobal.toObject());
 
-        StructuredCloneData data;
+        auto data = MakeNotNull<RefPtr<StructuredCloneData>>(
+            JS::StructuredCloneScope::DifferentProcess,
+            StructuredCloneHolder::TransferringNotSupported);
         ErrorResult err;
-        data.Write(cx, stack, err);
+        data->Write(cx, stack, err);
         err.WouldReportJSException();
         if (err.Failed()) {
           return err.StealNSResult();
         }
 
-        ClonedMessageData cloned;
-        if (!data.BuildClonedMessageData(cloned)) {
-          return NS_ERROR_FAILURE;
-        }
-
         mChild->SendScriptErrorWithStack(msg, sourceName, lineNum, colNum,
                                          flags, category, fromPrivateWindow,
-                                         fromChromeContext, cloned);
+                                         fromChromeContext, data);
         return NS_OK;
       }
     }
@@ -664,8 +661,7 @@ NS_INTERFACE_MAP_BEGIN(ContentChild)
 NS_INTERFACE_MAP_END
 
 mozilla::ipc::IPCResult ContentChild::RecvSetXPCOMProcessAttributes(
-    XPCOMInitData&& aXPCOMInit,
-    const UniquePtr<StructuredCloneData>& aInitialData,
+    XPCOMInitData&& aXPCOMInit, NotNull<StructuredCloneData*> aInitialData,
     FullLookAndFeel&& aLookAndFeelData, dom::SystemFontList&& aFontList,
     Maybe<mozilla::ipc::ReadOnlySharedMemoryHandle>&& aSharedUASheetHandle,
     const uintptr_t& aSharedUASheetAddress,
@@ -683,7 +679,7 @@ mozilla::ipc::IPCResult ContentChild::RecvSetXPCOMProcessAttributes(
   PerfStats::SetCollectionMask(aXPCOMInit.perfStatsMask());
   LookAndFeel::EnsureInit();
   InitSharedUASheets(std::move(aSharedUASheetHandle), aSharedUASheetAddress);
-  InitXPCOM(std::move(aXPCOMInit), *aInitialData,
+  InitXPCOM(std::move(aXPCOMInit), aInitialData,
             aIsReadyForBackgroundProcessing);
   InitGraphicsDeviceData(aXPCOMInit.contentDeviceData());
   RefPtr<net::ChildDNSService> dnsServiceChild =
@@ -1374,7 +1370,7 @@ void ContentChild::InitSharedUASheets(
 
 void ContentChild::InitXPCOM(
     XPCOMInitData&& aXPCOMInit,
-    const mozilla::dom::ipc::StructuredCloneData& aInitialData,
+    NotNull<mozilla::dom::ipc::StructuredCloneData*> aInitialData,
     bool aIsReadyForBackgroundProcessing) {
 #if defined(XP_WIN)
   // DLL services untrusted modules processing depends on
@@ -1448,9 +1444,7 @@ void ContentChild::InitXPCOM(
     }
     IgnoredErrorResult rv;
     JS::Rooted<JS::Value> data(jsapi.cx());
-    mozilla::dom::ipc::StructuredCloneData id;
-    id.Copy(aInitialData);
-    id.Read(jsapi.cx(), &data, rv);
+    aInitialData->Read(jsapi.cx(), &data, rv);
     if (NS_WARN_IF(rv.Failed())) {
       MOZ_CRASH();
     }
@@ -2393,7 +2387,7 @@ mozilla::ipc::IPCResult ContentChild::RecvLoadProcessScript(
 }
 
 mozilla::ipc::IPCResult ContentChild::RecvAsyncMessage(
-    const nsString& aMsg, const ClonedMessageData& aData) {
+    const nsString& aMsg, NotNull<StructuredCloneData*> aData) {
   AUTO_PROFILER_LABEL_DYNAMIC_LOSSY_NSSTRING("ContentChild::RecvAsyncMessage",
                                              OTHER, aMsg);
   MMPrinter::Print("ContentChild::RecvAsyncMessage", aMsg, aData);
@@ -2401,9 +2395,7 @@ mozilla::ipc::IPCResult ContentChild::RecvAsyncMessage(
   RefPtr<nsFrameMessageManager> cpm =
       nsFrameMessageManager::GetChildProcessManager();
   if (cpm) {
-    StructuredCloneData data;
-    ipc::UnpackClonedMessageData(aData, data);
-    cpm->ReceiveMessage(cpm, nullptr, aMsg, false, &data, nullptr);
+    cpm->ReceiveMessage(cpm, nullptr, aMsg, false, aData, nullptr);
   }
   return IPC_OK();
 }
@@ -4167,7 +4159,7 @@ mozilla::ipc::IPCResult ContentChild::RecvMaybeExitFullscreen(
 
 mozilla::ipc::IPCResult ContentChild::RecvWindowPostMessage(
     const MaybeDiscarded<BrowsingContext>& aContext,
-    const ClonedOrErrorMessageData& aMessage, const PostMessageData& aData) {
+    StructuredCloneData* aMessage, const PostMessageData& aData) {
   if (aContext.IsNullOrDiscarded()) {
     MOZ_LOG(BrowsingContext::GetLog(), LogLevel::Debug,
             ("ChildIPC: Trying to send a message to dead or detached context"));
@@ -4211,7 +4203,9 @@ mozilla::ipc::IPCResult ContentChild::RecvWindowPostMessage(
       new PostMessageEvent(sourceBc, aData.origin(), window, providedPrincipal,
                            aData.innerWindowId(), aData.callerURI(),
                            aData.scriptLocation(), aData.isFromPrivateWindow());
-  event->UnpackFrom(aMessage);
+  if (aMessage) {
+    event->SetMessageData(aMessage);
+  }
 
   event->DispatchToTargetThread(IgnoredErrorResult());
   return IPC_OK();
@@ -4685,15 +4679,10 @@ already_AddRefed<JSActor> ContentChild::InitJSActor(
   return actor.forget();
 }
 
-IPCResult ContentChild::RecvRawMessage(
-    const JSActorMessageMeta& aMeta, JSIPCValue&& aData,
-    const UniquePtr<ClonedMessageData>& aStack) {
-  UniquePtr<StructuredCloneData> stack;
-  if (aStack) {
-    stack = MakeUnique<StructuredCloneData>();
-    stack->BorrowFromClonedMessageData(*aStack);
-  }
-  ReceiveRawMessage(aMeta, std::move(aData), std::move(stack));
+IPCResult ContentChild::RecvRawMessage(const JSActorMessageMeta& aMeta,
+                                       JSIPCValue&& aData,
+                                       ipc::StructuredCloneData* aStack) {
+  ReceiveRawMessage(aMeta, std::move(aData), aStack);
   return IPC_OK();
 }
 
