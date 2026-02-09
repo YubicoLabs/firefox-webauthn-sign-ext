@@ -778,6 +778,13 @@ static StylePositionArea ToPhysicalPositionArea(StylePositionArea aPosArea,
   return aPosArea;
 }
 
+StylePositionArea AnchorPositioningUtils::PhysicalizePositionArea(
+    StylePositionArea aPosArea, const nsIFrame* aPositioned) {
+  return ToPhysicalPositionArea(aPosArea,
+                                aPositioned->GetParent()->GetWritingMode(),
+                                aPositioned->GetWritingMode());
+}
+
 nsRect AnchorPositioningUtils::AdjustAbsoluteContainingBlockRectForPositionArea(
     const nsRect& aAnchorRect, const nsRect& aCBRect, WritingMode aPositionedWM,
     WritingMode aCBWM, const StylePositionArea& aPosArea,
@@ -1010,8 +1017,8 @@ AnchorPositioningUtils::ContainingBlockInfo::UseCBFrameSize(
 
 bool AnchorPositioningUtils::FitsInContainingBlock(
     const nsIFrame* aPositioned, const AnchorPosReferenceData& aReferenceData) {
-  MOZ_ASSERT(aPositioned->GetProperty(nsIFrame::AnchorPosReferences()) ==
-             &aReferenceData);
+  MOZ_ASSERT(aPositioned->FirstInFlow()->GetProperty(
+                 nsIFrame::AnchorPosReferences()) == &aReferenceData);
 
   const auto& scrollShift = aReferenceData.mDefaultScrollShift;
   const auto scrollCompensatedSides = aReferenceData.mScrollCompensatedSides;
