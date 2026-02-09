@@ -102,7 +102,8 @@ class TRRService : public TRRServiceBase,
 
   void DontUseTRRThread() { mDontUseTRRThread = true; }
 
-  bool Http3FirstEnabled() const { return mHttp3FirstEnabled; }
+  void SetHttp3FirstForServer(const nsACString& aServer, bool aEnabled);
+  bool GetHttp3FirstForServer(const nsACString& aServer);
 
  private:
   virtual ~TRRService();
@@ -144,7 +145,7 @@ class TRRService : public TRRServiceBase,
   void AddEtcHosts(const nsTArray<nsCString>&);
 
   bool mInitialized{false};
-  Mutex mLock;
+  Mutex mLock{"TRRService"};
 
   nsCString mPrivateCred;  // main thread only
   nsCString mConfirmationNS MOZ_GUARDED_BY(mLock){"example.com"_ns};
@@ -154,7 +155,6 @@ class TRRService : public TRRServiceBase,
       false};  // set when captive portal check is passed
   Atomic<bool, Relaxed> mShutdown{false};
   Atomic<bool, Relaxed> mDontUseTRRThread{false};
-  Atomic<bool, Relaxed> mHttp3FirstEnabled{false};
 
   // TRR Blocklist storage
   // mTRRBLStorage is only modified on the main thread, but we query whether it
@@ -167,6 +167,7 @@ class TRRService : public TRRServiceBase,
   nsTHashSet<nsCString> mExcludedDomains MOZ_GUARDED_BY(mLock);
   nsTHashSet<nsCString> mDNSSuffixDomains MOZ_GUARDED_BY(mLock);
   nsTHashSet<nsCString> mEtcHostsDomains MOZ_GUARDED_BY(mLock);
+  nsTHashMap<nsCString, bool> mHttp3FirstServers MOZ_GUARDED_BY(mLock);
 
   // The result of the TRR heuristic detection
   TRRSkippedReason mHeuristicDetectionValue = nsITRRSkipReason::TRR_UNSET;

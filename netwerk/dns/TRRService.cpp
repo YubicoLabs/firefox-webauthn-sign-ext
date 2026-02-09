@@ -119,9 +119,7 @@ NS_IMPL_RELEASE_USING_AGGREGATOR(TRRService::ConfirmationContext,
 NS_IMPL_QUERY_INTERFACE(TRRService::ConfirmationContext, nsITimerCallback,
                         nsINamed)
 
-TRRService::TRRService() : mLock("TRRService") {
-  MOZ_ASSERT(NS_IsMainThread(), "wrong thread");
-}
+TRRService::TRRService() { MOZ_ASSERT(NS_IsMainThread(), "wrong thread"); }
 
 // static
 TRRService* TRRService::Get() { return sTRRServicePtr; }
@@ -184,7 +182,6 @@ nsresult TRRService::Init(bool aNativeHTTPSQueryEnabled) {
     prefBranch->AddObserver(TRR_PREF_PREFIX, this, true);
     prefBranch->AddObserver(kRolloutURIPref, this, true);
     prefBranch->AddObserver(kRolloutModePref, this, true);
-    prefBranch->AddObserver(kRolloutHttp3FirstPref, this, true);
   }
 
   sTRRServicePtr = this;
@@ -340,8 +337,6 @@ bool TRRService::MaybeSetPrivateURI(const nsACString& aURI) {
       (void)neckoParent->SendSetTRRDomain(host);
     }
 
-    AsyncCreateTRRConnectionInfo(mPrivateURI);
-
     // The URI has changed. We should trigger a new confirmation immediately.
     // We must do this here because the URI could also change because of
     // steering.
@@ -358,6 +353,10 @@ bool TRRService::MaybeSetPrivateURI(const nsACString& aURI) {
   if (obs) {
     obs->NotifyObservers(nullptr, NS_NETWORK_TRR_URI_CHANGED_TOPIC, nullptr);
   }
+
+  // Call this without lock to avoid deadlock.
+  AsyncCreateTRRConnectionInfo(newURI);
+
   return true;
 }
 
@@ -385,9 +384,6 @@ nsresult TRRService::ReadPrefs(const char* name) {
       !strcmp(name, kRolloutURIPref) || !strcmp(name, TRR_PREF("ohttp.uri")) ||
       !strcmp(name, TRR_PREF("use_ohttp"))) {
     OnTRRURIChange();
-  }
-  if (!name || !strcmp(name, kRolloutHttp3FirstPref)) {
-    mHttp3FirstEnabled = Preferences::GetBool(kRolloutHttp3FirstPref, false);
   }
   if (!name || !strcmp(name, TRR_PREF("credentials"))) {
     MutexAutoLock lock(mLock);
@@ -1411,6 +1407,20 @@ void TRRService::InitTRRConnectionInfo(bool aForceReinit) {
     LOG(("TRRService::SendInitTRRConnectionInfo"));
     (void)child->SendInitTRRConnectionInfo(aForceReinit);
   }
+}
+
+void TRRService::SetHttp3FirstForServer(const nsACString& aServer,
+                                        bool aEnabled) {
+  MutexAutoLock lock(mLock);
+  LOG(("SetHttp3FirstForServer %s %d", nsCString(aServer).get(), aEnabled));
+  mHttp3FirstServers.InsertOrUpdate(aServer, aEnabled);
+}
+
+bool TRRService::GetHttp3FirstForServer(const nsACString& aServer) {
+  MutexAutoLock lock(mLock);
+  bool res = mHttp3FirstServers.MaybeGet(aServer).valueOr(false);
+  LOG(("GetHttp3FirstForServer %s %d", nsCString(aServer).get(), res));
+  return res;
 }
 
 }  // namespace mozilla::net
