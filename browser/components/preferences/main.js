@@ -4885,6 +4885,17 @@ SettingGroupManager.registerGroups({
       },
     ],
   },
+  backup: {
+    l10nId: "settings-data-backup-header2",
+    headingLevel: 2,
+    supportPage: "firefox-backup",
+    items: [
+      {
+        id: "backupSettings",
+        control: "backup-settings",
+      },
+    ],
+  },
   translationsAutomaticTranslation: {
     inProgress: true,
     headingLevel: 2,
