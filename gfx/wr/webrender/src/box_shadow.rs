@@ -115,7 +115,6 @@ impl PatternBuilder for BoxShadowTemplate {
             RenderTaskKind::Prim(PrimTask {
                 pattern: color_pattern.kind,
                 pattern_input: color_pattern.shader_input,
-                raster_spatial_node_index,
                 device_pixel_scale: DevicePixelScale::new(1.0),
                 content_origin,
                 prim_address_f: pattern_prim_address_f,
