@@ -190,8 +190,7 @@ nsFrameMessageManager::~nsFrameMessageManager() {
 inline void ImplCycleCollectionTraverse(
     nsCycleCollectionTraversalCallback& aCallback,
     nsMessageListenerInfo& aField, const char* aName, uint32_t aFlags = 0) {
-  ImplCycleCollectionTraverse(aCallback, aField.mStrongListener, aName, aFlags);
-  ImplCycleCollectionTraverse(aCallback, aField.mWeakListener, aName, aFlags);
+  ImplCycleCollectionTraverse(aCallback, aField.mListener, aName, aFlags);
 }
 
 NS_IMPL_CYCLE_COLLECTION_CLASS(nsFrameMessageManager)
@@ -259,14 +258,14 @@ void nsFrameMessageManager::AddMessageListener(const nsAString& aMessageName,
   auto* const listeners = mListeners.GetOrInsertNew(aMessageName);
   uint32_t len = listeners->Length();
   for (uint32_t i = 0; i < len; ++i) {
-    MessageListener* strongListener = listeners->ElementAt(i).mStrongListener;
+    MessageListener* strongListener = listeners->ElementAt(i).mListener;
     if (strongListener && *strongListener == aListener) {
       return;
     }
   }
 
   nsMessageListenerInfo* entry = listeners->AppendElement();
-  entry->mStrongListener = &aListener;
+  entry->mListener = &aListener;
   entry->mListenWhenClosed = aListenWhenClosed;
 }
 
@@ -278,85 +277,11 @@ void nsFrameMessageManager::RemoveMessageListener(const nsAString& aMessageName,
   if (listeners) {
     uint32_t len = listeners->Length();
     for (uint32_t i = 0; i < len; ++i) {
-      MessageListener* strongListener = listeners->ElementAt(i).mStrongListener;
+      MessageListener* strongListener = listeners->ElementAt(i).mListener;
       if (strongListener && *strongListener == aListener) {
         listeners->RemoveElementAt(i);
         return;
       }
-    }
-  }
-}
-
-static already_AddRefed<nsISupports> ToXPCOMMessageListener(
-    MessageListener& aListener) {
-  return CallbackObjectHolder<mozilla::dom::MessageListener, nsISupports>(
-             &aListener)
-      .ToXPCOMCallback();
-}
-
-void nsFrameMessageManager::AddWeakMessageListener(
-    const nsAString& aMessageName, MessageListener& aListener,
-    ErrorResult& aError) {
-  nsCOMPtr<nsISupports> listener(ToXPCOMMessageListener(aListener));
-  nsWeakPtr weak = do_GetWeakReference(listener);
-  if (!weak) {
-    aError.Throw(NS_ERROR_NO_INTERFACE);
-    return;
-  }
-
-#ifdef DEBUG
-  // It's technically possible that one object X could give two different
-  // nsIWeakReference*'s when you do_GetWeakReference(X).  We really don't want
-  // this to happen; it will break e.g. RemoveWeakMessageListener.  So let's
-  // check that we're not getting ourselves into that situation.
-  nsCOMPtr<nsISupports> canonical = do_QueryInterface(listener);
-  for (const auto& entry : mListeners) {
-    nsAutoTObserverArray<nsMessageListenerInfo, 1>* listeners = entry.GetWeak();
-    uint32_t count = listeners->Length();
-    for (uint32_t i = 0; i < count; i++) {
-      nsWeakPtr weakListener = listeners->ElementAt(i).mWeakListener;
-      if (weakListener) {
-        nsCOMPtr<nsISupports> otherCanonical = do_QueryReferent(weakListener);
-        MOZ_ASSERT((canonical == otherCanonical) == (weak == weakListener));
-      }
-    }
-  }
-#endif
-
-  auto* const listeners = mListeners.GetOrInsertNew(aMessageName);
-  uint32_t len = listeners->Length();
-  for (uint32_t i = 0; i < len; ++i) {
-    if (listeners->ElementAt(i).mWeakListener == weak) {
-      return;
-    }
-  }
-
-  nsMessageListenerInfo* entry = listeners->AppendElement();
-  entry->mWeakListener = weak;
-  entry->mListenWhenClosed = false;
-}
-
-void nsFrameMessageManager::RemoveWeakMessageListener(
-    const nsAString& aMessageName, MessageListener& aListener,
-    ErrorResult& aError) {
-  nsCOMPtr<nsISupports> listener(ToXPCOMMessageListener(aListener));
-  nsWeakPtr weak = do_GetWeakReference(listener);
-  if (!weak) {
-    aError.Throw(NS_ERROR_NO_INTERFACE);
-    return;
-  }
-
-  nsAutoTObserverArray<nsMessageListenerInfo, 1>* listeners =
-      mListeners.Get(aMessageName);
-  if (!listeners) {
-    return;
-  }
-
-  uint32_t len = listeners->Length();
-  for (uint32_t i = 0; i < len; ++i) {
-    if (listeners->ElementAt(i).mWeakListener == weak) {
-      listeners->RemoveElementAt(i);
-      return;
     }
   }
 }
@@ -638,40 +563,16 @@ void nsFrameMessageManager::ReceiveMessage(
         *listeners);
     while (iter.HasMore()) {
       nsMessageListenerInfo& listener = iter.GetNext();
-      // Remove mListeners[i] if it's an expired weak listener.
-      nsCOMPtr<nsISupports> weakListener;
-      if (listener.mWeakListener) {
-        weakListener = do_QueryReferent(listener.mWeakListener);
-        if (!weakListener) {
-          iter.Remove();
-          continue;
-        }
-      }
 
       if (!listener.mListenWhenClosed && aTargetClosed) {
         continue;
       }
 
-      JS::RootingContext* rcx = RootingCx();
-      JS::Rooted<JSObject*> object(rcx);
-      JS::Rooted<JSObject*> objectGlobal(rcx);
+      RefPtr<MessageListener> webIDLListener = listener.mListener;
+      MOZ_ASSERT(webIDLListener);
 
-      RefPtr<MessageListener> webIDLListener;
-      if (!weakListener) {
-        webIDLListener = listener.mStrongListener;
-        object = webIDLListener->CallbackOrNull();
-        objectGlobal = webIDLListener->CallbackGlobalOrNull();
-      } else {
-        nsCOMPtr<nsIXPConnectWrappedJS> wrappedJS =
-            do_QueryInterface(weakListener);
-        if (!wrappedJS) {
-          continue;
-        }
-
-        object = wrappedJS->GetJSObject();
-        objectGlobal = wrappedJS->GetJSObjectGlobal();
-      }
-
+      JS::Rooted<JSObject*> object(RootingCx(),
+                                   webIDLListener->CallbackOrNull());
       if (!object) {
         continue;
       }
@@ -683,7 +584,7 @@ void nsFrameMessageManager::ReceiveMessage(
       // We passed the unwrapped object to AutoEntryScript so we now need to
       // enter the realm of the global object that represents the realm of our
       // callback.
-      JSAutoRealm ar(cx, objectGlobal);
+      JSAutoRealm ar(cx, webIDLListener->CallbackGlobalOrNull());
 
       RootedDictionary<ReceiveMessageArgument> argument(cx);
 
@@ -717,72 +618,23 @@ void nsFrameMessageManager::ReceiveMessage(
         argument.mTargetFrameLoader.Construct(*aTargetFrameLoader);
       }
 
-      JS::Rooted<JS::Value> thisValue(cx, JS::UndefinedValue());
-
-      if (JS::IsCallable(object)) {
-        // A small hack to get 'this' value right on content side where
-        // messageManager is wrapped in BrowserChildMessageManager's global.
-        nsCOMPtr<nsISupports> defaultThisValue;
-        if (mChrome) {
-          defaultThisValue = do_QueryObject(this);
-        } else {
-          defaultThisValue = aTarget;
-        }
-        js::AssertSameCompartment(cx, object);
-        aError = nsContentUtils::WrapNative(cx, defaultThisValue, &thisValue);
-        if (aError.Failed()) {
-          return;
-        }
+      // A small hack to get 'this' value right on content side where
+      // messageManager is wrapped in BrowserChildMessageManager's global.
+      nsCOMPtr<nsISupports> defaultThisValue;
+      if (mChrome) {
+        defaultThisValue = do_QueryObject(this);
+      } else {
+        defaultThisValue = aTarget;
       }
 
       JS::Rooted<JS::Value> rval(cx, JS::UndefinedValue());
-      if (webIDLListener) {
-        webIDLListener->ReceiveMessage(thisValue, argument, &rval, aError);
-        if (aError.Failed()) {
-          // At this point the call to ReceiveMessage will have reported any
-          // exceptions (we kept the default of eReportExceptions). We suppress
-          // the failure in the ErrorResult and continue.
-          aError.SuppressException();
-          continue;
-        }
-      } else {
-        JS::Rooted<JS::Value> funval(cx);
-        if (JS::IsCallable(object)) {
-          // If the listener is a JS function:
-          funval.setObject(*object);
-        } else {
-          // If the listener is a JS object which has receiveMessage function:
-          if (!JS_GetProperty(cx, object, "receiveMessage", &funval) ||
-              !funval.isObject()) {
-            aError.Throw(NS_ERROR_UNEXPECTED);
-            return;
-          }
-
-          // Check if the object is even callable.
-          if (!JS::IsCallable(&funval.toObject())) {
-            aError.Throw(NS_ERROR_UNEXPECTED);
-            return;
-          }
-          thisValue.setObject(*object);
-        }
-
-        JS::Rooted<JS::Value> argv(cx);
-        if (!ToJSValue(cx, argument, &argv)) {
-          aError.Throw(NS_ERROR_UNEXPECTED);
-          return;
-        }
-
-        {
-          JS::Rooted<JSObject*> thisObject(cx, thisValue.toObjectOrNull());
-          js::AssertSameCompartment(cx, thisObject);
-          if (!JS_CallFunctionValue(cx, thisObject, funval,
-                                    JS::HandleValueArray(argv), &rval)) {
-            // Because the AutoEntryScript is inside the loop this continue will
-            // make us report any exceptions (after which we'll move on to the
-            // next listener).
-            continue;
-          }
-        }
+      webIDLListener->ReceiveMessage(defaultThisValue, argument, &rval, aError);
+      if (aError.Failed()) {
+        // At this point the call to ReceiveMessage will have reported any
+        // exceptions (we kept the default of eReportExceptions). We suppress
+        // the failure in the ErrorResult and continue.
+        aError.SuppressException();
+        continue;
       }
 
       if (aRetVal) {
@@ -1018,20 +870,7 @@ void MessageManagerReporter::CountReferents(
       aReferentCount->mSuspectMessages.AppendElement(key);
     }
 
-    for (uint32_t i = 0; i < listenerCount; ++i) {
-      const nsMessageListenerInfo& listenerInfo = listeners->ElementAt(i);
-      if (listenerInfo.mWeakListener) {
-        nsCOMPtr<nsISupports> referent =
-            do_QueryReferent(listenerInfo.mWeakListener);
-        if (referent) {
-          aReferentCount->mWeakAlive++;
-        } else {
-          aReferentCount->mWeakDead++;
-        }
-      } else {
-        aReferentCount->mStrong++;
-      }
-    }
+    aReferentCount->mStrong += listenerCount;
   }
 
   // Add referent count in child managers because the listeners
@@ -1607,10 +1446,7 @@ void nsFrameMessageManager::MarkForCC() {
     nsAutoTObserverArray<nsMessageListenerInfo, 1>* listeners = entry.GetWeak();
     uint32_t count = listeners->Length();
     for (uint32_t i = 0; i < count; i++) {
-      MessageListener* strongListener = listeners->ElementAt(i).mStrongListener;
-      if (strongListener) {
-        strongListener->MarkForCC();
-      }
+      listeners->ElementAt(i).mListener->MarkForCC();
     }
   }
 
