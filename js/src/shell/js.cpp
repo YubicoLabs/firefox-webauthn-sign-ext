@@ -12881,8 +12881,6 @@ bool InitOptionParser(OptionParser& op) {
                         "Enable Symbols As WeakMap keys") ||
       !op.addBoolOption('\0', "no-symbols-as-weakmap-keys",
                         "Disable Symbols As WeakMap keys") ||
-      !op.addBoolOption('\0', "enable-uint8array-base64",
-                        "Enable Uint8Array base64/hex methods") ||
       !op.addBoolOption('\0', "enable-top-level-await",
                         "Enable top-level await") ||
       !op.addStringOption('\0', "shared-memory", "on/off",
@@ -13299,9 +13297,6 @@ bool SetGlobalOptionsPreJSInit(const OptionParser& op) {
   // If you're adding a new feature, consider using --setpref instead.
   if (op.getBoolOption("enable-shadow-realms")) {
     JS::Prefs::set_experimental_shadow_realms(true);
-  }
-  if (op.getBoolOption("enable-uint8array-base64")) {
-    JS::Prefs::setAtStartup_experimental_uint8array_base64(true);
   }
   if (op.getBoolOption("enable-atomics-pause")) {
     JS::Prefs::setAtStartup_experimental_atomics_pause(true);

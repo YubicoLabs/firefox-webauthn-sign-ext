@@ -9101,13 +9101,6 @@
   # Non-startup pref because the WPT test harness sets prefs after startup.
   set_spidermonkey_pref: always
 
-# Experimental support for Uint8Array base64/hex in JavaScript.
-- name: javascript.options.experimental.uint8array_base64
-  type: bool
-  value: true
-  mirror: always
-  set_spidermonkey_pref: startup
-
   # Experimental support for Atomics.pause in JavaScript.
 - name: javascript.options.experimental.atomics_pause
   type: bool
