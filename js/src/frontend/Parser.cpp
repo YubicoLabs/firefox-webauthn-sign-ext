@@ -5262,7 +5262,7 @@ GeneralParser<ParseHandler, Unit>::importDeclaration() {
       // 'a' as the binding name. This is equivalent to
       // |import { default as a } from 'b'|.
 #ifdef ENABLE_SOURCE_PHASE_IMPORTS
-      if (tt == TokenKind::Source) {
+      if (options().sourcePhaseImports() && tt == TokenKind::Source) {
         isSourcePhaseImport = true;
         // Handle the form |import source a from 'b'|
         if (!tokenStream.peekToken(&tt)) {
@@ -12528,12 +12528,17 @@ GeneralParser<ParseHandler, Unit>::importExpr(YieldHandling yieldHandling,
     }
 
 #ifdef ENABLE_SOURCE_PHASE_IMPORTS
-    if (next != TokenKind::Source) {
-      error(JSMSG_UNEXPECTED_TOKEN, "meta or source", TokenKindToDesc(next));
-      return errorResult();
-    }
-    isSourcePhaseImport = true;
-    if (!tokenStream.getToken(&next)) {
+    if (options().sourcePhaseImports()) {
+      if (next != TokenKind::Source) {
+        error(JSMSG_UNEXPECTED_TOKEN, "meta or source", TokenKindToDesc(next));
+        return errorResult();
+      }
+      isSourcePhaseImport = true;
+      if (!tokenStream.getToken(&next)) {
+        return errorResult();
+      }
+    } else {
+      error(JSMSG_UNEXPECTED_TOKEN, "meta", TokenKindToDesc(next));
       return errorResult();
     }
 #else
