@@ -74,6 +74,20 @@ def pick_system(env, flavor, mach_cmd):
                 VersionProducer,
             ],
         )
+    if flavor == "eval-mochitest":
+        return Layers(
+            env,
+            mach_cmd,
+            [
+                PingServer,  # needs to come before Profile
+                BinarySetup,  # needs to come before macos
+                MacosDevice,
+                Profile,
+                ProxyRunner,
+                AndroidDevice,
+                VersionProducer,
+            ],
+        )
     if flavor == "mobile-browser":
         return Layers(env, mach_cmd, mobile_layers)
     if flavor == "webpagetest":
