@@ -3336,6 +3336,9 @@ pref("devtools.debugger.features.map-await-expression", true);
 pref("devtools.debugger.features.async-captured-stacks", true);
 pref("devtools.debugger.features.async-live-stacks", false);
 
+// This supports showing stylesheet sources in the debugger
+pref("devtools.debugger.features.stylesheets-in-debugger", false);
+
 // When debugging a website, this pref controls if extension content scripts applied
 // to the currently debugged page should be shown in the Debugger Source Tree
 pref("devtools.debugger.show-content-scripts", false);
