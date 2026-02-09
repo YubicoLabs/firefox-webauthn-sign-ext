@@ -13263,6 +13263,8 @@ bool InitOptionParser(OptionParser& op) {
       !op.addBoolOption('\0', "enable-iterator-chunking",
                         "Enable Iterator Chunking") ||
       !op.addBoolOption('\0', "enable-iterator-join", "Enable Iterator.join") ||
+      !op.addBoolOption('\0', "enable-source-phase-imports",
+                        "Enable source phase imports") ||
       !op.addBoolOption('\0', "enable-legacy-regexp",
                         "Enable Legacy RegExp features")) {
     return false;
@@ -13348,6 +13350,11 @@ bool SetGlobalOptionsPreJSInit(const OptionParser& op) {
   }
   if (op.getBoolOption("enable-iterator-join")) {
     JS::Prefs::setAtStartup_experimental_iterator_join(true);
+  }
+#endif
+#ifdef ENABLE_SOURCE_PHASE_IMPORTS
+  if (op.getBoolOption("enable-source-phase-imports")) {
+    JS::Prefs::setAtStartup_experimental_source_phase_imports(true);
   }
 #endif
 #ifdef ENABLE_EXPLICIT_RESOURCE_MANAGEMENT
