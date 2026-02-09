@@ -52,17 +52,6 @@ void convolve_vertically_avx2(
     };
 
     int i = 0;
-    if (i < filterLen && (reinterpret_cast<uintptr_t>(filter) & 2) != 0) {
-      // _mm256_set1_epi32 may generate instructions that require 4-byte align
-      // for the memory load. ConvolutionFixed is 2 bytes, so a random offset
-      // into the filter array might be only 2-byte aligned. Process the first
-      // entry individually so that subsequent blocks will be 4-byte aligned.
-      convolve_16_pixels(
-          _mm256_set1_epi32(*(const int16_t*)(filter + i)),
-          _mm256_loadu_si256((const __m256i*)(srcRows[i] + x * 4)),
-          _mm256_setzero_si256());
-      i++;
-    }
     for (; i < filterLen / 2 * 2; i += 2) {
       convolve_16_pixels(
           _mm256_set1_epi32(*(const int32_t*)(filter + i)),
