@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: taskcluster
-Version: 91.1.0
+Version: 93.1.5
 Summary: Python client for Taskcluster
 Project-URL: Homepage, https://github.com/taskcluster/taskcluster
 Project-URL: Repository, https://github.com/taskcluster/taskcluster
@@ -19,6 +19,7 @@ Classifier: Programming Language :: Python :: 3.10
 Classifier: Programming Language :: Python :: 3.11
 Classifier: Programming Language :: Python :: 3.12
 Classifier: Programming Language :: Python :: 3.13
+Classifier: Programming Language :: Python :: 3.14
 Classifier: Topic :: Software Development :: Libraries :: Python Modules
 Requires-Python: >=3.9
 Requires-Dist: aiohttp>=3.7.4

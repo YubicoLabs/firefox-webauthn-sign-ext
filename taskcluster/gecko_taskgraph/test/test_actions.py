@@ -9,7 +9,7 @@ from mozunit import main
 from pytest_taskgraph import make_graph, make_task
 from taskgraph import create
 from taskgraph.util import json
-from taskgraph.util.taskcluster import get_task_definition
+from taskgraph.util.taskcluster import _task_definitions_cache
 
 from gecko_taskgraph import decision
 from gecko_taskgraph.actions import trigger_action_callback
@@ -26,7 +26,7 @@ def mock_root_url(monkeypatch):
 @pytest.fixture(autouse=True)
 def clear_caches():
     yield
-    get_task_definition.cache_clear()
+    _task_definitions_cache.cache.clear()
 
 
 @pytest.fixture
@@ -261,6 +261,11 @@ def test_run_missing_tests(mocker, responses, run_action, get_artifact):
 
     responses.get(
         f"{ROOT_URL}/api/queue/v1/task/gid/artifacts/public%2Ftarget-tasks.json",
+        status=303,
+        json={"url": f"{ROOT_URL}/artifacts/target-tasks.json"},
+    )
+    responses.get(
+        f"{ROOT_URL}/artifacts/target-tasks.json",
         status=200,
         json={"test-foo": {}, "test-bar": {}},
     )
@@ -441,6 +446,11 @@ def test_confirm_failures(mocker, responses, run_action, get_artifact):
     ])
     responses.get(
         f"{ROOT_URL}/api/queue/v1/task/{task_id}/artifacts/public%2Flogs%2Ferrorsummary.log",
+        status=303,
+        json={"url": f"{ROOT_URL}/artifacts/errorsummary.log"},
+    )
+    responses.get(
+        f"{ROOT_URL}/artifacts/errorsummary.log",
         status=200,
         body=errorsummary_content,
     )
@@ -660,6 +670,11 @@ def test_gecko_profile(mocker, responses, run_action, get_artifact):
 
     responses.get(
         f"{ROOT_URL}/api/index/v1/task/gecko.v2.some-project.pushlog-id.100.decision/artifacts/public%2Fparameters.yml",
+        status=303,
+        headers={"Location": f"{ROOT_URL}/artifacts/gecko-profile-params.yml"},
+    )
+    responses.get(
+        f"{ROOT_URL}/artifacts/gecko-profile-params.yml",
         status=200,
         body=yaml.dump({"pushlog_id": "100", "project": "autoland", "level": "1"}),
         content_type="application/x-yaml",
@@ -733,6 +748,11 @@ def test_release_promotion(
 
     responses.get(
         f"{ROOT_URL}/api/queue/v1/task/decision-task-id/artifacts/public%2Fparameters.yml",
+        status=303,
+        json={"url": f"{ROOT_URL}/artifacts/decision-parameters.yml"},
+    )
+    responses.get(
+        f"{ROOT_URL}/artifacts/decision-parameters.yml",
         status=200,
         body=yaml.dump({
             "base_repository": "http://hg.example.com",
@@ -750,6 +770,11 @@ def test_release_promotion(
     )
     responses.get(
         f"{ROOT_URL}/api/queue/v1/task/decision-task-id/artifacts/public%2Ffull-task-graph.json",
+        status=303,
+        json={"url": f"{ROOT_URL}/artifacts/full-task-graph.json"},
+    )
+    responses.get(
+        f"{ROOT_URL}/artifacts/full-task-graph.json",
         status=200,
         json={},
     )
