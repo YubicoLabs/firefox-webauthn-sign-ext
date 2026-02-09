@@ -1210,7 +1210,6 @@ fn add_render_task_with_mask(
                 RenderTaskKind::new_prim(
                     pattern.kind,
                     pattern.shader_input,
-                    device_pixel_scale,
                     content_origin,
                     prim_address_f,
                     transform_id,
