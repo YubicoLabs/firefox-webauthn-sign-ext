@@ -5308,17 +5308,8 @@ pub unsafe extern "C" fn Servo_SerializeFontValueForCanvas(
     declarations: &LockedDeclarationBlock,
     buffer: &mut nsACString,
 ) {
-    use style::properties::shorthands::font;
     read_locked_arc(declarations, |decls: &PropertyDeclarationBlock| {
-        let longhands = match font::LonghandsToSerialize::from_iter(decls.declarations().iter()) {
-            Ok(l) => l,
-            Err(()) => {
-                warn!("Unexpected property!");
-                return;
-            },
-        };
-
-        let rv = longhands.to_css(&mut CssWriter::new(buffer));
+        let rv = decls.shorthand_to_css(ShorthandId::Font, buffer);
         debug_assert!(rv.is_ok());
     })
 }
