@@ -76,6 +76,13 @@ export class CustomKeysParent extends JSWindowActorParent {
     ).label;
     cat = keys[sidebarCat];
     add(cat, "toggleSidebarKb", "customkeys-sidebar-toggle");
+    const viewCat = topWin.document.getElementById("view-menu").label;
+    cat = keys[viewCat];
+    add(
+      cat,
+      "key_togglePictureInPicture",
+      "customkeys-view-picture-in-picture"
+    );
     const toolsCat = topWin.document.getElementById("browserToolsMenu").label;
     cat = keys[toolsCat];
     add(cat, "key_toggleToolboxF12", "customkeys-dev-tools");
