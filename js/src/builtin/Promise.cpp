@@ -3280,8 +3280,6 @@ class MOZ_STACK_CLASS PromiseForOfIterator : public JS::ForOfIterator {
     Handle<PromiseCapability> resultCapability, HandleValue promiseResolve,
     bool* done);
 
-enum class CombinatorKind { All, AllSettled, Any, Race };
-
 /**
  * ES2022 draft rev d03c1ec6e235a5180fa772b6178727c17974cb14
  *
@@ -3298,31 +3296,19 @@ enum class CombinatorKind { All, AllSettled, Any, Race };
  * GetPromiseResolve ( promiseConstructor )
  * https://tc39.es/ecma262/#sec-getpromiseresolve
  */
-[[nodiscard]] static bool CommonPromiseCombinator(JSContext* cx, CallArgs& args,
-                                                  CombinatorKind kind) {
+template <typename PerformFuncT>
+[[nodiscard]] static bool CommonPromiseCombinator(
+    JSContext* cx, CallArgs& args, PerformFuncT performFunc,
+    const char* nonObjectThisErrorMessage,
+    const char* nonIterableErrorMessage) {
   HandleValue iterable = args.get(0);
 
   // Step 2. Let promiseCapability be ? NewPromiseCapability(C).
   // (moved from NewPromiseCapability, step 1).
   HandleValue CVal = args.thisv();
   if (!CVal.isObject()) {
-    const char* message;
-    switch (kind) {
-      case CombinatorKind::All:
-        message = "Receiver of Promise.all call";
-        break;
-      case CombinatorKind::AllSettled:
-        message = "Receiver of Promise.allSettled call";
-        break;
-      case CombinatorKind::Any:
-        message = "Receiver of Promise.any call";
-        break;
-      case CombinatorKind::Race:
-        message = "Receiver of Promise.race call";
-        break;
-    }
     JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
-                              JSMSG_OBJECT_REQUIRED, message);
+                              JSMSG_OBJECT_REQUIRED, nonObjectThisErrorMessage);
     return false;
   }
 
@@ -3374,61 +3360,17 @@ enum class CombinatorKind { All, AllSettled, Any, Race };
 
   if (!iter.valueIsIterable()) {
     // Step 6. IfAbruptRejectPromise(iteratorRecord, promiseCapability).
-    const char* message;
-    switch (kind) {
-      case CombinatorKind::All:
-        message = "Argument of Promise.all";
-        break;
-      case CombinatorKind::AllSettled:
-        message = "Argument of Promise.allSettled";
-        break;
-      case CombinatorKind::Any:
-        message = "Argument of Promise.any";
-        break;
-      case CombinatorKind::Race:
-        message = "Argument of Promise.race";
-        break;
-    }
     JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_NOT_ITERABLE,
-                              message);
+                              nonIterableErrorMessage);
     return AbruptRejectPromise(cx, args, promiseCapability);
   }
 
-  bool done, result;
-  switch (kind) {
-    case CombinatorKind::All:
-      // Promise.all
-      // Step 7. Let result be
-      //         PerformPromiseAll(iteratorRecord, C, promiseCapability,
-      //                           promiseResolve).
-      result = PerformPromiseAll(cx, iter, C, promiseCapability, promiseResolve,
-                                 &done);
-      break;
-    case CombinatorKind::AllSettled:
-      // Promise.allSettled
-      // Step 7. Let result be
-      //         PerformPromiseAllSettled(iteratorRecord, C, promiseCapability,
-      //                                  promiseResolve).
-      result = PerformPromiseAllSettled(cx, iter, C, promiseCapability,
-                                        promiseResolve, &done);
-      break;
-    case CombinatorKind::Any:
-      // Promise.any
-      // Step 7. Let result be
-      //         PerformPromiseAny(iteratorRecord, C, promiseCapability,
-      //                           promiseResolve).
-      result = PerformPromiseAny(cx, iter, C, promiseCapability, promiseResolve,
-                                 &done);
-      break;
-    case CombinatorKind::Race:
-      // Promise.race
-      // Step 7. Let result be
-      //         PerformPromiseRace(iteratorRecord, C, promiseCapability,
-      //                            promiseResolve).
-      result = PerformPromiseRace(cx, iter, C, promiseCapability,
-                                  promiseResolve, &done);
-      break;
-  }
+  // Step 7. Let result be
+  //         PerformPromise[All/AllSettled/Any/Race](iteratorRecord, C,
+  //         promiseCapability, promiseResolve).
+  bool done;
+  bool result =
+      performFunc(cx, iter, C, promiseCapability, promiseResolve, &done);
 
   // Step 8. If result is an abrupt completion, then
   if (!result) {
@@ -3455,7 +3397,9 @@ enum class CombinatorKind { All, AllSettled, Any, Race };
  */
 static bool Promise_static_all(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
-  return CommonPromiseCombinator(cx, args, CombinatorKind::All);
+  return CommonPromiseCombinator(cx, args, PerformPromiseAll,
+                                 "Receiver of Promise.all call",
+                                 "Argument of Promise.all");
 }
 
 #ifdef NIGHTLY_BUILD
@@ -4504,7 +4448,9 @@ static bool PromiseAllResolveElementFunction(JSContext* cx, unsigned argc,
  */
 static bool Promise_static_race(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
-  return CommonPromiseCombinator(cx, args, CombinatorKind::Race);
+  return CommonPromiseCombinator(cx, args, PerformPromiseRace,
+                                 "Receiver of Promise.race call",
+                                 "Argument of Promise.race");
 }
 
 /**
@@ -4556,7 +4502,9 @@ static bool PromiseAllSettledElementFunction(JSContext* cx, unsigned argc,
  */
 static bool Promise_static_allSettled(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
-  return CommonPromiseCombinator(cx, args, CombinatorKind::AllSettled);
+  return CommonPromiseCombinator(cx, args, PerformPromiseAllSettled,
+                                 "Receiver of Promise.allSettled call",
+                                 "Argument of Promise.allSettled");
 }
 
 /**
@@ -4776,7 +4724,9 @@ static bool PromiseAllSettledElementFunction(JSContext* cx, unsigned argc,
  */
 static bool Promise_static_any(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
-  return CommonPromiseCombinator(cx, args, CombinatorKind::Any);
+  return CommonPromiseCombinator(cx, args, PerformPromiseAny,
+                                 "Receiver of Promise.any call",
+                                 "Argument of Promise.any");
 }
 
 static bool PromiseAnyRejectElementFunction(JSContext* cx, unsigned argc,
