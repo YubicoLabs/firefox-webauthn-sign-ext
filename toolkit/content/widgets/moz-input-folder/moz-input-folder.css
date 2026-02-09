@@ -25,3 +25,7 @@
 #choose-folder-button {
   white-space: nowrap;
 }
+
+slot[name="actions"]::slotted(moz-button) {
+  white-space: nowrap;
+}
