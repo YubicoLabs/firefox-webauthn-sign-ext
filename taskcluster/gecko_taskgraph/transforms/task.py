@@ -26,7 +26,7 @@ from taskgraph.transforms.task import payload_builder, payload_builders
 from taskgraph.util.copy import deepcopy
 from taskgraph.util.keyed_by import evaluate_keyed_by
 from taskgraph.util.schema import (
-    Schema,
+    LegacySchema,
     optionally_keyed_by,
     resolve_keyed_by,
     taskref_or_string,
@@ -69,7 +69,7 @@ def _compute_geckoview_version(app_version, moz_build_date):
 
 
 # A task description is a general description of a TaskCluster task
-task_description_schema = Schema({
+task_description_schema = LegacySchema({
     # the label for this task
     Required("label"): str,
     # description of the task (for metadata)
