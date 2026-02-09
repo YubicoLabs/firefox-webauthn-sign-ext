@@ -226,10 +226,7 @@ static already_AddRefed<nsHttpConnectionInfo> CreateConnInfoHelper(
       (scheme.EqualsLiteral("http") || scheme.EqualsLiteral("https")) &&
       (mapping = gHttpHandler->GetAltServiceMapping(
            scheme, host, port, false, OriginAttributes(), http2Allowed,
-           http3Allowed,
-           StaticPrefs::network_trr_force_http3_first() ||
-               (StaticPrefs::network_trr_allow_default_http3_first() &&
-                TRRService::Get()->GetHttp3FirstForServer(host))))) {
+           http3Allowed, StaticPrefs::network_trr_force_http3_first()))) {
     mapping->GetConnectionInfo(getter_AddRefs(connInfo), proxyInfo,
                                OriginAttributes());
   }

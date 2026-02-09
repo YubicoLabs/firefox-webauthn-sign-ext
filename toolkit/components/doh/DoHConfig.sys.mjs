@@ -112,6 +112,9 @@ function makeBaseConfigObject() {
     get fallbackProviderURI() {
       return this.providerList[0]?.uri;
     },
+    get http3FirstEnabled() {
+      return this.providerList[0]?.http3First;
+    },
     trrSelection: {},
     providerSteering: {},
   };
@@ -382,20 +385,6 @@ export const DoHConfigController = {
 
     // Finally, update the currentConfig object synchronously.
     DoHConfigController.currentConfig = newConfig;
-
-    function applyHttp3FirstForProviders(providerList = []) {
-      for (const provider of providerList) {
-        try {
-          let uri = Services.io.newURI(provider.uri);
-          let host = uri.host;
-          Services.dns.setHttp3FirstForServer(host, !!provider.http3First);
-        } catch (e) {
-          console.error(`Failed to set http3First for ${provider.uri}: ${e}`);
-        }
-      }
-    }
-
-    applyHttp3FirstForProviders(providers);
 
     DoHConfigController.notifyNewConfig();
   },
