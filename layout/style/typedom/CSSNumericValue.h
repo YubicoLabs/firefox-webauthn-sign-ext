@@ -23,6 +23,7 @@ class nsISupports;
 namespace mozilla {
 
 class ErrorResult;
+struct StyleNumericValue;
 
 namespace dom {
 
@@ -35,6 +36,9 @@ class CSSNumericValue : public CSSStyleValue {
   explicit CSSNumericValue(nsCOMPtr<nsISupports> aParent);
 
   CSSNumericValue(nsCOMPtr<nsISupports> aParent, ValueType aValueType);
+
+  static RefPtr<CSSNumericValue> Create(nsCOMPtr<nsISupports> aParent,
+                                        const StyleNumericValue& aNumericValue);
 
   JSObject* WrapObject(JSContext* aCx,
                        JS::Handle<JSObject*> aGivenProto) override;

@@ -8,8 +8,11 @@
 
 #include "mozilla/AlreadyAddRefed.h"
 #include "mozilla/ErrorResult.h"
+#include "mozilla/ServoStyleConsts.h"
 #include "mozilla/dom/BindingDeclarations.h"
+#include "mozilla/dom/CSSMathSum.h"
 #include "mozilla/dom/CSSNumericValueBinding.h"
+#include "mozilla/dom/CSSUnitValue.h"
 
 namespace mozilla::dom {
 
@@ -19,6 +22,30 @@ CSSNumericValue::CSSNumericValue(nsCOMPtr<nsISupports> aParent)
 CSSNumericValue::CSSNumericValue(nsCOMPtr<nsISupports> aParent,
                                  ValueType aValueType)
     : CSSStyleValue(std::move(aParent), aValueType) {}
+
+// static
+RefPtr<CSSNumericValue> CSSNumericValue::Create(
+    nsCOMPtr<nsISupports> aParent, const StyleNumericValue& aNumericValue) {
+  RefPtr<CSSNumericValue> numericValue;
+
+  switch (aNumericValue.tag) {
+    case StyleNumericValue::Tag::Unit: {
+      auto unitValue = aNumericValue.AsUnit();
+
+      numericValue = CSSUnitValue::Create(aParent, unitValue);
+      break;
+    }
+
+    case StyleNumericValue::Tag::Sum: {
+      auto mathSum = aNumericValue.AsSum();
+
+      numericValue = CSSMathSum::Create(aParent, mathSum);
+      break;
+    }
+  }
+
+  return numericValue;
+}
 
 JSObject* CSSNumericValue::WrapObject(JSContext* aCx,
                                       JS::Handle<JSObject*> aGivenProto) {

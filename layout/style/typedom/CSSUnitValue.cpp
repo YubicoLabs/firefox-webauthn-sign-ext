@@ -10,6 +10,7 @@
 #include "mozilla/CSSPropertyId.h"
 #include "mozilla/ErrorResult.h"
 #include "mozilla/RefPtr.h"
+#include "mozilla/ServoStyleConsts.h"
 #include "mozilla/dom/BindingDeclarations.h"
 #include "mozilla/dom/CSSUnitValueBinding.h"
 
@@ -20,6 +21,12 @@ CSSUnitValue::CSSUnitValue(nsCOMPtr<nsISupports> aParent, double aValue,
     : CSSNumericValue(std::move(aParent), ValueType::UnitValue),
       mValue(aValue),
       mUnit(aUnit) {}
+
+// static
+RefPtr<CSSUnitValue> CSSUnitValue::Create(nsCOMPtr<nsISupports> aParent,
+                                          const StyleUnitValue& aUnitValue) {
+  return MakeRefPtr<CSSUnitValue>(aParent, aUnitValue.value, aUnitValue.unit);
+}
 
 JSObject* CSSUnitValue::WrapObject(JSContext* aCx,
                                    JS::Handle<JSObject*> aGivenProto) {
