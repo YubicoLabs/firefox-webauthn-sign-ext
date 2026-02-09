@@ -171,53 +171,13 @@ function srdSectionEnabled(section) {
   return srdSectionPrefs.all || srdSectionPrefs[section];
 }
 
-var SettingPaneManager = {
-  /** @type {Map<string, SettingPaneConfig>} */
-  _data: new Map(),
-
-  /**
-   * @param {string} id
-   */
-  get(id) {
-    if (!this._data.has(id)) {
-      throw new Error(`Setting pane "${id}" not found`);
+var { SettingPaneManager, friendlyPrefCategoryNameToInternalName } =
+  ChromeUtils.importESModule(
+    "chrome://browser/content/preferences/config/SettingPaneManager.mjs",
+    {
+      global: "current",
     }
-    return this._data.get(id);
-  },
-
-  /**
-   * @param {string} id
-   * @param {SettingPaneConfig} config
-   */
-  registerPane(id, config) {
-    if (this._data.has(id)) {
-      throw new Error(`Setting pane "${id}" already registered`);
-    }
-    this._data.set(id, config);
-    let subPane = friendlyPrefCategoryNameToInternalName(id);
-    let settingPane = /** @type {SettingPane} */ (
-      document.createElement("setting-pane")
-    );
-    settingPane.name = subPane;
-    settingPane.config = config;
-    settingPane.isSubPane = !!config.parent;
-    document.getElementById("mainPrefPane").append(settingPane);
-    register_module(subPane, {
-      init() {
-        settingPane.init();
-      },
-    });
-  },
-
-  /**
-   * @param {Record<string, SettingPaneConfig>} paneConfigs
-   */
-  registerPanes(paneConfigs) {
-    for (let id in paneConfigs) {
-      this.registerPane(id, paneConfigs[id]);
-    }
-  },
-};
+  );
 
 var SettingGroupManager = ChromeUtils.importESModule(
   "chrome://browser/content/preferences/config/SettingGroupManager.mjs",
@@ -655,13 +615,6 @@ function scrollAndHighlight(subcategory) {
   for (let element of elements) {
     element.classList.add("spotlight");
   }
-}
-
-function friendlyPrefCategoryNameToInternalName(aName) {
-  if (aName.startsWith("pane")) {
-    return aName;
-  }
-  return "pane" + aName.substring(0, 1).toUpperCase() + aName.substr(1);
 }
 
 // This function is duplicated inside of utilityOverlay.js's openPreferences.
