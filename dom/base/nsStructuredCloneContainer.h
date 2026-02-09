@@ -25,7 +25,6 @@ class nsStructuredCloneContainer final
       public mozilla::dom::ipc::StructuredCloneData {
  public:
   nsStructuredCloneContainer();
-  explicit nsStructuredCloneContainer(uint32_t aVersion);
 
   NS_DECL_ISUPPORTS_INHERITED
   NS_DECL_NSISTRUCTUREDCLONECONTAINER
@@ -34,8 +33,6 @@ class nsStructuredCloneContainer final
   friend struct IPC::ParamTraits<nsStructuredCloneContainer*>;
 
   ~nsStructuredCloneContainer();
-
-  uint32_t mVersion;
 };
 
 namespace IPC {
