@@ -193,10 +193,59 @@ var SettingGroupManager = ChromeUtils.importESModule(
  * @type {Record<string, SettingPaneConfig>}
  */
 const CONFIG_PANES = Object.freeze({
+  ai: {
+    l10nId: "preferences-ai-controls-header",
+    iconSrc: "chrome://global/skin/icons/highlights.svg",
+    groupIds: ["aiControlsDescription", "aiFeatures", "aiStatesDescription"],
+    module: "chrome://browser/content/preferences/config/aiFeatures.mjs",
+    visible: () =>
+      Services.prefs.getBoolPref("browser.preferences.aiControls", false),
+  },
+  customHomepage: {
+    parent: "home",
+    l10nId: "home-custom-homepage-subpage",
+    groupIds: ["customHomepage"],
+    module: "chrome://browser/content/preferences/config/home-startup.mjs",
+  },
   dnsOverHttps: {
     parent: "privacy",
     l10nId: "preferences-doh-header2",
     groupIds: ["dnsOverHttpsAdvanced"],
+  },
+  etp: {
+    parent: "privacy",
+    l10nId: "preferences-etp-header",
+    groupIds: ["etpBanner", "etpAdvanced"],
+  },
+  etpCustomize: {
+    parent: "etp",
+    l10nId: "preferences-etp-customize-header",
+    groupIds: ["etpCustomize", "etpReset"],
+  },
+  history: {
+    parent: "privacy",
+    l10nId: "history-header2",
+    groupIds: ["historyAdvanced"],
+  },
+  home: {
+    l10nId: "home-section",
+    iconSrc: "chrome://browser/skin/home.svg",
+    groupIds: ["defaultBrowserHome", "startupHome", "homepage", "home"],
+    module: "chrome://browser/content/preferences/config/home-startup.mjs",
+    replaces: "home",
+  },
+  manageAddresses: {
+    parent: "privacy",
+    l10nId: "autofill-addresses-manage-addresses-title",
+    groupIds: ["manageAddresses"],
+    iconSrc: "chrome://browser/skin/notification-icons/geo.svg",
+  },
+  manageMemories: {
+    parent: "personalizeSmartWindow",
+    l10nId: "ai-window-manage-memories-header",
+    groupIds: ["manageMemories"],
+    module: "chrome://browser/content/preferences/config/aiFeatures.mjs",
+    supportPage: "smart-window-memories",
   },
   managePayments: {
     parent: "privacy",
@@ -209,21 +258,12 @@ const CONFIG_PANES = Object.freeze({
     l10nId: "preferences-profiles-group-header",
     groupIds: ["profilePane"],
   },
-  etp: {
-    parent: "privacy",
-    l10nId: "preferences-etp-header",
-    groupIds: ["etpBanner", "etpAdvanced"],
-  },
-  etpCustomize: {
-    parent: "etp",
-    l10nId: "preferences-etp-customize-header",
-    groupIds: ["etpCustomize", "etpReset"],
-  },
-  manageAddresses: {
-    parent: "privacy",
-    l10nId: "autofill-addresses-manage-addresses-title",
-    groupIds: ["manageAddresses"],
-    iconSrc: "chrome://browser/skin/notification-icons/geo.svg",
+  personalizeSmartWindow: {
+    parent: "ai",
+    l10nId: "ai-window-personalize-header",
+    iconSrc: "chrome://devtools/skin/images/globe.svg",
+    groupIds: ["assistantModelGroup", "memoriesGroup"],
+    module: "chrome://browser/content/preferences/config/aiFeatures.mjs",
   },
   translations: {
     parent: "general",
@@ -233,45 +273,6 @@ const CONFIG_PANES = Object.freeze({
       "translationsDownloadLanguages",
     ],
     iconSrc: "chrome://browser/skin/translations.svg",
-  },
-  ai: {
-    l10nId: "preferences-ai-controls-header",
-    iconSrc: "chrome://global/skin/icons/highlights.svg",
-    groupIds: ["aiControlsDescription", "aiFeatures", "aiStatesDescription"],
-    module: "chrome://browser/content/preferences/config/aiFeatures.mjs",
-    visible: () =>
-      Services.prefs.getBoolPref("browser.preferences.aiControls", false),
-  },
-  history: {
-    parent: "privacy",
-    l10nId: "history-header2",
-    groupIds: ["historyAdvanced"],
-  },
-  customHomepage: {
-    parent: "home",
-    l10nId: "home-custom-homepage-subpage",
-    groupIds: ["customHomepage"],
-  },
-  personalizeSmartWindow: {
-    parent: "ai",
-    l10nId: "ai-window-personalize-header",
-    iconSrc: "chrome://devtools/skin/images/globe.svg",
-    groupIds: ["assistantModelGroup", "memoriesGroup"],
-    module: "chrome://browser/content/preferences/config/aiFeatures.mjs",
-  },
-  manageMemories: {
-    parent: "personalizeSmartWindow",
-    l10nId: "ai-window-manage-memories-header",
-    groupIds: ["manageMemories"],
-    module: "chrome://browser/content/preferences/config/aiFeatures.mjs",
-    supportPage: "smart-window-memories",
-  },
-  home: {
-    l10nId: "home-section",
-    iconSrc: "chrome://browser/skin/home.svg",
-    groupIds: ["defaultBrowserHome", "startupHome", "homepage", "home"],
-    module: "chrome://browser/content/preferences/config/home-startup.mjs",
-    replaces: "home",
   },
 });
 
