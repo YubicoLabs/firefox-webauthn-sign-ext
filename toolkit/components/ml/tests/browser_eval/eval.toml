@@ -1,0 +1,4 @@
+[DEFAULT]
+subsuite = "ml"
+
+["browser_eval_synthetic_translation.js"]
