@@ -50,12 +50,11 @@ nsStructuredCloneContainer::InitFromJSVal(JS::Handle<JS::Value> aData,
     return NS_ERROR_FAILURE;
   }
 
-  ErrorResult rv;
+  IgnoredErrorResult rv;
   Write(aCx, aData, rv);
   if (NS_WARN_IF(rv.Failed())) {
     // XXX propagate the error message as well.
     // We cannot StealNSResult because we threw a DOM exception.
-    rv.SuppressException();
     return NS_ERROR_DOM_DATA_CLONE_ERR;
   }
 
@@ -89,12 +88,11 @@ nsresult nsStructuredCloneContainer::DeserializeToJsval(
   aValue.setNull();
   JS::Rooted<JS::Value> jsStateObj(aCx);
 
-  ErrorResult rv;
+  IgnoredErrorResult rv;
   Read(aCx, &jsStateObj, rv);
   if (NS_WARN_IF(rv.Failed())) {
     // XXX propagate the error message as well.
     // We cannot StealNSResult because we threw a DOM exception.
-    rv.SuppressException();
     return NS_ERROR_DOM_DATA_CLONE_ERR;
   }
 

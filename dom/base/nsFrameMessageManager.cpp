@@ -437,14 +437,13 @@ bool nsFrameMessageManager::GetParamsForMessage(JSContext* aCx,
   // First try to use structured clone on the whole thing.
   JS::Rooted<JS::Value> v(aCx, aValue);
   JS::Rooted<JS::Value> t(aCx, aTransfer);
-  ErrorResult rv;
+  IgnoredErrorResult rv;
   aData.Write(aCx, v, t, JS::CloneDataPolicy(), rv);
   if (!rv.Failed()) {
     return true;
   }
 
   rv.SuppressException();
-  JS_ClearPendingException(aCx);
 
   nsCOMPtr<nsIConsoleService> console(
       do_GetService(NS_CONSOLESERVICE_CONTRACTID));

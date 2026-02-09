@@ -441,6 +441,7 @@ static JSIPCValue UntypedFromJSValWithJSONFallback(
 
 JSIPCValue JSIPCValueUtils::FromJSVal(Context& aCx, JS::Handle<JS::Value> aVal,
                                       bool aSendTyped, ErrorResult& aError) {
+  aError.MightThrowJSException();
   if (aSendTyped) {
     return TypedFromJSVal(aCx, aVal, aError);
   }
@@ -454,6 +455,7 @@ JSIPCValue JSIPCValueUtils::FromJSVal(Context& aCx, JS::Handle<JS::Value> aVal,
 JSIPCValue JSIPCValueUtils::FromJSVal(Context& aCx, JS::Handle<JS::Value> aVal,
                                       JS::Handle<JS::Value> aTransferable,
                                       bool aSendTyped, ErrorResult& aError) {
+  aError.MightThrowJSException();
   bool hasTransferable =
       !aTransferable.isNull() && !aTransferable.isUndefined();
   if (!aSendTyped || hasTransferable) {
@@ -690,6 +692,8 @@ static void UntypedToJSVal(JSContext* aCx, ipc::StructuredCloneData& aData,
 void JSIPCValueUtils::ToJSVal(JSContext* aCx, JSIPCValue&& aIn,
                               JS::MutableHandle<JS::Value> aOut,
                               ErrorResult& aError) {
+  aError.MightThrowJSException();
+
   js::AutoCheckRecursionLimit recursion(aCx);
   if (!recursion.check(aCx)) {
     aError.NoteJSContextException(aCx);
