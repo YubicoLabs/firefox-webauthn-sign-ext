@@ -7,6 +7,7 @@ import { html, ifDefined } from "chrome://global/content/vendor/lit.all.mjs";
 import {
   LINKS,
   ERRORS,
+  BANDWIDTH,
 } from "chrome://browser/content/ipprotection/ipprotection-constants.mjs";
 
 // eslint-disable-next-line import/no-unassigned-import
@@ -236,11 +237,8 @@ export default class IPProtectionContentElement extends MozLitElement {
       messageId = "ipprotection-message-bandwidth-warning";
       messageType = "warning";
       messageLinkL10nArgs = JSON.stringify({
-        usageLeft: (
-          this.state.bandwidthUsage.maxBandwidth -
-          this.state.bandwidthUsage.currentBandwidthUsage
-        ).toFixed(0),
-        maxUsage: this.state.bandwidthUsage.maxBandwidth,
+        usageLeft: this.state.bandwidthUsage.remaining / BANDWIDTH.BYTES_IN_GB,
+        maxUsage: this.state.bandwidthUsage.max / BANDWIDTH.BYTES_IN_GB,
       });
     } else if (this.state.onboardingMessage) {
       messageId = this.state.onboardingMessage;
@@ -358,7 +356,7 @@ export default class IPProtectionContentElement extends MozLitElement {
         headerL10nId="ipprotection-connection-status-paused-title"
         descriptionL10nId="ipprotection-connection-status-paused-description"
         .descriptionL10nArgs=${JSON.stringify({
-          maxUsage: this.state.bandwidthUsage.maxBandwidth,
+          maxUsage: this.state.bandwidthUsage.max / BANDWIDTH.BYTES_IN_GB,
         })}
         type="disconnected"
       >

@@ -204,7 +204,7 @@ export class IPProtectionPanel {
       isSiteExceptionsEnabled: this.isExceptionsFeatureEnabled,
       siteData: this.#getSiteData(),
       bandwidthUsage: lazy.BANDWIDTH_USAGE_ENABLED
-        ? { currentBandwidthUsage: 0, maxBandwidth: 50 }
+        ? { remaining: 50, max: 50 }
         : null,
       isActivating:
         lazy.IPPProxyManager.state === lazy.IPPProxyStates.ACTIVATING,

@@ -10,8 +10,8 @@ const { LINKS, ERRORS } = ChromeUtils.importESModule(
 const lazy = {};
 
 const mockBandwidthUsage = {
-  currentBandwidthUsage: 50,
-  maxBandwidth: 150,
+  remaining: 50,
+  max: 150,
 };
 
 add_task(async function test_paused_content() {

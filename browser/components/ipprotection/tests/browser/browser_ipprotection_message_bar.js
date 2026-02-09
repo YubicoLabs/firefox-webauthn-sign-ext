@@ -40,8 +40,8 @@ add_task(async function test_warning_message() {
     isSignedOut: false,
     error: "",
     bandwidthUsage: {
-      currentBandwidthUsage: 37.5,
-      maxBandwidth: 50,
+      remaining: 12.5,
+      max: 50,
     },
   });
 
@@ -72,12 +72,12 @@ add_task(async function test_warning_message() {
     "Bandwidth usage data should be passed to message bar"
   );
   Assert.equal(
-    messageBar.bandwidthUsage.currentBandwidthUsage,
-    37.5,
-    "Current bandwidth usage should match (37.5 GB used at 75% threshold)"
+    messageBar.bandwidthUsage.remaining,
+    12.5,
+    "Current bandwidth remaining should match (37.5 GB used at 75% threshold)"
   );
   Assert.equal(
-    messageBar.bandwidthUsage.maxBandwidth,
+    messageBar.bandwidthUsage.max,
     50,
     "Max bandwidth should match (50 GB limit)"
   );
@@ -117,8 +117,8 @@ add_task(async function test_warning_message() {
     isSignedOut: false,
     error: "",
     bandwidthUsage: {
-      currentBandwidthUsage: 45,
-      maxBandwidth: 50,
+      remaining: 5,
+      max: 50,
     },
   });
 
@@ -146,12 +146,12 @@ add_task(async function test_warning_message() {
 
   // Verify updated bandwidth data
   Assert.equal(
-    messageBar.bandwidthUsage.currentBandwidthUsage,
-    45,
+    messageBar.bandwidthUsage.remaining,
+    5,
     "Current bandwidth usage should be updated (45 GB used at 90% threshold)"
   );
   Assert.equal(
-    messageBar.bandwidthUsage.maxBandwidth,
+    messageBar.bandwidthUsage.max,
     50,
     "Max bandwidth should match (50 GB limit)"
   );
