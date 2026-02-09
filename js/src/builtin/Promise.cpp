@@ -2027,8 +2027,7 @@ static bool EnqueueJob(JSContext* cx, JS::JSMicroTask* job) {
 static bool GetCapabilitiesExecutor(JSContext* cx, unsigned argc, Value* vp);
 static bool PromiseConstructor(JSContext* cx, unsigned argc, Value* vp);
 [[nodiscard]] static PromiseObject* CreatePromiseObjectInternal(
-    JSContext* cx, HandleObject proto = nullptr, bool protoIsWrapped = false,
-    bool informDebugger = true);
+    JSContext* cx, HandleObject proto = nullptr, bool protoIsWrapped = false);
 
 enum GetCapabilitiesExecutorSlots {
   GetCapabilitiesExecutorSlots_Resolve,
@@ -2044,12 +2043,16 @@ enum GetCapabilitiesExecutorSlots {
 [[nodiscard]] PromiseObject* js::CreatePromiseObjectWithoutResolutionFunctions(
     JSContext* cx) {
   // Steps 3-7.
-  PromiseObject* promise = CreatePromiseObjectInternal(cx);
+  JS::Rooted<PromiseObject*> promise(cx, CreatePromiseObjectInternal(cx));
   if (!promise) {
     return nullptr;
   }
 
   AddPromiseFlags(*promise, PROMISE_FLAG_DEFAULT_RESOLVING_FUNCTIONS);
+
+  // Let the Debugger know about this Promise, after we've set
+  // flags and slots.
+  DebugAPI::onNewPromise(cx, promise);
 
   // Step 11. Return promise.
   return promise;
@@ -2077,6 +2080,10 @@ enum GetCapabilitiesExecutorSlots {
   }
 
   promise->setFixedSlot(PromiseSlot_RejectFunction, ObjectValue(*reject));
+
+  // Let the Debugger know about this Promise. Do this after we've set
+  // flags and functions
+  DebugAPI::onNewPromise(cx, promise);
 
   // Step 11. Return promise.
   return promise;
@@ -2961,8 +2968,7 @@ static JSFunction* GetResolveFunctionFromPromise(PromiseObject* promise) {
  */
 [[nodiscard]] static MOZ_ALWAYS_INLINE PromiseObject*
 CreatePromiseObjectInternal(JSContext* cx, HandleObject proto /* = nullptr */,
-                            bool protoIsWrapped /* = false */,
-                            bool informDebugger /* = true */) {
+                            bool protoIsWrapped /* = false */) {
   // Enter the unwrapped proto's compartment, if that's different from
   // the current one.
   // All state stored in a Promise's fixed slots must be created in the
@@ -3009,11 +3015,6 @@ CreatePromiseObjectInternal(JSContext* cx, HandleObject proto /* = nullptr */,
   PromiseDebugInfo* debugInfo = PromiseDebugInfo::create(cx, promiseRoot);
   if (!debugInfo) {
     return nullptr;
-  }
-
-  // Let the Debugger know about this Promise.
-  if (informDebugger) {
-    DebugAPI::onNewPromise(cx, promiseRoot);
   }
 
   return promiseRoot;
@@ -3163,7 +3164,7 @@ PromiseObject* PromiseObject::create(JSContext* cx, HandleObject executor,
 
   // Steps 3-7.
   RootedField<PromiseObject*, 1> promise(
-      roots, CreatePromiseObjectInternal(cx, usedProto, needsWrapping, false));
+      roots, CreatePromiseObjectInternal(cx, usedProto, needsWrapping));
   if (!promise) {
     return nullptr;
   }
