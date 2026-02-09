@@ -13,21 +13,12 @@ const evalMetadata = {
     default: {
       manifest: "eval.toml",
       manifest_flavor: "browser-chrome",
+      evaluations: {
+        TranslationsBleu: { shouldAlert: false },
+        TranslationsChrf: { shouldAlert: false },
+        TranslationsLlmJudge: { shouldAlert: false },
+      },
       perfherder: true,
-      perfherder_metrics: [
-        {
-          name: "bleu",
-          unit: "bleu",
-          lowerIsBetter: false,
-          shouldAlert: false,
-        },
-        {
-          name: "chrF",
-          unit: "chrF",
-          lowerIsBetter: false,
-          shouldAlert: false,
-        },
-      ],
     },
   },
 };
@@ -42,7 +33,6 @@ add_task(async function test_synthetic_translation_eval() {
   const ref = "Hello world";
 
   reportEvalData({
-    type: "translation",
     langPair: { src: "fr", trg: "en" },
     src,
     trg,
