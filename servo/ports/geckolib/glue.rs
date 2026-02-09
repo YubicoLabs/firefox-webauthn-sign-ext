@@ -154,6 +154,7 @@ use style::thread_state;
 use style::traversal::resolve_style;
 use style::traversal::DomTraversal;
 use style::traversal_flags::{self, TraversalFlags};
+use style::typed_om::numeric_declaration::NumericDeclaration;
 use style::use_counters::{CustomUseCounter, UseCounters};
 use style::values::animated::{Animate, Procedure, ToAnimatedZero};
 use style::values::computed::easing::ComputedTimingFunction;
@@ -178,7 +179,7 @@ use style::values::specified::source_size_list::SourceSizeList;
 use style::values::specified::svg_path::PathCommand;
 use style::values::specified::{AbsoluteLength, NoCalcLength};
 use style::values::{specified, AtomIdent, CustomIdent, KeyframesName};
-use style_traits::{CssWriter, ParseError, ParsingMode, ToCss, TypedValue};
+use style_traits::{CssWriter, NumericValue, ParseError, ParsingMode, ToCss, ToTyped, TypedValue};
 use thin_vec::ThinVec as nsTArray;
 use to_shmem::SharedMemoryBuilder;
 
@@ -5686,6 +5687,71 @@ pub extern "C" fn Servo_DeclarationBlock_RemovePropertyById(
         get_property_id_from_noncustomcsspropertyid!(property, false),
         before_change_closure,
     )
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Servo_NumericDeclaration_Parse(
+    text: &nsACString,
+) -> *mut NumericDeclaration {
+    let context = ParserContext::new(
+        Origin::Author,
+        dummy_url_data(),
+        Some(CssRuleType::Style),
+        ParsingMode::DEFAULT,
+        QuirksMode::NoQuirks,
+        /* namespaces = */ Default::default(),
+        None,
+        None,
+    );
+
+    let string = text.as_str_unchecked();
+    let mut input = ParserInput::new(&string);
+    let mut parser = Parser::new(&mut input);
+
+    let declaration = match NumericDeclaration::parse(&context, &mut parser) {
+        Ok(declaration) => declaration,
+        Err(..) => return ptr::null_mut(),
+    };
+
+    Box::into_raw(Box::new(declaration))
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Servo_NumericDeclaration_Drop(declaration: *mut NumericDeclaration) {
+    let _ = Box::from_raw(declaration);
+}
+
+/// A result of reifying a standalone numeric value into a `NumericValue`.
+///
+/// Numeric values are normally reified as part of property value reification.
+/// This type is used for a special case where a numeric value is parsed and
+/// reified without being associated with a specific property.
+///
+/// The `Unsupported` case is not expected in normal operation and indicates
+/// that the numeric value could not be represented as a `NumericValue`.
+#[repr(C)]
+pub enum NumericValueResult {
+    /// The numeric value could not be reified as a `NumericValue`.
+    ///
+    /// This may indicate that a `ToTyped` implementation for one of the
+    /// underlying types is incomplete, or that reification produced a
+    /// non-numeric `TypedValue`. In this case, the caller is expected to
+    /// throw an error.
+    Unsupported,
+
+    /// The numeric value was successfully reified into a `NumericValue`.
+    Numeric(NumericValue),
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn Servo_NumericDeclaration_GetValue(
+    declaration: &NumericDeclaration,
+    result: *mut NumericValueResult,
+) {
+    *result = match declaration.to_typed() {
+        Some(TypedValue::Numeric(numeric)) => NumericValueResult::Numeric(numeric),
+        _ => NumericValueResult::Unsupported,
+    };
 }
 
 #[no_mangle]

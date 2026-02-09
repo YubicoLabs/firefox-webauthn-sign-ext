@@ -72,6 +72,7 @@ class CSSNumericValue : public CSSStyleValue {
 
   void Type(CSSNumericType& aRetVal);
 
+  // https://drafts.css-houdini.org/css-typed-om-1/#dom-cssnumericvalue-parse
   static already_AddRefed<CSSNumericValue> Parse(const GlobalObject& aGlobal,
                                                  const nsACString& aCssText,
                                                  ErrorResult& aRv);
