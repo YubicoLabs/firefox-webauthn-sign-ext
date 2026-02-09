@@ -55,8 +55,7 @@ bool InProcessBrowserChildMessageManager::DoSendBlockingMessage(
   if (mChromeMessageManager) {
     RefPtr<nsFrameMessageManager> mm = mChromeMessageManager;
     RefPtr<nsFrameLoader> fl = GetFrameLoader();
-    mm->ReceiveMessage(mOwner, fl, aMessage, true, &aData, aRetVal,
-                       IgnoreErrors());
+    mm->ReceiveMessage(mOwner, fl, aMessage, true, &aData, aRetVal);
   }
   return true;
 }
