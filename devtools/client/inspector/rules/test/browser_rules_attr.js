@@ -185,6 +185,76 @@ add_task(async function () {
       fallback: `"-"`,
     },
   });
+
+  info("Check that updating an attribute does update the rendering");
+  // Select the #without-attr
+  await selectNode(withoutAttrNodeFront, inspector);
+
+  info("Add the missing attribute");
+  let onRuleViewRefreshed = view.once("ruleview-refreshed");
+  await SpecialPowers.spawn(gBrowser.selectedBrowser, [], () => {
+    content.document
+      .querySelector("#without-attr")
+      .setAttribute("data-after", "new-after");
+  });
+  await onRuleViewRefreshed;
+  await assertAttr({
+    view,
+    description: `newly matched "data-after" on #without-attr::after node`,
+    propertyName: "content",
+    selector: "div::after",
+    expected: {
+      text: `attr(data-after, "✕")`,
+      attributeName: "data-after",
+      attributeUnmatched: false,
+      tooltipText: `"new-after"`,
+      fallback: `"✕"`,
+    },
+  });
+
+  info("Update the attribute");
+  onRuleViewRefreshed = view.once("ruleview-refreshed");
+  await SpecialPowers.spawn(gBrowser.selectedBrowser, [], () => {
+    content.document
+      .querySelector("#without-attr")
+      .setAttribute("data-after", "updated-after");
+  });
+  await onRuleViewRefreshed;
+  await assertAttr({
+    view,
+    description: `updated matched "data-after" on #without-attr::after node`,
+    propertyName: "content",
+    selector: "div::after",
+    expected: {
+      text: `attr(data-after, "✕")`,
+      attributeName: "data-after",
+      attributeUnmatched: false,
+      tooltipText: `"updated-after"`,
+      fallback: `"✕"`,
+    },
+  });
+
+  info("Remove the attribute");
+  onRuleViewRefreshed = view.once("ruleview-refreshed");
+  await SpecialPowers.spawn(gBrowser.selectedBrowser, [], () => {
+    content.document
+      .querySelector("#without-attr")
+      .removeAttribute("data-after");
+  });
+  await onRuleViewRefreshed;
+  await assertAttr({
+    view,
+    description: `updated matched "data-after" on #without-attr::after node`,
+    propertyName: "content",
+    selector: "div::after",
+    expected: {
+      text: `attr(data-after, "✕")`,
+      attributeName: "data-after",
+      attributeUnmatched: true,
+      tooltipText: `Attribute data-after is not set`,
+      fallback: `"✕"`,
+    },
+  });
 });
 
 async function assertAttr({
