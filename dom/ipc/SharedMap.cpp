@@ -42,7 +42,7 @@ static inline void AlignTo(size_t* aOffset, size_t aAlign) {
 SharedMap::SharedMap() = default;
 
 SharedMap::SharedMap(nsIGlobalObject* aGlobal, SharedMemoryHandle&& aMapHandle,
-                     nsTArray<RefPtr<BlobImpl>>&& aBlobs)
+                     nsTArray<NotNull<RefPtr<BlobImpl>>>&& aBlobs)
     : DOMEventTargetHelper(aGlobal),
       mBlobImpls(std::move(aBlobs)),
       mHandle(std::move(aMapHandle)) {}
@@ -98,7 +98,7 @@ void SharedMap::Entry::Read(JSContext* aCx,
 }
 
 void SharedMap::Update(SharedMemoryHandle&& aMapHandle,
-                       nsTArray<RefPtr<BlobImpl>>&& aBlobs,
+                       nsTArray<NotNull<RefPtr<BlobImpl>>>&& aBlobs,
                        nsTArray<nsCString>&& aChangedKeys) {
   MOZ_DIAGNOSTIC_ASSERT(!mWritable);
 
@@ -245,7 +245,7 @@ WritableSharedMap::WritableSharedMap() {
 
 SharedMap* WritableSharedMap::GetReadOnly() {
   if (!mReadOnly) {
-    nsTArray<RefPtr<BlobImpl>> blobs(mBlobImpls.Clone());
+    nsTArray<NotNull<RefPtr<BlobImpl>>> blobs(mBlobImpls.Clone());
     mReadOnly =
         new SharedMap(ContentProcessMessageManager::Get()->GetParentObject(),
                       mHandle.Clone(), std::move(blobs));
@@ -306,7 +306,7 @@ Result<Ok, nsresult> WritableSharedMap::Serialize() {
   // We need to build the new array of blobs before we overwrite the existing
   // one, since previously-serialized entries will store their blob references
   // as indexes into our blobs array.
-  nsTArray<RefPtr<BlobImpl>> blobImpls(blobCount);
+  nsTArray<NotNull<RefPtr<BlobImpl>>> blobImpls(blobCount);
 
   for (const auto& entry : mEntries.Values()) {
     AlignTo(&offset, kStructuredCloneAlign);
@@ -369,7 +369,7 @@ void WritableSharedMap::BroadcastChanges() {
   }
 
   if (mReadOnly) {
-    nsTArray<RefPtr<BlobImpl>> blobImpls(mBlobImpls.Clone());
+    nsTArray<NotNull<RefPtr<BlobImpl>>> blobImpls(mBlobImpls.Clone());
     mReadOnly->Update(mHandle.Clone(), std::move(blobImpls),
                       std::move(mChangedKeys));
   }

@@ -17,6 +17,7 @@
 #include "mozilla/MemoryReporting.h"
 #include "mozilla/RefPtr.h"
 #include "mozilla/UniquePtr.h"
+#include "mozilla/ipc/EagerIPCStream.h"
 #include "nsCOMPtr.h"
 #include "nsString.h"
 #include "nsTArray.h"
@@ -219,7 +220,7 @@ class StructuredCloneHolder : public StructuredCloneHolderBase {
   // Call this method to know if this object is keeping some DOM object alive.
   bool HasClonedDOMObjects();
 
-  nsTArray<RefPtr<BlobImpl>>& BlobImpls() {
+  nsTArray<NotNull<RefPtr<BlobImpl>>>& BlobImpls() {
     MOZ_ASSERT(mSupportsCloning,
                "Blobs cannot be taken/set if cloning is not supported.");
     return mBlobImplArray;
@@ -231,7 +232,7 @@ class StructuredCloneHolder : public StructuredCloneHolderBase {
     return mWasmModuleArray;
   }
 
-  nsTArray<nsCOMPtr<nsIInputStream>>& InputStreams() {
+  nsTArray<mozilla::ipc::EagerIPCStream>& InputStreams() {
     MOZ_ASSERT(mSupportsCloning,
                "InputStreams cannot be taken/set if cloning is not supported.");
     return mInputStreamArray;
@@ -397,13 +398,13 @@ class StructuredCloneHolder : public StructuredCloneHolderBase {
   // and the other types do not hold significant amounts of memory alive.
 
   // Used for cloning blobs in the structured cloning algorithm.
-  nsTArray<RefPtr<BlobImpl>> mBlobImplArray;
+  nsTArray<NotNull<RefPtr<BlobImpl>>> mBlobImplArray;
 
   // Used for cloning JS::WasmModules in the structured cloning algorithm.
   nsTArray<RefPtr<JS::WasmModule>> mWasmModuleArray;
 
   // Used for cloning InputStream in the structured cloning algorithm.
-  nsTArray<nsCOMPtr<nsIInputStream>> mInputStreamArray;
+  nsTArray<mozilla::ipc::EagerIPCStream> mInputStreamArray;
 
   // This is used for sharing the backend of ImageBitmaps.
   // The DataSourceSurface object must be thread-safely reference-counted.
