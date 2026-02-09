@@ -37,7 +37,13 @@ Preferences.addAll([
   { id: "browser.smartwindow.model", type: "string" },
   { id: "browser.smartwindow.preferences.enabled", type: "bool" },
   { id: "browser.smartwindow.preferences.endpoint", type: "string" },
+  { id: "browser.preferences.aiControls.showUnavailable", type: "bool" },
 ]);
+
+Preferences.addSetting({
+  id: "aiControlsShowUnavailable",
+  pref: "browser.preferences.aiControls.showUnavailable",
+});
 
 Preferences.addSetting({ id: "aiControlsDescription" });
 Preferences.addSetting({ id: "blockAiGroup" });
@@ -297,7 +303,7 @@ function makeAiControlSetting({
   Preferences.addSetting({
     id,
     pref,
-    deps: ["aiControlDefault"],
+    deps: ["aiControlDefault", "aiControlsShowUnavailable"],
     setup(emitChange) {
       /**
        * @param {nsISupports} _
@@ -347,8 +353,11 @@ function makeAiControlSetting({
     disabled() {
       return OnDeviceModelManager.isManagedByPolicy(feature);
     },
-    visible() {
-      return OnDeviceModelManager.isAllowed(feature);
+    visible(deps) {
+      return (
+        OnDeviceModelManager.isAllowed(feature) ||
+        deps.aiControlsShowUnavailable.value
+      );
     },
     getControlConfig,
   });
@@ -392,7 +401,7 @@ Preferences.addSetting(
   /** @type {{ feature: OnDeviceModelFeaturesEnum } & SettingConfig } */ ({
     id: "aiControlSidebarChatbotSelect",
     pref: "browser.ai.control.sidebarChatbot",
-    deps: ["aiControlDefault", "chatbotProvider"],
+    deps: ["aiControlDefault", "chatbotProvider", "aiControlsShowUnavailable"],
     feature: OnDeviceModelManager.features.SidebarChatbot,
     setup(emitChange) {
       lazy.GenAI.init();
@@ -443,8 +452,11 @@ Preferences.addSetting(
     disabled() {
       return OnDeviceModelManager.isManagedByPolicy(this.feature);
     },
-    visible() {
-      return OnDeviceModelManager.isAllowed(this.feature);
+    visible(deps) {
+      return (
+        OnDeviceModelManager.isAllowed(this.feature) ||
+        deps.aiControlsShowUnavailable.value
+      );
     },
     getControlConfig(config, _, setting) {
       let providerUrl = setting.value;

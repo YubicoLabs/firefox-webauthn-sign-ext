@@ -1386,6 +1386,9 @@ pref("browser.preferences.experimental.hidden", false);
 pref("browser.preferences.moreFromMozilla", true);
 // Whether we show the "AI Controls" pane.
 pref("browser.preferences.aiControls", true);
+// Whether to show unavailable AI controls regardless of region/locale
+// restrictions. This is intended for localizers to be able to see the strings.
+pref("browser.preferences.aiControls.showUnavailable", false);
 
 // Used by settings to track whether the user customized advanced
 // performance settings. Not used directly elsewhere.
