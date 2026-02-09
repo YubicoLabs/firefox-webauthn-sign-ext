@@ -212,17 +212,9 @@ class StructuredCloneHolder : public StructuredCloneHolderBase {
                      const JS::CloneDataPolicy& aCloneDataPolicy,
                      ErrorResult& aRv);
 
-  // NOTE: As of January 2026, no caller of these methods passes a value to
-  // aGlobal which is not xpc::CurrentNativeGlobal(aCx).
-
-  void Read(nsIGlobalObject* aGlobal, JSContext* aCx,
-            JS::MutableHandle<JS::Value> aValue, ErrorResult& aRv);
   void Read(JSContext* aCx, JS::MutableHandle<JS::Value> aValue,
             ErrorResult& aRv);
 
-  void Read(nsIGlobalObject* aGlobal, JSContext* aCx,
-            JS::MutableHandle<JS::Value> aValue,
-            const JS::CloneDataPolicy& aCloneDataPolicy, ErrorResult& aRv);
   void Read(JSContext* aCx, JS::MutableHandle<JS::Value> aValue,
             const JS::CloneDataPolicy& aCloneDataPolicy, ErrorResult& aRv);
 
