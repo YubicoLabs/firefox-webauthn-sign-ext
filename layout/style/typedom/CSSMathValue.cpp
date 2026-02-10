@@ -14,8 +14,8 @@ CSSMathValue::CSSMathValue(nsCOMPtr<nsISupports> aParent)
     : CSSNumericValue(std::move(aParent)) {}
 
 CSSMathValue::CSSMathValue(nsCOMPtr<nsISupports> aParent,
-                           StyleValueType aStyleValueType)
-    : CSSNumericValue(std::move(aParent), aStyleValueType) {}
+                           NumericValueType aNumericValueType)
+    : CSSNumericValue(std::move(aParent), aNumericValueType) {}
 
 // start of CSSMathtValue Web IDL implementation
 

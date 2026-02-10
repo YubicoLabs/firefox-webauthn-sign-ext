@@ -72,12 +72,8 @@ bool CSSStyleValue::IsCSSKeywordValue() const {
   return mStyleValueType == StyleValueType::KeywordValue;
 }
 
-bool CSSStyleValue::IsCSSUnitValue() const {
-  return mStyleValueType == StyleValueType::UnitValue;
-}
-
-bool CSSStyleValue::IsCSSMathSum() const {
-  return mStyleValueType == StyleValueType::MathSum;
+bool CSSStyleValue::IsCSSNumericValue() const {
+  return mStyleValueType == StyleValueType::NumericValue;
 }
 
 }  // namespace mozilla::dom

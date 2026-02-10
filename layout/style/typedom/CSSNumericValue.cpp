@@ -18,11 +18,13 @@
 namespace mozilla::dom {
 
 CSSNumericValue::CSSNumericValue(nsCOMPtr<nsISupports> aParent)
-    : CSSStyleValue(std::move(aParent)) {}
+    : CSSStyleValue(std::move(aParent)),
+      mNumericValueType(NumericValueType::Uninitialized) {}
 
 CSSNumericValue::CSSNumericValue(nsCOMPtr<nsISupports> aParent,
-                                 StyleValueType aStyleValueType)
-    : CSSStyleValue(std::move(aParent), aStyleValueType) {}
+                                 NumericValueType aNumericValueType)
+    : CSSStyleValue(std::move(aParent), StyleValueType::NumericValue),
+      mNumericValueType(aNumericValueType) {}
 
 // static
 RefPtr<CSSNumericValue> CSSNumericValue::Create(
@@ -135,5 +137,41 @@ already_AddRefed<CSSNumericValue> CSSNumericValue::Parse(
 }
 
 // end of CSSNumericValue Web IDL implementation
+
+bool CSSNumericValue::IsCSSUnitValue() const {
+  return mNumericValueType == NumericValueType::UnitValue;
+}
+
+bool CSSNumericValue::IsCSSMathSum() const {
+  return mNumericValueType == NumericValueType::MathSum;
+}
+
+void CSSNumericValue::ToCssTextWithProperty(const CSSPropertyId& aPropertyId,
+                                            nsACString& aDest) const {
+  switch (GetNumericValueType()) {
+    case NumericValueType::MathSum: {
+      const CSSMathSum& mathSum = GetAsCSSMathSum();
+
+      mathSum.ToCssTextWithProperty(aPropertyId, aDest);
+      break;
+    }
+
+    case NumericValueType::UnitValue: {
+      const CSSUnitValue& unitValue = GetAsCSSUnitValue();
+
+      unitValue.ToCssTextWithProperty(aPropertyId, aDest);
+      break;
+    }
+
+    case NumericValueType::Uninitialized:
+      break;
+  }
+}
+
+CSSNumericValue& CSSStyleValue::GetAsCSSNumericValue() {
+  MOZ_DIAGNOSTIC_ASSERT(mStyleValueType == StyleValueType::NumericValue);
+
+  return *static_cast<CSSNumericValue*>(this);
+}
 
 }  // namespace mozilla::dom

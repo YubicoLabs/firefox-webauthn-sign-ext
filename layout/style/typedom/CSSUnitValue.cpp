@@ -18,7 +18,7 @@ namespace mozilla::dom {
 
 CSSUnitValue::CSSUnitValue(nsCOMPtr<nsISupports> aParent, double aValue,
                            const nsACString& aUnit)
-    : CSSNumericValue(std::move(aParent), StyleValueType::UnitValue),
+    : CSSNumericValue(std::move(aParent), NumericValueType::UnitValue),
       mValue(aValue),
       mUnit(aUnit) {}
 
@@ -110,8 +110,14 @@ void CSSUnitValue::ToCssTextWithProperty(const CSSPropertyId& aPropertyId,
   }
 }
 
-CSSUnitValue& CSSStyleValue::GetAsCSSUnitValue() {
-  MOZ_DIAGNOSTIC_ASSERT(mStyleValueType == StyleValueType::UnitValue);
+const CSSUnitValue& CSSNumericValue::GetAsCSSUnitValue() const {
+  MOZ_DIAGNOSTIC_ASSERT(mNumericValueType == NumericValueType::UnitValue);
+
+  return *static_cast<const CSSUnitValue*>(this);
+}
+
+CSSUnitValue& CSSNumericValue::GetAsCSSUnitValue() {
+  MOZ_DIAGNOSTIC_ASSERT(mNumericValueType == NumericValueType::UnitValue);
 
   return *static_cast<CSSUnitValue*>(this);
 }

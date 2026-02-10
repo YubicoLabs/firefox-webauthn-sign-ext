@@ -82,17 +82,10 @@ void StylePropertyMap::Set(
   nsAutoCString cssText;
 
   switch (styleValue.GetStyleValueType()) {
-    case CSSStyleValue::StyleValueType::MathSum: {
-      CSSMathSum& mathSum = styleValue.GetAsCSSMathSum();
+    case CSSStyleValue::StyleValueType::NumericValue: {
+      CSSNumericValue& numericValue = styleValue.GetAsCSSNumericValue();
 
-      mathSum.ToCssTextWithProperty(propertyId, cssText);
-      break;
-    }
-
-    case CSSStyleValue::StyleValueType::UnitValue: {
-      CSSUnitValue& unitValue = styleValue.GetAsCSSUnitValue();
-
-      unitValue.ToCssTextWithProperty(propertyId, cssText);
+      numericValue.ToCssTextWithProperty(propertyId, cssText);
       break;
     }
 
