@@ -338,11 +338,11 @@
     --icon-color-success: light-dark(var(--color-green-60), var(--color-green-20));
     --icon-color-warning: light-dark(var(--color-yellow-60), var(--color-yellow-20));
     --icon-size: var(--icon-size-small);
-    --icon-size-xsmall: var(--size-item-xsmall);
-    --icon-size-small: var(--size-item-small);
-    --icon-size-medium: 20px;
-    --icon-size-large: var(--size-item-medium);
-    --icon-size-xlarge: var(--size-item-large);
+    --icon-size-xsmall: var(--dimension-12);
+    --icon-size-small: var(--dimension-16);
+    --icon-size-medium: var(--dimension-20);
+    --icon-size-large: var(--dimension-24);
+    --icon-size-xlarge: var(--dimension-32);
 
     /** Input - Text **/
     --input-text-min-height: var(--button-min-height);
@@ -359,11 +359,22 @@
     --outline-color-error: light-dark(var(--color-red-70), var(--color-red-20));
 
     /** Size **/
+    --size-image-xsmall: var(--dimension-40);
+    --size-image-small: var(--dimension-48);
+    --size-image-medium: var(--dimension-56);
+    --size-image-large: var(--dimension-64);
+    --size-image-xlarge: var(--dimension-80);
+    --size-image-xxlarge: var(--dimension-96);
     --size-item-xsmall: var(--dimension-12);
     --size-item-small: var(--dimension-16);
     --size-item-medium: var(--dimension-24);
     --size-item-large: var(--dimension-32);
     --size-item-xlarge: var(--dimension-48);
+    --size-layout-xsmall: var(--dimension-100);
+    --size-layout-small: var(--dimension-200);
+    --size-layout-medium: var(--dimension-300);
+    --size-layout-large: var(--dimension-400);
+    --size-layout-xlarge: var(--dimension-500);
     --size-sidebar: 280px;
     --size-sidebar-narrow: 118px;
 

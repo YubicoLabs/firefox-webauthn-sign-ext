@@ -796,7 +796,7 @@ menupopup::part(drop-indicator) {
 }
 
 #contextual-feature-recommendation-notification {
-  width: 400px;
+  width: var(--size-layout-large);
 
   .popup-notification-icon {
     margin-inline-end: 4px;
