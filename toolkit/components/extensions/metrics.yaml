@@ -11,6 +11,21 @@ $tags:
   - 'WebExtensions :: General'
 
 extensions:
+  allow_execute_script_in_moz_extension:
+    type: boolean
+    expires: never
+    lifetime: application
+    description: >
+      Corresponds to the value of `extensions.webextensions.allow_executeScript_in_moz_extension` pref.
+    notification_emails:
+      - addons-dev-internal@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/2011234/
+    data_reviews:
+      - https://bugzilla.mozilla.org/2011234/
+    data_sensitivity:
+      - technical
+
   use_remote_pref:
     type: boolean
     expires: never

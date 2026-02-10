@@ -2,6 +2,8 @@
 /* vim: set sts=2 sw=2 et tw=80: */
 "use strict";
 
+AddonTestUtils.createAppInfo("xpcshell@tests.mozilla.org", "XPCShell", "1");
+
 createHttpServer({ hosts: ["example.com"] });
 
 async function test_mozExtensionGlobalMatch({ expectAllowed }) {
@@ -159,5 +161,38 @@ add_task(
   },
   async function test_mozExtensionGlobalMatchDisallowed() {
     await test_mozExtensionGlobalMatch({ expectAllowed: false });
+  }
+);
+
+add_task(
+  {
+    pref_set: [
+      ["extensions.webextensions.allow_executeScript_in_moz_extension", true],
+    ],
+  },
+  async function test_rollbackPrefTelemetry() {
+    await AddonTestUtils.promiseShutdownManager();
+    Services.fog.testResetFOG();
+    // Sanity check.
+    Assert.equal(
+      Glean.extensions.allowExecuteScriptInMozExtension.testGetValue(),
+      null,
+      "Expect allowExecuteScriptInMozExtension metric to be initially unset"
+    );
+    await AddonTestUtils.promiseStartupManager();
+    Assert.equal(
+      Glean.extensions.allowExecuteScriptInMozExtension.testGetValue(),
+      true,
+      "Expect allowExecuteScriptInMozExtension metric to be set to true after AOM startup"
+    );
+    Services.prefs.setBoolPref(
+      "extensions.webextensions.allow_executeScript_in_moz_extension",
+      false
+    );
+    Assert.equal(
+      Glean.extensions.allowExecuteScriptInMozExtension.testGetValue(),
+      false,
+      "Expect allowExecuteScriptInMozExtension metric to be set to false after the pref value has been changed"
+    );
   }
 );
