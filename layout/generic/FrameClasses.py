@@ -35,11 +35,6 @@ INLINE = LINE_PARTICIPANT | {"BidiInlineContainer"}
 RUBY_CONTENT = LINE_PARTICIPANT
 # FIXME(bug 713387): Shouldn't be Replaced, probably.
 TEXT = COMMON | LINE_PARTICIPANT | {"Replaced"} | LEAF
-# ::backdrop should be created by any top layer element. However, some frames
-# don't deal super well with having a placeholder thrown around inside.
-# Use this flag to exempt them from this.
-# FIXME(emilio): Generally this list should be kept small / go away entirely.
-BACKDROP_UNSUPPORTED = {"BackdropUnsupported"}
 
 # See FrameClass.py and GenerateFrameLists.py for implementation details.
 # The following is a list of all the frame classes, followed by the frame type,
@@ -55,9 +50,7 @@ FRAME_CLASSES = [
     Frame("nsBCTableCellFrame", "TableCell", TABLE_CELL),
     Frame("nsBlockFrame", "Block", BLOCK),
     Frame("nsCanvasFrame", "Canvas", BLOCK),
-    Frame(
-        "nsCheckboxRadioFrame", "CheckboxRadio", REPLACED | LEAF | BACKDROP_UNSUPPORTED
-    ),
+    Frame("nsCheckboxRadioFrame", "CheckboxRadio", REPLACED | LEAF),
     Frame("InputButtonControlFrame", "InputButtonControl", REPLACED | LEAF),
     Frame("nsColorControlFrame", "ColorControl", REPLACED | LEAF),
     Frame("nsColumnSetFrame", "ColumnSet", COMMON),

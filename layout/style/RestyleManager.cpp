@@ -2735,7 +2735,6 @@ static bool NeedsToReframeForConditionallyCreatedPseudoElement(
   }
   if (disp.mTopLayer == StyleTopLayer::Auto &&
       !aElement->IsInNativeAnonymousSubtree() &&
-      !aStyleFrame->BackdropUnsupported() &&
       !nsLayoutUtils::GetBackdropPseudo(aElement)) {
     RefPtr<ComputedStyle> pseudoStyle =
         aRestyleState.StyleSet().ProbePseudoElementStyle(
