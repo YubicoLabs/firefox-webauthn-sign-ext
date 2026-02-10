@@ -2651,23 +2651,6 @@
       }
     ]
   },
-  "1901780": {
-    "label": "vanbreda-health.be",
-    "bugs": {
-      "1901780": {
-        "issue": "frozen-tab",
-        "matches": ["*://www.vanbreda-health.be/*"]
-      }
-    },
-    "interventions": [
-      {
-        "platforms": ["all"],
-        "content_scripts": {
-          "js": ["bug1901780-disable-legacy-mutation-events.js"]
-        }
-      }
-    ]
-  },
   "1902367": {
     "label": "seller.kuajingmaihuo.com",
     "bugs": {
