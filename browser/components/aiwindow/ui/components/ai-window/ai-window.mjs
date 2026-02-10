@@ -50,6 +50,29 @@ ChromeUtils.defineLazyGetter(lazy, "log", function () {
   });
 });
 
+/**
+ * @typedef {{
+ *   input: string,
+ *   mode: string,
+ *   pageUrl: URL,
+ *   conversationId: string,
+ *   tab: MozTabbrowserTab
+ * }} TabStateEventDetail
+ */
+
+/**
+ * @typedef {{
+ *   bubbles: true,
+ *   detail: TabStateEventDetail
+ * }} TabStateEventOptions
+ */
+
+/**
+ * @typedef {CustomEvent & {
+ *   detail: TabStateEventDetail
+ * }} TabStateEvent
+ */
+
 const FULLPAGE = "fullpage";
 const SIDEBAR = "sidebar";
 const PREF_MEMORIES = "browser.smartwindow.memories";
@@ -157,6 +180,20 @@ export class AIWindow extends MozLitElement {
     }
   }
 
+  /**
+   * Gets the conversation id from data-conversation-id attribute
+   *
+   * @private
+   */
+  #getDataConvId() {
+    if (this.#conversation) {
+      return this.#conversation.id;
+    }
+
+    const hostBrowser = window.browsingContext?.embedderElement;
+    return hostBrowser?.getAttribute("data-conversation-id");
+  }
+
   connectedCallback() {
     super.connectedCallback();
 
@@ -168,6 +205,11 @@ export class AIWindow extends MozLitElement {
     );
 
     this.#loadPendingConversation();
+
+    this.#dispatchChromeEvent(
+      "ai-window:connected",
+      this.#getAIWindowEventOptions()
+    );
   }
 
   get conversationId() {
@@ -372,6 +414,7 @@ export class AIWindow extends MozLitElement {
       container.after(smartbar);
 
       smartbar.addEventListener("smartbar-commit", this.#handleSmartbarCommit);
+      smartbar.addEventListener("input", this.#handleSmartbarInput);
       smartbar.addEventListener(
         "aiwindow-memories-toggle:on-change",
         this.#handleMemoriesToggle
@@ -380,6 +423,40 @@ export class AIWindow extends MozLitElement {
     this.#smartbar = smartbar;
     this.#memoriesButton = smartbar.querySelector("memories-icon-button");
     this.#syncSmartbarMemoriesStateFromConversation();
+  }
+
+  /**
+   * Handles input event from the Smartbar and dispatches
+   * a ai-window:smartbar-input event to the window for
+   * AIWindowTabStatesManager.sys.mjs to manage the input
+   * state of the sidebar chat window.
+   *
+   * @param {Event} event
+   *
+   * @private
+   */
+  #handleSmartbarInput = event => {
+    this.#dispatchChromeEvent(
+      "ai-window:smartbar-input",
+      this.#getAIWindowEventOptions(event.target.value)
+    );
+  };
+
+  /**
+   * Dispatches a TabStateEvent on the chrome window for the
+   * AIWindowTabStatesManager.sys.mjs to catch state updates
+   * for the ai-window.
+   *
+   * @param {string} eventName Name of the event
+   * @param {TabStateEventOptions} [options={}] Event options/detail
+   *
+   * @private
+   */
+  #dispatchChromeEvent(eventName, options = {}) {
+    const topChromeWindow = window?.browsingContext?.topChromeWindow;
+    topChromeWindow?.dispatchEvent(
+      new topChromeWindow.CustomEvent(eventName, options)
+    );
   }
 
   /**
@@ -516,6 +593,19 @@ export class AIWindow extends MozLitElement {
   }
 
   /**
+   * Gets the current url of the loaded page.
+   *
+   * @returns {URL} The page URL
+   *
+   * @private
+   */
+  #getCurrentPageUrl() {
+    return URL.fromURI(
+      window.browsingContext.topChromeWindow.gBrowser.currentURI
+    );
+  }
+
+  /**
    * Fetches an AI response based on the current user prompt.
    * Validates the prompt, updates conversation state, streams the response,
    * and dispatches updates to the browser actor.
@@ -547,9 +637,7 @@ export class AIWindow extends MozLitElement {
       let stream;
 
       if (formattedPrompt) {
-        const pageUrl = URL.fromURI(
-          window.browsingContext.topChromeWindow.gBrowser.currentURI
-        );
+        const pageUrl = this.#getCurrentPageUrl();
         stream = lazy.Chat.fetchWithHistory(
           await this.#conversation.generatePrompt(
             formattedPrompt,
@@ -740,6 +828,35 @@ export class AIWindow extends MozLitElement {
     this.#conversation.renderState().forEach(message => {
       this.#dispatchMessageToActor(actor, message);
     });
+
+    this.#dispatchChromeEvent(
+      "ai-window:opened-conversation",
+      this.#getAIWindowEventOptions()
+    );
+  }
+
+  /**
+   * Gets event options for a TabStateEvent
+   *
+   * @param {false|string} [input=false] The latest input contents
+   *
+   * @returns {TabStateEventOptions}
+   *
+   * @private
+   */
+  #getAIWindowEventOptions(input = false) {
+    const topChromeWindow = window?.browsingContext?.topChromeWindow;
+
+    return {
+      bubbles: true,
+      detail: {
+        input,
+        mode: this.mode,
+        pageUrl: this.#getCurrentPageUrl(),
+        conversationId: this.#getDataConvId(),
+        tab: topChromeWindow?.gBrowser?.selectedTab,
+      },
+    };
   }
 
   /**
@@ -749,6 +866,10 @@ export class AIWindow extends MozLitElement {
    */
   openConversation(conversation) {
     this.#conversation = conversation;
+
+    const hostBrowser = window.browsingContext?.embedderElement;
+    hostBrowser?.setAttribute("data-conversation-id", conversation.id);
+
     if (conversation.title) {
       document.title = conversation.title;
     }
