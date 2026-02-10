@@ -266,6 +266,13 @@ const CONFIG_PANES = Object.freeze({
     module: "chrome://browser/content/preferences/config/aiFeatures.mjs",
     supportPage: "smart-window-memories",
   },
+  home: {
+    l10nId: "home-section",
+    iconSrc: "chrome://browser/skin/home.svg",
+    groupIds: ["defaultBrowserHome", "startupHome", "homepage", "home"],
+    module: "chrome://browser/content/preferences/config/home-startup.mjs",
+    replaces: "home",
+  },
 });
 
 var gLastCategory = { category: undefined, subcategory: undefined };
@@ -320,7 +327,13 @@ function init_all() {
   register_module("panePrivacy", gPrivacyPane);
   register_module("paneContainers", gContainersPane);
 
+  let redesignEnabled = Services.prefs.getBoolPref(
+    "browser.settings-redesign.enabled"
+  );
   for (let [id, config] of Object.entries(CONFIG_PANES)) {
+    if (!redesignEnabled && config.replaces) {
+      continue;
+    }
     SettingPaneManager.registerPane(id, config);
   }
 
