@@ -10099,13 +10099,6 @@ var TabContextMenu = {
         multiselectingDiverseUrls || !this.TabNotes.isEligible(this.contextTab);
       contextUpdateNote.disabled = multiselectingDiverseUrls;
 
-      this.removeNewBadge(contextAddNote);
-      if (
-        Services.prefs.getBoolPref("browser.tabs.notes.newBadge.enabled", true)
-      ) {
-        this.addNewBadge(contextAddNote);
-      }
-
       this.TabNotes.has(this.contextTab).then(hasNote => {
         contextAddNote.hidden = hasNote;
         contextUpdateNote.hidden = !hasNote;
@@ -10146,9 +10139,6 @@ var TabContextMenu = {
         this.contextTabs.length > 2 ||
         pinnedTabs.length ||
         customizeTabs.length;
-
-      this.addNewBadge(contextMoveTabToNewSplitView);
-      this.addNewBadge(contextSeparateSplitView);
     }
 
     // Only one of Reload_Tab/Reload_Selected_Tabs should be visible.
@@ -10659,15 +10649,17 @@ var TabContextMenu = {
     splitviews.forEach(splitview => gBrowser.unsplitTabs(splitview));
   },
 
-  addNewBadge(menuItem) {
-    menuItem.setAttribute(
-      "badge",
-      gBrowser.tabLocalization.formatValueSync("tab-context-badge-new")
+  addNewBadge() {
+    let badgeNewMenuItems = document.querySelectorAll(
+      "#tabContextMenu menuitem.badge-new"
     );
-  },
 
-  removeNewBadge(menuItem) {
-    menuItem.removeAttribute("badge");
+    badgeNewMenuItems.forEach(badgedMenuItem => {
+      badgedMenuItem.setAttribute(
+        "badge",
+        gBrowser.tabLocalization.formatValueSync("tab-context-badge-new")
+      );
+    });
   },
 
   deleteTabNotes() {
