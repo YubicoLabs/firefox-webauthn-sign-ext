@@ -3501,7 +3501,11 @@
     "bugs": {
       "1913720": {
         "issue": "firefox-blocked-completely",
-        "matches": ["https://h2breeze.com/*", "https://is-sets.com/*"]
+        "matches": [
+          "https://cotota.app/*",
+          "https://h2breeze.com/*",
+          "https://is-sets.com/*"
+        ]
       }
     },
     "interventions": [
