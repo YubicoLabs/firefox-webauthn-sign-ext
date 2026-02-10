@@ -2061,9 +2061,12 @@ typedef void (*PrefsParserPrefFn)(const char* aPrefName, PrefType aType,
 
 // Keep this in sync with ErrorFn in parser/src/lib.rs.
 //
-// `aMsg` is just a borrow of the string, and must be copied if it is used
+// `aFullMsg` is just a borrow of the string, and must be copied if it is used
 // outside the lifetime of the prefs_parser_parse() call.
-typedef void (*PrefsParserErrorFn)(const char* aMsg);
+// `aStaticMsgOffset` is the offset of the static part of the string, which
+// extends to the end of `aFullMsg` and is safe to send to telemetry.
+typedef void (*PrefsParserErrorFn)(const char* aFullMsg,
+                                   uint64_t aStaticMsgOffset);
 
 // Keep this in sync with prefs_parser_parse() in parser/src/lib.rs.
 bool prefs_parser_parse(const char* aPath, PrefValueKind aKind,
@@ -2092,17 +2095,29 @@ class Parser {
                  /* fromInit */ true);
   }
 
-  static void HandleError(const char* aMsg) {
+  static void HandleError(const char* aFullMsg, uint64_t aStaticMsgOffset) {
     nsresult rv;
     nsCOMPtr<nsIConsoleService> console =
         do_GetService("@mozilla.org/consoleservice;1", &rv);
     if (NS_SUCCEEDED(rv)) {
-      console->LogStringMessage(NS_ConvertUTF8toUTF16(aMsg).get());
+      console->LogStringMessage(NS_ConvertUTF8toUTF16(aFullMsg).get());
+    }
+    // We're just going to log one of these per session of Firefox,
+    // because we just want to get a sample of errors users are
+    // encountering.
+    static Atomic<bool, Relaxed> haveLoggedError(false);
+    if (haveLoggedError.compareExchange(false, true)) {
+      MOZ_RELEASE_ASSERT(aStaticMsgOffset < strlen(aFullMsg));
+      // Since aFullMsg is a borrow of the string, we need to copy it
+      // if we want to use it outside the lifetime of the prefs_parser_parse()
+      // call, which I think Glean does. So don't use nsDependentCString here.
+      glean::preferences::prefs_file_first_parse_error.Set(
+          nsCString(aFullMsg + aStaticMsgOffset));
     }
 #ifdef DEBUG
-    NS_ERROR(aMsg);
+    NS_ERROR(aFullMsg);
 #else
-    printf_stderr("%s\n", aMsg);
+    printf_stderr("%s\n", aFullMsg);
 #endif
   }
 };
@@ -2115,8 +2130,11 @@ static void TestParseErrorHandlePref(const char* aPrefName, PrefType aType,
 
 constinit static nsCString gTestParseErrorMsgs;
 
-static void TestParseErrorHandleError(const char* aMsg) {
-  gTestParseErrorMsgs.Append(aMsg);
+static void TestParseErrorHandleError(const char* aFullMsg,
+                                      uint64_t aStaticMsgOffset) {
+  gTestParseErrorMsgs.Append(aFullMsg);
+  gTestParseErrorMsgs.Append('\n');
+  gTestParseErrorMsgs.Append(aFullMsg + aStaticMsgOffset);
   gTestParseErrorMsgs.Append('\n');
 }
 
@@ -4449,14 +4467,15 @@ void HandlePref(const char* aPrefName, PrefType aType, PrefValueKind aKind,
   }
 }
 
-void HandleError(const char* aMsg) {
+void HandleError(const char* aFullMsg, uint64_t aStaticMsgOffset) {
   MOZ_ASSERT(NS_IsMainThread());
 
   if (!PrefObserver) {
     return;
   }
 
-  PrefObserver->OnError(aMsg);
+  // No need to use the static message here
+  PrefObserver->OnError(aFullMsg);
 }
 
 NS_IMETHODIMP
