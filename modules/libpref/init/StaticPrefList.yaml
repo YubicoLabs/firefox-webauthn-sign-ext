@@ -13725,6 +13725,17 @@
   value: false
   mirror: always
 
+# The string to return to the server as the 'workstation' that the user is
+# using. Bug 1046421 notes that the previous default of the system hostname
+# could be used for user fingerprinting.
+# However, in some network environments where allowedWorkstations is in use to
+# provide a level of host-based access control, it must be set to a string that
+# is listed in allowedWorkstations for the user's account in their AD Domain.
+- name: network.generic-ntlm-auth.workstation
+  type: DataMutexString
+  value: "WORKSTATION"
+  mirror: always
+
 # If we should attempt to race the cache with network.
 # See also race_with_non_ssd for auto-enable behavior on Windows non-SSD drives.
 - name: network.http.rcwn.enabled
