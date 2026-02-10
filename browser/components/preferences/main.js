@@ -4216,6 +4216,15 @@ SettingGroupManager.registerGroups({
     headingLevel: 2,
     items: [
       {
+        id: "updateSearchEngineSuccess",
+        l10nId: "update-search-engine-success",
+        control: "moz-message-bar",
+        controlAttrs: {
+          type: "success",
+          dismissable: true,
+        },
+      },
+      {
         id: "addEngineButton",
         l10nId: "search-add-engine-2",
         control: "moz-button",
