@@ -639,9 +639,11 @@ function EngineListItemSetting(settingId, engine) {
     }
 
     async getControlConfig() {
+      /** @type {Partial<SettingControlConfig>} */
       return {
         iconSrc: await engine.getIconURL(),
         controlAttrs: {
+          class: engine.hidden ? "description-deemphasized" : "",
           label: engine.name,
           description: engine.aliases.join(", "),
           layout: "medium-icon",
@@ -858,6 +860,7 @@ Preferences.addSetting(
         maybeMakeSetting(EngineListItemSetting(settingId, engine));
         maybeMakeSetting({
           id: editId,
+          disabled: () => engine.hidden,
           onUserClick() {
             gSubDialog.open(
               "chrome://browser/content/search/addEngine.xhtml",
