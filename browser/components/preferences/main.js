@@ -913,7 +913,7 @@ Preferences.addSetting({
   id: "legacyTranslationsVisible",
   deps: ["aiControlDefault", "aiControlTranslations"],
   visible: ({ aiControlDefault, aiControlTranslations }) =>
-    !Services.prefs.getBoolPref("browser.settings-redesign.enabled", false) &&
+    !Services.prefs.getBoolPref("browser.settings-redesign.enable", false) &&
     canShowAiFeature(aiControlTranslations, aiControlDefault),
 });
 
@@ -2535,7 +2535,6 @@ Preferences.addSetting(
 function createDefaultBrowserConfig({
   includeIsDefaultPane = true,
   inProgress = false,
-  hiddenFromSearch = false,
 } = {}) {
   const isDefaultPane = {
     id: "isDefaultPane",
@@ -2569,59 +2568,7 @@ function createDefaultBrowserConfig({
     headingLevel: 2,
     items,
     ...(inProgress && { inProgress }),
-    ...(hiddenFromSearch && { hiddenFromSearch }),
   };
-}
-
-function createStartupConfig(isVisible = true) {
-  if (isVisible) {
-    return {
-      l10nId: "startup-group",
-      headingLevel: 2,
-      items: [
-        {
-          id: "browserRestoreSession",
-          l10nId: "startup-restore-windows-and-tabs",
-        },
-        {
-          id: "windowsLaunchOnLogin",
-          l10nId: "windows-launch-on-login",
-        },
-        {
-          id: "windowsLaunchOnLoginDisabledBox",
-          control: "moz-message-bar",
-          options: [
-            {
-              control: "span",
-              l10nId: "windows-launch-on-login-disabled",
-              slot: "message",
-              options: [
-                {
-                  control: "a",
-                  controlAttrs: {
-                    "data-l10n-name": "startup-link",
-                    href: "ms-settings:startupapps",
-                    target: "_self",
-                  },
-                },
-              ],
-            },
-          ],
-        },
-        {
-          id: "windowsLaunchOnLoginDisabledProfileBox",
-          control: "moz-message-bar",
-          l10nId: "startup-windows-launch-on-login-profile-disabled",
-        },
-        {
-          id: "alwaysCheckDefault",
-          l10nId: "always-check-default",
-        },
-      ],
-    };
-  }
-
-  return null;
 }
 
 SettingGroupManager.registerGroups({
@@ -2682,9 +2629,50 @@ SettingGroupManager.registerGroups({
     ],
   },
   defaultBrowser: createDefaultBrowserConfig(),
-  startup: createStartupConfig(
-    !Services.prefs.getBoolPref("browser.settings-redesign.enabled", false)
-  ),
+  startup: {
+    l10nId: "startup-group",
+    headingLevel: 2,
+    items: [
+      {
+        id: "browserRestoreSession",
+        l10nId: "startup-restore-windows-and-tabs",
+      },
+      {
+        id: "windowsLaunchOnLogin",
+        l10nId: "windows-launch-on-login",
+      },
+      {
+        id: "windowsLaunchOnLoginDisabledBox",
+        control: "moz-message-bar",
+        options: [
+          {
+            control: "span",
+            l10nId: "windows-launch-on-login-disabled",
+            slot: "message",
+            options: [
+              {
+                control: "a",
+                controlAttrs: {
+                  "data-l10n-name": "startup-link",
+                  href: "ms-settings:startupapps",
+                  target: "_self",
+                },
+              },
+            ],
+          },
+        ],
+      },
+      {
+        id: "windowsLaunchOnLoginDisabledProfileBox",
+        control: "moz-message-bar",
+        l10nId: "startup-windows-launch-on-login-profile-disabled",
+      },
+      {
+        id: "alwaysCheckDefault",
+        l10nId: "always-check-default",
+      },
+    ],
+  },
   importBrowserData: {
     l10nId: "preferences-data-migration-group",
     headingLevel: 2,
@@ -2693,6 +2681,232 @@ SettingGroupManager.registerGroups({
         id: "data-migration",
         l10nId: "preferences-data-migration-button",
         control: "moz-box-button",
+      },
+    ],
+  },
+  homepage: {
+    inProgress: true,
+    headingLevel: 2,
+    iconSrc: "chrome://browser/skin/window-firefox.svg",
+    l10nId: "home-homepage-title",
+    items: [
+      {
+        id: "homepageNewWindows",
+        control: "moz-select",
+        l10nId: "home-homepage-new-windows",
+        options: [
+          {
+            value: "home",
+            l10nId: "home-mode-choice-default-fx",
+          },
+          { value: "blank", l10nId: "home-mode-choice-blank" },
+          { value: "custom", l10nId: "home-mode-choice-custom" },
+        ],
+      },
+      {
+        id: "homepageGoToCustomHomepageUrlPanel",
+        control: "moz-box-button",
+        l10nId: "home-homepage-custom-homepage-button",
+      },
+      {
+        id: "homepageNewTabs",
+        control: "moz-select",
+        l10nId: "home-homepage-new-tabs",
+        options: [
+          {
+            value: "true",
+            l10nId: "home-mode-choice-default-fx",
+          },
+          { value: "false", l10nId: "home-mode-choice-blank" },
+        ],
+      },
+      {
+        id: "homepageRestoreDefaults",
+        control: "moz-button",
+        l10nId: "home-restore-defaults",
+        controlAttrs: { id: "restoreDefaultHomePageBtn" },
+      },
+    ],
+  },
+  customHomepage: {
+    inProgress: true,
+    headingLevel: 2,
+    l10nId: "home-custom-homepage-card-header",
+    iconSrc: "chrome://global/skin/icons/link.svg",
+    items: [
+      {
+        id: "customHomepageBoxGroup",
+        control: "moz-box-group",
+        controlAttrs: {
+          type: "list",
+        },
+      },
+    ],
+  },
+  home: {
+    inProgress: true,
+    headingLevel: 2,
+    l10nId: "home-prefs-content-header",
+    iconSrc: "chrome://browser/skin/home.svg",
+    items: [
+      {
+        id: "webSearch",
+        l10nId: "home-prefs-search-header2",
+        control: "moz-toggle",
+      },
+      {
+        id: "weather",
+        l10nId: "home-prefs-weather-header",
+        control: "moz-toggle",
+      },
+      {
+        id: "widgets",
+        l10nId: "home-prefs-widgets-header",
+        control: "moz-toggle",
+        items: [
+          {
+            id: "lists",
+            l10nId: "home-prefs-lists-header",
+          },
+          {
+            id: "timer",
+            l10nId: "home-prefs-timer-header",
+          },
+        ],
+      },
+      {
+        id: "shortcuts",
+        l10nId: "home-prefs-shortcuts-header",
+        control: "moz-toggle",
+        items: [
+          {
+            id: "shortcutsRows",
+            control: "moz-select",
+            options: [
+              {
+                value: 1,
+                l10nId: "home-prefs-sections-rows-option",
+                l10nArgs: { num: 1 },
+              },
+              {
+                value: 2,
+                l10nId: "home-prefs-sections-rows-option",
+                l10nArgs: { num: 2 },
+              },
+              {
+                value: 3,
+                l10nId: "home-prefs-sections-rows-option",
+                l10nArgs: { num: 3 },
+              },
+              {
+                value: 4,
+                l10nId: "home-prefs-sections-rows-option",
+                l10nArgs: { num: 4 },
+              },
+            ],
+          },
+        ],
+      },
+      {
+        id: "stories",
+        l10nId: "home-prefs-stories-header2",
+        control: "moz-toggle",
+        items: [
+          {
+            id: "manageTopics",
+            l10nId: "home-prefs-manage-topics-link2",
+            control: "moz-box-link",
+            controlAttrs: {
+              href: "about:newtab#customize-topics",
+            },
+          },
+        ],
+      },
+      {
+        id: "supportFirefox",
+        l10nId: "home-prefs-support-firefox-header",
+        control: "moz-toggle",
+        items: [
+          {
+            id: "sponsoredShortcuts",
+            l10nId: "home-prefs-shortcuts-by-option-sponsored",
+          },
+          {
+            id: "sponsoredStories",
+            l10nId: "home-prefs-recommended-by-option-sponsored-stories",
+          },
+          {
+            id: "supportFirefoxPromo",
+            l10nId: "home-prefs-mission-message2",
+            control: "moz-promo",
+            options: [
+              {
+                control: "a",
+                l10nId: "home-prefs-mission-message-learn-more-link",
+                slot: "support-link",
+                controlAttrs: {
+                  is: "moz-support-link",
+                  "support-page": "sponsor-privacy",
+                  "utm-content": "inproduct",
+                },
+              },
+            ],
+          },
+        ],
+      },
+      {
+        id: "recentActivity",
+        l10nId: "home-prefs-recent-activity-header",
+        control: "moz-toggle",
+        items: [
+          {
+            id: "recentActivityRows",
+            control: "moz-select",
+            options: [
+              {
+                value: 1,
+                l10nId: "home-prefs-sections-rows-option",
+                l10nArgs: { num: 1 },
+              },
+              {
+                value: 2,
+                l10nId: "home-prefs-sections-rows-option",
+                l10nArgs: { num: 2 },
+              },
+              {
+                value: 3,
+                l10nId: "home-prefs-sections-rows-option",
+                l10nArgs: { num: 3 },
+              },
+              {
+                value: 4,
+                l10nId: "home-prefs-sections-rows-option",
+                l10nArgs: { num: 4 },
+              },
+            ],
+          },
+          {
+            id: "recentActivityVisited",
+            l10nId: "home-prefs-highlights-option-visited-pages",
+          },
+          {
+            id: "recentActivityBookmarks",
+            l10nId: "home-prefs-highlights-options-bookmarks",
+          },
+          {
+            id: "recentActivityDownloads",
+            l10nId: "home-prefs-highlights-option-most-recent-download",
+          },
+        ],
+      },
+      {
+        id: "chooseWallpaper",
+        l10nId: "home-prefs-choose-wallpaper-link2",
+        control: "moz-box-link",
+        controlAttrs: {
+          href: "about:newtab#customize",
+        },
+        iconSrc: "chrome://browser/skin/customize.svg",
       },
     ],
   },
@@ -4479,7 +4693,6 @@ SettingGroupManager.registerGroups({
   defaultBrowserSync: createDefaultBrowserConfig({
     includeIsDefaultPane: false,
     inProgress: true,
-    hiddenFromSearch: true,
   }),
   sync: {
     inProgress: true,
