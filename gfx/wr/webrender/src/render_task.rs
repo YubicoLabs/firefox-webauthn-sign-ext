@@ -32,7 +32,7 @@ use crate::render_backend::DataStores;
 use crate::render_target::{ResolveOp, RenderTargetKind};
 use crate::render_task_graph::{PassId, RenderTaskId, RenderTaskGraphBuilder};
 use crate::render_task_cache::{RenderTaskCacheEntryHandle, RenderTaskCacheKey, RenderTaskCacheKeyKind, RenderTaskParent};
-use crate::segment::EdgeAaSegmentMask;
+use crate::segment::EdgeMask;
 use crate::surface::SurfaceBuilder;
 use smallvec::SmallVec;
 
@@ -209,7 +209,7 @@ pub struct PrimTask {
     pub content_origin: DevicePoint,
     pub prim_address_f: GpuBufferAddress,
     pub transform_id: GpuTransformId,
-    pub edge_flags: EdgeAaSegmentMask,
+    pub edge_flags: EdgeMask,
     pub quad_flags: QuadFlags,
     pub prim_needs_scissor_rect: bool,
     pub texture_input: RenderTaskId,
@@ -531,7 +531,7 @@ impl RenderTaskKind {
         content_origin: DevicePoint,
         prim_address_f: GpuBufferAddress,
         transform_id: GpuTransformId,
-        edge_flags: EdgeAaSegmentMask,
+        edge_flags: EdgeMask,
         quad_flags: QuadFlags,
         prim_needs_scissor_rect: bool,
         texture_input: RenderTaskId,

@@ -15,7 +15,7 @@ use crate::quad;
 use crate::render_target::RenderTargetKind;
 use crate::render_task::{BlurTask, PrimTask, RenderTask, RenderTaskKind};
 use crate::scene_building::{SceneBuilder, IsVisible};
-use crate::segment::EdgeAaSegmentMask;
+use crate::segment::EdgeMask;
 use crate::spatial_tree::SpatialNodeIndex;
 use crate::gpu_types::{BoxShadowStretchMode, UvRectKind, BlurEdgeMode};
 use crate::render_task_graph::RenderTaskId;
@@ -117,7 +117,7 @@ impl PatternBuilder for BoxShadowTemplate {
                 content_origin,
                 prim_address_f: pattern_prim_address_f,
                 transform_id: GpuTransformId::IDENTITY,
-                edge_flags: EdgeAaSegmentMask::empty(),
+                edge_flags: EdgeMask::empty(),
                 quad_flags: QuadFlags::APPLY_RENDER_TASK_CLIP,
                 prim_needs_scissor_rect: false,
                 texture_input: color_pattern.texture_input.task_id,

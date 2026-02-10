@@ -23,7 +23,7 @@ use crate::render_task_cache::{RenderTaskCacheKey, RenderTaskCacheKeyKind, Rende
 use crate::render_task_graph::{RenderTaskGraph, RenderTaskGraphBuilder, RenderTaskId, SubTaskRange};
 use crate::renderer::{BlendMode, GpuBufferAddress, GpuBufferBuilder, GpuBufferBuilderF, GpuBufferDataI};
 use crate::resource_cache::ResourceCache;
-use crate::segment::EdgeAaSegmentMask;
+use crate::segment::EdgeMask;
 use crate::space::SpaceMapper;
 use crate::spatial_tree::{CoordinateSpaceMapping, SpatialNodeIndex, SpatialTree};
 use crate::surface::SurfaceBuilder;
@@ -369,9 +369,9 @@ fn prepare_quad_impl(
     //           as a follow up, we can now easily check if we have a 2d-aligned
     //           primitive on a subpixel boundary, and enable AA along those edge(s).
     let aa_flags = if prim_is_2d_axis_aligned {
-        EdgeAaSegmentMask::empty()
+        EdgeMask::empty()
     } else {
-        EdgeAaSegmentMask::all()
+        EdgeMask::all()
     };
 
     if let QuadRenderStrategy::Direct = strategy {
@@ -581,7 +581,7 @@ fn prepare_nine_patch(
     radius: LayoutVector2D,
     pattern: &Pattern,
     mut quad_flags: QuadFlags,
-    aa_flags: EdgeAaSegmentMask,
+    aa_flags: EdgeMask,
     clips_range: ClipNodeRange,
     prim_spatial_node_index: SpatialNodeIndex,
     raster_spatial_node_index: SpatialNodeIndex,
@@ -767,7 +767,7 @@ fn prepare_tiles(
     pattern_builder: &dyn PatternBuilder,
     shared_pattern: Option<&Pattern>,
     mut quad_flags: QuadFlags,
-    aa_flags: EdgeAaSegmentMask,
+    aa_flags: EdgeMask,
     clip_chain: &ClipChainInstance,
     prim_spatial_node_index: SpatialNodeIndex,
     gpu_transform: GpuTransformId,
@@ -1187,7 +1187,7 @@ fn add_render_task_with_mask(
     raster_spatial_node_index: SpatialNodeIndex,
     prim_address_f: GpuBufferAddress,
     transform_id: GpuTransformId,
-    aa_flags: EdgeAaSegmentMask,
+    aa_flags: EdgeMask,
     quad_flags: QuadFlags,
     device_pixel_scale: DevicePixelScale,
     needs_scissor_rect: bool,
@@ -1298,7 +1298,7 @@ fn add_pattern_prim(
             GpuTransformId::IDENTITY,
             quad_flags,
             // TODO(gw): No AA on composite, unless we use it to apply 2d clips
-            EdgeAaSegmentMask::empty(),
+            EdgeMask::empty(),
         ),
         targets,
     );
@@ -1343,7 +1343,7 @@ fn add_composite_prim(
             GpuTransformId::IDENTITY,
             quad_flags,
             // TODO(gw): No AA on composite, unless we use it to apply 2d clips
-            EdgeAaSegmentMask::empty(),
+            EdgeMask::empty(),
         ),
         targets,
     );
@@ -1719,7 +1719,7 @@ pub fn add_to_batch<F>(
     transform_id: GpuTransformId,
     prim_address_f: GpuBufferAddress,
     quad_flags: QuadFlags,
-    edge_flags: EdgeAaSegmentMask,
+    edge_flags: EdgeMask,
     segment_index: u8,
     src_task_id: RenderTaskId,
     z_id: ZBufferId,
@@ -1800,28 +1800,28 @@ pub fn add_to_batch<F>(
     } else if quad_flags.contains(QuadFlags::USE_AA_SEGMENTS) {
         // Add instances for the antialisaing. This gives the center part
         // an opportunity to stay in the opaque pass.
-        if edge_flags.contains(EdgeAaSegmentMask::LEFT) {
+        if edge_flags.contains(EdgeMask::LEFT) {
             let instance = QuadInstance {
                 part_index: PartIndex::Left as u8,
                 ..instance
             };
             f(aa_batch_key, instance.into());
         }
-        if edge_flags.contains(EdgeAaSegmentMask::RIGHT) {
+        if edge_flags.contains(EdgeMask::RIGHT) {
             let instance = QuadInstance {
                 part_index: PartIndex::Top as u8,
                 ..instance
             };
             f(aa_batch_key, instance.into());
         }
-        if edge_flags.contains(EdgeAaSegmentMask::TOP) {
+        if edge_flags.contains(EdgeMask::TOP) {
             let instance = QuadInstance {
                 part_index: PartIndex::Right as u8,
                 ..instance
             };
             f(aa_batch_key, instance.into());
         }
-        if edge_flags.contains(EdgeAaSegmentMask::BOTTOM) {
+        if edge_flags.contains(EdgeMask::BOTTOM) {
             let instance = QuadInstance {
                 part_index: PartIndex::Bottom as u8,
                 ..instance
