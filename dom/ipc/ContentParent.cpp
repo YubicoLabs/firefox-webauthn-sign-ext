@@ -6480,6 +6480,9 @@ mozilla::ipc::IPCResult ContentParent::RecvPURLClassifierLocalByNameConstructor(
   for (nsCString& featureName : aFeatureNames) {
     RefPtr<nsIUrlClassifierFeature> feature =
         UrlClassifierFeatureFactory::GetFeatureByName(featureName);
+    if (!feature) {
+      continue;
+    }
     nsAutoCString name;
     nsresult rv = feature->GetName(name);
     if (NS_WARN_IF(NS_FAILED(rv))) {
