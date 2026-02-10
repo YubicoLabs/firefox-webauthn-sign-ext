@@ -318,6 +318,12 @@ void Gecko_InvalidatePositionTry(const Element* aElement) {
   f->PresShell()->MarkPositionedFrameForReflow(f);
 }
 
+void Gecko_NoteHighlightPseudoStyleInvalidated(const Document* aDoc) {
+  if (auto* presContext = aDoc->GetPresContext()) {
+    presContext->RestyleManager()->NoteHighlightPseudoStyleInvalidated();
+  }
+}
+
 float Gecko_GetScrollbarInlineSize(const nsPresContext* aPc) {
   MOZ_ASSERT(aPc);
   auto overlay = aPc->UseOverlayScrollbars() ? nsITheme::Overlay::Yes

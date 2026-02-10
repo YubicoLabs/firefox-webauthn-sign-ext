@@ -109,6 +109,7 @@
 #include "mozilla/dom/FontFaceSet.h"
 #include "mozilla/dom/FragmentDirective.h"
 #include "mozilla/dom/HTMLAreaElement.h"
+#include "mozilla/dom/HighlightRegistry.h"
 #include "mozilla/dom/LargestContentfulPaint.h"
 #include "mozilla/dom/MouseEventBinding.h"
 #include "mozilla/dom/Performance.h"
@@ -1578,6 +1579,19 @@ PresShell::RepaintSelection(RawSelectionType aRawSelectionType) {
 
   RefPtr<nsFrameSelection> frameSelection = mSelection;
   return frameSelection->RepaintSelection(ToSelectionType(aRawSelectionType));
+}
+
+void PresShell::RepaintPseudoElementStyledSelections() {
+  if (MOZ_UNLIKELY(mIsDestroying)) {
+    return;
+  }
+
+  if (RefPtr<nsFrameSelection> frameSelection = mSelection) {
+    frameSelection->RepaintSelection(SelectionType::eNormal);
+    frameSelection->RepaintSelection(SelectionType::eTargetText);
+  }
+
+  mDocument->HighlightRegistry().RepaintAllHighlightSelections();
 }
 
 // Make shell be a document observer

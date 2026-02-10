@@ -3234,6 +3234,15 @@ void RestyleManager::DoProcessPendingRestyles(ServoTraversalFlags aFlags) {
       // In any case, we don't need to increment the restyle generation in that
       // case.
       IncrementRestyleGeneration();
+      // Repaint highlight pseudo-element selections if any were invalidated
+      // during this restyle. Highlight pseudos (::selection, ::highlight,
+      // ::target-text) have their styles resolved lazily during painting
+      // rather than during the restyle traversal, so style changes don't
+      // automatically generate repaint hints for them.
+      if (mNeedsPseudoElementSelectionsRepaint) {
+        presShell->RepaintPseudoElementStyledSelections();
+        mNeedsPseudoElementSelectionsRepaint = false;
+      }
     }
 
     // See https://bugzilla.mozilla.org/show_bug.cgi?id=1980206

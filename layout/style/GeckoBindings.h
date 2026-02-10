@@ -348,6 +348,11 @@ void Gecko_NoteDirtySubtreeForInvalidation(const mozilla::dom::Element*);
 void Gecko_NoteAnimationOnlyDirtyElement(const mozilla::dom::Element*);
 void Gecko_InvalidatePositionTry(const mozilla::dom::Element*);
 
+// Called when a highlight pseudo-element style (::selection, ::highlight,
+// ::target-text) is invalidated. These pseudos need explicit repaint
+// triggering since their styles are resolved lazily during painting.
+void Gecko_NoteHighlightPseudoStyleInvalidated(const mozilla::dom::Document*);
+
 bool Gecko_AnimationNameMayBeReferencedFromStyle(const nsPresContext*,
                                                  nsAtom* name);
 
