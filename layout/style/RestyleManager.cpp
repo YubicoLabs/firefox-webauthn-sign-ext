@@ -2723,12 +2723,9 @@ static ServoPostTraversalFlags SendA11yNotifications(
 static bool NeedsToReframeForConditionallyCreatedPseudoElement(
     Element* aElement, ComputedStyle* aNewStyle, nsIFrame* aStyleFrame,
     ServoRestyleState& aRestyleState) {
-  if (MOZ_UNLIKELY(aStyleFrame->IsLeaf())) {
-    return false;
-  }
   const auto& disp = *aStyleFrame->StyleDisplay();
   if (disp.IsListItem() && aStyleFrame->IsBlockFrameOrSubclass() &&
-      !nsLayoutUtils::GetMarkerPseudo(aElement)) {
+      !aStyleFrame->IsLeaf() && !nsLayoutUtils::GetMarkerPseudo(aElement)) {
     RefPtr<ComputedStyle> pseudoStyle =
         aRestyleState.StyleSet().ProbePseudoElementStyle(
             *aElement, PseudoStyleType::Marker, nullptr, aNewStyle);
@@ -2738,6 +2735,7 @@ static bool NeedsToReframeForConditionallyCreatedPseudoElement(
   }
   if (disp.mTopLayer == StyleTopLayer::Auto &&
       !aElement->IsInNativeAnonymousSubtree() &&
+      !aStyleFrame->BackdropUnsupported() &&
       !nsLayoutUtils::GetBackdropPseudo(aElement)) {
     RefPtr<ComputedStyle> pseudoStyle =
         aRestyleState.StyleSet().ProbePseudoElementStyle(
