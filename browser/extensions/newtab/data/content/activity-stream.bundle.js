@@ -2141,12 +2141,21 @@ const LinkMenuOptions = {
     action: actionCreators.OnlyToMain({ type: actionTypes.SETTINGS_OPEN }),
     userEvent: "OPEN_NEWTAB_PREFS",
   }),
-  OurSponsorsAndYourPrivacy: () => ({
+  // eslint-disable-next-line max-params
+  OurSponsorsAndYourPrivacy: (
+    site,
+    index,
+    source,
+    isPrivateBrowsingEnabled,
+    siteInfo,
+    platform,
+    privacyInfoUrl
+  ) => ({
     id: "newtab-menu-our-sponsors-and-your-privacy",
     action: actionCreators.OnlyToMain({
       type: actionTypes.OPEN_LINK,
       data: {
-        url: "https://support.mozilla.org/kb/pocket-sponsored-stories-new-tabs",
+        url: privacyInfoUrl,
       },
     }),
     userEvent: "CLICK_PRIVACY_INFO",
@@ -2209,6 +2218,7 @@ class _LinkMenu extends (external_React_default()).PureComponent {
       isPrivateBrowsingEnabled,
       siteInfo,
       platform,
+      privacyInfoUrl,
       dispatch,
       options,
       shouldSendImpressionStats,
@@ -2217,7 +2227,7 @@ class _LinkMenu extends (external_React_default()).PureComponent {
 
     // Handle special case of default site
     const propOptions = site.isDefault && !site.searchTopSite && !site.sponsored_position ? DEFAULT_SITE_MENU_OPTIONS : options;
-    const linkMenuOptions = propOptions.map(o => LinkMenuOptions[o](site, index, source, isPrivateBrowsingEnabled, siteInfo, platform)).map(option => {
+    const linkMenuOptions = propOptions.map(o => LinkMenuOptions[o](site, index, source, isPrivateBrowsingEnabled, siteInfo, platform, privacyInfoUrl)).map(option => {
       const {
         action,
         impression,
@@ -2326,7 +2336,8 @@ class _LinkMenu extends (external_React_default()).PureComponent {
 }
 const getState = state => ({
   isPrivateBrowsingEnabled: state.Prefs.values.isPrivateBrowsingEnabled,
-  platform: state.Prefs.values.platform
+  platform: state.Prefs.values.platform,
+  privacyInfoUrl: state.Prefs.values["privacyInfo.url"]
 });
 const LinkMenu = (0,external_ReactRedux_namespaceObject.connect)(getState)(_LinkMenu);
 ;// CONCATENATED MODULE: ./content-src/components/ContextMenu/ContextMenuButton.jsx

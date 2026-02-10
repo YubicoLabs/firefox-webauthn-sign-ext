@@ -401,12 +401,21 @@ export const LinkMenuOptions = {
     action: ac.OnlyToMain({ type: at.SETTINGS_OPEN }),
     userEvent: "OPEN_NEWTAB_PREFS",
   }),
-  OurSponsorsAndYourPrivacy: () => ({
+  // eslint-disable-next-line max-params
+  OurSponsorsAndYourPrivacy: (
+    site,
+    index,
+    source,
+    isPrivateBrowsingEnabled,
+    siteInfo,
+    platform,
+    privacyInfoUrl
+  ) => ({
     id: "newtab-menu-our-sponsors-and-your-privacy",
     action: ac.OnlyToMain({
       type: at.OPEN_LINK,
       data: {
-        url: "https://support.mozilla.org/kb/pocket-sponsored-stories-new-tabs",
+        url: privacyInfoUrl,
       },
     }),
     userEvent: "CLICK_PRIVACY_INFO",

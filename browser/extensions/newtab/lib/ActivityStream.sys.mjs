@@ -1398,6 +1398,20 @@ export const PREFS_CONFIG = new Map([
     },
   ],
   [
+    "privacyInfo.url",
+    {
+      title: "Link to HNT's sponsor privacy page",
+      getValue: () => {
+        // Services.urlFormatter completes the in-product SUMO page URL:
+        // https://support.mozilla.org/1/firefox/%VERSION%/%OS%/%LOCALE%/sponsor-privacy
+        const baseUrl = Services.urlFormatter.formatURLPref(
+          "app.support.baseURL"
+        );
+        return `${baseUrl}sponsor-privacy`;
+      },
+    },
+  ],
+  [
     "caretBlinkCount",
     {
       title:
