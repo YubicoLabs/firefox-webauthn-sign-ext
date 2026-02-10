@@ -802,7 +802,7 @@ abstract class BaseBrowserFragment :
             tabId = customTabSessionId,
             downloadFileUtils = DefaultDownloadFileUtils(
                 context = context.applicationContext,
-                downloadLocation = {
+                downloadLocationGetter = {
                     Environment.getExternalStoragePublicDirectory(
                         Environment.DIRECTORY_DOWNLOADS,
                     ).path
