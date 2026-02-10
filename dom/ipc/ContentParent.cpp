@@ -6768,6 +6768,11 @@ mozilla::ipc::IPCResult ContentParent::RecvTestCookiePermissionDecided(
 
   RefPtr<WindowGlobalParent> wgp =
       aContext.get_canonical()->GetCurrentWindowGlobal();
+
+  if (!wgp) {
+    return IPC_FAIL(this, "No current window global");
+  }
+
   nsCOMPtr<nsICookieJarSettings> cjs = wgp->CookieJarSettings();
 
   Maybe<bool> result =
