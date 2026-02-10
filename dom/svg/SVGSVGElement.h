@@ -41,10 +41,10 @@ class SVGView {
  public:
   SVGView();
 
-  SVGAnimatedEnumeration mZoomAndPan;
   SVGAnimatedViewBox mViewBox;
-  SVGAnimatedPreserveAspectRatio mPreserveAspectRatio;
   std::unique_ptr<SVGAnimatedTransformList> mTransforms;
+  SVGAnimatedPreserveAspectRatio mPreserveAspectRatio;
+  SVGAnimatedEnumeration mZoomAndPan;
 };
 
 using SVGSVGElementBase = SVGViewportElement;
@@ -200,17 +200,17 @@ class SVGSVGElement final : public SVGSVGElementBase {
 
   EnumAttributesInfo GetEnumInfo() override;
 
-  enum { ZOOMANDPAN };
-  SVGAnimatedEnumeration mEnumAttributes[1];
-  static SVGEnumMapping sZoomAndPanMap[];
-  static EnumInfo sEnumInfo[1];
-
   // The time container for animations within this SVG document fragment. Set
   // for all outermost <svg> elements (not nested <svg> elements).
   std::unique_ptr<SMILTimeContainer> mTimedDocumentRoot;
 
   SVGPoint mCurrentTranslate;
   float mCurrentScale;
+
+  enum { ZOOMANDPAN };
+  SVGAnimatedEnumeration mEnumAttributes[1];
+  static SVGEnumMapping sZoomAndPanMap[];
+  static EnumInfo sEnumInfo[1];
 
   // For outermost <svg> elements created from parsing, animation is started by
   // the onload event in accordance with the SVG spec, but for <svg> elements
