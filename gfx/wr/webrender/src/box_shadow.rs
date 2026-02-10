@@ -132,8 +132,8 @@ impl PatternBuilder for BoxShadowTemplate {
         crate::quad::prepare_clip_range(
             clips_range,
             pattern_task_id,
-            task_rect,
-            pattern_prim_address_f,
+            &task_rect,
+            &pattern_rect,
             raster_spatial_node_index,
             raster_spatial_node_index,
             scale_factor,

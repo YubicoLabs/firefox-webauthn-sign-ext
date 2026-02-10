@@ -16,7 +16,6 @@ use crate::command_buffer::{CommandBufferIndex, PrimitiveCommand};
 use crate::image_tiling::{self, Repetition};
 use crate::border::{get_max_scale_for_border, build_border_instances};
 use crate::clip::{ClipStore, ClipNodeRange};
-use crate::pattern::Pattern;
 use crate::renderer::{GpuBufferAddress, GpuBufferBuilderF, GpuBufferWriterF, GpuBufferDataF};
 use crate::spatial_tree::{SpatialNodeIndex, SpatialTree};
 use crate::clip::{ClipDataStore, ClipNodeFlags, ClipChainInstance, ClipItemKind};
@@ -1029,17 +1028,6 @@ fn prepare_interned_prim_for_render(
                     .clipped_local_rect
                     .cast_unit();
 
-                let pattern = Pattern::color(ColorF::WHITE);
-
-                let prim_address_f = quad::write_layout_prim_blocks(
-                    &mut frame_state.frame_gpu_data.f32,
-                    &prim_local_rect,
-                    &prim_instance.vis.clip_chain.local_clip_rect,
-                    pattern.base_color,
-                    pattern.texture_input.task_id,
-                    &[],
-                );
-
                 // Handle masks on the source. This is the common case, and occurs for:
                 // (a) Any masks in the same coord space as the surface
                 // (b) All masks if the surface and parent are axis-aligned
@@ -1080,8 +1068,8 @@ fn prepare_interned_prim_for_render(
                     quad::prepare_clip_range(
                         clip_node_range,
                         pic_task_id,
-                        task_rect,
-                        prim_address_f,
+                        &task_rect,
+                        &prim_local_rect,
                         prim_spatial_node_index,
                         info.raster_spatial_node_index,
                         info.device_pixel_scale,
@@ -1150,8 +1138,8 @@ fn prepare_interned_prim_for_render(
                     quad::prepare_clip_range(
                         clip_node_range,
                         clip_task_id,
-                        task_rect,
-                        prim_address_f,
+                        &task_rect,
+                        &prim_local_rect,
                         prim_spatial_node_index,
                         raster_spatial_node_index,
                         device_pixel_scale,

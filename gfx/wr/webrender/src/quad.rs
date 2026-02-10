@@ -483,6 +483,7 @@ fn prepare_quad_impl(
             //  - in device space for the instance that draw into the destination picture.
             let task_id = add_render_task_with_mask(
                 &pattern,
+                &local_rect.intersection_unchecked(&clip_chain.local_clip_rect),
                 surface_size,
                 clipped_surface_rect.min,
                 clip_chain.clips_range,
@@ -696,6 +697,7 @@ fn prepare_nine_patch(
             if should_create_task(mode, x, y) {
                 let task_id = add_render_task_with_mask(
                     pattern,
+                    &local_rect,
                     segment_device_rect.size(),
                     segment_device_rect.min.to_f32(),
                     clips_range,
@@ -967,7 +969,7 @@ fn prepare_tiles(
             let prim_address = indirect_prim_address.unwrap_or_else(|| {
                 write_prim_blocks(
                     &mut state.frame_gpu_data.f32,
-                    &local_rect,
+                    local_rect,
                     &clip_chain.local_clip_rect,
                     device_clip_rect,
                     local_to_device_scale_offset.as_ref(),
@@ -978,6 +980,7 @@ fn prepare_tiles(
             let needs_scissor = local_to_device_scale_offset.is_none();
             let task_id = add_render_task_with_mask(
                 &pattern,
+                local_rect,
                 tile_size,
                 tile.rect.min,
                 clip_chain.clips_range,
@@ -1176,6 +1179,7 @@ pub fn cache_key(
 
 fn add_render_task_with_mask(
     pattern: &Pattern,
+    prim_local_coverage_rect: &LayoutRect,
     task_size: DeviceIntSize,
     content_origin: DevicePoint,
     clips_range: ClipNodeRange,
@@ -1236,8 +1240,8 @@ fn add_render_task_with_mask(
                 prepare_clip_range(
                     clips_range,
                     task_id,
-                    task_rect,
-                    prim_address_f,
+                    &task_rect,
+                    prim_local_coverage_rect,
                     prim_spatial_node_index,
                     raster_spatial_node_index,
                     device_pixel_scale,
@@ -1348,8 +1352,8 @@ fn add_composite_prim(
 pub fn prepare_clip_range(
     clips_range: ClipNodeRange,
     masked_prim_task_id: RenderTaskId,
-    task_rect: DeviceRect,
-    main_prim_address: GpuBufferAddress,
+    task_rect: &DeviceRect,
+    prim_local_coverage_rect: &LayoutRect,
     prim_spatial_node_index: SpatialNodeIndex,
     raster_spatial_node_index: SpatialNodeIndex,
     device_pixel_scale: DevicePixelScale,
@@ -1370,7 +1374,7 @@ pub fn prepare_clip_range(
             clip_instance,
             clip_item,
             task_rect,
-            main_prim_address,
+            prim_local_coverage_rect,
             prim_spatial_node_index,
             raster_spatial_node_index,
             device_pixel_scale,
@@ -1391,8 +1395,8 @@ pub fn prepare_clip_range(
 pub fn prepare_clip_task(
     clip_instance: &ClipNodeInstance,
     clip_item: &ClipItem,
-    task_rect: DeviceRect,
-    clipped_prim_address: GpuBufferAddress,
+    task_rect: &DeviceRect,
+    prim_local_coverage_rect: &LayoutRect,
     prim_spatial_node_index: SpatialNodeIndex,
     raster_spatial_node_index: SpatialNodeIndex,
     device_pixel_scale: DevicePixelScale,
@@ -1545,6 +1549,15 @@ pub fn prepare_clip_task(
             spatial_tree,
         );
 
+        let quad_address = write_layout_prim_blocks(
+            gpu_buffer,
+            prim_local_coverage_rect,
+            prim_local_coverage_rect,
+            ColorF::WHITE,
+            RenderTaskId::INVALID,
+            &[],
+        );
+
         let clip_spatial_node = spatial_tree.get_spatial_node(clip_item.spatial_node_index);
         let clip_transform_id = if prim_spatial_node.coordinate_system_id < clip_spatial_node.coordinate_system_id {
             transforms.gpu.get_id(
@@ -1565,7 +1578,7 @@ pub fn prepare_clip_task(
             raster_spatial_node_index,
         );
 
-        (ClipSpace::Primitive, clip_transform_id, clipped_prim_address, quad_transform_id, is_same_coord_system)
+        (ClipSpace::Primitive, clip_transform_id, quad_address, quad_transform_id, is_same_coord_system)
     };
 
     let needs_scissor_rect = !is_same_coord_system;
