@@ -346,7 +346,8 @@ export class AIWindow extends MozLitElement {
 
       if (this.mode === SIDEBAR && gBrowser) {
         // Get tab context for LLM-generated prompts
-        const contextTabs = Array.from(gBrowser.tabs).map(tab => ({
+        // @todo bug 2015919 to use same context as visualized in smartbar
+        const contextTabs = [gBrowser.selectedTab].map(tab => ({
           title: tab.label,
           url: tab.linkedBrowser.currentURI.spec,
         }));
