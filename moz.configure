@@ -174,7 +174,7 @@ set_config("MOZ_DEBUG_DEFINES", debug_defines)
 
 option(env="MOZ_PGO", help="Build with profile guided optimizations")
 
-set_config("MOZ_PGO", depends("MOZ_PGO")(lambda x: bool(x)))
+set_config("MOZ_PGO", depends("MOZ_PGO")(bool))
 
 
 # Imply --enable-release when MOZILLA_OFFICIAL is set rather than adjusting the
