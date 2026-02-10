@@ -7,7 +7,6 @@
 #ifndef mozilla_ipc_IPCStreamUtils_h
 #define mozilla_ipc_IPCStreamUtils_h
 
-#include "mozilla/ipc/EagerIPCStream.h"
 #include "mozilla/ipc/IPCStream.h"
 #include "nsCOMPtr.h"
 #include "nsIInputStream.h"
@@ -45,13 +44,6 @@ template <>
 struct ParamTraits<nsIInputStream*> {
   static void Write(MessageWriter* aWriter, nsIInputStream* aParam);
   static bool Read(MessageReader* aReader, RefPtr<nsIInputStream>* aResult);
-};
-
-template <>
-struct ParamTraits<mozilla::ipc::EagerIPCStream> {
-  using paramType = mozilla::ipc::EagerIPCStream;
-  static void Write(MessageWriter* aWriter, const paramType& aParam);
-  static ReadResult<paramType> Read(MessageReader* aReader);
 };
 
 }  // namespace IPC

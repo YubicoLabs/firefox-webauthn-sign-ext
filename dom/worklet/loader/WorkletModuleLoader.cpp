@@ -257,8 +257,8 @@ AddModuleThrowErrorRunnable::Run() {
 
   JSContext* cx = jsapi.cx();
   JS::Rooted<JS::Value> error(cx);
-  IgnoredErrorResult result;
-  Read(cx, &error, result);
+  ErrorResult result;
+  Read(global, cx, &error, result);
   (void)NS_WARN_IF(result.Failed());
   mHandlerRef->ExecutionFailed(error);
 
@@ -312,18 +312,12 @@ void WorkletModuleLoader::OnModuleLoadComplete(ModuleLoadRequest* aRequest) {
     } else {
       error = aRequest->mModuleScript->ErrorToRethrow();
     }
-
+    JS_SetPendingException(cx, error);
     RefPtr<AddModuleThrowErrorRunnable> runnable =
         new AddModuleThrowErrorRunnable(handlerRef);
-
-    bool writeOk = [&] {
-      IgnoredErrorResult result;
-      runnable->Write(cx, error, result);
-      return !result.Failed();
-    }();
-
-    JS_SetPendingException(cx, error);
-    if (!writeOk) {
+    ErrorResult result;
+    runnable->Write(cx, error, result);
+    if (NS_WARN_IF(result.Failed())) {
       return;
     }
 
