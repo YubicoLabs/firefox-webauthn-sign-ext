@@ -13,7 +13,6 @@ import { MozLitElement } from "chrome://global/content/lit-utils.mjs";
  * @property {string} [iconSrc] Optional icon shown in the page header.
  * @property {string} [module] Import path for module housing the config.
  * @property {() => boolean} [visible] If this pane is visible.
- * @property {string} [replaces] ID of legacy pane getting replaced by new pane.
  */
 
 export class SettingPane extends MozLitElement {
@@ -72,7 +71,17 @@ export class SettingPane extends MozLitElement {
 
     this.handleVisibility();
 
-    document.addEventListener("paneshown", this.handlePaneShown);
+    document.addEventListener(
+      "paneshown",
+      /**
+       * @param {CustomEvent} e
+       */
+      e => {
+        if (this.isSubPane && e.detail.category === this.name) {
+          this.pageHeaderEl.backButtonEl.focus();
+        }
+      }
+    );
     this.setAttribute("data-category", this.name);
     this.hidden = true;
     if (this.isSubPane) {
@@ -81,20 +90,6 @@ export class SettingPane extends MozLitElement {
       this._createCategoryButton();
     }
   }
-
-  disconnectedCallback() {
-    super.disconnectedCallback();
-    document.removeEventListener("paneshown", this.handlePaneShown);
-  }
-
-  /**
-   * @param {CustomEvent} e
-   */
-  handlePaneShown = e => {
-    if (this.isSubPane && e.detail.category === this.name) {
-      this.pageHeaderEl.backButtonEl.focus();
-    }
-  };
 
   init() {
     if (!this.hasUpdated) {
