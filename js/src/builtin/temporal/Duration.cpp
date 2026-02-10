@@ -2030,8 +2030,8 @@ static UnsignedRoundingMode GetUnsignedRoundingMode(
 }
 
 struct NudgeWindow {
-  int64_t r1 = 0;
-  int64_t r2 = 0;
+  int64_t r1;
+  int64_t r2;
   EpochNanoseconds startEpochNs;
   EpochNanoseconds endEpochNs;
   DateDuration startDuration;

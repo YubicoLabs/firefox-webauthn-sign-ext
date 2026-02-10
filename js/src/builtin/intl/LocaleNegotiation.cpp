@@ -63,7 +63,7 @@ static mozilla::Maybe<UnicodeExtensionKey> ToUnicodeExtensionKey(
   static constexpr auto names = UnicodeExtensionKeyNames();
   for (auto key : mozilla::MakeInclusiveEnumeratedRange(
            mozilla::MaxEnumValue<UnicodeExtensionKey>::value)) {
-    const auto* name = names[key];
+    auto name = names[key];
     if (name[0] == subtag[0] && name[1] == subtag[1]) {
       return mozilla::Some(key);
     }
@@ -582,7 +582,7 @@ class UnicodeExtensionKeywords {
   // Start position and length of a Unicode extension keyword.
   using Value = std::pair<size_t, size_t>;
 
-  mozilla::EnumeratedArray<UnicodeExtensionKey, Value> keywords;
+  mozilla::EnumeratedArray<UnicodeExtensionKey, Value> keywords{};
 
  public:
   /**
@@ -676,15 +676,13 @@ static auto UnicodeExtensionComponents(const JSLinearString* extension) {
   MOZ_ASSERT(StringIsAscii(extension));
 
   JS::AutoCheckCannotGC nogc;
-
   if (extension->hasLatin1Chars()) {
-    const auto* chars = extension->latin1Chars(nogc);
+    auto* chars = extension->latin1Chars(nogc);
     std::string_view sv{reinterpret_cast<const char*>(chars),
                         extension->length()};
     return UnicodeExtensionComponents(sv);
   }
-
-  const auto* chars = extension->twoByteChars(nogc);
+  auto* chars = extension->twoByteChars(nogc);
   std::u16string_view sv{chars, extension->length()};
   return UnicodeExtensionComponents(sv);
 }
@@ -896,14 +894,12 @@ static bool IsSupportedNumberingSystem(const JSLinearString* string) {
   MOZ_ASSERT(StringIsAscii(string));
 
   JS::AutoCheckCannotGC nogc;
-
   if (string->hasLatin1Chars()) {
-    const auto* chars = string->latin1Chars(nogc);
+    auto* chars = string->latin1Chars(nogc);
     std::string_view sv{reinterpret_cast<const char*>(chars), string->length()};
     return IsSupportedNumberingSystem(sv);
   }
-
-  const auto* chars = string->twoByteChars(nogc);
+  auto* chars = string->twoByteChars(nogc);
   std::u16string_view sv{chars, string->length()};
   return IsSupportedNumberingSystem(sv);
 }
@@ -1033,7 +1029,7 @@ static bool DefaultValue(JSContext* cx, LocaleData localeData,
                          MutableHandle<JSLinearString*> result) {
   switch (key) {
     case UnicodeExtensionKey::Calendar: {
-      auto* ca = DefaultCalendar(cx, locale);
+      auto ca = DefaultCalendar(cx, locale);
       if (!ca) {
         return false;
       }
@@ -1053,7 +1049,7 @@ static bool DefaultValue(JSContext* cx, LocaleData localeData,
         return true;
       }
 
-      auto* kf = DefaultCollationCaseFirst(cx, locale);
+      auto kf = DefaultCollationCaseFirst(cx, locale);
       if (!kf) {
         return false;
       }
@@ -1071,7 +1067,7 @@ static bool DefaultValue(JSContext* cx, LocaleData localeData,
       return true;
     }
     case UnicodeExtensionKey::NumberingSystem: {
-      auto* nu = DefaultNumberingSystem(cx, locale);
+      auto nu = DefaultNumberingSystem(cx, locale);
       if (!nu) {
         return false;
       }

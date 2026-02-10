@@ -684,8 +684,7 @@ static bool InitializeDurationFormat(
                          &fractionalDigits)) {
       return false;
     }
-    dfOptions->fractionalDigits =
-        static_cast<int8_t>(fractionalDigits.valueOr(-1));
+    dfOptions->fractionalDigits = fractionalDigits.valueOr(-1);
   }
   durationFormat->setOptions(dfOptions.release());
   AddCellMemory(durationFormat, sizeof(DurationFormatOptions),
