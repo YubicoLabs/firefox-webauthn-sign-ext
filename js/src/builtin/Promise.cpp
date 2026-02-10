@@ -3297,13 +3297,12 @@ class MOZ_STACK_CLASS PromiseForOfIterator : public JS::ForOfIterator {
  * GetPromiseResolve ( promiseConstructor )
  * https://tc39.es/ecma262/#sec-getpromiseresolve
  */
-template <typename PerformFuncT>
+template <typename IterT, typename PerformFuncT, typename InitIterFuncT,
+          typename MaybeCloseIterFuncT>
 [[nodiscard]] static bool CommonPromiseCombinator(
     JSContext* cx, CallArgs& args, PerformFuncT performFunc,
-    const char* nonObjectThisErrorMessage,
-    const char* nonIterableErrorMessage) {
-  HandleValue iterable = args.get(0);
-
+    const char* nonObjectThisErrorMessage, const char* nonIterableErrorMessage,
+    InitIterFuncT initIter, MaybeCloseIterFuncT maybeCloseIterFunc) {
   // Step 2. Let promiseCapability be ? NewPromiseCapability(C).
   // (moved from NewPromiseCapability, step 1).
   HandleValue CVal = args.thisv();
@@ -3352,34 +3351,37 @@ template <typename PerformFuncT>
     }
   }
 
-  // Step 5. Let iteratorRecord be GetIterator(iterable).
-  PromiseForOfIterator iter(cx);
-  if (!iter.init(iterable, JS::ForOfIterator::AllowNonIterable)) {
+  // Step 5.
+  IterT iter(cx);
+  if (!initIter(iter)) {
     // Step 6. IfAbruptRejectPromise(iteratorRecord, promiseCapability).
     return AbruptRejectPromise(cx, args, promiseCapability);
   }
 
-  if (!iter.valueIsIterable()) {
-    // Step 6. IfAbruptRejectPromise(iteratorRecord, promiseCapability).
-    JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr, JSMSG_NOT_ITERABLE,
-                              nonIterableErrorMessage);
-    return AbruptRejectPromise(cx, args, promiseCapability);
-  }
-
+  // Promise.all
   // Step 7. Let result be
-  //         PerformPromise[All/AllSettled/Any/Race](iteratorRecord, C,
-  //         promiseCapability, promiseResolve).
+  //         PerformPromiseAll(iteratorRecord, C, promiseCapability,
+  //                           promiseResolve).
+  // Promise.allSettled
+  // Step 7. Let result be
+  //         PerformPromiseAllSettled(iteratorRecord, C, promiseCapability,
+  //                                  promiseResolve).
+  // Promise.race
+  // Step 7. Let result be
+  //         PerformPromiseRace(iteratorRecord, C, promiseCapability,
+  //                            promiseResolve).
+  // Promise.any
+  // Step 7. Let result be
+  //         PerformPromiseAny(iteratorRecord, C, promiseCapability,
+  //                           promiseResolve).
   bool done;
   bool result =
       performFunc(cx, iter, C, promiseCapability, promiseResolve, &done);
 
   // Step 8. If result is an abrupt completion, then
   if (!result) {
-    // Step 8.a. If iteratorRecord.[[Done]] is false,
-    //           set result to IteratorClose(iteratorRecord, result).
-    if (!done) {
-      iter.closeThrow();
-    }
+    // Step 8.a.
+    maybeCloseIterFunc(iter, done);
 
     // Step 8.b. IfAbruptRejectPromise(result, promiseCapability).
     return AbruptRejectPromise(cx, args, promiseCapability);
@@ -3390,6 +3392,41 @@ template <typename PerformFuncT>
   return true;
 }
 
+template <typename PerformFuncT>
+[[nodiscard]] static bool CommonIterPromiseCombinator(
+    JSContext* cx, CallArgs& args, PerformFuncT performFunc,
+    const char* nonObjectThisErrorMessage,
+    const char* nonIterableErrorMessage) {
+  JS::Handle<JS::Value> iterable = args.get(0);
+
+  auto initIter = [&](PromiseForOfIterator& iter) {
+    // Step 5. Let iteratorRecord be GetIterator(iterable).
+    if (!iter.init(iterable, JS::ForOfIterator::AllowNonIterable)) {
+      return false;
+    }
+
+    if (!iter.valueIsIterable()) {
+      JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
+                                JSMSG_NOT_ITERABLE, nonIterableErrorMessage);
+      return false;
+    }
+
+    return true;
+  };
+
+  auto maybeCloseIter = [](PromiseForOfIterator& iter, bool done) {
+    // Step 8.a. If iteratorRecord.[[Done]] is false,
+    //           set result to IteratorClose(iteratorRecord, result).
+    if (!done) {
+      iter.closeThrow();
+    }
+  };
+
+  return CommonPromiseCombinator<PromiseForOfIterator>(
+      cx, args, performFunc, nonObjectThisErrorMessage, nonIterableErrorMessage,
+      initIter, maybeCloseIter);
+}
+
 /**
  * ES2022 draft rev d03c1ec6e235a5180fa772b6178727c17974cb14
  *
@@ -3398,9 +3435,9 @@ template <typename PerformFuncT>
  */
 static bool Promise_static_all(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
-  return CommonPromiseCombinator(cx, args, PerformPromiseAll,
-                                 "Receiver of Promise.all call",
-                                 "Argument of Promise.all");
+  return CommonIterPromiseCombinator(cx, args, PerformPromiseAll,
+                                     "Receiver of Promise.all call",
+                                     "Argument of Promise.all");
 }
 
 #ifdef NIGHTLY_BUILD
@@ -4449,9 +4486,9 @@ static bool PromiseAllResolveElementFunction(JSContext* cx, unsigned argc,
  */
 static bool Promise_static_race(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
-  return CommonPromiseCombinator(cx, args, PerformPromiseRace,
-                                 "Receiver of Promise.race call",
-                                 "Argument of Promise.race");
+  return CommonIterPromiseCombinator(cx, args, PerformPromiseRace,
+                                     "Receiver of Promise.race call",
+                                     "Argument of Promise.race");
 }
 
 /**
@@ -4503,9 +4540,9 @@ static bool PromiseAllSettledElementFunction(JSContext* cx, unsigned argc,
  */
 static bool Promise_static_allSettled(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
-  return CommonPromiseCombinator(cx, args, PerformPromiseAllSettled,
-                                 "Receiver of Promise.allSettled call",
-                                 "Argument of Promise.allSettled");
+  return CommonIterPromiseCombinator(cx, args, PerformPromiseAllSettled,
+                                     "Receiver of Promise.allSettled call",
+                                     "Argument of Promise.allSettled");
 }
 
 /**
@@ -4725,9 +4762,9 @@ static bool PromiseAllSettledElementFunction(JSContext* cx, unsigned argc,
  */
 static bool Promise_static_any(JSContext* cx, unsigned argc, Value* vp) {
   CallArgs args = CallArgsFromVp(argc, vp);
-  return CommonPromiseCombinator(cx, args, PerformPromiseAny,
-                                 "Receiver of Promise.any call",
-                                 "Argument of Promise.any");
+  return CommonIterPromiseCombinator(cx, args, PerformPromiseAny,
+                                     "Receiver of Promise.any call",
+                                     "Argument of Promise.any");
 }
 
 static bool PromiseAnyRejectElementFunction(JSContext* cx, unsigned argc,
