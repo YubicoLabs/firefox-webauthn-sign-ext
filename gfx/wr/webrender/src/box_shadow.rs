@@ -21,7 +21,7 @@ use crate::gpu_types::{BoxShadowStretchMode, UvRectKind, BlurEdgeMode};
 use crate::render_task_graph::RenderTaskId;
 use crate::transform::GpuTransformId;
 use crate::internal_types::LayoutPrimitiveInfo;
-use crate::util::{extract_inner_rect_k, ScaleOffset};
+use crate::util::extract_inner_rect_k;
 
 pub type BoxShadowKey = PrimKey<BoxShadow>;
 
@@ -100,14 +100,13 @@ impl PatternBuilder for BoxShadowTemplate {
         let clips_range = state.clip_store.push_clip_instance(self.kind.clip);
         let color_pattern = Pattern::color(self.kind.color);
 
-        let pattern_prim_address_f = quad::write_prim_blocks(
+        let pattern_prim_address_f = quad::write_layout_prim_blocks(
             &mut state.frame_gpu_data.f32,
-            pattern_rect.to_untyped(),
-            pattern_rect.to_untyped(),
+            &pattern_rect,
+            &pattern_rect,
             color_pattern.base_color,
             color_pattern.texture_input.task_id,
             &[],
-            ScaleOffset::identity(),
         );
 
         let pattern_task_id = state.rg_builder.add().init(RenderTask::new_dynamic(

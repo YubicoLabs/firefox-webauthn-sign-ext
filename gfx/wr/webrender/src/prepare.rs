@@ -36,7 +36,7 @@ use crate::render_task_cache::RenderTaskCacheKeyKind;
 use crate::render_task_cache::{RenderTaskCacheKey, to_cache_size, RenderTaskParent};
 use crate::render_task::{EmptyTask, RenderTask, RenderTaskKind};
 use crate::segment::SegmentBuilder;
-use crate::util::{clamp_to_scale_factor, ScaleOffset};
+use crate::util::clamp_to_scale_factor;
 use crate::visibility::{compute_conservative_visible_rect, PrimitiveVisibility, VisibilityState};
 
 
@@ -1031,14 +1031,13 @@ fn prepare_interned_prim_for_render(
 
                 let pattern = Pattern::color(ColorF::WHITE);
 
-                let prim_address_f = quad::write_prim_blocks(
+                let prim_address_f = quad::write_layout_prim_blocks(
                     &mut frame_state.frame_gpu_data.f32,
-                    prim_local_rect.to_untyped(),
-                    prim_instance.vis.clip_chain.local_clip_rect.to_untyped(),
+                    &prim_local_rect,
+                    &prim_instance.vis.clip_chain.local_clip_rect,
                     pattern.base_color,
                     pattern.texture_input.task_id,
                     &[],
-                    ScaleOffset::identity(),
                 );
 
                 // Handle masks on the source. This is the common case, and occurs for:
