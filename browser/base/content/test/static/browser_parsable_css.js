@@ -211,6 +211,10 @@ let propNameAllowlist = [
   // This enables us to provide our full color palette for developers.
   { propName: /--color-[a-z]+(-alpha)?(-\d+)?/, isFromDevTools: false },
 
+  // Ignore token properties that follow the patterns --dimension-[number] or --dimension-relative-[number]
+  // This enables us to provide our full size/spacing system for developers.
+  { propName: /--dimension(-relative)?-\d+/, isFromDevTools: false },
+
   // Ignore position-anchor: and @position-try properties. This is a work around
   // for bug 2012304.
   { propName: "--selected-session-history-entry-info", isFromDevTools: true },
