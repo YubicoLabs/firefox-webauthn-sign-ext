@@ -17,7 +17,13 @@ const TASKCLUSTER_BASE_URL =
   "https://firefox-ci-tc.services.mozilla.com";
 
 const REPOSITORY = "mozilla-central";
-const OUTPUT_DIR = "./manifest-data";
+const OUTPUT_DIR = (() => {
+  const outputDirIndex = process.argv.findIndex(arg => arg === "--output-dir");
+  if (outputDirIndex !== -1 && outputDirIndex + 1 < process.argv.length) {
+    return process.argv[outputDirIndex + 1];
+  }
+  return "./manifest-data";
+})();
 const CACHE_DIR = "./errorsummary-cache";
 
 if (!fsSync.existsSync(OUTPUT_DIR)) {

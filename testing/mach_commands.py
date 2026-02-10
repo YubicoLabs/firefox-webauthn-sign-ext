@@ -1450,3 +1450,57 @@ def platform_diff(
     from platform_diff import PlatformDiff
 
     PlatformDiff(command_context, task_id, replace).run()
+
+
+@SubCommand(
+    "test-info",
+    "manifest-timings",
+    description="Collect manifest runtime data from errorsummary logs.",
+)
+@CommandArgument("--output-dir", help="Path to output directory.")
+def test_info_manifest_timings(command_context, output_dir):
+    monitor = SystemResourceMonitor(poll_interval=0.1)
+    monitor.start()
+
+    try:
+        runtimes_dir = os.path.join(command_context.topsrcdir, "testing", "runtimes")
+        script_path = os.path.join(runtimes_dir, "fetch-manifest-data.js")
+
+        node_binary, _ = find_node_executable()
+        cmd = [node_binary, script_path]
+
+        if output_dir:
+            cmd.extend(["--output-dir", os.path.abspath(output_dir)])
+
+        print(f"Running: {' '.join(cmd)}")
+        print(f"Working directory: {runtimes_dir}")
+
+        process = subprocess.Popen(
+            cmd,
+            cwd=runtimes_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+
+        for line in process.stdout:
+            print(line, end="")
+
+        return_code = process.wait()
+        if return_code != 0:
+            raise subprocess.CalledProcessError(return_code, cmd)
+    finally:
+        if output_dir:
+            monitor.stop(upload_dir=output_dir)
+            profile_path = os.path.join(output_dir, "profile_resource-usage.json")
+        else:
+            monitor.stop()
+            profile_path = command_context._get_state_filename(
+                "profile_build_resources.json"
+            )
+        with open(profile_path, "w", encoding="utf-8", newline="\n") as fh:
+            to_write = json.dumps(monitor.as_profile(), separators=(",", ":"))
+            fh.write(to_write)
+        print(f"Resource usage profile saved to: {profile_path}")
+        if not output_dir:
+            print("View it with: ./mach resource-usage")
