@@ -3662,7 +3662,7 @@
     "bugs": {
       "1923656": {
         "issue": "page-fails-to-load",
-        "matches": ["*://*.ipmph.com/#/bookPreview*"]
+        "matches": ["*://*.ipmph.com/*"]
       }
     },
     "interventions": [
