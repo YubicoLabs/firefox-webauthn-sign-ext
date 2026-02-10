@@ -24,3 +24,9 @@ if git grep "resource://devtools/client/shared/vendor/" "**.mjs"; then
   echo "It looks like a new vendor module is used and should be handled by publish.sh";
   exit 1
 fi
+
+# Also remove all css declarations refering to a chrome URL
+# (these chrome files aren't shipped in the npm package anyway)
+for file in $(find . -name "*.css"); do
+  sed -i '/chrome/d' "$file"
+done
