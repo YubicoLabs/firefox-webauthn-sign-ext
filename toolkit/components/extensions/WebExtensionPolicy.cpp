@@ -953,6 +953,12 @@ bool MozDocumentMatcher::MatchesURI(const URLInfo& aURL,
     return false;
   }
 
+  if (!StaticPrefs::
+          extensions_webextensions_allow_executeScript_in_moz_extension() &&
+      aURL.Scheme() == nsGkAtoms::moz_extension) {
+    return false;
+  }
+
   return true;
 }
 

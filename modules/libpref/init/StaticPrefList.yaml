@@ -6169,6 +6169,15 @@
   value: false
   mirror: always
 
+- name: extensions.webextensions.allow_executeScript_in_moz_extension
+  type: bool
+#if defined(NIGHTLY_BUILD)
+  value: false
+#else
+  value: true
+#endif
+  mirror: always
+
 # This pref governs whether we run webextensions in a separate process (true)
 # or the parent/main process (false)
 - name: extensions.webextensions.remote
