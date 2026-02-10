@@ -9,6 +9,7 @@
 #include "mozilla/extensions/WebExtensionContentScript.h"
 #include "mozilla/extensions/WebExtensionPolicy.h"
 
+#include "mozilla/glean/ExtensionsMetrics.h"
 #include "mozilla/AddonManagerWebAPI.h"
 #include "mozilla/BasePrincipal.h"
 #include "mozilla/dom/WindowGlobalChild.h"
@@ -969,6 +970,14 @@ bool MozDocumentMatcher::MatchesURI(const URLInfo& aURL,
       nsresult rv = aDoc.value().GetInnerWindowID(&innerWindowID);
       if (NS_SUCCEEDED(rv)) {
         LogMozExtExecuteScriptDeprecationWarning(aURL, innerWindowID, allowed);
+
+        // Record telemetry events when a moz-extension Window global
+        // is matching a content script in addition to log the deprecation
+        // warning in the webconsole.
+        glean::extensions::match_moz_extension_document.Record(
+            Some(glean::extensions::MatchMozExtensionDocumentExtra(
+                Some(nsAtomCString(mExtension->Id()).get()),
+                Some(aDoc.value().IsTopLevel()), Some(!allowed))));
       }
     }
 

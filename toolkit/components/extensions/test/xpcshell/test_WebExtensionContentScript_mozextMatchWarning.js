@@ -6,6 +6,12 @@ AddonTestUtils.createAppInfo("xpcshell@tests.mozilla.org", "XPCShell", "1");
 
 createHttpServer({ hosts: ["example.com"] });
 
+add_setup(() => {
+  // Need a profile to init Glean.
+  do_get_profile();
+  Services.fog.initializeFOG();
+});
+
 async function test_mozExtensionGlobalMatch({ expectAllowed }) {
   const testMatchesWindowGlobal = async ({ allowed, extId, subframeURL }) => {
     const { MatchPatternSet, WebExtensionContentScript, WebExtensionPolicy } =
@@ -121,6 +127,10 @@ async function test_mozExtensionGlobalMatch({ expectAllowed }) {
     "http://example.com/"
   );
 
+  // Flush and clear all child processes Glean data.
+  await Services.fog.testFlushAllChildren();
+  Services.fog.testResetFOG();
+
   const extId = extension.id;
 
   // Test warning logged in top level frame.
@@ -128,6 +138,27 @@ async function test_mozExtensionGlobalMatch({ expectAllowed }) {
     [{ allowed: expectAllowed, extId }],
     testMatchesWindowGlobal
   );
+  // Verify telemetry event for top-level page matching.
+  await Services.fog.testFlushAllChildren();
+  Assert.deepEqual(
+    Glean.extensions.matchMozExtensionDocument.testGetValue()?.map(event => {
+      delete event.timestamp;
+      return event;
+    }),
+    [
+      {
+        category: "extensions",
+        name: "match_moz_extension_document",
+        extra: {
+          restricted: `${!expectAllowed}`,
+          addon_id: extension.id,
+          is_top_level_frame: "true",
+        },
+      },
+    ],
+    "Got the expected telemetry matchMozExtensionDocument Glean events for top-level frame"
+  );
+  Services.fog.testResetFOG();
   await page.close();
 
   // Test warning logged in subframe.
@@ -136,8 +167,29 @@ async function test_mozExtensionGlobalMatch({ expectAllowed }) {
     [{ allowed: expectAllowed, extId, subframeURL }],
     testMatchesWindowGlobal
   );
-
+  // Verify telemetry event for subframe matching.
+  await Services.fog.testFlushAllChildren();
+  Assert.deepEqual(
+    Glean.extensions.matchMozExtensionDocument.testGetValue()?.map(event => {
+      delete event.timestamp;
+      return event;
+    }),
+    [
+      {
+        category: "extensions",
+        name: "match_moz_extension_document",
+        extra: {
+          restricted: `${!expectAllowed}`,
+          addon_id: extId,
+          is_top_level_frame: "false",
+        },
+      },
+    ],
+    "Got the expected telemetry matchMozExtensionDocument Glean events for subframe"
+  );
+  Services.fog.testResetFOG();
   await webPage.close();
+
   await anotherPage.close();
   await extension.unload();
 }
