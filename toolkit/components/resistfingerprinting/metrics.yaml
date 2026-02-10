@@ -4935,6 +4935,107 @@ characteristics:
     data_sensitivity:
       - technical
 
+  audio_compressor_gain_reduction:
+    type: string
+    description: >
+      WebAudio DynamicsCompressorNode gain reduction value from OfflineAudioContext
+      rendering. This is most likely consistent for all/most users but we wish to verify
+      that experimentally.
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2010675
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2010675
+    expires: never
+    data_sensitivity:
+      - technical
+
+  audio_float_frequency_sum:
+    type: string
+    description: >
+      Sum of float frequency data from AnalyserNode.getFloatFrequencyData() during
+      OfflineAudioContext rendering. Collected as string to preserve floating-point
+      precision.
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2010675
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2010675
+    expires: never
+    data_sensitivity:
+      - technical
+
+  audio_float_time_domain_sum:
+    type: string
+    description: >
+      Sum of float time domain data from AnalyserNode.getFloatTimeDomainData() during
+      OfflineAudioContext rendering. Collected as string to preserve floating-point precision.
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2010675
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2010675
+    expires: never
+    data_sensitivity:
+      - technical
+
+  audio_fingerprint2:
+    type: string
+    description: >
+      A second method to calculate an audio fingerprint, used by a different fingerprinter.
+      Hash of audio buffer sample snapshot (100 samples from 4500-4600 range) from
+      OfflineAudioContext rendering.
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2010675
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2010675
+    expires: never
+    data_sensitivity:
+      - technical
+
+  audio_unique_samples:
+    type: quantity
+    unit: int
+    description: >
+      Count of unique sample values in the OfflineAudioContext audio buffer. This is
+      used by fingerprinting scripts to detect anamolies - they expect 1-3k unique
+      samples, not 5000. We are collecting it to ensure we are behaving as they
+      generally expect non-anomalous browsers to behave.
+    lifetime: application
+    send_in_pings:
+      - user-characteristics
+    notification_emails:
+      - tom@mozilla.com
+    bugs:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=1879151
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2010675
+    data_reviews:
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2010675
+    expires: never
+    data_sensitivity:
+      - technical
+
   languages:
     type: string
     description: >
