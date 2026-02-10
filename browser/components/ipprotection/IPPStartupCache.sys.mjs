@@ -27,6 +27,7 @@ const STATE_CACHE_PREF = "browser.ipProtection.stateCache";
 const ENTITLEMENT_CACHE_PREF = "browser.ipProtection.entitlementCache";
 const LOCATIONLIST_CACHE_PREF = "browser.ipProtection.locationListCache";
 const USAGE_CACHE_PREF = "browser.ipProtection.usageCache";
+const HAS_UPGRADED_PREF = "browser.ipProtection.hasUpgraded";
 
 /**
  * This class implements a cache for the IPP state machine. The cache is used
@@ -123,6 +124,7 @@ class IPPStartupCacheSingleton {
   storeEntitlement(entitlement) {
     if (!entitlement) {
       Services.prefs.setCharPref(ENTITLEMENT_CACHE_PREF, "");
+      Services.prefs.setBoolPref(HAS_UPGRADED_PREF, false);
       return;
     }
     if (entitlement instanceof lazy.Entitlement === false) {
@@ -132,6 +134,7 @@ class IPPStartupCacheSingleton {
       );
     }
     Services.prefs.setCharPref(ENTITLEMENT_CACHE_PREF, entitlement?.toString());
+    Services.prefs.setBoolPref(HAS_UPGRADED_PREF, entitlement.subscribed);
   }
 
   /**

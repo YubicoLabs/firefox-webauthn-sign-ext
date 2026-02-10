@@ -146,6 +146,16 @@ add_task(async function test_IPPStartupCache_enabled() {
     );
     Assert.greater(storedPref.length, 0, "The cache is correctly stored");
 
+    const hasUpgraded = Services.prefs.getBoolPref(
+      "browser.ipProtection.hasUpgraded",
+      false
+    );
+    Assert.equal(
+      hasUpgraded,
+      true,
+      "hasUpgraded is true when subscribed is true"
+    );
+
     const retrievedEntitlement = cacheHandle.cache.entitlement;
     Assert.notEqual(
       retrievedEntitlement,
@@ -168,6 +178,51 @@ add_task(async function test_IPPStartupCache_enabled() {
         Assert.equal(actual, expected, `${key} matches`);
       }
     }
+  }
+
+  // Store and retrieve an entitlement with subscribed: false
+  {
+    const unsubscribedEntitlement = new Entitlement({
+      autostart: false,
+      created_at: "2024-01-15T10:30:00.000Z",
+      limited_bandwidth: true,
+      location_controls: false,
+      subscribed: false,
+      uid: 12345,
+      website_inclusion: false,
+      maxBytes: "100000000",
+    });
+
+    using cacheHandle = makeCacheHandle();
+
+    cacheHandle.cache.storeEntitlement(unsubscribedEntitlement);
+
+    const hasUpgraded = Services.prefs.getBoolPref(
+      "browser.ipProtection.hasUpgraded",
+      true
+    );
+    Assert.equal(
+      hasUpgraded,
+      false,
+      "hasUpgraded is false when subscribed is false"
+    );
+  }
+
+  // Store null entitlement sets hasUpgraded to false
+  {
+    using cacheHandle = makeCacheHandle();
+
+    cacheHandle.cache.storeEntitlement(null);
+
+    const hasUpgraded = Services.prefs.getBoolPref(
+      "browser.ipProtection.hasUpgraded",
+      true
+    );
+    Assert.equal(
+      hasUpgraded,
+      false,
+      "hasUpgraded is false when entitlement is null"
+    );
   }
 
   // Invalid JSON returns null
@@ -211,6 +266,9 @@ add_task(async function test_IPPStartupCache_enabled() {
       "Storing arbitrary object should throw"
     );
   }
+
+  Services.prefs.clearUserPref("browser.ipProtection.hasUpgraded");
+  Services.prefs.clearUserPref("browser.ipProtection.entitlementCache");
 });
 
 add_task(async function test_IPPStartupCache_usageInfo_store_read() {
