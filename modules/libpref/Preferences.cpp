@@ -5891,7 +5891,6 @@ static void InitAlwaysPref(const nsCString& aName, DataMutexString& aCache,
 }
 
 static Atomic<bool> sOncePrefRead(false);
-static StaticMutex sOncePrefMutex MOZ_UNANNOTATED;
 
 namespace StaticPrefs {
 
@@ -5901,16 +5900,18 @@ void MaybeInitOncePrefs() {
     // value.
     return;
   }
-  StaticMutexAutoLock lock(sOncePrefMutex);
+
   if (NS_IsMainThread()) {
+    // sOncePrefRead could not have changed since the last check since it is
+    // only set by the main thread.
     InitOncePrefs();
+    sOncePrefRead = true;
   } else {
     RefPtr<Runnable> runnable = NS_NewRunnableFunction(
-        "Preferences::MaybeInitOncePrefs", [&]() { InitOncePrefs(); });
+        "Preferences::MaybeInitOncePrefs", [&]() { MaybeInitOncePrefs(); });
     // This logic needs to run on the main thread
     SyncRunnable::DispatchToThread(GetMainThreadSerialEventTarget(), runnable);
   }
-  sOncePrefRead = true;
 }
 
 // For mirrored prefs we generate a variable definition.
@@ -5972,7 +5973,7 @@ static void StartObservingAlwaysPrefs() {
 #undef ONCE_PREF
 }
 
-static void InitOncePrefs() {
+static void InitOncePrefs() MOZ_REQUIRES(sMainThreadCapability) {
   // For `once`-mirrored prefs we generate some initialization code. This is
   // done in case the pref value was updated when reading pref data files. It's
   // necessary because we don't have callbacks registered for `once`-mirrored
