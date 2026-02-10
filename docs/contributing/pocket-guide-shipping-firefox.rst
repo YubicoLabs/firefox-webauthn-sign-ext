@@ -151,9 +151,10 @@ QA pre-merge regression testing completed             Nightly W4       Friday
 String freeze                                         Nightly W4       Friday            Modification or deletion of strings exposed to the end-users is not allowed
 Merge Day                                             Beta W1          Monday            Day 1 of the new Beta cycle
 User affecting changes identified & provided to SUMO  Beta W1          Friday
-End of Early Beta & intended pref state deadline      Beta W2          Friday            Post-B6
+End of Early Beta & intended pref state deadline      Beta W2          Friday            Post-B5
 Pre-release sign off                                  Beta W3          Wednesday         Final round of QA testing prior to Release
 Go/No-Go for features riding train                    Beta W3          Friday
+Deadline for security-approval requests               Beta W3          Friday
 Release Notes ready                                   Beta W4          Tuesday
 What’s new page ready                                 Beta W4          Wednesday
 Firefox Release Candidate build creation              Beta W4          Wednesday         End of the current Beta cycle in preparation for the upcoming Firefox Release
