@@ -986,6 +986,20 @@ TEST_F(ImageDecoders, AnimatedAVIFWithBlendedFrames) {
   CheckAnimationDecoderSingleChunk(GreenFirstFrameAnimatedAVIFTestCase());
 }
 
+#ifdef MOZ_JXL
+TEST_F(ImageDecoders, AnimatedJXLSingleChunk) {
+  CheckDecoderSingleChunk(GreenFirstFrameAnimatedJXLTestCase());
+}
+
+TEST_F(ImageDecoders, AnimatedJXLMultiChunk) {
+  CheckDecoderMultiChunk(GreenFirstFrameAnimatedJXLTestCase());
+}
+
+TEST_F(ImageDecoders, AnimatedJXLWithBlendedFrames) {
+  CheckAnimationDecoderSingleChunk(GreenFirstFrameAnimatedJXLTestCase());
+}
+#endif
+
 TEST_F(ImageDecoders, CorruptSingleChunk) {
   CheckDecoderSingleChunk(CorruptTestCase());
 }
@@ -1063,6 +1077,16 @@ TEST_F(ImageDecoders, AnimatedAVIFWithFRAME_FIRST) {
 TEST_F(ImageDecoders, AnimatedAVIFWithFRAME_CURRENT) {
   CheckDecoderFrameCurrent(GreenFirstFrameAnimatedAVIFTestCase());
 }
+
+#ifdef MOZ_JXL
+TEST_F(ImageDecoders, AnimatedJXLWithFRAME_FIRST) {
+  CheckDecoderFrameFirst(GreenFirstFrameAnimatedJXLTestCase());
+}
+
+TEST_F(ImageDecoders, AnimatedJXLWithFRAME_CURRENT) {
+  CheckDecoderFrameCurrent(GreenFirstFrameAnimatedJXLTestCase());
+}
+#endif
 
 TEST_F(ImageDecoders, AnimatedGIFWithExtraImageSubBlocks) {
   ImageTestCase testCase = ExtraImageSubBlocksAnimatedGIFTestCase();

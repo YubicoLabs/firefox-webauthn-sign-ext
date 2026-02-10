@@ -262,6 +262,14 @@ TEST_F(ImageDecoderMetadata, AnimatedAVIF) {
                 /* aSkipCommon */ true, /* aSkipFrameCount */ false);
 }
 
+#ifdef MOZ_JXL
+TEST_F(ImageDecoderMetadata, AnimatedJXL) {
+  // TODO: Frame count decodes haven't been implemented for JXL yet.
+  CheckMetadata(GreenFirstFrameAnimatedJXLTestCase(), BMPWithinICO::NO,
+                /* aSkipCommon */ false, /* aSkipFrameCount */ true);
+}
+#endif
+
 TEST_F(ImageDecoderMetadata, FirstFramePaddingGIF) {
   CheckMetadata(FirstFramePaddingGIFTestCase());
 }

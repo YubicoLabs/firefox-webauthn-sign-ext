@@ -133,6 +133,12 @@ TEST_F(ImageDecodeToSurface, AnimatedAVIF) {
   RunDecodeToSurface(GreenFirstFrameAnimatedAVIFTestCase());
 }
 
+#ifdef MOZ_JXL
+TEST_F(ImageDecodeToSurface, AnimatedJXL) {
+  RunDecodeToSurface(GreenFirstFrameAnimatedJXLTestCase());
+}
+#endif
+
 TEST_F(ImageDecodeToSurface, Corrupt) {
   ImageTestCase testCase = CorruptTestCase();
 
