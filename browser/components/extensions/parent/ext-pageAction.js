@@ -46,11 +46,6 @@ class PageAction extends PageActionBase {
     }
     return null;
   }
-
-  isPanelShownBlockingOpenPopup(window) {
-    const panel = this.buttonDelegate.popupNode?.panel;
-    return panel && panel.ownerGlobal === window && panel.state !== "closed";
-  }
 }
 
 this.pageAction = class extends ExtensionAPIPersistent {
@@ -381,7 +376,6 @@ this.pageAction = class extends ExtensionAPIPersistent {
 
         openPopup: () => {
           let window = windowTracker.topWindow;
-          action.throwIfOpenPopupIsBlockedByAnyAction(window);
           this.triggerAction(window);
         },
       },

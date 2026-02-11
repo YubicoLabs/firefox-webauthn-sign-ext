@@ -89,21 +89,6 @@ class BrowserAction extends BrowserActionBase {
   dispatchClick(tab, clickInfo) {
     this.buttonDelegate.emit("click", tab, clickInfo);
   }
-
-  isPanelShownBlockingOpenPopup(window) {
-    const widget = this.buttonDelegate.widget;
-    if (!widget) {
-      return false;
-    }
-    if (window.gUnifiedExtensions.isPanelOpen()) {
-      // This covers buttons that are part of the panel, and also covers the
-      // scenario when the user is interacting with the Extensions Panel (not
-      // specific to browserActions).
-      return true;
-    }
-    return window.document.getElementById(this.buttonDelegate.buttonViewId)
-      ?.open;
-  }
 }
 
 this.browserAction = class extends ExtensionAPIPersistent {
@@ -133,7 +118,6 @@ this.browserAction = class extends ExtensionAPIPersistent {
     let widgetId = makeWidgetId(extension.id);
     this.id = actionWidgetId(widgetId);
     this.viewId = `PanelUI-webext-${widgetId}-BAV`;
-    this.buttonViewId = `${widgetId}-BAP`;
     this.widget = null;
 
     this.pendingPopup = null;
@@ -190,6 +174,7 @@ this.browserAction = class extends ExtensionAPIPersistent {
 
   build() {
     let { extension } = this;
+    let widgetId = makeWidgetId(extension.id);
     let widget = CustomizableUI.createWidget({
       id: this.id,
       viewId: this.viewId,
@@ -208,9 +193,10 @@ this.browserAction = class extends ExtensionAPIPersistent {
 
       // Build a custom widget that looks like a `unified-extensions-item`
       // custom element.
-      onBuild: document => {
+      onBuild(document) {
+        let viewId = widgetId + "-BAP";
         let button = document.createXULElement("toolbarbutton");
-        button.setAttribute("id", this.buttonViewId);
+        button.setAttribute("id", viewId);
         // Ensure the extension context menuitems are available by setting this
         // on all button children and the item.
         button.setAttribute("data-extensionid", extension.id);
@@ -280,7 +266,7 @@ this.browserAction = class extends ExtensionAPIPersistent {
           "toolbaritem-combined-buttons",
           "unified-extensions-item"
         );
-        node.setAttribute("view-button-id", this.buttonViewId);
+        node.setAttribute("view-button-id", viewId);
         node.setAttribute("data-extensionid", extension.id);
 
         let rowWrapper = document.createXULElement("box");
@@ -499,15 +485,10 @@ this.browserAction = class extends ExtensionAPIPersistent {
       return;
     }
 
-    if (Services.focus.activeWindow !== window) {
-      // We should not get here - action.openPopup() should enforce that the
-      // window is not focused, and other callers are in response to user
-      // interaction.
-      this.extension.logger.warn(
-        "Refused to open action popup for non-focused window"
-      );
-      return;
-    }
+    // We want to focus hidden or minimized windows (both for the API, and to
+    // avoid an issue where showing the popup in a non-focused window
+    // immediately triggers a popuphidden event)
+    window.focus();
 
     const toolbarButton = widgetForWindow.node.querySelector(
       ".unified-extensions-item-action-button"
@@ -1105,20 +1086,7 @@ this.browserAction = class extends ExtensionAPIPersistent {
               ? windowTracker.getWindow(options.windowId, context)
               : windowTracker.getTopNormalWindow(context);
 
-          if (
-            // Ideally this should match the windows.Window.focused definition,
-            // which uses document.hasFocus(), but for some reason hasFocus()
-            // can be false despite the window being focused. This was observed
-            // while running test_ext_action_openPopup_multiple.html with
-            // --tag=in-process-webextensions.
-            Services.focus.activeWindow !== window ||
-            window.windowState === window.STATE_MINIMIZED
-          ) {
-            throw new ExtensionError(BrowserActionBase.ERROR_WIN_NOT_FOCUSED);
-          }
-
-          if (action.getPopupUrl(window.gBrowser.selectedTab, true)) {
-            action.throwIfOpenPopupIsBlockedByAnyAction(window);
+          if (this.action.getPopupUrl(window.gBrowser.selectedTab, true)) {
             await this.openPopup(window, !isHandlingUserInput);
           }
         },
