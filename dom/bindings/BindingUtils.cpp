@@ -2826,7 +2826,8 @@ bool IsGlobalInExposureSet(JSContext* aCx, JSObject* aGlobal,
                 GlobalNames::ServiceWorkerGlobalScope |
                 GlobalNames::WorkerDebuggerGlobalScope |
                 GlobalNames::AudioWorkletGlobalScope |
-                GlobalNames::PaintWorkletGlobalScope)) == 0,
+                GlobalNames::PaintWorkletGlobalScope |
+                GlobalNames::ShadowRealmGlobalScope)) == 0,
              "Unknown global type");
 
   const char* name = JS::GetClass(aGlobal)->name;
@@ -2863,6 +2864,11 @@ bool IsGlobalInExposureSet(JSContext* aCx, JSObject* aGlobal,
 
   if ((aGlobalSet & GlobalNames::PaintWorkletGlobalScope) &&
       !strcmp(name, "PaintWorkletGlobalScope")) {
+    return true;
+  }
+
+  if ((aGlobalSet & GlobalNames::ShadowRealmGlobalScope) &&
+      !strcmp(name, "ShadowRealmGlobalScope")) {
     return true;
   }
 

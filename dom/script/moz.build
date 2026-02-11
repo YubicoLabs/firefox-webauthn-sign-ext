@@ -24,6 +24,7 @@ EXPORTS.mozilla.dom += [
     "ScriptLoadRequestType.h",
     "ScriptSettings.h",
     "ScriptTrace.h",
+    "ShadowRealmGlobalScope.h",
     "SharedScriptCache.h",
 ]
 
@@ -38,6 +39,7 @@ UNIFIED_SOURCES += [
     "ScriptLoadHandler.cpp",
     "ScriptSettings.cpp",
     "ScriptTrace.cpp",
+    "ShadowRealmGlobalScope.cpp",
     "SharedScriptCache.cpp",
 ]
 

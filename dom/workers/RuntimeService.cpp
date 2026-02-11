@@ -43,6 +43,7 @@
 #include "mozilla/dom/PerformanceService.h"
 #include "mozilla/dom/RemoteWorkerChild.h"
 #include "mozilla/dom/ScriptSettings.h"
+#include "mozilla/dom/ShadowRealmGlobalScope.h"
 #include "mozilla/dom/TimeoutHandler.h"
 #include "mozilla/dom/TrustedTypeUtils.h"
 #include "mozilla/dom/WorkerBinding.h"
@@ -1008,7 +1009,7 @@ class WorkerJSContext final : public mozilla::CycleCollectedJSContext {
   virtual bool useDebugQueue(JS::Handle<JSObject*> global) const override {
     MOZ_ASSERT(!NS_IsMainThread());
 
-    return !IsWorkerGlobal(global);
+    return !(IsWorkerGlobal(global) || IsShadowRealmGlobal(global));
   }
 
   virtual void DispatchToMicroTask(
@@ -1028,11 +1029,11 @@ class WorkerJSContext final : public mozilla::CycleCollectedJSContext {
     PROFILER_MARKER_FLOW_ONLY("WorkerJSContext::DispatchToMicroTask", OTHER, {},
                               FlowMarker, Flow::FromPointer(runnable.get()));
 
-    // On worker threads, if the current global is the worker global, we use
-    // the main micro task queue. Otherwise, the current global must be either
-    // the debugger global or a debugger sandbox, and we use the debugger micro
-    // task queue instead.
-    if (IsWorkerGlobal(global)) {
+    // On worker threads, if the current global is the worker global or
+    // ShadowRealm global, we use the main micro task queue. Otherwise, the
+    // current global must be either the debugger global or a debugger
+    // sandbox, and we use the debugger micro task queue instead.
+    if (IsWorkerGlobal(global) || IsShadowRealmGlobal(global)) {
       if (!EnqueueMicroTask(cx, runnable.forget())) {
         // This should never fail, but if it does, we have no choice but to
         // crash. This is always an OOM.

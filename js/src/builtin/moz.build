@@ -34,6 +34,7 @@ UNIFIED_SOURCES += [
     "RawJSONObject.cpp",
     "Reflect.cpp",
     "ReflectParse.cpp",
+    "ShadowRealm.cpp",
     "String.cpp",
     "Symbol.cpp",
     "TestingFunctions.cpp",
@@ -41,6 +42,7 @@ UNIFIED_SOURCES += [
     "WeakMapObject.cpp",
     "WeakRefObject.cpp",
     "WeakSetObject.cpp",
+    "WrappedFunctionObject.cpp",
 ]
 
 if CONFIG["ENABLE_EXPLICIT_RESOURCE_MANAGEMENT"]:

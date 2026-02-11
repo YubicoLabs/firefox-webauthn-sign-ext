@@ -21,7 +21,6 @@ UNSUPPORTED_FEATURES = set([
     "source-phase-imports-module-source",
     "import-defer",
     "nonextensible-applies-to-private",  # Bug 1991478
-    "ShadowRealm",
 ])
 FEATURE_CHECK_NEEDED = {
     "Atomics": "!this.hasOwnProperty('Atomics')",
@@ -36,6 +35,7 @@ FEATURE_CHECK_NEEDED = {
 }
 RELEASE_OR_BETA = set(["legacy-regexp"])
 SHELL_OPTIONS = {
+    "ShadowRealm": "--enable-shadow-realms",
     "symbols-as-weakmap-keys": "--enable-symbols-as-weakmap-keys",
     "explicit-resource-management": "--enable-explicit-resource-management",
     "iterator-sequencing": "--enable-iterator-sequencing",

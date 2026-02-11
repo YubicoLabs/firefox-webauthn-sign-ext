@@ -540,6 +540,9 @@ class IDLExposureMixins:
         workerScopes = self.parentScope.globalNameMapping["Worker"]
         return len(workerScopes.difference(self.exposureSet)) > 0
 
+    def isExposedInShadowRealms(self):
+        return "ShadowRealmGlobalScope" in self.exposureSet
+
     def getWorkerExposureSet(self):
         workerScopes = self._globalScope.globalNameMapping["Worker"]
         return workerScopes.intersection(self.exposureSet)

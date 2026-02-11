@@ -251,6 +251,7 @@ support-files = [
 ]
 prefs = [
   "security.mixed_content.upgrade_display_content=false",
+  "javascript.options.experimental.shadow_realms=true",
 ]
 
 ["test_301_redirect.html"]

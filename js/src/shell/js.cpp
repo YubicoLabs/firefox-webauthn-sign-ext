@@ -12875,6 +12875,7 @@ bool InitOptionParser(OptionParser& op) {
                         "Enable iterator helpers") ||
       !op.addBoolOption('\0', "enable-async-iterator-helpers",
                         "Enable async iterator helpers") ||
+      !op.addBoolOption('\0', "enable-shadow-realms", "Enable ShadowRealms") ||
       !op.addBoolOption('\0', "disable-array-grouping",
                         "Disable Object.groupBy and Map.groupBy") ||
       !op.addBoolOption('\0', "enable-symbols-as-weakmap-keys",
@@ -13295,6 +13296,9 @@ bool SetGlobalOptionsPreJSInit(const OptionParser& op) {
 
   // Override pref values for prefs that have a custom shell flag.
   // If you're adding a new feature, consider using --setpref instead.
+  if (op.getBoolOption("enable-shadow-realms")) {
+    JS::Prefs::set_experimental_shadow_realms(true);
+  }
   if (op.getBoolOption("enable-atomics-pause")) {
     JS::Prefs::setAtStartup_experimental_atomics_pause(true);
   }
