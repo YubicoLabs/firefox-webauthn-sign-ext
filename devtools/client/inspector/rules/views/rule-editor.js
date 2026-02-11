@@ -1287,7 +1287,7 @@ class RuleEditor extends EventEmitter {
       // Remove the old rule and insert the new rule.
       rules.splice(oldIndex, 1);
       rules.splice(newRuleIndex, 0, newRule);
-      elementStyle._changed();
+      elementStyle.notifyChanged();
       elementStyle.onRuleUpdated();
 
       // We install the new editor in place of the old -- you might
