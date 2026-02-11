@@ -1389,13 +1389,15 @@ class SelectableProfileServiceClass extends EventEmitter {
    *
    * @param {boolean} [launchProfile=true] Whether or not this should launch
    * the newly created profile.
+   * @param {nsIFile} [existingProfilePath=null] Optional path to use for the
+   * profile instead of creating new directories in the default location.
    *
    * @returns {SelectableProfile} The profile just created.
    */
-  async createNewProfile(launchProfile = true) {
+  async createNewProfile(launchProfile = true, existingProfilePath = null) {
     await this.maybeSetupDataStore();
 
-    let profile = await this.#createProfile();
+    let profile = await this.#createProfile(existingProfilePath);
     if (launchProfile) {
       this.launchInstance(profile, ["about:newprofile"]);
     }
