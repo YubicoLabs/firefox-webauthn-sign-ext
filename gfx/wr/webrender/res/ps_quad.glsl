@@ -223,6 +223,14 @@ float edge_aa_offset(int edge, int flags) {
     return ((flags & edge) != 0) ? AA_PIXEL_RADIUS : 0.0;
 }
 
+// The version of GLSL we target lacks a bitwise not operator so
+// we have the opposite version of the function above to move the
+// AA distance rect *away* from the primitive for edges that are
+// not anti-aliased (by an arbitrary amount).
+float edge_no_aa_offset(int edge, int flags) {
+    return ((flags & edge) != 0) ? 0.0 : 10.0;
+}
+
 void pattern_vertex(PrimitiveInfo prim);
 
 vec2 scale_offset_map_point(vec4 scale_offset, vec2 p) {
@@ -356,10 +364,21 @@ PrimitiveInfo quad_primive_info(void) {
 void antialiasing_vertex(PrimitiveInfo prim) {
 #ifndef SWGL_ANTIALIAS
     // This does the setup that is required for init_tranform_vs.
+
+    // The "transform bounds" define the edges along which anti-aliasing
+    // is applied in the fragment shader.
     RectWithEndpoint xf_bounds = RectWithEndpoint(
         max(prim.local_prim_rect.p0, prim.local_clip_rect.p0),
         min(prim.local_prim_rect.p1, prim.local_clip_rect.p1)
     );
+
+    // In order to prevent the edges with no anti-aliasing from getting
+    // anti-aliased, we have to move the aa rect *away* from them.
+    xf_bounds.p0.x -= edge_no_aa_offset(EDGE_AA_LEFT, prim.edge_flags);
+    xf_bounds.p1.x += edge_no_aa_offset(EDGE_AA_RIGHT, prim.edge_flags);
+    xf_bounds.p0.y -= edge_no_aa_offset(EDGE_AA_TOP, prim.edge_flags);
+    xf_bounds.p1.y += edge_no_aa_offset(EDGE_AA_BOTTOM, prim.edge_flags);
+
     vTransformBounds = vec4(xf_bounds.p0, xf_bounds.p1);
 
     vLocalPos = prim.local_pos;
