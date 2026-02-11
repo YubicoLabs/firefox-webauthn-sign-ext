@@ -105,6 +105,7 @@ class SharingUtilsCls {
     let shareURLMenuItem = document.createXULElement("menuitem");
     document.l10n.setAttributes(shareURLMenuItem, "menu-share-copy-link");
     shareURLMenuItem.classList.add("share-copy-link");
+    shareURLMenuItem.setAttribute("data-share-name", "share_macosx_copy");
 
     if (AppConstants.platform == "macosx") {
       shareURLMenuItem.classList.add("menuitem-iconic");
@@ -220,6 +221,7 @@ class SharingUtilsCls {
     let moreItem = document.createXULElement("menuitem");
     document.l10n.setAttributes(moreItem, "menu-share-more");
     moreItem.classList.add("menuitem-iconic", "share-more-button");
+    moreItem.setAttribute("data-share-name", "share_macosx_more");
     menuPopup.appendChild(moreItem);
   }
 
