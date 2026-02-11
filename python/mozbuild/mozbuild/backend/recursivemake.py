@@ -1218,8 +1218,6 @@ class RecursiveMakeBackend(MakeBackend):
         backend_file.write_once("CARGO_TARGET_DIR := %s\n" % target_dir)
         backend_file.write("%s += $(DEPTH)/%s\n" % (target_variable, obj.location))
         backend_file.write("%s += %s\n" % (target_cargo_variable, obj.name))
-        if obj.features:
-            backend_file.write(f"{obj.FEATURES_VAR} := {','.join(obj.features)}\n")
 
     def _process_rust_program(self, obj, backend_file):
         self._process_rust_program_base(
@@ -1242,7 +1240,7 @@ class RecursiveMakeBackend(MakeBackend):
         self._process_non_default_target(obj, "force-cargo-test-run", backend_file)
         backend_file.write_once("CARGO_FILE := $(srcdir)/Cargo.toml\n")
         backend_file.write_once("RUST_TESTS := %s\n" % " ".join(obj.names))
-        backend_file.write_once(f"RUST_TEST_FEATURES := {','.join(obj.features)}\n")
+        backend_file.write_once("RUST_TEST_FEATURES := %s\n" % " ".join(obj.features))
 
     def _process_legacy_run_tests(self, obj, backend_file):
         self._no_skip["check"].add(backend_file.relobjdir)
@@ -1441,7 +1439,7 @@ class RecursiveMakeBackend(MakeBackend):
         backend_file.write("CARGO_TARGET_DIR := %s\n" % target_dir)
         if libdef.features:
             backend_file.write(
-                f"{libdef.FEATURES_VAR} := {','.join(libdef.features)}\n"
+                "%s := %s\n" % (libdef.FEATURES_VAR, " ".join(libdef.features))
             )
         if libdef.output_category:
             self._process_non_default_target(libdef, rust_lib, backend_file)
