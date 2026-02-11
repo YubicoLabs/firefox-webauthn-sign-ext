@@ -202,9 +202,11 @@ this.browserAction = class extends ExtensionAPIPersistent {
               : currentWindow;
 
           if (window !== currentWindow) {
-            throw new ExtensionError(
-              "Only the current window is supported on Android."
-            );
+            // openPopup only supports one window on Android (bug 1795956).
+            // On desktop we restrict support to the currently focused window
+            // only, and use the same error message here (despite the concept
+            // of "window" being unnsupported on Android - bug 1817772).
+            throw new ExtensionError(BrowserActionBase.ERROR_WIN_NOT_FOCUSED);
           }
 
           if (action.getPopupUrl(window.tab, true)) {

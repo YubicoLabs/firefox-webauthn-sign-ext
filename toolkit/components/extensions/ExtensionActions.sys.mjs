@@ -583,6 +583,10 @@ export class BrowserActionBase extends PanelActionBase {
     extension.on("update-blocklist-state", () => this.updateOnChange());
   }
 
+  // action.openPopup() only supports focused windows (bug 2011516).
+  static ERROR_WIN_NOT_FOCUSED =
+    "Cannot show popup for an inactive window, only for the currently focused window.";
+
   async loadIconData() {
     const { extension } = this;
     const options =
