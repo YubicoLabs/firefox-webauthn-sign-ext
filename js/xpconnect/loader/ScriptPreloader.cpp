@@ -207,8 +207,15 @@ void ScriptPreloader::InitContentChild(ContentParent& parent) {
   // should be a sufficiently rare occurrence that it's not worth trying to
   // handle specially.
   auto processType = GetChildProcessType(parent.GetRemoteType());
-  bool wantScriptData = !cache.mInitializedProcesses.contains(processType);
-  cache.mInitializedProcesses += processType;
+  bool wantScriptData =
+      !cache.mRequestedChildProcessStencils.contains(processType);
+  cache.mRequestedChildProcessStencils += processType;
+
+  // If we're starting a web process (e.g. a preload process during startup),
+  // make sure we receive its script data before kicking off the cache write.
+  if (processType == ProcessType::Web) {
+    cache.mRequiredChildProcessStencils += processType;
+  }
 
   auto fd = cache.mCacheData->cloneFileDescriptor();
   // Don't send original cache data to new processes if the cache has been
@@ -277,6 +284,12 @@ void ScriptPreloader::StartCacheWriteIfReady() {
 
   if (!mStartupHasAdvancedToCacheWritingStage) {
     // Too early to write.
+    return;
+  }
+
+  if (!mChildCache->mReceivedChildProcessStencils.contains(
+          mChildCache->mRequiredChildProcessStencils)) {
+    // Still missing some expected child process script data.
     return;
   }
 
@@ -991,6 +1004,14 @@ void ScriptPreloader::NoteStencil(const nsCString& url,
 
   script->UpdateLoadTime(loadTime);
   script->mProcessTypes += processType;
+}
+
+void ScriptPreloader::NoteReceivedAllChildStencilsForProcess(
+    ProcessType aProcessType) {
+  mReceivedChildProcessStencils += aProcessType;
+
+  // We're the child cache. Tell the root cache to trigger a write if ready.
+  GetSingleton().StartCacheWriteIfReady();
 }
 
 /* static */
