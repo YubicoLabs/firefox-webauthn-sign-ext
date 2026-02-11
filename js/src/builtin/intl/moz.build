@@ -24,7 +24,6 @@ UNIFIED_SOURCES += [
     "DisplayNames.cpp",
     "DurationFormat.cpp",
     "GlobalIntlData.cpp",
-    "IntlMathematicalValue.cpp",
     "IntlObject.cpp",
     "LanguageTag.cpp",
     "ListFormat.cpp",

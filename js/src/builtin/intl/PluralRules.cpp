@@ -13,7 +13,6 @@
 
 #include "builtin/Array.h"
 #include "builtin/intl/CommonFunctions.h"
-#include "builtin/intl/IntlMathematicalValue.h"
 #include "builtin/intl/LocaleNegotiation.h"
 #include "builtin/intl/NumberFormat.h"
 #include "builtin/intl/ParameterNegotiation.h"
@@ -442,95 +441,29 @@ static mozilla::intl::PluralRules* GetOrCreatePluralRules(
 /**
  * ResolvePlural ( pluralRules, n )
  * PluralRuleSelect ( locale, type, notation, compactDisplay, s )
- */
-static auto ResolvePlural(JSContext* cx,
-                          const mozilla::intl::PluralRules* pluralRules,
-                          Handle<IntlMathematicalValue> value)
-    -> decltype(pluralRules->Select(0)) {
-  double x;
-  if (value.isRepresentableAsDouble(&x)) {
-    return pluralRules->Select(x);
-  }
-
-  auto str = value.toString(cx);
-  if (!str) {
-    return mozilla::Err(mozilla::intl::ICUError::OutOfMemory);
-  }
-
-  JS::AutoCheckCannotGC nogc;
-
-  auto view = str.asView(cx, nogc);
-  if (!view) {
-    return mozilla::Err(mozilla::intl::ICUError::OutOfMemory);
-  }
-  return pluralRules->Select(view);
-}
-
-/**
- * ResolvePlural ( pluralRules, n )
- * PluralRuleSelect ( locale, type, notation, compactDisplay, s )
  *
- * Returns a plural rule for the Intl mathematical value `n` according to the
- * effective locale and formatting options of the given PluralRules.
+ * Returns a plural rule for the number x according to the effective locale and
+ * formatting options of the given PluralRules.
  *
  * A plural rule is a grammatical category that expresses count distinctions
  * (such as "one", "two", "few" etc.).
  */
 static JSString* ResolvePlural(JSContext* cx,
                                Handle<PluralRulesObject*> pluralRules,
-                               Handle<IntlMathematicalValue> n) {
+                               double x) {
   // Steps 1-11.
   auto* pr = GetOrCreatePluralRules(cx, pluralRules);
   if (!pr) {
     return nullptr;
   }
 
-  auto keywordResult = ResolvePlural(cx, pr, n);
+  auto keywordResult = pr->Select(x);
   if (keywordResult.isErr()) {
     ReportInternalError(cx, keywordResult.unwrapErr());
     return nullptr;
   }
 
   return KeywordToString(keywordResult.unwrap(), cx);
-}
-
-/**
- * ResolvePluralRange ( pluralRules, x, y )
- * PluralRuleSelectRange ( locale, type, notation, compactDisplay, xp, yp )
- */
-static auto ResolvePluralRange(JSContext* cx,
-                               const mozilla::intl::PluralRules* pluralRules,
-                               Handle<IntlMathematicalValue> start,
-                               Handle<IntlMathematicalValue> end)
-    -> decltype(pluralRules->SelectRange(0, 0)) {
-  double x, y;
-  if (start.isRepresentableAsDouble(&x) && end.isRepresentableAsDouble(&y)) {
-    return pluralRules->SelectRange(x, y);
-  }
-
-  Rooted<IntlMathematicalValueString> strStart(cx, start.toString(cx));
-  if (!strStart) {
-    return mozilla::Err(mozilla::intl::ICUError::OutOfMemory);
-  }
-
-  Rooted<IntlMathematicalValueString> strEnd(cx, end.toString(cx));
-  if (!strEnd) {
-    return mozilla::Err(mozilla::intl::ICUError::OutOfMemory);
-  }
-
-  JS::AutoCheckCannotGC nogc;
-
-  auto viewStart = strStart.asView(cx, nogc);
-  if (!viewStart) {
-    return mozilla::Err(mozilla::intl::ICUError::OutOfMemory);
-  }
-
-  auto viewEnd = strEnd.asView(cx, nogc);
-  if (!viewEnd) {
-    return mozilla::Err(mozilla::intl::ICUError::OutOfMemory);
-  }
-
-  return pluralRules->SelectRange(viewStart, viewEnd);
 }
 
 /**
@@ -545,24 +478,30 @@ static auto ResolvePluralRange(JSContext* cx,
  */
 static JSString* ResolvePluralRange(JSContext* cx,
                                     Handle<PluralRulesObject*> pluralRules,
-                                    Handle<IntlMathematicalValue> start,
-                                    Handle<IntlMathematicalValue> end) {
+                                    double x, double y) {
   // Step 1.
-  if (start.isNaN() || end.isNaN()) {
-    const char* which = start.isNaN() ? "start" : "end";
+  if (std::isnan(x)) {
     JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
-                              JSMSG_NAN_NUMBER_RANGE, which, "PluralRules",
+                              JSMSG_NAN_NUMBER_RANGE, "start", "PluralRules",
                               "selectRange");
     return nullptr;
   }
 
-  // Steps 2-9.
+  // Step 2.
+  if (std::isnan(y)) {
+    JS_ReportErrorNumberASCII(cx, GetErrorMessage, nullptr,
+                              JSMSG_NAN_NUMBER_RANGE, "end", "PluralRules",
+                              "selectRange");
+    return nullptr;
+  }
+
+  // Steps 3-9
   auto* pr = GetOrCreatePluralRules(cx, pluralRules);
   if (!pr) {
     return nullptr;
   }
 
-  auto keywordResult = ResolvePluralRange(cx, pr, start, end);
+  auto keywordResult = pr->SelectRange(x, y);
   if (keywordResult.isErr()) {
     ReportInternalError(cx, keywordResult.unwrapErr());
     return nullptr;
@@ -636,13 +575,13 @@ static bool pluralRules_select(JSContext* cx, const CallArgs& args) {
       cx, &args.thisv().toObject().as<PluralRulesObject>());
 
   // Step 3.
-  Rooted<IntlMathematicalValue> n(cx);
-  if (!ToIntlMathematicalValue(cx, args.get(0), &n)) {
+  double x;
+  if (!JS::ToNumber(cx, args.get(0), &x)) {
     return false;
   }
 
   // Step 4.
-  auto* result = ResolvePlural(cx, pluralRules, n);
+  auto* result = ResolvePlural(cx, pluralRules, x);
   if (!result) {
     return false;
   }
@@ -675,14 +614,14 @@ static bool pluralRules_selectRange(JSContext* cx, const CallArgs& args) {
   }
 
   // Step 4.
-  Rooted<IntlMathematicalValue> x(cx);
-  if (!ToIntlMathematicalValue(cx, args[0], &x)) {
+  double x;
+  if (!JS::ToNumber(cx, args[0], &x)) {
     return false;
   }
 
   // Step 5.
-  Rooted<IntlMathematicalValue> y(cx);
-  if (!ToIntlMathematicalValue(cx, args[1], &y)) {
+  double y;
+  if (!JS::ToNumber(cx, args[1], &y)) {
     return false;
   }
 

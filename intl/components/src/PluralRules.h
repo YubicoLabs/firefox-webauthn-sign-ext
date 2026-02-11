@@ -57,18 +57,11 @@ class PluralRules final {
       std::string_view aLocale, const PluralRulesOptions& aOptions);
 
   /**
-   * Returns the PluralRules keyword that corresponds to |aNumber|.
+   * Returns the PluralRules keyword that corresponds to the |aNumber|.
    *
    * https://tc39.es/ecma402/#sec-intl.pluralrules.prototype.select
    */
   Result<PluralRules::Keyword, ICUError> Select(double aNumber) const;
-
-  /**
-   * Returns the PluralRules keyword that corresponds to |aNumber|.
-   *
-   * https://tc39.es/ecma402/#sec-intl.pluralrules.prototype.select
-   */
-  Result<PluralRules::Keyword, ICUError> Select(std::string_view aNumber) const;
 
   /**
    * Returns the PluralRules keyword that corresponds to the range from |aStart|
@@ -78,15 +71,6 @@ class PluralRules final {
    */
   Result<PluralRules::Keyword, ICUError> SelectRange(double aStart,
                                                      double aEnd) const;
-
-  /**
-   * Returns the PluralRules keyword that corresponds to the range from |aStart|
-   * to |aEnd|.
-   *
-   * https://tc39.es/ecma402/#sec-intl.pluralrules.prototype.selectrange
-   */
-  Result<PluralRules::Keyword, ICUError> SelectRange(
-      std::string_view aStart, std::string_view aEnd) const;
 
   /**
    * Returns an EnumSet with the plural-rules categories that are supported by

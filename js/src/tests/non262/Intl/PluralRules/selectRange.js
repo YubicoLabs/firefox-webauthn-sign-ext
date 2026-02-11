@@ -71,15 +71,13 @@
   assertEq(ordinal.selectRange(10, 10), "other");
 }
 
-// BigInt inputs are allowed.
+// BigInt inputs aren't allowed.
 {
   let pr = new Intl.PluralRules("en-US");
 
-  let zero = pr.selectRange(0, 0);
-
-  assertEq(pr.selectRange(0, 0n), zero);
-  assertEq(pr.selectRange(0n, 0), zero);
-  assertEq(pr.selectRange(0n, 0n), zero);
+  assertThrowsInstanceOf(() => pr.selectRange(0, 0n), TypeError);
+  assertThrowsInstanceOf(() => pr.selectRange(0n, 0), TypeError);
+  assertThrowsInstanceOf(() => pr.selectRange(0n, 0n), TypeError);
 }
 
 if (typeof reportCompare === "function")
