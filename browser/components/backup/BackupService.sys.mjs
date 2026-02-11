@@ -47,6 +47,8 @@ const CREATED_MANAGED_PROFILES_PREF_NAME = "browser.profiles.created";
 const RESTORED_BACKUP_METADATA_PREF_NAME =
   "browser.backup.restored-backup-metadata";
 const SANITIZE_ON_SHUTDOWN_PREF_NAME = "privacy.sanitize.sanitizeOnShutdown";
+const FORCE_ENABLE_BACKUP_PROFILES_PREF_NAME =
+  "browser.backup.profiles.force-enable";
 
 const SCHEMAS = Object.freeze({
   BACKUP_MANIFEST: 1,
@@ -707,7 +709,13 @@ export class BackupService extends EventTarget {
       };
     }
 
-    if (lazy.SelectableProfileService.hasCreatedSelectableProfiles()) {
+    if (
+      !Services.prefs.getBoolPref(
+        FORCE_ENABLE_BACKUP_PROFILES_PREF_NAME,
+        false
+      ) &&
+      lazy.SelectableProfileService.hasCreatedSelectableProfiles()
+    ) {
       return {
         enabled: false,
         reason:
@@ -772,7 +780,13 @@ export class BackupService extends EventTarget {
       };
     }
 
-    if (lazy.SelectableProfileService.hasCreatedSelectableProfiles()) {
+    if (
+      !Services.prefs.getBoolPref(
+        FORCE_ENABLE_BACKUP_PROFILES_PREF_NAME,
+        false
+      ) &&
+      lazy.SelectableProfileService.hasCreatedSelectableProfiles()
+    ) {
       return {
         enabled: false,
         reason:
