@@ -4337,7 +4337,7 @@ already_AddRefed<DOMMediaStream> HTMLMediaElement::CaptureStream(
       .EnumGet(mozilla::glean::media::CaptureStreamUsageLabel::eCapturestream)
       .Add();
   RefPtr<DOMMediaStream> stream =
-      CaptureStreamInternal(StreamCaptureBehavior::FINISH_WHEN_ENDED,
+      CaptureStreamInternal(StreamCaptureBehavior::CONTINUE_WHEN_ENDED,
                             StreamCaptureType::CAPTURE_ALL_TRACKS,
                             AudioOutputConfig::Needed, nullptr);
   if (!stream) {
