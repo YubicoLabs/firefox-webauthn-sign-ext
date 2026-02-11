@@ -361,7 +361,6 @@ impl RenderTarget {
         match task.kind {
             RenderTaskKind::Prim(ref info) => {
                 let render_task_address = task_id.into();
-
                 quad::add_to_batch(
                     info.pattern,
                     info.pattern_input,
