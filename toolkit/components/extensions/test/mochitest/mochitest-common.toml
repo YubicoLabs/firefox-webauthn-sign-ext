@@ -92,6 +92,8 @@ prefs = [
 
 ["test_ext_action.html"]
 
+["test_ext_action_openPopup_multiple.html"]
+
 ["test_ext_activityLog.html"]
 skip-if = [
   "http2",
