@@ -1651,16 +1651,6 @@ parent:
                                  StorageAccessPermissionGrantedReason aReason)
           returns (StorageAccessPromptChoices? choice);
 
-    async SetAllowStorageAccessRequestFlag(
-                                 nullable nsIPrincipal aEmbeddingPrincipal,
-                                 nullable nsIURI aEmbeddedOrigin)
-          returns (bool success);
-
-    async TestAllowStorageAccessRequestFlag(
-                                 nullable nsIPrincipal aEmbeddedPrincipal,
-                                 nullable nsIURI aEmbeddingOrigin)
-          returns (bool success);
-
     async StoreUserInteractionAsPermission(nullable nsIPrincipal aPrincipal);
 
     async TestCookiePermissionDecided(MaybeDiscardedBrowsingContext aContext,
