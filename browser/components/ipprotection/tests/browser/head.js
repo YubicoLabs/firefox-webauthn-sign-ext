@@ -148,20 +148,15 @@ async function setPanelState(state = defaultState, win = window) {
  * Closes the IP Protection panel and resets the state to the default.
  *
  * @param {Window} win - The window the panel is in.
- * @param {Function} closeFn - The function to use to close the panel.
  * @returns {Promise<void>}
  */
-async function closePanel(win = window, closeFn = null) {
+async function closePanel(win = window) {
   // Reset the state
   let panel = IPProtection.getPanel(win);
   panel.setState(defaultState);
   // Close the panel
   let panelHiddenPromise = waitForPanelEvent(win.document, "popuphidden");
-  if (closeFn) {
-    closeFn();
-  } else {
-    panel.close();
-  }
+  panel.close();
   await panelHiddenPromise;
 }
 /* exported closePanel */

@@ -226,11 +226,13 @@ add_task(async function test_dismiss() {
     () => !content.shadowRoot.querySelector("ipprotection-message-bar")
   );
 
-  await closePanel(window, () => closeButton.click());
+  closeButton.click();
 
   await dismissEvent;
   Assert.ok(true, "Dismiss event was dispatched");
 
   await messageBarUnloadedPromise;
   Assert.ok(true, "Message bar should be not be present");
+
+  await closePanel();
 });
