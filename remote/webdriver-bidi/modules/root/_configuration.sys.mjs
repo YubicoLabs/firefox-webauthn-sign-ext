@@ -11,9 +11,17 @@ ChromeUtils.defineESModuleGetters(lazy, {
     "chrome://remote/content/shared/listeners/BrowsingContextListener.sys.mjs",
   ContextDescriptorType:
     "chrome://remote/content/shared/messagehandler/MessageHandler.sys.mjs",
+  Log: "chrome://remote/content/shared/Log.sys.mjs",
+  NavigableManager: "chrome://remote/content/shared/NavigableManager.sys.mjs",
   RootMessageHandler:
     "chrome://remote/content/shared/messagehandler/RootMessageHandler.sys.mjs",
+  setDevicePixelRatioForBrowsingContext:
+    "chrome://remote/content/webdriver-bidi/modules/root/browsingContext.sys.mjs",
 });
+
+ChromeUtils.defineLazyGetter(lazy, "logger", () =>
+  lazy.Log.get(lazy.Log.TYPES.WEBDRIVER_BIDI)
+);
 
 // Apply here only the emulations that will be initialized in the parent process,
 // except from `viewport-overrides` which is handled separately.
@@ -34,6 +42,11 @@ class _ConfigurationModule extends RootBiDiModule {
 
   constructor(messageHandler) {
     super(messageHandler);
+
+    Services.obs.addObserver(
+      this,
+      "tabbrowser-browser-element-will-be-inserted"
+    );
 
     this.#contextListener = new lazy.BrowsingContextListener();
     this.#contextListener.on("attached", this.#onContextAttached);
@@ -60,11 +73,51 @@ class _ConfigurationModule extends RootBiDiModule {
   }
 
   destroy() {
+    Services.obs.removeObserver(
+      this,
+      "tabbrowser-browser-element-will-be-inserted"
+    );
+
     this.#contextListener.stopListening();
     this.#contextListener.off("attached", this.#onContextAttached);
     this.#contextListener.destroy();
 
     this.#configurationMap = null;
+  }
+
+  observe(subject, topic) {
+    if (topic === "tabbrowser-browser-element-will-be-inserted") {
+      const userContextId = subject.getAttribute("usercontextid");
+
+      const sessionData = this.messageHandler.sessionData.getSessionData(
+        "_configuration",
+        "viewport-overrides",
+        {
+          type: lazy.ContextDescriptorType.UserContext,
+          id: userContextId === null ? 0 : parseInt(userContextId),
+        }
+      );
+
+      if (!sessionData.length) {
+        return;
+      }
+
+      const lastViewportItem = sessionData.findLast(
+        item => item.value.viewport !== undefined
+      );
+
+      if (!lastViewportItem || !lastViewportItem.value.viewport) {
+        return;
+      }
+
+      const { height, width } = lastViewportItem.value.viewport;
+      subject.style.setProperty("height", height + "px");
+      subject.style.setProperty("width", width + "px");
+
+      lazy.logger.trace(
+        `[${lazy.NavigableManager.getIdForBrowser(subject)}] Updated viewport to height: ${height}, width: ${width}`
+      );
+    }
   }
 
   // For some emulations a value set per a browsing context overrides
@@ -122,13 +175,30 @@ class _ConfigurationModule extends RootBiDiModule {
       );
 
     const configurationMap = structuredClone(this.#configurationMap);
+    let devicePixelRatioOverride = null;
 
     for (const { category, contextDescriptor, value } of sessionDataItems) {
-      if (!EMULATIONS_TO_APPLY.includes(category)) {
+      if (
+        !EMULATIONS_TO_APPLY.includes(category) &&
+        category !== "viewport-overrides"
+      ) {
         continue;
       }
 
-      configurationMap[category][contextDescriptor.type] = value;
+      if (category === "viewport-overrides") {
+        if (value.devicePixelRatio !== undefined) {
+          devicePixelRatioOverride = value.devicePixelRatio;
+        }
+      } else {
+        configurationMap[category][contextDescriptor.type] = value;
+      }
+    }
+
+    if (devicePixelRatioOverride !== null) {
+      lazy.setDevicePixelRatioForBrowsingContext({
+        context: browsingContext,
+        value: devicePixelRatioOverride,
+      });
     }
 
     // For the following emulations on the previous step, we found session items
