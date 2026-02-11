@@ -485,7 +485,12 @@ export const CustomizableWidgets = [
       lazy.LoginHelper.openPasswordManager(window, { entryPoint: "Toolbar" });
     },
   },
-  {
+];
+
+if (
+  Services.prefs.getBoolPref("browser.toolbars.share-button.enabled", false)
+) {
+  CustomizableWidgets.push({
     id: "share-tab-button",
     type: "custom",
     onBuild(aDocument) {
@@ -516,7 +521,6 @@ export const CustomizableWidgets = [
           if (AppConstants.platform == "win") {
             lazy.SharingUtils.shareOnWindows(node);
           } else {
-            // linux
             lazy.SharingUtils.copyLink(node);
           }
         });
@@ -524,8 +528,8 @@ export const CustomizableWidgets = [
 
       return node;
     },
-  },
-];
+  });
+}
 
 if (Services.prefs.getBoolPref("identity.fxaccounts.enabled")) {
   CustomizableWidgets.push({
