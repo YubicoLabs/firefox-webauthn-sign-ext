@@ -89,6 +89,8 @@ pub enum QuadRenderStrategy {
 pub fn prepare_quad(
     pattern_builder: &dyn PatternBuilder,
     local_rect: &LayoutRect,
+    aligned_aa_edges: EdgeMask,
+    transfomed_aa_edges: EdgeMask,
     prim_instance_index: PrimitiveInstanceIndex,
     cache_key: &Option<QuadCacheKey>,
     prim_spatial_node_index: SpatialNodeIndex,
@@ -153,6 +155,8 @@ pub fn prepare_quad(
         pattern_builder,
         shared_pattern.as_ref(),
         local_rect,
+        aligned_aa_edges,
+        transfomed_aa_edges,
         prim_instance_index,
         cache_key,
         prim_spatial_node_index,
@@ -175,6 +179,8 @@ pub fn prepare_repeatable_quad(
     local_rect: &LayoutRect,
     stretch_size: LayoutSize,
     tile_spacing: LayoutSize,
+    aligned_aa_edges: EdgeMask,
+    transfomed_aa_edges: EdgeMask,
     prim_instance_index: PrimitiveInstanceIndex,
     cache_key: &Option<QuadCacheKey>,
     prim_spatial_node_index: SpatialNodeIndex,
@@ -246,6 +252,8 @@ pub fn prepare_repeatable_quad(
             pattern_builder,
             shared_pattern.as_ref(),
             local_rect,
+            aligned_aa_edges,
+            transfomed_aa_edges,
             prim_instance_index,
             &cache_key,
             prim_spatial_node_index,
@@ -284,6 +292,8 @@ pub fn prepare_repeatable_quad(
             pattern_builder,
             shared_pattern.as_ref(),
             &tile_rect,
+            aligned_aa_edges & tile.edge_flags,
+            transfomed_aa_edges & tile.edge_flags,
             prim_instance_index,
             &cache_key,
             prim_spatial_node_index,
@@ -305,6 +315,8 @@ fn prepare_quad_impl(
     pattern_builder: &dyn PatternBuilder,
     shared_pattern: Option<&Pattern>,
     local_rect: &LayoutRect,
+    aligned_aa_edges: EdgeMask,
+    transfomed_aa_edges: EdgeMask,
     prim_instance_index: PrimitiveInstanceIndex,
     cache_key: &Option<QuadCacheKey>,
     prim_spatial_node_index: SpatialNodeIndex,
@@ -364,14 +376,10 @@ fn prepare_quad_impl(
         quad_flags |= QuadFlags::APPLY_RENDER_TASK_CLIP;
     }
 
-    // TODO(gw): For now, we don't select per-edge AA at all if the primitive
-    //           has a 2d transform, which matches existing behavior. However,
-    //           as a follow up, we can now easily check if we have a 2d-aligned
-    //           primitive on a subpixel boundary, and enable AA along those edge(s).
     let aa_flags = if prim_is_2d_axis_aligned {
-        EdgeMask::empty()
+        aligned_aa_edges
     } else {
-        EdgeMask::all()
+        transfomed_aa_edges
     };
 
     if let QuadRenderStrategy::Direct = strategy {
