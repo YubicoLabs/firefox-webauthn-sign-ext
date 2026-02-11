@@ -10075,6 +10075,14 @@
   mirror: always
   rust: true
 
+# Whether to enable parsing the `appearance: base-select` property value.
+# https://drafts.csswg.org/css-ui-4/#valdef-appearance-base-select
+- name: layout.css.appearance-base-select.enabled
+  type: RelaxedAtomicBool
+  value: @IS_NIGHTLY_BUILD@
+  mirror: always
+  rust: true
+
 # Whether to enable CSS Module Scripts support.
 # https://html.spec.whatwg.org/#creating-a-css-module-script
 - name: layout.css.module-scripts.enabled
