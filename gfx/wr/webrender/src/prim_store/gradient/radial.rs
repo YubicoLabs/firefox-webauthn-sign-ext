@@ -26,7 +26,6 @@ use crate::render_task::{RenderTask, RenderTaskKind};
 use crate::render_task_graph::RenderTaskId;
 use crate::render_task_cache::{RenderTaskCacheKeyKind, RenderTaskCacheKey, RenderTaskParent};
 use crate::renderer::{GpuBufferAddress, GpuBufferBuilder};
-use crate::segment::EdgeMask;
 
 use std::{hash, ops::{Deref, DerefMut}};
 use super::{
@@ -424,23 +423,17 @@ pub struct RadialGradientCacheKey {
 /// This function tries to detect that, potentially shrink the gradient primitive to only
 /// the useful part and if needed insert solid color primitives around the gradient where
 /// parts of it have been removed.
-///
-/// If the radial gradient is split into multiple primitives, we must prevent anti-aliasing
-/// from being appplied at the edges connecting these primitives to prevent seams. This is
-/// done by masking out sides in `aa_mask` for the central gradient primitive and providing
-/// an edge mask for each extracted solid primitive.
 pub fn optimize_radial_gradient(
     prim_rect: &mut LayoutRect,
     stretch_size: &mut LayoutSize,
     center: &mut LayoutPoint,
     tile_spacing: &mut LayoutSize,
-    aa_mask: &mut EdgeMask,
     clip_rect: &LayoutRect,
     radius: LayoutSize,
     end_offset: f32,
     extend_mode: ExtendMode,
     stops: &[GradientStopKey],
-    solid_parts: &mut dyn FnMut(&LayoutRect, ColorU, EdgeMask),
+    solid_parts: &mut dyn FnMut(&LayoutRect, ColorU),
 ) {
     let offset = apply_gradient_local_clip(
         prim_rect,
@@ -510,7 +503,7 @@ pub fn optimize_radial_gradient(
                 gradient_rect.min,
                 size2(l, t),
             );
-            solid_parts(&solid_rect, bg_color, EdgeMask::LEFT | EdgeMask::TOP);
+            solid_parts(&solid_rect, bg_color);
         }
 
         if l != 0.0 && b != 0.0 {
@@ -518,7 +511,7 @@ pub fn optimize_radial_gradient(
                 gradient_rect.bottom_left() - vec2(0.0, b),
                 size2(l, b),
             );
-            solid_parts(&solid_rect, bg_color, EdgeMask::LEFT | EdgeMask::BOTTOM);
+            solid_parts(&solid_rect, bg_color);
         }
 
         if t != 0.0 && r != 0.0 {
@@ -526,7 +519,7 @@ pub fn optimize_radial_gradient(
                 gradient_rect.top_right() - vec2(r, 0.0),
                 size2(r, t),
             );
-            solid_parts(&solid_rect, bg_color, EdgeMask::TOP | EdgeMask::RIGHT);
+            solid_parts(&solid_rect, bg_color);
         }
 
         if r != 0.0 && b != 0.0 {
@@ -534,7 +527,7 @@ pub fn optimize_radial_gradient(
                 gradient_rect.bottom_right() - vec2(r, b),
                 size2(r, b),
             );
-            solid_parts(&solid_rect, bg_color, EdgeMask::RIGHT | EdgeMask::BOTTOM);
+            solid_parts(&solid_rect, bg_color);
         }
 
         if l != 0.0 {
@@ -542,11 +535,7 @@ pub fn optimize_radial_gradient(
                 gradient_rect.min + vec2(0.0, t),
                 size2(l, gradient_rect.height() - t - b),
             );
-            let mut solid_aa = EdgeMask::LEFT;
-            solid_aa.set(EdgeMask::TOP, t == 0.0);
-            solid_aa.set(EdgeMask::BOTTOM, b == 0.0);
-            solid_parts(&solid_rect, bg_color, solid_aa);
-            aa_mask.remove(EdgeMask::LEFT);
+            solid_parts(&solid_rect, bg_color);
         }
 
         if r != 0.0 {
@@ -554,11 +543,7 @@ pub fn optimize_radial_gradient(
                 gradient_rect.top_right() + vec2(-r, t),
                 size2(r, gradient_rect.height() - t - b),
             );
-            let mut solid_aa = EdgeMask::RIGHT;
-            solid_aa.set(EdgeMask::TOP, t == 0.0);
-            solid_aa.set(EdgeMask::BOTTOM, b == 0.0);
-            solid_parts(&solid_rect, bg_color, solid_aa);
-            aa_mask.remove(EdgeMask::RIGHT);
+            solid_parts(&solid_rect, bg_color);
         }
 
         if t != 0.0 {
@@ -566,11 +551,7 @@ pub fn optimize_radial_gradient(
                 gradient_rect.min + vec2(l, 0.0),
                 size2(gradient_rect.width() - l - r, t),
             );
-            let mut solid_aa = EdgeMask::TOP;
-            solid_aa.set(EdgeMask::LEFT, l == 0.0);
-            solid_aa.set(EdgeMask::RIGHT, r == 0.0);
-            solid_parts(&solid_rect, bg_color, solid_aa);
-            aa_mask.remove(EdgeMask::TOP);
+            solid_parts(&solid_rect, bg_color);
         }
 
         if b != 0.0 {
@@ -578,11 +559,7 @@ pub fn optimize_radial_gradient(
                 gradient_rect.bottom_left() + vec2(l, -b),
                 size2(gradient_rect.width() - l - r, b),
             );
-            let mut solid_aa = EdgeMask::BOTTOM;
-            solid_aa.set(EdgeMask::LEFT, l == 0.0);
-            solid_aa.set(EdgeMask::RIGHT, r == 0.0);
-            solid_parts(&solid_rect, bg_color, solid_aa);
-            aa_mask.remove(EdgeMask::BOTTOM);
+            solid_parts(&solid_rect, bg_color);
         }
     }
 

@@ -430,8 +430,6 @@ impl hash::Hash for FloatKey {
 #[derive(Debug, Clone, Eq, MallocSizeOf, PartialEq, Hash)]
 pub struct PrimKeyCommonData {
     pub flags: PrimitiveFlags,
-    pub aligned_aa_edges: EdgeMask,
-    pub transformed_aa_edges: EdgeMask,
     pub prim_rect: RectangleKey,
 }
 
@@ -439,8 +437,6 @@ impl From<&LayoutPrimitiveInfo> for PrimKeyCommonData {
     fn from(info: &LayoutPrimitiveInfo) -> Self {
         PrimKeyCommonData {
             flags: info.flags,
-            aligned_aa_edges: info.aligned_aa_edges,
-            transformed_aa_edges: info.transformed_aa_edges,
             prim_rect: info.rect.into(),
         }
     }
@@ -532,8 +528,12 @@ pub struct PrimTemplateCommonData {
     /// be overwritten each frame. We should move this out of the
     /// common data to avoid accidental reuse.
     pub gpu_buffer_address: GpuBufferAddress,
-    pub aligned_aa_edges: EdgeMask,
-    pub transformed_aa_edges: EdgeMask,
+    /// Specifies the edges that are *allowed* to have anti-aliasing.
+    /// In other words EdgeAaSegmentFlags::all() does not necessarily mean all edges will
+    /// be anti-aliased, only that they could be.
+    ///
+    /// Use this to force disable anti-alasing on edges of the primitives.
+    pub edge_aa_mask: EdgeMask,
 }
 
 impl PrimTemplateCommonData {
@@ -544,8 +544,7 @@ impl PrimTemplateCommonData {
             prim_rect: common.prim_rect.into(),
             gpu_buffer_address: GpuBufferAddress::INVALID,
             opacity: PrimitiveOpacity::translucent(),
-            aligned_aa_edges: common.aligned_aa_edges,
-            transformed_aa_edges: common.transformed_aa_edges,
+            edge_aa_mask: EdgeMask::all(),
         }
     }
 }
@@ -1538,7 +1537,7 @@ fn test_struct_sizes() {
     //     be done with care, and after checking if talos performance regresses badly.
     assert_eq!(mem::size_of::<PrimitiveInstance>(), 88, "PrimitiveInstance size changed");
     assert_eq!(mem::size_of::<PrimitiveInstanceKind>(), 24, "PrimitiveInstanceKind size changed");
-    assert_eq!(mem::size_of::<PrimitiveTemplate>(), 56, "PrimitiveTemplate size changed");
+    assert_eq!(mem::size_of::<PrimitiveTemplate>(), 52, "PrimitiveTemplate size changed");
     assert_eq!(mem::size_of::<PrimitiveTemplateKind>(), 28, "PrimitiveTemplateKind size changed");
     assert_eq!(mem::size_of::<PrimitiveKey>(), 36, "PrimitiveKey size changed");
     assert_eq!(mem::size_of::<PrimitiveKeyKind>(), 16, "PrimitiveKeyKind size changed");
