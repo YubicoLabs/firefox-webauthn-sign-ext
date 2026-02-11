@@ -3135,9 +3135,10 @@ export class BackupService extends EventTarget {
           newProfile =
             await this.recoverFromSnapshotFolderIntoSelectableProfile(
               RECOVERY_FOLDER_DEST_PATH,
-              true,
+              shouldLaunch,
               encState,
-              null
+              null,
+              profileRootPath
             );
         } else {
           newProfile = await this.recoverFromSnapshotFolder(
@@ -3529,6 +3530,9 @@ export class BackupService extends EventTarget {
    *   profile group. If we are copying a profile, we will use
    *   copiedProfile.name to show that the new profile is a copy of
    *   copiedProfile on about:editprofile.
+   * @param {string} [profileRootPath=null]
+   *   Optional path where the new profile directory should be created.
+   *   If not provided, the default profile location will be used.
    * @returns {Promise<SelectableProfile>}
    *   The SelectableProfile that was created for the recovered profile.
    * @throws {Exception}
@@ -3538,7 +3542,8 @@ export class BackupService extends EventTarget {
     recoveryPath,
     shouldLaunch = false,
     encState = null,
-    copiedProfile = null
+    copiedProfile = null,
+    profileRootPath = null
   ) {
     lazy.logConsole.debug(
       "Recovering SelectableProfile from backup at ",
@@ -3550,7 +3555,17 @@ export class BackupService extends EventTarget {
 
       // Okay, we have a valid backup-manifest.json. Let's create a new profile
       // and start invoking the recover() method on each BackupResource.
-      let profile = await lazy.SelectableProfileService.createNewProfile(false);
+      let existingProfilePath = null;
+      if (profileRootPath) {
+        let profileDirName = `recovered-${Date.now()}`;
+        let profileDirPath = PathUtils.join(profileRootPath, profileDirName);
+        await IOUtils.makeDirectory(profileDirPath, { permissions: 0o700 });
+        existingProfilePath = await IOUtils.getDirectory(profileDirPath);
+      }
+      let profile = await lazy.SelectableProfileService.createNewProfile(
+        false,
+        existingProfilePath
+      );
 
       let postRecovery = await this.#recoverResources(
         manifest,
