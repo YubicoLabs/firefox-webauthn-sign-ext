@@ -790,10 +790,3 @@ style:
     ignoreLateinitVar: false
   WildcardImport:
     active: true
-
-# Custom Rules
-
-mozilla-rules:
-  active: true
-  NoSystemCurrentTimeMillis:
-    active: true

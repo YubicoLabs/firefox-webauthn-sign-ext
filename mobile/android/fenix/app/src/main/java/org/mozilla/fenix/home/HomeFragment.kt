@@ -59,6 +59,8 @@ import mozilla.components.concept.sync.AccountObserver
 import mozilla.components.concept.sync.AuthType
 import mozilla.components.concept.sync.OAuthAccount
 import mozilla.components.feature.accounts.push.SendTabUseCases
+import mozilla.components.feature.downloads.DateTimeProvider
+import mozilla.components.feature.downloads.DefaultDateTimeProvider
 import mozilla.components.feature.tab.collections.TabCollection
 import mozilla.components.feature.top.sites.presenter.DefaultTopSitesPresenter
 import mozilla.components.lib.state.ext.consumeFlow
@@ -67,8 +69,6 @@ import mozilla.components.lib.state.ext.flow
 import mozilla.components.lib.state.ext.observeAsComposableState
 import mozilla.components.support.base.feature.ViewBoundFeatureWrapper
 import mozilla.components.support.utils.BuildManufacturerChecker
-import mozilla.components.support.utils.DateTimeProvider
-import mozilla.components.support.utils.DefaultDateTimeProvider
 import mozilla.components.support.utils.KeyboardState
 import mozilla.components.support.utils.ext.navigateToDefaultBrowserAppsSettings
 import mozilla.components.support.utils.keyboardAsState

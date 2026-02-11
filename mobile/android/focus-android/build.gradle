@@ -67,10 +67,6 @@ detekt {
 }
 
 tasks.withType(Detekt).configureEach() {
-    // Custom detekt rules should be built before.
-    // See https://detekt.dev/docs/introduction/extensions#pitfalls
-    dependsOn(":components:tooling-detekt:assemble")
-
     autoCorrect = true
 
     exclude "**/test/**"
@@ -186,8 +182,6 @@ configurations {
 }
 
 dependencies {
-    detektPlugins project(':components:tooling-detekt')
-
     ktlint(libs.ktlint) {
         attributes {
             attribute(Bundling.BUNDLING_ATTRIBUTE, getObjects().named(Bundling, Bundling.EXTERNAL))
