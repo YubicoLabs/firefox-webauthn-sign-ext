@@ -5,9 +5,9 @@
 
 extern crate urlpattern;
 use urlpattern::parser::RegexSyntax;
-use urlpattern::quirks as Uq;
 use urlpattern::regexp::RegExp;
 use urlpattern::UrlPatternOptions;
+use urlpattern::quirks;
 
 type UrlPattern = urlpattern::UrlPattern<SpiderMonkeyRegexp>;
 
@@ -42,7 +42,7 @@ pub extern "C" fn urlp_parse_pattern_from_string(
         regex_syntax: RegexSyntax::EcmaScript,
         ignore_case: options.ignore_case,
     };
-    if let Ok(pattern) = Uq::parse_pattern_as_lib::<SpiderMonkeyRegexp>(init, options) {
+    if let Ok(pattern) = quirks::parse_pattern_as_lib::<SpiderMonkeyRegexp>(init, options) {
         unsafe {
             *res = UrlpPattern(Box::into_raw(Box::new(pattern)) as *mut _);
         }
@@ -63,7 +63,7 @@ pub unsafe extern "C" fn urlp_parse_pattern_from_init(
         regex_syntax: RegexSyntax::EcmaScript,
         ignore_case: options.ignore_case,
     };
-    if let Ok(pattern) = Uq::parse_pattern_as_lib::<SpiderMonkeyRegexp>(init.into(), options) {
+    if let Ok(pattern) = quirks::parse_pattern_as_lib::<SpiderMonkeyRegexp>(init.into(), options) {
         *res = UrlpPattern(Box::into_raw(Box::new(pattern)) as *mut _);
         return true;
     }
@@ -225,9 +225,9 @@ pub extern "C" fn urlp_process_match_input_from_string(
     base_url: *const nsACString,
     res: *mut UrlpMatchInputAndInputs,
 ) -> bool {
-    debug!("urlp_process_match_input_from_string()");
-    if let Some(url) = unsafe { url_str.as_ref().map(|x| x.to_utf8().into_owned()) } {
-        let str_or_init = Uq::StringOrInit::String(url);
+     debug!("urlp_process_match_input_from_string()");
+     if let Some(url) = unsafe { url_str.as_ref().map(|x| x.to_utf8().into_owned()) } {
+        let str_or_init = quirks::StringOrInit::String(url);
         let maybe_base_url = if base_url.is_null() {
             None
         } else {
@@ -235,11 +235,11 @@ pub extern "C" fn urlp_process_match_input_from_string(
             Some(x)
         };
 
-        let match_input_and_inputs = Uq::process_match_input(str_or_init, maybe_base_url);
+        let match_input_and_inputs = quirks::process_match_input(str_or_init, maybe_base_url);
         if let Ok(Some(tuple_struct)) = match_input_and_inputs {
             // parse "input"
             let match_input = tuple_struct.0;
-            let maybe_match_input = Uq::parse_match_input(match_input);
+            let maybe_match_input = quirks::parse_match_input(match_input);
 
             if maybe_match_input.is_none() {
                 return false;
@@ -248,7 +248,7 @@ pub extern "C" fn urlp_process_match_input_from_string(
             // convert "inputs"
             let tuple_soi_and_string = tuple_struct.1;
             let string = match tuple_soi_and_string.0 {
-                Uq::StringOrInit::String(x) => x,
+                quirks::StringOrInit::String(x) => x,
                 _ => {
                     assert!(
                         false,
@@ -287,25 +287,25 @@ pub extern "C" fn urlp_process_match_input_from_init(
 ) -> bool {
     debug!("urlp_process_match_input_from_init()");
     let q_init = init.into();
-    let str_or_init = Uq::StringOrInit::Init(q_init);
+    let str_or_init = quirks::StringOrInit::Init(q_init);
 
     let maybe_base_url = if base_url.is_null() {
         None
     } else {
         Some(unsafe { (*base_url).as_str_unchecked() })
     };
-    let match_input_and_inputs = Uq::process_match_input(str_or_init, maybe_base_url);
+    let match_input_and_inputs = quirks::process_match_input(str_or_init, maybe_base_url);
     // an empty string passed to base_url will cause url-parsing failure
     // in process_match_input, which we handle here
     if let Ok(Some(tuple_struct)) = match_input_and_inputs {
         let match_input = tuple_struct.0;
-        let maybe_match_input = Uq::parse_match_input(match_input);
+        let maybe_match_input = quirks::parse_match_input(match_input);
         if maybe_match_input.is_none() {
             return false;
         }
         let tuple_soi_and_string = tuple_struct.1;
         let init = match tuple_soi_and_string.0 {
-            Uq::StringOrInit::Init(x) => x,
+            quirks::StringOrInit::Init(x) => x,
             _ => {
                 assert!(
                     false,

@@ -11,7 +11,7 @@ use thin_vec::ThinVec;
 use std::ptr;
 use url::Url;
 use urlpattern::parser::RegexSyntax;
-use urlpattern::quirks as Uq;
+use urlpattern::quirks;
 use urlpattern::regexp::RegExp;
 use urlpattern::{UrlPatternInit, UrlPatternOptions};
 
@@ -260,8 +260,8 @@ pub fn matcher_matches<'a>(
     }
 }
 
-impl From<Uq::MatchInput> for UrlpMatchInput {
-    fn from(match_input: Uq::MatchInput) -> UrlpMatchInput {
+impl From<quirks::MatchInput> for UrlpMatchInput {
+    fn from(match_input: quirks::MatchInput) -> UrlpMatchInput {
         UrlpMatchInput {
             protocol: nsCString::from(match_input.protocol),
             username: nsCString::from(match_input.username),
@@ -333,15 +333,15 @@ impl From<&UrlpInit> for UrlPatternInit {
 // convert from UrlpInit to quirks::UrlPatternInit
 // used by parse_pattern into the internal function
 // MatchInput `From` conversion also uses
-impl From<UrlpInit> for Uq::UrlPatternInit {
-    fn from(wrapper: UrlpInit) -> Uq::UrlPatternInit {
+impl From<UrlpInit> for quirks::UrlPatternInit {
+    fn from(wrapper: UrlpInit) -> quirks::UrlPatternInit {
         let maybe_base = if wrapper.base_url.valid {
             Some(wrapper.base_url.string.to_string())
         } else {
             None
         };
 
-        Uq::UrlPatternInit {
+        quirks::UrlPatternInit {
             protocol: maybe_to_option_string(&wrapper.protocol),
             username: maybe_to_option_string(&wrapper.username),
             password: maybe_to_option_string(&wrapper.password),
@@ -356,14 +356,14 @@ impl From<UrlpInit> for Uq::UrlPatternInit {
 }
 
 // needed for process_match_input_from_init
-impl From<&UrlpInit> for Uq::UrlPatternInit {
+impl From<&UrlpInit> for quirks::UrlPatternInit {
     fn from(wrapper: &UrlpInit) -> Self {
         let maybe_base = if wrapper.base_url.valid {
             Some(wrapper.base_url.string.to_string())
         } else {
             None
         };
-        Uq::UrlPatternInit {
+        quirks::UrlPatternInit {
             protocol: maybe_to_option_string(&wrapper.protocol),
             username: maybe_to_option_string(&wrapper.username),
             password: maybe_to_option_string(&wrapper.password),
@@ -377,8 +377,8 @@ impl From<&UrlpInit> for Uq::UrlPatternInit {
     }
 }
 
-impl From<Uq::UrlPatternInit> for UrlpInit {
-    fn from(init: Uq::UrlPatternInit) -> UrlpInit {
+impl From<quirks::UrlPatternInit> for UrlpInit {
+    fn from(init: quirks::UrlPatternInit) -> UrlpInit {
         let base = match init.base_url.as_ref() {
             Some(s) => MaybeString {
                 valid: true,
