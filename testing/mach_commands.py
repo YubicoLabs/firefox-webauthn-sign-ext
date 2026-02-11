@@ -8,6 +8,7 @@ import logging
 import os
 import subprocess
 import sys
+from contextlib import contextmanager
 from datetime import date, timedelta
 from urllib.parse import urlparse
 
@@ -16,6 +17,7 @@ from mach.decorators import Command, CommandArgument, SubCommand
 from mozbuild.base import BuildEnvironmentNotFoundException, MozbuildObject
 from mozbuild.base import MachCommandConditions as conditions
 from mozbuild.nodeutil import find_node_executable
+from mozbuild.util import construct_log_filename
 from mozsystemmonitor.resourcemonitor import SystemResourceMonitor
 
 UNKNOWN_TEST = """
@@ -41,6 +43,33 @@ name or suite alias.
 
 The following test suites and aliases are supported: {}
 """.strip()
+
+
+@contextmanager
+def resource_monitor_profile(command_context, output_dir=None, command_name="test"):
+    monitor = SystemResourceMonitor(poll_interval=0.1)
+    monitor.start()
+
+    try:
+        yield monitor
+    finally:
+        if output_dir:
+            monitor.stop(upload_dir=output_dir)
+            profile_path = os.path.join(output_dir, "profile_resource-usage.json")
+        else:
+            monitor.stop()
+            log_subdir = os.path.join("logs", command_name)
+            command_context._ensure_state_subdir_exists(log_subdir)
+            profile_path = command_context._get_state_filename(
+                construct_log_filename("profile"), subdir=log_subdir
+            )
+
+        with open(profile_path, "w", encoding="utf-8", newline="\n") as fh:
+            to_write = json.dumps(monitor.as_profile(), separators=(",", ":"))
+            fh.write(to_write)
+        print(f"Resource usage profile saved to: {profile_path}")
+        if not output_dir:
+            print("View it with: ./mach resource-usage")
 
 
 def get_test_parser():
@@ -853,11 +882,7 @@ class TestInfoNodeRunner(MozbuildObject):
 )
 @CommandArgument("--output-dir", help="Path to report file.")
 def test_info_xpcshell_timings(command_context, days, output_dir, revision=None):
-    # Start resource monitoring with 0.1s sampling rate
-    monitor = SystemResourceMonitor(poll_interval=0.1)
-    monitor.start()
-
-    try:
+    with resource_monitor_profile(command_context, output_dir) as monitor:
         # node fetch-test-data.js --harness xpcshell --days 1
         runner = TestInfoNodeRunner.from_environment(
             cwd=os.getcwd(), detect_virtualenv_mozinfo=False
@@ -882,23 +907,6 @@ def test_info_xpcshell_timings(command_context, days, output_dir, revision=None)
         runner.run_node_cmd(
             monitor, days=days, revision=revision, output_dir=output_dir
         )
-    finally:
-        # Stop resource monitoring and save profile
-        if output_dir:
-            monitor.stop(upload_dir=output_dir)
-            profile_path = os.path.join(output_dir, "profile_resource-usage.json")
-        else:
-            monitor.stop()
-            # This is where ./mach resource-usage will find the profile.
-            profile_path = command_context._get_state_filename(
-                "profile_build_resources.json"
-            )
-        with open(profile_path, "w", encoding="utf-8", newline="\n") as fh:
-            to_write = json.dumps(monitor.as_profile(), separators=(",", ":"))
-            fh.write(to_write)
-        print(f"Resource usage profile saved to: {profile_path}")
-        if not output_dir:
-            print("View it with: ./mach resource-usage")
 
 
 @SubCommand(
@@ -918,11 +926,7 @@ def test_info_xpcshell_timings(command_context, days, output_dir, revision=None)
 )
 @CommandArgument("--output-dir", help="Path to report file.")
 def test_info_mochitest_timings(command_context, days, output_dir, revision=None):
-    # Start resource monitoring with 0.1s sampling rate
-    monitor = SystemResourceMonitor(poll_interval=0.1)
-    monitor.start()
-
-    try:
+    with resource_monitor_profile(command_context, output_dir) as monitor:
         runner = TestInfoNodeRunner.from_environment(
             cwd=os.getcwd(), detect_virtualenv_mozinfo=False
         )
@@ -948,23 +952,6 @@ def test_info_mochitest_timings(command_context, days, output_dir, revision=None
             revision=revision,
             output_dir=output_dir,
         )
-    finally:
-        # Stop resource monitoring and save profile
-        if output_dir:
-            monitor.stop(upload_dir=output_dir)
-            profile_path = os.path.join(output_dir, "profile_resource-usage.json")
-        else:
-            monitor.stop()
-            # This is where ./mach resource-usage will find the profile.
-            profile_path = command_context._get_state_filename(
-                "profile_build_resources.json"
-            )
-        with open(profile_path, "w", encoding="utf-8", newline="\n") as fh:
-            to_write = json.dumps(monitor.as_profile(), separators=(",", ":"))
-            fh.write(to_write)
-        print(f"Resource usage profile saved to: {profile_path}")
-        if not output_dir:
-            print("View it with: ./mach resource-usage")
 
 
 @SubCommand(
@@ -1459,10 +1446,7 @@ def platform_diff(
 )
 @CommandArgument("--output-dir", help="Path to output directory.")
 def test_info_manifest_timings(command_context, output_dir):
-    monitor = SystemResourceMonitor(poll_interval=0.1)
-    monitor.start()
-
-    try:
+    with resource_monitor_profile(command_context, output_dir) as monitor:
         runtimes_dir = os.path.join(command_context.topsrcdir, "testing", "runtimes")
         script_path = os.path.join(runtimes_dir, "fetch-manifest-data.js")
 
@@ -1481,26 +1465,16 @@ def test_info_manifest_timings(command_context, output_dir):
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            bufsize=1,
         )
 
-        for line in process.stdout:
-            print(line, end="")
+        for line_ in process.stdout:
+            line = line_.rstrip()
+            print(line)
+
+            if line:
+                monitor.record_event(line)
 
         return_code = process.wait()
         if return_code != 0:
             raise subprocess.CalledProcessError(return_code, cmd)
-    finally:
-        if output_dir:
-            monitor.stop(upload_dir=output_dir)
-            profile_path = os.path.join(output_dir, "profile_resource-usage.json")
-        else:
-            monitor.stop()
-            profile_path = command_context._get_state_filename(
-                "profile_build_resources.json"
-            )
-        with open(profile_path, "w", encoding="utf-8", newline="\n") as fh:
-            to_write = json.dumps(monitor.as_profile(), separators=(",", ":"))
-            fh.write(to_write)
-        print(f"Resource usage profile saved to: {profile_path}")
-        if not output_dir:
-            print("View it with: ./mach resource-usage")
