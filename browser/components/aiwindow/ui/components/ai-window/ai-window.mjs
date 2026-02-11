@@ -1028,6 +1028,7 @@ export class AIWindow extends MozLitElement {
 
   render() {
     return html`
+      <link rel="stylesheet" href="chrome://global/content/widgets.css" />
       <link
         rel="stylesheet"
         href="chrome://browser/content/aiwindow/components/ai-window.css"
