@@ -50,7 +50,7 @@ UrlPatternInit CreateInit(const char* protocol, const char* username,
                     nsCString(base));
 }
 
-TEST(TestURLPatternGlue, PatternFromStringOnlyPathname)
+TEST(TestUrlPatternGlue, PatternFromStringOnlyPathname)
 {
   nsCString str("/foo/thing");
   UrlPatternGlue pattern{};
@@ -61,7 +61,7 @@ TEST(TestURLPatternGlue, PatternFromStringOnlyPathname)
   ASSERT_FALSE(pattern._0);
 }
 
-TEST(TestURLPatternGlue, PatternFromString)
+TEST(TestUrlPatternGlue, PatternFromString)
 {
   nsCString str(":café://:foo");
   UrlPatternGlue pattern{};
@@ -73,7 +73,7 @@ TEST(TestURLPatternGlue, PatternFromString)
 }
 
 // pattern construction from init
-TEST(TestURLPatternGlue, PatternFromInit)
+TEST(TestUrlPatternGlue, PatternFromInit)
 {
   UrlPatternGlue pattern{};
   UrlPatternOptions options = {.ignore_case = false};
@@ -86,7 +86,7 @@ TEST(TestURLPatternGlue, PatternFromInit)
   ASSERT_EQ(proto, "https"_ns);
 }
 
-TEST(TestURLPatternGlue, PatternFromInitOnlyPathname)
+TEST(TestUrlPatternGlue, PatternFromInitOnlyPathname)
 {
   UrlPatternGlue pattern{};
   UrlPatternOptions options = {.ignore_case = false};
@@ -113,7 +113,7 @@ TEST(TestURLPatternGlue, PatternFromInitOnlyPathname)
 }
 
 // pattern getters
-TEST(TestURLPatternGlue, UrlPatternGetters)
+TEST(TestUrlPatternGlue, UrlPatternGetters)
 {
   UrlPatternGlue pattern{};
   UrlPatternOptions options = {.ignore_case = false};
@@ -146,7 +146,7 @@ TEST(TestURLPatternGlue, UrlPatternGetters)
 }
 
 // UrlPattern.test() from_init
-TEST(TestURLPatternGlue, UrlPatternTestInit)
+TEST(TestUrlPatternGlue, UrlPatternTestInit)
 {
   // check basic literal matching (minimal fields)
   {
@@ -387,7 +387,7 @@ TEST(TestURLPatternGlue, UrlPatternTestInit)
 }
 
 // UrlPattern.test() from_string
-TEST(TestURLPatternGlue, UrlPatternTestString)
+TEST(TestUrlPatternGlue, UrlPatternTestString)
 {
   // check basic literal matching (minimal fields)
   {
@@ -608,7 +608,7 @@ TEST(TestURLPatternGlue, UrlPatternTestString)
   }
 }
 
-TEST(TestURLPatternGlue, MatchInputFromString)
+TEST(TestUrlPatternGlue, MatchInputFromString)
 {
   {
     nsCString url("https://example.com/");
@@ -698,7 +698,7 @@ UrlPatternMatchInput createMatchInputHelper(const nsCString& proto,
   };
 }
 
-TEST(TestURLPatternGlue, MatchInputFromInit)
+TEST(TestUrlPatternGlue, MatchInputFromInit)
 {
   {  // no base init
     UrlPatternMatchInputAndInputs matchInputAndInputs;
@@ -738,7 +738,7 @@ TEST(TestURLPatternGlue, MatchInputFromInit)
   }
 }
 
-TEST(TestURLPatternGlue, UrlPatternExecFromString)
+TEST(TestUrlPatternGlue, UrlPatternExecFromString)
 {
   nsCString str(":café://:foo");
   UrlPatternOptions options = {.ignore_case = false};
@@ -768,7 +768,7 @@ void assert_pattern_result(UrlPatternResult& res) {
   ASSERT_TRUE(res.mInputs.Length() == 1);
 }
 
-TEST(TestURLPatternGlue, UrlPatternExecFromInit)
+TEST(TestUrlPatternGlue, UrlPatternExecFromInit)
 {
   UrlPatternGlue pattern{};
   auto init = CreateSimpleInit("https"_ns, "example.com"_ns, "/"_ns);
