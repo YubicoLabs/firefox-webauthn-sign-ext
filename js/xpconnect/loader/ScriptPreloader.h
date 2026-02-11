@@ -402,6 +402,11 @@ class ScriptPreloader : public nsIObserver,
   // Writes a new cache file to disk. Must not be called on the main thread.
   Result<Ok, nsresult> WriteCache() MOZ_REQUIRES(mSaveMonitor.Lock());
 
+  // Checks if everything's ready for cache writing, and calls StartCacheWrite
+  // if so. Can be called multiple times; won't do anything if a cache write has
+  // already been kicked off (or even finished).
+  void StartCacheWriteIfReady();
+
   void StartCacheWrite();
 
   // Prepares scripts for writing to the cache, serializing new scripts to
@@ -489,6 +494,9 @@ class ScriptPreloader : public nsIObserver,
   // True after we've shown the first window, and are no longer adding new
   // scripts to the cache.
   bool mStartupFinished = false;
+
+  // True once the startup sequence has reached CACHE_WRITE_TOPIC.
+  bool mStartupHasAdvancedToCacheWritingStage = false;
 
   bool mCacheInitialized = false;
   bool mSaveComplete = false;

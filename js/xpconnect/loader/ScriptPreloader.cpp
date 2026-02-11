@@ -262,6 +262,28 @@ void ScriptPreloader::Cleanup() {
   UnregisterWeakMemoryReporter(this);
 }
 
+void ScriptPreloader::StartCacheWriteIfReady() {
+  // Check if we're the right cache. Only the this-process ScriptPreloader in
+  // the parent process should do any cache writing.
+  if (!mChildCache) {
+    // If we don't have a child cache then we're not the right ScriptPreloader.
+    return;
+  }
+
+  if (mSaveComplete || mSaveThread) {
+    // We've already written the cache or are in the process of doing so.
+    return;
+  }
+
+  if (!mStartupHasAdvancedToCacheWritingStage) {
+    // Too early to write.
+    return;
+  }
+
+  // Everything's ready, let's kick off the write task.
+  StartCacheWrite();
+}
+
 void ScriptPreloader::StartCacheWrite() {
   MOZ_DIAGNOSTIC_ASSERT(!mSaveThread);
 
@@ -330,10 +352,9 @@ nsresult ScriptPreloader::Observe(nsISupports* subject, const char* topic,
 
     MOZ_ASSERT(mStartupFinished);
     MOZ_ASSERT(XRE_IsParentProcess());
+    mStartupHasAdvancedToCacheWritingStage = true;
 
-    if (mChildCache && !mSaveComplete && !mSaveThread) {
-      StartCacheWrite();
-    }
+    StartCacheWriteIfReady();
   } else if (mContentStartupFinishedTopic.Equals(topic)) {
     // If this is an uninitialized about:blank viewer or a chrome: document
     // (which should always be an XBL binding document), ignore it. We don't
