@@ -742,23 +742,19 @@ impl GpuBufferDataF for LinearGradientBrushData {
     }
 }
 
-/// The cooridnate space that the clip geometry (the quad rect) is relative to.
-///
-/// Not to confuse with the coordinate space of the primitive's pattern, for example
-/// the rounded rect, which is alreay relative to clip's spatial node.
 #[derive(Copy, Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "capture", derive(Serialize))]
 #[cfg_attr(feature = "replay", derive(Deserialize))]
 #[repr(u32)]
 pub enum ClipSpace {
-    Device = 0,
+    Raster = 0,
     Primitive = 1,
 }
 
 impl ClipSpace {
     pub fn as_int(self) -> u32 {
         match self {
-            ClipSpace::Device => 0,
+            ClipSpace::Raster => 0,
             ClipSpace::Primitive => 1,
         }
     }
