@@ -460,6 +460,11 @@ body {
   }
 }
 
+/* Share Button */
+.share-more-button {
+  --menuitem-icon: url("chrome://global/skin/icons/more.svg");
+}
+
 /* Bookmarks toolbar */
 
 #PersonalToolbar {

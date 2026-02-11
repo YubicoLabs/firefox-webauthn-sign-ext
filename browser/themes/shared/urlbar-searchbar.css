@@ -659,8 +659,7 @@ toolbar[inactive="true"] .urlbar,
   }
 }
 
-#pageActionButton,
-.share-more-button {
+#pageActionButton {
   list-style-image: url("chrome://global/skin/icons/more.svg");
 }
 

@@ -189,6 +189,10 @@
   list-style-image: url("chrome://browser/skin/login.svg");
 }
 
+#share-tab-button {
+  list-style-image: url("chrome://browser/skin/share.svg");
+}
+
 #sidebar-button {
   /* stylelint-disable-next-line media-query-no-invalid */
   @media not -moz-pref("sidebar.revamp") {

@@ -18,6 +18,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
     "resource:///modules/sessionstore/RecentlyClosedTabsAndWindowsMenuUtils.sys.mjs",
   Sanitizer: "resource:///modules/Sanitizer.sys.mjs",
   SessionStore: "resource:///modules/sessionstore/SessionStore.sys.mjs",
+  SharingUtils: "resource:///modules/SharingUtils.sys.mjs",
   ShortcutUtils: "resource://gre/modules/ShortcutUtils.sys.mjs",
 });
 
@@ -482,6 +483,46 @@ export const CustomizableWidgets = [
     onCommand(aEvent) {
       let window = aEvent.view;
       lazy.LoginHelper.openPasswordManager(window, { entryPoint: "Toolbar" });
+    },
+  },
+  {
+    id: "share-tab-button",
+    type: "custom",
+    onBuild(aDocument) {
+      let node = aDocument.createXULElement("toolbarbutton");
+      node.setAttribute("id", "share-tab-button");
+      aDocument.l10n.setAttributes(node, "toolbar-button-share-tab");
+
+      node.classList.add("toolbarbutton-1");
+
+      if (AppConstants.platform == "macosx") {
+        node.setAttribute("type", "menu");
+
+        let popup = aDocument.createXULElement("menupopup");
+        popup.setAttribute("id", "share-tab-popup");
+        popup.addEventListener("popupshowing", () => {
+          let browser = aDocument.defaultView.gBrowser.selectedBrowser;
+          node.browserToShare = Cu.getWeakReference(browser);
+
+          lazy.SharingUtils.populateShareMenu(popup);
+        });
+
+        node.appendChild(popup);
+      } else {
+        node.addEventListener("command", () => {
+          let browser = aDocument.defaultView.gBrowser.selectedBrowser;
+          node.browserToShare = Cu.getWeakReference(browser);
+
+          if (AppConstants.platform == "win") {
+            lazy.SharingUtils.shareOnWindows(node);
+          } else {
+            // linux
+            lazy.SharingUtils.copyLink(node);
+          }
+        });
+      }
+
+      return node;
     },
   },
 ];
