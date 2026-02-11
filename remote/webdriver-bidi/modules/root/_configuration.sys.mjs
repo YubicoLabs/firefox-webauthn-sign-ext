@@ -13,10 +13,18 @@ ChromeUtils.defineESModuleGetters(lazy, {
     "chrome://remote/content/shared/messagehandler/MessageHandler.sys.mjs",
   Log: "chrome://remote/content/shared/Log.sys.mjs",
   NavigableManager: "chrome://remote/content/shared/NavigableManager.sys.mjs",
-  RootMessageHandler:
-    "chrome://remote/content/shared/messagehandler/RootMessageHandler.sys.mjs",
   setDevicePixelRatioForBrowsingContext:
     "chrome://remote/content/webdriver-bidi/modules/root/browsingContext.sys.mjs",
+  setLocaleOverrideForBrowsingContext:
+    "chrome://remote/content/webdriver-bidi/modules/root/emulation.sys.mjs",
+  setScreenOrientationOverrideForBrowsingContext:
+    "chrome://remote/content/webdriver-bidi/modules/root/emulation.sys.mjs",
+  setScreenSettingsOverrideForBrowsingContext:
+    "chrome://remote/content/webdriver-bidi/modules/root/emulation.sys.mjs",
+  setTimezoneOverrideForBrowsingContext:
+    "chrome://remote/content/webdriver-bidi/modules/root/emulation.sys.mjs",
+  setUserAgentOverrideForBrowsingContext:
+    "chrome://remote/content/webdriver-bidi/modules/root/emulation.sys.mjs",
 });
 
 ChromeUtils.defineLazyGetter(lazy, "logger", () =>
@@ -209,46 +217,62 @@ class _ConfigurationModule extends RootBiDiModule {
       configurationMap["locale-override"],
       "string"
     );
+    if (localeOverride !== null) {
+      lazy.setLocaleOverrideForBrowsingContext({
+        context: browsingContext,
+        value: localeOverride,
+      });
+    }
+
     const screenOrientationOverride = this.#findCorrectOverrideValue(
       configurationMap["screen-orientation-override"],
       "object"
     );
+    if (screenOrientationOverride !== null) {
+      lazy.setScreenOrientationOverrideForBrowsingContext({
+        context: browsingContext,
+        value: screenOrientationOverride,
+      });
+    }
+
     const screenSettingsOverride = this.#findCorrectOverrideValue(
       configurationMap["screen-settings-override"],
       "object"
     );
+    if (screenSettingsOverride !== null) {
+      lazy.setScreenSettingsOverrideForBrowsingContext({
+        context: browsingContext,
+        value: screenSettingsOverride,
+      });
+    }
+
     const timezoneOverride = this.#findCorrectOverrideValue(
       configurationMap["timezone-override"],
       "string"
     );
+    if (timezoneOverride !== null) {
+      lazy.setTimezoneOverrideForBrowsingContext({
+        context: browsingContext,
+        value: timezoneOverride,
+      });
+    }
+
     const userAgentOverride = this.#findCorrectOverrideValue(
       configurationMap["user-agent-override"],
       "string"
     );
-
-    if (
-      localeOverride !== null ||
-      screenOrientationOverride !== null ||
-      screenSettingsOverride !== null ||
-      timezoneOverride !== null ||
-      userAgentOverride !== null
-    ) {
-      await this.messageHandler.handleCommand({
-        moduleName: "emulation",
-        commandName: "_applyEmulationsToNewBrowsingContext",
-        destination: {
-          type: lazy.RootMessageHandler.type,
-        },
-        params: {
-          context: browsingContext,
-          localeOverride,
-          screenOrientationOverride,
-          screenSettingsOverride,
-          timezoneOverride,
-          userAgentOverride,
-        },
+    if (userAgentOverride !== null) {
+      lazy.setUserAgentOverrideForBrowsingContext({
+        context: browsingContext,
+        value: userAgentOverride,
       });
     }
+
+    const contextId =
+      lazy.NavigableManager.getIdForBrowsingContext(browsingContext);
+    lazy.logger.trace(
+      `[${contextId}] All required configurations are applied to a new browsing context`
+    );
   };
 
   /**
