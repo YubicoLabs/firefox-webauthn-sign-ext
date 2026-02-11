@@ -187,6 +187,7 @@ add_task(async function process_switch_in_sidebars_popups() {
   // process because we forced the initialization of <browser> where we did not
   // have to. Verify that we only see two window globals for each load, the
   // initial about:blank followed by the requested URL (no more, no less!).
+  // In particular, we should NOT observe loads in unexpected processes.
   const commonDescriptionPopup = {
     id: "",
     className: "webextension-popup-browser",
@@ -265,14 +266,6 @@ add_task(async function process_switch_in_sidebars_popups() {
         url: `moz-extension://${extension.uuid}/page.html?popup_back`,
         osPid: extPid,
         currentRemoteType: "extension",
-        ...commonDescriptionPopup,
-      },
-      {
-        // TODO bug 1987679: This observation is unexpected, remove after fix.
-        url: "about:blank",
-        osPid: filterSeenWindowGlobals(gSeenWindowGlobals, extBcgId).at(-1)
-          .osPid,
-        currentRemoteType: "web",
         ...commonDescriptionPopup,
       },
     ],
