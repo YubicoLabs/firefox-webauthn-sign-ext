@@ -1557,10 +1557,15 @@ pub fn prepare_clip_task(
             spatial_tree,
         );
 
+        // Conservatively inflate the clip's primitive to ensure that it covers potential
+        // anti-aliasing pixels of the original primitive. 2.0 matches AA_PIXEL_RADIUS in
+        // quad.glsl.
+        let rect = prim_local_coverage_rect.inflate(2.0, 2.0);
+
         let quad_address = write_layout_prim_blocks(
             gpu_buffer,
-            prim_local_coverage_rect,
-            prim_local_coverage_rect,
+            &rect,
+            &rect,
             ColorF::WHITE,
             RenderTaskId::INVALID,
             &[],
