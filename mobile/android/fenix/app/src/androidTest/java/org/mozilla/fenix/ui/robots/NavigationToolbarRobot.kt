@@ -144,21 +144,13 @@ class NavigationToolbarRobot(private val composeTestRule: ComposeTestRule) {
         waitForAppWindowToBeUpdated()
     }
 
-    fun verifyClipboardSuggestionsAreDisplayed(link: String = "", shouldBeDisplayed: Boolean) {
-        assertUIObjectExists(
-            itemWithResId("$packageName:id/fill_link_from_clipboard"),
-            exists = shouldBeDisplayed,
-        )
-        // On Android 12 or above we don't SHOW the URL unless the user requests to do so.
-        // See for more information https://github.com/mozilla-mobile/fenix/issues/22271
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-            assertUIObjectExists(
-                itemWithResIdAndText(
-                    "$packageName:id/clipboard_url",
-                    link,
-                ),
-                exists = shouldBeDisplayed,
-            )
+    fun verifyClipboardSuggestionsAreDisplayed(shouldBeDisplayed: Boolean) {
+        if (shouldBeDisplayed) {
+            composeTestRule.onNodeWithText(getStringResource(R.string.awesomebar_clipboard_title))
+                .assertIsDisplayed()
+        } else {
+            composeTestRule.onNodeWithText(getStringResource(R.string.awesomebar_clipboard_title))
+                .assertIsNotDisplayed()
         }
     }
 
