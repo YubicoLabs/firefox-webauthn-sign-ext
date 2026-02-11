@@ -705,6 +705,9 @@ skip script test262/staging/sm/String/string-upper-lower-mapping.js
 # https://github.com/tc39/test262/pull/4910
 skip script test262/staging/Intl402/Temporal/old/datetime-toLocaleString.js
 
+# https://github.com/tc39/test262/pull/4911
+skip script test262/intl402/PluralRules/prototype/selectRange/argument-tonumber-throws.js
+
 
 ##############################################
 # Enable Iterator Helpers tests in the shell #
