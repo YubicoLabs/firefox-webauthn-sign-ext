@@ -924,7 +924,7 @@ nsresult LocalAccessible::HandleAccEvent(AccEvent* aEvent) {
                   aEvent->GetAccessible()),
               event->GetCaretOffset(), event->IsSelectionCollapsed(),
               event->IsAtEndOfLine(), event->GetGranularity(),
-              event->IsFromUserInput());
+              event->IsFromUserInput(), /* aSuppressEvent */ false);
           break;
         }
         case nsIAccessibleEvent::EVENT_TEXT_INSERTED:
