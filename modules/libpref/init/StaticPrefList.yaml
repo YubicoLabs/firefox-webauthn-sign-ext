@@ -3350,6 +3350,13 @@
   mirror: once
 #endif
 
+#if defined(XP_WIN)
+-   name: dom.ipc.alwaysUseParentBinary
+    type: RelaxedAtomicBool
+    value: @IS_NIGHTLY_BUILD@
+    mirror: always
+#endif
+
 #if defined(XP_DARWIN)
 # Whether or not to use the mach-based IPC backend on macOS/iOS.
 # Only read once at startup by IOThreadParent's constructor.
