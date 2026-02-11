@@ -1225,7 +1225,7 @@ class RuleEditor extends EventEmitter {
     }
 
     const ruleView = this.ruleView;
-    const elementStyle = ruleView._elementStyle;
+    const elementStyle = ruleView.elementStyle;
     const element = elementStyle.element;
 
     this.isEditing = true;
