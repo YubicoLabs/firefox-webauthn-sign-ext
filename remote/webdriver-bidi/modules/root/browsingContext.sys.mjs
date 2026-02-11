@@ -1721,7 +1721,7 @@ class BrowsingContextModule extends RootBiDiModule {
           }
         );
         sessionDataItems.push({
-          category: "viewport-overrides",
+          category: "viewport-override",
           moduleName: "_configuration",
           values: [viewportOverride],
           contextDescriptor: {
@@ -1734,7 +1734,7 @@ class BrowsingContextModule extends RootBiDiModule {
     } else {
       for (const navigable of navigables) {
         sessionDataItems.push({
-          category: "viewport-overrides",
+          category: "viewport-override",
           moduleName: "_configuration",
           values: [viewportOverride],
           contextDescriptor: {

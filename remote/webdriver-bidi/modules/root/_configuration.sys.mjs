@@ -24,7 +24,7 @@ ChromeUtils.defineLazyGetter(lazy, "logger", () =>
 );
 
 // Apply here only the emulations that will be initialized in the parent process,
-// except from `viewport-overrides` which is handled separately.
+// except from `viewport-override` which is handled separately.
 const EMULATIONS_TO_APPLY = [
   "locale-override",
   "screen-orientation-override",
@@ -91,7 +91,7 @@ class _ConfigurationModule extends RootBiDiModule {
 
       const sessionData = this.messageHandler.sessionData.getSessionData(
         "_configuration",
-        "viewport-overrides",
+        "viewport-override",
         {
           type: lazy.ContextDescriptorType.UserContext,
           id: userContextId === null ? 0 : parseInt(userContextId),
@@ -180,12 +180,12 @@ class _ConfigurationModule extends RootBiDiModule {
     for (const { category, contextDescriptor, value } of sessionDataItems) {
       if (
         !EMULATIONS_TO_APPLY.includes(category) &&
-        category !== "viewport-overrides"
+        category !== "viewport-override"
       ) {
         continue;
       }
 
-      if (category === "viewport-overrides") {
+      if (category === "viewport-override") {
         if (value.devicePixelRatio !== undefined) {
           devicePixelRatioOverride = value.devicePixelRatio;
         }
