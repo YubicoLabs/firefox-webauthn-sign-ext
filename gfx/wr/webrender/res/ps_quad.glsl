@@ -219,18 +219,6 @@ VertexInfo write_vertex(vec2 local_pos,
     return vi;
 }
 
-float edge_aa_offset(int edge, int flags) {
-    return ((flags & edge) != 0) ? AA_PIXEL_RADIUS : 0.0;
-}
-
-// The version of GLSL we target lacks a bitwise not operator so
-// we have the opposite version of the function above to move the
-// AA distance rect *away* from the primitive for edges that are
-// not anti-aliased (by an arbitrary amount).
-float edge_no_aa_offset(int edge, int flags) {
-    return ((flags & edge) != 0) ? 0.0 : 10.0;
-}
-
 void pattern_vertex(PrimitiveInfo prim);
 
 vec2 scale_offset_map_point(vec4 scale_offset, vec2 p) {
@@ -274,6 +262,11 @@ PrimitiveInfo quad_primive_info(void) {
     local_coverage_rect.p1 = min(local_coverage_rect.p1, prim.clip.p1);
     local_coverage_rect.p1 = max(local_coverage_rect.p0, local_coverage_rect.p1);
 
+    float aa_left   = (qi.edge_flags & EDGE_AA_LEFT)   != 0 ? 1.0 : 0.0;
+    float aa_top    = (qi.edge_flags & EDGE_AA_TOP)    != 0 ? 1.0 : 0.0;
+    float aa_right  = (qi.edge_flags & EDGE_AA_RIGHT)  != 0 ? 1.0 : 0.0;
+    float aa_bottom = (qi.edge_flags & EDGE_AA_BOTTOM) != 0 ? 1.0 : 0.0;
+
     switch (qi.part_index) {
         case PART_LEFT:
             local_coverage_rect.p1.x = local_coverage_rect.p0.x + AA_PIXEL_RADIUS;
@@ -281,13 +274,13 @@ PrimitiveInfo quad_primive_info(void) {
             swgl_antiAlias(EDGE_AA_LEFT);
 #else
             local_coverage_rect.p0.x -= AA_PIXEL_RADIUS;
-            local_coverage_rect.p0.y -= AA_PIXEL_RADIUS;
-            local_coverage_rect.p1.y += AA_PIXEL_RADIUS;
+            local_coverage_rect.p0.y -= aa_top * AA_PIXEL_RADIUS;
+            local_coverage_rect.p1.y += aa_bottom * AA_PIXEL_RADIUS;
 #endif
             break;
         case PART_TOP:
-            local_coverage_rect.p0.x = local_coverage_rect.p0.x + AA_PIXEL_RADIUS;
-            local_coverage_rect.p1.x = local_coverage_rect.p1.x - AA_PIXEL_RADIUS;
+            local_coverage_rect.p0.x += aa_left * AA_PIXEL_RADIUS;
+            local_coverage_rect.p1.x -= aa_right * AA_PIXEL_RADIUS;
             local_coverage_rect.p1.y = local_coverage_rect.p0.y + AA_PIXEL_RADIUS;
 #ifdef SWGL_ANTIALIAS
             swgl_antiAlias(EDGE_AA_TOP);
@@ -301,13 +294,13 @@ PrimitiveInfo quad_primive_info(void) {
             swgl_antiAlias(EDGE_AA_RIGHT);
 #else
             local_coverage_rect.p1.x += AA_PIXEL_RADIUS;
-            local_coverage_rect.p0.y -= AA_PIXEL_RADIUS;
-            local_coverage_rect.p1.y += AA_PIXEL_RADIUS;
+            local_coverage_rect.p0.y -= aa_top * AA_PIXEL_RADIUS;
+            local_coverage_rect.p1.y += aa_bottom * AA_PIXEL_RADIUS;
 #endif
             break;
         case PART_BOTTOM:
-            local_coverage_rect.p0.x = local_coverage_rect.p0.x + AA_PIXEL_RADIUS;
-            local_coverage_rect.p1.x = local_coverage_rect.p1.x - AA_PIXEL_RADIUS;
+            local_coverage_rect.p0.x += aa_left * AA_PIXEL_RADIUS;
+            local_coverage_rect.p1.x -= aa_right * AA_PIXEL_RADIUS;
             local_coverage_rect.p0.y = local_coverage_rect.p1.y - AA_PIXEL_RADIUS;
 #ifdef SWGL_ANTIALIAS
             swgl_antiAlias(EDGE_AA_BOTTOM);
@@ -316,20 +309,20 @@ PrimitiveInfo quad_primive_info(void) {
 #endif
             break;
         case PART_CENTER:
-            local_coverage_rect.p0.x += edge_aa_offset(EDGE_AA_LEFT, qi.edge_flags);
-            local_coverage_rect.p1.x -= edge_aa_offset(EDGE_AA_RIGHT, qi.edge_flags);
-            local_coverage_rect.p0.y += edge_aa_offset(EDGE_AA_TOP, qi.edge_flags);
-            local_coverage_rect.p1.y -= edge_aa_offset(EDGE_AA_BOTTOM, qi.edge_flags);
+            local_coverage_rect.p0.x += aa_left * AA_PIXEL_RADIUS;
+            local_coverage_rect.p1.x -= aa_right * AA_PIXEL_RADIUS;
+            local_coverage_rect.p0.y += aa_top * AA_PIXEL_RADIUS;
+            local_coverage_rect.p1.y -= aa_bottom * AA_PIXEL_RADIUS;
             break;
         case PART_ALL:
         default:
 #ifdef SWGL_ANTIALIAS
             swgl_antiAlias(qi.edge_flags);
 #else
-            local_coverage_rect.p0.x -= edge_aa_offset(EDGE_AA_LEFT, qi.edge_flags);
-            local_coverage_rect.p1.x += edge_aa_offset(EDGE_AA_RIGHT, qi.edge_flags);
-            local_coverage_rect.p0.y -= edge_aa_offset(EDGE_AA_TOP, qi.edge_flags);
-            local_coverage_rect.p1.y += edge_aa_offset(EDGE_AA_BOTTOM, qi.edge_flags);
+            local_coverage_rect.p0.x -= aa_left * AA_PIXEL_RADIUS;
+            local_coverage_rect.p1.x += aa_right * AA_PIXEL_RADIUS;
+            local_coverage_rect.p0.y -= aa_top * AA_PIXEL_RADIUS;
+            local_coverage_rect.p1.y += aa_bottom * AA_PIXEL_RADIUS;
 #endif
             break;
     }
@@ -359,6 +352,12 @@ PrimitiveInfo quad_primive_info(void) {
         qi.quad_flags,
         qh.pattern_input
     );
+}
+
+// Move the AA distance rect *away* from the primitive for edges that are
+// not anti-aliased (by an arbitrary amount).
+float edge_no_aa_offset(int edge, int flags) {
+    return ((flags & edge) != 0) ? 0.0 : 10.0;
 }
 
 void antialiasing_vertex(PrimitiveInfo prim) {
