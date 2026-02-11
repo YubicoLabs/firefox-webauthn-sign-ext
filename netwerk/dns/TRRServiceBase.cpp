@@ -180,7 +180,7 @@ void TRRServiceBase::OnTRRURIChange() {
   CheckURIPrefs();
 }
 
-already_AddRefed<nsHttpConnectionInfo> TRRServiceBase::CreateConnInfoHelper(
+static already_AddRefed<nsHttpConnectionInfo> CreateConnInfoHelper(
     nsIURI* aURI, nsIProxyInfo* aProxyInfo) {
   MOZ_ASSERT(NS_IsMainThread());
 
@@ -226,10 +226,7 @@ already_AddRefed<nsHttpConnectionInfo> TRRServiceBase::CreateConnInfoHelper(
       (scheme.EqualsLiteral("http") || scheme.EqualsLiteral("https")) &&
       (mapping = gHttpHandler->GetAltServiceMapping(
            scheme, host, port, false, OriginAttributes(), http2Allowed,
-           http3Allowed,
-           StaticPrefs::network_trr_force_http3_first() ||
-               (StaticPrefs::network_trr_allow_default_http3_first() &&
-                GetHttp3FirstForServer(host))))) {
+           http3Allowed, StaticPrefs::network_trr_force_http3_first()))) {
     mapping->GetConnectionInfo(getter_AddRefs(connInfo), proxyInfo,
                                OriginAttributes());
   }
@@ -296,7 +293,7 @@ void TRRServiceBase::AsyncCreateTRRConnectionInfoInternal(
         }
 
         RefPtr<nsHttpConnectionInfo> connInfo =
-            self->CreateConnInfoHelper(uri, aProxyInfo);
+            CreateConnInfoHelper(uri, aProxyInfo);
         self->SetDefaultTRRConnectionInfo(connInfo);
         if (!self->mTRRConnectionInfoInited) {
           self->mTRRConnectionInfoInited = true;
@@ -357,20 +354,6 @@ void TRRServiceBase::UnregisterProxyChangeListener() {
   }
 
   pps->RemoveProxyConfigCallback(this);
-}
-
-void TRRServiceBase::SetHttp3FirstForServer(const nsACString& aServer,
-                                            bool aEnabled) {
-  MutexAutoLock lock(mLock);
-  LOG(("SetHttp3FirstForServer %s %d", nsCString(aServer).get(), aEnabled));
-  mHttp3FirstServers.InsertOrUpdate(aServer, aEnabled);
-}
-
-bool TRRServiceBase::GetHttp3FirstForServer(const nsACString& aServer) {
-  MutexAutoLock lock(mLock);
-  bool res = mHttp3FirstServers.MaybeGet(aServer).valueOr(false);
-  LOG(("GetHttp3FirstForServer %s %d", nsCString(aServer).get(), res));
-  return res;
 }
 
 }  // namespace net
