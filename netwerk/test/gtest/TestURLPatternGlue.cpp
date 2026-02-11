@@ -14,12 +14,12 @@ using namespace mozilla::net;
 template <typename T>
 using Optional = mozilla::Maybe<T>;
 
-UrlpInit CreateInit(const nsCString& protocol, const nsCString& username,
-                    const nsCString& password, const nsCString& hostname,
-                    const nsCString& port, const nsCString& pathname,
-                    const nsCString& search, const nsCString& hash,
-                    const nsCString& baseUrl) {
-  return UrlpInit{
+UrlPatternInit CreateInit(const nsCString& protocol, const nsCString& username,
+                          const nsCString& password, const nsCString& hostname,
+                          const nsCString& port, const nsCString& pathname,
+                          const nsCString& search, const nsCString& hash,
+                          const nsCString& baseUrl) {
+  return UrlPatternInit{
       .protocol = CreateMaybeString(protocol, !protocol.IsEmpty()),
       .username = CreateMaybeString(username, !username.IsEmpty()),
       .password = CreateMaybeString(password, !password.IsEmpty()),
@@ -32,16 +32,18 @@ UrlpInit CreateInit(const nsCString& protocol, const nsCString& username,
   };
 }
 
-UrlpInit CreateSimpleInit(const nsCString& protocol, const nsCString& hostname,
-                          const nsCString& pathname) {
+UrlPatternInit CreateSimpleInit(const nsCString& protocol,
+                                const nsCString& hostname,
+                                const nsCString& pathname) {
   return CreateInit(protocol, ""_ns, ""_ns, hostname, ""_ns, pathname, ""_ns,
                     ""_ns, ""_ns);
 }
 
-UrlpInit CreateInit(const char* protocol, const char* username,
-                    const char* password, const char* hostname,
-                    const char* port, const char* pathname, const char* search,
-                    const char* hash, const char* base = "") {
+UrlPatternInit CreateInit(const char* protocol, const char* username,
+                          const char* password, const char* hostname,
+                          const char* port, const char* pathname,
+                          const char* search, const char* hash,
+                          const char* base = "") {
   return CreateInit(nsCString(protocol), nsCString(username),
                     nsCString(password), nsCString(hostname), nsCString(port),
                     nsCString(pathname), nsCString(search), nsCString(hash),
@@ -51,9 +53,10 @@ UrlpInit CreateInit(const char* protocol, const char* username,
 TEST(TestURLPatternGlue, PatternFromStringOnlyPathname)
 {
   nsCString str("/foo/thing");
-  UrlpPattern pattern{};
-  UrlpOptions options = {.ignore_case = false};
-  bool res = urlp_parse_pattern_from_string(&str, nullptr, options, &pattern);
+  UrlPatternGlue pattern{};
+  UrlPatternOptions options = {.ignore_case = false};
+  bool res =
+      urlpattern_parse_pattern_from_string(&str, nullptr, options, &pattern);
   ASSERT_FALSE(res);
   ASSERT_FALSE(pattern._0);
 }
@@ -61,9 +64,10 @@ TEST(TestURLPatternGlue, PatternFromStringOnlyPathname)
 TEST(TestURLPatternGlue, PatternFromString)
 {
   nsCString str(":café://:foo");
-  UrlpPattern pattern{};
-  UrlpOptions options = {.ignore_case = false};
-  bool res = urlp_parse_pattern_from_string(&str, nullptr, options, &pattern);
+  UrlPatternGlue pattern{};
+  UrlPatternOptions options = {.ignore_case = false};
+  bool res =
+      urlpattern_parse_pattern_from_string(&str, nullptr, options, &pattern);
   ASSERT_TRUE(res);
   ASSERT_TRUE(pattern._0);
 }
@@ -71,36 +75,36 @@ TEST(TestURLPatternGlue, PatternFromString)
 // pattern construction from init
 TEST(TestURLPatternGlue, PatternFromInit)
 {
-  UrlpPattern pattern{};
-  UrlpOptions options = {.ignore_case = false};
-  UrlpInit init = CreateSimpleInit("https"_ns, "example.com"_ns, "/"_ns);
-  bool res = urlp_parse_pattern_from_init(&init, options, &pattern);
+  UrlPatternGlue pattern{};
+  UrlPatternOptions options = {.ignore_case = false};
+  UrlPatternInit init = CreateSimpleInit("https"_ns, "example.com"_ns, "/"_ns);
+  bool res = urlpattern_parse_pattern_from_init(&init, options, &pattern);
   ASSERT_TRUE(res);
   ASSERT_TRUE(pattern._0);
 
-  auto proto = UrlpGetProtocol(pattern);
+  auto proto = UrlPatternGetProtocol(pattern);
   ASSERT_EQ(proto, "https"_ns);
 }
 
 TEST(TestURLPatternGlue, PatternFromInitOnlyPathname)
 {
-  UrlpPattern pattern{};
-  UrlpOptions options = {.ignore_case = false};
-  UrlpInit init = CreateSimpleInit(""_ns, ""_ns, "/foo/thing"_ns);
-  bool res = urlp_parse_pattern_from_init(&init, options, &pattern);
+  UrlPatternGlue pattern{};
+  UrlPatternOptions options = {.ignore_case = false};
+  UrlPatternInit init = CreateSimpleInit(""_ns, ""_ns, "/foo/thing"_ns);
+  bool res = urlpattern_parse_pattern_from_init(&init, options, &pattern);
   ASSERT_TRUE(res);
   ASSERT_TRUE(pattern._0);
 
-  auto proto = UrlpGetProtocol(pattern);
+  auto proto = UrlPatternGetProtocol(pattern);
   ASSERT_EQ(proto, nsCString("*"));
-  auto host = UrlpGetHostname(pattern);
+  auto host = UrlPatternGetHostname(pattern);
   ASSERT_EQ(host, nsCString("*"));
-  auto path = UrlpGetPathname(pattern);
+  auto path = UrlPatternGetPathname(pattern);
   ASSERT_EQ(path, nsCString("/foo/thing"));
 
   Optional<nsAutoCString> execBaseUrl;  // None
-  UrlpInput input = CreateUrlpInput(init);
-  Optional<UrlpResult> r = UrlpPatternExec(pattern, input, execBaseUrl);
+  UrlPatternInput input = CreateUrlPatternInput(init);
+  Optional<UrlPatternResult> r = UrlPatternExec(pattern, input, execBaseUrl);
   ASSERT_TRUE(r.isSome());
   ASSERT_TRUE(r->mProtocol.isSome());
   ASSERT_EQ(r->mProtocol.value().mInput, nsCString(""));
@@ -111,32 +115,32 @@ TEST(TestURLPatternGlue, PatternFromInitOnlyPathname)
 // pattern getters
 TEST(TestURLPatternGlue, UrlPatternGetters)
 {
-  UrlpPattern pattern{};
-  UrlpOptions options = {.ignore_case = false};
+  UrlPatternGlue pattern{};
+  UrlPatternOptions options = {.ignore_case = false};
 
-  UrlpInit init =
+  UrlPatternInit init =
       CreateInit("https"_ns, "user"_ns, "passw"_ns, "example.com"_ns, "66"_ns,
                  "/"_ns, "find"_ns, "anchor"_ns, ""_ns);
-  bool rv = urlp_parse_pattern_from_init(&init, options, &pattern);
+  bool rv = urlpattern_parse_pattern_from_init(&init, options, &pattern);
   ASSERT_TRUE(rv);
   ASSERT_TRUE(pattern._0);
 
   nsAutoCString res;
-  res = UrlpGetProtocol(pattern);
+  res = UrlPatternGetProtocol(pattern);
   ASSERT_EQ(res, nsCString("https"));
-  res = UrlpGetUsername(pattern);
+  res = UrlPatternGetUsername(pattern);
   ASSERT_EQ(res, nsCString("user"));
-  res = UrlpGetPassword(pattern);
+  res = UrlPatternGetPassword(pattern);
   ASSERT_EQ(res, nsCString("passw"));
-  res = UrlpGetHostname(pattern);
+  res = UrlPatternGetHostname(pattern);
   ASSERT_EQ(res, nsCString("example.com"));
-  res = UrlpGetPort(pattern);
+  res = UrlPatternGetPort(pattern);
   ASSERT_EQ(res, nsCString("66"));
-  res = UrlpGetPathname(pattern);
+  res = UrlPatternGetPathname(pattern);
   ASSERT_EQ(res, nsCString("/"));
-  res = UrlpGetSearch(pattern);
+  res = UrlPatternGetSearch(pattern);
   ASSERT_EQ(res, nsCString("find"));
-  res = UrlpGetHash(pattern);
+  res = UrlPatternGetHash(pattern);
   ASSERT_EQ(res, nsCString("anchor"));
   // neither lib or quirks URLPattern has base_url so nothing to check
 }
@@ -146,237 +150,238 @@ TEST(TestURLPatternGlue, UrlPatternTestInit)
 {
   // check basic literal matching (minimal fields)
   {
-    UrlpPattern pattern{};
-    UrlpOptions options = {.ignore_case = false};
-    UrlpInit init = CreateSimpleInit("https"_ns, "example.com"_ns, "/"_ns);
-    bool res = urlp_parse_pattern_from_init(&init, options, &pattern);
+    UrlPatternGlue pattern{};
+    UrlPatternOptions options = {.ignore_case = false};
+    UrlPatternInit init =
+        CreateSimpleInit("https"_ns, "example.com"_ns, "/"_ns);
+    bool res = urlpattern_parse_pattern_from_init(&init, options, &pattern);
     ASSERT_TRUE(res);
 
     Optional<nsCString> base;
     {  // path not fixed up (?)
-      auto test = CreateUrlpInput(
+      auto test = CreateUrlPatternInput(
           CreateSimpleInit("https"_ns, "example.com"_ns, ""_ns));
-      ASSERT_FALSE(UrlpPatternTest(pattern, test, base));
+      ASSERT_FALSE(UrlPatternTest(pattern, test, base));
     }
     {
-      auto test = CreateUrlpInput(
+      auto test = CreateUrlPatternInput(
           CreateSimpleInit("https"_ns, "example.com"_ns, "/"_ns));
-      ASSERT_TRUE(UrlpPatternTest(pattern, test, base));
+      ASSERT_TRUE(UrlPatternTest(pattern, test, base));
     }
     {  // unspecified user and password is fine
-      auto test = CreateUrlpInput(
+      auto test = CreateUrlPatternInput(
           CreateInit("https", "user", "pass", "example.com", "", "/", "", ""));
-      ASSERT_TRUE(UrlpPatternTest(pattern, test, base));
+      ASSERT_TRUE(UrlPatternTest(pattern, test, base));
     }
     {  // unspecified port is fine
-      auto test = CreateUrlpInput(
+      auto test = CreateUrlPatternInput(
           CreateInit("https", "", "", "example.com", "444", "/", "", ""));
-      ASSERT_TRUE(UrlpPatternTest(pattern, test, base));
+      ASSERT_TRUE(UrlPatternTest(pattern, test, base));
     }
     {  // unspecified search is fine
-      auto test = CreateUrlpInput(
+      auto test = CreateUrlPatternInput(
           CreateInit("https", "", "", "example.com", "", "/", "thisok", ""));
-      ASSERT_TRUE(UrlpPatternTest(pattern, test, base));
+      ASSERT_TRUE(UrlPatternTest(pattern, test, base));
     }
     {  // unspecified hash is fine
-      auto test = CreateUrlpInput(
+      auto test = CreateUrlPatternInput(
           CreateInit("https", "", "", "example.com", "", "/", "", "thisok"));
-      ASSERT_TRUE(UrlpPatternTest(pattern, test, base));
+      ASSERT_TRUE(UrlPatternTest(pattern, test, base));
     }
     {  // pathname different
-      auto test = CreateUrlpInput(
+      auto test = CreateUrlPatternInput(
           CreateSimpleInit("https"_ns, "example.com"_ns, "/a"_ns));
-      ASSERT_FALSE(UrlpPatternTest(pattern, test, base));
+      ASSERT_FALSE(UrlPatternTest(pattern, test, base));
     }
     {  // scheme different
-      auto test = CreateUrlpInput(
+      auto test = CreateUrlPatternInput(
           CreateSimpleInit("http"_ns, "example.com"_ns, "/"_ns));
-      ASSERT_FALSE(UrlpPatternTest(pattern, test, base));
+      ASSERT_FALSE(UrlPatternTest(pattern, test, base));
     }
     {  // domain different
-      auto test = CreateUrlpInput(
+      auto test = CreateUrlPatternInput(
           CreateSimpleInit("https"_ns, "example.org"_ns, "/"_ns));
-      ASSERT_FALSE(UrlpPatternTest(pattern, test, base));
+      ASSERT_FALSE(UrlPatternTest(pattern, test, base));
     }
   }
 
   // check basic literal matching
   {
-    UrlpPattern pattern{};
-    UrlpOptions options = {.ignore_case = false};
+    UrlPatternGlue pattern{};
+    UrlPatternOptions options = {.ignore_case = false};
     auto init =
         CreateInit("https"_ns, "user"_ns, "anything"_ns, "example.com"_ns,
                    "444"_ns, "/"_ns, "query"_ns, "frag"_ns, ""_ns);
-    bool res = urlp_parse_pattern_from_init(&init, options, &pattern);
+    bool res = urlpattern_parse_pattern_from_init(&init, options, &pattern);
     ASSERT_TRUE(res);
 
     nsCString anything("anything");
     Optional<nsCString> base;
     {  // exact match
-      auto test = CreateUrlpInput(init);
-      ASSERT_TRUE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput(init);
+      ASSERT_TRUE(UrlPatternTest(pattern, test, base));
     }
     {  // missing protocol
-      auto test =
-          CreateUrlpInput(CreateInit("", "user", anything.get(), "example.com",
-                                     "444", "/", "query", "frag"));
-      ASSERT_FALSE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput(CreateInit("", "user", anything.get(),
+                                                   "example.com", "444", "/",
+                                                   "query", "frag"));
+      ASSERT_FALSE(UrlPatternTest(pattern, test, base));
     }
     {  // missing user
-      auto test =
-          CreateUrlpInput(CreateInit("https", "", anything.get(), "example.com",
-                                     "444", "/", "query", "frag"));
-      ASSERT_FALSE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput(CreateInit("https", "", anything.get(),
+                                                   "example.com", "444", "/",
+                                                   "query", "frag"));
+      ASSERT_FALSE(UrlPatternTest(pattern, test, base));
     }
     {  // missing password
-      auto test = CreateUrlpInput(CreateInit("https", "user", "", "example.com",
-                                             "444", "/", "query", "frag"));
-      ASSERT_FALSE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput(CreateInit(
+          "https", "user", "", "example.com", "444", "/", "query", "frag"));
+      ASSERT_FALSE(UrlPatternTest(pattern, test, base));
     }
     {  // missing hostname
-      auto test = CreateUrlpInput(CreateInit("https", "user", anything.get(),
-                                             "", "444", "/", "query", "frag"));
-      ASSERT_FALSE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput(CreateInit(
+          "https", "user", anything.get(), "", "444", "/", "query", "frag"));
+      ASSERT_FALSE(UrlPatternTest(pattern, test, base));
     }
     {  // missing port
-      auto test =
-          CreateUrlpInput(CreateInit("https", "user", anything.get(),
-                                     "example.com", "", "/", "query", "frag"));
-      ASSERT_FALSE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput(
+          CreateInit("https", "user", anything.get(), "example.com", "", "/",
+                     "query", "frag"));
+      ASSERT_FALSE(UrlPatternTest(pattern, test, base));
     }
     {  // missing query
-      auto test =
-          CreateUrlpInput(CreateInit("https", "user", anything.get(),
-                                     "example.com", "444", "/", "", "frag"));
-      ASSERT_FALSE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput(
+          CreateInit("https", "user", anything.get(), "example.com", "444", "/",
+                     "", "frag"));
+      ASSERT_FALSE(UrlPatternTest(pattern, test, base));
     }
     {  // missing frag
-      auto test =
-          CreateUrlpInput(CreateInit("https", "user", anything.get(),
-                                     "example.com", "444", "/", "query", ""));
-      ASSERT_FALSE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput(
+          CreateInit("https", "user", anything.get(), "example.com", "444", "/",
+                     "query", ""));
+      ASSERT_FALSE(UrlPatternTest(pattern, test, base));
     }
   }
 
   // check basic url with wildcard
   {
-    UrlpPattern pattern{};
-    UrlpOptions options = {.ignore_case = false};
+    UrlPatternGlue pattern{};
+    UrlPatternOptions options = {.ignore_case = false};
     auto init = CreateSimpleInit("https"_ns, "example.com"_ns, "/*"_ns);
-    bool res = urlp_parse_pattern_from_init(&init, options, &pattern);
+    bool res = urlpattern_parse_pattern_from_init(&init, options, &pattern);
     ASSERT_TRUE(res);
 
     Optional<nsCString> base;
     {  // root path matches wildcard
-      auto test = CreateUrlpInput(
+      auto test = CreateUrlPatternInput(
           CreateSimpleInit("https"_ns, "example.com"_ns, "/"_ns));
-      ASSERT_TRUE(UrlpPatternTest(pattern, test, base));
+      ASSERT_TRUE(UrlPatternTest(pattern, test, base));
     }
     {  // filename matches wildcard
-      auto test = CreateUrlpInput(
+      auto test = CreateUrlPatternInput(
           CreateSimpleInit("https"_ns, "example.com"_ns, "/thing"_ns));
-      ASSERT_TRUE(UrlpPatternTest(pattern, test, base));
+      ASSERT_TRUE(UrlPatternTest(pattern, test, base));
     }
     {  // dir/filename matches wildcard
-      auto test = CreateUrlpInput(
+      auto test = CreateUrlPatternInput(
           CreateSimpleInit("https"_ns, "example.com"_ns, "/dir/thing"_ns));
-      ASSERT_TRUE(UrlpPatternTest(pattern, test, base));
+      ASSERT_TRUE(UrlPatternTest(pattern, test, base));
     }
   }
 
   // check matching in pathname (needs to be at least two slashes)
   {
-    UrlpPattern pattern{};
-    UrlpOptions options = {.ignore_case = false};
+    UrlPatternGlue pattern{};
+    UrlPatternOptions options = {.ignore_case = false};
     auto init =
         CreateSimpleInit("https"_ns, "example.com"_ns, "/:category/*"_ns);
-    bool res = urlp_parse_pattern_from_init(&init, options, &pattern);
+    bool res = urlpattern_parse_pattern_from_init(&init, options, &pattern);
     ASSERT_TRUE(res);
 
     Optional<nsCString> base;
     {  // no directory and not enough slashes
-      auto test = CreateUrlpInput(
+      auto test = CreateUrlPatternInput(
           CreateSimpleInit("https"_ns, "example.com"_ns, "/"_ns));
-      ASSERT_FALSE(UrlpPatternTest(pattern, test, base));
+      ASSERT_FALSE(UrlPatternTest(pattern, test, base));
     }
     {  // no directory
-      auto test = CreateUrlpInput(
+      auto test = CreateUrlPatternInput(
           CreateSimpleInit("https"_ns, "example.com"_ns, "//"_ns));
-      ASSERT_FALSE(UrlpPatternTest(pattern, test, base));
+      ASSERT_FALSE(UrlPatternTest(pattern, test, base));
     }
     {  // not enough slashes
-      auto test = CreateUrlpInput(
+      auto test = CreateUrlPatternInput(
           CreateSimpleInit("https"_ns, "example.com"_ns, "/products"_ns));
-      ASSERT_FALSE(UrlpPatternTest(pattern, test, base));
+      ASSERT_FALSE(UrlPatternTest(pattern, test, base));
     }
     {  // dir/ works
-      auto test = CreateUrlpInput(
+      auto test = CreateUrlPatternInput(
           CreateSimpleInit("https"_ns, "example.com"_ns, "/products/"_ns));
-      ASSERT_TRUE(UrlpPatternTest(pattern, test, base));
+      ASSERT_TRUE(UrlPatternTest(pattern, test, base));
     }
     {  // diretory/filename
-      auto test = CreateUrlpInput(
+      auto test = CreateUrlPatternInput(
           CreateSimpleInit("https"_ns, "example.com"_ns, "/blog/thing"_ns));
-      ASSERT_TRUE(UrlpPatternTest(pattern, test, base));
+      ASSERT_TRUE(UrlPatternTest(pattern, test, base));
     }
     {  // nested directory
-      auto test = CreateUrlpInput(
+      auto test = CreateUrlPatternInput(
           CreateSimpleInit("https"_ns, "example.com"_ns, "/blog/thing/"_ns));
-      ASSERT_TRUE(UrlpPatternTest(pattern, test, base));
+      ASSERT_TRUE(UrlPatternTest(pattern, test, base));
     }
   }
 
   // check optional `s` in protocol
   {
-    UrlpPattern pattern{};
-    UrlpOptions options = {.ignore_case = false};
+    UrlPatternGlue pattern{};
+    UrlPatternOptions options = {.ignore_case = false};
     auto init = CreateSimpleInit("http{s}?"_ns, "example.com"_ns, "/"_ns);
-    bool res = urlp_parse_pattern_from_init(&init, options, &pattern);
+    bool res = urlpattern_parse_pattern_from_init(&init, options, &pattern);
     ASSERT_TRUE(res);
 
     Optional<nsCString> base;
     {  // insecure matches
-      auto test = CreateUrlpInput(
+      auto test = CreateUrlPatternInput(
           CreateSimpleInit("http"_ns, "example.com"_ns, "/"_ns));
-      ASSERT_TRUE(UrlpPatternTest(pattern, test, base));
+      ASSERT_TRUE(UrlPatternTest(pattern, test, base));
     }
     {  // secure matches
-      auto test = CreateUrlpInput(
+      auto test = CreateUrlPatternInput(
           CreateSimpleInit("https"_ns, "example.com"_ns, "/"_ns));
-      ASSERT_TRUE(UrlpPatternTest(pattern, test, base));
+      ASSERT_TRUE(UrlPatternTest(pattern, test, base));
     }
   }
 
   // basic relative wildcard path with base domain
   {
-    UrlpPattern pattern{};
-    UrlpOptions options = {.ignore_case = false};
+    UrlPatternGlue pattern{};
+    UrlPatternOptions options = {.ignore_case = false};
     auto init = CreateInit(""_ns, ""_ns, ""_ns, ""_ns, ""_ns, "/admin/*"_ns,
                            ""_ns, ""_ns, "https://example.com"_ns);
-    bool res = urlp_parse_pattern_from_init(&init, options, &pattern);
+    bool res = urlpattern_parse_pattern_from_init(&init, options, &pattern);
     ASSERT_TRUE(res);
 
     Optional<nsCString> base;
     {
-      auto test = CreateUrlpInput(
+      auto test = CreateUrlPatternInput(
           CreateSimpleInit("https"_ns, "example.com"_ns, "/admin/"_ns));
-      ASSERT_TRUE(UrlpPatternTest(pattern, test, base));
+      ASSERT_TRUE(UrlPatternTest(pattern, test, base));
     }
     {
-      auto test = CreateUrlpInput(
+      auto test = CreateUrlPatternInput(
           CreateSimpleInit("https"_ns, "example.com"_ns, "/admin/thing"_ns));
-      ASSERT_TRUE(UrlpPatternTest(pattern, test, base));
+      ASSERT_TRUE(UrlPatternTest(pattern, test, base));
     }
     {  // incorrect relative path doesn't match
       //
-      auto test = CreateUrlpInput(
+      auto test = CreateUrlPatternInput(
           CreateSimpleInit("https"_ns, "example.com"_ns, "/nonadmin/"_ns));
-      ASSERT_FALSE(UrlpPatternTest(pattern, test, base));
+      ASSERT_FALSE(UrlPatternTest(pattern, test, base));
     }
     {  // root path not matching relative path doesn't match
-      auto test = CreateUrlpInput(
+      auto test = CreateUrlPatternInput(
           CreateSimpleInit("https"_ns, "example.com"_ns, "/"_ns));
-      ASSERT_FALSE(UrlpPatternTest(pattern, test, base));
+      ASSERT_FALSE(UrlPatternTest(pattern, test, base));
     }
   }
 }
@@ -387,47 +392,48 @@ TEST(TestURLPatternGlue, UrlPatternTestString)
   // check basic literal matching (minimal fields)
   {
     nsCString str("https://example.com/");
-    UrlpPattern pattern{};
-    UrlpOptions options = {.ignore_case = false};
-    bool res = urlp_parse_pattern_from_string(&str, nullptr, options, &pattern);
+    UrlPatternGlue pattern{};
+    UrlPatternOptions options = {.ignore_case = false};
+    bool res =
+        urlpattern_parse_pattern_from_string(&str, nullptr, options, &pattern);
     ASSERT_TRUE(res);
 
     Optional<nsCString> base;
     {  // path fixed up "/"
-      auto test = CreateUrlpInput("https://example.com"_ns);
-      ASSERT_TRUE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput("https://example.com"_ns);
+      ASSERT_TRUE(UrlPatternTest(pattern, test, base));
     }
     {
-      auto test = CreateUrlpInput("https://example.com/"_ns);
-      ASSERT_TRUE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput("https://example.com/"_ns);
+      ASSERT_TRUE(UrlPatternTest(pattern, test, base));
     }
     {  // unspecified user and password is fine
-      auto test = CreateUrlpInput("https://user:passw@example.com"_ns);
-      ASSERT_TRUE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput("https://user:passw@example.com"_ns);
+      ASSERT_TRUE(UrlPatternTest(pattern, test, base));
     }
     {  // unspecified port is empty so 444 doesn't match
-      auto test = CreateUrlpInput("https://example.com:444/"_ns);
-      ASSERT_FALSE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput("https://example.com:444/"_ns);
+      ASSERT_FALSE(UrlPatternTest(pattern, test, base));
     }
     {  // unspecified search is fine
-      auto test = CreateUrlpInput("https://example.com/?thisok"_ns);
-      ASSERT_TRUE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput("https://example.com/?thisok"_ns);
+      ASSERT_TRUE(UrlPatternTest(pattern, test, base));
     }
     {  // unspecified hash is fine
-      auto test = CreateUrlpInput("https://example.com/#thisok"_ns);
-      ASSERT_TRUE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput("https://example.com/#thisok"_ns);
+      ASSERT_TRUE(UrlPatternTest(pattern, test, base));
     }
     {  // pathname different
-      auto test = CreateUrlpInput("https://example.com/a"_ns);
-      ASSERT_FALSE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput("https://example.com/a"_ns);
+      ASSERT_FALSE(UrlPatternTest(pattern, test, base));
     }
     {  // scheme different
-      auto test = CreateUrlpInput("http://example.com/"_ns);
-      ASSERT_FALSE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput("http://example.com/"_ns);
+      ASSERT_FALSE(UrlPatternTest(pattern, test, base));
     }
     {  // domain different
-      auto test = CreateUrlpInput("http://example.org"_ns);
-      ASSERT_FALSE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput("http://example.org"_ns);
+      ASSERT_FALSE(UrlPatternTest(pattern, test, base));
     }
   }
 
@@ -436,167 +442,168 @@ TEST(TestURLPatternGlue, UrlPatternTestString)
   // when pattern is from_string
   {
     nsCString str("https://user:*@example.com:444/?query#frag");
-    UrlpPattern pattern{};
-    UrlpOptions options = {.ignore_case = false};
+    UrlPatternGlue pattern{};
+    UrlPatternOptions options = {.ignore_case = false};
     nsCString baseUrl("");
     bool res =
-        urlp_parse_pattern_from_string(&str, &baseUrl, options, &pattern);
+        urlpattern_parse_pattern_from_string(&str, &baseUrl, options, &pattern);
     ASSERT_TRUE(res);
 
     Optional<nsCString> base;
     {  // exact match, except password
-      auto test = CreateUrlpInput(
+      auto test = CreateUrlPatternInput(
           "https://user:anything@example.com:444/?query#frag"_ns);
-      ASSERT_TRUE(UrlpPatternTest(pattern, test, base));
+      ASSERT_TRUE(UrlPatternTest(pattern, test, base));
     }
     {  // missing protocol
       auto test =
-          CreateUrlpInput("user:anything@example.com:444/?query#frag"_ns);
-      ASSERT_FALSE(UrlpPatternTest(pattern, test, base));
+          CreateUrlPatternInput("user:anything@example.com:444/?query#frag"_ns);
+      ASSERT_FALSE(UrlPatternTest(pattern, test, base));
     }
     {  // missing user
-      auto test =
-          CreateUrlpInput("https://:anything@example.com:444/?query#frag"_ns);
-      ASSERT_FALSE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput(
+          "https://:anything@example.com:444/?query#frag"_ns);
+      ASSERT_FALSE(UrlPatternTest(pattern, test, base));
     }
     {  // missing password is fine
       auto test =
-          CreateUrlpInput("https://user@example.com:444/?query#frag"_ns);
-      ASSERT_TRUE(UrlpPatternTest(pattern, test, base));
+          CreateUrlPatternInput("https://user@example.com:444/?query#frag"_ns);
+      ASSERT_TRUE(UrlPatternTest(pattern, test, base));
     }
     {  // missing password is fine
       auto test =
-          CreateUrlpInput("https://user@example.com:444/?query#frag"_ns);
-      ASSERT_TRUE(UrlpPatternTest(pattern, test, base));
+          CreateUrlPatternInput("https://user@example.com:444/?query#frag"_ns);
+      ASSERT_TRUE(UrlPatternTest(pattern, test, base));
     }
     {  // missing hostname
-      auto test = CreateUrlpInput("https://user:anything@:444/?query#frag"_ns);
-      ASSERT_FALSE(UrlpPatternTest(pattern, test, base));
+      auto test =
+          CreateUrlPatternInput("https://user:anything@:444/?query#frag"_ns);
+      ASSERT_FALSE(UrlPatternTest(pattern, test, base));
     }
     {  // missing port
-      auto test =
-          CreateUrlpInput("https://user:anything@example.com/?query#frag"_ns);
-      ASSERT_FALSE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput(
+          "https://user:anything@example.com/?query#frag"_ns);
+      ASSERT_FALSE(UrlPatternTest(pattern, test, base));
     }
     {  // missing query
-      auto test =
-          CreateUrlpInput("https://user:anything@example.com:444/#frag"_ns);
-      ASSERT_FALSE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput(
+          "https://user:anything@example.com:444/#frag"_ns);
+      ASSERT_FALSE(UrlPatternTest(pattern, test, base));
     }
     {  // missing frag
-      auto test =
-          CreateUrlpInput("https://user:anything@example.com:444/?query"_ns);
-      ASSERT_FALSE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput(
+          "https://user:anything@example.com:444/?query"_ns);
+      ASSERT_FALSE(UrlPatternTest(pattern, test, base));
     }
   }
 
   // check basic url with wildcard
   {
     nsCString str("https://example.com/*");
-    UrlpPattern pattern{};
-    UrlpOptions options = {.ignore_case = false};
+    UrlPatternGlue pattern{};
+    UrlPatternOptions options = {.ignore_case = false};
     nsCString baseUrl("");
     bool res =
-        urlp_parse_pattern_from_string(&str, &baseUrl, options, &pattern);
+        urlpattern_parse_pattern_from_string(&str, &baseUrl, options, &pattern);
     ASSERT_TRUE(res);
 
     Optional<nsCString> base;
     {
-      auto test = CreateUrlpInput("https://example.com/"_ns);
-      ASSERT_TRUE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput("https://example.com/"_ns);
+      ASSERT_TRUE(UrlPatternTest(pattern, test, base));
     }
     {
-      auto test = CreateUrlpInput("https://example.com/thing"_ns);
-      ASSERT_TRUE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput("https://example.com/thing"_ns);
+      ASSERT_TRUE(UrlPatternTest(pattern, test, base));
     }
     {
-      auto test = CreateUrlpInput("https://example.com/dir/thing"_ns);
-      ASSERT_TRUE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput("https://example.com/dir/thing"_ns);
+      ASSERT_TRUE(UrlPatternTest(pattern, test, base));
     }
   }
 
   // check matching in pathname (needs to be at least two slashes)
   {
     nsCString str("https://example.com/:category/*");
-    UrlpPattern pattern{};
-    UrlpOptions options = {.ignore_case = false};
+    UrlPatternGlue pattern{};
+    UrlPatternOptions options = {.ignore_case = false};
     nsCString baseUrl("");
     bool res =
-        urlp_parse_pattern_from_string(&str, &baseUrl, options, &pattern);
+        urlpattern_parse_pattern_from_string(&str, &baseUrl, options, &pattern);
     ASSERT_TRUE(res);
 
     Optional<nsCString> base;
     {
-      auto test = CreateUrlpInput("https://example.com/"_ns);
-      ASSERT_FALSE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput("https://example.com/"_ns);
+      ASSERT_FALSE(UrlPatternTest(pattern, test, base));
     }
     {  // not enough slashes
-      auto test = CreateUrlpInput("https://example.com/products"_ns);
-      ASSERT_FALSE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput("https://example.com/products"_ns);
+      ASSERT_FALSE(UrlPatternTest(pattern, test, base));
     }
     {
-      auto test = CreateUrlpInput("https://example.com/products/"_ns);
-      ASSERT_TRUE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput("https://example.com/products/"_ns);
+      ASSERT_TRUE(UrlPatternTest(pattern, test, base));
     }
     {
-      auto test = CreateUrlpInput("https://example.com/blog/thing"_ns);
-      ASSERT_TRUE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput("https://example.com/blog/thing"_ns);
+      ASSERT_TRUE(UrlPatternTest(pattern, test, base));
     }
     {  // 3 slashes
-      auto test = CreateUrlpInput("https://example.com/blog/thing/"_ns);
-      ASSERT_TRUE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput("https://example.com/blog/thing/"_ns);
+      ASSERT_TRUE(UrlPatternTest(pattern, test, base));
     }
   }
 
   // check optional `s` in protocol
   {
     nsCString str("http{s}?://example.com/");
-    UrlpPattern pattern{};
-    UrlpOptions options = {.ignore_case = false};
+    UrlPatternGlue pattern{};
+    UrlPatternOptions options = {.ignore_case = false};
     nsCString baseUrl("");
     bool res =
-        urlp_parse_pattern_from_string(&str, &baseUrl, options, &pattern);
+        urlpattern_parse_pattern_from_string(&str, &baseUrl, options, &pattern);
     ASSERT_TRUE(res);
 
     Optional<nsCString> base;
     {
-      auto test = CreateUrlpInput("http://example.com/"_ns);
-      ASSERT_TRUE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput("http://example.com/"_ns);
+      ASSERT_TRUE(UrlPatternTest(pattern, test, base));
     }
     {
-      auto test = CreateUrlpInput("https://example.com/"_ns);
-      ASSERT_TRUE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput("https://example.com/"_ns);
+      ASSERT_TRUE(UrlPatternTest(pattern, test, base));
     }
   }
 
   // basic relative wildcard path with base domain
   {
     nsCString str("../admin/*");
-    UrlpPattern pattern{};
-    UrlpOptions options = {.ignore_case = false};
+    UrlPatternGlue pattern{};
+    UrlPatternOptions options = {.ignore_case = false};
     nsCString baseUrl("https://example.com/forum");
     // MaybeString baseUrl {.string = "https://example.com/forum"_ns, .valid =
     // true };
     bool res =
-        urlp_parse_pattern_from_string(&str, &baseUrl, options, &pattern);
+        urlpattern_parse_pattern_from_string(&str, &baseUrl, options, &pattern);
     ASSERT_TRUE(res);
 
     Optional<nsCString> base;
     {
-      auto test = CreateUrlpInput("https://example.com/admin/"_ns);
-      ASSERT_TRUE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput("https://example.com/admin/"_ns);
+      ASSERT_TRUE(UrlPatternTest(pattern, test, base));
     }
     {
-      auto test = CreateUrlpInput("https://example.com/admin/thing"_ns);
-      ASSERT_TRUE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput("https://example.com/admin/thing"_ns);
+      ASSERT_TRUE(UrlPatternTest(pattern, test, base));
     }
     {
-      auto test = CreateUrlpInput("https://example.com/nonadmin/"_ns);
-      ASSERT_FALSE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput("https://example.com/nonadmin/"_ns);
+      ASSERT_FALSE(UrlPatternTest(pattern, test, base));
     }
     {
-      auto test = CreateUrlpInput("https://example.com/"_ns);
-      ASSERT_FALSE(UrlpPatternTest(pattern, test, base));
+      auto test = CreateUrlPatternInput("https://example.com/"_ns);
+      ASSERT_FALSE(UrlPatternTest(pattern, test, base));
     }
   }
 }
@@ -605,9 +612,9 @@ TEST(TestURLPatternGlue, MatchInputFromString)
 {
   {
     nsCString url("https://example.com/");
-    UrlpMatchInputAndInputs matchInputAndInputs;
-    bool res = urlp_process_match_input_from_string(&url, nullptr,
-                                                    &matchInputAndInputs);
+    UrlPatternMatchInputAndInputs matchInputAndInputs;
+    bool res = urlpattern_process_match_input_from_string(&url, nullptr,
+                                                          &matchInputAndInputs);
     ASSERT_TRUE(res);
     ASSERT_EQ(matchInputAndInputs.input.protocol, "https"_ns);
     ASSERT_EQ(matchInputAndInputs.input.hostname, "example.com"_ns);
@@ -618,7 +625,7 @@ TEST(TestURLPatternGlue, MatchInputFromString)
     ASSERT_EQ(matchInputAndInputs.input.search, "");
     ASSERT_EQ(matchInputAndInputs.input.hash, "");
     ASSERT_EQ(matchInputAndInputs.inputs.string_or_init_type,
-              UrlpStringOrInitType::String);
+              UrlPatternStringOrInitType::String);
     ASSERT_EQ(matchInputAndInputs.inputs.str, url);
     ASSERT_EQ(matchInputAndInputs.inputs.base.valid, false);
   }
@@ -626,9 +633,9 @@ TEST(TestURLPatternGlue, MatchInputFromString)
     nsCString expected("https://example.com/some/dir");
     nsCString base_url("https://example.com");
     nsCString relative_url("/some/dir");
-    UrlpMatchInputAndInputs matchInputAndInputs;
-    bool res = urlp_process_match_input_from_string(&relative_url, &base_url,
-                                                    &matchInputAndInputs);
+    UrlPatternMatchInputAndInputs matchInputAndInputs;
+    bool res = urlpattern_process_match_input_from_string(
+        &relative_url, &base_url, &matchInputAndInputs);
     ASSERT_TRUE(res);
     ASSERT_EQ(matchInputAndInputs.input.protocol, "https"_ns);
     ASSERT_EQ(matchInputAndInputs.input.hostname, "example.com"_ns);
@@ -639,7 +646,7 @@ TEST(TestURLPatternGlue, MatchInputFromString)
     ASSERT_EQ(matchInputAndInputs.input.search, "");
     ASSERT_EQ(matchInputAndInputs.input.hash, "");
     ASSERT_EQ(matchInputAndInputs.inputs.string_or_init_type,
-              UrlpStringOrInitType::String);
+              UrlPatternStringOrInitType::String);
     ASSERT_EQ(matchInputAndInputs.inputs.str, relative_url);
     ASSERT_EQ(matchInputAndInputs.inputs.base.string, base_url);
   }
@@ -652,7 +659,7 @@ void assert_maybe_string_same(const MaybeString& s1, const MaybeString& s2) {
   }
 }
 
-void assert_inits_same(const UrlpInit& i1, const UrlpInit& i2) {
+void assert_inits_same(const UrlPatternInit& i1, const UrlPatternInit& i2) {
   assert_maybe_string_same(i1.protocol, i2.protocol);
   assert_maybe_string_same(i1.username, i2.username);
   assert_maybe_string_same(i1.password, i2.password);
@@ -664,8 +671,8 @@ void assert_inits_same(const UrlpInit& i1, const UrlpInit& i2) {
   assert_maybe_string_same(i1.base_url, i2.base_url);
 }
 
-void assert_match_inputs_same(const UrlpMatchInput& input,
-                              const UrlpMatchInput& expected) {
+void assert_match_inputs_same(const UrlPatternMatchInput& input,
+                              const UrlPatternMatchInput& expected) {
   ASSERT_EQ(input.protocol, expected.protocol);
   ASSERT_EQ(input.hostname, expected.hostname);
   ASSERT_EQ(input.pathname, expected.pathname);
@@ -676,9 +683,9 @@ void assert_match_inputs_same(const UrlpMatchInput& input,
   ASSERT_EQ(input.hash, expected.hash);
 }
 
-UrlpMatchInput createMatchInputHelper(const nsCString& proto,
-                                      const nsCString& host,
-                                      const nsCString& path) {
+UrlPatternMatchInput createMatchInputHelper(const nsCString& proto,
+                                            const nsCString& host,
+                                            const nsCString& path) {
   return {
       .protocol = proto,
       .username = ""_ns,
@@ -694,18 +701,18 @@ UrlpMatchInput createMatchInputHelper(const nsCString& proto,
 TEST(TestURLPatternGlue, MatchInputFromInit)
 {
   {  // no base init
-    UrlpMatchInputAndInputs matchInputAndInputs;
+    UrlPatternMatchInputAndInputs matchInputAndInputs;
     auto init = CreateSimpleInit("https"_ns, "example.com"_ns, "/"_ns);
     auto expected = CreateSimpleInit("https"_ns, "example.com"_ns, "/"_ns);
-    bool res = urlp_process_match_input_from_init(&init, nullptr,
-                                                  &matchInputAndInputs);
+    bool res = urlpattern_process_match_input_from_init(&init, nullptr,
+                                                        &matchInputAndInputs);
     ASSERT_TRUE(res);
 
-    UrlpMatchInput expected_match_input =
+    UrlPatternMatchInput expected_match_input =
         createMatchInputHelper("https"_ns, "example.com"_ns, "/"_ns);
     assert_match_inputs_same(matchInputAndInputs.input, expected_match_input);
     ASSERT_EQ(matchInputAndInputs.inputs.string_or_init_type,
-              UrlpStringOrInitType::Init);
+              UrlPatternStringOrInitType::Init);
     assert_inits_same(matchInputAndInputs.inputs.init, init);
     ASSERT_EQ(matchInputAndInputs.inputs.str, ""_ns);
     ASSERT_EQ(matchInputAndInputs.inputs.base.valid, false);
@@ -715,16 +722,16 @@ TEST(TestURLPatternGlue, MatchInputFromInit)
 
     auto init = CreateInit("", "", "", "", "", "/some/dir", "", "",
                            "https://example.com");
-    UrlpMatchInputAndInputs matchInputAndInputs;
-    bool res = urlp_process_match_input_from_init(&init, nullptr,
-                                                  &matchInputAndInputs);
+    UrlPatternMatchInputAndInputs matchInputAndInputs;
+    bool res = urlpattern_process_match_input_from_init(&init, nullptr,
+                                                        &matchInputAndInputs);
     ASSERT_TRUE(res);
 
-    UrlpMatchInput expected_match_input =
+    UrlPatternMatchInput expected_match_input =
         createMatchInputHelper("https"_ns, "example.com"_ns, "/some/dir"_ns);
     assert_match_inputs_same(matchInputAndInputs.input, expected_match_input);
     ASSERT_EQ(matchInputAndInputs.inputs.string_or_init_type,
-              UrlpStringOrInitType::Init);
+              UrlPatternStringOrInitType::Init);
     assert_inits_same(matchInputAndInputs.inputs.init, init);
     ASSERT_EQ(matchInputAndInputs.inputs.str, ""_ns);
     ASSERT_EQ(matchInputAndInputs.inputs.base.valid, false);
@@ -734,21 +741,22 @@ TEST(TestURLPatternGlue, MatchInputFromInit)
 TEST(TestURLPatternGlue, UrlPatternExecFromString)
 {
   nsCString str(":café://:foo");
-  UrlpOptions options = {.ignore_case = false};
-  UrlpPattern pattern{};
-  bool res = urlp_parse_pattern_from_string(&str, nullptr, options, &pattern);
+  UrlPatternOptions options = {.ignore_case = false};
+  UrlPatternGlue pattern{};
+  bool res =
+      urlpattern_parse_pattern_from_string(&str, nullptr, options, &pattern);
   ASSERT_TRUE(res);
   ASSERT_TRUE(pattern._0);
 
   nsCString inputString("https://example.com/");
-  UrlpInput input = CreateUrlpInput(inputString);
+  UrlPatternInput input = CreateUrlPatternInput(inputString);
   Optional<nsAutoCString> execBaseUrl;
-  Optional<UrlpResult> res2 = UrlpPatternExec(pattern, input, execBaseUrl);
+  Optional<UrlPatternResult> res2 = UrlPatternExec(pattern, input, execBaseUrl);
 
   ASSERT_TRUE(res2.isNothing());
 }
 
-void assert_pattern_result(UrlpResult& res) {
+void assert_pattern_result(UrlPatternResult& res) {
   ASSERT_TRUE(res.mProtocol.isSome());
   ASSERT_TRUE(res.mUsername.isSome());
   ASSERT_TRUE(res.mPassword.isSome());
@@ -762,16 +770,16 @@ void assert_pattern_result(UrlpResult& res) {
 
 TEST(TestURLPatternGlue, UrlPatternExecFromInit)
 {
-  UrlpPattern pattern{};
+  UrlPatternGlue pattern{};
   auto init = CreateSimpleInit("https"_ns, "example.com"_ns, "/"_ns);
-  UrlpOptions options = {.ignore_case = false};
-  bool res = urlp_parse_pattern_from_init(&init, options, &pattern);
+  UrlPatternOptions options = {.ignore_case = false};
+  bool res = urlpattern_parse_pattern_from_init(&init, options, &pattern);
   ASSERT_TRUE(res);
   ASSERT_TRUE(pattern._0);
 
-  UrlpInput input = CreateUrlpInput(init);
+  UrlPatternInput input = CreateUrlPatternInput(init);
   Optional<nsAutoCString> execBaseUrl;
-  Optional<UrlpResult> res2 = UrlpPatternExec(pattern, input, execBaseUrl);
+  Optional<UrlPatternResult> res2 = UrlPatternExec(pattern, input, execBaseUrl);
   ASSERT_TRUE(res2.isSome());
   assert_pattern_result(*res2);
   ASSERT_EQ(res2->mProtocol->mInput, "https");
