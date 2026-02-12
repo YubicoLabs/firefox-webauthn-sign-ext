@@ -412,4 +412,26 @@ export const CERT_ERRORS = [
     },
     hasNoUserFix: true,
   },
+  {
+    errorCode: "SEC_ERROR_CERT_SIGNATURE_ALGORITHM_DISABLED",
+    category: "cert",
+    pageTitleL10nId: "certerror-page-title",
+    bodyTitleL10nId: "nssBadCert-title",
+    introContent: {
+      id: "fp-certerror-intro",
+      args: { hostname: null },
+    },
+    buttons: {
+      showTryAgain: false,
+      showGoBack: true,
+      showAdvanced: true,
+      showAddException: true,
+    },
+    advanced: {
+      whyDangerousL10nId: "cert-error-trust-signature-algorithm-disabled",
+      learnMoreSupportPage: "connection-not-secure",
+      showViewCertificate: true,
+    },
+    hasNoUserFix: false,
+  },
 ];
