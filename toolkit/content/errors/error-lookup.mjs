@@ -54,9 +54,9 @@ export function isFeltPrivacySupported(id) {
 /**
  * Resolve l10n arguments by injecting runtime context.
  *
- * @param {object | null} l10nConfig - The l10n config with { id, args }
+ * @param {object | null} l10nConfig - The l10n config with { dataL10nId, dataL10nArgs }
  * @param {object} context - Runtime context (hostname, errorInfo, etc.)
- * @returns {object | null} Resolved l10n config with args filled in
+ * @returns {object | null} Resolved l10n config with dataL10nArgs filled in
  */
 export function resolveL10nArgs(l10nConfig, context) {
   const values = {
@@ -71,22 +71,22 @@ export function resolveL10nArgs(l10nConfig, context) {
   if (Array.isArray(l10nConfig)) {
     const result = [];
     for (const conf of l10nConfig) {
-      const resolvedArgs = { ...conf.args };
+      const resolvedArgs = { ...conf.dataL10nArgs };
       for (const [key, value] of Object.entries(resolvedArgs)) {
         if (value === null) {
           resolvedArgs[key] = values[key];
         }
       }
-      result.push({ id: conf.id, args: resolvedArgs });
+      result.push({ dataL10nId: conf.dataL10nId, dataL10nArgs: resolvedArgs });
     }
     return result;
   }
 
-  if (!l10nConfig.args) {
+  if (!l10nConfig.dataL10nArgs) {
     return l10nConfig;
   }
 
-  const resolvedArgs = { ...l10nConfig.args };
+  const resolvedArgs = { ...l10nConfig.dataL10nArgs };
 
   for (const [key, value] of Object.entries(resolvedArgs)) {
     if (value === null) {
@@ -95,8 +95,8 @@ export function resolveL10nArgs(l10nConfig, context) {
   }
 
   return {
-    id: l10nConfig.id,
-    args: resolvedArgs,
+    dataL10nId: l10nConfig.dataL10nId,
+    dataL10nArgs: resolvedArgs,
   };
 }
 

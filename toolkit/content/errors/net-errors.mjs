@@ -21,8 +21,8 @@ export const NET_ERRORS = [
     category: "net",
     bodyTitleL10nId: "neterror-offline-body-title",
     introContent: {
-      id: "fp-neterror-offline-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-neterror-offline-intro",
+      dataL10nArgs: { hostname: null },
     },
     buttons: {
       showTryAgain: true,
@@ -41,7 +41,7 @@ export const NET_ERRORS = [
     errorCode: "NS_ERROR_DOM_COOP_FAILED",
     category: "blocked",
     introContent: {
-      id: "fp-neterror-coop-coep-intro",
+      dataL10nId: "fp-neterror-coop-coep-intro",
     },
     descriptionParts: [
       { tag: "p", l10nId: "certerror-blocked-by-corp-headers-description" },
@@ -65,7 +65,7 @@ export const NET_ERRORS = [
     errorCode: "NS_ERROR_DOM_COEP_FAILED",
     category: "blocked",
     introContent: {
-      id: "fp-neterror-coop-coep-intro",
+      dataL10nId: "fp-neterror-coop-coep-intro",
     },
     descriptionParts: [
       { tag: "p", l10nId: "certerror-blocked-by-corp-headers-description" },
@@ -89,7 +89,7 @@ export const NET_ERRORS = [
     errorCode: "NS_ERROR_BASIC_HTTP_AUTH_DISABLED",
     category: "net",
     introContent: {
-      id: "fp-neterror-http-auth-disabled-intro",
+      dataL10nId: "fp-neterror-http-auth-disabled-intro",
     },
     descriptionParts: [
       {
@@ -123,8 +123,8 @@ export const NET_ERRORS = [
     category: "net",
     bodyTitleL10nId: "problem-with-this-site-title",
     introContent: {
-      id: "neterror-http-empty-response-description",
-      args: { hostname: null },
+      dataL10nId: "neterror-http-empty-response-description",
+      dataL10nArgs: { hostname: null },
     },
     descriptionParts: "connectionFailureDescription",
     buttons: {
@@ -143,8 +143,8 @@ export const NET_ERRORS = [
     errorCode: "nssBadCert",
     category: "cert",
     introContent: {
-      id: "fp-certerror-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-certerror-intro",
+      dataL10nArgs: { hostname: null },
     },
     buttons: {
       showTryAgain: false,
@@ -159,22 +159,22 @@ export const NET_ERRORS = [
         // For all cases, use generic cert invalid message since we don't know
         // the specific error (nssBadCert is a fallback when specific code unavailable)
         return {
-          id: "fp-certerror-invalid-cert-why-dangerous",
-          args: { hostname: context.hostname },
+          dataL10nId: "fp-certerror-invalid-cert-why-dangerous",
+          dataL10nArgs: { hostname: context.hostname },
         };
       },
       whatCanYouDoResolver: context => {
         // For HSTS sites (badStsCert), explain why exceptions can't be added
         if (context.cssClass === "badStsCert") {
           return {
-            id: "certerror-what-should-i-do-bad-sts-cert-explanation",
-            args: { hostname: context.hostname },
+            dataL10nId: "certerror-what-should-i-do-bad-sts-cert-explanation",
+            dataL10nArgs: { hostname: context.hostname },
           };
         }
         // For other cases, provide generic advice
         return {
-          id: "fp-certerror-unknown-issuer-what-can-you-do-body",
-          args: {},
+          dataL10nId: "fp-certerror-unknown-issuer-what-can-you-do-body",
+          dataL10nArgs: {},
         };
       },
       learnMoreL10nId: "fp-learn-more-about-cert-issues",
@@ -191,8 +191,8 @@ export const NET_ERRORS = [
     category: "net",
     bodyTitleL10nId: "problem-with-this-site-title",
     introContent: {
-      id: "fp-neterror-offline-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-neterror-offline-intro",
+      dataL10nArgs: { hostname: null },
     },
     descriptionParts: "connectionFailureDescription",
     buttons: {
@@ -212,8 +212,8 @@ export const NET_ERRORS = [
     category: "net",
     bodyTitleL10nId: "problem-with-this-site-title",
     introContent: {
-      id: "fp-neterror-offline-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-neterror-offline-intro",
+      dataL10nArgs: { hostname: null },
     },
     descriptionParts: "connectionFailureDescription",
     buttons: {
@@ -233,8 +233,8 @@ export const NET_ERRORS = [
     category: "net",
     bodyTitleL10nId: "problem-with-this-site-title",
     introContent: {
-      id: "fp-neterror-offline-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-neterror-offline-intro",
+      dataL10nArgs: { hostname: null },
     },
     descriptionParts: "connectionFailureDescription",
     buttons: {
@@ -254,8 +254,8 @@ export const NET_ERRORS = [
     category: "net",
     bodyTitleL10nId: "neterror-dns-not-found-title",
     introContent: {
-      id: "fp-neterror-offline-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-neterror-offline-intro",
+      dataL10nArgs: { hostname: null },
     },
     descriptionParts: "dnsNotFoundDescription",
     buttons: {
@@ -278,8 +278,8 @@ export const NET_ERRORS = [
     category: "blocked",
     bodyTitleL10nId: "neterror-blocked-by-policy-page-title",
     introContent: {
-      id: "fp-neterror-offline-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-neterror-offline-intro",
+      dataL10nArgs: { hostname: null },
     },
     descriptionParts: [],
     buttons: {
@@ -294,8 +294,8 @@ export const NET_ERRORS = [
     category: "net",
     bodyTitleL10nId: "problem-with-this-site-title",
     introContent: {
-      id: "fp-neterror-offline-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-neterror-offline-intro",
+      dataL10nArgs: { hostname: null },
     },
     descriptionParts: [{ tag: "li", l10nId: "neterror-http-error-page" }],
     buttons: {
@@ -315,8 +315,8 @@ export const NET_ERRORS = [
     category: "net",
     bodyTitleL10nId: "problem-with-this-site-title",
     introContent: {
-      id: "fp-neterror-offline-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-neterror-offline-intro",
+      dataL10nArgs: { hostname: null },
     },
     descriptionParts: [{ tag: "li", l10nId: "neterror-load-error-try-again" }],
     buttons: {
@@ -336,8 +336,8 @@ export const NET_ERRORS = [
     category: "net",
     bodyTitleL10nId: "problem-with-this-site-title",
     introContent: {
-      id: "fp-neterror-offline-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-neterror-offline-intro",
+      dataL10nArgs: { hostname: null },
     },
     descriptionParts: [{ tag: "li", l10nId: "neterror-http-error-page" }],
     buttons: {
@@ -357,8 +357,8 @@ export const NET_ERRORS = [
     category: "blocked",
     bodyTitleL10nId: "deniedPortAccess-title",
     introContent: {
-      id: "fp-neterror-offline-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-neterror-offline-intro",
+      dataL10nArgs: { hostname: null },
     },
     descriptionParts: [],
     buttons: {
@@ -377,8 +377,8 @@ export const NET_ERRORS = [
     category: "net",
     bodyTitleL10nId: "malformedURI-title",
     introContent: {
-      id: "fp-neterror-offline-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-neterror-offline-intro",
+      dataL10nArgs: { hostname: null },
     },
     descriptionParts: [],
     buttons: {
@@ -397,8 +397,8 @@ export const NET_ERRORS = [
     category: "net",
     bodyTitleL10nId: "neterror-captive-portal-page-title",
     introContent: {
-      id: "fp-neterror-offline-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-neterror-offline-intro",
+      dataL10nArgs: { hostname: null },
     },
     descriptionParts: [{ tag: "p", l10nId: "neterror-captive-portal" }],
     buttons: {
@@ -419,8 +419,8 @@ export const NET_ERRORS = [
     category: "net",
     bodyTitleL10nId: "contentEncodingError-title",
     introContent: {
-      id: "fp-neterror-offline-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-neterror-offline-intro",
+      dataL10nArgs: { hostname: null },
     },
     descriptionParts: [
       { tag: "li", l10nId: "neterror-content-encoding-error" },
@@ -441,7 +441,7 @@ export const NET_ERRORS = [
     category: "net",
     bodyTitleL10nId: "corruptedContentErrorv2-title",
     introContent: {
-      id: "neterror-corrupted-content-intro",
+      dataL10nId: "neterror-corrupted-content-intro",
     },
     descriptionParts: [
       { tag: "p", l10nId: "neterror-corrupted-content-intro" },
@@ -463,8 +463,8 @@ export const NET_ERRORS = [
     category: "net",
     bodyTitleL10nId: "fileAccessDenied-title",
     introContent: {
-      id: "fp-neterror-offline-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-neterror-offline-intro",
+      dataL10nArgs: { hostname: null },
     },
     descriptionParts: [{ tag: "li", l10nId: "neterror-access-denied" }],
     buttons: {
@@ -483,8 +483,8 @@ export const NET_ERRORS = [
     category: "net",
     bodyTitleL10nId: "fileNotFound-title",
     introContent: {
-      id: "fp-neterror-offline-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-neterror-offline-intro",
+      dataL10nArgs: { hostname: null },
     },
     descriptionParts: [
       { tag: "li", l10nId: "neterror-file-not-found-filename" },
@@ -506,8 +506,8 @@ export const NET_ERRORS = [
     category: "net",
     bodyTitleL10nId: "inadequateSecurityError-title",
     introContent: {
-      id: "neterror-inadequate-security-intro",
-      args: { hostname: null },
+      dataL10nId: "neterror-inadequate-security-intro",
+      dataL10nArgs: { hostname: null },
     },
     descriptionParts: [
       {
@@ -533,8 +533,8 @@ export const NET_ERRORS = [
     category: "cert",
     bodyTitleL10nId: "certerror-mitm-title",
     introContent: {
-      id: "fp-certerror-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-certerror-intro",
+      dataL10nArgs: { hostname: null },
     },
     descriptionPartsResolver: "mitmDescription",
     buttons: {
@@ -557,8 +557,8 @@ export const NET_ERRORS = [
     category: "net",
     bodyTitleL10nId: "netOffline-title",
     introContent: {
-      id: "fp-neterror-offline-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-neterror-offline-intro",
+      dataL10nArgs: { hostname: null },
     },
     descriptionParts: [{ tag: "li", l10nId: "neterror-net-offline" }],
     buttons: {
@@ -577,7 +577,7 @@ export const NET_ERRORS = [
     category: "net",
     bodyTitleL10nId: "networkProtocolError-title",
     introContent: {
-      id: "neterror-network-protocol-error-intro",
+      dataL10nId: "neterror-network-protocol-error-intro",
     },
     descriptionParts: [
       { tag: "p", l10nId: "neterror-network-protocol-error-intro" },
@@ -599,7 +599,7 @@ export const NET_ERRORS = [
     category: "net",
     bodyTitleL10nId: "notCached-title",
     introContent: {
-      id: "neterror-not-cached-intro",
+      dataL10nId: "neterror-not-cached-intro",
     },
     descriptionParts: [
       { tag: "p", l10nId: "neterror-not-cached-intro" },
@@ -622,7 +622,7 @@ export const NET_ERRORS = [
     category: "cert",
     bodyTitleL10nId: "nssFailure2-title",
     introContent: {
-      id: "neterror-nss-failure-not-verified",
+      dataL10nId: "neterror-nss-failure-not-verified",
     },
     descriptionParts: [
       { tag: "li", l10nId: "neterror-nss-failure-not-verified" },
@@ -646,8 +646,8 @@ export const NET_ERRORS = [
     category: "net",
     bodyTitleL10nId: "proxyConnectFailure-title",
     introContent: {
-      id: "fp-neterror-offline-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-neterror-offline-intro",
+      dataL10nArgs: { hostname: null },
     },
     descriptionParts: [
       { tag: "li", l10nId: "neterror-proxy-connect-failure-settings" },
@@ -669,8 +669,8 @@ export const NET_ERRORS = [
     category: "net",
     bodyTitleL10nId: "proxyResolveFailure-title",
     introContent: {
-      id: "fp-neterror-offline-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-neterror-offline-intro",
+      dataL10nArgs: { hostname: null },
     },
     descriptionParts: [
       { tag: "li", l10nId: "neterror-proxy-resolve-failure-settings" },
@@ -693,8 +693,8 @@ export const NET_ERRORS = [
     category: "net",
     bodyTitleL10nId: "redirectLoop-title",
     introContent: {
-      id: "fp-neterror-offline-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-neterror-offline-intro",
+      dataL10nArgs: { hostname: null },
     },
     descriptionParts: [{ tag: "li", l10nId: "neterror-redirect-loop" }],
     buttons: {
@@ -713,8 +713,8 @@ export const NET_ERRORS = [
     category: "cert",
     bodyTitleL10nId: "sslv3Used-title",
     introContent: {
-      id: "fp-certerror-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-certerror-intro",
+      dataL10nArgs: { hostname: null },
     },
     descriptionParts: [{ tag: "span", l10nId: "neterror-sslv3-used" }],
     buttons: {
@@ -733,8 +733,8 @@ export const NET_ERRORS = [
     category: "net",
     bodyTitleL10nId: "unknownProtocolFound-title",
     introContent: {
-      id: "fp-neterror-offline-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-neterror-offline-intro",
+      dataL10nArgs: { hostname: null },
     },
     descriptionParts: [{ tag: "li", l10nId: "neterror-unknown-protocol" }],
     buttons: {
@@ -753,8 +753,8 @@ export const NET_ERRORS = [
     category: "net",
     bodyTitleL10nId: "unknownSocketType-title",
     introContent: {
-      id: "fp-neterror-offline-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-neterror-offline-intro",
+      dataL10nArgs: { hostname: null },
     },
     descriptionParts: [
       { tag: "li", l10nId: "neterror-unknown-socket-type-client-config" },
@@ -775,8 +775,8 @@ export const NET_ERRORS = [
     category: "net",
     bodyTitleL10nId: "unsafeContentType-title",
     introContent: {
-      id: "fp-neterror-offline-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-neterror-offline-intro",
+      dataL10nArgs: { hostname: null },
     },
     descriptionParts: [{ tag: "li", l10nId: "neterror-unsafe-content-type" }],
     buttons: {
@@ -795,8 +795,8 @@ export const NET_ERRORS = [
     category: "blocked",
     bodyTitleL10nId: "csp-xfo-error-title",
     introContent: {
-      id: "csp-xfo-blocked-long-desc",
-      args: { hostname: null },
+      dataL10nId: "csp-xfo-blocked-long-desc",
+      dataL10nArgs: { hostname: null },
     },
     buttons: {
       showTryAgain: false,
@@ -815,8 +815,8 @@ export const NET_ERRORS = [
     category: "blocked",
     bodyTitleL10nId: "csp-xfo-error-title",
     introContent: {
-      id: "csp-xfo-blocked-long-desc",
-      args: { hostname: null },
+      dataL10nId: "csp-xfo-blocked-long-desc",
+      dataL10nArgs: { hostname: null },
     },
     buttons: {
       showTryAgain: false,

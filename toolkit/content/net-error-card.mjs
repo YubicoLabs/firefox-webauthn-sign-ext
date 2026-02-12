@@ -353,20 +353,22 @@ export class NetErrorCard extends MozLitElement {
         ${config.introContent.map(
           ic =>
             html`<span
-              data-l10n-id=${ic.id}
-              data-l10n-args=${ic.args ? JSON.stringify(ic.args) : null}
+              data-l10n-id=${ic.dataL10nId}
+              data-l10n-args=${ic.dataL10nArgs
+                ? JSON.stringify(ic.dataL10nArgs)
+                : null}
             ></span>`
         )}
       </p>`;
     }
 
-    const { id, args } = config.introContent;
+    const { dataL10nId, dataL10nArgs } = config.introContent;
 
     // Handle NS_ERROR_BASIC_HTTP_AUTH_DISABLED special case with additional content
     if (config.errorCode === "NS_ERROR_BASIC_HTTP_AUTH_DISABLED") {
       return html`<p
           id="fp-http-auth-disabled-intro-text"
-          data-l10n-id=${id}
+          data-l10n-id=${dataL10nId}
         ></p>
         ${this.hideExceptionButton
           ? html`<p
@@ -378,8 +380,8 @@ export class NetErrorCard extends MozLitElement {
 
     return html`<p
       id=${elementId}
-      data-l10n-id=${id}
-      data-l10n-args=${args ? JSON.stringify(args) : null}
+      data-l10n-id=${dataL10nId}
+      data-l10n-args=${dataL10nArgs ? JSON.stringify(dataL10nArgs) : null}
     ></p>`;
   }
 
