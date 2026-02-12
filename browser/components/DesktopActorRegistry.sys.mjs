@@ -329,9 +329,19 @@ let JSWINDOWACTORS = {
         popstate: { capture: true },
       },
     },
-    enablePreference: "browser.tabs.notes.enabled",
     matches: ["http://*/*", "https://*/*"],
     messageManagerGroups: ["browsers"],
+    enablePreference: "browser.tabs.notes.enabled",
+    onPreferenceChanged: isEnabled => {
+      if (isEnabled) {
+        Services.obs.notifyObservers(undefined, "CanonicalURL:ActorRegistered");
+      } else {
+        Services.obs.notifyObservers(
+          undefined,
+          "CanonicalURL:ActorUnregistered"
+        );
+      }
+    },
   },
 
   ClickHandler: {
