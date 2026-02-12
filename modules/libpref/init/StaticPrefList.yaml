@@ -5869,7 +5869,7 @@
 # Block notifications and revoke permission for sites on Safe Browsing lists.
 - name: dom.webnotifications.block_if_on_safebrowsing
   type: RelaxedAtomicBool
-  value: @IS_NIGHTLY_BUILD@
+  value: true
   mirror: always
 
 - name: dom.worker.canceling.timeoutMilliseconds
