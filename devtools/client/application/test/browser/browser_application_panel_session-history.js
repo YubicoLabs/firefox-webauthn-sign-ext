@@ -145,8 +145,28 @@ add_task(async function () {
 
   Assert.deepEqual(expectedDetails, actualDetails);
 
+  info(
+    "Check that hitting Escape when a detail popover is displayed does not open the split console"
+  );
+  // sanity check
+  ok(popover.matches(":popover-open"), "The popover is still open");
+  const onPopoverToggle = new Promise(resolve =>
+    popover.addEventListener("toggle", resolve, { once: true })
+  );
+  EventUtils.sendKey("ESCAPE", panel.toolbox.win);
+  await onPopoverToggle;
+  ok(
+    !popover.matches(":popover-open"),
+    "The popover is no longer open after hitting escape"
+  );
+
+  // wait for a bit to check the split console wasn't opened
+  await wait(500);
+  ok(!panel.toolbox.splitConsole, "Split console did not open");
+
   info("Navigate to a new top-level document with title");
   const uri = new URL("index_with_title.html", TAB_URL);
+
   await BrowserTestUtils.loadURIString({
     browser: tab.linkedBrowser,
     uriString: uri.href,
