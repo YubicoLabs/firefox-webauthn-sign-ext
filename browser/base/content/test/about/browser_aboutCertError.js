@@ -894,6 +894,10 @@ async function assertNetErrorPage({
 
         // Assert Error Code
         const certErrorCodeLink = netErrorCard.errorCode;
+        await ContentTaskUtils.waitForCondition(
+          () => certErrorCodeLink.textContent.includes(errorCode),
+          "Wait for Fluent to populate error code text"
+        );
         Assert.equal(
           certErrorCodeLink.textContent,
           `Error Code: ${errorCode}`,
@@ -1248,6 +1252,11 @@ add_task(async function checkSandboxedIframe_feltPrivacyToTrue() {
 
     // Assert Error Code
     const certErrorCodeLink = netErrorCard.errorCode;
+    await ContentTaskUtils.waitForCondition(
+      () =>
+        certErrorCodeLink.textContent.includes("SEC_ERROR_EXPIRED_CERTIFICATE"),
+      "Wait for Fluent to populate error code text"
+    );
     Assert.equal(
       certErrorCodeLink.textContent,
       `Error Code: SEC_ERROR_EXPIRED_CERTIFICATE`,
