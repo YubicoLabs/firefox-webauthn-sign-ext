@@ -4683,6 +4683,10 @@ IMEInputHandler::~IMEInputHandler() {
   if (sFocusedIMEHandler == this) {
     sFocusedIMEHandler = nullptr;
   }
+  if (mCandidatedTextSubstitutionResult) {
+    [mCandidatedTextSubstitutionResult release];
+    mCandidatedTextSubstitutionResult = nullptr;
+  }
   if (mIMECompositionString) {
     [mIMECompositionString release];
     mIMECompositionString = nullptr;
@@ -5194,6 +5198,7 @@ void IMEInputHandler::OnTextSubstitution(uint32_t aStartOffset) {
   // NSTextCheckingResult.range is read only, so re-create this result object.
   NSRange candidatedRange = NSMakeRange(candidate.range.location + startFetch,
                                         candidate.range.length);
+  [mCandidatedTextSubstitutionResult release];
   mCandidatedTextSubstitutionResult = [[NSTextCheckingResult
       correctionCheckingResultWithRange:candidatedRange
                       replacementString:candidate.replacementString
