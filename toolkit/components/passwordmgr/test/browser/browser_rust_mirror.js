@@ -781,6 +781,87 @@ add_task(async function test_username_linebreak_metric() {
   await SpecialPowers.flushPrefEnv();
 });
 
+/*
+ * Tests that an error is logged when adding an invalid login to the Rust store,
+ * and that time_created and time_last_used telemetry is recorded on failure.
+ */
+add_task(async function test_rust_mirror_addLogin_failure_with_time_metrics() {
+  // ensure mirror is on, and reset poisoned flag
+  await SpecialPowers.pushPrefEnv({
+    set: [
+      ["signon.rustMirror.enabled", true],
+      ["signon.rustMirror.poisoned", false],
+    ],
+  });
+  Services.fog.testResetFOG();
+
+  const waitForGleanEvent = BrowserTestUtils.waitForCondition(
+    () => Glean.pwmgr.rustMirrorStatus.testGetValue()?.length == 1,
+    "rust_mirror_status event has been emitted"
+  );
+
+  // This login will be accepted by JSON but rejected by Rust
+  const badLogin = LoginTestUtils.testData.formLogin({
+    origin: ".",
+    passwordField: ".",
+  });
+
+  await Services.logins.addLoginAsync(badLogin);
+
+  const allLoginsJson = await Services.logins.getAllLogins();
+  Assert.equal(
+    allLoginsJson.length,
+    1,
+    "single dot origin login saved to JSON"
+  );
+
+  await waitForGleanEvent;
+
+  const rustStorage = new LoginManagerRustStorage();
+  const allLogins = await rustStorage.getAllLogins();
+  Assert.equal(
+    allLogins.length,
+    0,
+    "single dot origin login not saved to Rust"
+  );
+
+  const [statusEvt] = Glean.pwmgr.rustMirrorStatus.testGetValue();
+  Assert.equal(
+    statusEvt.extra?.operation,
+    "add",
+    "rust_mirror_status event has operation"
+  );
+  Assert.equal(
+    statusEvt.extra?.status,
+    "failure",
+    "rust_mirror_status event has status=failure"
+  );
+
+  const [failureEvt] = Glean.pwmgr.rustWriteFailure.testGetValue();
+
+  Assert.notEqual(
+    failureEvt.extra?.time_created,
+    null,
+    "time_created is recorded on rust write failure"
+  );
+  Assert.notEqual(
+    failureEvt.extra?.time_last_used,
+    null,
+    "time_last_used is recorded on rust write failure"
+  );
+
+  const created = new Date(Number(failureEvt.extra.time_created));
+
+  Assert.equal(
+    created.getUTCDate(),
+    1,
+    "time_created is bucketed to month (UTC)"
+  );
+
+  LoginTestUtils.clearData();
+  await SpecialPowers.flushPrefEnv();
+});
+
 /**
  * Tests that a rust_migration_performance event is recorded after migration,
  * containing both duration and total number of migrated logins.

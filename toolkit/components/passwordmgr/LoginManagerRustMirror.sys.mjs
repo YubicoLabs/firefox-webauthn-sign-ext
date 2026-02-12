@@ -7,7 +7,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   LoginHelper: "resource://gre/modules/LoginHelper.sys.mjs",
 });
 
-const rustMirrorTelemetryVersion = "3";
+const rustMirrorTelemetryVersion = "4";
 
 // checks validity of an origin
 function checkOrigin(origin) {
@@ -150,6 +150,16 @@ function normalizeRustStorageErrorMessage(error) {
     .replace(/\{[0-9a-fA-F-]{36}\}/, "{UUID}");
 }
 
+//Normalize a Unix timestamp (ms) to the first day of its month at 00:00 UTC
+function roundToMonthUTC(timestampMs) {
+  if (!timestampMs) {
+    return null;
+  }
+
+  const d = new Date(timestampMs);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1, 0, 0, 0, 0);
+}
+
 function recordMirrorFailure(runId, operation, error, login = null) {
   // lookup poisoned status
   const poisoned = Services.prefs.getBoolPref(
@@ -178,6 +188,9 @@ function recordMirrorFailure(runId, operation, error, login = null) {
     has_empty_password: false,
     has_username_line_break: false,
     has_username_nul: false,
+
+    time_created: null,
+    time_last_used: null,
   };
 
   if (login) {
@@ -199,6 +212,9 @@ function recordMirrorFailure(runId, operation, error, login = null) {
     data.has_empty_password = !login.password;
     data.has_username_line_break = containsLineBreaks(login.username);
     data.has_username_nul = containsNul(login.username);
+
+    data.time_created = roundToMonthUTC(login.timeCreated);
+    data.time_last_used = roundToMonthUTC(login.timeLastUsed);
   }
 
   Glean.pwmgr.rustWriteFailure.record(data);
