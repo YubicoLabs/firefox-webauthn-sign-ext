@@ -3205,10 +3205,10 @@ void BaselineCacheIRCompiler::createThis(Register argcReg, Register calleeReg,
     masm.loadPtr(stubAddress(createThisData_->allocSiteOffset), site);
 
     // On x86-32, all of our registers are already spoken for, but we need one
-    // more.  We already generate code to reload `calleeReg` in case it was
-    // clobbered by a GC, so we can use it here.
+    // more.
     Register temp = calleeReg;
 
+    masm.push(calleeReg);
     masm.createPlainGCObject(
         result, shape, temp, shape, createThisData_->numFixedSlots,
         createThisData_->numDynamicSlots, createThisData_->allocKind,
@@ -3216,16 +3216,11 @@ void BaselineCacheIRCompiler::createThis(Register argcReg, Register calleeReg,
     storeThis(TypedOrValueRegister(MIRType::Object, AnyRegister(result)),
               argcReg, flags);
 
-    // This rejoins the fallback path at the point where we will restore
-    // calleeReg.
+    masm.pop(calleeReg);
     masm.jump(&done);
 
     masm.bind(&fail);
-    if (isBoundFunction) {
-      // We clobbered calleeReg, but we still need it in the fallback path
-      // below. Restore it.
-      loadStackObject(ArgumentKind::Callee, flags, argcReg, calleeReg);
-    }
+    masm.pop(calleeReg);
   }
 
   // Save live registers that don't have to be traced.
@@ -3289,12 +3284,11 @@ void BaselineCacheIRCompiler::createThis(Register argcReg, Register calleeReg,
   MOZ_ASSERT(!liveNonGCRegs.aliases(JSReturnOperand));
   storeThis(TypedOrValueRegister(JSReturnOperand), argcReg, flags);
 
-  masm.bind(&done);
-
   // Restore calleeReg. CreateThisFromIC may trigger a GC, so we reload the
   // callee from the stub frame (which is traced) instead of spilling it to
   // the stack.
   loadStackObject(ArgumentKind::Callee, flags, argcReg, calleeReg);
+  masm.bind(&done);
 }
 
 void BaselineCacheIRCompiler::updateReturnValue() {
