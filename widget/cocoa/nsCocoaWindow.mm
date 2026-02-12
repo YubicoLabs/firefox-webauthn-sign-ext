@@ -3037,13 +3037,15 @@ static gfx::IntPoint GetIntegerDeltaForEvent(NSEvent* aEvent) {
 }
 
 - (void)quickLookWithEvent:(NSEvent*)event {
-  // Show dictionary by current point
+  if (!mGeckoChild) {
+    return;
+  }
+
   WidgetContentCommandEvent contentCommandEvent(
       true, eContentCommandLookUpDictionary, mGeckoChild);
   NSPoint point = [self convertPoint:[event locationInWindow] fromView:nil];
   contentCommandEvent.mRefPoint = mGeckoChild->CocoaPointsToDevPixels(point);
   mGeckoChild->DispatchWindowEvent(contentCommandEvent);
-  // The widget might have been destroyed.
 }
 
 - (NSInteger)windowLevel {
