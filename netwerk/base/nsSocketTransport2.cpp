@@ -2142,6 +2142,8 @@ uint64_t nsSocketTransport::ByteCountReceived() { return mInput->ByteCount(); }
 
 uint64_t nsSocketTransport::ByteCountSent() { return mOutput->ByteCount(); }
 
+bool nsSocketTransport::IsTRRConnection() { return mIsTRRConnection; }
+
 //-----------------------------------------------------------------------------
 // socket handler impl
 
@@ -2921,6 +2923,12 @@ nsSocketTransport::SetIsPrivate(bool aIsPrivate) {
 }
 
 NS_IMETHODIMP
+nsSocketTransport::SetIsTRRConnection(bool aIsTRRConnection) {
+  mIsTRRConnection = aIsTRRConnection;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
 nsSocketTransport::GetTlsFlags(uint32_t* value) {
   *value = mTlsFlags;
   return NS_OK;
@@ -3452,6 +3460,12 @@ nsSocketTransport::GetStatus(nsresult* aStatus) {
   MOZ_ASSERT(OnSocketThread(), "not on socket thread");
 
   *aStatus = mCondition;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+nsSocketTransport::GetIsTRRConnection(bool* aIsTRRConnection) {
+  *aIsTRRConnection = mIsTRRConnection;
   return NS_OK;
 }
 
