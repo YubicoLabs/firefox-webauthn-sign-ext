@@ -3353,10 +3353,16 @@
     }
 
     /**
-     * @param {string} id
+     * @param {number} id
      * @returns {MozTabSplitViewWrapper}
      */
     _createTabSplitView(id) {
+      if (id && typeof id !== "number") {
+        throw new Error("Unexpected id type: " + typeof id);
+      }
+      if (!id) {
+        id = SessionStore.getNextSplitViewId();
+      }
       let splitview = document.createXULElement("tab-split-view-wrapper", {
         is: "tab-split-view-wrapper",
       });
@@ -3370,10 +3376,10 @@
      * @param {object[]} tabs
      *   The set of tabs to include in the split view.
      * @param {object} [options]
-     * @param {string} [options.id]
+     * @param {number} [options.id]
      *   Optionally assign an ID to the split view. Useful when rebuilding an
-     *   existing splitview e.g. when restoring. A pseudorandom string will be
-     *   generated if not set.
+     *   existing splitview e.g. when restoring. An integer id from a incrementing
+     *   counter will be generated if not set.
      * @param {MozTabbrowserTab} [options.insertBefore]
      *   An optional argument that accepts a single tab, which, if passed, will
      *   cause the split view to be inserted just before this tab in the tab strip. By
@@ -3384,9 +3390,6 @@
         throw new Error("Cannot create split view with zero tabs");
       }
 
-      if (!id) {
-        id = `${Date.now()}-${Math.round(Math.random() * 100)}`;
-      }
       let splitview = this._createTabSplitView(id);
       this.tabContainer.insertBefore(
         splitview,
@@ -4330,9 +4333,11 @@
           }
         }
 
-        let splitView = splitViewWorkingData.get(tabData.splitViewId);
-        if (tabData.splitViewId) {
+        let splitView =
+          tabData.splitViewId && splitViewWorkingData.get(tabData.splitViewId);
+        if (splitView) {
           splitView.tabs.push(tab);
+          // Only create the split view when we've got the last tab it would contain
           if (splitView.tabs.length == splitView.numberOfTabs) {
             splitView.node = this._createTabSplitView(tabData.splitViewId);
           }

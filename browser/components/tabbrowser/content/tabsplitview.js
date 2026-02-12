@@ -60,9 +60,9 @@
     /**
      * @typedef {object} TabSplitViewStateData
      *   State of a tab group inside of an open window.
-     * @property {string} id
+     * @property {number} id
      *   Unique ID of the tab splitview.
-     * @property {string} numberOfTabs
+     * @property {number} numberOfTabs
      *   Number of expected tabs in the splitview.
      *
      * Collect data related to a single tab splitview, synchronously.
@@ -171,7 +171,7 @@
     }
 
     get splitViewId() {
-      return this.getAttribute("splitViewId");
+      return parseInt(this.getAttribute("splitViewId"));
     }
 
     set splitViewId(val) {

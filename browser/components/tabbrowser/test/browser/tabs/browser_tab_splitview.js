@@ -47,8 +47,8 @@ add_task(async function test_splitViewCreateAndAddTabs() {
   let tab4 = BrowserTestUtils.addTab(gBrowser, "about:blank");
 
   // Add tabs to split view
-  let splitview = gBrowser.addTabSplitView([tab1, tab2], { id: "1" });
-  let splitview2 = gBrowser.addTabSplitView([tab3, tab4], { id: "2" });
+  let splitview = gBrowser.addTabSplitView([tab1, tab2]);
+  let splitview2 = gBrowser.addTabSplitView([tab3, tab4]);
   let tabbrowserTabs = document.getElementById("tabbrowser-tabs");
   await BrowserTestUtils.waitForMutationCondition(
     tabbrowserTabs,
