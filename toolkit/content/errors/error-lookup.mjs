@@ -178,6 +178,17 @@ const DESCRIPTION_RESOLVERS = {
     }
     return parts;
   },
+
+  mitmDescription(context) {
+    const { hostname, mitmName } = context;
+    return [
+      {
+        tag: "span",
+        l10nId: "certerror-mitm",
+        l10nArgs: { hostname, mitm: mitmName || "" },
+      },
+    ];
+  },
 };
 
 /**

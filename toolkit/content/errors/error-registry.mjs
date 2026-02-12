@@ -110,3 +110,27 @@ export function getErrorCount() {
 export function _testOnlyClearRegistry() {
   ERROR_REGISTRY.clear();
 }
+
+/**
+ * Initialize the registry with all error definitions.
+ * This function should be called once when the module is first loaded
+ * in a context that needs the full error set.
+ */
+export async function initializeRegistry() {
+  if (ERROR_REGISTRY.size > 0) {
+    return; // Already initialized
+  }
+
+  const [{ CERT_ERRORS }, { PKIX_ERRORS }, { SSL_ERRORS }, { NET_ERRORS }] =
+    await Promise.all([
+      import("chrome://global/content/errors/cert-errors.mjs"),
+      import("chrome://global/content/errors/pkix-errors.mjs"),
+      import("chrome://global/content/errors/ssl-errors.mjs"),
+      import("chrome://global/content/errors/net-errors.mjs"),
+    ]);
+
+  registerErrors(CERT_ERRORS);
+  registerErrors(PKIX_ERRORS);
+  registerErrors(SSL_ERRORS);
+  registerErrors(NET_ERRORS);
+}
