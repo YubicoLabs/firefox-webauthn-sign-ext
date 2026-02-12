@@ -70,8 +70,6 @@ void MMPrinter::PrintData(uint64_t aMsgId, ClonedMessageData const& aData) {
     return;
   }
 
-  ErrorResult rv;
-
   AutoJSAPI jsapi;
   // We're using this context to deserialize, stringify, and print a message
   // manager message here. Since the messages are always sent from and to system
@@ -84,13 +82,13 @@ void MMPrinter::PrintData(uint64_t aMsgId, ClonedMessageData const& aData) {
   ipc::UnpackClonedMessageData(aData, data);
 
   /* Read original StructuredCloneData. */
+  IgnoredErrorResult rv;
   JS::Rooted<JS::Value> scdContent(cx);
   data.Read(cx, &scdContent, rv);
   if (rv.Failed()) {
     // In testing, the only reason this would fail was if there was no data in
     // the message; so it seems like this is safe-ish.
     MMPrinter::PrintNoData(aMsgId);
-    rv.SuppressException();
     return;
   }
 

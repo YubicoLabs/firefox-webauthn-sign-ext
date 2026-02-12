@@ -551,6 +551,7 @@ ConsoleListener::Observe(nsIConsoleMessage* aMessage) {
         StructuredCloneData data;
         ErrorResult err;
         data.Write(cx, stack, err);
+        err.WouldReportJSException();
         if (err.Failed()) {
           return err.StealNSResult();
         }
@@ -1445,7 +1446,7 @@ void ContentChild::InitXPCOM(
     if (NS_WARN_IF(!jsapi.Init(xpc::PrivilegedJunkScope()))) {
       MOZ_CRASH();
     }
-    ErrorResult rv;
+    IgnoredErrorResult rv;
     JS::Rooted<JS::Value> data(jsapi.cx());
     mozilla::dom::ipc::StructuredCloneData id;
     id.Copy(aInitialData);

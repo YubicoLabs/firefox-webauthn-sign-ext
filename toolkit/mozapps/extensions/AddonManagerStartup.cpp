@@ -538,6 +538,7 @@ nsresult AddonManagerStartup::EncodeBlob(JS::Handle<JS::Value> value,
 
   ErrorResult rv;
   holder.Write(cx, value, rv);
+  rv.WouldReportJSException();
   if (rv.Failed()) {
     return rv.StealNSResult();
   }
