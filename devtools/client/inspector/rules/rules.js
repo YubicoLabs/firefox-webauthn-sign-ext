@@ -1295,7 +1295,7 @@ class CssRuleView extends EventEmitter {
 
         // Notify anyone that cares that we refreshed.
         return onEditorsReady.then(() => {
-          this.emit("ruleview-refreshed");
+          this.inspector.emit("rule-view-refreshed");
         }, console.error);
       })
       .catch(promiseWarn);
@@ -2427,13 +2427,11 @@ class RuleViewTool {
     this.onPanelSelected = this.onPanelSelected.bind(this);
     this.onDetachedFront = this.onDetachedFront.bind(this);
     this.onSelected = this.onSelected.bind(this);
-    this.onViewRefreshed = this.onViewRefreshed.bind(this);
 
     this.#abortController = new window.AbortController();
     const { signal } = this.#abortController;
     const baseEventConfig = { signal };
 
-    this.view.on("ruleview-refreshed", this.onViewRefreshed, baseEventConfig);
     this.inspector.selection.on(
       "detached-front",
       this.onDetachedFront,
@@ -2779,10 +2777,6 @@ class RuleViewTool {
     } else {
       this.onSelected();
     }
-  }
-
-  onViewRefreshed() {
-    this.inspector.emit("rule-view-refreshed");
   }
 
   destroy() {
