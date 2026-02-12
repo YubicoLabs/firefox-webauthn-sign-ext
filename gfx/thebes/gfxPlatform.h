@@ -97,9 +97,7 @@ enum eGfxLog {
   // dump cmap coverage data as they are loaded
   eGfxLog_cmapdata = 4,
   // text perf data
-  eGfxLog_textperf = 5,
-  // font query / font-fallback simulation
-  eGfxLog_fontquery = 6
+  eGfxLog_textperf = 5
 };
 
 // Used during font matching to express a preference, if any, for whether

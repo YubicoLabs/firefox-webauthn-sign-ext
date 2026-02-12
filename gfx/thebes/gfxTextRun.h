@@ -914,7 +914,6 @@ class gfxFontGroup final : public gfxTextRunFactory {
   typedef gfxShapedText::CompressedGlyph CompressedGlyph;
   friend class MathMLTextRunFactory;
   friend class nsCaseTransformTextRunFactory;
-  friend class gfxPlatformFontList;
 
   static void
   Shutdown();  // platform must call this to release the languageAtomService
