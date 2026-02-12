@@ -317,7 +317,7 @@ class Rule {
    * does not support as-authored styles.  Store disabled properties
    * in the element style's store.
    */
-  _applyPropertiesNoAuthored(modifications) {
+  async _applyPropertiesNoAuthored(modifications) {
     this.elementStyle.onRuleUpdated();
 
     const disabledProps = [];
@@ -351,35 +351,35 @@ class Rule {
       disabled.delete(this.domRule);
     }
 
-    return modifications.apply().then(() => {
-      const cssProps = {};
-      // Note that even though StyleRuleActors normally provide parsed
-      // declarations already, _applyPropertiesNoAuthored is only used when
-      // connected to older backend that do not provide them. So parse here.
-      for (const cssProp of parseNamedDeclarations(
-        this.cssProperties.isKnown,
-        this.domRule.authoredText
-      )) {
-        cssProps[cssProp.name] = cssProp;
+    await modifications.apply();
+
+    const cssProps = {};
+    // Note that even though StyleRuleActors normally provide parsed
+    // declarations already, _applyPropertiesNoAuthored is only used when
+    // connected to older backend that do not provide them. So parse here.
+    for (const cssProp of parseNamedDeclarations(
+      this.cssProperties.isKnown,
+      this.domRule.authoredText
+    )) {
+      cssProps[cssProp.name] = cssProp;
+    }
+
+    for (const textProp of this.textProps) {
+      if (!textProp.enabled) {
+        continue;
+      }
+      let cssProp = cssProps[textProp.name];
+
+      if (!cssProp) {
+        cssProp = {
+          name: textProp.name,
+          value: "",
+          priority: "",
+        };
       }
 
-      for (const textProp of this.textProps) {
-        if (!textProp.enabled) {
-          continue;
-        }
-        let cssProp = cssProps[textProp.name];
-
-        if (!cssProp) {
-          cssProp = {
-            name: textProp.name,
-            value: "",
-            priority: "",
-          };
-        }
-
-        textProp.priority = cssProp.priority;
-      }
-    });
+      textProp.priority = cssProp.priority;
+    }
   }
 
   /**
@@ -387,23 +387,23 @@ class Rule {
    * authored" case; that is, when the StyleRuleActor supports
    * setRuleText.
    */
-  _applyPropertiesAuthored(modifications) {
-    return modifications.apply().then(() => {
-      // The rewriting may have required some other property values to
-      // change, e.g., to insert some needed terminators.  Update the
-      // relevant properties here.
-      for (const index in modifications.changedDeclarations) {
-        const newValue = modifications.changedDeclarations[index];
-        this.textProps[index].updateValue(newValue);
+  async _applyPropertiesAuthored(modifications) {
+    await modifications.apply();
+
+    // The rewriting may have required some other property values to
+    // change, e.g., to insert some needed terminators.  Update the
+    // relevant properties here.
+    for (const index in modifications.changedDeclarations) {
+      const newValue = modifications.changedDeclarations[index];
+      this.textProps[index].updateValue(newValue);
+    }
+    // Recompute and redisplay the computed properties.
+    for (const prop of this.textProps) {
+      if (!prop.invisible && prop.enabled) {
+        prop.updateComputed();
+        prop.updateEditor();
       }
-      // Recompute and redisplay the computed properties.
-      for (const prop of this.textProps) {
-        if (!prop.invisible && prop.enabled) {
-          prop.updateComputed();
-          prop.updateEditor();
-        }
-      }
-    });
+    }
   }
 
   /**
@@ -506,7 +506,7 @@ class Rule {
    *        The property's priority (either "important" or an empty string).
    * @return {Promise}
    */
-  previewPropertyValue(property, value, priority) {
+  async previewPropertyValue(property, value, priority) {
     this.elementStyle.ruleView.emitForTests("start-preview-property-value");
     const modifications = this.domRule.startModifyingProperties(
       this.inspector.panelWin,
@@ -518,11 +518,11 @@ class Rule {
       value,
       priority
     );
-    return modifications.apply().then(() => {
-      // Ensure dispatching a ruleview-changed event
-      // also for previews
-      this.elementStyle.notifyChanged();
-    });
+    await modifications.apply();
+
+    // Ensure dispatching a ruleview-changed event
+    // also for previews
+    this.elementStyle.notifyChanged();
   }
 
   /**
