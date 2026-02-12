@@ -20,8 +20,8 @@ import {
 } from "chrome://global/content/aboutNetErrorHelpers.mjs";
 import { initializeRegistry } from "chrome://global/content/errors/error-registry.mjs";
 import {
-  findSupportedErrorCode,
   getResolvedErrorConfig,
+  isFeltPrivacySupported,
 } from "chrome://global/content/errors/error-lookup.mjs";
 import { html } from "chrome://global/content/vendor/lit.all.mjs";
 import { MozLitElement } from "chrome://global/content/lit-utils.mjs";
@@ -92,12 +92,8 @@ export class NetErrorCard extends MozLitElement {
       return false;
     }
 
-    const supportedErrorCode = findSupportedErrorCode(
-      errorInfo,
-      gErrorCode,
-      gOffline
-    );
-    return !!supportedErrorCode;
+    const id = errorInfo.errorCodeString || gErrorCode;
+    return gOffline || isFeltPrivacySupported(id);
   }
 
   constructor() {
@@ -315,16 +311,13 @@ export class NetErrorCard extends MozLitElement {
 
   getErrorConfig() {
     const errorCode = this.errorInfo.errorCodeString || gErrorCode;
-    const errorConfig = getResolvedErrorConfig(
-      errorCode,
-      {
-        hostname: this.hostname,
-        errorInfo: this.errorInfo,
-        cssClass: getCSSClass(),
-        domainMismatchNames: this.domainMismatchNames,
-      },
-      gOffline
-    );
+    const errorConfig = getResolvedErrorConfig(errorCode, {
+      hostname: this.hostname,
+      errorInfo: this.errorInfo,
+      cssClass: getCSSClass(),
+      domainMismatchNames: this.domainMismatchNames,
+      offline: gOffline,
+    });
 
     if (errorConfig.customNetError) {
       this.showCustomNetErrorCard = true;
