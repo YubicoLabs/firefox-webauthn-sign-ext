@@ -113,16 +113,15 @@ export class NetErrorCard extends MozLitElement {
   }
 
   async getUpdateComplete() {
-    const result = await super.getUpdateComplete();
-
-    if (this.domainMismatchNames && this.certificateErrorText) {
-      return result;
-    }
-
+    // Fetch domain mismatch names and cert error text before rendering
+    // to ensure Fluent localization has all required variables
     const promises = [
       this.errorConfig?.advanced?.requiresDomainMismatchNames &&
+        !this.domainMismatchNames &&
         this.getDomainMismatchNames(),
-      document.getFailedCertSecurityInfo && this.getCertificateErrorText(),
+      document.getFailedCertSecurityInfo &&
+        !this.certificateErrorText &&
+        this.getCertificateErrorText(),
       this.domainMismatchNamesPromise,
       this.certificateErrorTextPromise,
     ].filter(Boolean);
@@ -131,7 +130,7 @@ export class NetErrorCard extends MozLitElement {
       await Promise.all(promises);
     }
 
-    return result;
+    return super.getUpdateComplete();
   }
 
   connectedCallback() {

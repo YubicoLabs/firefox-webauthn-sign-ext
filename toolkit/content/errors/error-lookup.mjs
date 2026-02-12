@@ -37,19 +37,24 @@ export function isFeltPrivacySupported(id) {
 /**
  * Resolve l10n arguments by injecting runtime context.
  *
- * @param {object | null} l10nConfig - The l10n config with { dataL10nId, dataL10nArgs }
- * @param {object} context - Runtime context (hostname, errorInfo, etc.)
- * @returns {object | null} Resolved l10n config with dataL10nArgs filled in
+ * @param {object | Array | null} l10nConfig - The l10n config(s) with { dataL10nId, dataL10nArgs }
+ * @param {object} runtimeContext - Context from the environment during runtime (hostname, errorInfo, etc.)
+ * @returns {object | Array | null} Resolved l10n config with dataL10nArgs filled in
  */
-export function resolveL10nArgs(l10nConfig, context) {
-  const values = {
-    hostname: context.hostname,
-    date: context.errorInfo?.validNotAfter ?? Date.now(),
-    errorMessage: context.errorInfo?.errorMessage ?? "",
-  };
+export function resolveL10nArgs(l10nConfig, runtimeContext) {
   if (!l10nConfig) {
     return null;
   }
+  if (!Array.isArray(l10nConfig) && !l10nConfig.dataL10nArgs) {
+    return l10nConfig;
+  }
+
+  const values = {
+    hostname: runtimeContext.hostname,
+    date: Date.now(),
+    errorMessage: runtimeContext.errorInfo?.errorMessage ?? "",
+    validHosts: runtimeContext.domainMismatchNames ?? "",
+  };
 
   if (Array.isArray(l10nConfig)) {
     const result = [];
@@ -65,12 +70,7 @@ export function resolveL10nArgs(l10nConfig, context) {
     return result;
   }
 
-  if (!l10nConfig.dataL10nArgs) {
-    return l10nConfig;
-  }
-
   const resolvedArgs = { ...l10nConfig.dataL10nArgs };
-
   for (const [key, value] of Object.entries(resolvedArgs)) {
     if (value === null) {
       resolvedArgs[key] = values[key];
@@ -87,10 +87,10 @@ export function resolveL10nArgs(l10nConfig, context) {
  * Resolve description parts by calling resolver functions for dynamic content.
  *
  * @param {Array|string} descriptionParts - Static parts array or resolver name
- * @param {object} context - Runtime context
+ * @param {object} runtimeContext - Context from the environment during runtime { noConnectivity, hostname, errorInfo }
  * @returns {Array} Resolved description parts
  */
-export function resolveDescriptionParts(descriptionParts, context) {
+export function resolveDescriptionParts(descriptionParts, runtimeContext) {
   if (!descriptionParts) {
     return [];
   }
@@ -99,7 +99,7 @@ export function resolveDescriptionParts(descriptionParts, context) {
     // It's a resolver name - call the resolver
     const resolver = DESCRIPTION_RESOLVERS[descriptionParts];
     if (resolver) {
-      return resolver(context);
+      return resolver(runtimeContext);
     }
     return [];
   }
@@ -109,7 +109,8 @@ export function resolveDescriptionParts(descriptionParts, context) {
     if (part.l10nArgs) {
       return {
         ...part,
-        l10nArgs: resolveL10nArgs({ args: part.l10nArgs }, context)?.args,
+        l10nArgs: resolveL10nArgs({ args: part.l10nArgs }, runtimeContext)
+          ?.args,
       };
     }
     return part;
@@ -121,8 +122,8 @@ export function resolveDescriptionParts(descriptionParts, context) {
  * These handle cases where advanced content varies based on runtime state.
  */
 const ADVANCED_RESOLVERS = {
-  expiredCertWhyDangerous(context) {
-    const { errorInfo } = context;
+  expiredCertWhyDangerous(runtimeContext) {
+    const { errorInfo } = runtimeContext;
     const isNotYetValid =
       errorInfo?.validNotBefore && Date.now() < errorInfo?.validNotBefore;
     return errorInfo
@@ -137,36 +138,36 @@ const ADVANCED_RESOLVERS = {
       : null;
   },
 
-  expiredIssuerWhyDangerous(context) {
-    return context.errorInfo
+  expiredIssuerWhyDangerous(runtimeContext) {
+    return runtimeContext.errorInfo
       ? {
           dataL10nId: "fp-certerror-expired-why-dangerous-body",
-          dataL10nArgs: { date: context.errorInfo.validNotAfter },
+          dataL10nArgs: { date: runtimeContext.errorInfo.validNotAfter },
         }
       : null;
   },
 
-  notYetValidWhyDangerous(context) {
-    return context.errorInfo
+  notYetValidWhyDangerous(runtimeContext) {
+    return runtimeContext.errorInfo
       ? {
           dataL10nId: "fp-certerror-pkix-not-yet-valid-why-dangerous-body",
-          dataL10nArgs: { date: context.errorInfo.validNotBefore },
+          dataL10nArgs: { date: runtimeContext.errorInfo.validNotBefore },
         }
       : null;
   },
 
-  nssBadCertWhyDangerous(context) {
+  nssBadCertWhyDangerous(runtimeContext) {
     return {
       dataL10nId: "fp-certerror-bad-cert-why-dangerous-body",
-      dataL10nArgs: { hostname: context.hostname },
+      dataL10nArgs: { hostname: runtimeContext.hostname },
     };
   },
 
-  nssBadCertWhatCanYouDo(context) {
-    if (context.cssClass === "badStsCert") {
+  nssBadCertWhatCanYouDo(runtimeContext) {
+    if (runtimeContext.cssClass === "badStsCert") {
       return {
         dataL10nId: "fp-certerror-bad-sts-cert-what-can-you-do-body",
-        dataL10nArgs: { hostname: context.hostname },
+        dataL10nArgs: { hostname: runtimeContext.hostname },
       };
     }
     return {
@@ -180,8 +181,8 @@ const ADVANCED_RESOLVERS = {
  * These handle cases where description varies based on runtime state.
  */
 const DESCRIPTION_RESOLVERS = {
-  dnsNotFoundDescription(context) {
-    if (context.noConnectivity) {
+  dnsNotFoundDescription(runtimeContext) {
+    if (runtimeContext.noConnectivity) {
       return [
         { tag: "span", l10nId: "neterror-dns-not-found-offline-hint-header" },
         {
@@ -200,20 +201,20 @@ const DESCRIPTION_RESOLVERS = {
     ];
   },
 
-  connectionFailureDescription(context) {
+  connectionFailureDescription(runtimeContext) {
     const parts = [
       { tag: "li", l10nId: "neterror-load-error-try-again" },
       { tag: "li", l10nId: "neterror-load-error-connection" },
       { tag: "li", l10nId: "neterror-load-error-firewall" },
     ];
-    if (context.showOSXPermissionWarning) {
+    if (runtimeContext.showOSXPermissionWarning) {
       parts.push({ tag: "li", l10nId: "neterror-load-osx-permission" });
     }
     return parts;
   },
 
-  mitmDescription(context) {
-    const { hostname, mitmName } = context;
+  mitmDescription(runtimeContext) {
+    const { hostname, mitmName } = runtimeContext;
     return [
       {
         tag: "span",
@@ -228,10 +229,10 @@ const DESCRIPTION_RESOLVERS = {
  * Resolve the advanced section configuration.
  *
  * @param {object | null} advancedConfig - The advanced section config
- * @param {object} context - Runtime context
+ * @param {object} runtimeContext - Context from the environment during runtime
  * @returns {object | null} Resolved advanced config
  */
-export function resolveAdvancedConfig(advancedConfig, context) {
+export function resolveAdvancedConfig(advancedConfig, runtimeContext) {
   if (!advancedConfig) {
     return null;
   }
@@ -241,27 +242,30 @@ export function resolveAdvancedConfig(advancedConfig, context) {
   // Handle whyDangerous - named resolver or static l10n config
   if (typeof advancedConfig.whyDangerous === "string") {
     const resolver = ADVANCED_RESOLVERS[advancedConfig.whyDangerous];
-    resolved.whyDangerous = resolver ? resolver(context) : null;
+    resolved.whyDangerous = resolver ? resolver(runtimeContext) : null;
   } else if (advancedConfig.whyDangerous) {
     resolved.whyDangerous = resolveL10nArgs(
       advancedConfig.whyDangerous,
-      context
+      runtimeContext
     );
   }
 
   // Handle whatCanYouDo - named resolver or static l10n config
   if (typeof advancedConfig.whatCanYouDo === "string") {
     const resolver = ADVANCED_RESOLVERS[advancedConfig.whatCanYouDo];
-    resolved.whatCanYouDo = resolver ? resolver(context) : null;
+    resolved.whatCanYouDo = resolver ? resolver(runtimeContext) : null;
   } else if (advancedConfig.whatCanYouDo) {
     resolved.whatCanYouDo = resolveL10nArgs(
       advancedConfig.whatCanYouDo,
-      context
+      runtimeContext
     );
   }
 
   if (advancedConfig.learnMore) {
-    resolved.learnMore = resolveL10nArgs(advancedConfig.learnMore, context);
+    resolved.learnMore = resolveL10nArgs(
+      advancedConfig.learnMore,
+      runtimeContext
+    );
   }
 
   return resolved;
@@ -271,29 +275,26 @@ export function resolveAdvancedConfig(advancedConfig, context) {
  * Get a fully resolved error configuration with runtime context applied.
  *
  * @param {string} id - The error id to look up
- * @param {object} context - Runtime context { hostname, errorInfo, noConnectivity, showOSXPermissionWarning, offline }
+ * @param {object} runtimeContext - Context from the environment during runtime { hostname, errorInfo, noConnectivity, showOSXPermissionWarning, offline }
  * @returns {object} Fully resolved error configuration
  */
-export function getResolvedErrorConfig(id, context) {
-  id = context.offline ? "NS_ERROR_OFFLINE" : id;
+export function getResolvedErrorConfig(id, runtimeContext) {
+  id = runtimeContext.offline ? "NS_ERROR_OFFLINE" : id;
   const baseConfig = getErrorConfig(id);
 
   return baseConfig
     ? {
         ...baseConfig,
-        introContent: resolveL10nArgs(baseConfig.introContent, context),
-        shortDescription: resolveL10nArgs(baseConfig.shortDescription, context),
+        introContent: resolveL10nArgs(baseConfig.introContent, runtimeContext),
+        shortDescription: resolveL10nArgs(
+          baseConfig.shortDescription,
+          runtimeContext
+        ),
         descriptionParts: resolveDescriptionParts(
           baseConfig.descriptionParts,
-          context
+          runtimeContext
         ),
-        advanced: resolveAdvancedConfig(baseConfig.advanced, context),
+        advanced: resolveAdvancedConfig(baseConfig.advanced, runtimeContext),
       }
     : {};
 }
-
-// Export resolvers for testing
-export const _testOnlyResolvers = {
-  description: DESCRIPTION_RESOLVERS,
-  advanced: ADVANCED_RESOLVERS,
-};
