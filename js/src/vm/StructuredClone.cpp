@@ -4294,14 +4294,11 @@ bool JSAutoStructuredCloneBuffer::write(
     const JS::CloneDataPolicy& cloneDataPolicy,
     const JSStructuredCloneCallbacks* optionalCallbacks, void* closure) {
   clear();
-  bool ok = JS_WriteStructuredClone(
+  version_ = JS_STRUCTURED_CLONE_VERSION;
+  return JS_WriteStructuredClone(
       cx, value, &data_, data_.scopeForInternalWriting(), cloneDataPolicy,
       optionalCallbacks ? optionalCallbacks : data_.callbacks_,
       optionalCallbacks ? closure : data_.closure_, transferable);
-  if (!ok) {
-    version_ = JS_STRUCTURED_CLONE_VERSION;
-  }
-  return ok;
 }
 
 JS_PUBLIC_API bool JS_ReadUint32Pair(JSStructuredCloneReader* r, uint32_t* p1,

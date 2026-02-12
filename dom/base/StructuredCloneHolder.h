@@ -134,13 +134,19 @@ class StructuredCloneHolderBase {
   // Directly adopt a pre-existing data buffer which was previously serialized
   // elsewhere using this data structure.
   // The StructuredCloneScope of this holder must match the passed-in data.
-  void Adopt(JSStructuredCloneData&& aData);
+  void Adopt(JSStructuredCloneData&& aData,
+             uint32_t aVersion = JS_STRUCTURED_CLONE_VERSION);
 
   bool HasData() const { return !!mBuffer; }
 
   JSStructuredCloneData& BufferData() const {
     MOZ_ASSERT(mBuffer, "Write() has never been called.");
     return mBuffer->data();
+  }
+
+  uint32_t BufferVersion() const {
+    MOZ_ASSERT(mBuffer, "Write() has never been called.");
+    return mBuffer->version();
   }
 
   size_t SizeOfExcludingThis(mozilla::MallocSizeOf aMallocSizeOf) {

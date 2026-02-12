@@ -43,7 +43,8 @@ class StructuredCloneData : public StructuredCloneHolder {
 
   // Initialize this instance by copying the given data that probably came from
   // nsStructuredClone doing a base64 decode.  Don't use this.
-  bool CopyExternalData(const char* aData, size_t aDataLength);
+  bool CopyExternalData(const char* aData, size_t aDataLength,
+                        uint32_t aVersion = JS_STRUCTURED_CLONE_VERSION);
 
   bool SupportsTransferring() { return mSupportsTransferring; }
 
