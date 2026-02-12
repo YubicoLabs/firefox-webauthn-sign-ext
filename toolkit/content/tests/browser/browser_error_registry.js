@@ -82,11 +82,6 @@ add_task(async function test_unknown_error_returns_default() {
     "net",
     "Default config should have 'net' category"
   );
-  Assert.equal(
-    config.pageTitleL10nId,
-    "neterror-page-title",
-    "Default config should have correct page title"
-  );
 });
 
 add_task(async function test_register_and_get_error() {

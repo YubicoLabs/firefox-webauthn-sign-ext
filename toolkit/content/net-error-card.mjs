@@ -45,6 +45,7 @@ export class NetErrorCard extends MozLitElement {
     certErrorDebugInfoShowing: { type: Boolean, reflect: true },
     certificateErrorText: { type: String },
     showPrefReset: { type: Boolean },
+    showTlsNotice: { type: Boolean },
   };
 
   static queries = {
@@ -69,6 +70,7 @@ export class NetErrorCard extends MozLitElement {
     httpAuthIntroText: "#fp-http-auth-disabled-intro-text",
     tryAgainButton: "#tryAgainButton",
     prefResetButton: "#prefResetButton",
+    tlsNotice: "#tlsVersionNotice",
   };
 
   static getCustomErrorCode(defaultCode) {
@@ -110,6 +112,7 @@ export class NetErrorCard extends MozLitElement {
     this.certificateErrorTextPromise = null;
     this.showCustomNetErrorCard = false;
     this.showPrefReset = false;
+    this.showTlsNotice = false;
   }
 
   async getUpdateComplete() {
@@ -262,7 +265,10 @@ export class NetErrorCard extends MozLitElement {
     }
 
     if (gErrorCode === "nssFailure2") {
-      handleNSSFailure(() => this.handlePrefChangeDetected());
+      const result = handleNSSFailure(() => this.handlePrefChangeDetected());
+      if (result.versionError) {
+        this.showTlsNotice = true;
+      }
     }
     return errorInfo;
   }
@@ -276,6 +282,21 @@ export class NetErrorCard extends MozLitElement {
 
     if (!config.introContent) {
       return null;
+    }
+
+    // Determine element ID based on error type
+    const elementId = gIsCertError ? "certErrorIntro" : "netErrorIntro";
+
+    if (Array.isArray(config.introContent)) {
+      return html`<p id=${elementId}>
+        ${config.introContent.map(
+          ic =>
+            html`<span
+              data-l10n-id=${ic.id}
+              data-l10n-args=${ic.args ? JSON.stringify(ic.args) : null}
+            ></span>`
+        )}
+      </p>`;
     }
 
     const { id, args } = config.introContent;
@@ -293,9 +314,6 @@ export class NetErrorCard extends MozLitElement {
             ></p> `
           : null} `;
     }
-
-    // Determine element ID based on error type
-    const elementId = gIsCertError ? "certErrorIntro" : "netErrorIntro";
 
     return html`<p
       id=${elementId}
@@ -386,6 +404,10 @@ export class NetErrorCard extends MozLitElement {
     return params;
   }
 
+  getNSSErrorWhyDangerousL10nId(errorString) {
+    return errorString.toLowerCase().replace(/_/g, "-");
+  }
+
   advancedSectionTemplate(params) {
     let {
       whyDangerousL10nId,
@@ -420,7 +442,7 @@ export class NetErrorCard extends MozLitElement {
           </div>`
         : null}
       ${importantNote ? html`<p data-l10n-id=${importantNote}></p>` : null}
-      ${this.prefResetContainerTemplate()}
+      ${this.prefResetContainerTemplate()} ${this.tlsNoticeTemplate()}
       ${viewCert
         ? html`<p>
             <a
@@ -471,6 +493,17 @@ export class NetErrorCard extends MozLitElement {
             @click=${this.handleProceedToUrlClick}
           ></moz-button>`
         : null} `;
+  }
+
+  tlsNoticeTemplate() {
+    if (!this.showTlsNotice) {
+      return null;
+    }
+
+    return html`<p
+      id="tlsVersionNotice"
+      data-l10n-id="cert-error-old-tls-version"
+    ></p>`;
   }
 
   customNetErrorContainerTemplate() {
@@ -858,7 +891,14 @@ export class NetErrorCard extends MozLitElement {
       return null;
     }
 
+    const errorCode = this.errorInfo.errorCodeString;
+    const { bodyTitleL10nId } = getResolvedErrorConfig(errorCode, {
+      hostname: this.hostname,
+      errorInfo: this.errorInfo,
+    });
+
     const img = this.getErrorImage(this.errorInfo.errorCodeString);
+    const title = bodyTitleL10nId ?? "fp-certerror-body-title";
 
     return html`<link
         rel="stylesheet"
@@ -871,10 +911,7 @@ export class NetErrorCard extends MozLitElement {
         <div class="container">
           ${this.showCustomNetErrorCard
             ? html`${this.customNetErrorContainerTemplate()}`
-            : html`<h1
-                  id="certErrorBodyTitle"
-                  data-l10n-id="fp-certerror-body-title"
-                ></h1>
+            : html`<h1 id="certErrorBodyTitle" data-l10n-id=${title}></h1>
                 ${this.introContentTemplate()}
                 <moz-button-group
                   ><moz-button

@@ -11,8 +11,6 @@ export const SSL_ERRORS = [
   {
     errorCode: "SSL_ERROR_BAD_CERT_DOMAIN",
     category: "cert",
-    pageTitleL10nId: "certerror-page-title",
-    bodyTitleL10nId: "nssBadCert-title",
     introContent: {
       id: "fp-certerror-intro",
       args: { hostname: null },
@@ -38,8 +36,6 @@ export const SSL_ERRORS = [
   {
     errorCode: "SSL_ERROR_NO_CYPHER_OVERLAP",
     category: "cert",
-    pageTitleL10nId: "certerror-page-title",
-    bodyTitleL10nId: "nssBadCert-title",
     introContent: {
       id: "fp-neterror-connection-intro",
       args: { hostname: null },
@@ -63,12 +59,15 @@ export const SSL_ERRORS = [
   {
     errorCode: "SSL_ERROR_RX_MALFORMED_HANDSHAKE",
     category: "cert",
-    pageTitleL10nId: "nssFailure2-title",
-    bodyTitleL10nId: "nssFailure2-title",
-    introContent: {
-      id: "fp-neterror-connection-intro",
-      args: { hostname: null },
-    },
+    introContent: [
+      {
+        id: "cert-error-ssl-connection-error",
+        args: { hostname: null, errorMessage: null },
+      },
+      {
+        id: "ssl-error-rx-malformed-handshake",
+      },
+    ],
     buttons: {
       showTryAgain: true,
       showGoBack: true,
@@ -76,7 +75,9 @@ export const SSL_ERRORS = [
       showAddException: false,
     },
     advanced: {
-      whyDangerousL10nId: "ssl-error-rx-malformed-handshake",
+      whyDangerousL10nId: "neterror-nss-failure-not-verified",
+      whatCanYouDoL10nId: "neterror-nss-failure-contact-website",
+      learnMoreL10nId: "fp-learn-more-about-secure-connection-failures",
       learnMoreSupportPage: "connection-not-secure",
     },
     hasNoUserFix: true,
@@ -84,12 +85,16 @@ export const SSL_ERRORS = [
   {
     errorCode: "SSL_ERROR_UNSUPPORTED_VERSION",
     category: "cert",
-    pageTitleL10nId: "nssFailure2-title",
     bodyTitleL10nId: "nssFailure2-title",
-    introContent: {
-      id: "fp-neterror-connection-intro",
-      args: { hostname: null },
-    },
+    introContent: [
+      {
+        id: "cert-error-ssl-connection-error",
+        args: { hostname: null, errorMessage: null },
+      },
+      {
+        id: "ssl-error-unsupported-version",
+      },
+    ],
     buttons: {
       showTryAgain: true,
       showGoBack: true,
@@ -97,7 +102,36 @@ export const SSL_ERRORS = [
       showAddException: false,
     },
     advanced: {
-      whyDangerousL10nId: "ssl-error-unsupported-version",
+      whyDangerousL10nId: "neterror-nss-failure-not-verified",
+      whatCanYouDoL10nId: "neterror-nss-failure-contact-website",
+      learnMoreL10nId: "fp-learn-more-about-secure-connection-failures",
+      learnMoreSupportPage: "connection-not-secure",
+    },
+    hasNoUserFix: true,
+  },
+  {
+    errorCode: "SSL_ERROR_PROTOCOL_VERSION_ALERT",
+    category: "cert",
+    bodyTitleL10nId: "nssFailure2-title",
+    introContent: [
+      {
+        id: "cert-error-ssl-connection-error",
+        args: { hostname: null, errorMessage: null },
+      },
+      {
+        id: "ssl-error-protocol-version-alert",
+      },
+    ],
+    buttons: {
+      showTryAgain: true,
+      showGoBack: true,
+      showAdvanced: true,
+      showAddException: false,
+    },
+    advanced: {
+      whyDangerousL10nId: "neterror-nss-failure-not-verified",
+      whatCanYouDoL10nId: "neterror-nss-failure-contact-website",
+      learnMoreL10nId: "fp-learn-more-about-secure-connection-failures",
       learnMoreSupportPage: "connection-not-secure",
     },
     hasNoUserFix: true,
