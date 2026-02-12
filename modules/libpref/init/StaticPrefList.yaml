@@ -3353,7 +3353,7 @@
 #if defined(XP_WIN)
 -   name: dom.ipc.alwaysUseParentBinary
     type: RelaxedAtomicBool
-    value: @IS_NIGHTLY_BUILD@
+    value: false
     mirror: always
 #endif
 
