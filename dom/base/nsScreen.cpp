@@ -126,6 +126,27 @@ CSSIntRect nsScreen::GetAvailRect() {
     if (NS_WARN_IF(!context)) {
       return {};
     }
+
+    // Warn developers that screen dimensions are being spoofed
+    // Only print the warning if ScreenAvailToResolution is active for this
+    // document
+    if (nsPIDOMWindowInner* owner = GetOwnerWindow()) {
+      if (Document* doc = owner->GetExtantDoc()) {
+        if (doc->ShouldResistFingerprinting(
+                RFPTarget::ScreenAvailToResolution)) {
+          nsContentUtils::ReportToConsoleNonLocalized(
+              u"Fingerprinting Protection is altering screen.availWidth and "
+              u"screen.availHeight. These values may not match your actual "
+              u"screen dimensions. This protection helps prevent websites "
+              u"building a fingerprint that can be used to track users. "
+              u"Learn more: "
+              u"https://support.mozilla.org/kb/firefox-protection-against-"
+              u"fingerprinting"_ns,
+              nsIScriptError::infoFlag, "Fingerprinting Protection"_ns, doc);
+        }
+      }
+    }
+
     return nsRFPService::GetSpoofedScreenAvailSize(
         context->GetRect(), context->GetFullZoom(), IsFullscreen());
   }
