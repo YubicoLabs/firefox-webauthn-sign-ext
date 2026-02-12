@@ -12419,7 +12419,7 @@
 # This pref enables the HTMLMediaElement API captureStream.
 - name: media.captureStream.enabled
   type: RelaxedAtomicBool
-  value: false
+  value: @IS_NIGHTLY_BUILD@
   mirror: always
 
 # This pref disables the reception of RTCP. It is used for testing.
