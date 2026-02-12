@@ -248,6 +248,9 @@ skip-if = [
 ["browser_privacy_cookieBannerHandling.js"]
 
 ["browser_privacy_dnsoverhttps.js"]
+skip-if = [
+  "os == 'win' && os_version == '11.26100' && arch == 'x86_64' && debug", # Bug 2009120
+]
 
 ["browser_privacy_gpc.js"]
 
