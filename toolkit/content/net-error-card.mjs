@@ -44,6 +44,7 @@ export class NetErrorCard extends MozLitElement {
     certificateErrorText: { type: String },
     showPrefReset: { type: Boolean },
     showTlsNotice: { type: Boolean },
+    showTrrSettingsButton: { type: Boolean },
   };
 
   static queries = {
@@ -111,6 +112,8 @@ export class NetErrorCard extends MozLitElement {
     this.showCustomNetErrorCard = false;
     this.showPrefReset = false;
     this.showTlsNotice = false;
+    this.showTrrSettingsButton = false;
+    this.trrTelemetryData = null;
   }
 
   async getUpdateComplete() {
@@ -120,13 +123,17 @@ export class NetErrorCard extends MozLitElement {
       return result;
     }
 
-    await Promise.all([
+    const promises = [
       this.errorConfig?.advanced?.requiresDomainMismatchNames &&
         this.getDomainMismatchNames(),
       document.getFailedCertSecurityInfo && this.getCertificateErrorText(),
       this.domainMismatchNamesPromise,
       this.certificateErrorTextPromise,
-    ]);
+    ].filter(Boolean);
+
+    if (promises.length) {
+      await Promise.all(promises);
+    }
 
     return result;
   }
@@ -214,6 +221,49 @@ export class NetErrorCard extends MozLitElement {
     if (getCSSClass() == "expertBadCert") {
       this.toggleAdvancedShowing();
     }
+
+    this.checkAndRecordTRRTelemetry();
+    this.checkForDomainSuggestions();
+  }
+
+  // Check for alternate host for dnsNotFound errors.
+  checkForDomainSuggestions() {
+    if (gErrorCode == "dnsNotFound" && !this.isTRROnlyFailure()) {
+      RPMCheckAlternateHostAvailable();
+    }
+  }
+
+  isTRROnlyFailure() {
+    return gErrorCode == "dnsNotFound" && RPMIsTRROnlyFailure();
+  }
+
+  checkAndRecordTRRTelemetry() {
+    if (!this.isTRROnlyFailure() || isCaptive()) {
+      return;
+    }
+
+    this.recordTRRLoadTelemetry();
+    this.showTrrSettingsButton = true;
+  }
+
+  recordTRRLoadTelemetry() {
+    const trrMode = RPMGetIntPref("network.trr.mode");
+    const trrDomain = RPMGetTRRDomain();
+    const skipReason = RPMGetTRRSkipReason();
+
+    this.trrTelemetryData = {
+      value: "TRROnlyFailure",
+      mode: trrMode.toString(),
+      provider_key: trrDomain,
+      skip_reason: skipReason,
+    };
+
+    RPMRecordGleanEvent("securityDohNeterror", "loadDohwarning", {
+      value: "TRROnlyFailure",
+      mode: trrMode,
+      provider_key: trrDomain,
+      skip_reason: skipReason,
+    });
   }
 
   handlePrefChangeDetected() {
@@ -583,6 +633,17 @@ export class NetErrorCard extends MozLitElement {
 
     const { goBack = false, tryAgain = false } = buttons;
 
+    // Format the learn more link with base URL if it's a SUMO slug
+    let learnMoreHref = learnMoreSupportPage;
+    if (
+      learnMoreSupportPage &&
+      !learnMoreSupportPage.startsWith("http://") &&
+      !learnMoreSupportPage.startsWith("https://")
+    ) {
+      const baseURL = RPMGetFormatURLPref("app.support.baseURL");
+      learnMoreHref = baseURL + learnMoreSupportPage;
+    }
+
     const content = html`
       ${whyDangerousL10nId
         ? html`<div>
@@ -615,7 +676,7 @@ export class NetErrorCard extends MozLitElement {
       ${learnMoreL10nId
         ? html`<p>
             <a
-              href=${learnMoreSupportPage}
+              href=${learnMoreHref}
               data-l10n-id=${learnMoreL10nId}
               data-telemetry-id="learn_more_link"
               id="neterror-learn-more-link"
@@ -626,15 +687,24 @@ export class NetErrorCard extends MozLitElement {
           </p>`
         : null}
       ${tryAgain
-        ? html`<moz-button-group
-            ><moz-button
+        ? html`<moz-button-group>
+            <moz-button
               id="tryAgainButton"
               type="primary"
               data-l10n-id="neterror-try-again-button"
               data-telemetry-id="try_again_button"
               @click=${this.handleTryAgain}
-            ></moz-button
-          ></moz-button-group>`
+            ></moz-button>
+            ${this.showTrrSettingsButton
+              ? html`<moz-button
+                  id="trrSettingsButton"
+                  type="default"
+                  data-l10n-id="neterror-settings-button"
+                  data-telemetry-id="settings_button"
+                  @click=${this.handleTRRSettingsClick}
+                ></moz-button>`
+              : null}
+          </moz-button-group>`
         : null}
       ${goBack
         ? html`<moz-button-group
@@ -761,6 +831,11 @@ export class NetErrorCard extends MozLitElement {
     retryThis(e);
   }
 
+  handleTRRSettingsClick(e) {
+    this.handleTelemetryClick(e);
+    RPMSendAsyncMessage("OpenTRRPreferences");
+  }
+
   toggleAdvancedShowing(e) {
     if (e) {
       this.handleTelemetryClick(e);
@@ -857,18 +932,31 @@ export class NetErrorCard extends MozLitElement {
       target = target.getRootNode().host;
     }
     let telemetryId = target.dataset.telemetryId;
-    const category = gIsCertError
-      ? "securityUiCerterror"
-      : "securityUiNeterror";
-    void recordSecurityUITelemetry(
-      category,
-      "click" +
-        telemetryId
-          .split("_")
-          .map(word => word[0].toUpperCase() + word.slice(1))
-          .join(""),
-      this.errorInfo
-    );
+
+    if (this.trrTelemetryData) {
+      RPMRecordGleanEvent(
+        "securityDohNeterror",
+        "click" +
+          telemetryId
+            .split("_")
+            .map(word => word[0].toUpperCase() + word.slice(1))
+            .join(""),
+        this.trrTelemetryData
+      );
+    } else {
+      const category = gIsCertError
+        ? "securityUiCerterror"
+        : "securityUiNeterror";
+      void recordSecurityUITelemetry(
+        category,
+        "click" +
+          telemetryId
+            .split("_")
+            .map(word => word[0].toUpperCase() + word.slice(1))
+            .join(""),
+        this.errorInfo
+      );
+    }
   }
 
   render() {

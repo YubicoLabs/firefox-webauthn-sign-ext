@@ -1318,7 +1318,7 @@ async function main() {
   await init();
   if (!NetErrorCard.isSupported()) {
     // Initialize the error registry for legacy path
-    await initializeRegistry();
+    initializeRegistry();
 
     for (let button of document.querySelectorAll(".try-again")) {
       button.addEventListener("click", function () {

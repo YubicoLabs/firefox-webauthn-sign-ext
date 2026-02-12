@@ -284,21 +284,24 @@ add_task(async function test_is_felt_privacy_supported() {
   });
 
   registerError({
-    id: "fp-not-supported-error",
+    id: "fp-another-supported-error",
     category: "net",
     pageTitleL10nId: "test-title",
     bodyTitleL10nId: "test-body",
     buttons: {},
-    useLegacy: true,
   });
 
   Assert.ok(
     isFeltPrivacySupported("FP_SUPPORTED_ERROR"),
-    "Error without useLegacy flag should support Felt Privacy"
+    "Registered error should support Felt Privacy"
   );
   Assert.ok(
-    !isFeltPrivacySupported("fp-not-supported-error"),
-    "Error with useLegacy flag should not support Felt Privacy"
+    isFeltPrivacySupported("fp-another-supported-error"),
+    "All registered errors should support Felt Privacy"
+  );
+  Assert.ok(
+    !isFeltPrivacySupported("NONEXISTENT_ERROR"),
+    "Unregistered error should not support Felt Privacy"
   );
 
   _testOnlyClearRegistry();

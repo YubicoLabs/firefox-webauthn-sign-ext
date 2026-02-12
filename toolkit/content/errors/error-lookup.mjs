@@ -44,11 +44,11 @@ export function errorHasNoUserFix(id) {
  * Check if an error is supported by the Felt Privacy v1 experience.
  *
  * @param {string} id - The error id to check
- * @returns {boolean} True if the error does not use legacy rendering
+ * @returns {boolean} True if the error has a configuration
  */
 export function isFeltPrivacySupported(id) {
   const config = getErrorConfig(id);
-  return config ? !config.useLegacy : false;
+  return !!config;
 }
 
 /**
