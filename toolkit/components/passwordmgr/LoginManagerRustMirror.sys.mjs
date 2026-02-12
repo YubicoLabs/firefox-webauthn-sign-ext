@@ -407,7 +407,7 @@ export class LoginManagerRustMirror {
       case "removeAllLogins":
         this.#logger.log("removing all logins...");
         try {
-          this.#rustStorage.removeAllLogins();
+          await this.#rustStorage.removeAllLoginsAsync();
           this.#logger.log("removed all logins.");
         } catch (e) {
           status = "failure";

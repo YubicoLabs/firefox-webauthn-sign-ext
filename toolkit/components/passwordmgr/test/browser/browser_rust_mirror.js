@@ -48,7 +48,7 @@ add_task(async function test_mirror_addLogin() {
   LoginTestUtils.assertLoginListsEqual(storedLoginInfos, rustStoredLoginInfos);
 
   LoginTestUtils.clearData();
-  rustStorage.removeAllLogins();
+  await rustStorage.removeAllLoginsAsync();
   await SpecialPowers.flushPrefEnv();
 });
 
@@ -95,7 +95,7 @@ add_task(async function test_mirror_modifyLogin() {
   );
 
   LoginTestUtils.clearData();
-  rustStorage.removeAllLogins();
+  await rustStorage.removeAllLoginsAsync();
   await SpecialPowers.flushPrefEnv();
 });
 
@@ -129,7 +129,7 @@ add_task(async function test_mirror_removeLogin() {
   Assert.equal(allLogins.length, 0);
 
   LoginTestUtils.clearData();
-  rustStorage.removeAllLogins();
+  await rustStorage.removeAllLoginsAsync();
   await SpecialPowers.flushPrefEnv();
 });
 
@@ -158,7 +158,7 @@ add_task(async function test_mirror_csv_import_add() {
   LoginTestUtils.assertLoginListsEqual(storedLoginInfos, rustStoredLoginInfos);
 
   LoginTestUtils.clearData();
-  rustStorage.removeAllLogins();
+  await rustStorage.removeAllLoginsAsync();
   await SpecialPowers.flushPrefEnv();
 });
 
@@ -204,7 +204,7 @@ add_task(async function test_mirror_csv_import_modify() {
   );
 
   LoginTestUtils.clearData();
-  rustStorage.removeAllLogins();
+  await rustStorage.removeAllLoginsAsync();
   await SpecialPowers.flushPrefEnv();
 });
 
@@ -286,7 +286,7 @@ add_task(async function test_migration_is_idempotent() {
   Assert.equal(rustLogins.length, 1, "No duplicate after second migration");
 
   LoginTestUtils.clearData();
-  rustStorage.removeAllLogins();
+  await rustStorage.removeAllLoginsAsync();
   await SpecialPowers.flushPrefEnv();
 });
 
@@ -347,7 +347,7 @@ add_task(async function test_migration_partial_failure() {
 
   sinon.restore();
   LoginTestUtils.clearData();
-  rustStorage.removeAllLogins();
+  await rustStorage.removeAllLoginsAsync();
   await SpecialPowers.flushPrefEnv();
 });
 
@@ -400,7 +400,7 @@ add_task(async function test_migration_rejects_when_bulk_add_rejects() {
 
   sinon.restore();
   LoginTestUtils.clearData();
-  rustStorage.removeAllLogins();
+  await rustStorage.removeAllLoginsAsync();
   await SpecialPowers.flushPrefEnv();
 });
 
@@ -463,7 +463,7 @@ add_task(async function test_rust_migration_failure_event() {
 
   sinon.restore();
   LoginTestUtils.clearData();
-  rustStorage.removeAllLogins();
+  await rustStorage.removeAllLoginsAsync();
   await SpecialPowers.flushPrefEnv();
 });
 
@@ -505,7 +505,7 @@ add_task(async function test_migration_time_under_threshold() {
   Assert.equal(rustStorage.countLogins("", "", ""), numberOfLogins);
 
   LoginTestUtils.clearData();
-  rustStorage.removeAllLogins();
+  await rustStorage.removeAllLoginsAsync();
   await SpecialPowers.flushPrefEnv();
 });
 
@@ -642,7 +642,7 @@ add_task(async function test_punycode_origin_metric() {
   );
 
   LoginTestUtils.clearData();
-  rustStorage.removeAllLogins();
+  await rustStorage.removeAllLoginsAsync();
   await SpecialPowers.flushPrefEnv();
 });
 
@@ -685,7 +685,7 @@ add_task(async function test_punycode_formActionOrigin_metric() {
   );
 
   LoginTestUtils.clearData();
-  rustStorage.removeAllLogins();
+  await rustStorage.removeAllLoginsAsync();
   await SpecialPowers.flushPrefEnv();
 });
 
@@ -777,7 +777,7 @@ add_task(async function test_username_linebreak_metric() {
   );
 
   LoginTestUtils.clearData();
-  rustStorage.removeAllLogins();
+  await rustStorage.removeAllLoginsAsync();
   await SpecialPowers.flushPrefEnv();
 });
 
