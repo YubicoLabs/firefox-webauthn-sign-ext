@@ -998,17 +998,6 @@ class CssRuleView extends EventEmitter {
     this.#clear();
 
     this.#dummyElement = null;
-    // off handlers must have the same reference as their on handlers
-    this.#prefObserver.off(PREF_UA_STYLES, this.#handleUAStylePrefChange);
-    this.#prefObserver.off(
-      PREF_DEFAULT_COLOR_UNIT,
-      this.#handleDefaultColorUnitPrefChange
-    );
-    this.#prefObserver.off(PREF_DRAGGABLE, this.#handleDraggablePrefChange);
-    this.#prefObserver.off(
-      PREF_INPLACE_EDITOR_FOCUS_NEXT_ON_ENTER,
-      this.#handleInplaceEditorFocusNextOnEnterPrefChange
-    );
     this.#prefObserver.destroy();
 
     this.outputParser = null;
