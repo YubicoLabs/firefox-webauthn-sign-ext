@@ -8313,7 +8313,7 @@ static const NSUInteger kWindowShadowOptionsTooltip = 4;
       [copy setValue:@(0) forKey:key];
     }
   }
-  return copy;
+  return [copy autorelease];
 }
 
 - (NSUInteger)shadowOptions {
