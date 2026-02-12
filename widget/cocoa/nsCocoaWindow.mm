@@ -263,7 +263,7 @@ void nsCocoaWindow::TearDownView() {
 static void PrintViewHierarchy(NSView *view)
 {
   while (view) {
-    NSLog(@"  view is %x, frame %@", view, NSStringFromRect([view frame]));
+    NSLog(@"  view is %p, frame %@", view, NSStringFromRect([view frame]));
     view = [view superview];
   }
 }
