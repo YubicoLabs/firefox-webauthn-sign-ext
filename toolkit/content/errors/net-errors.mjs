@@ -14,6 +14,45 @@ export const COOP_MDN_DOCS =
 export const COEP_MDN_DOCS =
   "https://developer.mozilla.org/docs/Web/HTTP/Headers/Cross-Origin-Embedder-Policy";
 
+export const DESCRIPTION_PARTS_MAP = {
+  dnsNotFoundDescription(context) {
+    if (context.noConnectivity) {
+      return [
+        {
+          tag: "span",
+          dataL10nId: "neterror-dns-not-found-offline-hint-header",
+        },
+        {
+          tag: "li",
+          dataL10nId: "neterror-dns-not-found-offline-hint-different-device",
+        },
+        { tag: "li", dataL10nId: "neterror-dns-not-found-offline-hint-modem" },
+        {
+          tag: "li",
+          dataL10nId: "neterror-dns-not-found-offline-hint-reconnect",
+        },
+      ];
+    }
+    return [
+      { tag: "span", dataL10nId: "neterror-dns-not-found-hint-header" },
+      { tag: "li", dataL10nId: "neterror-dns-not-found-hint-try-again" },
+      { tag: "li", dataL10nId: "neterror-dns-not-found-hint-check-network" },
+      { tag: "li", dataL10nId: "neterror-dns-not-found-hint-firewall" },
+    ];
+  },
+  connectionFailureDescription(context) {
+    const parts = [
+      { tag: "li", dataL10nId: "neterror-load-error-try-again" },
+      { tag: "li", dataL10nId: "neterror-load-error-connection" },
+      { tag: "li", dataL10nId: "neterror-load-error-firewall" },
+    ];
+    if (context.showOSXPermissionWarning) {
+      parts.push({ tag: "li", dataL10nId: "neterror-load-osx-permission" });
+    }
+    return parts;
+  },
+};
+
 export const NET_ERRORS = [
   {
     id: "NS_ERROR_OFFLINE",
@@ -44,8 +83,12 @@ export const NET_ERRORS = [
       dataL10nId: "fp-neterror-coop-coep-intro",
     },
     descriptionParts: [
-      { tag: "p", l10nId: "certerror-blocked-by-corp-headers-description" },
-      { tag: "a", l10nId: "certerror-coop-learn-more", href: COOP_MDN_DOCS },
+      { tag: "p", dataL10nId: "certerror-blocked-by-corp-headers-description" },
+      {
+        tag: "a",
+        dataL10nId: "certerror-coop-learn-more",
+        href: COOP_MDN_DOCS,
+      },
     ],
     buttons: {
       showTryAgain: false,
@@ -68,8 +111,12 @@ export const NET_ERRORS = [
       dataL10nId: "fp-neterror-coop-coep-intro",
     },
     descriptionParts: [
-      { tag: "p", l10nId: "certerror-blocked-by-corp-headers-description" },
-      { tag: "a", l10nId: "certerror-coep-learn-more", href: COEP_MDN_DOCS },
+      { tag: "p", dataL10nId: "certerror-blocked-by-corp-headers-description" },
+      {
+        tag: "a",
+        dataL10nId: "certerror-coep-learn-more",
+        href: COEP_MDN_DOCS,
+      },
     ],
     buttons: {
       showTryAgain: false,
@@ -94,12 +141,12 @@ export const NET_ERRORS = [
     descriptionParts: [
       {
         tag: "li",
-        l10nId: "neterror-basic-http-auth",
-        l10nArgs: { hostname: null },
+        dataL10nId: "neterror-basic-http-auth",
+        dataL10nArgs: { hostname: null },
       },
       {
         tag: "a",
-        l10nId: "neterror-learn-more-link",
+        dataL10nId: "neterror-learn-more-link",
         href: HTTPS_UPGRADES_MDN_DOCS,
       },
     ],
@@ -132,7 +179,7 @@ export const NET_ERRORS = [
       dataL10nId: "neterror-http-empty-response-description",
       dataL10nArgs: { hostname: null },
     },
-    descriptionParts: "connectionFailureDescription",
+    descriptionParts: DESCRIPTION_PARTS_MAP.connectionFailureDescription,
     buttons: {
       showTryAgain: true,
       showGoBack: false,
@@ -189,7 +236,7 @@ export const NET_ERRORS = [
       dataL10nId: "fp-neterror-offline-intro",
       dataL10nArgs: { hostname: null },
     },
-    descriptionParts: "connectionFailureDescription",
+    descriptionParts: DESCRIPTION_PARTS_MAP.connectionFailureDescription,
     buttons: {
       showTryAgain: true,
       showGoBack: false,
@@ -210,7 +257,7 @@ export const NET_ERRORS = [
       dataL10nId: "fp-neterror-offline-intro",
       dataL10nArgs: { hostname: null },
     },
-    descriptionParts: "connectionFailureDescription",
+    descriptionParts: DESCRIPTION_PARTS_MAP.connectionFailureDescription,
     buttons: {
       showTryAgain: true,
       showGoBack: false,
@@ -231,7 +278,7 @@ export const NET_ERRORS = [
       dataL10nId: "fp-neterror-offline-intro",
       dataL10nArgs: { hostname: null },
     },
-    descriptionParts: "connectionFailureDescription",
+    descriptionParts: DESCRIPTION_PARTS_MAP.connectionFailureDescription,
     buttons: {
       showTryAgain: true,
       showGoBack: false,
@@ -252,7 +299,7 @@ export const NET_ERRORS = [
       dataL10nId: "fp-neterror-offline-intro",
       dataL10nArgs: { hostname: null },
     },
-    descriptionParts: "dnsNotFoundDescription",
+    descriptionParts: DESCRIPTION_PARTS_MAP.dnsNotFoundDescription,
     buttons: {
       showTryAgain: true,
       showGoBack: false,
@@ -292,7 +339,7 @@ export const NET_ERRORS = [
       dataL10nId: "fp-neterror-offline-intro",
       dataL10nArgs: { hostname: null },
     },
-    descriptionParts: [{ tag: "li", l10nId: "neterror-http-error-page" }],
+    descriptionParts: [{ tag: "li", dataL10nId: "neterror-http-error-page" }],
     buttons: {
       showTryAgain: true,
       showGoBack: false,
@@ -313,7 +360,9 @@ export const NET_ERRORS = [
       dataL10nId: "fp-neterror-offline-intro",
       dataL10nArgs: { hostname: null },
     },
-    descriptionParts: [{ tag: "li", l10nId: "neterror-load-error-try-again" }],
+    descriptionParts: [
+      { tag: "li", dataL10nId: "neterror-load-error-try-again" },
+    ],
     buttons: {
       showTryAgain: true,
       showGoBack: false,
@@ -334,7 +383,7 @@ export const NET_ERRORS = [
       dataL10nId: "fp-neterror-offline-intro",
       dataL10nArgs: { hostname: null },
     },
-    descriptionParts: [{ tag: "li", l10nId: "neterror-http-error-page" }],
+    descriptionParts: [{ tag: "li", dataL10nId: "neterror-http-error-page" }],
     buttons: {
       showTryAgain: false,
       showGoBack: false,
@@ -395,7 +444,7 @@ export const NET_ERRORS = [
       dataL10nId: "fp-neterror-offline-intro",
       dataL10nArgs: { hostname: null },
     },
-    descriptionParts: [{ tag: "p", l10nId: "neterror-captive-portal" }],
+    descriptionParts: [{ tag: "p", dataL10nId: "neterror-captive-portal" }],
     buttons: {
       showTryAgain: false,
       showGoBack: false,
@@ -418,7 +467,7 @@ export const NET_ERRORS = [
       dataL10nArgs: { hostname: null },
     },
     descriptionParts: [
-      { tag: "li", l10nId: "neterror-content-encoding-error" },
+      { tag: "li", dataL10nId: "neterror-content-encoding-error" },
     ],
     buttons: {
       showTryAgain: true,
@@ -439,8 +488,8 @@ export const NET_ERRORS = [
       dataL10nId: "neterror-corrupted-content-intro",
     },
     descriptionParts: [
-      { tag: "p", l10nId: "neterror-corrupted-content-intro" },
-      { tag: "li", l10nId: "neterror-corrupted-content-contact-website" },
+      { tag: "p", dataL10nId: "neterror-corrupted-content-intro" },
+      { tag: "li", dataL10nId: "neterror-corrupted-content-contact-website" },
     ],
     buttons: {
       showTryAgain: true,
@@ -461,7 +510,7 @@ export const NET_ERRORS = [
       dataL10nId: "fp-neterror-offline-intro",
       dataL10nArgs: { hostname: null },
     },
-    descriptionParts: [{ tag: "li", l10nId: "neterror-access-denied" }],
+    descriptionParts: [{ tag: "li", dataL10nId: "neterror-access-denied" }],
     buttons: {
       showTryAgain: false,
       showGoBack: false,
@@ -482,8 +531,8 @@ export const NET_ERRORS = [
       dataL10nArgs: { hostname: null },
     },
     descriptionParts: [
-      { tag: "li", l10nId: "neterror-file-not-found-filename" },
-      { tag: "li", l10nId: "neterror-file-not-found-moved" },
+      { tag: "li", dataL10nId: "neterror-file-not-found-filename" },
+      { tag: "li", dataL10nId: "neterror-file-not-found-moved" },
     ],
     buttons: {
       showTryAgain: false,
@@ -507,10 +556,10 @@ export const NET_ERRORS = [
     descriptionParts: [
       {
         tag: "p",
-        l10nId: "neterror-inadequate-security-intro",
-        l10nArgs: { hostname: null },
+        dataL10nId: "neterror-inadequate-security-intro",
+        dataL10nArgs: { hostname: null },
       },
-      { tag: "p", l10nId: "neterror-inadequate-security-code" },
+      { tag: "p", dataL10nId: "neterror-inadequate-security-code" },
     ],
     buttons: {
       showTryAgain: false,
@@ -531,7 +580,13 @@ export const NET_ERRORS = [
       dataL10nId: "fp-certerror-intro",
       dataL10nArgs: { hostname: null },
     },
-    descriptionPartsResolver: "mitmDescription",
+    descriptionParts: [
+      {
+        tag: "span",
+        dataL10nId: "certerror-mitm",
+        dataL10nArgs: { hostname: null, mitm: null },
+      },
+    ],
     buttons: {
       showTryAgain: false,
       showGoBack: true,
@@ -561,7 +616,7 @@ export const NET_ERRORS = [
       dataL10nId: "fp-neterror-offline-intro",
       dataL10nArgs: { hostname: null },
     },
-    descriptionParts: [{ tag: "li", l10nId: "neterror-net-offline" }],
+    descriptionParts: [{ tag: "li", dataL10nId: "neterror-net-offline" }],
     buttons: {
       showTryAgain: true,
       showGoBack: false,
@@ -581,8 +636,11 @@ export const NET_ERRORS = [
       dataL10nId: "neterror-network-protocol-error-intro",
     },
     descriptionParts: [
-      { tag: "p", l10nId: "neterror-network-protocol-error-intro" },
-      { tag: "li", l10nId: "neterror-network-protocol-error-contact-website" },
+      { tag: "p", dataL10nId: "neterror-network-protocol-error-intro" },
+      {
+        tag: "li",
+        dataL10nId: "neterror-network-protocol-error-contact-website",
+      },
     ],
     buttons: {
       showTryAgain: true,
@@ -603,9 +661,9 @@ export const NET_ERRORS = [
       dataL10nId: "neterror-not-cached-intro",
     },
     descriptionParts: [
-      { tag: "p", l10nId: "neterror-not-cached-intro" },
-      { tag: "li", l10nId: "neterror-not-cached-sensitive" },
-      { tag: "li", l10nId: "neterror-not-cached-try-again" },
+      { tag: "p", dataL10nId: "neterror-not-cached-intro" },
+      { tag: "li", dataL10nId: "neterror-not-cached-sensitive" },
+      { tag: "li", dataL10nId: "neterror-not-cached-try-again" },
     ],
     buttons: {
       showTryAgain: true,
@@ -626,8 +684,8 @@ export const NET_ERRORS = [
       dataL10nId: "neterror-nss-failure-not-verified",
     },
     descriptionParts: [
-      { tag: "li", l10nId: "neterror-nss-failure-not-verified" },
-      { tag: "li", l10nId: "neterror-nss-failure-contact-website" },
+      { tag: "li", dataL10nId: "neterror-nss-failure-not-verified" },
+      { tag: "li", dataL10nId: "neterror-nss-failure-contact-website" },
     ],
     buttons: {
       showTryAgain: false,
@@ -651,8 +709,8 @@ export const NET_ERRORS = [
       dataL10nArgs: { hostname: null },
     },
     descriptionParts: [
-      { tag: "li", l10nId: "neterror-proxy-connect-failure-settings" },
-      { tag: "li", l10nId: "neterror-proxy-connect-failure-contact-admin" },
+      { tag: "li", dataL10nId: "neterror-proxy-connect-failure-settings" },
+      { tag: "li", dataL10nId: "neterror-proxy-connect-failure-contact-admin" },
     ],
     buttons: {
       showTryAgain: true,
@@ -674,9 +732,9 @@ export const NET_ERRORS = [
       dataL10nArgs: { hostname: null },
     },
     descriptionParts: [
-      { tag: "li", l10nId: "neterror-proxy-resolve-failure-settings" },
-      { tag: "li", l10nId: "neterror-proxy-resolve-failure-connection" },
-      { tag: "li", l10nId: "neterror-proxy-resolve-failure-firewall" },
+      { tag: "li", dataL10nId: "neterror-proxy-resolve-failure-settings" },
+      { tag: "li", dataL10nId: "neterror-proxy-resolve-failure-connection" },
+      { tag: "li", dataL10nId: "neterror-proxy-resolve-failure-firewall" },
     ],
     buttons: {
       showTryAgain: true,
@@ -697,7 +755,7 @@ export const NET_ERRORS = [
       dataL10nId: "fp-neterror-offline-intro",
       dataL10nArgs: { hostname: null },
     },
-    descriptionParts: [{ tag: "li", l10nId: "neterror-redirect-loop" }],
+    descriptionParts: [{ tag: "li", dataL10nId: "neterror-redirect-loop" }],
     buttons: {
       showTryAgain: true,
       showGoBack: false,
@@ -717,7 +775,7 @@ export const NET_ERRORS = [
       dataL10nId: "fp-certerror-intro",
       dataL10nArgs: { hostname: null },
     },
-    descriptionParts: [{ tag: "span", l10nId: "neterror-sslv3-used" }],
+    descriptionParts: [{ tag: "span", dataL10nId: "neterror-sslv3-used" }],
     buttons: {
       showTryAgain: false,
       showGoBack: false,
@@ -737,7 +795,7 @@ export const NET_ERRORS = [
       dataL10nId: "fp-neterror-offline-intro",
       dataL10nArgs: { hostname: null },
     },
-    descriptionParts: [{ tag: "li", l10nId: "neterror-unknown-protocol" }],
+    descriptionParts: [{ tag: "li", dataL10nId: "neterror-unknown-protocol" }],
     buttons: {
       showTryAgain: false,
       showGoBack: false,
@@ -758,7 +816,7 @@ export const NET_ERRORS = [
       dataL10nArgs: { hostname: null },
     },
     descriptionParts: [
-      { tag: "li", l10nId: "neterror-unknown-socket-type-client-config" },
+      { tag: "li", dataL10nId: "neterror-unknown-socket-type-client-config" },
     ],
     buttons: {
       showTryAgain: false,
@@ -779,7 +837,9 @@ export const NET_ERRORS = [
       dataL10nId: "fp-neterror-offline-intro",
       dataL10nArgs: { hostname: null },
     },
-    descriptionParts: [{ tag: "li", l10nId: "neterror-unsafe-content-type" }],
+    descriptionParts: [
+      { tag: "li", dataL10nId: "neterror-unsafe-content-type" },
+    ],
     buttons: {
       showTryAgain: false,
       showGoBack: false,

@@ -684,9 +684,9 @@ function getNetErrorDescParts(noConnectivity) {
   const parts = config.descriptionParts || [];
   return parts.map(part => {
     if (part.tag === "a") {
-      return [part.tag, part.l10nId, part.href];
+      return [part.tag, part.dataL10nId, part.href];
     }
-    return [part.tag, part.l10nId, part.l10nArgs];
+    return [part.tag, part.dataL10nId, part.dataL10nArgs];
   });
 }
 

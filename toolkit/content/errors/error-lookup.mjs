@@ -51,6 +51,7 @@ export function resolveL10nArgs(l10nConfig, l10nArgValues) {
     date: Date.now(),
     errorMessage: l10nArgValues.errorInfo?.errorMessage ?? "",
     validHosts: l10nArgValues.domainMismatchNames ?? "",
+    mitm: l10nArgValues.mitmName ?? "",
   };
 
   if (typeof l10nConfig.dataL10nId === "function") {
@@ -87,7 +88,7 @@ export function resolveManyL10nArgs(l10nConfigs, l10nArgValues) {
 /**
  * Resolve description parts by calling resolver functions for dynamic content.
  *
- * @param {Array|string} descriptionParts - Static parts array or resolver name
+ * @param {Array|Function} descriptionParts - Static parts array or resolver function
  * @param {object} l10nArgValues - Context from the environment during runtime { noConnectivity, hostname, errorInfo }
  * @returns {Array} Resolved description parts
  */
@@ -96,78 +97,13 @@ export function resolveDescriptionParts(descriptionParts, l10nArgValues) {
     return [];
   }
 
-  if (typeof descriptionParts === "string") {
-    // It's a resolver name - call the resolver
-    const resolver = DESCRIPTION_RESOLVERS[descriptionParts];
-    if (resolver) {
-      return resolver(l10nArgValues);
-    }
-    return [];
+  if (typeof descriptionParts === "function") {
+    return descriptionParts(l10nArgValues);
   }
 
   // Static parts - resolve any l10n args
-  return descriptionParts.map(part => {
-    if (part.l10nArgs) {
-      return {
-        ...part,
-        l10nArgs: resolveL10nArgs(
-          { dataL10nArgs: part.l10nArgs },
-          l10nArgValues
-        )?.dataL10nArgs,
-      };
-    }
-    return part;
-  });
+  return descriptionParts.map(part => resolveL10nArgs(part, l10nArgValues));
 }
-
-/**
- * Resolver functions for dynamic description content.
- * These handle cases where description varies based on runtime state.
- */
-const DESCRIPTION_RESOLVERS = {
-  dnsNotFoundDescription(l10nArgValues) {
-    if (l10nArgValues.noConnectivity) {
-      return [
-        { tag: "span", l10nId: "neterror-dns-not-found-offline-hint-header" },
-        {
-          tag: "li",
-          l10nId: "neterror-dns-not-found-offline-hint-different-device",
-        },
-        { tag: "li", l10nId: "neterror-dns-not-found-offline-hint-modem" },
-        { tag: "li", l10nId: "neterror-dns-not-found-offline-hint-reconnect" },
-      ];
-    }
-    return [
-      { tag: "span", l10nId: "neterror-dns-not-found-hint-header" },
-      { tag: "li", l10nId: "neterror-dns-not-found-hint-try-again" },
-      { tag: "li", l10nId: "neterror-dns-not-found-hint-check-network" },
-      { tag: "li", l10nId: "neterror-dns-not-found-hint-firewall" },
-    ];
-  },
-
-  connectionFailureDescription(l10nArgValues) {
-    const parts = [
-      { tag: "li", l10nId: "neterror-load-error-try-again" },
-      { tag: "li", l10nId: "neterror-load-error-connection" },
-      { tag: "li", l10nId: "neterror-load-error-firewall" },
-    ];
-    if (l10nArgValues.showOSXPermissionWarning) {
-      parts.push({ tag: "li", l10nId: "neterror-load-osx-permission" });
-    }
-    return parts;
-  },
-
-  mitmDescription(l10nArgValues) {
-    const { hostname, mitmName } = l10nArgValues;
-    return [
-      {
-        tag: "span",
-        l10nId: "certerror-mitm",
-        l10nArgs: { hostname, mitm: mitmName || "" },
-      },
-    ];
-  },
-};
 
 /**
  * Resolve the advanced section configuration.
