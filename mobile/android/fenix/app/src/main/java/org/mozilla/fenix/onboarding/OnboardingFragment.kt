@@ -92,7 +92,15 @@ class OnboardingFragment : Fragment() {
             ).toMutableList()
         }
     }
-    private val telemetryRecorder by lazy { OnboardingTelemetryRecorder() }
+    private val telemetryRecorder by lazy {
+        OnboardingTelemetryRecorder(
+            onboardingReason = if (requireComponents.settings.enablePersistentOnboarding) {
+                OnboardingReason.EXISTING_USER
+            } else {
+                OnboardingReason.NEW_USER
+            },
+        )
+    }
 
     private val onboardingStore by fragmentStore(OnboardingState()) {
         OnboardingStore(
