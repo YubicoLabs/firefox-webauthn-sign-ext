@@ -12,7 +12,9 @@
 #include "mozilla/Logging.h"
 #include "mozilla/Maybe.h"
 #include "mozilla/Mutex.h"
+#include "mozilla/RWLock.h"
 #include "mozilla/TimeStamp.h"
+#include "mozilla/Queue.h"
 
 #include "mozilla/UniquePtr.h"
 #include "mozilla/net/DashboardTypes.h"
@@ -276,7 +278,8 @@ class nsSocketTransportService final : public nsPISocketTransportService,
   //-------------------------------------------------------------------------
   // priority event queue - processed before normal event queue
   //-------------------------------------------------------------------------
-  AutoCleanLinkedList<LinkedRunnableEvent> mPriorityEventQueue;
+  Queue<RefPtr<nsIRunnable>> mPriorityEventQueue MOZ_GUARDED_BY(mQueueLock);
+  RWLock mQueueLock{"nsSocketTransportService::mQueueLock"};
 
   // Preference Monitor for SendBufferSize and Keepalive prefs.
   nsresult UpdatePrefs();

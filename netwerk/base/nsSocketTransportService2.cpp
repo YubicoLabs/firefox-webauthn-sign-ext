@@ -305,8 +305,11 @@ nsSocketTransportService::Dispatch(already_AddRefed<nsIRunnable> event,
 
   if (isHighPriority) {
     // Add to priority queue instead of dispatching to thread
-    auto* runnable = new LinkedRunnableEvent(event_ref);
-    mPriorityEventQueue.insertBack(runnable);
+    AutoWriteLock lock(mQueueLock);
+    mPriorityEventQueue.Push(event_ref.forget());
+    // We need to call OnDispatchedEvent to ensure that mPollableEvent
+    // gets signalled when an event is dispatched from another thread.
+    OnDispatchedEvent();
   } else {
     rv = thread->Dispatch(event_ref.forget(), flags | NS_DISPATCH_FALLIBLE);
   }
@@ -659,7 +662,10 @@ int32_t nsSocketTransportService::Poll(PRIntervalTime ts) {
   // DoPollIteration() should service the network without blocking.
   bool pendingEvents = false;
   mRawThread->HasPendingEvents(&pendingEvents);
-  pendingEvents = pendingEvents || !mPriorityEventQueue.isEmpty();
+  {
+    AutoReadLock lock(mQueueLock);
+    pendingEvents = pendingEvents || !mPriorityEventQueue.IsEmpty();
+  }
 
   if (mPollList[0].fd) {
     mPollList[0].out_flags = 0;
@@ -1210,14 +1216,16 @@ nsSocketTransportService::Run() {
 
       bool hadPriorityEvent = false;
       if (StaticPrefs::network_socket_prioritize_runnables()) {
-        while (LinkedRunnableEvent* runnable = mPriorityEventQueue.getFirst()) {
-          nsCOMPtr<nsIRunnable> event = runnable->TakeEvent();
-          runnable->remove();
-          delete runnable;
-          if (event) {
-            hadPriorityEvent = true;
-            event->Run();
-          }
+        Queue<RefPtr<nsIRunnable>> queue;
+        {
+          AutoWriteLock lock(mQueueLock);
+          queue = std::move(mPriorityEventQueue);
+        }
+
+        while (!queue.IsEmpty()) {
+          RefPtr<nsIRunnable> event = queue.Pop();
+          hadPriorityEvent = true;
+          event->Run();
         }
       }
 
@@ -1257,7 +1265,8 @@ nsSocketTransportService::Run() {
                  ((TimeStamp::NowLoRes() - eventQueueStart).ToMilliseconds() <
                   mMaxTimePerPollIter));
       }
-      pendingEvents = pendingEvents || !mPriorityEventQueue.isEmpty();
+      AutoReadLock lock(mQueueLock);
+      pendingEvents = pendingEvents || !mPriorityEventQueue.IsEmpty();
     } while (pendingEvents);
 
     bool goingOffline = false;
