@@ -16606,6 +16606,12 @@
   value: ""
   mirror: never
 
+# When true, fire an observer notification when filter lists finish loading.
+- name: privacy.trackingprotection.content.testing
+  type: bool
+  value: false
+  mirror: always
+
 # Enable the "baseline" allow-list for fixing severe site breakage (e.g. blank
 # page).
 - name: privacy.trackingprotection.allow_list.baseline.enabled
