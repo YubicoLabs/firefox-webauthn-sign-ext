@@ -10,7 +10,7 @@
  * that inject runtime context into static configurations.
  */
 
-import { getErrorConfig, isErrorSupported } from "./error-registry.mjs";
+import { getErrorConfig } from "./error-registry.mjs";
 
 /**
  * Map of error codes to their custom mappings.
@@ -35,16 +35,16 @@ export const CUSTOM_ERROR_CODE_MAP = {
 export function findSupportedErrorCode(errorInfo, gErrorCode, isOffline) {
   const defaultErrorCode = errorInfo?.errorCodeString ?? gErrorCode;
 
-  if (isErrorSupported(defaultErrorCode)) {
+  if (isFeltPrivacySupported(defaultErrorCode)) {
     return defaultErrorCode;
   }
 
-  if (isOffline && isErrorSupported("NS_ERROR_OFFLINE")) {
+  if (isOffline && isFeltPrivacySupported("NS_ERROR_OFFLINE")) {
     return "NS_ERROR_OFFLINE";
   }
 
   const customCode = CUSTOM_ERROR_CODE_MAP[defaultErrorCode];
-  if (customCode && isErrorSupported(customCode)) {
+  if (customCode && isFeltPrivacySupported(customCode)) {
     return customCode;
   }
 
