@@ -12,7 +12,9 @@ import org.mozilla.fenix.onboarding.OnboardingReason
 /**
  * [Middleware] for recording telemetry based on [PrivacyPreferencesAction]s.
  */
-class PrivacyPreferencesTelemetryMiddleware :
+class PrivacyPreferencesTelemetryMiddleware(
+    private val installSource: String,
+) :
     Middleware<PrivacyPreferencesState, PrivacyPreferencesAction> {
     override fun invoke(
         store: Store<PrivacyPreferencesState, PrivacyPreferencesAction>,
@@ -27,6 +29,7 @@ class PrivacyPreferencesTelemetryMiddleware :
                     Onboarding.PrivacyPreferencesModalCrashReportingEnabledExtra(
                         onboardingReason = OnboardingReason.NEW_USER.value,
                         value = action.enabled,
+                        installSource = installSource,
                     ),
                 )
 
@@ -35,6 +38,7 @@ class PrivacyPreferencesTelemetryMiddleware :
                     Onboarding.PrivacyPreferencesModalUsageDataEnabledExtra(
                         onboardingReason = OnboardingReason.NEW_USER.value,
                         value = action.enabled,
+                        installSource = installSource,
                     ),
                 )
 
@@ -42,6 +46,7 @@ class PrivacyPreferencesTelemetryMiddleware :
                 Onboarding.privacyPreferencesModalCrashReportingLearnMore.record(
                     extra = Onboarding.PrivacyPreferencesModalCrashReportingLearnMoreExtra(
                         onboardingReason = OnboardingReason.NEW_USER.value,
+                        installSource = installSource,
                     ),
                 )
 
@@ -49,6 +54,7 @@ class PrivacyPreferencesTelemetryMiddleware :
                 Onboarding.privacyPreferencesModalUsageDataLearnMore.record(
                     extra = Onboarding.PrivacyPreferencesModalUsageDataLearnMoreExtra(
                         onboardingReason = OnboardingReason.NEW_USER.value,
+                        installSource = installSource,
                     ),
                 )
 

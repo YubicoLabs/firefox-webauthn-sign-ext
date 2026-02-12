@@ -16,6 +16,7 @@ import org.mozilla.fenix.termsofuse.store.Surface
  */
 class OnboardingTelemetryRecorder(
     private val onboardingReason: OnboardingReason,
+    private val installSource: String,
 ) {
 
     /**
@@ -29,12 +30,14 @@ class OnboardingTelemetryRecorder(
                 sequenceId = sequenceId,
                 sequencePosition = sequencePosition,
                 onboardingReason = onboardingReason.value,
+                installSource = installSource,
             ),
         )
         Onboarding.dismissed.record(
             Onboarding.DismissedExtra(
                 method = "complete",
                 onboardingReason = onboardingReason.value,
+                installSource = installSource,
             ),
         )
         Pings.onboarding.submit()
@@ -47,6 +50,7 @@ class OnboardingTelemetryRecorder(
         Onboarding.started.record(
             extra = Onboarding.StartedExtra(
                 onboardingReason = onboardingReason.value,
+                installSource = installSource,
             ),
         )
     }
@@ -72,6 +76,7 @@ class OnboardingTelemetryRecorder(
                         sequenceId = sequenceId,
                         sequencePosition = sequencePosition,
                         onboardingReason = onboardingReason.value,
+                        installSource = installSource,
                     ),
                 )
             }
@@ -84,6 +89,7 @@ class OnboardingTelemetryRecorder(
                         sequenceId = sequenceId,
                         sequencePosition = sequencePosition,
                         onboardingReason = onboardingReason.value,
+                        installSource = installSource,
                     ),
                 )
             }
@@ -96,6 +102,7 @@ class OnboardingTelemetryRecorder(
                         sequenceId = sequenceId,
                         sequencePosition = sequencePosition,
                         onboardingReason = onboardingReason.value,
+                        installSource = installSource,
                     ),
                 )
             }
@@ -108,6 +115,7 @@ class OnboardingTelemetryRecorder(
                         sequenceId = sequenceId,
                         sequencePosition = sequencePosition,
                         onboardingReason = onboardingReason.value,
+                        installSource = installSource,
                     ),
                 )
             }
@@ -120,6 +128,7 @@ class OnboardingTelemetryRecorder(
                         sequenceId = sequenceId,
                         sequencePosition = sequencePosition,
                         onboardingReason = onboardingReason.value,
+                        installSource = installSource,
                     ),
                 )
             }
@@ -132,6 +141,7 @@ class OnboardingTelemetryRecorder(
                         sequenceId = sequenceId,
                         sequencePosition = sequencePosition,
                         onboardingReason = onboardingReason.value,
+                        installSource = installSource,
                     ),
                 )
             }
@@ -144,6 +154,7 @@ class OnboardingTelemetryRecorder(
                         sequenceId = sequenceId,
                         sequencePosition = sequencePosition,
                         onboardingReason = onboardingReason.value,
+                        installSource = installSource,
                     ),
                 )
             }
@@ -156,6 +167,7 @@ class OnboardingTelemetryRecorder(
                         sequenceId = sequenceId,
                         sequencePosition = sequencePosition,
                         onboardingReason = onboardingReason.value,
+                        installSource = installSource,
                     ),
                 )
             }
@@ -175,6 +187,7 @@ class OnboardingTelemetryRecorder(
                 sequenceId = sequenceId,
                 sequencePosition = sequencePosition,
                 onboardingReason = onboardingReason.value,
+                installSource = installSource,
             ),
         )
     }
@@ -192,6 +205,7 @@ class OnboardingTelemetryRecorder(
                 sequenceId = sequenceId,
                 sequencePosition = sequencePosition,
                 onboardingReason = onboardingReason.value,
+                installSource = installSource,
             ),
         )
     }
@@ -209,6 +223,7 @@ class OnboardingTelemetryRecorder(
                 sequenceId = sequenceId,
                 sequencePosition = sequencePosition,
                 onboardingReason = onboardingReason.value,
+                installSource = installSource,
             ),
         )
     }
@@ -226,6 +241,7 @@ class OnboardingTelemetryRecorder(
                 sequenceId = sequenceId,
                 sequencePosition = sequencePosition,
                 onboardingReason = onboardingReason.value,
+                installSource = installSource,
             ),
         )
     }
@@ -243,6 +259,7 @@ class OnboardingTelemetryRecorder(
                 sequenceId = sequenceId,
                 sequencePosition = sequencePosition,
                 onboardingReason = onboardingReason.value,
+                installSource = installSource,
             ),
         )
     }
@@ -260,6 +277,7 @@ class OnboardingTelemetryRecorder(
                 sequenceId = sequenceId,
                 sequencePosition = sequencePosition,
                 onboardingReason = onboardingReason.value,
+                installSource = installSource,
             ),
         )
     }
@@ -277,6 +295,7 @@ class OnboardingTelemetryRecorder(
                 sequenceId = sequenceId,
                 sequencePosition = sequencePosition,
                 onboardingReason = onboardingReason.value,
+                installSource = installSource,
             ),
         )
     }
@@ -294,6 +313,7 @@ class OnboardingTelemetryRecorder(
                 sequenceId = sequenceId,
                 sequencePosition = sequencePosition,
                 onboardingReason = onboardingReason.value,
+                installSource = installSource,
             ),
         )
     }
@@ -313,6 +333,7 @@ class OnboardingTelemetryRecorder(
                 sequencePosition = sequencePosition,
                 toolbarPlacement = toolbarPlacement,
                 onboardingReason = onboardingReason.value,
+                installSource = installSource,
             ),
         )
     }
@@ -331,6 +352,7 @@ class OnboardingTelemetryRecorder(
                 sequenceId = sequenceId,
                 sequencePosition = sequencePosition,
                 onboardingReason = onboardingReason.value,
+                installSource = installSource,
             ),
         )
     }
@@ -348,6 +370,7 @@ class OnboardingTelemetryRecorder(
                 sequenceId = sequenceId,
                 sequencePosition = sequencePosition,
                 onboardingReason = onboardingReason.value,
+                installSource = installSource,
             ),
         )
     }
@@ -359,6 +382,7 @@ class OnboardingTelemetryRecorder(
         Onboarding.termsOfServiceLinkClicked.record(
             extra = Onboarding.TermsOfServiceLinkClickedExtra(
                 onboardingReason = onboardingReason.value,
+                installSource = installSource,
             ),
         )
     }
@@ -370,6 +394,7 @@ class OnboardingTelemetryRecorder(
         Onboarding.termsOfServicePrivacyNoticeLinkClicked.record(
             extra = Onboarding.TermsOfServicePrivacyNoticeLinkClickedExtra(
                 onboardingReason = onboardingReason.value,
+                installSource = installSource,
             ),
         )
     }
@@ -381,6 +406,7 @@ class OnboardingTelemetryRecorder(
         Onboarding.termsOfServiceManageLinkClicked.record(
             extra = Onboarding.TermsOfServiceManageLinkClickedExtra(
                 onboardingReason = onboardingReason.value,
+                installSource = installSource,
             ),
         )
     }
@@ -392,11 +418,13 @@ class OnboardingTelemetryRecorder(
         Onboarding.shown.record(
             extra = Onboarding.ShownExtra(
                 onboardingReason = onboardingReason.value,
+                installSource = installSource,
             ),
         )
         Onboarding.termsOfServiceAccepted.record(
             extra = Onboarding.TermsOfServiceAcceptedExtra(
                 onboardingReason = onboardingReason.value,
+                installSource = installSource,
             ),
         )
         TermsOfUse.accepted.record(
@@ -418,6 +446,7 @@ class OnboardingTelemetryRecorder(
             Onboarding.MarketingDataContinueClickedExtra(
                 optIn = optIn,
                 onboardingReason = onboardingReason.value,
+                installSource = installSource,
             ),
         )
     }
@@ -428,6 +457,7 @@ class OnboardingTelemetryRecorder(
     fun onMarketingDataLearnMoreClick() = Onboarding.marketingDataLearnMore.record(
         extra = Onboarding.MarketingDataLearnMoreExtra(
             onboardingReason = onboardingReason.value,
+            installSource = installSource,
         ),
     )
 
@@ -440,6 +470,7 @@ class OnboardingTelemetryRecorder(
             Onboarding.MarketingDataOptInToggledExtra(
                 optIn = optIn,
                 onboardingReason = onboardingReason.value,
+                installSource = installSource,
             ),
         )
     }

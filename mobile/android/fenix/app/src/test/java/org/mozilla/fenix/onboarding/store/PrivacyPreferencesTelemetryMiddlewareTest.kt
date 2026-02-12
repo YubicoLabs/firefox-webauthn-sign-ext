@@ -30,7 +30,7 @@ class PrivacyPreferencesTelemetryMiddlewareTest {
     @Before
     fun setup() {
         MockitoAnnotations.openMocks(this)
-        middleware = PrivacyPreferencesTelemetryMiddleware()
+        middleware = PrivacyPreferencesTelemetryMiddleware(installSource = "installPackage")
     }
 
     @Test

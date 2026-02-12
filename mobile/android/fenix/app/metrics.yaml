@@ -986,6 +986,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1933175
     data_reviews:
@@ -1011,6 +1014,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1933175
     data_reviews:
@@ -1033,6 +1039,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1943588
     data_reviews:
@@ -1055,6 +1064,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1943588
     data_reviews:
@@ -1078,6 +1090,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/10824
     data_reviews:
@@ -1105,6 +1120,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/26551
     data_reviews:
@@ -1129,6 +1147,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/26551
     data_reviews:
@@ -1154,6 +1175,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/26551
     data_reviews:
@@ -1178,6 +1202,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/26551
     data_reviews:
@@ -1202,6 +1229,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/26551
     data_reviews:
@@ -1227,6 +1257,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/26551
     data_reviews:
@@ -1251,6 +1284,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://github.com/mozilla-mobile/fenix/issues/26551
     data_reviews:
@@ -1291,6 +1327,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1821726
     data_reviews:
@@ -1331,6 +1370,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1821726
     data_reviews:
@@ -1371,6 +1413,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1821726
     data_reviews:
@@ -1411,6 +1456,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1933253
     data_reviews:
@@ -1434,6 +1482,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1933253
     data_reviews:
@@ -1457,6 +1508,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1933253
     data_reviews:
@@ -1480,6 +1534,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1933253
     data_reviews:
@@ -1503,6 +1560,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1933253
     data_reviews:
@@ -1542,6 +1602,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1926956
     data_sensitivity:
@@ -1581,6 +1644,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1926955
     data_reviews:
@@ -1620,6 +1686,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1821726
     data_reviews:
@@ -1660,6 +1729,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1821726
     data_reviews:
@@ -1700,6 +1772,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1821726
     data_reviews:
@@ -1740,6 +1815,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1821726
     data_reviews:
@@ -1780,6 +1858,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1821726
     data_reviews:
@@ -1820,6 +1901,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1821726
     data_reviews:
@@ -1860,6 +1944,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1848960
     data_reviews:
@@ -1900,6 +1987,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1848960
     data_reviews:
@@ -1940,6 +2030,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1848960
     data_reviews:
@@ -1984,6 +2077,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1926956
     data_reviews:
@@ -2023,6 +2119,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1935222
     data_reviews:
@@ -2062,6 +2161,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1821726
     data_reviews:
@@ -2094,6 +2196,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1821726
     data_reviews:
@@ -2118,6 +2223,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1872968
     data_reviews:
@@ -2141,6 +2249,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2010810
     data_reviews:
@@ -2168,6 +2279,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=2010810
     data_reviews:
@@ -2195,6 +2309,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1930758
     data_reviews:
@@ -2232,6 +2349,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1930758
     data_reviews:
@@ -2255,6 +2375,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1930758
     data_reviews:
@@ -2275,6 +2398,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1943588
     data_reviews:
@@ -2302,6 +2428,9 @@ onboarding:
       onboarding_reason:
         type: string
         description: The reason the user is being onboarded.
+      install_source:
+        type: string
+        description: The source of installation.
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1951909
     data_reviews:
