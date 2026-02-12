@@ -131,6 +131,11 @@ class StructuredCloneHolderBase {
   bool Read(JSContext* aCx, JS::MutableHandle<JS::Value> aValue,
             const JS::CloneDataPolicy& aCloneDataPolicy);
 
+  // Directly adopt a pre-existing data buffer which was previously serialized
+  // elsewhere using this data structure.
+  // The StructuredCloneScope of this holder must match the passed-in data.
+  void Adopt(JSStructuredCloneData&& aData);
+
   bool HasData() const { return !!mBuffer; }
 
   JSStructuredCloneData& BufferData() const {

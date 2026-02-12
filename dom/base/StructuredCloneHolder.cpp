@@ -300,7 +300,7 @@ bool StructuredCloneHolderBase::Write(
   }
 
   // Let's update our scope to the final one. The new one could be more
-  // restrictive of the current one.
+  // restrictive than the current one.
   MOZ_ASSERT(mStructuredCloneScope >= mBuffer->scope());
   mStructuredCloneScope = mBuffer->scope();
   return true;
@@ -320,6 +320,21 @@ bool StructuredCloneHolderBase::Read(
   bool ok = mBuffer->read(aCx, aValue, aCloneDataPolicy,
                           &StructuredCloneHolder::sCallbacks, this);
   return ok;
+}
+
+void StructuredCloneHolderBase::Adopt(JSStructuredCloneData&& aData) {
+  MOZ_ASSERT(!mBuffer, "Double Adopt is not allowed");
+  MOZ_ASSERT(!mClearCalled, "This method cannot be called after Clear.");
+
+  mBuffer = MakeUnique<JSAutoStructuredCloneBuffer>(
+      mStructuredCloneScope, &StructuredCloneHolder::sCallbacks, this);
+  mBuffer->adopt(std::move(aData), JS_STRUCTURED_CLONE_VERSION,
+                 &StructuredCloneHolder::sCallbacks, this);
+
+  // Let's update our scope to the final one. The new one could be more
+  // restrictive than the current one.
+  MOZ_ASSERT(mStructuredCloneScope >= mBuffer->scope());
+  mStructuredCloneScope = mBuffer->scope();
 }
 
 bool StructuredCloneHolderBase::CustomReadTransferHandler(
