@@ -499,10 +499,15 @@ this.browserAction = class extends ExtensionAPIPersistent {
       return;
     }
 
-    // We want to focus hidden or minimized windows (both for the API, and to
-    // avoid an issue where showing the popup in a non-focused window
-    // immediately triggers a popuphidden event)
-    window.focus();
+    if (Services.focus.activeWindow !== window) {
+      // We should not get here - action.openPopup() should enforce that the
+      // window is not focused, and other callers are in response to user
+      // interaction.
+      this.extension.logger.warn(
+        "Refused to open action popup for non-focused window"
+      );
+      return;
+    }
 
     const toolbarButton = widgetForWindow.node.querySelector(
       ".unified-extensions-item-action-button"
@@ -1099,6 +1104,18 @@ this.browserAction = class extends ExtensionAPIPersistent {
             typeof options?.windowId === "number"
               ? windowTracker.getWindow(options.windowId, context)
               : windowTracker.getTopNormalWindow(context);
+
+          if (
+            // Ideally this should match the windows.Window.focused definition,
+            // which uses document.hasFocus(), but for some reason hasFocus()
+            // can be false despite the window being focused. This was observed
+            // while running test_ext_action_openPopup_multiple.html with
+            // --tag=in-process-webextensions.
+            Services.focus.activeWindow !== window ||
+            window.windowState === window.STATE_MINIMIZED
+          ) {
+            throw new ExtensionError(BrowserActionBase.ERROR_WIN_NOT_FOCUSED);
+          }
 
           if (action.getPopupUrl(window.gBrowser.selectedTab, true)) {
             action.throwIfOpenPopupIsBlockedByAnyAction(window);
