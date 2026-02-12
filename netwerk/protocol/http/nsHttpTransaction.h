@@ -194,6 +194,7 @@ class nsHttpTransaction final : public nsAHttpTransaction,
   uint64_t ChannelId() { return mChannelId; }
 
   void SetIsTRRTransaction() override { mIsTRRTransaction = true; }
+  bool IsTRRTransaction() { return mIsTRRTransaction; }
 
  private:
   friend class DeleteHttpTransaction;
@@ -314,13 +315,18 @@ class nsHttpTransaction final : public nsAHttpTransaction,
   }
 
  private:
-  class UpdateSecurityCallbacks : public Runnable {
+  class UpdateSecurityCallbacks : public Runnable, public nsIRunnablePriority {
    public:
     UpdateSecurityCallbacks(nsHttpTransaction* aTrans,
-                            nsIInterfaceRequestor* aCallbacks)
+                            nsIInterfaceRequestor* aCallbacks,
+                            uint32_t aPriority)
         : Runnable("net::nsHttpTransaction::UpdateSecurityCallbacks"),
           mTrans(aTrans),
-          mCallbacks(aCallbacks) {}
+          mCallbacks(aCallbacks),
+          mPriority(aPriority) {}
+
+    NS_DECL_ISUPPORTS_INHERITED
+    NS_DECL_NSIRUNNABLEPRIORITY
 
     NS_IMETHOD Run() override {
       if (mTrans->mConnection) {
@@ -330,8 +336,11 @@ class nsHttpTransaction final : public nsAHttpTransaction,
     }
 
    private:
+    virtual ~UpdateSecurityCallbacks() = default;
+
     RefPtr<nsHttpTransaction> mTrans;
     nsCOMPtr<nsIInterfaceRequestor> mCallbacks;
+    uint32_t mPriority;
   };
 
   Mutex mLock MOZ_UNANNOTATED{"transaction lock"};

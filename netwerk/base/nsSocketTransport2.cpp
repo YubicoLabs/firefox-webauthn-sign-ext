@@ -81,7 +81,7 @@ static NS_DEFINE_CID(kDNSServiceCID, NS_DNSSERVICE_CID);
 namespace mozilla {
 namespace net {
 
-class nsSocketEvent : public Runnable {
+class nsSocketEvent : public Runnable, public nsIRunnablePriority {
  public:
   nsSocketEvent(nsSocketTransport* transport, uint32_t type,
                 nsresult status = NS_OK, nsISupports* param = nullptr,
@@ -93,12 +93,17 @@ class nsSocketEvent : public Runnable {
         mParam(param),
         mTask(std::move(task)) {}
 
+  NS_DECL_ISUPPORTS_INHERITED
+  NS_DECL_NSIRUNNABLEPRIORITY
+
   NS_IMETHOD Run() override {
     mTransport->OnSocketEvent(mType, mStatus, mParam, std::move(mTask));
     return NS_OK;
   }
 
  private:
+  virtual ~nsSocketEvent() = default;
+
   RefPtr<nsSocketTransport> mTransport;
 
   uint32_t mType;
@@ -106,6 +111,18 @@ class nsSocketEvent : public Runnable {
   nsCOMPtr<nsISupports> mParam;
   std::function<void()> mTask;
 };
+
+NS_IMPL_ISUPPORTS_INHERITED(nsSocketEvent, Runnable, nsIRunnablePriority)
+
+NS_IMETHODIMP
+nsSocketEvent::GetPriority(uint32_t* aPriority) {
+  if (mTransport->IsTRRConnection()) {
+    *aPriority = nsIRunnablePriority::PRIORITY_MEDIUMHIGH;
+  } else {
+    *aPriority = nsIRunnablePriority::PRIORITY_NORMAL;
+  }
+  return NS_OK;
+}
 
 //-----------------------------------------------------------------------------
 

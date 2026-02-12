@@ -91,7 +91,9 @@ class nsHttpConnectionMgr final : public HttpConnectionMgrShell,
   [[nodiscard]] nsresult RemoveIdleConnection(nsHttpConnection*);
 
   // Close a single connection and prevent it from being reused.
-  [[nodiscard]] nsresult DoSingleConnectionCleanup(nsHttpConnectionInfo*);
+  [[nodiscard]] nsresult DoSingleConnectionCleanup(
+      nsHttpConnectionInfo*,
+      uint32_t aPriority = nsIRunnablePriority::PRIORITY_NORMAL);
 
   // The connection manager needs to know when a normal HTTP connection has been
   // upgraded to SPDY because the dispatch and idle semantics are a little
@@ -314,9 +316,10 @@ class nsHttpConnectionMgr final : public HttpConnectionMgrShell,
                             ConnectionEntry* ent, HttpConnectionBase* connH2,
                             HttpConnectionBase* connH3);
   // used to marshall events to the socket transport thread.
-  [[nodiscard]] nsresult PostEvent(nsConnEventHandler handler,
-                                   int32_t iparam = 0,
-                                   ARefBase* vparam = nullptr);
+  [[nodiscard]] nsresult PostEvent(
+      nsConnEventHandler handler, int32_t iparam = 0,
+      ARefBase* vparam = nullptr,
+      uint32_t priority = nsIRunnablePriority::PRIORITY_NORMAL);
 
   void OnMsgReclaimConnection(HttpConnectionBase*);
 
