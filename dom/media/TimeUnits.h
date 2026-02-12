@@ -233,15 +233,10 @@ class TimeUnit final {
     double approx = static_cast<double>(mTicks.value()) *
                     static_cast<double>(aTargetBase) /
                     static_cast<double>(mBase);
-    double rounded = RoundingPolicy::policy(approx);
     double integer;
     aOutError = modf(approx, &integer);
-    if (rounded < static_cast<double>(INT64_MIN) ||
-        rounded > static_cast<double>(INT64_MAX)) {
-      aOutError = approx - integer;
-      return TimeUnit::Invalid();
-    }
-    return TimeUnit(mozilla::AssertedCast<int64_t>(rounded), aTargetBase);
+    return TimeUnit(AssertedCast<int64_t>(RoundingPolicy::policy(approx)),
+                    aTargetBase);
   }
 
   bool IsValid() const;
