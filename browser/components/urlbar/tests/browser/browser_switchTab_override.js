@@ -151,7 +151,7 @@ add_task(async function test_switchtab_override_scotch_bonnet_for_split_view() {
   info("Opening and selecting second tab");
   let tab3 = await BrowserTestUtils.openNewForegroundTab(gBrowser);
 
-  gBrowser.addTabSplitView([tab2, tab3], { id: "1" });
+  gBrowser.addTabSplitView([tab2, tab3]);
   let tabbrowserTabs = document.getElementById("tabbrowser-tabs");
   await BrowserTestUtils.waitForMutationCondition(
     tabbrowserTabs,
@@ -207,7 +207,7 @@ add_task(async function test_move_tab_to_split_view_from_another_window() {
     tabbrowserTabs,
     "SplitViewCreated"
   );
-  let splitView = win2.gBrowser.addTabSplitView([tab2, tab3], { id: "1" });
+  let splitView = win2.gBrowser.addTabSplitView([tab2, tab3], { id: 1 });
   await splitViewCreated;
 
   info("Wait for autocomplete in second window");
@@ -294,7 +294,7 @@ add_task(async function test_move_tab_to_split_view_with_collapsed_group() {
     "SplitViewCreated"
   );
   let splitView = gBrowser.addTabSplitView([splitTab1, splitTab2], {
-    id: "1",
+    id: 1,
   });
   await splitViewCreated;
 
