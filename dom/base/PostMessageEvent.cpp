@@ -186,8 +186,8 @@ MOZ_CAN_RUN_SCRIPT_BOUNDARY NS_IMETHODIMP PostMessageEvent::Run() {
 
   StructuredCloneHolder* holder;
   if (mHolder.constructed<StructuredCloneHolder>()) {
-    mHolder.ref<StructuredCloneHolder>().Read(
-        targetWindow->AsGlobal(), cx, &messageData, cloneDataPolicy, rv);
+    mHolder.ref<StructuredCloneHolder>().Read(cx, &messageData, cloneDataPolicy,
+                                              rv);
     holder = &mHolder.ref<StructuredCloneHolder>();
   } else {
     MOZ_ASSERT(mHolder.constructed<ipc::StructuredCloneData>());

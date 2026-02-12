@@ -401,26 +401,10 @@ void StructuredCloneHolder::Read(JSContext* aCx,
   return Read(aCx, aValue, JS::CloneDataPolicy(), aRv);
 }
 
-void StructuredCloneHolder::Read(nsIGlobalObject* aGlobal, JSContext* aCx,
-                                 JS::MutableHandle<JS::Value> aValue,
-                                 ErrorResult& aRv) {
-  return Read(aGlobal, aCx, aValue, JS::CloneDataPolicy(), aRv);
-}
-
 void StructuredCloneHolder::Read(JSContext* aCx,
                                  JS::MutableHandle<JS::Value> aValue,
                                  const JS::CloneDataPolicy& aCloneDataPolicy,
                                  ErrorResult& aRv) {
-  return Read(xpc::CurrentNativeGlobal(aCx), aCx, aValue, aCloneDataPolicy,
-              aRv);
-}
-
-void StructuredCloneHolder::Read(nsIGlobalObject* aGlobal, JSContext* aCx,
-                                 JS::MutableHandle<JS::Value> aValue,
-                                 const JS::CloneDataPolicy& aCloneDataPolicy,
-                                 ErrorResult& aRv) {
-  MOZ_ASSERT(aGlobal);
-
   auto errorMessageGuard = MakeScopeExit([&] { mErrorMessage.Truncate(); });
 
   if (!StructuredCloneHolderBase::Read(aCx, aValue, aCloneDataPolicy)) {
