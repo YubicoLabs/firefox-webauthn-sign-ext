@@ -158,13 +158,23 @@ export class NetErrorCard extends MozLitElement {
   }
 
   init() {
-    document.l10n.setAttributes(
-      document.querySelector("title"),
-      "fp-certerror-page-title"
-    );
-
     this.errorInfo = this.getErrorInfo();
     this.hideExceptionButton = this.shouldHideExceptionButton();
+
+    const errorCode = this.errorInfo.errorCodeString;
+    const config = getResolvedErrorConfig(errorCode, {
+      hostname: this.hostname,
+      errorInfo: this.errorInfo,
+    });
+
+    const titles = {
+      net: "neterror-page-title",
+      blocked: "neterror-blocked-by-policy-page-title",
+    };
+    document.l10n.setAttributes(
+      document.querySelector("title"),
+      titles[config.category] ?? "fp-certerror-page-title"
+    );
 
     // Record telemetry when the error page loads
     if (gIsCertError && !isCaptive()) {
