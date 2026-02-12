@@ -807,7 +807,6 @@ add_task(async function test_rust_mirror_addLogin_failure_with_time_metrics() {
   });
 
   await Services.logins.addLoginAsync(badLogin);
-
   const allLoginsJson = await Services.logins.getAllLogins();
   Assert.equal(
     allLoginsJson.length,
@@ -856,6 +855,79 @@ add_task(async function test_rust_mirror_addLogin_failure_with_time_metrics() {
     created.getUTCDate(),
     1,
     "time_created is bucketed to month (UTC)"
+  );
+
+  LoginTestUtils.clearData();
+  await SpecialPowers.flushPrefEnv();
+});
+
+/*
+ * Tests that we record has_ftp_origin telemetry when adding a login with an
+ * FTP origin fails in the Rust mirror.
+ */
+add_task(async function test_rust_mirror_addLogin_failure_has_ftp_origin() {
+  // ensure mirror is on, and reset poisoned flag
+  await SpecialPowers.pushPrefEnv({
+    set: [
+      ["signon.rustMirror.enabled", true],
+      ["signon.rustMirror.poisoned", false],
+    ],
+  });
+
+  Services.fog.testResetFOG();
+
+  const waitForGleanEvent = BrowserTestUtils.waitForCondition(
+    () => Glean.pwmgr.rustMirrorStatus.testGetValue()?.length == 1,
+    "rust_mirror_status event has been emitted"
+  );
+
+  // This login will be accepted by JSON but rejected by Rust,
+  // and contains an FTP origin.
+  const badLogin = LoginTestUtils.testData.formLogin({
+    origin: "ftp.",
+    passwordField: ".",
+  });
+
+  await Services.logins.addLoginAsync(badLogin);
+  await waitForGleanEvent;
+
+  // Sanity check: login exists in JSON storage
+  const allLoginsJson = await Services.logins.getAllLogins();
+  Assert.equal(
+    allLoginsJson.length,
+    1,
+    "FTP origin login saved to JSON storage"
+  );
+
+  // Sanity check: login was not saved to Rust storage
+  const rustStorage = new LoginManagerRustStorage();
+  const allLoginsRust = await rustStorage.getAllLogins();
+  Assert.equal(
+    allLoginsRust.length,
+    0,
+    "FTP origin login not saved to Rust storage"
+  );
+
+  // Check rust mirror status telemetry
+  const [statusEvt] = Glean.pwmgr.rustMirrorStatus.testGetValue();
+  Assert.equal(
+    statusEvt.extra?.operation,
+    "add",
+    "rust_mirror_status event has operation=add"
+  );
+  Assert.equal(
+    statusEvt.extra?.status,
+    "failure",
+    "rust_mirror_status event has status=failure"
+  );
+
+  // Check rust write failure telemetry
+  const [failureEvt] = Glean.pwmgr.rustWriteFailure.testGetValue();
+
+  Assert.equal(
+    failureEvt.extra?.has_ftp_origin,
+    "true",
+    "has_ftp_origin is recorded for FTP origin failures"
   );
 
   LoginTestUtils.clearData();

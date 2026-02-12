@@ -977,6 +977,10 @@ pwmgr:
         description: >
           Whether the login to add/modify/remove has a punycode form_action_origin
         type: boolean
+      has_ftp_origin:
+        description: >
+          Whether the login origin string contains indications of an FTP scheme
+        type: boolean
       has_empty_password:
         description: >
           Whether the login to add/modify/remove has an empty password

@@ -160,6 +160,14 @@ function roundToMonthUTC(timestampMs) {
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1, 0, 0, 0, 0);
 }
 
+function isFtpOrigin(origin) {
+  if (!origin || typeof origin !== "string") {
+    return false;
+  }
+
+  return origin.toLowerCase().includes("ftp");
+}
+
 function recordMirrorFailure(runId, operation, error, login = null) {
   // lookup poisoned status
   const poisoned = Services.prefs.getBoolPref(
@@ -185,6 +193,8 @@ function recordMirrorFailure(runId, operation, error, login = null) {
     has_punycode_origin: false,
     has_punycode_form_action_origin: false,
 
+    has_ftp_origin: false,
+
     has_empty_password: false,
     has_username_line_break: false,
     has_username_nul: false,
@@ -208,6 +218,8 @@ function recordMirrorFailure(runId, operation, error, login = null) {
     data.has_punycode_form_action_origin = isPunycodeOrigin(
       login.formActionOrigin
     );
+
+    data.has_ftp_origin = isFtpOrigin(login.origin);
 
     data.has_empty_password = !login.password;
     data.has_username_line_break = containsLineBreaks(login.username);
