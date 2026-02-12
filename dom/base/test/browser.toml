@@ -206,6 +206,12 @@ support-files = [
   "file_js_cache_dyn_imported3.mjs",
 ]
 
+["browser_script_loader_js_cache_memory_pressure.js"]
+support-files = [
+  "empty.html",
+  "file_js_cache_large.js",
+]
+
 ["browser_script_loader_js_cache_module.js"]
 support-files = [
   "empty.html",
