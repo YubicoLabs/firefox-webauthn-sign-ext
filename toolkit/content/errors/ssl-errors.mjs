@@ -60,4 +60,46 @@ export const SSL_ERRORS = [
     hasNoUserFix: false,
     checkNSSFailure: true,
   },
+  {
+    errorCode: "SSL_ERROR_RX_MALFORMED_HANDSHAKE",
+    category: "cert",
+    pageTitleL10nId: "nssFailure2-title",
+    bodyTitleL10nId: "nssFailure2-title",
+    introContent: {
+      id: "fp-neterror-connection-intro",
+      args: { hostname: null },
+    },
+    buttons: {
+      showTryAgain: true,
+      showGoBack: true,
+      showAdvanced: true,
+      showAddException: false,
+    },
+    advanced: {
+      whyDangerousL10nId: "ssl-error-rx-malformed-handshake",
+      learnMoreSupportPage: "connection-not-secure",
+    },
+    hasNoUserFix: true,
+  },
+  {
+    errorCode: "SSL_ERROR_UNSUPPORTED_VERSION",
+    category: "cert",
+    pageTitleL10nId: "nssFailure2-title",
+    bodyTitleL10nId: "nssFailure2-title",
+    introContent: {
+      id: "fp-neterror-connection-intro",
+      args: { hostname: null },
+    },
+    buttons: {
+      showTryAgain: true,
+      showGoBack: true,
+      showAdvanced: true,
+      showAddException: false,
+    },
+    advanced: {
+      whyDangerousL10nId: "ssl-error-unsupported-version",
+      learnMoreSupportPage: "connection-not-secure",
+    },
+    hasNoUserFix: true,
+  },
 ];
