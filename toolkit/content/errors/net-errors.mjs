@@ -109,11 +109,17 @@ export const NET_ERRORS = [
       showAdvanced: true,
     },
     advanced: {
-      whyDangerousL10nId: "fp-neterror-http-auth-disabled-why-dangerous-body",
-      whyDangerousL10nArgs: { hostname: null },
-      whatCanYouDoL10nId: "fp-neterror-http-auth-disabled-what-can-you-do-body",
-      learnMoreL10nId: "fp-learn-more-about-https-connections",
-      learnMoreSupportPage: HTTPS_UPGRADES_MDN_DOCS,
+      whyDangerous: {
+        dataL10nId: "fp-neterror-http-auth-disabled-why-dangerous-body",
+        dataL10nArgs: { hostname: null },
+      },
+      whatCanYouDo: {
+        dataL10nId: "fp-neterror-http-auth-disabled-what-can-you-do-body",
+      },
+      learnMore: {
+        dataL10nId: "fp-learn-more-about-https-connections",
+        supportPage: HTTPS_UPGRADES_MDN_DOCS,
+      },
     },
     hasNoUserFix: false,
   },
@@ -153,32 +159,12 @@ export const NET_ERRORS = [
       showAddException: true,
     },
     advanced: {
-      whyDangerousResolver: context => {
-        // For HSTS sites, we don't need detailed "why dangerous" since we'll
-        // explain the HSTS policy in "what can you do"
-        // For all cases, use generic cert invalid message since we don't know
-        // the specific error (nssBadCert is a fallback when specific code unavailable)
-        return {
-          dataL10nId: "fp-certerror-invalid-cert-why-dangerous",
-          dataL10nArgs: { hostname: context.hostname },
-        };
+      whyDangerous: "nssBadCertWhyDangerous",
+      whatCanYouDo: "nssBadCertWhatCanYouDo",
+      learnMore: {
+        dataL10nId: "fp-learn-more-about-cert-issues",
+        supportPage: "connection-not-secure",
       },
-      whatCanYouDoResolver: context => {
-        // For HSTS sites (badStsCert), explain why exceptions can't be added
-        if (context.cssClass === "badStsCert") {
-          return {
-            dataL10nId: "certerror-what-should-i-do-bad-sts-cert-explanation",
-            dataL10nArgs: { hostname: context.hostname },
-          };
-        }
-        // For other cases, provide generic advice
-        return {
-          dataL10nId: "fp-certerror-unknown-issuer-what-can-you-do-body",
-          dataL10nArgs: {},
-        };
-      },
-      learnMoreL10nId: "fp-learn-more-about-cert-issues",
-      learnMoreSupportPage: "connection-not-secure",
       showViewCertificate: true,
       showDateTime: true,
     },
@@ -543,10 +529,16 @@ export const NET_ERRORS = [
       showAdvanced: true,
     },
     advanced: {
-      whyDangerousL10nId: "cert-error-mitm-connection",
-      whatCanYouDoL10nId: "certerror-mitm-what-can-you-do-about-it-antivirus",
-      learnMoreL10nId: "fp-learn-more-about-cert-issues",
-      learnMoreSupportPage: "connection-not-secure",
+      whyDangerous: {
+        dataL10nId: "cert-error-mitm-connection",
+      },
+      whatCanYouDo: {
+        dataL10nId: "certerror-mitm-what-can-you-do-about-it-antivirus",
+      },
+      learnMore: {
+        dataL10nId: "fp-learn-more-about-cert-issues",
+        supportPage: "connection-not-secure",
+      },
     },
     hasNoUserFix: false,
     checkMitm: true,

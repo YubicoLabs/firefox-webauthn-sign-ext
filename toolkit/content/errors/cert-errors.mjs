@@ -23,10 +23,16 @@ export const CERT_ERRORS = [
       showAddException: true,
     },
     advanced: {
-      whyDangerousL10nId: "fp-certerror-unknown-issuer-why-dangerous-body",
-      whatCanYouDoL10nId: "fp-certerror-unknown-issuer-what-can-you-do-body",
-      learnMoreL10nId: "fp-learn-more-about-cert-issues",
-      learnMoreSupportPage: "connection-not-secure",
+      whyDangerous: {
+        dataL10nId: "fp-certerror-unknown-issuer-why-dangerous-body",
+      },
+      whatCanYouDo: {
+        dataL10nId: "fp-certerror-unknown-issuer-what-can-you-do-body",
+      },
+      learnMore: {
+        dataL10nId: "fp-learn-more-about-cert-issues",
+        supportPage: "connection-not-secure",
+      },
       showViewCertificate: true,
       showDateTime: true,
     },
@@ -48,11 +54,17 @@ export const CERT_ERRORS = [
       showAddException: true,
     },
     advanced: {
-      whyDangerousL10nId: "fp-certerror-untrusted-issuer-why-dangerous-body",
-      whyDangerousL10nArgs: { hostname: null },
-      whatCanYouDoL10nId: "fp-certerror-untrusted-issuer-what-can-you-do-body",
-      learnMoreL10nId: "fp-learn-more-about-cert-issues",
-      learnMoreSupportPage: "connection-not-secure",
+      whyDangerous: {
+        dataL10nId: "fp-certerror-untrusted-issuer-why-dangerous-body",
+        dataL10nArgs: { hostname: null },
+      },
+      whatCanYouDo: {
+        dataL10nId: "fp-certerror-untrusted-issuer-what-can-you-do-body",
+      },
+      learnMore: {
+        dataL10nId: "fp-learn-more-about-cert-issues",
+        supportPage: "connection-not-secure",
+      },
       showViewCertificate: true,
     },
     hasNoUserFix: true,
@@ -72,25 +84,15 @@ export const CERT_ERRORS = [
       showAddException: true,
     },
     advanced: {
-      whyDangerousResolver: context => {
-        const { errorInfo } = context;
-        const isNotYetValid =
-          errorInfo?.validNotBefore && Date.now() < errorInfo?.validNotBefore;
-        return errorInfo
-          ? {
-              dataL10nId: "fp-certerror-expired-why-dangerous-body",
-              dataL10nArgs: {
-                date: isNotYetValid
-                  ? errorInfo.validNotBefore
-                  : errorInfo.validNotAfter,
-              },
-            }
-          : null;
+      whyDangerous: "expiredCertWhyDangerous",
+      whatCanYouDo: {
+        dataL10nId: "fp-certerror-expired-what-can-you-do-body",
+        dataL10nArgs: { date: null },
       },
-      whatCanYouDoL10nId: "fp-certerror-expired-what-can-you-do-body",
-      whatCanYouDoL10nArgs: { date: null },
-      learnMoreL10nId: "fp-learn-more-about-time-related-errors",
-      learnMoreSupportPage: "time-errors",
+      learnMore: {
+        dataL10nId: "fp-learn-more-about-time-related-errors",
+        supportPage: "time-errors",
+      },
       showViewCertificate: true,
       showDateTime: true,
     },
@@ -112,19 +114,15 @@ export const CERT_ERRORS = [
       showAddException: true,
     },
     advanced: {
-      whyDangerousResolver: context =>
-        context.errorInfo
-          ? {
-              dataL10nId: "fp-certerror-expired-why-dangerous-body",
-              dataL10nArgs: { date: context.errorInfo.validNotAfter },
-            }
-          : null,
-      whyDangerousL10nId: "fp-certerror-expired-why-dangerous-body",
-      whyDangerousL10nArgs: { date: null },
-      whatCanYouDoL10nId: "fp-certerror-expired-what-can-you-do-body",
-      whatCanYouDoL10nArgs: { date: null },
-      learnMoreL10nId: "fp-learn-more-about-time-related-errors",
-      learnMoreSupportPage: "time-errors",
+      whyDangerous: "expiredIssuerWhyDangerous",
+      whatCanYouDo: {
+        dataL10nId: "fp-certerror-expired-what-can-you-do-body",
+        dataL10nArgs: { date: null },
+      },
+      learnMore: {
+        dataL10nId: "fp-learn-more-about-time-related-errors",
+        supportPage: "time-errors",
+      },
       showViewCertificate: true,
       showDateTime: true,
     },
@@ -145,11 +143,17 @@ export const CERT_ERRORS = [
       showAddException: false,
     },
     advanced: {
-      whyDangerousL10nId: "fp-certerror-revoked-why-dangerous-body",
-      whyDangerousL10nArgs: { hostname: null },
-      whatCanYouDoL10nId: "fp-certerror-revoked-what-can-you-do-body",
-      learnMoreL10nId: "fp-learn-more-about-cert-issues",
-      learnMoreSupportPage: "connection-not-secure",
+      whyDangerous: {
+        dataL10nId: "fp-certerror-revoked-why-dangerous-body",
+        dataL10nArgs: { hostname: null },
+      },
+      whatCanYouDo: {
+        dataL10nId: "fp-certerror-revoked-what-can-you-do-body",
+      },
+      learnMore: {
+        dataL10nId: "fp-learn-more-about-cert-issues",
+        supportPage: "connection-not-secure",
+      },
       showViewCertificate: true,
     },
     hasNoUserFix: true,
@@ -171,7 +175,9 @@ export const CERT_ERRORS = [
     },
     advanced: {
       titleL10nId: "fp-certerror-body-title",
-      whyDangerousL10nId: "sec-error-bad-der",
+      whyDangerous: {
+        dataL10nId: "sec-error-bad-der",
+      },
     },
     hasNoUserFix: true,
   },
@@ -191,7 +197,9 @@ export const CERT_ERRORS = [
     },
     advanced: {
       titleL10nId: "fp-certerror-body-title",
-      whyDangerousL10nId: "sec-error-bad-signature",
+      whyDangerous: {
+        dataL10nId: "sec-error-bad-signature",
+      },
     },
     hasNoUserFix: true,
   },
@@ -211,7 +219,9 @@ export const CERT_ERRORS = [
     },
     advanced: {
       titleL10nId: "fp-certerror-body-title",
-      whyDangerousL10nId: "sec-error-cert-not-in-name-space",
+      whyDangerous: {
+        dataL10nId: "sec-error-cert-not-in-name-space",
+      },
     },
     hasNoUserFix: true,
   },
@@ -231,7 +241,9 @@ export const CERT_ERRORS = [
     },
     advanced: {
       titleL10nId: "fp-certerror-body-title",
-      whyDangerousL10nId: "sec-error-extension-value-invalid",
+      whyDangerous: {
+        dataL10nId: "sec-error-extension-value-invalid",
+      },
     },
     hasNoUserFix: true,
   },
@@ -251,7 +263,9 @@ export const CERT_ERRORS = [
     },
     advanced: {
       titleL10nId: "fp-certerror-body-title",
-      whyDangerousL10nId: "sec-error-inadequate-cert-type",
+      whyDangerous: {
+        dataL10nId: "sec-error-inadequate-cert-type",
+      },
     },
     hasNoUserFix: true,
   },
@@ -271,7 +285,9 @@ export const CERT_ERRORS = [
     },
     advanced: {
       titleL10nId: "fp-certerror-body-title",
-      whyDangerousL10nId: "sec-error-inadequate-key-usage",
+      whyDangerous: {
+        dataL10nId: "sec-error-inadequate-key-usage",
+      },
     },
     hasNoUserFix: true,
   },
@@ -291,7 +307,9 @@ export const CERT_ERRORS = [
     },
     advanced: {
       titleL10nId: "fp-certerror-body-title",
-      whyDangerousL10nId: "sec-error-invalid-key",
+      whyDangerous: {
+        dataL10nId: "sec-error-invalid-key",
+      },
     },
     hasNoUserFix: true,
   },
@@ -311,7 +329,9 @@ export const CERT_ERRORS = [
     },
     advanced: {
       titleL10nId: "fp-certerror-body-title",
-      whyDangerousL10nId: "sec-error-path-len-constraint-invalid",
+      whyDangerous: {
+        dataL10nId: "sec-error-path-len-constraint-invalid",
+      },
     },
     hasNoUserFix: true,
   },
@@ -331,7 +351,9 @@ export const CERT_ERRORS = [
     },
     advanced: {
       titleL10nId: "fp-certerror-body-title",
-      whyDangerousL10nId: "sec-error-unknown-critical-extension",
+      whyDangerous: {
+        dataL10nId: "sec-error-unknown-critical-extension",
+      },
     },
     hasNoUserFix: true,
   },
@@ -351,7 +373,9 @@ export const CERT_ERRORS = [
     },
     advanced: {
       titleL10nId: "fp-certerror-body-title",
-      whyDangerousL10nId: "sec-error-unsupported-ec-point-form",
+      whyDangerous: {
+        dataL10nId: "sec-error-unsupported-ec-point-form",
+      },
     },
     hasNoUserFix: true,
   },
@@ -371,7 +395,9 @@ export const CERT_ERRORS = [
     },
     advanced: {
       titleL10nId: "fp-certerror-body-title",
-      whyDangerousL10nId: "sec-error-unsupported-elliptic-curve",
+      whyDangerous: {
+        dataL10nId: "sec-error-unsupported-elliptic-curve",
+      },
     },
     hasNoUserFix: true,
   },
@@ -391,7 +417,9 @@ export const CERT_ERRORS = [
     },
     advanced: {
       titleL10nId: "fp-certerror-body-title",
-      whyDangerousL10nId: "sec-error-unsupported-keyalg",
+      whyDangerous: {
+        dataL10nId: "sec-error-unsupported-keyalg",
+      },
     },
     hasNoUserFix: true,
   },
@@ -413,7 +441,9 @@ export const CERT_ERRORS = [
     },
     advanced: {
       titleL10nId: "fp-certerror-body-title",
-      whyDangerousL10nId: "sec-error-untrusted-cert",
+      whyDangerous: {
+        dataL10nId: "sec-error-untrusted-cert",
+      },
     },
     hasNoUserFix: true,
   },
@@ -432,10 +462,16 @@ export const CERT_ERRORS = [
       showAddException: true,
     },
     advanced: {
-      whyDangerousL10nId: "cert-error-trust-signature-algorithm-disabled",
-      whatCanYouDoL10nId: "fp-certerror-revoked-what-can-you-do-body",
-      learnMoreL10nId: "fp-learn-more-about-secure-connection-failures",
-      learnMoreSupportPage: "connection-not-secure",
+      whyDangerous: {
+        dataL10nId: "cert-error-trust-signature-algorithm-disabled",
+      },
+      whatCanYouDo: {
+        dataL10nId: "fp-certerror-revoked-what-can-you-do-body",
+      },
+      learnMore: {
+        dataL10nId: "fp-learn-more-about-secure-connection-failures",
+        supportPage: "connection-not-secure",
+      },
       showViewCertificate: true,
     },
     hasNoUserFix: false,
