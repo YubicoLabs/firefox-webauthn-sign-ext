@@ -1418,7 +1418,7 @@ async function init() {
 
 async function main() {
   await init();
-  if (!NetErrorCard.isSupported()) {
+  if (!(await NetErrorCard.isSupported())) {
     for (let button of document.querySelectorAll(".try-again")) {
       button.addEventListener("click", function () {
         retryThis(this);
