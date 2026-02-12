@@ -513,6 +513,43 @@ already_AddRefed<PopulatePromise> PopulateFingerprintedFonts() {
       glean::characteristics::fonts_variant_g_nonallowlisted.Set(
           emojiNonAllowlisted);
     }
+
+    // Variant H: Test multiple emojis
+    nsAutoString textEmojis;
+    for (auto emoji : variantHEmojis) {
+      AppendUCS4ToUTF16(emoji, textEmojis);
+    }
+
+    nsTArray<nsCString> emojisFontsAllowlisted;
+    pfl->ListFontsUsedForString(textEmojis, variantFontList,
+                                emojisFontsAllowlisted,
+                                FontVisibility::LangPack);
+    nsTArray<nsCString> emojisFontsNonAllowlisted;
+    pfl->ListFontsUsedForString(textEmojis, variantFontList,
+                                emojisFontsNonAllowlisted,
+                                FontVisibility::User);
+
+    MOZ_LOG(gUserCharacteristicsLog, LogLevel::Debug,
+            ("Variant H Allowlisted fonts:"));
+    for (const auto& font : emojisFontsAllowlisted) {
+      MOZ_LOG(gUserCharacteristicsLog, LogLevel::Debug, ("  - %s", font.get()));
+    }
+    MOZ_LOG(gUserCharacteristicsLog, LogLevel::Debug,
+            ("Variant H NonAllowlisted fonts:"));
+    for (const auto& font : emojisFontsNonAllowlisted) {
+      MOZ_LOG(gUserCharacteristicsLog, LogLevel::Debug, ("  - %s", font.get()));
+    }
+
+    nsCString emojisAllowlisted, emojisNonAllowlisted;
+    if (NS_SUCCEEDED(HashFontList(emojisFontsAllowlisted, emojisAllowlisted))) {
+      glean::characteristics::fonts_variant_h_allowlisted.Set(
+          emojisAllowlisted);
+    }
+    if (NS_SUCCEEDED(
+            HashFontList(emojisFontsNonAllowlisted, emojisNonAllowlisted))) {
+      glean::characteristics::fonts_variant_h_nonallowlisted.Set(
+          emojisNonAllowlisted);
+    }
   }
 
   populatePromise->Resolve(void_t(), __func__);
