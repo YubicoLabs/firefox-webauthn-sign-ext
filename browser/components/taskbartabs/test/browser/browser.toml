@@ -29,5 +29,8 @@ skip-if = [
 ["browser_taskbarTabs_uriTest.js"]
 
 ["browser_taskbarTabs_windowManager.js"]
+support-files = [
+  "../../../places/tests/browser/favicon-normal16.png",
+]
 
 ["browser_taskbarTabs_windowTracker.js"]
