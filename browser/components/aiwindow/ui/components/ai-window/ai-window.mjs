@@ -39,8 +39,8 @@ ChromeUtils.defineESModuleGetters(lazy, {
     "moz-src:///browser/components/aiwindow/models/ConversationSuggestions.sys.mjs",
   generateConversationStartersSidebar:
     "moz-src:///browser/components/aiwindow/models/ConversationSuggestions.sys.mjs",
-  MemoryStore:
-    "moz-src:///browser/components/aiwindow/services/MemoryStore.sys.mjs",
+  MemoriesManager:
+    "moz-src:///browser/components/aiwindow/models/memories/MemoriesManager.sys.mjs",
 });
 
 ChromeUtils.defineLazyGetter(lazy, "log", function () {
@@ -728,6 +728,15 @@ export class AIWindow extends MozLitElement {
         this.#dispatchMessageToChatContent(currentMessage);
         this.requestUpdate?.();
       }
+
+      if (currentMessage.memoriesApplied?.length) {
+        currentMessage.memoriesApplied =
+          await lazy.MemoriesManager.getMemoriesByID(
+            currentMessage.memoriesApplied
+          );
+        this.#updateConversation();
+        this.#dispatchMessageToChatContent(currentMessage);
+      }
     } catch (e) {
       this.showSearchingIndicator(false, null);
       this.#handleError(e);
@@ -1031,15 +1040,16 @@ export class AIWindow extends MozLitElement {
 
   async #removeAppliedMemory(messageId, memory) {
     try {
-      const deleted = await lazy.MemoryStore.hardDeleteMemory(memory);
+      const memoryId = memory.id;
+      const deleted = await lazy.MemoriesManager.hardDeleteMemoryById(memoryId);
       if (!deleted) {
-        console.warn("hardDeleteMemory returned false", memory);
+        console.warn("hardDeleteMemory returned false", memoryId);
       }
 
       const actor = this.#getAIChatContentActor();
       actor?.dispatchRemoveAppliedMemoryToChatContent({
         messageId,
-        memory,
+        memoryId,
       });
     } catch (e) {
       console.error("Failed to delete memory", memory, e);
