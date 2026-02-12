@@ -1761,6 +1761,7 @@ NSEvent* gLastDragMouseDownEvent = nil;  // [strong]
     // inactive because at that point we've already been made active.
     // Unfortunately, acceptsFirstMouse is called for PopupWindows even when
     // their parent window is active, so ignore this on them for now.
+    [mClickThroughMouseDownEvent release];
     mClickThroughMouseDownEvent = [aEvent retain];
   }
   return YES;
