@@ -2456,19 +2456,23 @@ bool BaselineCacheIRCompiler::updateArgc(CallFlags flags, Register argcReg,
   return true;
 }
 
-void BaselineCacheIRCompiler::pushArguments(Register argcReg,
-                                            Register calleeReg,
-                                            Register scratch, Register scratch2,
-                                            CallFlags flags, uint32_t argcFixed,
-                                            bool isJitCall) {
+void BaselineCacheIRCompiler::pushArguments(
+    Register argcReg, Register calleeReg, Register scratch, Register scratch2,
+    Register scratch3, CallFlags flags, uint32_t argcFixed, bool isJitCall) {
+  bool isConstructing = flags.isConstructing();
   if (isJitCall) {
+    if (isConstructing) {
+      createThis(argcReg, calleeReg, scratch, scratch2, scratch3, flags,
+                 /* isBoundFunction = */ false);
+    }
+
     // If we're calling jitcode, we have to align the stack and ensure that
     // enough arguments are being passed, filling in any missing arguments
     // with `undefined`. `newTarget` should be pushed after alignment padding
     // but before the `undefined` values, so we also handle it here.
     prepareForArguments(argcReg, calleeReg, scratch, scratch2, flags,
                         argcFixed);
-  } else if (flags.isConstructing()) {
+  } else if (isConstructing) {
     // If we're not calling jitcode, push newTarget now so that the shared
     // paths below can assume it's already pushed.
     pushNewTarget();
@@ -2477,11 +2481,10 @@ void BaselineCacheIRCompiler::pushArguments(Register argcReg,
   switch (flags.getArgFormat()) {
     case CallFlags::Standard:
       pushStandardArguments(argcReg, scratch, scratch2, argcFixed, isJitCall,
-                            flags.isConstructing());
+                            isConstructing);
       break;
     case CallFlags::Spread:
-      pushArrayArguments(argcReg, scratch, scratch2, isJitCall,
-                         flags.isConstructing());
+      pushArrayArguments(argcReg, scratch, scratch2, isJitCall, isConstructing);
       break;
     case CallFlags::FunCall:
       pushFunCallArguments(argcReg, calleeReg, scratch, scratch2, argcFixed,
@@ -2499,6 +2502,12 @@ void BaselineCacheIRCompiler::pushArguments(Register argcReg,
       break;
     default:
       MOZ_CRASH("Invalid arg format");
+  }
+
+  if (isJitCall) {
+    // Note that we use Push, not push, so that callJit will align the stack
+    // properly on ARM.
+    masm.PushCalleeToken(calleeReg, isConstructing);
   }
 }
 
@@ -2928,8 +2937,8 @@ bool BaselineCacheIRCompiler::emitCallNativeShared(
     masm.switchToObjectRealm(calleeReg, scratch);
   }
 
-  pushArguments(argcReg, calleeReg, scratch, scratch2, flags, argcFixed,
-                /*isJitCall =*/false);
+  pushArguments(argcReg, calleeReg, scratch, scratch2, InvalidReg, flags,
+                argcFixed, /*isJitCall =*/false);
 
   // Native functions have the signature:
   //
@@ -3349,17 +3358,9 @@ bool BaselineCacheIRCompiler::emitCallScriptedFunctionShared(
     stubFrame.pushInlinedICScript(masm, stubAddress(*icScriptOffset));
   }
 
-  if (isConstructing) {
-    createThis(argcReg, calleeReg, scratch, scratch2, scratch3, flags,
-               /* isBoundFunction = */ false);
-  }
+  pushArguments(argcReg, calleeReg, scratch, scratch2, scratch3, flags,
+                argcFixed, /*isJitCall =*/true);
 
-  pushArguments(argcReg, calleeReg, scratch, scratch2, flags, argcFixed,
-                /*isJitCall =*/true);
-
-  // Note that we use Push, not push, so that callJit will align the stack
-  // properly on ARM.
-  masm.PushCalleeToken(calleeReg, isConstructing);
   masm.PushFrameDescriptorForJitCall(FrameType::BaselineStub, argcReg, scratch,
                                      isInlined);
 

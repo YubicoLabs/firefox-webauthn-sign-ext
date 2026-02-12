@@ -83,8 +83,8 @@ class MOZ_RAII BaselineCacheIRCompiler : public CacheIRCompiler {
   void loadStackObject(ArgumentKind kind, CallFlags flags, Register argcReg,
                        Register dest);
   void pushArguments(Register argcReg, Register calleeReg, Register scratch,
-                     Register scratch2, CallFlags flags, uint32_t argcFixed,
-                     bool isJitCall);
+                     Register scratch2, Register scratch3, CallFlags flags,
+                     uint32_t argcFixed, bool isJitCall);
   void prepareForArguments(Register argcReg, Register calleeReg,
                            Register scratch, Register scratch2, CallFlags flags,
                            uint32_t argcFixed);
