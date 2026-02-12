@@ -23,6 +23,7 @@ import {
   findSupportedErrorCode,
   errorHasNoUserFix,
   getResolvedErrorConfig,
+  CUSTOM_ERROR_CODE_MAP,
 } from "chrome://global/content/errors/error-lookup.mjs";
 import { html } from "chrome://global/content/vendor/lit.all.mjs";
 import { MozLitElement } from "chrome://global/content/lit-utils.mjs";
@@ -70,17 +71,8 @@ export class NetErrorCard extends MozLitElement {
     prefResetButton: "#prefResetButton",
   };
 
-  static CUSTOM_ERROR_CODES = {
-    blockedByCOOP: "NS_ERROR_DOM_COOP_FAILED",
-    blockedByCOEP: "NS_ERROR_DOM_COEP_FAILED",
-    basicHttpAuthDisabled: "NS_ERROR_BASIC_HTTP_AUTH_DISABLED",
-    netReset: "NS_ERROR_NET_EMPTY_RESPONSE",
-  };
-
   static getCustomErrorCode(defaultCode) {
-    return gOffline
-      ? "NS_ERROR_OFFLINE"
-      : NetErrorCard.CUSTOM_ERROR_CODES[defaultCode];
+    return gOffline ? "NS_ERROR_OFFLINE" : CUSTOM_ERROR_CODE_MAP[defaultCode];
   }
 
   static async isSupported() {
