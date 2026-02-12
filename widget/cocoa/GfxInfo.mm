@@ -135,7 +135,7 @@ void GfxInfo::GetDeviceInfo() {
       }
     }
     IOObjectRelease(entry);
-    if (mNumGPUsDetected == 2) {
+    if (mNumGPUsDetected == kMaxGPUs) {
       break;
     }
   }
@@ -161,6 +161,9 @@ void GfxInfo::GetDeviceInfo() {
         ++mNumGPUsDetected;
       }
       IOObjectRelease(entry);
+      if (mNumGPUsDetected == kMaxGPUs) {
+        break;
+      }
     }
 
     IOObjectRelease(io_iter);
@@ -213,6 +216,9 @@ void GfxInfo::GetDeviceInfo() {
       }
       ++mNumGPUsDetected;
       IOObjectRelease(entry);
+      if (mNumGPUsDetected == kMaxGPUs) {
+        break;
+      }
     }
 
     IOObjectRelease(io_iter);
@@ -286,7 +292,7 @@ GfxInfo::GetAdapterDescription(nsAString& aAdapterDescription) {
 /* readonly attribute DOMString adapterDescription2; */
 NS_IMETHODIMP
 GfxInfo::GetAdapterDescription2(nsAString& aAdapterDescription) {
-  if (mNumGPUsDetected < 2) {
+  if (mNumGPUsDetected < kMaxGPUs) {
     return NS_ERROR_FAILURE;
   }
   aAdapterDescription.AssignLiteral("");
@@ -303,7 +309,7 @@ GfxInfo::GetAdapterRAM(uint32_t* aAdapterRAM) {
 /* readonly attribute DOMString adapterRAM2; */
 NS_IMETHODIMP
 GfxInfo::GetAdapterRAM2(uint32_t* aAdapterRAM) {
-  if (mNumGPUsDetected < 2) {
+  if (mNumGPUsDetected < kMaxGPUs) {
     return NS_ERROR_FAILURE;
   }
   *aAdapterRAM = mAdapterRAM[1];
@@ -320,7 +326,7 @@ GfxInfo::GetAdapterDriver(nsAString& aAdapterDriver) {
 /* readonly attribute DOMString adapterDriver2; */
 NS_IMETHODIMP
 GfxInfo::GetAdapterDriver2(nsAString& aAdapterDriver) {
-  if (mNumGPUsDetected < 2) {
+  if (mNumGPUsDetected < kMaxGPUs) {
     return NS_ERROR_FAILURE;
   }
   aAdapterDriver.AssignLiteral("");
@@ -337,7 +343,7 @@ GfxInfo::GetAdapterDriverVendor(nsAString& aAdapterDriverVendor) {
 /* readonly attribute DOMString adapterDriverVendor2; */
 NS_IMETHODIMP
 GfxInfo::GetAdapterDriverVendor2(nsAString& aAdapterDriverVendor) {
-  if (mNumGPUsDetected < 2) {
+  if (mNumGPUsDetected < kMaxGPUs) {
     return NS_ERROR_FAILURE;
   }
   aAdapterDriverVendor.AssignLiteral("");
@@ -354,7 +360,7 @@ GfxInfo::GetAdapterDriverVersion(nsAString& aAdapterDriverVersion) {
 /* readonly attribute DOMString adapterDriverVersion2; */
 NS_IMETHODIMP
 GfxInfo::GetAdapterDriverVersion2(nsAString& aAdapterDriverVersion) {
-  if (mNumGPUsDetected < 2) {
+  if (mNumGPUsDetected < kMaxGPUs) {
     return NS_ERROR_FAILURE;
   }
   aAdapterDriverVersion.AssignLiteral("");
@@ -371,7 +377,7 @@ GfxInfo::GetAdapterDriverDate(nsAString& aAdapterDriverDate) {
 /* readonly attribute DOMString adapterDriverDate2; */
 NS_IMETHODIMP
 GfxInfo::GetAdapterDriverDate2(nsAString& aAdapterDriverDate) {
-  if (mNumGPUsDetected < 2) {
+  if (mNumGPUsDetected < kMaxGPUs) {
     return NS_ERROR_FAILURE;
   }
   aAdapterDriverDate.AssignLiteral("");
@@ -388,7 +394,7 @@ GfxInfo::GetAdapterVendorID(nsAString& aAdapterVendorID) {
 /* readonly attribute DOMString adapterVendorID2; */
 NS_IMETHODIMP
 GfxInfo::GetAdapterVendorID2(nsAString& aAdapterVendorID) {
-  if (mNumGPUsDetected < 2) {
+  if (mNumGPUsDetected < kMaxGPUs) {
     return NS_ERROR_FAILURE;
   }
   aAdapterVendorID = mAdapterVendorID[1];
@@ -405,7 +411,7 @@ GfxInfo::GetAdapterDeviceID(nsAString& aAdapterDeviceID) {
 /* readonly attribute DOMString adapterDeviceID2; */
 NS_IMETHODIMP
 GfxInfo::GetAdapterDeviceID2(nsAString& aAdapterDeviceID) {
-  if (mNumGPUsDetected < 2) {
+  if (mNumGPUsDetected < kMaxGPUs) {
     return NS_ERROR_FAILURE;
   }
   aAdapterDeviceID = mAdapterDeviceID[1];
