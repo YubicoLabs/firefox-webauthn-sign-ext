@@ -462,29 +462,6 @@ void StructuredCloneHolder::Read(JSContext* aCx,
   }
 }
 
-void StructuredCloneHolder::ReadFromBuffer(
-    nsIGlobalObject* aGlobal, JSContext* aCx, JSStructuredCloneData& aBuffer,
-    JS::MutableHandle<JS::Value> aValue,
-    const JS::CloneDataPolicy& aCloneDataPolicy, ErrorResult& aRv) {
-  ReadFromBuffer(aGlobal, aCx, aBuffer, JS_STRUCTURED_CLONE_VERSION, aValue,
-                 aCloneDataPolicy, aRv);
-}
-
-void StructuredCloneHolder::ReadFromBuffer(
-    nsIGlobalObject* aGlobal, JSContext* aCx, JSStructuredCloneData& aBuffer,
-    uint32_t aAlgorithmVersion, JS::MutableHandle<JS::Value> aValue,
-    const JS::CloneDataPolicy& aCloneDataPolicy, ErrorResult& aRv) {
-  MOZ_ASSERT(!mBuffer, "ReadFromBuffer() must be called without a Write().");
-
-  aRv.MightThrowJSException();
-
-  if (!JS_ReadStructuredClone(aCx, aBuffer, aAlgorithmVersion, CloneScope(),
-                              aValue, aCloneDataPolicy, &sCallbacks, this)) {
-    aRv.StealExceptionFromJSContext(aCx);
-    return;
-  }
-}
-
 static bool CheckExposedGlobals(JSContext* aCx, JS::Handle<JSObject*> aGlobal,
                                 uint16_t aExposedGlobals) {
   // Sandboxes aren't really DOM globals (though they do set the
