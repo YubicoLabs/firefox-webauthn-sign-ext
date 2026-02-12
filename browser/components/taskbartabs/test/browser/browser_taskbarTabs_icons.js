@@ -93,6 +93,50 @@ add_task(async function test_faviconOnOtherPage() {
   sandbox.restore();
 });
 
+add_task(async function test_findOrCreateTaskbarTab_noIcon() {
+  let sandbox = sinon.createSandbox();
+  let fakeImg = {};
+  sandbox.stub(TaskbarTabsUtils, "getFaviconUri").resolves(null);
+  sandbox.stub(TaskbarTabsUtils, "getDefaultIcon").resolves(fakeImg);
+  let pinStub = sandbox.stub(TaskbarTabsPin, "pinTaskbarTab").resolves();
+
+  let result = await TaskbarTabs.findOrCreateTaskbarTab(kBaseUri, 0);
+  Assert.equal(
+    pinStub.firstCall?.args[2],
+    fakeImg,
+    "The default icon was selected when no favicon was available"
+  );
+
+  await TaskbarTabs.removeTaskbarTab(result.taskbarTab.id);
+  sandbox.restore();
+});
+
+add_task(async function test_moveTabIntoTaskbarTabLoadsSavedIcon() {
+  // We want to mock out replaceTabWithWindow to see what icon will be used,
+  // even though that's not directly what we're testing.
+  await checkLoadsCorrectIcon("replaceTabWithWindow", 2, async _tt => {
+    await BrowserTestUtils.withNewTab(kBaseUri.spec, async browser => {
+      let tab = window.gBrowser.getTabForBrowser(browser);
+      await TaskbarTabs.moveTabIntoTaskbarTab(tab);
+    });
+  });
+});
+
+add_task(async function test_openWindowLoadsSavedIcon() {
+  await checkLoadsCorrectIcon("openWindow", 1, async tt => {
+    await TaskbarTabs.openWindow(tt);
+  });
+});
+
+add_task(async function test_replaceTabWithWindowLoadsSavedIcon() {
+  await checkLoadsCorrectIcon("replaceTabWithWindow", 2, async tt => {
+    await BrowserTestUtils.withNewTab(kBaseUri.spec, async browser => {
+      let tab = window.gBrowser.getTabForBrowser(browser);
+      await TaskbarTabs.replaceTabWithWindow(tt, tab);
+    });
+  });
+});
+
 /**
  * Checks that loading the given URI and start path and creating a Taskbar Tab
  * results in the given image, and that it can be loaded from disk correctly.
@@ -162,6 +206,31 @@ async function checkTaskbarTabIcon(
     "Correct image height was used for the window"
   );
 
+  // This time, we expect to reuse the same one, read from the disk (and thus
+  // scaled to 256x256).
+  await openAndMoveIntoTaskbarTab(uri, startPath);
+  await pendingPin;
+  tt = await TaskbarTabs.findTaskbarTab(uri, 0);
+  Assert.equal(tt?.id, priorId, "The Taskbar Tab was reused");
+
+  Assert.equal(pinStub.callCount, 1, "Did not try to pin the second time");
+
+  Assert.equal(
+    replaceStub.callCount,
+    2,
+    "Tried to replace the tab with a window"
+  );
+  Assert.strictEqual(
+    replaceStub.getCall(1).args[2]?.width,
+    256,
+    "Correct image width was used for the window"
+  );
+  Assert.strictEqual(
+    replaceStub.getCall(1).args[2]?.height,
+    256,
+    "Correct image height was used for the window"
+  );
+
   await TaskbarTabs.removeTaskbarTab(priorId);
   sandbox.restore();
 }
@@ -184,4 +253,57 @@ async function openAndMoveIntoTaskbarTab(aUri, aStartPath) {
     let tab = window.gBrowser.getTabForBrowser(browser);
     await TaskbarTabs.moveTabIntoTaskbarTab(tab);
   });
+}
+
+/**
+ * This is used for test_openWindowLoadsSavedIcon and
+ * test_replaceTabWithWindowLoadsSavedIcon; it ensures that the saved icon is
+ * loaded if it exists, and otherwise that the default icon is used.
+ *
+ * @param {string} methodName - A name to use in assertion methods and to mock
+ * out under TaskbarTabsWindowManager.
+ * @param {number} index - The argument index of the options object.
+ * @param {Function} callback - A function that calls the method under test.
+ */
+async function checkLoadsCorrectIcon(methodName, index, callback) {
+  let sandbox = sinon.createSandbox();
+
+  sandbox.stub(TaskbarTabsPin, "pinTaskbarTab").resolves();
+  let { taskbarTab } = await TaskbarTabs.findOrCreateTaskbarTab(kBaseUri, 0);
+
+  let fakeImg = { which: "fakeImg" };
+  let defaultImg = { which: "defaultImg" };
+
+  let openStub = sandbox.stub(TaskbarTabsWindowManager.prototype, methodName);
+  let loadStub = sandbox
+    .stub(TaskbarTabsUtils, "_imageFromLocalURI")
+    .resolves(fakeImg);
+  sandbox.stub(TaskbarTabsUtils, "getDefaultIcon").resolves(defaultImg);
+
+  await callback(taskbarTab);
+
+  Assert.ok(
+    loadStub.firstCall?.args[0]?.spec?.includes(taskbarTab.id),
+    "Attempted to load image (probably) corresponding to a Taskbar Tab"
+  );
+  Assert.equal(openStub.callCount, 1, `${methodName} was called once`);
+  Assert.equal(
+    openStub.firstCall?.args[index],
+    fakeImg,
+    `The result from _imageFromLocalURI was passed to ${methodName}`
+  );
+
+  loadStub.restore();
+  loadStub = sandbox.stub(TaskbarTabsUtils, "_imageFromLocalURI").rejects();
+
+  await callback(taskbarTab);
+
+  Assert.equal(openStub.callCount, 2, `${methodName} was called a second time`);
+  Assert.equal(
+    openStub.secondCall?.args[index],
+    defaultImg,
+    `When the image couldn't be loaded, the default icon was passed to ${methodName}`
+  );
+
+  sandbox.restore();
 }

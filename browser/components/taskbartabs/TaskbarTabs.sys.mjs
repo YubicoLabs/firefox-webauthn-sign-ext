@@ -115,6 +115,8 @@ export const TaskbarTabs = new (class {
 
       // Don't wait for the pinning to complete.
       TaskbarTabsPin.pinTaskbarTab(result.taskbarTab, this.#registry, icon);
+    } else {
+      result.icon = await loadSavedTaskbarTabIcon(result.taskbarTab.id);
     }
 
     return result;
@@ -184,14 +186,18 @@ export const TaskbarTabs = new (class {
     TaskbarTabsPin.unpinTaskbarTab(taskbarTab, this.#registry);
   }
 
-  async openWindow(...args) {
+  async openWindow(aTaskbarTab) {
     await this.#ready;
-    return this.#windowManager.openWindow(...args);
+
+    let icon = await loadSavedTaskbarTabIcon(aTaskbarTab.id);
+    return this.#windowManager.openWindow(aTaskbarTab, icon);
   }
 
-  async replaceTabWithWindow(...args) {
+  async replaceTabWithWindow(aTaskbarTab, aTab) {
     await this.#ready;
-    return this.#windowManager.replaceTabWithWindow(...args);
+
+    let icon = await loadSavedTaskbarTabIcon(aTaskbarTab.id);
+    return this.#windowManager.replaceTabWithWindow(aTaskbarTab, aTab, icon);
   }
 
   async ejectWindow(...args) {
@@ -273,4 +279,23 @@ async function fetchIconForTaskbarTab(aTaskbarTab, aCreatedForUrl) {
 
   lazy.logConsole.warn("Falling back to default Taskbar Tab icon.");
   return await TaskbarTabsUtils.getDefaultIcon();
+}
+
+/**
+ * Looks up the saved icon for a Taskbar Tab on disk.
+ *
+ * @param {string} aTaskbarTabId - The ID of the Taskbar Tab to look up.
+ * @returns {imgIContainer} The icon saved on disk.
+ */
+async function loadSavedTaskbarTabIcon(aTaskbarTabId) {
+  let iconPath = TaskbarTabsUtils.getTaskbarTabsFolder();
+  iconPath.append("icons");
+  iconPath.append(aTaskbarTabId + ".ico");
+  try {
+    return await TaskbarTabsUtils._imageFromLocalURI(
+      Services.io.newFileURI(iconPath)
+    );
+  } catch (e) {
+    return await TaskbarTabsUtils.getDefaultIcon();
+  }
 }
