@@ -13,8 +13,8 @@ export const SSL_ERRORS = [
     errorCode: "SSL_ERROR_BAD_CERT_DOMAIN",
     category: "cert",
     introContent: {
-      id: "fp-certerror-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-certerror-intro",
+      dataL10nArgs: { hostname: null },
     },
     buttons: {
       showTryAgain: false,
@@ -39,8 +39,8 @@ export const SSL_ERRORS = [
     errorCode: "SSL_ERROR_NO_CYPHER_OVERLAP",
     category: "cert",
     introContent: {
-      id: "fp-neterror-connection-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-neterror-connection-intro",
+      dataL10nArgs: { hostname: null },
     },
     buttons: {
       showTryAgain: false,
@@ -64,11 +64,11 @@ export const SSL_ERRORS = [
     category: "cert",
     introContent: [
       {
-        id: "cert-error-ssl-connection-error",
-        args: { hostname: null, errorMessage: null },
+        dataL10nId: "cert-error-ssl-connection-error",
+        dataL10nArgs: { hostname: null, errorMessage: null },
       },
       {
-        id: "ssl-error-rx-malformed-handshake",
+        dataL10nId: "ssl-error-rx-malformed-handshake",
       },
     ],
     buttons: {
@@ -92,11 +92,11 @@ export const SSL_ERRORS = [
     bodyTitleL10nId: "nssFailure2-title",
     introContent: [
       {
-        id: "cert-error-ssl-connection-error",
-        args: { hostname: null, errorMessage: null },
+        dataL10nId: "cert-error-ssl-connection-error",
+        dataL10nArgs: { hostname: null, errorMessage: null },
       },
       {
-        id: "ssl-error-unsupported-version",
+        dataL10nId: "ssl-error-unsupported-version",
       },
     ],
     buttons: {
@@ -120,11 +120,11 @@ export const SSL_ERRORS = [
     bodyTitleL10nId: "nssFailure2-title",
     introContent: [
       {
-        id: "cert-error-ssl-connection-error",
-        args: { hostname: null, errorMessage: null },
+        dataL10nId: "cert-error-ssl-connection-error",
+        dataL10nArgs: { hostname: null, errorMessage: null },
       },
       {
-        id: "ssl-error-protocol-version-alert",
+        dataL10nId: "ssl-error-protocol-version-alert",
       },
     ],
     buttons: {

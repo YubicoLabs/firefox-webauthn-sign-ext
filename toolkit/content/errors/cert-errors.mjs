@@ -13,8 +13,8 @@ export const CERT_ERRORS = [
     errorCode: "SEC_ERROR_UNKNOWN_ISSUER",
     category: "cert",
     introContent: {
-      id: "fp-certerror-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-certerror-intro",
+      dataL10nArgs: { hostname: null },
     },
     buttons: {
       showTryAgain: false,
@@ -38,8 +38,8 @@ export const CERT_ERRORS = [
     errorCode: "SEC_ERROR_UNTRUSTED_ISSUER",
     category: "cert",
     introContent: {
-      id: "fp-certerror-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-certerror-intro",
+      dataL10nArgs: { hostname: null },
     },
     buttons: {
       showTryAgain: false,
@@ -62,8 +62,8 @@ export const CERT_ERRORS = [
     errorCode: "SEC_ERROR_EXPIRED_CERTIFICATE",
     category: "cert",
     introContent: {
-      id: "fp-certerror-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-certerror-intro",
+      dataL10nArgs: { hostname: null },
     },
     buttons: {
       showTryAgain: false,
@@ -78,8 +78,8 @@ export const CERT_ERRORS = [
           errorInfo?.validNotBefore && Date.now() < errorInfo?.validNotBefore;
         return errorInfo
           ? {
-              id: "fp-certerror-expired-why-dangerous-body",
-              args: {
+              dataL10nId: "fp-certerror-expired-why-dangerous-body",
+              dataL10nArgs: {
                 date: isNotYetValid
                   ? errorInfo.validNotBefore
                   : errorInfo.validNotAfter,
@@ -102,8 +102,8 @@ export const CERT_ERRORS = [
     errorCode: "SEC_ERROR_EXPIRED_ISSUER_CERTIFICATE",
     category: "cert",
     introContent: {
-      id: "fp-certerror-expired-into",
-      args: { hostname: null },
+      dataL10nId: "fp-certerror-expired-into",
+      dataL10nArgs: { hostname: null },
     },
     buttons: {
       showTryAgain: false,
@@ -115,8 +115,8 @@ export const CERT_ERRORS = [
       whyDangerousResolver: context =>
         context.errorInfo
           ? {
-              id: "fp-certerror-expired-why-dangerous-body",
-              args: { date: context.errorInfo.validNotAfter },
+              dataL10nId: "fp-certerror-expired-why-dangerous-body",
+              dataL10nArgs: { date: context.errorInfo.validNotAfter },
             }
           : null,
       whyDangerousL10nId: "fp-certerror-expired-why-dangerous-body",
@@ -135,8 +135,8 @@ export const CERT_ERRORS = [
     errorCode: "SEC_ERROR_REVOKED_CERTIFICATE",
     category: "cert",
     introContent: {
-      id: "fp-certerror-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-certerror-intro",
+      dataL10nArgs: { hostname: null },
     },
     buttons: {
       showTryAgain: false,
@@ -160,8 +160,8 @@ export const CERT_ERRORS = [
     errorCode: "SEC_ERROR_BAD_DER",
     category: "cert",
     introContent: {
-      id: "fp-certerror-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-certerror-intro",
+      dataL10nArgs: { hostname: null },
     },
     buttons: {
       showTryAgain: false,
@@ -180,8 +180,8 @@ export const CERT_ERRORS = [
     errorCode: "SEC_ERROR_BAD_SIGNATURE",
     category: "cert",
     introContent: {
-      id: "fp-certerror-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-certerror-intro",
+      dataL10nArgs: { hostname: null },
     },
     buttons: {
       showTryAgain: false,
@@ -200,8 +200,8 @@ export const CERT_ERRORS = [
     errorCode: "SEC_ERROR_CERT_NOT_IN_NAME_SPACE",
     category: "cert",
     introContent: {
-      id: "fp-certerror-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-certerror-intro",
+      dataL10nArgs: { hostname: null },
     },
     buttons: {
       showTryAgain: false,
@@ -220,8 +220,8 @@ export const CERT_ERRORS = [
     errorCode: "SEC_ERROR_EXTENSION_VALUE_INVALID",
     category: "cert",
     introContent: {
-      id: "fp-certerror-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-certerror-intro",
+      dataL10nArgs: { hostname: null },
     },
     buttons: {
       showTryAgain: false,
@@ -240,8 +240,8 @@ export const CERT_ERRORS = [
     errorCode: "SEC_ERROR_INADEQUATE_CERT_TYPE",
     category: "cert",
     introContent: {
-      id: "fp-certerror-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-certerror-intro",
+      dataL10nArgs: { hostname: null },
     },
     buttons: {
       showTryAgain: false,
@@ -260,8 +260,8 @@ export const CERT_ERRORS = [
     errorCode: "SEC_ERROR_INADEQUATE_KEY_USAGE",
     category: "cert",
     introContent: {
-      id: "fp-certerror-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-certerror-intro",
+      dataL10nArgs: { hostname: null },
     },
     buttons: {
       showTryAgain: false,
@@ -280,8 +280,8 @@ export const CERT_ERRORS = [
     errorCode: "SEC_ERROR_INVALID_KEY",
     category: "cert",
     introContent: {
-      id: "fp-certerror-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-certerror-intro",
+      dataL10nArgs: { hostname: null },
     },
     buttons: {
       showTryAgain: false,
@@ -300,8 +300,8 @@ export const CERT_ERRORS = [
     errorCode: "SEC_ERROR_PATH_LEN_CONSTRAINT_INVALID",
     category: "cert",
     introContent: {
-      id: "fp-certerror-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-certerror-intro",
+      dataL10nArgs: { hostname: null },
     },
     buttons: {
       showTryAgain: false,
@@ -320,8 +320,8 @@ export const CERT_ERRORS = [
     errorCode: "SEC_ERROR_UNKNOWN_CRITICAL_EXTENSION",
     category: "cert",
     introContent: {
-      id: "fp-certerror-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-certerror-intro",
+      dataL10nArgs: { hostname: null },
     },
     buttons: {
       showTryAgain: false,
@@ -340,8 +340,8 @@ export const CERT_ERRORS = [
     errorCode: "SEC_ERROR_UNSUPPORTED_EC_POINT_FORM",
     category: "cert",
     introContent: {
-      id: "fp-certerror-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-certerror-intro",
+      dataL10nArgs: { hostname: null },
     },
     buttons: {
       showTryAgain: false,
@@ -360,8 +360,8 @@ export const CERT_ERRORS = [
     errorCode: "SEC_ERROR_UNSUPPORTED_ELLIPTIC_CURVE",
     category: "cert",
     introContent: {
-      id: "fp-certerror-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-certerror-intro",
+      dataL10nArgs: { hostname: null },
     },
     buttons: {
       showTryAgain: false,
@@ -380,8 +380,8 @@ export const CERT_ERRORS = [
     errorCode: "SEC_ERROR_UNSUPPORTED_KEYALG",
     category: "cert",
     introContent: {
-      id: "fp-certerror-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-certerror-intro",
+      dataL10nArgs: { hostname: null },
     },
     buttons: {
       showTryAgain: false,
@@ -402,8 +402,8 @@ export const CERT_ERRORS = [
     pageTitleL10nId: "certerror-page-title",
     bodyTitleL10nId: "nssBadCert-title",
     introContent: {
-      id: "fp-certerror-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-certerror-intro",
+      dataL10nArgs: { hostname: null },
     },
     buttons: {
       showTryAgain: false,
@@ -422,8 +422,8 @@ export const CERT_ERRORS = [
     errorCode: "SEC_ERROR_CERT_SIGNATURE_ALGORITHM_DISABLED",
     category: "cert",
     introContent: {
-      id: "fp-certerror-intro",
-      args: { hostname: null },
+      dataL10nId: "fp-certerror-intro",
+      dataL10nArgs: { hostname: null },
     },
     buttons: {
       showTryAgain: false,

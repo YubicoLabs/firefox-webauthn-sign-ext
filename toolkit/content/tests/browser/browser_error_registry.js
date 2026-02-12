@@ -170,16 +170,16 @@ add_task(async function test_resolve_l10n_args() {
   const { resolveL10nArgs } = ChromeUtils.importESModule(LOOKUP_URL);
 
   const config = {
-    id: "test-l10n-id",
-    args: { hostname: null, otherArg: "static" },
+    dataL10nId: "test-l10n-id",
+    dataL10nArgs: { hostname: null, otherArg: "static" },
   };
 
   const context = { hostname: "example.com" };
   const resolved = resolveL10nArgs(config, context);
 
-  Assert.equal(resolved.id, "test-l10n-id");
-  Assert.equal(resolved.args.hostname, "example.com");
-  Assert.equal(resolved.args.otherArg, "static");
+  Assert.equal(resolved.dataL10nId, "test-l10n-id");
+  Assert.equal(resolved.dataL10nArgs.hostname, "example.com");
+  Assert.equal(resolved.dataL10nArgs.otherArg, "static");
 });
 
 add_task(async function test_resolve_l10n_args_null_input() {
@@ -203,12 +203,12 @@ add_task(async function test_get_resolved_error_config() {
     pageTitleL10nId: "test-title",
     bodyTitleL10nId: "test-body",
     introContent: {
-      id: "test-intro",
-      args: { hostname: null },
+      dataL10nId: "test-intro",
+      dataL10nArgs: { hostname: null },
     },
     shortDescription: {
-      id: "test-short-desc",
-      args: { hostname: null },
+      dataL10nId: "test-short-desc",
+      dataL10nArgs: { hostname: null },
     },
     buttons: {},
     hasNoUserFix: false,
@@ -218,8 +218,11 @@ add_task(async function test_get_resolved_error_config() {
   const resolved = getResolvedErrorConfig("RESOLVE_TEST_ERROR", context, false);
 
   Assert.equal(resolved.errorCode, "RESOLVE_TEST_ERROR");
-  Assert.equal(resolved.introContent.args.hostname, "test.example.com");
-  Assert.equal(resolved.shortDescription.args.hostname, "test.example.com");
+  Assert.equal(resolved.introContent.dataL10nArgs.hostname, "test.example.com");
+  Assert.equal(
+    resolved.shortDescription.dataL10nArgs.hostname,
+    "test.example.com"
+  );
 
   _testOnlyClearRegistry();
 });
