@@ -1065,15 +1065,15 @@ open class FenixApplication : LocaleAwareApplication(), Provider, ThemeProvider 
         GlobalScope.launch(IO) {
             try {
                 val autoFillStorage = applicationContext.components.core.autofillStorage
-                Addresses.savedAll.set(autoFillStorage.getAllAddresses().size.toLong())
-                CreditCards.savedAll.set(autoFillStorage.getAllCreditCards().size.toLong())
+                Addresses.savedAll.set(autoFillStorage.countAllAddresses())
+                CreditCards.savedAll.set(autoFillStorage.countAllCreditCards())
             } catch (e: AutofillApiException) {
                 logger.error("Failed to fetch autofill data", e)
             }
 
             try {
                 val passwordsStorage = applicationContext.components.core.passwordsStorage
-                Logins.savedAll.set(passwordsStorage.list().size.toLong())
+                Logins.savedAll.set(passwordsStorage.count())
             } catch (e: LoginsApiException) {
                 logger.error("Failed to fetch list of logins", e)
             }
