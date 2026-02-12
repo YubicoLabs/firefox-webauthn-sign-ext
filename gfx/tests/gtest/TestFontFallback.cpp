@@ -390,3 +390,38 @@ TEST_F(FontFallbackTest, ListFontsUsedForString_VisibilityWithMultipleFonts) {
   EXPECT_GE(fontsUsedHidden.Length(), 1u)
       << "Should use at least one font for basic Latin chars";
 }
+
+TEST_F(FontFallbackTest, ListFontsUsedForString_VariantI_EmojiFontList) {
+  gfxPlatformFontList* pfl = gfxPlatformFontList::PlatformFontList();
+  ASSERT_NE(pfl, nullptr);
+
+  // Emoji font list from populateSVGRect's CSS_FONT_FAMILY
+  nsTArray<nsCString> emojiFontList;
+  emojiFontList.AppendElement("Apple Color Emoji"_ns);
+  emojiFontList.AppendElement("Segoe UI Emoji"_ns);
+  emojiFontList.AppendElement("Segoe UI Symbol"_ns);
+  emojiFontList.AppendElement("Noto Color Emoji"_ns);
+  emojiFontList.AppendElement("EmojiOne Color"_ns);
+  emojiFontList.AppendElement("Android Emoji"_ns);
+  emojiFontList.AppendElement("sans-serif"_ns);
+
+  // A few emojis from the SVG list
+  nsAutoString emojiText;
+  AppendUCS4ToUTF16(0x1F600, emojiText);  // Grinning Face
+  AppendUCS4ToUTF16(0x263A, emojiText);   // White Smiling Face
+  AppendUCS4ToUTF16(0x2708, emojiText);   // Airplane
+
+  nsTArray<nsCString> fontsAllowlisted;
+  pfl->ListFontsUsedForString(emojiText, emojiFontList, fontsAllowlisted,
+                              FontVisibility::LangPack);
+  nsTArray<nsCString> fontsNonAllowlisted;
+  pfl->ListFontsUsedForString(emojiText, emojiFontList, fontsNonAllowlisted,
+                              FontVisibility::User);
+
+  // User visibility should find at least as many fonts as LangPack
+  EXPECT_GE(fontsNonAllowlisted.Length(), fontsAllowlisted.Length());
+
+  // On any platform with emoji support, at least one font should be found
+  EXPECT_GT(fontsNonAllowlisted.Length(), 0u)
+      << "Should find at least one emoji font for basic emoji codepoints";
+}
