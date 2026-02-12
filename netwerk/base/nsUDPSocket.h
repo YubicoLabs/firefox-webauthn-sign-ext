@@ -34,6 +34,8 @@ class nsUDPSocket final : public nsASocketHandler, public nsIUDPSocket {
   uint64_t ByteCountSent() override { return mByteWriteCount; }
   uint64_t ByteCountReceived() override { return mByteReadCount; }
 
+  bool IsTRRConnection() override;
+
   nsUDPSocket();
 
  private:
@@ -69,6 +71,7 @@ class nsUDPSocket final : public nsASocketHandler, public nsIUDPSocket {
 
   uint64_t mByteReadCount{0};
   uint64_t mByteWriteCount{0};
+  bool mIsTRRServiceChannel{false};
 };
 
 //-----------------------------------------------------------------------------

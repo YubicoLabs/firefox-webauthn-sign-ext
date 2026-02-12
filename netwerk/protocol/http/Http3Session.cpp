@@ -255,9 +255,15 @@ nsresult Http3Session::Init(const nsHttpConnectionInfo* aConnInfo,
       // Http3Session is still being initialized and ReportHttp3Connection
       // will try to dispatch transaction on this session therefore it
       // needs to be executed after the initializationg is done.
-      DebugOnly<nsresult> rv = NS_DispatchToCurrentThread(
+      nsCOMPtr<nsIRunnable> event =
           NS_NewRunnableFunction("Http3Session::ReportHttp3Connection",
-                                 [self]() { self->ReportHttp3Connection(); }));
+                                 [self]() { self->ReportHttp3Connection(); });
+      if (StaticPrefs::network_trr_high_priority_events() &&
+          mConnInfo->GetIsTrrServiceChannel()) {
+        event = new PrioritizableRunnable(
+            event.forget(), nsIRunnablePriority::PRIORITY_MEDIUMHIGH);
+      }
+      DebugOnly<nsresult> rv = NS_DispatchToCurrentThread(event);
       NS_WARNING_ASSERTION(NS_SUCCEEDED(rv),
                            "NS_DispatchToCurrentThread failed");
     }
@@ -1302,6 +1308,9 @@ bool Http3Session::AddStream(nsAHttpTransaction* aHttpTransaction,
           this, aHttpTransaction));
     stream = new Http3ConnectUDPStream(aHttpTransaction, this,
                                        NS_GetCurrentThread());
+    if (mConnInfo->GetIsTrrServiceChannel()) {
+      stream->GetHttp3ConnectUDPStream()->MarkAsTRRServiceChannel();
+    }
   } else if (trans && trans->IsForWebTransport()) {
     LOG3(("Http3Session::AddStream new  WeTransport session %p atrans=%p.\n",
           this, aHttpTransaction));
@@ -2261,6 +2270,11 @@ void Http3Session::DontReuse() {
     LOG3(("Http3Session %p not on socket thread\n", this));
     nsCOMPtr<nsIRunnable> event = NewRunnableMethod(
         "Http3Session::DontReuse", this, &Http3Session::DontReuse);
+    if (StaticPrefs::network_trr_high_priority_events() &&
+        mConnInfo->GetIsTrrServiceChannel()) {
+      event = new PrioritizableRunnable(
+          event.forget(), nsIRunnablePriority::PRIORITY_MEDIUMHIGH);
+    }
     gSocketTransportService->Dispatch(event, NS_DISPATCH_NORMAL);
     return;
   }
@@ -2288,15 +2302,18 @@ void Http3Session::CloseWebTransportConn() {
   LOG3(("Http3Session::CloseWebTransportConn %p\n", this));
   // We need to dispatch, since Http3Session could be released in
   // HttpConnectionUDP::CloseTransaction.
-  gSocketTransportService->Dispatch(
-      NS_NewRunnableFunction("Http3Session::CloseWebTransportConn",
-                             [self = RefPtr{this}]() {
-                               if (self->mUdpConn) {
-                                 self->mUdpConn->CloseTransaction(
-                                     self, NS_ERROR_ABORT);
-                               }
-                             }),
-      NS_DISPATCH_NORMAL);
+  nsCOMPtr<nsIRunnable> event = NS_NewRunnableFunction(
+      "Http3Session::CloseWebTransportConn", [self = RefPtr{this}]() {
+        if (self->mUdpConn) {
+          self->mUdpConn->CloseTransaction(self, NS_ERROR_ABORT);
+        }
+      });
+  if (StaticPrefs::network_trr_high_priority_events() &&
+      mConnInfo->GetIsTrrServiceChannel()) {
+    event = new PrioritizableRunnable(event.forget(),
+                                      nsIRunnablePriority::PRIORITY_MEDIUMHIGH);
+  }
+  gSocketTransportService->Dispatch(event.forget(), NS_DISPATCH_NORMAL);
 }
 
 void Http3Session::CurrentBrowserIdChanged(uint64_t id) {
@@ -2584,9 +2601,15 @@ void Http3Session::Authenticated(int32_t aError,
     // Call OnQuicTimeoutExpired to properly process neqo events and outputs.
     // We call OnQuicTimeoutExpired instead of ProcessOutputAndEvents, because
     // HttpConnectionUDP must close this session in case of an error.
-    NS_DispatchToCurrentThread(
+    nsCOMPtr<nsIRunnable> event =
         NewRunnableMethod("net::HttpConnectionUDP::OnQuicTimeoutExpired",
-                          mUdpConn, &HttpConnectionUDP::OnQuicTimeoutExpired));
+                          mUdpConn, &HttpConnectionUDP::OnQuicTimeoutExpired);
+    if (StaticPrefs::network_trr_high_priority_events() &&
+        mConnInfo->GetIsTrrServiceChannel()) {
+      event = new PrioritizableRunnable(
+          event.forget(), nsIRunnablePriority::PRIORITY_MEDIUMHIGH);
+    }
+    NS_DispatchToCurrentThread(event);
     mUdpConn->ChangeConnectionState(ConnectionState::TRANSFERING);
   }
 }
@@ -2984,6 +3007,9 @@ already_AddRefed<HttpConnectionUDP> Http3Session::CreateTunnelStream(
        aHttpTransaction));
   RefPtr<Http3StreamBase> stream =
       new Http3ConnectUDPStream(aHttpTransaction, this, NS_GetCurrentThread());
+  if (mConnInfo->GetIsTrrServiceChannel()) {
+    stream->GetHttp3ConnectUDPStream()->MarkAsTRRServiceChannel();
+  }
   mStreamTransactionHash.InsertOrUpdate(aHttpTransaction, RefPtr{stream});
   StreamHasDataToWrite(stream);
 
