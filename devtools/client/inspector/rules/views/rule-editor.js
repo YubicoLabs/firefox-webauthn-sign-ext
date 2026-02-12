@@ -94,13 +94,21 @@ class RuleEditor extends EventEmitter {
     // being edited
     this.isEditing = false;
 
-    this.rule.domRule.on("location-changed", this.#locationChanged);
-    this.toolbox.on("tool-registered", this.#onToolChanged);
-    this.toolbox.on("tool-unregistered", this.#onToolChanged);
+    this.#abortController = new this.doc.defaultView.AbortController();
+    const { signal } = this.#abortController;
+    const baseEventConfig = { signal };
+    this.rule.domRule.on(
+      "location-changed",
+      this.#locationChanged,
+      baseEventConfig
+    );
+    this.toolbox.on("tool-registered", this.#onToolChanged, baseEventConfig);
+    this.toolbox.on("tool-unregistered", this.#onToolChanged, baseEventConfig);
 
     this.#create();
   }
 
+  #abortController;
   #unusedCssVariableDeclarations;
   #showUnusedCustomCssPropertiesButton;
   #unsubscribeSourceMap;
@@ -117,9 +125,7 @@ class RuleEditor extends EventEmitter {
       this.#nullifyShowUnusedCustomCssProperties({ removeFromDom: false });
     }
 
-    this.rule.domRule.off("location-changed");
-    this.toolbox.off("tool-registered", this.#onToolChanged);
-    this.toolbox.off("tool-unregistered", this.#onToolChanged);
+    this.#abortController.abort();
 
     if (this.#unsubscribeSourceMap) {
       this.#unsubscribeSourceMap();
