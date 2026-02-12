@@ -5,6 +5,7 @@
 package org.mozilla.fenix.onboarding
 
 import org.mozilla.fenix.GleanMetrics.Onboarding
+import org.mozilla.fenix.GleanMetrics.Pings
 import org.mozilla.fenix.GleanMetrics.TermsOfUse
 import org.mozilla.fenix.onboarding.view.OnboardingPageUiData
 import org.mozilla.fenix.termsofuse.TOU_VERSION
@@ -16,7 +17,7 @@ import org.mozilla.fenix.termsofuse.store.Surface
 class OnboardingTelemetryRecorder {
 
     /**
-     * Records "onboarding_completed" telemetry event.
+     * Records "onboarding_completed" telemetry event and sends the onboarding ping.
      * @param sequenceId The identifier of the onboarding sequence shown to the user.
      * @param sequencePosition The sequence position of the page on which the completed event occurred.
      */
@@ -27,6 +28,7 @@ class OnboardingTelemetryRecorder {
                 sequencePosition = sequencePosition,
             ),
         )
+        Pings.onboarding.submit()
     }
 
     /**
@@ -376,6 +378,13 @@ class OnboardingTelemetryRecorder {
         Onboarding.marketingDataOptInToggled.record(
             Onboarding.MarketingDataOptInToggledExtra(optIn = optIn),
         )
+    }
+
+    /**
+     * Sends the onboarding ping when the user navigates to the next onboarding page.
+     */
+    fun onNavigatedToNextPage() {
+        Pings.onboarding.submit()
     }
 
     companion object {

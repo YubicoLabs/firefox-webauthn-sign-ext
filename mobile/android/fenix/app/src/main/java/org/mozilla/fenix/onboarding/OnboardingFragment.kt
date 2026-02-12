@@ -329,6 +329,9 @@ class OnboardingFragment : Fragment() {
             currentIndex = { index ->
                 removeMarketingFeature.withFeature { it.currentPageIndex = index }
             },
+            onNavigateToNextPage = {
+                telemetryRecorder.onNavigatedToNextPage()
+            },
         )
     }
 
@@ -450,6 +453,9 @@ class OnboardingFragment : Fragment() {
                     pagesToDisplay.telemetrySequenceId(),
                     pagesToDisplay.sequencePosition(OnboardingPageUiData.Type.THEME_SELECTION),
                 )
+            },
+            onNavigateToNextPage = {
+                telemetryRecorder.onNavigatedToNextPage()
             },
         )
     }

@@ -29,9 +29,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -97,6 +99,7 @@ private val logger: Logger = Logger("OnboardingScreenRedesign")
  * @param onFinish Invoked when the onboarding is completed.
  * @param onImpression Invoked when a page in the pager is displayed.
  * @param currentIndex callback for when the current horizontal pager page changes
+ * @param onNavigateToNextPage callback for when the user navigates to the next page in onboarding.
  */
 @Composable
 @Suppress("LongParameterList", "LongMethod")
@@ -119,6 +122,7 @@ fun OnboardingScreenRedesign(
     onFinish: (pageType: OnboardingPageUiData) -> Unit,
     onImpression: (pageType: OnboardingPageUiData) -> Unit,
     currentIndex: (index: Int) -> Unit,
+    onNavigateToNextPage: () -> Unit,
 ) {
     val coroutineScope = rememberCoroutineScope()
     val pagerState = rememberPagerState(pageCount = { pagesToDisplay.size })
@@ -126,12 +130,17 @@ fun OnboardingScreenRedesign(
         .observeAsComposableState { it.account != null }
     val widgetPinnedFlow: StateFlow<Boolean> = WidgetPinnedState.isPinned
     val isWidgetPinnedState by widgetPinnedFlow.collectAsState()
+    var lastSettledPage by remember { mutableIntStateOf(pagerState.settledPage) }
 
     LaunchedEffect(pagerState) {
         snapshotFlow { pagerState.currentPage }
             .distinctUntilChanged()
             .collect { page ->
+                if (page > lastSettledPage) {
+                    onNavigateToNextPage()
+                }
                 currentIndex(page)
+                lastSettledPage = page
             }
     }
 
@@ -186,28 +195,28 @@ fun OnboardingScreenRedesign(
         pagesToDisplay = pagesToDisplay,
         pagerState = pagerState,
         onMakeFirefoxDefaultClick = {
-            scrollToNextPageOrDismiss()
             onMakeFirefoxDefaultClick()
+            scrollToNextPageOrDismiss()
         },
         onMakeFirefoxDefaultSkipClick = {
-            scrollToNextPageOrDismiss()
             onSkipDefaultClick()
+            scrollToNextPageOrDismiss()
         },
         onSignInButtonClick = {
             onSignInButtonClick()
             scrollToNextPageOrDismiss()
         },
         onSignInSkipClick = {
-            scrollToNextPageOrDismiss()
             onSkipSignInClick()
+            scrollToNextPageOrDismiss()
         },
         onNotificationPermissionButtonClick = {
-            scrollToNextPageOrDismiss()
             onNotificationPermissionButtonClick()
+            scrollToNextPageOrDismiss()
         },
         onNotificationPermissionSkipClick = {
-            scrollToNextPageOrDismiss()
             onSkipNotificationClick()
+            scrollToNextPageOrDismiss()
         },
         onAddFirefoxWidgetClick = {
             if (isWidgetPinnedState) {
@@ -217,17 +226,17 @@ fun OnboardingScreenRedesign(
             }
         },
         onSkipFirefoxWidgetClick = {
-            scrollToNextPageOrDismiss()
             onSkipFirefoxWidgetClick()
+            scrollToNextPageOrDismiss()
         },
         onCustomizeToolbarButtonClick = {
-            scrollToNextPageOrDismiss()
             onCustomizeToolbarClick()
+            scrollToNextPageOrDismiss()
         },
         termsOfServiceEventHandler = termsOfServiceEventHandler,
         onAgreeAndConfirmTermsOfService = {
-            scrollToNextPageOrDismiss()
             termsOfServiceEventHandler.onAcceptTermsButtonClicked()
+            scrollToNextPageOrDismiss()
         },
         onMarketingDataLearnMoreClick = onMarketingDataLearnMoreClick,
         onMarketingOptInToggle = onMarketingOptInToggle,
