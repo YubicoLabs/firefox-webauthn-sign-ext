@@ -73,7 +73,7 @@ import org.mozilla.fenix.utils.isLargeScreenSize
 /**
  * The small device max height. The value comes from [org.mozilla.fenix.ext.isTallWindow].
  */
-private val SMALL_SCREEN_MAX_HEIGHT = 480.dp
+private val SMALL_SCREEN_MAX_HEIGHT = 570.dp
 private val logger: Logger = Logger("OnboardingScreenRedesign")
 
 /**
@@ -293,7 +293,6 @@ private fun OnboardingContent(
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val layout = getOnboardingLayout(this)
-
         OnboardingBackground(
             isVisible = !isNonLargeScreenLandscape(
                 isLargeScreen = layout.isLarge,
@@ -306,15 +305,15 @@ private fun OnboardingContent(
             modifier = Modifier.systemBarsPadding(),
             verticalArrangement = Arrangement.Center,
         ) {
-            if (!layout.isSmall) {
-                Spacer(modifier = Modifier.weight(1f))
-            }
+            Spacer(Modifier.weight(1f)).takeIf { !layout.isSmall }
 
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(layout.pagerHeight),
+                    .run {
+                        if (layout.isSmall) fillMaxSize() else height(layout.pagerHeight)
+                    },
                 userScrollEnabled = pagerState.currentPage != 0, // Disable scroll for the Terms of Use card.
                 contentPadding = layout.contentPadding,
                 pageSize = PageSize.Fill,
@@ -349,22 +348,23 @@ private fun OnboardingContent(
                     onMarketingDataLearnMoreClick = onMarketingDataLearnMoreClick,
                     onMarketingOptInToggle = onMarketingOptInToggle,
                     onMarketingDataContinueClick = onMarketingDataContinueClick,
+                    isSmallDevice = layout.isSmall,
                 )
             }
 
-            if (!layout.isSmall) {
-                Spacer(modifier = Modifier.weight(1f))
-            }
+            Spacer(Modifier.weight(1f)).takeIf { !layout.isSmall }
 
-            PagerIndicator(
-                pagerState = pagerState,
-                modifier = Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .padding(bottom = 16.dp),
-                activeColor = MaterialTheme.colorScheme.onPrimary,
-                inactiveColor = MaterialTheme.colorScheme.surfaceVariant,
-                leaveTrail = true,
-            )
+            if (!layout.isSmall) {
+                PagerIndicator(
+                    pagerState = pagerState,
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .padding(bottom = 16.dp),
+                    activeColor = MaterialTheme.colorScheme.onPrimary,
+                    inactiveColor = MaterialTheme.colorScheme.surfaceVariant,
+                    leaveTrail = true,
+                )
+            }
         }
     }
 }
@@ -398,13 +398,14 @@ private fun OnboardingPageForType(
     onMarketingDataLearnMoreClick: () -> Unit,
     onMarketingOptInToggle: (optIn: Boolean) -> Unit,
     onMarketingDataContinueClick: (allowMarketingDataCollection: Boolean) -> Unit,
+    isSmallDevice: Boolean,
 ) {
     when (type) {
         OnboardingPageUiData.Type.DEFAULT_BROWSER,
         OnboardingPageUiData.Type.SYNC_SIGN_IN,
         OnboardingPageUiData.Type.ADD_SEARCH_WIDGET,
         OnboardingPageUiData.Type.NOTIFICATION_PERMISSION,
-            -> OnboardingPageRedesign(state)
+            -> OnboardingPageRedesign(state, isSmallDevice)
 
         OnboardingPageUiData.Type.TOOLBAR_PLACEMENT -> {
             val context = LocalContext.current
@@ -435,6 +436,7 @@ private fun OnboardingPageForType(
         OnboardingPageUiData.Type.TERMS_OF_SERVICE -> TermsOfServiceOnboardingPageRedesign(
             state,
             termsOfServiceEventHandler,
+            isSmallDevice = isSmallDevice,
         )
 
         // no-ops
@@ -615,8 +617,8 @@ private fun OnboardingScreenPreview() {
 
 @Composable
 private fun defaultPreviewPages() = listOf(
-    touPageUIData(),
     defaultBrowserPageUiData(),
+    touPageUIData(),
     syncPageUiData(),
     toolbarPlacementPageUiData(),
 )
