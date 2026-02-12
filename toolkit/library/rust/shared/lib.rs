@@ -149,6 +149,8 @@ extern crate uritemplate_glue;
 extern crate urlpattern;
 extern crate urlpattern_glue;
 
+extern crate adblock;
+
 #[cfg(feature = "libz-rs-sys")]
 extern crate libz_rs_sys;
 

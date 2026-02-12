@@ -116,6 +116,8 @@ urlpattern = "0.5.2"
 urlpattern_glue = { path = "../../../../netwerk/base/urlpattern_glue" }
 uritemplate_glue = { path = "../../../../netwerk/base/uritemplate_glue" }
 
+adblock = { version = "0.12.1", features = ["full-regex-handling", "single-thread"], default-features = false }
+
 libz-rs-sys = { version = "0.4.1", features = ["custom-prefix"], optional = true }
 
 gecko-trace = { path = "../../../components/gecko-trace" }
