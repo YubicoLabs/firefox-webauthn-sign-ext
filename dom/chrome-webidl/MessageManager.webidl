@@ -188,9 +188,9 @@ dictionary ReceiveMessageArgument
    */
   any json = null;
 
-  sequence<MessagePort> ports;
+  required sequence<MessagePort> ports;
 
-  FrameLoader targetFrameLoader;
+  FrameLoader? targetFrameLoader = null;
 };
 
 [Exposed=Window]

@@ -3487,7 +3487,7 @@ bool BrowserParent::ReceiveMessage(
         frameLoader->GetFrameMessageManager();
 
     manager->ReceiveMessage(mFrameElement, frameLoader, aMessage, aSync, aData,
-                            aRetVal, IgnoreErrors());
+                            aRetVal);
   }
   return true;
 }

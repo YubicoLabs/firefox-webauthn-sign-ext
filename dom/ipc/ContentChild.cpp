@@ -2403,8 +2403,7 @@ mozilla::ipc::IPCResult ContentChild::RecvAsyncMessage(
   if (cpm) {
     StructuredCloneData data;
     ipc::UnpackClonedMessageData(aData, data);
-    cpm->ReceiveMessage(cpm, nullptr, aMsg, false, &data, nullptr,
-                        IgnoreErrors());
+    cpm->ReceiveMessage(cpm, nullptr, aMsg, false, &data, nullptr);
   }
   return IPC_OK();
 }

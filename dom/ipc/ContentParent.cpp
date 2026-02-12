@@ -4683,8 +4683,7 @@ mozilla::ipc::IPCResult ContentParent::RecvSyncMessage(
     ipc::StructuredCloneData data;
     ipc::UnpackClonedMessageData(aData, data);
 
-    ppm->ReceiveMessage(ppm, nullptr, aMsg, true, &data, aRetvals,
-                        IgnoreErrors());
+    ppm->ReceiveMessage(ppm, nullptr, aMsg, true, &data, aRetvals);
   }
   return IPC_OK();
 }
@@ -4700,8 +4699,7 @@ mozilla::ipc::IPCResult ContentParent::RecvAsyncMessage(
     ipc::StructuredCloneData data;
     ipc::UnpackClonedMessageData(aData, data);
 
-    ppm->ReceiveMessage(ppm, nullptr, aMsg, false, &data, nullptr,
-                        IgnoreErrors());
+    ppm->ReceiveMessage(ppm, nullptr, aMsg, false, &data, nullptr);
   }
   return IPC_OK();
 }
