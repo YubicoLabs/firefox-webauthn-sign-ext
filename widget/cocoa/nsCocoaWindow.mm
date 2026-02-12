@@ -377,7 +377,7 @@ void nsCocoaWindow::UnsuspendAsyncCATransactions() {
     [mChildView markLayerForDisplay];
   }
 
-  // We're done with our critical animation, so allow aysnc flushes again.
+  // We're done with our critical animation, so allow async flushes again.
   if (mCompositorBridgeChild) {
     mCompositorBridgeChild->SetForceSyncFlushRendering(false);
   }
@@ -1510,7 +1510,7 @@ class WidgetsReleaserRunnable final : public mozilla::Runnable {
       : mozilla::Runnable("WidgetsReleaserRunnable"),
         mWidgetArray(std::move(aWidgetArray)) {}
 
-  // Do nothing; all this runnable does is hold a reference the widgets in
+  // Do nothing; all this runnable does is hold a reference to the widgets in
   // mWidgetArray, and those references will be dropped when this runnable
   // is destroyed.
 
@@ -4032,7 +4032,7 @@ static NSURL* GetPasteLocation(NSPasteboard* aPasteboard, bool aUseFallback) {
   // application to send to it.  sendType is nil if the service is not
   // requesting any data.
   //
-  // returnType contains the type of data the the service would like to
+  // returnType contains the type of data the service would like to
   // return to this application (e.g., to overwrite the selection).
   // returnType is nil if the service will not return any data.
   //
@@ -4742,7 +4742,7 @@ nsresult nsCocoaWindow::Create(nsIWidget* aParent, const DesktopIntRect& aRect,
   // we have to provide an autorelease pool (see bug 559075).
   nsAutoreleasePool localPool;
 
-  // Set defaults which can be overriden from aInitData in BaseCreate
+  // Set defaults which can be overridden from aInitData in BaseCreate
   mWindowType = WindowType::TopLevel;
   mBorderStyle = BorderStyle::Default;
 
@@ -8343,7 +8343,7 @@ static const NSUInteger kWindowShadowOptionsTooltip = 4;
 }
 
 - (BOOL)canBecomeMainWindow {
-  // This is overriden because the default is 'yes' when a titlebar is present.
+  // This is overridden because the default is 'yes' when a titlebar is present.
   return NO;
 }
 
