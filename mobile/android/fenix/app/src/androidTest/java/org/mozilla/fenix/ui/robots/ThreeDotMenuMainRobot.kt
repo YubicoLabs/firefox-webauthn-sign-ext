@@ -423,7 +423,7 @@ class ThreeDotMenuMainRobot(private val composeTestRule: ComposeTestRule) {
             Log.i(TAG, "verifyAddToShortcutsButton: Verified that the \"Add to shortcuts\" button is displayed.")
         } else {
             Log.i(TAG, "verifyAddToShortcutsButton: Trying to verify that the \"Add to shortcuts\" button is not displayed.")
-            composeTestRule.addToShortcutsButton().assertIsDisplayed()
+            composeTestRule.addToShortcutsButton().assertIsNotDisplayed()
             Log.i(TAG, "verifyAddToShortcutsButton: Verified that the \"Add to shortcuts\" button is not displayed.")
         }
     }
