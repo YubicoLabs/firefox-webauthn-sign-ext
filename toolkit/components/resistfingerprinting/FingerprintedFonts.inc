@@ -1045,4 +1045,52 @@ const uint32_t variantHEmojis[] = {
     0x21AA,   // Right Arrow Curving Left
 };
 // clang-format on
-const size_t variantHEmojisLength = sizeof(variantHEmojis) / sizeof(variantHEmojis[0]);
+
+// Variant I: emoji font list from populateSVGRect's CSS_FONT_FAMILY
+const char* variantI_FontList[] = {"Apple Color Emoji",
+                                   "Segoe UI Emoji",
+                                   "Segoe UI Symbol",
+                                   "Noto Color Emoji",
+                                   "EmojiOne Color",
+                                   "Android Emoji",
+                                   "sans-serif",
+                                   nullptr};
+
+// Variant I emoji list from populateSVGRect's EMOJIS
+// clang-format off
+const uint32_t variantIEmojis[] = {
+    0x1F600,  // Grinning Face
+    0x263A,   // White Smiling Face
+    0x1F9D5, 0x200D, 0x2642, 0xFE0F,  // Person with Headscarf -> Male
+    0x2670,   // Adi Shakti
+    0x2638,   // Wheel of Dharma
+    0x26A7,   // Transgender Symbol
+    0x2049,   // Exclamation Question Mark
+    0x2139,   // Information Source
+    0x1F3F3, 0xFE0F, 0x200D, 0x26A7, 0xFE0F,  // Transgender Flag
+    0x1F972,  // Smiling Face with Tear
+    0x2639,   // White Frowning Face
+    0x2620,   // Skull and Crossbones
+    0x1F9D1, 0x200D, 0x1F9B0,  // Person: Red Hair
+    0x1F9CF, 0x200D, 0x2642, 0xFE0F,  // Deaf Man
+    0x26F7,   // Skier
+    0x1F9D1, 0x200D, 0x1F91D, 0x200D, 0x1F9D1,  // People Holding Hands
+    0x2618,   // Shamrock
+    0x26F0,   // Mountain
+    0x26E9,   // Shinto Shrine
+    0x26F4,   // Ferry
+    0x2708,   // Airplane
+    0x23F1,   // Stopwatch
+    0x26C8,   // Cloud with Lightning and Rain
+    0x26C2,   // White Draughts Man
+    0x26F1,   // Umbrella on Ground
+    0x26C3,   // Black Draughts King
+    0x26C4,   // Snowman without Snow
+    0x26F8,   // Ice Skate
+    0x264F,   // Scorpio
+    0x26D1,   // Rescue Worker's Helmet
+    0x2328,   // Keyboard
+    0x26F9,   // Person Bouncing Ball
+    0x270F,   // Pencil
+};
+// clang-format on
