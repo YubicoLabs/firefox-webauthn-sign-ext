@@ -88,8 +88,10 @@ export function getErrorCount() {
   return ERROR_REGISTRY.size;
 }
 
-// Test-only functions for mocking and resetting
 export function _testOnlyClearRegistry() {
+  if (!Cu.isInAutomation) {
+    return;
+  }
   ERROR_REGISTRY.clear();
 }
 
