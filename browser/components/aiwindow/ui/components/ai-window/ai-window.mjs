@@ -19,8 +19,6 @@ const { XPCOMUtils } = ChromeUtils.importESModule(
 const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
   Chat: "moz-src:///browser/components/aiwindow/models/Chat.sys.mjs",
-  MODEL_FEATURES: "moz-src:///browser/components/aiwindow/models/Utils.sys.mjs",
-  openAIEngine: "moz-src:///browser/components/aiwindow/models/Utils.sys.mjs",
   generateChatTitle:
     "moz-src:///browser/components/aiwindow/models/TitleGeneration.sys.mjs",
   AIWindow:
@@ -643,21 +641,22 @@ export class AIWindow extends MozLitElement {
     this.#updateTabFavicon();
     this.#setBrowserContainerActiveState(true);
 
+    const nextTurnIndex = this.#conversation.currentTurnIndex() + 1;
     try {
-      const engineInstance = await lazy.openAIEngine.build(
-        lazy.MODEL_FEATURES.CHAT
-      );
+      let stream;
 
       if (formattedPrompt) {
         const pageUrl = this.#getCurrentPageUrl();
-
-        await this.#conversation.generatePrompt(
-          formattedPrompt,
-          pageUrl,
-          engineInstance,
-          userOpts
+        stream = lazy.Chat.fetchWithHistory(
+          await this.#conversation.generatePrompt(
+            formattedPrompt,
+            pageUrl,
+            userOpts
+          ),
+          { win: window.browsingContext.topChromeWindow }
         );
 
+        // Handle User Prompt
         if (!skipUserDispatch) {
           this.#dispatchMessageToChatContent(
             this.#conversation.messages.at(-1)
@@ -667,14 +666,17 @@ export class AIWindow extends MozLitElement {
         // @todo
         // fill out these assistant message flags
         const assistantRoleOpts = new lazy.AssistantRoleOpts();
-        this.#conversation.addAssistantMessage("text", "", assistantRoleOpts);
+        this.#conversation.addAssistantMessage(
+          "text",
+          "",
+          nextTurnIndex,
+          assistantRoleOpts
+        );
+      } else {
+        stream = lazy.Chat.fetchWithHistory(this.#conversation, {
+          win: window.browsingContext.topChromeWindow,
+        });
       }
-
-      const stream = lazy.Chat.fetchWithHistory(
-        this.#conversation,
-        engineInstance,
-        { win: window.browsingContext.topChromeWindow }
-      );
 
       this.#updateConversation();
       this.#addConversationTitle();

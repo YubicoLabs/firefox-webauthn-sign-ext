@@ -12,7 +12,8 @@ ChromeUtils.defineESModuleGetters(lazy, {
   MemoriesManager:
     "moz-src:///browser/components/aiwindow/models/memories/MemoriesManager.sys.mjs",
   renderPrompt: "moz-src:///browser/components/aiwindow/models/Utils.sys.mjs",
-  MODEL_FEATURES: "moz-src:///browser/components/aiwindow/models/Utils.sys.mjs",
+  relevantMemoriesContextPrompt:
+    "moz-src:///browser/components/aiwindow/models/prompts/MemoriesPrompts.sys.mjs",
 });
 
 /**
@@ -99,16 +100,28 @@ export async function constructRealTimeInfoInjectionMessage(depsOverride) {
   const locale = Services.locale.appLocaleAsBCP47;
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const hasTabInfo = Boolean(url || title || description);
+  const tabSection = hasTabInfo
+    ? [
+        `Current active browser tab details:`,
+        `- URL: ${url}`,
+        `- Title: ${title}`,
+        `- Description: ${description}`,
+      ]
+    : [`No active browser tab.`];
+
+  const content = [
+    `Below are some real-time context details you can use to inform your response:`,
+    `Locale: ${locale}`,
+    `Timezone: ${timezone}`,
+    `Current date & time in ISO format: ${isoTimestamp}`,
+    `Today's date: ${datePart || "Unavailable"}`,
+    ``,
+    ...tabSection,
+  ].join("\n");
 
   return {
-    url,
-    title,
-    description,
-    locale,
-    timezone,
-    isoTimestamp: isoTimestamp || "Unavailable",
-    todayDate: datePart || "Unavailable",
-    hasTabInfo,
+    role: "system",
+    content,
   };
 }
 
@@ -116,13 +129,9 @@ export async function constructRealTimeInfoInjectionMessage(depsOverride) {
  * Constructs the relevant memories context message to be inejcted before the user message.
  *
  * @param {string} message                                                          User message to find relevant memories for
- * @param {openAIEngine} engineInstance
  * @returns {Promise<null|{role: string, tool_call_id: string, content: string}>}   Relevant memories context message or null if no relevant memories
  */
-export async function constructRelevantMemoriesContextMessage(
-  message,
-  engineInstance
-) {
+export async function constructRelevantMemoriesContextMessage(message) {
   const relevantMemories =
     await lazy.MemoriesManager.getRelevantMemories(message);
 
@@ -135,12 +144,12 @@ export async function constructRelevantMemoriesContextMessage(
           return `${memory.id} - ${memory.memory_summary}`;
         })
         .join("\n- ");
-    const relevantMemoriesContextPrompt = await engineInstance.loadPrompt(
-      lazy.MODEL_FEATURES.MEMORIES_RELEVANT_CONTEXT
+    const content = await lazy.renderPrompt(
+      lazy.relevantMemoriesContextPrompt,
+      {
+        relevantMemoriesList,
+      }
     );
-    const content = lazy.renderPrompt(relevantMemoriesContextPrompt, {
-      relevantMemoriesList,
-    });
 
     return {
       role: "system",
