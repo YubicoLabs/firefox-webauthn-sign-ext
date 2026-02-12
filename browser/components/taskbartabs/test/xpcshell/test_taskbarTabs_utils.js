@@ -19,59 +19,19 @@ let gOriginalFavicons = Cc["@mozilla.org/browser/favicon-service;1"].getService(
 );
 let gMockFaviconService = {
   QueryInterface: ChromeUtils.generateQI(["nsIFaviconService"]),
-  getFaviconForPage: sinon.stub(),
+  getFaviconForPage() {
+    ok(false, "Called without being stubbed out!");
+    throw new Error("Called without being stubbed out!");
+  },
   get defaultFavicon() {
     return gOriginalFavicons.defaultFavicon;
   },
 };
-let gDefaultFaviconSpy = sinon.spy(gMockFaviconService, "defaultFavicon", [
-  "get",
-]);
 
 MockRegistrar.register(
   "@mozilla.org/browser/favicon-service;1",
   gMockFaviconService
 );
-
-add_task(async function test_favicon_default_fallback() {
-  const uri = Services.io.newURI("https://www.example.com");
-
-  gMockFaviconService.getFaviconForPage.callsFake(async () => {
-    return { dataURI: kPngUri, mimeType: "image/png" };
-  });
-  await TaskbarTabsUtils.getFavicon(uri);
-  ok(
-    gDefaultFaviconSpy.get.notCalled,
-    "Fallback to default favicon should not occur for valid raster favicon data."
-  );
-
-  gMockFaviconService.getFaviconForPage.callsFake(async () => {
-    return { dataURI: kSvgUri, mimeType: "image/svg+xml" };
-  });
-  await TaskbarTabsUtils.getFavicon(uri);
-  ok(
-    gDefaultFaviconSpy.get.notCalled,
-    "Fallback to default favicon should not occur for valid vector favicon data."
-  );
-
-  gMockFaviconService.getFaviconForPage.callsFake(async () => {
-    return { rawData: null, mimeType: "image/png" };
-  });
-  await TaskbarTabsUtils.getFavicon(uri);
-  ok(
-    gDefaultFaviconSpy.get.called,
-    "Fallback to default favicon should occur for invalid favicon data."
-  );
-
-  gMockFaviconService.getFaviconForPage.callsFake(async () => {
-    return null;
-  });
-  await rejects(
-    TaskbarTabsUtils.getFavicon(uri),
-    /Attempting to create an image from a non-local URI/,
-    "Network URI for the default favicon should have thrown."
-  );
-});
 
 /**
  * Encodes an image container to a PNG. This can be used to compare two raster
@@ -146,8 +106,10 @@ add_task(async function test_imageFromLocalURI_vector() {
 });
 
 add_task(async function test_getFaviconUri() {
+  let sandbox = sinon.createSandbox();
   sinon.resetHistory();
-  gMockFaviconService.getFaviconForPage.callsFake(async () => {
+
+  sandbox.stub(gMockFaviconService, "getFaviconForPage").callsFake(async () => {
     return { dataURI: kPngUri, mimeType: "image/png" };
   });
 
@@ -167,6 +129,8 @@ add_task(async function test_getFaviconUri() {
     exampleUrl.spec,
     "The correct URI was given to the favicon service"
   );
+
+  sandbox.restore();
 });
 
 add_task(async function test_getDefaultIcon() {

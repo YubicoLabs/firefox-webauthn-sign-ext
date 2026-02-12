@@ -104,21 +104,6 @@ export const TaskbarTabsUtils = {
   },
 
   /**
-   * Gets the favicon for the provided URI. This will be removed in Part 3 :)
-   *
-   * @param {nsIURI} aUri - The URI to look up the favicon for.
-   * @returns {imgIContainer} The image container for this favicon.
-   */
-  async getFavicon(aUri) {
-    try {
-      let iconUri = await this.getFaviconUri(aUri);
-      return await this._imageFromLocalURI(iconUri);
-    } catch (e) {
-      return await this.getDefaultIcon();
-    }
-  },
-
-  /**
    * Gets the default favicon as an imgIContainer. This icon is used if no
    * other icons are available.
    *
