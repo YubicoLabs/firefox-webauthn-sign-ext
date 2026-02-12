@@ -14680,6 +14680,12 @@
   value: true
   mirror: always
 
+# When true, the OnLookupComplete will be dispatched with increased priority
+- name: network.dns.high_priority_dispatch
+  type: RelaxedAtomicBool
+  value: true
+  mirror: always
+
 # This preference specifies a comma seperated list of URL/IPAddress:Port that will be treated as public IPAddressSpace.
 - name: network.lna.address_space.public.override
   type: String
