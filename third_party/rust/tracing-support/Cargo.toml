@@ -14,6 +14,7 @@ edition = "2021"
 name = "tracing-support"
 version = "0.1.0"
 build = false
+exclude = ["/android"]
 autolib = false
 autobins = false
 autoexamples = false
