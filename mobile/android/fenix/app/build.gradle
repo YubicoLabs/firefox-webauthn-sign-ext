@@ -694,7 +694,7 @@ dependencies {
     testImplementation project(':components:support-test')
     testImplementation project(':components:support-test-fakes')
     testImplementation project(':components:support-test-libstate')
-    testImplementation testFixtures(project(':components:support-utils'))
+    testImplementation testFixtures(project(':components:feature-downloads'))
 
     testImplementation ComponentsDependencies.mozilla_appservices_full_megazord_libsForTests
 

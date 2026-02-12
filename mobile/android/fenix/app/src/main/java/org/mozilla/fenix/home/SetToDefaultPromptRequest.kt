@@ -13,7 +13,7 @@ import android.os.Build
 import androidx.activity.result.ActivityResult
 import androidx.activity.result.ActivityResultLauncher
 import androidx.annotation.RequiresApi
-import mozilla.components.support.utils.DateTimeProvider
+import mozilla.components.feature.downloads.DateTimeProvider
 import org.mozilla.fenix.HomeActivity
 import org.mozilla.fenix.ext.openSetDefaultBrowserOption
 import org.mozilla.fenix.ext.settings
