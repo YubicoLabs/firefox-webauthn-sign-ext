@@ -3159,12 +3159,12 @@ void BaselineCacheIRCompiler::loadStackObject(ArgumentKind kind,
 }
 
 /*
- * Scripted constructors require a |this| object to be created prior to the call.
- * This is called after we have pushed the formal arguments, but before pushing
- * the callee token. When this is called, argcReg must contain the number of
- * actual arguments (including bound or spread arguments; not including `undef`
- * pushed in cases of argument underflow). calleeReg should contain the actual
- * callee.
+ * Scripted constructors require a |this| object to be created prior to the
+ * call. This is called after we have pushed the formal arguments, but before
+ * pushing the callee token. When this is called, argcReg must contain the
+ * number of actual arguments (including bound or spread arguments; not
+ * including `undef` pushed in cases of argument underflow). calleeReg should
+ * contain the actual callee.
  */
 void BaselineCacheIRCompiler::createThis(Register argcReg, Register calleeReg,
                                          Register scratch, Register scratch2,
