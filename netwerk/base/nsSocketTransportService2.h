@@ -153,6 +153,12 @@ class nsSocketTransportService final : public nsPISocketTransportService,
   // Same as above, but return mThread as a nsIDirectTaskDispatcher
   already_AddRefed<nsIDirectTaskDispatcher> GetDirectTaskDispatcherSafely();
 
+ public:
+  // Public accessor for the socket thread. Returns the socket thread in a
+  // thread-safe manner.
+  already_AddRefed<nsIThread> GetSocketThread() { return GetThreadSafely(); }
+
+ private:
   //-------------------------------------------------------------------------
   // initialization and shutdown (any thread)
   //-------------------------------------------------------------------------
