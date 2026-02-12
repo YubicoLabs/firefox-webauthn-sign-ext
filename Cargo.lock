@@ -1001,6 +1001,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "content_classifier_engine"
+version = "0.0.1"
+dependencies = [
+ "adblock",
+ "cstr",
+ "nserror",
+ "nsstring",
+ "thin-vec",
+ "xpcom",
+]
+
+[[package]]
 name = "context_id"
 version = "0.1.0"
 dependencies = [
@@ -2648,6 +2660,7 @@ dependencies = [
  "cascade_bloom_filter",
  "cert_storage",
  "chardetng_c",
+ "content_classifier_engine",
  "cose-c",
  "crash_helper_client",
  "crypto_hash",
