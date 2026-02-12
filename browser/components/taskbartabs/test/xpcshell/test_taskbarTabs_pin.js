@@ -67,8 +67,10 @@ let gPngFavicon;
 let gSvgFavicon;
 add_setup(async () => {
   const pngFile = do_get_file("favicon-normal16.png");
-  const pngData = await IOUtils.read(pngFile.path);
-  gPngFavicon = { rawData: pngData.buffer, mimeType: "image/png" };
+  gPngFavicon = {
+    dataURI: Services.io.newFileURI(pngFile),
+    mimeType: "image/png",
+  };
 
   const svgFile = do_get_file("icon.svg");
   gSvgFavicon = {
