@@ -665,6 +665,7 @@ function getNetErrorDescParts(noConnectivity) {
     hostname: HOST_NAME,
     noConnectivity,
     showOSXPermissionWarning: RPMShowOSXLocalNetworkPermissionWarning(),
+    offline: gOffline,
   };
 
   // Get MITM name if available (for mitm error)
@@ -677,7 +678,7 @@ function getNetErrorDescParts(noConnectivity) {
     }
   }
 
-  const config = getResolvedErrorConfig(gErrorCode, context, gOffline);
+  const config = getResolvedErrorConfig(gErrorCode, context);
 
   // Convert config descriptionParts to legacy tuple format
   const parts = config.descriptionParts || [];

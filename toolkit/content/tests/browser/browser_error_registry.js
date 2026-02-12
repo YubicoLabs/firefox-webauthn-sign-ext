@@ -41,11 +41,6 @@ add_task(async function test_lookup_exports() {
     "errorHasNoUserFix should be exported"
   );
   Assert.strictEqual(
-    typeof lookup.findSupportedErrorCode,
-    "function",
-    "findSupportedErrorCode should be exported"
-  );
-  Assert.strictEqual(
     typeof lookup.getResolvedErrorConfig,
     "function",
     "getResolvedErrorConfig should be exported"
@@ -215,7 +210,7 @@ add_task(async function test_get_resolved_error_config() {
   });
 
   const context = { hostname: "test.example.com" };
-  const resolved = getResolvedErrorConfig("RESOLVE_TEST_ERROR", context, false);
+  const resolved = getResolvedErrorConfig("RESOLVE_TEST_ERROR", context);
 
   Assert.equal(resolved.errorCode, "RESOLVE_TEST_ERROR");
   Assert.equal(resolved.introContent.dataL10nArgs.hostname, "test.example.com");
