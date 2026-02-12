@@ -17,12 +17,11 @@ import {
   recordSecurityUITelemetry,
   gOffline,
   retryThis,
+  errorHasNoUserFix,
+  COOP_MDN_DOCS,
+  COEP_MDN_DOCS,
+  HTTPS_UPGRADES_MDN_DOCS,
 } from "chrome://global/content/aboutNetErrorHelpers.mjs";
-import { initializeRegistry } from "chrome://global/content/errors/error-registry.mjs";
-import {
-  getResolvedErrorConfig,
-  isFeltPrivacySupported,
-} from "chrome://global/content/errors/error-lookup.mjs";
 import { html } from "chrome://global/content/vendor/lit.all.mjs";
 import { MozLitElement } from "chrome://global/content/lit-utils.mjs";
 import "chrome://global/content/elements/moz-button-group.mjs";
@@ -43,8 +42,6 @@ export class NetErrorCard extends MozLitElement {
     certErrorDebugInfoShowing: { type: Boolean, reflect: true },
     certificateErrorText: { type: String },
     showPrefReset: { type: Boolean },
-    showTlsNotice: { type: Boolean },
-    showTrrSettingsButton: { type: Boolean },
   };
 
   static queries = {
@@ -69,20 +66,73 @@ export class NetErrorCard extends MozLitElement {
     httpAuthIntroText: "#fp-http-auth-disabled-intro-text",
     tryAgainButton: "#tryAgainButton",
     prefResetButton: "#prefResetButton",
-    tlsNotice: "#tlsVersionNotice",
-    badStsCertExplanation: "#badStsCertExplanation",
+  };
+
+  static NSS_ERRORS = [
+    "MOZILLA_PKIX_ERROR_INVALID_INTEGER_ENCODING",
+    "MOZILLA_PKIX_ERROR_ISSUER_NO_LONGER_TRUSTED",
+    "MOZILLA_PKIX_ERROR_KEY_PINNING_FAILURE",
+    "MOZILLA_PKIX_ERROR_SIGNATURE_ALGORITHM_MISMATCH",
+    "SEC_ERROR_BAD_DER",
+    "SEC_ERROR_BAD_SIGNATURE",
+    "SEC_ERROR_CERT_NOT_IN_NAME_SPACE",
+    "SEC_ERROR_EXTENSION_VALUE_INVALID",
+    "SEC_ERROR_INADEQUATE_CERT_TYPE",
+    "SEC_ERROR_INADEQUATE_KEY_USAGE",
+    "SEC_ERROR_INVALID_KEY",
+    "SEC_ERROR_PATH_LEN_CONSTRAINT_INVALID",
+    "SEC_ERROR_UNKNOWN_CRITICAL_EXTENSION",
+    "SEC_ERROR_UNSUPPORTED_EC_POINT_FORM",
+    "SEC_ERROR_UNSUPPORTED_ELLIPTIC_CURVE",
+    "SEC_ERROR_UNSUPPORTED_KEYALG",
+    "SEC_ERROR_UNTRUSTED_CERT",
+  ];
+
+  static ERROR_CODES = new Set([
+    "SEC_ERROR_UNTRUSTED_ISSUER",
+    "SEC_ERROR_REVOKED_CERTIFICATE",
+    "SEC_ERROR_UNKNOWN_ISSUER",
+    "SSL_ERROR_BAD_CERT_DOMAIN",
+    "MOZILLA_PKIX_ERROR_SELF_SIGNED_CERT",
+    "SEC_ERROR_EXPIRED_CERTIFICATE",
+    "SEC_ERROR_EXPIRED_ISSUER_CERTIFICATE",
+    "SSL_ERROR_NO_CYPHER_OVERLAP",
+    "MOZILLA_PKIX_ERROR_INSUFFICIENT_CERTIFICATE_TRANSPARENCY",
+    "NS_ERROR_OFFLINE",
+    "NS_ERROR_DOM_COOP_FAILED",
+    "NS_ERROR_DOM_COEP_FAILED",
+    "MOZILLA_PKIX_ERROR_NOT_YET_VALID_CERTIFICATE",
+    "NS_ERROR_BASIC_HTTP_AUTH_DISABLED",
+    "NS_ERROR_NET_EMPTY_RESPONSE",
+    ...NetErrorCard.NSS_ERRORS,
+  ]);
+
+  static CUSTOM_ERROR_CODES = {
+    blockedByCOOP: "NS_ERROR_DOM_COOP_FAILED",
+    blockedByCOEP: "NS_ERROR_DOM_COEP_FAILED",
+    basicHttpAuthDisabled: "NS_ERROR_BASIC_HTTP_AUTH_DISABLED",
+    netReset: "NS_ERROR_NET_EMPTY_RESPONSE",
   };
 
   static getCustomErrorCode(defaultCode) {
-    return gOffline ? "NS_ERROR_OFFLINE" : defaultCode;
+    return gOffline
+      ? "NS_ERROR_OFFLINE"
+      : NetErrorCard.CUSTOM_ERROR_CODES[defaultCode];
+  }
+
+  static findSupportedErrorCode(errorInfo) {
+    let defaultErrorCode = errorInfo.errorCodeString
+      ? errorInfo.errorCodeString
+      : gErrorCode;
+    return NetErrorCard.ERROR_CODES.has(defaultErrorCode)
+      ? defaultErrorCode
+      : NetErrorCard.getCustomErrorCode(defaultErrorCode);
   }
 
   static isSupported() {
     if (!FELT_PRIVACY_REFRESH) {
       return false;
     }
-
-    initializeRegistry();
 
     let errorInfo;
     try {
@@ -93,8 +143,8 @@ export class NetErrorCard extends MozLitElement {
       return false;
     }
 
-    const id = errorInfo.errorCodeString || gErrorCode;
-    return gOffline || isFeltPrivacySupported(id);
+    const supportedErrorCode = NetErrorCard.findSupportedErrorCode(errorInfo);
+    return !!supportedErrorCode;
   }
 
   constructor() {
@@ -108,30 +158,23 @@ export class NetErrorCard extends MozLitElement {
     this.certificateErrorTextPromise = null;
     this.showCustomNetErrorCard = false;
     this.showPrefReset = false;
-    this.showTlsNotice = false;
-    this.showTrrSettingsButton = false;
-    this.trrTelemetryData = null;
   }
 
   async getUpdateComplete() {
-    // Fetch domain mismatch names and cert error text before rendering
-    // to ensure Fluent localization has all required variables
-    const promises = [
-      this.errorConfig?.advanced?.requiresDomainMismatchNames &&
-        !this.domainMismatchNames &&
-        this.getDomainMismatchNames(),
-      document.getFailedCertSecurityInfo &&
-        !this.certificateErrorText &&
-        this.getCertificateErrorText(),
-      this.domainMismatchNamesPromise,
-      this.certificateErrorTextPromise,
-    ].filter(Boolean);
+    const result = await super.getUpdateComplete();
 
-    if (promises.length) {
-      await Promise.all(promises);
+    if (this.domainMismatchNames && this.certificateErrorText) {
+      return result;
     }
 
-    return super.getUpdateComplete();
+    await Promise.all([
+      gErrorCode === "domain-mismatch" && this.getDomainMismatchNames(),
+      document.getFailedCertSecurityInfo && this.getCertificateErrorText(),
+      this.domainMismatchNamesPromise,
+      this.certificateErrorTextPromise,
+    ]);
+
+    return result;
   }
 
   connectedCallback() {
@@ -151,7 +194,7 @@ export class NetErrorCard extends MozLitElement {
       "security.certerror.hideAddException",
       false
     );
-    if (prefValue || this.errorConfig.hasNoUserFix) {
+    if (prefValue || errorHasNoUserFix(this.errorInfo.errorCodeString)) {
       return true;
     }
 
@@ -160,19 +203,13 @@ export class NetErrorCard extends MozLitElement {
   }
 
   init() {
-    this.hostname = HOST_NAME;
-    this.errorInfo = this.getErrorInfo();
-    this.errorConfig = this.getErrorConfig();
-    this.hideExceptionButton = this.shouldHideExceptionButton();
-
-    const titles = {
-      net: "neterror-page-title",
-      blocked: "neterror-blocked-by-policy-page-title",
-    };
     document.l10n.setAttributes(
       document.querySelector("title"),
-      titles[this.errorConfig.category] ?? "fp-certerror-page-title"
+      "fp-certerror-page-title"
     );
+
+    this.errorInfo = this.getErrorInfo();
+    this.hideExceptionButton = this.shouldHideExceptionButton();
 
     // Record telemetry when the error page loads
     if (gIsCertError && !isCaptive()) {
@@ -191,12 +228,14 @@ export class NetErrorCard extends MozLitElement {
     );
     if (
       mitmPrimingEnabled &&
-      this.errorConfig.errorCode == "SEC_ERROR_UNKNOWN_ISSUER" &&
+      this.errorInfo.errorCodeString == "SEC_ERROR_UNKNOWN_ISSUER" &&
       // Only do this check for top-level failures.
       window.parent == window
     ) {
       RPMSendAsyncMessage("Browser:PrimeMitm");
     }
+
+    this.hostname = HOST_NAME;
 
     // We show an offline support page in case of a system-wide error,
     // when a user cannot connect to the internet and access the SUMO website.
@@ -217,49 +256,6 @@ export class NetErrorCard extends MozLitElement {
     if (getCSSClass() == "expertBadCert") {
       this.toggleAdvancedShowing();
     }
-
-    this.checkAndRecordTRRTelemetry();
-    this.checkForDomainSuggestions();
-  }
-
-  // Check for alternate host for dnsNotFound errors.
-  checkForDomainSuggestions() {
-    if (gErrorCode == "dnsNotFound" && !this.isTRROnlyFailure()) {
-      RPMCheckAlternateHostAvailable();
-    }
-  }
-
-  isTRROnlyFailure() {
-    return gErrorCode == "dnsNotFound" && RPMIsTRROnlyFailure();
-  }
-
-  checkAndRecordTRRTelemetry() {
-    if (!this.isTRROnlyFailure() || isCaptive()) {
-      return;
-    }
-
-    this.recordTRRLoadTelemetry();
-    this.showTrrSettingsButton = true;
-  }
-
-  recordTRRLoadTelemetry() {
-    const trrMode = RPMGetIntPref("network.trr.mode");
-    const trrDomain = RPMGetTRRDomain();
-    const skipReason = RPMGetTRRSkipReason();
-
-    this.trrTelemetryData = {
-      value: "TRROnlyFailure",
-      mode: trrMode.toString(),
-      provider_key: trrDomain,
-      skip_reason: skipReason,
-    };
-
-    RPMRecordGleanEvent("securityDohNeterror", "loadDohwarning", {
-      value: "TRROnlyFailure",
-      mode: trrMode,
-      provider_key: trrDomain,
-      skip_reason: skipReason,
-    });
   }
 
   handlePrefChangeDetected() {
@@ -304,87 +300,95 @@ export class NetErrorCard extends MozLitElement {
   }
 
   getErrorInfo() {
-    return gIsCertError
+    const errorInfo = gIsCertError
       ? document.getFailedCertSecurityInfo()
       : document.getNetErrorInfo();
-  }
 
-  getErrorConfig() {
-    const errorCode = this.errorInfo.errorCodeString || gErrorCode;
-    const errorConfig = getResolvedErrorConfig(errorCode, {
-      hostname: this.hostname,
-      errorInfo: this.errorInfo,
-      cssClass: getCSSClass(),
-      domainMismatchNames: this.domainMismatchNames,
-      offline: gOffline,
-    });
-
-    if (errorConfig.customNetError) {
+    if (!errorInfo.errorCodeString) {
       this.showCustomNetErrorCard = true;
+      errorInfo.errorCodeString = NetErrorCard.getCustomErrorCode(gErrorCode);
     }
 
     if (gErrorCode === "nssFailure2") {
-      const result = handleNSSFailure(() => this.handlePrefChangeDetected());
-      if (result.versionError) {
-        this.showTlsNotice = true;
-      }
+      handleNSSFailure(() => this.handlePrefChangeDetected());
     }
-    return errorConfig;
+    return errorInfo;
   }
 
   introContentTemplate() {
-    const config = this.errorConfig;
-    if (!config.introContent) {
-      return null;
+    switch (this.errorInfo.errorCodeString) {
+      case "MOZILLA_PKIX_ERROR_INVALID_INTEGER_ENCODING":
+      case "MOZILLA_PKIX_ERROR_ISSUER_NO_LONGER_TRUSTED":
+      case "MOZILLA_PKIX_ERROR_KEY_PINNING_FAILURE":
+      case "MOZILLA_PKIX_ERROR_NOT_YET_VALID_CERTIFICATE":
+      case "MOZILLA_PKIX_ERROR_SELF_SIGNED_CERT":
+      case "MOZILLA_PKIX_ERROR_SIGNATURE_ALGORITHM_MISMATCH":
+      case "SEC_ERROR_BAD_DER":
+      case "SEC_ERROR_BAD_SIGNATURE":
+      case "SEC_ERROR_CERT_NOT_IN_NAME_SPACE":
+      case "SEC_ERROR_EXPIRED_CERTIFICATE":
+      case "SEC_ERROR_EXTENSION_VALUE_INVALID":
+      case "SEC_ERROR_INADEQUATE_CERT_TYPE":
+      case "SEC_ERROR_INADEQUATE_KEY_USAGE":
+      case "SEC_ERROR_INVALID_KEY":
+      case "SEC_ERROR_PATH_LEN_CONSTRAINT_INVALID":
+      case "SEC_ERROR_REVOKED_CERTIFICATE":
+      case "SEC_ERROR_UNKNOWN_CRITICAL_EXTENSION":
+      case "SEC_ERROR_UNKNOWN_ISSUER":
+      case "SEC_ERROR_UNSUPPORTED_EC_POINT_FORM":
+      case "SEC_ERROR_UNSUPPORTED_ELLIPTIC_CURVE":
+      case "SEC_ERROR_UNSUPPORTED_KEYALG":
+      case "SEC_ERROR_UNTRUSTED_CERT":
+      case "SEC_ERROR_UNTRUSTED_ISSUER":
+      case "SSL_ERROR_BAD_CERT_DOMAIN":
+        return html`<p
+          id="certErrorIntro"
+          data-l10n-id="fp-certerror-intro"
+          data-l10n-args='{"hostname": "${this.hostname}"}'
+        ></p>`;
+      case "SEC_ERROR_EXPIRED_ISSUER_CERTIFICATE":
+        return html`<p
+          data-l10n-id="fp-certerror-expired-into"
+          data-l10n-args='{"hostname": "${this.hostname}"}'
+        ></p>`;
+      case "SSL_ERROR_NO_CYPHER_OVERLAP":
+        return html`<p
+          data-l10n-id="fp-neterror-connection-intro"
+          data-l10n-args='{"hostname": "${this.hostname}"}'
+        ></p>`;
+      case "MOZILLA_PKIX_ERROR_INSUFFICIENT_CERTIFICATE_TRANSPARENCY":
+        return html`<p
+          data-l10n-id="fp-certerror-transparency-intro"
+          data-l10n-args='{"hostname": "${this.hostname}"}'
+        ></p>`;
+      case "NS_ERROR_OFFLINE":
+        return html`<p
+          data-l10n-id="fp-neterror-offline-intro"
+          data-l10n-args='{"hostname": "${this.hostname}"}'
+        ></p>`;
+      case "NS_ERROR_DOM_COOP_FAILED":
+      case "NS_ERROR_DOM_COEP_FAILED":
+        return html`<p data-l10n-id="fp-neterror-coop-coep-intro"></p>`;
+      case "NS_ERROR_BASIC_HTTP_AUTH_DISABLED":
+        return html`<p
+            id="fp-http-auth-disabled-intro-text"
+            data-l10n-id="fp-neterror-http-auth-disabled-intro"
+          ></p>
+          ${this.hideExceptionButton
+            ? html`<p
+                id="fp-http-auth-disabled-secure-connection-text"
+                data-l10n-id="fp-neterror-http-auth-disabled-secure-connection"
+              ></p> `
+            : null} `;
+      case "NS_ERROR_NET_EMPTY_RESPONSE":
+        return html`<p
+          id="netErrorIntro"
+          data-l10n-id="neterror-http-empty-response-description"
+          data-l10n-args='{"hostname": "${this.hostname}"}'
+        ></p> `;
     }
 
-    // Determine element ID based on error type
-    const elementId = gIsCertError ? "certErrorIntro" : "netErrorIntro";
-
-    if (Array.isArray(config.introContent)) {
-      return html`<p id=${elementId}>
-        ${config.introContent.map(
-          ic =>
-            html`<span
-              data-l10n-id=${ic.dataL10nId}
-              data-l10n-args=${ic.dataL10nArgs
-                ? JSON.stringify(ic.dataL10nArgs)
-                : null}
-            ></span>`
-        )}
-      </p>`;
-    }
-
-    const { dataL10nId, dataL10nArgs } = config.introContent;
-
-    // Handle NS_ERROR_BASIC_HTTP_AUTH_DISABLED special case with additional content
-    if (config.errorCode === "NS_ERROR_BASIC_HTTP_AUTH_DISABLED") {
-      return html`<p
-          id="fp-http-auth-disabled-intro-text"
-          data-l10n-id=${dataL10nId}
-        ></p>
-        ${this.hideExceptionButton
-          ? html`<p
-              id="fp-http-auth-disabled-secure-connection-text"
-              data-l10n-id="fp-neterror-http-auth-disabled-secure-connection"
-            ></p> `
-          : null} `;
-    }
-
-    // Handle HSTS certificate errors with additional explanation
-    // For HSTS errors, we show additional explanation about why they can't bypass
-    return html`<p
-        id=${elementId}
-        data-l10n-id=${dataL10nId}
-        data-l10n-args=${dataL10nArgs ? JSON.stringify(dataL10nArgs) : null}
-      ></p>
-      ${gHasSts
-        ? html`<p
-            id="badStsCertExplanation"
-            data-l10n-id="certerror-what-should-i-do-bad-sts-cert-explanation"
-            data-l10n-args=${JSON.stringify({ hostname: this.hostname })}
-          ></p>`
-        : null} `;
+    return null;
   }
 
   advancedContainerTemplate() {
@@ -392,60 +396,219 @@ export class NetErrorCard extends MozLitElement {
       return null;
     }
 
-    const config = this.errorConfig;
-    if (!config?.advanced) {
-      return null;
-    }
+    let content;
 
-    const content = this.advancedSectionTemplate(
-      this.mapAdvancedConfigToParams(config.advanced)
-    );
+    switch (this.errorInfo.errorCodeString) {
+      case "SEC_ERROR_UNTRUSTED_ISSUER": {
+        content = this.advancedSectionTemplate({
+          whyDangerousL10nId:
+            "fp-certerror-untrusted-issuer-why-dangerous-body",
+          whyDangerousL10nArgs: {
+            hostname: this.hostname,
+          },
+          whatCanYouDoL10nId:
+            "fp-certerror-untrusted-issuer-what-can-you-do-body",
+          learnMoreL10nId: "fp-learn-more-about-cert-issues",
+          learnMoreSupportPage: "connection-not-secure",
+          viewCert: true,
+        });
+        break;
+      }
+      case "SEC_ERROR_REVOKED_CERTIFICATE": {
+        content = this.advancedSectionTemplate({
+          whyDangerousL10nId: "fp-certerror-revoked-why-dangerous-body",
+          whyDangerousL10nArgs: {
+            hostname: this.hostname,
+          },
+          whatCanYouDoL10nId: "fp-certerror-revoked-what-can-you-do-body",
+          learnMoreL10nId: "fp-learn-more-about-cert-issues",
+          learnMoreSupportPage: "connection-not-secure",
+          viewCert: true,
+        });
+        break;
+      }
+      case "SEC_ERROR_UNKNOWN_ISSUER": {
+        content = this.advancedSectionTemplate({
+          whyDangerousL10nId: "fp-certerror-unknown-issuer-why-dangerous-body",
+          whatCanYouDoL10nId:
+            "fp-certerror-unknown-issuer-what-can-you-do-body",
+          learnMoreL10nId: "fp-learn-more-about-cert-issues",
+          learnMoreSupportPage: "connection-not-secure",
+          viewCert: true,
+          viewDateTime: true,
+        });
+        break;
+      }
+      case "SSL_ERROR_BAD_CERT_DOMAIN": {
+        if (this.domainMismatchNames === null) {
+          this.getDomainMismatchNames();
+          return null;
+        }
+
+        content = this.advancedSectionTemplate({
+          whyDangerousL10nId: "fp-certerror-bad-domain-why-dangerous-body",
+          whyDangerousL10nArgs: {
+            hostname: this.hostname,
+            validHosts: this.domainMismatchNames ?? "",
+          },
+          whatCanYouDoL10nId: "fp-certerror-bad-domain-what-can-you-do-body",
+          learnMoreL10nId: "fp-learn-more-about-secure-connection-failures",
+          learnMoreSupportPage: "connection-not-secure",
+          viewCert: true,
+          viewDateTime: true,
+        });
+        break;
+      }
+      case "SEC_ERROR_EXPIRED_CERTIFICATE": {
+        const notBefore = this.errorInfo.validNotBefore;
+        const notAfter = this.errorInfo.validNotAfter;
+        if (notBefore && Date.now() < notAfter) {
+          content = this.advancedSectionTemplate({
+            whyDangerousL10nId: "fp-certerror-not-yet-valid-why-dangerous-body",
+            whyDangerousL10nArgs: {
+              date: notBefore,
+            },
+            whatCanYouDoL10nId: "fp-certerror-expired-what-can-you-do-body",
+            whatCanYouDoL10nArgs: {
+              date: Date.now(),
+            },
+            learnMoreL10nId: "fp-learn-more-about-time-related-errors",
+            learnMoreSupportPage: "time-errors",
+            viewCert: true,
+            viewDateTime: true,
+          });
+        } else {
+          content = this.advancedSectionTemplate({
+            whyDangerousL10nId: "fp-certerror-expired-why-dangerous-body",
+            whyDangerousL10nArgs: {
+              date: notAfter,
+            },
+            whatCanYouDoL10nId: "fp-certerror-expired-what-can-you-do-body",
+            whatCanYouDoL10nArgs: {
+              date: Date.now(),
+            },
+            learnMoreL10nId: "fp-learn-more-about-time-related-errors",
+            learnMoreSupportPage: "time-errors",
+            viewCert: true,
+            viewDateTime: true,
+          });
+        }
+        break;
+      }
+      case "MOZILLA_PKIX_ERROR_SELF_SIGNED_CERT": {
+        content = this.advancedSectionTemplate({
+          whyDangerousL10nId: "fp-certerror-self-signed-why-dangerous-body",
+          whatCanYouDoL10nId: "fp-certerror-self-signed-what-can-you-do-body",
+          importantNote: "fp-certerror-self-signed-important-note",
+          viewCert: true,
+          viewDateTime: true,
+        });
+        break;
+      }
+      case "SEC_ERROR_EXPIRED_ISSUER_CERTIFICATE": {
+        const notAfter = this.errorInfo.validNotAfter;
+        content = this.advancedSectionTemplate({
+          whyDangerousL10nId: "fp-certerror-expired-why-dangerous-body",
+          whyDangerousL10nArgs: {
+            date: notAfter,
+          },
+          whatCanYouDoL10nId: "fp-certerror-expired-what-can-you-do-body",
+          whatCanYouDoL10nArgs: {
+            date: Date.now(),
+          },
+          learnMoreL10nId: "fp-learn-more-about-time-related-errors",
+          learnMoreSupportPage: "time-errors",
+          viewCert: true,
+          viewDateTime: true,
+        });
+        break;
+      }
+      case "SSL_ERROR_NO_CYPHER_OVERLAP": {
+        content = this.advancedSectionTemplate({
+          whyDangerousL10nId: "fp-neterror-cypher-overlap-why-dangerous-body",
+          whatCanYouDoL10nId: "fp-neterror-cypher-overlap-what-can-you-do-body",
+          learnMoreL10nId: "fp-learn-more-about-secure-connection-failures",
+          learnMoreSupportPage: "connection-not-secure",
+        });
+        break;
+      }
+      case "MOZILLA_PKIX_ERROR_INSUFFICIENT_CERTIFICATE_TRANSPARENCY": {
+        content = this.advancedSectionTemplate({
+          whyDangerousL10nId: "fp-certerror-transparency-why-dangerous-body",
+          whyDangerousL10nArgs: {
+            hostname: this.hostname,
+          },
+          whatCanYouDoL10nId: "fp-certerror-transparency-what-can-you-do-body",
+          learnMoreL10nId: "fp-learn-more-about-secure-connection-failures",
+          learnMoreSupportPage: "connection-not-secure",
+          viewCert: true,
+        });
+        break;
+      }
+      case "MOZILLA_PKIX_ERROR_NOT_YET_VALID_CERTIFICATE": {
+        const notBefore = this.errorInfo.validNotBefore;
+        content = this.advancedSectionTemplate({
+          whyDangerousL10nId:
+            "fp-certerror-pkix-not-yet-valid-why-dangerous-body",
+          whyDangerousL10nArgs: {
+            date: notBefore,
+          },
+          whatCanYouDoL10nId:
+            "fp-certerror-pkix-not-yet-valid-what-can-you-do-body",
+          whatCanYouDoL10nArgs: {
+            date: Date.now(),
+          },
+          learnMoreL10nId: "fp-learn-more-about-time-related-errors",
+          learnMoreSupportPage: "time-errors",
+          viewCert: true,
+        });
+        break;
+      }
+      case "NS_ERROR_BASIC_HTTP_AUTH_DISABLED": {
+        content = this.advancedSectionTemplate({
+          whyDangerousL10nId:
+            "fp-neterror-http-auth-disabled-why-dangerous-body",
+          whyDangerousL10nArgs: {
+            hostname: this.hostname,
+          },
+          whatCanYouDoL10nId:
+            "fp-neterror-http-auth-disabled-what-can-you-do-body",
+          learnMoreL10nId: "fp-learn-more-about-https-connections",
+          learnMoreSupportPage: HTTPS_UPGRADES_MDN_DOCS,
+        });
+        break;
+      }
+      case "MOZILLA_PKIX_ERROR_INVALID_INTEGER_ENCODING":
+      case "MOZILLA_PKIX_ERROR_ISSUER_NO_LONGER_TRUSTED":
+      case "MOZILLA_PKIX_ERROR_KEY_PINNING_FAILURE":
+      case "MOZILLA_PKIX_ERROR_SIGNATURE_ALGORITHM_MISMATCH":
+      case "SEC_ERROR_BAD_DER":
+      case "SEC_ERROR_BAD_SIGNATURE":
+      case "SEC_ERROR_CERT_NOT_IN_NAME_SPACE":
+      case "SEC_ERROR_EXTENSION_VALUE_INVALID":
+      case "SEC_ERROR_INADEQUATE_CERT_TYPE":
+      case "SEC_ERROR_INADEQUATE_KEY_USAGE":
+      case "SEC_ERROR_INVALID_KEY":
+      case "SEC_ERROR_PATH_LEN_CONSTRAINT_INVALID":
+      case "SEC_ERROR_UNKNOWN_CRITICAL_EXTENSION":
+      case "SEC_ERROR_UNSUPPORTED_EC_POINT_FORM":
+      case "SEC_ERROR_UNSUPPORTED_ELLIPTIC_CURVE":
+      case "SEC_ERROR_UNSUPPORTED_KEYALG":
+      case "SEC_ERROR_UNTRUSTED_CERT": {
+        content = this.advancedSectionTemplate({
+          titleL10nId: "fp-certerror-body-title",
+          whyDangerousL10nId: this.getNSSErrorWhyDangerousL10nId(
+            this.errorInfo.errorCodeString
+          ),
+        });
+        break;
+      }
+    }
 
     return html`<div class="advanced-container">
       <h2 data-l10n-id="fp-certerror-advanced-title"></h2>
       ${content}
     </div>`;
-  }
-
-  mapAdvancedConfigToParams(advancedConfig) {
-    const params = {
-      whyDangerousL10nId: advancedConfig.whyDangerous?.dataL10nId,
-      whyDangerousL10nArgs: advancedConfig.whyDangerous?.dataL10nArgs,
-      whatCanYouDoL10nId: advancedConfig.whatCanYouDo?.dataL10nId,
-      whatCanYouDoL10nArgs: advancedConfig.whatCanYouDo?.dataL10nArgs,
-      importantNote: advancedConfig.importantNote,
-      learnMoreL10nId: advancedConfig.learnMore?.dataL10nId,
-      learnMoreSupportPage: advancedConfig.learnMore?.supportPage,
-      viewCert: advancedConfig.showViewCertificate,
-      viewDateTime: advancedConfig.showDateTime,
-    };
-
-    // Inject hostname into args that need it
-    if (params.whyDangerousL10nArgs) {
-      if (params.whyDangerousL10nArgs.hostname === null) {
-        params.whyDangerousL10nArgs = {
-          ...params.whyDangerousL10nArgs,
-          hostname: this.hostname,
-        };
-      }
-      // Handle SSL_ERROR_BAD_CERT_DOMAIN's validHosts arg
-      if (params.whyDangerousL10nArgs.validHosts === null) {
-        params.whyDangerousL10nArgs = {
-          ...params.whyDangerousL10nArgs,
-          validHosts: this.domainMismatchNames ?? "",
-        };
-      }
-    }
-
-    // Handle whatCanYouDo date args
-    if (params.whatCanYouDoL10nArgs?.date === null) {
-      params.whatCanYouDoL10nArgs = {
-        ...params.whatCanYouDoL10nArgs,
-        date: Date.now(),
-      };
-    }
-
-    return params;
   }
 
   getNSSErrorWhyDangerousL10nId(errorString) {
@@ -486,7 +649,7 @@ export class NetErrorCard extends MozLitElement {
           </div>`
         : null}
       ${importantNote ? html`<p data-l10n-id=${importantNote}></p>` : null}
-      ${this.prefResetContainerTemplate()} ${this.tlsNoticeTemplate()}
+      ${this.prefResetContainerTemplate()}
       ${viewCert
         ? html`<p>
             <a
@@ -509,24 +672,18 @@ export class NetErrorCard extends MozLitElement {
             ></a>
           </p>`
         : null}
-      ${this.errorConfig?.errorCode && gIsCertError
+      ${gIsCertError
         ? html`<p>
             <a
               id="errorCode"
               data-l10n-id="fp-cert-error-code"
               data-l10n-name="error-code-link"
               data-telemetry-id="error_code_link"
-              data-l10n-args='{"error": "${this.errorConfig.errorCode}"}'
+              data-l10n-args='{"error": "${this.errorInfo.errorCodeString}"}'
               @click=${this.toggleCertErrorDebugInfoShowing}
               href="#certificateErrorDebugInformation"
             ></a>
           </p>`
-        : null}
-      ${this.errorConfig?.errorCode && !gIsCertError
-        ? html`<p
-            data-l10n-id="fp-cert-error-code"
-            data-l10n-args='{"error": "${this.errorConfig.errorCode}"}'
-          ></p>`
         : null}
       ${viewDateTime
         ? html`<p
@@ -545,79 +702,71 @@ export class NetErrorCard extends MozLitElement {
         : null} `;
   }
 
-  tlsNoticeTemplate() {
-    if (!this.showTlsNotice) {
-      return null;
-    }
-
-    return html`<p
-      id="tlsVersionNotice"
-      data-l10n-id="cert-error-old-tls-version"
-    ></p>`;
-  }
-
   customNetErrorContainerTemplate() {
     if (!this.showCustomNetErrorCard) {
       return null;
     }
 
-    const config = this.errorConfig;
-    if (!config.customNetError) {
-      // For errors with advanced sections but no custom net error section
-      if (config.buttons?.showAdvanced) {
-        const content = this.customNetErrorSectionTemplate({
-          titleL10nId: config.bodyTitleL10nId || "fp-certerror-body-title",
+    let content;
+
+    switch (this.errorInfo.errorCodeString) {
+      case "NS_ERROR_OFFLINE": {
+        content = this.customNetErrorSectionTemplate({
+          titleL10nId: "fp-neterror-offline-body-title",
+          whatCanYouDoL10nId: "fp-neterror-offline-what-can-you-do-body",
+          whatCanYouDoL10nArgs: {
+            hostname: this.hostname,
+          },
           buttons: {
-            goBack: config.buttons?.showGoBack && window.self === window.top,
-            tryAgain: config.buttons?.showTryAgain,
+            tryAgain: true,
+          },
+        });
+        break;
+      }
+      case "NS_ERROR_DOM_COOP_FAILED":
+      case "NS_ERROR_DOM_COEP_FAILED": {
+        content = this.customNetErrorSectionTemplate({
+          titleL10nId: "fp-certerror-body-title",
+          whyDidThisHappenL10nId:
+            "fp-neterror-coop-coep-why-did-this-happen-body",
+          whyDidThisHappenL10nArgs: {
+            hostname: this.hostname,
+          },
+          learnMoreL10nId:
+            gErrorCode === "blockedByCOOP"
+              ? "certerror-coop-learn-more"
+              : "certerror-coep-learn-more",
+          learnMoreSupportPage:
+            gErrorCode === "blockedByCOOP" ? COOP_MDN_DOCS : COEP_MDN_DOCS,
+          buttons: {
+            goBack: window.self === window.top,
+          },
+        });
+        break;
+      }
+      case "NS_ERROR_BASIC_HTTP_AUTH_DISABLED": {
+        content = this.customNetErrorSectionTemplate({
+          titleL10nId: "fp-certerror-body-title",
+          buttons: {
+            goBack: window.self === window.top,
           },
           useAdvancedSection: true,
         });
-        return html`<div class="custom-net-error-card">${content}</div>`;
+        break;
       }
-      return null;
+      case "NS_ERROR_NET_EMPTY_RESPONSE": {
+        content = this.customNetErrorSectionTemplate({
+          titleL10nId: "problem-with-this-site-title",
+          whatCanYouDoL10nId: "neterror-http-empty-response",
+          buttons: {
+            tryAgain: true,
+          },
+        });
+        break;
+      }
     }
-
-    const customNetError = config.customNetError;
-    const params = this.mapCustomNetErrorConfigToParams(customNetError, config);
-    const content = this.customNetErrorSectionTemplate(params);
 
     return html`<div class="custom-net-error-card">${content}</div>`;
-  }
-
-  mapCustomNetErrorConfigToParams(customNetError, config) {
-    const params = {
-      titleL10nId: customNetError.titleL10nId,
-      whyDangerousL10nId: customNetError.whyDangerousL10nId,
-      whyDangerousL10nArgs: customNetError.whyDangerousL10nArgs,
-      whyDidThisHappenL10nId: customNetError.whyDidThisHappenL10nId,
-      whyDidThisHappenL10nArgs: customNetError.whyDidThisHappenL10nArgs,
-      whatCanYouDoL10nId: customNetError.whatCanYouDoL10nId,
-      whatCanYouDoL10nArgs: customNetError.whatCanYouDoL10nArgs,
-      learnMoreL10nId: customNetError.learnMoreL10nId,
-      learnMoreSupportPage: customNetError.learnMoreSupportPage,
-      buttons: {
-        tryAgain: config.buttons?.showTryAgain,
-        goBack: config.buttons?.showGoBack && window.self === window.top,
-      },
-      useAdvancedSection: config.buttons?.showAdvanced,
-    };
-
-    // Inject hostname into args that need it
-    if (params.whatCanYouDoL10nArgs?.hostname === null) {
-      params.whatCanYouDoL10nArgs = {
-        ...params.whatCanYouDoL10nArgs,
-        hostname: this.hostname,
-      };
-    }
-    if (params.whyDidThisHappenL10nArgs?.hostname === null) {
-      params.whyDidThisHappenL10nArgs = {
-        ...params.whyDidThisHappenL10nArgs,
-        hostname: this.hostname,
-      };
-    }
-
-    return params;
   }
 
   customNetErrorSectionTemplate(params) {
@@ -636,17 +785,6 @@ export class NetErrorCard extends MozLitElement {
     } = params;
 
     const { goBack = false, tryAgain = false } = buttons;
-
-    // Format the learn more link with base URL if it's a SUMO slug
-    let learnMoreHref = learnMoreSupportPage;
-    if (
-      learnMoreSupportPage &&
-      !learnMoreSupportPage.startsWith("http://") &&
-      !learnMoreSupportPage.startsWith("https://")
-    ) {
-      const baseURL = RPMGetFormatURLPref("app.support.baseURL");
-      learnMoreHref = baseURL + learnMoreSupportPage;
-    }
 
     const content = html`
       ${whyDangerousL10nId
@@ -680,7 +818,7 @@ export class NetErrorCard extends MozLitElement {
       ${learnMoreL10nId
         ? html`<p>
             <a
-              href=${learnMoreHref}
+              href=${learnMoreSupportPage}
               data-l10n-id=${learnMoreL10nId}
               data-telemetry-id="learn_more_link"
               id="neterror-learn-more-link"
@@ -691,24 +829,15 @@ export class NetErrorCard extends MozLitElement {
           </p>`
         : null}
       ${tryAgain
-        ? html`<moz-button-group>
-            <moz-button
+        ? html`<moz-button-group
+            ><moz-button
               id="tryAgainButton"
               type="primary"
               data-l10n-id="neterror-try-again-button"
               data-telemetry-id="try_again_button"
               @click=${this.handleTryAgain}
-            ></moz-button>
-            ${this.showTrrSettingsButton
-              ? html`<moz-button
-                  id="trrSettingsButton"
-                  type="default"
-                  data-l10n-id="neterror-settings-button"
-                  data-telemetry-id="settings_button"
-                  @click=${this.handleTRRSettingsClick}
-                ></moz-button>`
-              : null}
-          </moz-button-group>`
+            ></moz-button
+          ></moz-button-group>`
         : null}
       ${goBack
         ? html`<moz-button-group
@@ -766,11 +895,6 @@ export class NetErrorCard extends MozLitElement {
     this.domainMismatchNamesPromise = getSubjectAltNames(this.errorInfo);
     let subjectAltNames = await this.domainMismatchNamesPromise;
     this.domainMismatchNames = subjectAltNames.join(", ");
-
-    // Re-resolve errorConfig to display domain mismatch names
-    if (this.errorConfig?.advanced?.requiresDomainMismatchNames) {
-      this.errorConfig = this.getErrorConfig();
-    }
   }
 
   async getCertificateErrorText() {
@@ -833,11 +957,6 @@ export class NetErrorCard extends MozLitElement {
   handleTryAgain(e) {
     this.handleTelemetryClick(e);
     retryThis(e);
-  }
-
-  handleTRRSettingsClick(e) {
-    this.handleTelemetryClick(e);
-    RPMSendAsyncMessage("OpenTRRPreferences");
   }
 
   toggleAdvancedShowing(e) {
@@ -936,30 +1055,28 @@ export class NetErrorCard extends MozLitElement {
       target = target.getRootNode().host;
     }
     let telemetryId = target.dataset.telemetryId;
+    const category = gIsCertError
+      ? "securityUiCerterror"
+      : "securityUiNeterror";
+    void recordSecurityUITelemetry(
+      category,
+      "click" +
+        telemetryId
+          .split("_")
+          .map(word => word[0].toUpperCase() + word.slice(1))
+          .join(""),
+      this.errorInfo
+    );
+  }
 
-    if (this.trrTelemetryData) {
-      RPMRecordGleanEvent(
-        "securityDohNeterror",
-        "click" +
-          telemetryId
-            .split("_")
-            .map(word => word[0].toUpperCase() + word.slice(1))
-            .join(""),
-        this.trrTelemetryData
-      );
-    } else {
-      const category = gIsCertError
-        ? "securityUiCerterror"
-        : "securityUiNeterror";
-      void recordSecurityUITelemetry(
-        category,
-        "click" +
-          telemetryId
-            .split("_")
-            .map(word => word[0].toUpperCase() + word.slice(1))
-            .join(""),
-        this.errorInfo
-      );
+  getErrorImage(errorCode) {
+    switch (errorCode) {
+      case "NS_ERROR_NET_EMPTY_RESPONSE": {
+        return "chrome://global/skin/illustrations/no-connection.svg";
+      }
+      default: {
+        return "chrome://global/skin/illustrations/security-error.svg";
+      }
     }
   }
 
@@ -968,10 +1085,7 @@ export class NetErrorCard extends MozLitElement {
       return null;
     }
 
-    const { bodyTitleL10nId, image } = this.errorConfig;
-    const img =
-      image ?? "chrome://global/skin/illustrations/security-error.svg";
-    const title = bodyTitleL10nId ?? "fp-certerror-body-title";
+    const img = this.getErrorImage(this.errorInfo.errorCodeString);
 
     return html`<link
         rel="stylesheet"
@@ -984,7 +1098,10 @@ export class NetErrorCard extends MozLitElement {
         <div class="container">
           ${this.showCustomNetErrorCard
             ? html`${this.customNetErrorContainerTemplate()}`
-            : html`<h1 id="certErrorBodyTitle" data-l10n-id=${title}></h1>
+            : html`<h1
+                  id="certErrorBodyTitle"
+                  data-l10n-id="fp-certerror-body-title"
+                ></h1>
                 ${this.introContentTemplate()}
                 <moz-button-group
                   ><moz-button

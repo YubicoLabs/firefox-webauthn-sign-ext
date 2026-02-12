@@ -19,8 +19,6 @@ const CUSTOM_BASELINE_CHECKBOX_ID = "contentBlockingBaselineExceptionsCustom";
 const CUSTOM_CONVENIENCE_CHECKBOX_ID =
   "contentBlockingConvenienceExceptionsCustom";
 
-requestLongerTimeout(2);
-
 async function cleanUp() {
   await SpecialPowers.popPrefEnv();
   gBrowser.removeCurrentTab();
