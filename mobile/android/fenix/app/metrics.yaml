@@ -995,6 +995,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   privacy_preferences_modal_usage_data_enabled:
     type: event
     description: The usage data preference value.
@@ -1014,6 +1017,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   privacy_preferences_modal_crash_reporting_learn_more:
     type: event
     description: The privacy preferences model usage data "learn more" link used".
@@ -1029,6 +1035,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   privacy_preferences_modal_usage_data_learn_more:
     type: event
     description: The privacy preferences model crash reporting "learn more" link used".
@@ -1044,6 +1053,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   fxa_auto_signin:
     type: event
     description:
@@ -1064,6 +1076,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   welcome_card_impression:
     type: event
     description:
@@ -1081,6 +1096,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   welcome_close_clicked:
     type: event
     description:
@@ -1098,6 +1116,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   welcome_get_started_clicked:
     type: event
     description:
@@ -1116,6 +1137,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   sync_card_impression:
     type: event
     description:
@@ -1133,6 +1157,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   sync_close_clicked:
     type: event
     description:
@@ -1150,6 +1177,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   sync_sign_in_clicked:
     type: event
     description:
@@ -1168,6 +1198,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   sync_skip_clicked:
     type: event
     description:
@@ -1185,6 +1218,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   set_to_default_card:
     type: event
     description: |
@@ -1219,6 +1255,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   sign_in_card:
     type: event
     description: |
@@ -1253,6 +1292,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   turn_on_notifications_card:
     type: event
     description: |
@@ -1287,6 +1329,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   terms_of_service_card:
     type: event
     description: |
@@ -1320,6 +1365,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   terms_of_service_link_clicked:
     type: event
     description: |
@@ -1336,6 +1384,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   terms_of_service_privacy_notice_link_clicked:
     type: event
     description: |
@@ -1352,6 +1403,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   terms_of_service_manage_link_clicked:
     type: event
     description: |
@@ -1368,6 +1422,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   terms_of_service_accepted:
     type: event
     description: |
@@ -1384,6 +1441,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   toolbar_placement_card:
     type: event
     description: |
@@ -1417,6 +1477,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   theme_selection_card:
     type: event
     description: |
@@ -1450,6 +1513,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   set_to_default:
     type: event
     description: |
@@ -1484,6 +1550,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   skip_default:
     type: event
     description: |
@@ -1518,6 +1587,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   sign_in:
     type: event
     description: |
@@ -1552,6 +1624,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   skip_sign_in:
     type: event
     description: |
@@ -1586,6 +1661,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   turn_on_notifications:
     type: event
     description: |
@@ -1620,6 +1698,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   skip_turn_on_notifications:
     type: event
     description: |
@@ -1654,6 +1735,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   add_search_widget_card:
     type: event
     description: |
@@ -1688,6 +1772,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   add_search_widget:
     type: event
     description: |
@@ -1722,6 +1809,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   skip_add_search_widget:
     type: event
     description: |
@@ -1756,6 +1846,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   select_toolbar_placement:
     type: event
     description: |
@@ -1793,6 +1886,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   select_theme:
     type: event
     description: |
@@ -1826,6 +1922,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   privacy_policy:
     type: event
     description: |
@@ -1860,6 +1959,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   completed:
     type: event
     description: |
@@ -1886,6 +1988,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   started:
     type: event
     description: |
@@ -1902,6 +2007,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   shown:
     type: event
     description: |
@@ -1918,6 +2026,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   dismissed:
     type: event
     description: |
@@ -1939,6 +2050,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   marketing_data_continue_clicked:
     type: event
     description:
@@ -1958,6 +2072,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   marketing_data_card_viewed:
     type: event
     description:
@@ -1989,6 +2106,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   marketing_data_opt_in_toggled:
     type: event
     description: The user toggled the marketing data checkbox.
@@ -2006,6 +2126,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   marketing_data_learn_more:
     type: event
     description: The marketing data "learn more" link used".
@@ -2021,6 +2144,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
   setup_checklist_task_clicked:
     type: event
     description: |
@@ -2042,6 +2168,9 @@ onboarding:
     metadata:
       tags:
         - Onboarding
+    send_in_pings:
+      - onboarding
+      - events
 
 terms_of_use:
   impression:
