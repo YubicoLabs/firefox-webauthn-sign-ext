@@ -273,6 +273,11 @@ class nsSocketTransportService final : public nsPISocketTransportService,
   //-------------------------------------------------------------------------
   AutoCleanLinkedList<LinkedRunnableEvent> mPendingSocketQueue;
 
+  //-------------------------------------------------------------------------
+  // priority event queue - processed before normal event queue
+  //-------------------------------------------------------------------------
+  AutoCleanLinkedList<LinkedRunnableEvent> mPriorityEventQueue;
+
   // Preference Monitor for SendBufferSize and Keepalive prefs.
   nsresult UpdatePrefs();
   static void UpdatePrefs(const char* aPref, void* aSelf);

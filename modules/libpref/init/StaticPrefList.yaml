@@ -16047,6 +16047,13 @@
   value: false
   mirror: always
 
+# When true, the socket transport service will have an additional queue for
+# runnables with increased priority.
+- name: network.socket.prioritize_runnables
+  type: RelaxedAtomicBool
+  value: true
+  mirror: always
+
 # Whether to redirect a failing request to an essential domain
 # to a fallback domain that hosts the same content.
 - name: network.essential_domains_fallback

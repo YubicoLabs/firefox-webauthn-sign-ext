@@ -287,9 +287,30 @@ nsSocketTransportService::Dispatch(already_AddRefed<nsIRunnable> event,
   SOCKET_LOG(("STS dispatch [%p]\n", event_ref.get()));
 
   nsCOMPtr<nsIThread> thread = GetThreadSafely();
-  nsresult rv = thread ? thread->Dispatch(event_ref.forget(),
-                                          flags | NS_DISPATCH_FALLIBLE)
-                       : NS_ERROR_NOT_INITIALIZED;
+  if (!thread) {
+    return NS_ERROR_NOT_INITIALIZED;
+  }
+
+  nsresult rv = NS_OK;
+  bool isHighPriority = false;
+  if (StaticPrefs::network_socket_prioritize_runnables()) {
+    if (nsCOMPtr<nsIRunnablePriority> p = do_QueryInterface(event_ref)) {
+      uint32_t priority = nsIRunnablePriority::PRIORITY_NORMAL;
+      p->GetPriority(&priority);
+      if (priority > nsIRunnablePriority::PRIORITY_NORMAL) {
+        isHighPriority = true;
+      }
+    }
+  }
+
+  if (isHighPriority) {
+    // Add to priority queue instead of dispatching to thread
+    auto* runnable = new LinkedRunnableEvent(event_ref);
+    mPriorityEventQueue.insertBack(runnable);
+  } else {
+    rv = thread->Dispatch(event_ref.forget(), flags | NS_DISPATCH_FALLIBLE);
+  }
+
   if (rv == NS_ERROR_UNEXPECTED) {
     // Thread is no longer accepting events. We must have just shut it
     // down on the main thread. Pretend we never saw it.
@@ -318,7 +339,8 @@ nsSocketTransportService::UnregisterShutdownTask(nsITargetShutdownTask* task) {
 
 nsIEventTarget::FeatureFlags nsSocketTransportService::GetFeatures() {
   nsCOMPtr<nsIThread> thread = GetThreadSafely();
-  return thread ? thread->GetFeatures() : SUPPORTS_BASE;
+  return thread ? (thread->GetFeatures() | SUPPORTS_PRIORITIZATION)
+                : SUPPORTS_PRIORITIZATION;
 }
 
 NS_IMETHODIMP
@@ -637,6 +659,7 @@ int32_t nsSocketTransportService::Poll(PRIntervalTime ts) {
   // DoPollIteration() should service the network without blocking.
   bool pendingEvents = false;
   mRawThread->HasPendingEvents(&pendingEvents);
+  pendingEvents = pendingEvents || !mPriorityEventQueue.isEmpty();
 
   if (mPollList[0].fd) {
     mPollList[0].out_flags = 0;
@@ -1185,8 +1208,21 @@ nsSocketTransportService::Run() {
 
       DoPollIteration();
 
+      bool hadPriorityEvent = false;
+      if (StaticPrefs::network_socket_prioritize_runnables()) {
+        while (LinkedRunnableEvent* runnable = mPriorityEventQueue.getFirst()) {
+          nsCOMPtr<nsIRunnable> event = runnable->TakeEvent();
+          runnable->remove();
+          delete runnable;
+          if (event) {
+            hadPriorityEvent = true;
+            event->Run();
+          }
+        }
+      }
+
       mRawThread->HasPendingEvents(&pendingEvents);
-      if (pendingEvents) {
+      if (!hadPriorityEvent && pendingEvents) {
         if (!mServingPendingQueue) {
           nsresult rv = Dispatch(
               NewRunnableMethod(
@@ -1221,6 +1257,7 @@ nsSocketTransportService::Run() {
                  ((TimeStamp::NowLoRes() - eventQueueStart).ToMilliseconds() <
                   mMaxTimePerPollIter));
       }
+      pendingEvents = pendingEvents || !mPriorityEventQueue.isEmpty();
     } while (pendingEvents);
 
     bool goingOffline = false;
