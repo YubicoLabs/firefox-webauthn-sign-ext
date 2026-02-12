@@ -72,10 +72,10 @@ void SharedMap::Get(JSContext* aCx, const nsACString& aName,
 void SharedMap::Entry::Read(JSContext* aCx,
                             JS::MutableHandle<JS::Value> aRetVal,
                             ErrorResult& aRv) {
-  if (mData.is<UniquePtr<StructuredCloneData>>()) {
+  if (mData.is<RefPtr<StructuredCloneData>>()) {
     // We have a temporary buffer for a key that was changed after the last
     // snapshot. Just decode it directly.
-    auto& holder = mData.as<UniquePtr<StructuredCloneData>>();
+    auto& holder = mData.as<RefPtr<StructuredCloneData>>();
     holder->Read(aCx, aRetVal, aRv);
     return;
   }
@@ -84,15 +84,17 @@ void SharedMap::Entry::Read(JSContext* aCx,
   // clone data. Create a temporary buffer to decode that data, and then
   // discard it so that we don't keep a separate process-local copy around any
   // longer than necessary.
-  StructuredCloneData holder;
-  if (!holder.CopyExternalData(Data(), Size())) {
+  auto holder = MakeRefPtr<StructuredCloneData>(
+      JS::StructuredCloneScope::DifferentProcess,
+      StructuredCloneHolder::TransferringNotSupported);
+  if (!holder->CopyExternalData(Data(), Size())) {
     aRv.Throw(NS_ERROR_OUT_OF_MEMORY);
     return;
   }
   if (mBlobCount) {
-    holder.BlobImpls().AppendElements(Blobs());
+    holder->BlobImpls().AppendElements(Blobs());
   }
-  holder.Read(aCx, aRetVal, aRv);
+  holder->Read(aCx, aRetVal, aRv);
 }
 
 void SharedMap::Update(SharedMemoryHandle&& aMapHandle,
@@ -154,22 +156,25 @@ bool SharedMap::GetValueAtIndex(JSContext* aCx, uint32_t aIndex,
   return true;
 }
 
-void SharedMap::Entry::TakeData(UniquePtr<StructuredCloneData> aHolder) {
-  mData = AsVariant(std::move(aHolder));
+void SharedMap::Entry::SetData(StructuredCloneData* aHolder) {
+  MOZ_ASSERT(!aHolder->SupportsTransferring());
 
-  mSize = Holder().Data().Size();
-  mBlobCount = Holder().BlobImpls().Length();
+  mData = AsVariant(RefPtr{aHolder});
+
+  mSize = Holder()->BufferData().Size();
+  mBlobCount = Holder()->BlobImpls().Length();
 }
 
 void SharedMap::Entry::ExtractData(char* aDestPtr, uint32_t aNewOffset,
                                    uint16_t aNewBlobOffset) {
-  if (mData.is<UniquePtr<StructuredCloneData>>()) {
+  if (mData.is<RefPtr<StructuredCloneData>>()) {
     char* ptr = aDestPtr;
-    Holder().Data().ForEachDataChunk([&](const char* aData, size_t aSize) {
-      memcpy(ptr, aData, aSize);
-      ptr += aSize;
-      return true;
-    });
+    Holder()->BufferData().ForEachDataChunk(
+        [&](const char* aData, size_t aSize) {
+          memcpy(ptr, aData, aSize);
+          ptr += aSize;
+          return true;
+        });
     MOZ_ASSERT(uint32_t(ptr - aDestPtr) == mSize);
   } else {
     memcpy(aDestPtr, Data(), mSize);
@@ -380,7 +385,9 @@ void WritableSharedMap::Delete(const nsACString& aName) {
 
 void WritableSharedMap::Set(JSContext* aCx, const nsACString& aName,
                             JS::Handle<JS::Value> aValue, ErrorResult& aRv) {
-  auto holder = MakeUnique<StructuredCloneData>();
+  auto holder = MakeRefPtr<StructuredCloneData>(
+      JS::StructuredCloneScope::DifferentProcess,
+      StructuredCloneHolder::TransferringNotSupported);
 
   holder->Write(aCx, aValue, aRv);
   if (aRv.Failed()) {
@@ -393,7 +400,7 @@ void WritableSharedMap::Set(JSContext* aCx, const nsACString& aName,
   }
 
   Entry* entry = mEntries.GetOrInsertNew(aName, *this, aName);
-  entry->TakeData(std::move(holder));
+  entry->SetData(holder);
 
   KeyChanged(aName);
 }

@@ -2739,7 +2739,9 @@ bool ContentParent::InitInternal(ProcessPriority aInitialPriority) {
       clipboard->IsClipboardTypeSupported(nsIClipboard::kSelectionCache);
 
   // Let's copy the domain policy from the parent to the child (if it's active).
-  auto initialData = MakeUnique<StructuredCloneData>();
+  auto initialData = MakeNotNull<RefPtr<StructuredCloneData>>(
+      JS::StructuredCloneScope::DifferentProcess,
+      StructuredCloneHolder::TransferringNotSupported);
   nsIScriptSecurityManager* ssm = nsContentUtils::GetSecurityManager();
   if (ssm) {
     ssm->CloneDomainPolicy(&xpcomInit.domainPolicy());
@@ -4672,34 +4674,28 @@ mozilla::ipc::IPCResult ContentParent::RecvExtProtocolChannelConnectParent(
 }
 
 mozilla::ipc::IPCResult ContentParent::RecvSyncMessage(
-    const nsAString& aMsg, const ClonedMessageData& aData,
-    nsTArray<UniquePtr<StructuredCloneData>>* aRetvals) {
+    const nsAString& aMsg, NotNull<StructuredCloneData*> aData,
+    nsTArray<NotNull<RefPtr<StructuredCloneData>>>* aRetvals) {
   AUTO_PROFILER_LABEL_DYNAMIC_LOSSY_NSSTRING("ContentParent::RecvSyncMessage",
                                              OTHER, aMsg);
   MMPrinter::Print("ContentParent::RecvSyncMessage", aMsg, aData);
 
   RefPtr<nsFrameMessageManager> ppm = mMessageManager;
   if (ppm) {
-    ipc::StructuredCloneData data;
-    ipc::UnpackClonedMessageData(aData, data);
-
-    ppm->ReceiveMessage(ppm, nullptr, aMsg, true, &data, aRetvals);
+    ppm->ReceiveMessage(ppm, nullptr, aMsg, true, aData, aRetvals);
   }
   return IPC_OK();
 }
 
 mozilla::ipc::IPCResult ContentParent::RecvAsyncMessage(
-    const nsAString& aMsg, const ClonedMessageData& aData) {
+    const nsAString& aMsg, NotNull<StructuredCloneData*> aData) {
   AUTO_PROFILER_LABEL_DYNAMIC_LOSSY_NSSTRING("ContentParent::RecvAsyncMessage",
                                              OTHER, aMsg);
   MMPrinter::Print("ContentParent::RecvAsyncMessage", aMsg, aData);
 
   RefPtr<nsFrameMessageManager> ppm = mMessageManager;
   if (ppm) {
-    ipc::StructuredCloneData data;
-    ipc::UnpackClonedMessageData(aData, data);
-
-    ppm->ReceiveMessage(ppm, nullptr, aMsg, false, &data, nullptr);
+    ppm->ReceiveMessage(ppm, nullptr, aMsg, false, aData, nullptr);
   }
   return IPC_OK();
 }
@@ -4810,10 +4806,10 @@ mozilla::ipc::IPCResult ContentParent::RecvScriptErrorWithStack(
     const uint32_t& aLineNumber, const uint32_t& aColNumber,
     const uint32_t& aFlags, const nsACString& aCategory,
     const bool& aIsFromPrivateWindow, const bool& aIsFromChromeContext,
-    const ClonedMessageData& aStack) {
+    NotNull<StructuredCloneData*> aStack) {
   return RecvScriptErrorInternal(aMessage, aSourceName, aLineNumber, aColNumber,
                                  aFlags, aCategory, aIsFromPrivateWindow,
-                                 aIsFromChromeContext, &aStack);
+                                 aIsFromChromeContext, aStack);
 }
 
 mozilla::ipc::IPCResult ContentParent::RecvScriptErrorInternal(
@@ -4821,7 +4817,7 @@ mozilla::ipc::IPCResult ContentParent::RecvScriptErrorInternal(
     const uint32_t& aLineNumber, const uint32_t& aColNumber,
     const uint32_t& aFlags, const nsACString& aCategory,
     const bool& aIsFromPrivateWindow, const bool& aIsFromChromeContext,
-    const ClonedMessageData* aStack) {
+    StructuredCloneData* aStack) {
   nsresult rv;
   nsCOMPtr<nsIConsoleService> consoleService =
       do_GetService(NS_CONSOLESERVICE_CONTRACTID, &rv);
@@ -4832,9 +4828,6 @@ mozilla::ipc::IPCResult ContentParent::RecvScriptErrorInternal(
   nsCOMPtr<nsIScriptError> msg;
 
   if (aStack) {
-    StructuredCloneData data;
-    UnpackClonedMessageData(*aStack, data);
-
     AutoJSAPI jsapi;
     if (NS_WARN_IF(!jsapi.Init(xpc::PrivilegedJunkScope()))) {
       MOZ_CRASH();
@@ -4843,7 +4836,7 @@ mozilla::ipc::IPCResult ContentParent::RecvScriptErrorInternal(
 
     JS::Rooted<JS::Value> stack(cx);
     IgnoredErrorResult rv;
-    data.Read(cx, &stack, rv);
+    aStack->Read(cx, &stack, rv);
     if (rv.Failed() || !stack.isObject()) {
       return IPC_OK();
     }
@@ -4876,13 +4869,9 @@ bool ContentParent::DoLoadMessageManagerScript(const nsAString& aURL,
   return SendLoadProcessScript(aURL);
 }
 
-nsresult ContentParent::DoSendAsyncMessage(const nsAString& aMessage,
-                                           StructuredCloneData& aData) {
-  ClonedMessageData data;
-  if (!BuildClonedMessageData(aData, data)) {
-    return NS_ERROR_DOM_DATA_CLONE_ERR;
-  }
-  if (!SendAsyncMessage(aMessage, data)) {
+nsresult ContentParent::DoSendAsyncMessage(
+    const nsAString& aMessage, NotNull<StructuredCloneData*> aData) {
+  if (!SendAsyncMessage(aMessage, aData)) {
     return NS_ERROR_UNEXPECTED;
   }
   return NS_OK;
@@ -7371,7 +7360,7 @@ mozilla::ipc::IPCResult ContentParent::RecvMaybeExitFullscreen(
 
 mozilla::ipc::IPCResult ContentParent::RecvWindowPostMessage(
     const MaybeDiscarded<BrowsingContext>& aContext,
-    const ClonedOrErrorMessageData& aMessage, const PostMessageData& aData) {
+    StructuredCloneData* aMessage, const PostMessageData& aData) {
   if (aContext.IsNullOrDiscarded()) {
     MOZ_LOG(
         BrowsingContext::GetLog(), LogLevel::Debug,
@@ -7394,24 +7383,7 @@ mozilla::ipc::IPCResult ContentParent::RecvWindowPostMessage(
     return IPC_OK();
   }
 
-  ClonedOrErrorMessageData message;
-  StructuredCloneData messageFromChild;
-  if (aMessage.type() == ClonedOrErrorMessageData::TClonedMessageData) {
-    UnpackClonedMessageData(aMessage, messageFromChild);
-
-    ClonedMessageData clonedMessageData;
-    if (BuildClonedMessageData(messageFromChild, clonedMessageData)) {
-      message = std::move(clonedMessageData);
-    } else {
-      // FIXME Logging?
-      message = ErrorMessageData();
-    }
-  } else {
-    MOZ_ASSERT(aMessage.type() == ClonedOrErrorMessageData::TErrorMessageData);
-    message = ErrorMessageData();
-  }
-
-  (void)cp->SendWindowPostMessage(context, message, aData);
+  (void)cp->SendWindowPostMessage(context, aMessage, aData);
   return IPC_OK();
 }
 
@@ -7688,15 +7660,12 @@ ContentParent::RecvGetLoadingSessionHistoryInfoFromParent(
 
 mozilla::ipc::IPCResult ContentParent::RecvSynchronizeNavigationAPIState(
     const MaybeDiscarded<BrowsingContext>& aContext,
-    const ClonedMessageData& aState) {
+    NotNull<nsStructuredCloneContainer*> aState) {
   if (aContext.IsNullOrDiscarded()) {
     return IPC_OK();
   }
 
-  RefPtr state = MakeRefPtr<nsStructuredCloneContainer>();
-  state->CopyFromClonedMessageData(aState);
-
-  aContext.get_canonical()->SynchronizeNavigationAPIState(state);
+  aContext.get_canonical()->SynchronizeNavigationAPIState(aState);
   return IPC_OK();
 }
 
@@ -7853,15 +7822,10 @@ void ContentParent::StartRemoteWorkerService() {
   }
 }
 
-IPCResult ContentParent::RecvRawMessage(
-    const JSActorMessageMeta& aMeta, JSIPCValue&& aData,
-    const UniquePtr<ClonedMessageData>& aStack) {
-  UniquePtr<StructuredCloneData> stack;
-  if (aStack) {
-    stack = MakeUnique<StructuredCloneData>();
-    stack->BorrowFromClonedMessageData(*aStack);
-  }
-  ReceiveRawMessage(aMeta, std::move(aData), std::move(stack));
+IPCResult ContentParent::RecvRawMessage(const JSActorMessageMeta& aMeta,
+                                        JSIPCValue&& aData,
+                                        StructuredCloneData* aStack) {
+  ReceiveRawMessage(aMeta, std::move(aData), aStack);
   return IPC_OK();
 }
 
