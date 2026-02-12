@@ -28,6 +28,11 @@ class OnboardingTelemetryRecorder {
                 sequencePosition = sequencePosition,
             ),
         )
+        Onboarding.dismissed.record(
+            Onboarding.DismissedExtra(
+                method = "complete",
+            ),
+        )
         Pings.onboarding.submit()
     }
 
@@ -344,6 +349,7 @@ class OnboardingTelemetryRecorder {
      * Records when the accept terms button clicked.
      */
     fun onTermsOfServiceManagerAcceptTermsButtonClick() {
+        Onboarding.shown.record()
         Onboarding.termsOfServiceAccepted.record()
         TermsOfUse.accepted.record(
             TermsOfUse.AcceptedExtra(
