@@ -211,6 +211,21 @@ struct ParamTraits<mozilla::WidgetPointerHelper::Tilt> {
 };
 
 template <>
+struct ParamTraits<mozilla::WidgetPointerHelper::Angle> {
+  using paramType = mozilla::WidgetPointerHelper::Angle;
+
+  static void Write(MessageWriter* aWriter, const paramType& aParam) {
+    WriteParam(aWriter, aParam.mAltitude);
+    WriteParam(aWriter, aParam.mAzimuth);
+  }
+
+  static bool Read(MessageReader* aReader, paramType* aResult) {
+    return ReadParam(aReader, &aResult->mAltitude) &&
+           ReadParam(aReader, &aResult->mAzimuth);
+  }
+};
+
+template <>
 struct ParamTraits<mozilla::WidgetPointerHelper> {
   using paramType = mozilla::WidgetPointerHelper;
 
@@ -362,6 +377,7 @@ struct ParamTraits<mozilla::WidgetTouchEvent> {
       WriteParam(aWriter, touch->mForce);
       WriteParam(aWriter, touch->mTilt);
       WriteParam(aWriter, touch->twist);
+      WriteParam(aWriter, touch->mAngle);
     }
   }
 
@@ -382,16 +398,18 @@ struct ParamTraits<mozilla::WidgetTouchEvent> {
       float force;
       mozilla::Maybe<mozilla::WidgetPointerHelper::Tilt> tilt;
       int32_t twist;
+      mozilla::Maybe<mozilla::WidgetPointerHelper::Angle> angle;
       if (!ReadParam(aReader, &identifier) || !ReadParam(aReader, &refPoint) ||
           !ReadParam(aReader, &radius) || !ReadParam(aReader, &rotationAngle) ||
           !ReadParam(aReader, &force) || !ReadParam(aReader, &tilt) ||
-          !ReadParam(aReader, &twist)) {
+          !ReadParam(aReader, &twist) || !ReadParam(aReader, &angle)) {
         return false;
       }
       auto* touch = new mozilla::dom::Touch(identifier, refPoint, radius,
                                             rotationAngle, force);
       touch->mTilt = std::move(tilt);
       touch->twist = twist;
+      touch->mAngle = std::move(angle);
       aResult->mTouches.AppendElement(touch);
     }
     return true;

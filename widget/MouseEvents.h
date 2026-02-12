@@ -51,9 +51,15 @@ class WidgetPointerHelper {
     int32_t mY = 0;
   };
 
+  struct Angle {
+    double mAltitude = 0.0;
+    double mAzimuth = 0.0;
+  };
+
   uint32_t pointerId = 0;
   Maybe<Tilt> mTilt;
   int32_t twist = 0;
+  Maybe<Angle> mAngle;
   float tangentialPressure = 0.0f;
   bool convertToPointer = true;
   // When convertToPointerRawUpdate is set to true, the event or the touch may
@@ -98,12 +104,18 @@ class WidgetPointerHelper {
   constexpr static double GetDefaultAzimuthAngle() { return 0.0; }
 
   double ComputeAltitudeAngle() const {
+    if (mAngle.isSome()) {
+      return mAngle->mAltitude;
+    }
     if (mTilt.isSome()) {
       return ComputeAltitudeAngle(mTilt->mX, mTilt->mY);
     }
     return GetDefaultAltitudeAngle();
   }
   double ComputeAzimuthAngle() const {
+    if (mAngle.isSome()) {
+      return mAngle->mAzimuth;
+    }
     if (mTilt.isSome()) {
       return ComputeAzimuthAngle(mTilt->mX, mTilt->mY);
     }
@@ -120,11 +132,17 @@ class WidgetPointerHelper {
     if (mTilt.isSome()) {
       return mTilt->mX;
     }
+    if (mAngle.isSome()) {
+      return ComputeTiltX(mAngle->mAltitude, mAngle->mAzimuth);
+    }
     return GetDefaultTiltX();
   }
   int32_t ComputeTiltY() const {
     if (mTilt.isSome()) {
       return mTilt->mY;
+    }
+    if (mAngle.isSome()) {
+      return ComputeTiltY(mAngle->mAltitude, mAngle->mAzimuth);
     }
     return GetDefaultTiltY();
   }

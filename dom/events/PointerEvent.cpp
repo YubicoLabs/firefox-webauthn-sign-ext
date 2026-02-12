@@ -34,8 +34,12 @@ PointerEvent::PointerEvent(EventTarget* aOwner, nsPresContext* aPresContext,
       mTiltX.emplace(aEvent->mTilt->mX);
       mTiltY.emplace(aEvent->mTilt->mY);
     }
-    // mAltitudeAngle and mAzimuthAngle should be computed when they are
-    // requested by JS.
+    // If mAltitudeAngle and mAzimuthAngle are Nothing(), they should be
+    // computed by mTiltX and mTiltY when they are requested by JS.
+    if (aEvent->mAngle) {
+      mAltitudeAngle.emplace(aEvent->mAngle->mAltitude);
+      mAzimuthAngle.emplace(aEvent->mAngle->mAzimuth);
+    }
   } else {
     mEventIsInternal = true;
     mEvent->mRefPoint = LayoutDeviceIntPoint(0, 0);
