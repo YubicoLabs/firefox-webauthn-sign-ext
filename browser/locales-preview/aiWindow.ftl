@@ -65,6 +65,12 @@ smartbar-mentions-list-no-results-label = No tabs or pages found
 smartbar-mentions-list-open-tabs-label = Tabs
 smartbar-mentions-list-previously-visited-pages-label = Previously visited
 
+## Context mentions menu toggle button
+
+smartbar-context-menu-button =
+    .aria-label = Add a tab or site
+    .tooltiptext = Add a tab or site
+
 ## Website Chip
 
 aiwindow-website-chip-placeholder = Tag a tab or site

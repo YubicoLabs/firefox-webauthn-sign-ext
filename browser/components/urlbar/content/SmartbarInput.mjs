@@ -11,6 +11,8 @@ import "chrome://browser/content/aiwindow/components/input-cta.mjs";
 import "chrome://browser/content/aiwindow/components/suggestions-panel-list.mjs";
 // eslint-disable-next-line import/no-unassigned-import
 import "chrome://browser/content/aiwindow/components/memories-icon-button.mjs";
+// eslint-disable-next-line import/no-unassigned-import
+import "chrome://browser/content/aiwindow/components/context-icon-button.mjs";
 
 const { XPCOMUtils } = ChromeUtils.importESModule(
   "resource://gre/modules/XPCOMUtils.sys.mjs"
@@ -154,6 +156,7 @@ export class SmartbarInput extends HTMLElement {
         <moz-urlbar-slot name="page-actions" hidden=""> </moz-urlbar-slot>
       </hbox>
       <hbox class="smartbar-button-container">
+        <html:context-icon-button></html:context-icon-button>
         <html:memories-icon-button></html:memories-icon-button>
         <html:input-cta action=""></html:input-cta>
       </hbox>

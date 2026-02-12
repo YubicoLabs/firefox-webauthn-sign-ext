@@ -38,6 +38,8 @@ browser.jar:
   content/browser/aiwindow/components/chat-assistant-error.mjs      (components/ai-chat-content/chat-assistant-error/chat-assistant-error.mjs)
   content/browser/aiwindow/components/chat-assistant-error.css      (components/ai-chat-content/chat-assistant-error/chat-assistant-error.css)
   content/browser/aiwindow/modules/TokenStreamParser.mjs            (modules/TokenStreamParser.mjs)
+  content/browser/aiwindow/components/context-icon-button.mjs       (components/context-icon-button/context-icon-button.mjs)
+  content/browser/aiwindow/components/context-icon-button.css       (components/context-icon-button/context-icon-button.css)
   content/browser/aiwindow/components/memories-icon-button.mjs      (components/memories-icon-button/memories-icon-button.mjs)
   content/browser/aiwindow/components/memories-icon-button.css      (components/memories-icon-button/memories-icon-button.css)
   content/browser/aiwindow/assets/memories-on.svg                   (assets/memories-on.svg)
