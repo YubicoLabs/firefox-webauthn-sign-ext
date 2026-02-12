@@ -188,7 +188,9 @@ void GfxInfo::GetDeviceInfo() {
     CFMutableDictionaryRef apv_dev_dict = IOServiceMatching(className);
     if (IOServiceGetMatchingServices(kIOMasterPortDefault, apv_dev_dict,
                                      &io_iter) == kIOReturnSuccess) {
-      if (IOIteratorNext(io_iter) != IO_OBJECT_NULL) {
+      io_registry_entry_t entry = IOIteratorNext(io_iter);
+      if (entry != IO_OBJECT_NULL) {
+        IOObjectRelease(entry);
         IOIteratorReset(io_iter);
         break;
       }
