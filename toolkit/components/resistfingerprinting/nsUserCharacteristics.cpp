@@ -11,6 +11,7 @@
 #include "nsIGfxInfo.h"
 #include "nsIUUIDGenerator.h"
 #include "nsIUserCharacteristicsPageService.h"
+#include "nsReadableUtils.h"
 #include "nsServiceManagerUtils.h"
 
 #include "mozilla/Logging.h"
