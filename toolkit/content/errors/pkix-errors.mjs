@@ -11,8 +11,6 @@ export const PKIX_ERRORS = [
   {
     errorCode: "MOZILLA_PKIX_ERROR_SELF_SIGNED_CERT",
     category: "cert",
-    pageTitleL10nId: "certerror-page-title",
-    bodyTitleL10nId: "nssBadCert-title",
     introContent: {
       id: "fp-certerror-intro",
       args: { hostname: null },
@@ -35,8 +33,6 @@ export const PKIX_ERRORS = [
   {
     errorCode: "MOZILLA_PKIX_ERROR_INSUFFICIENT_CERTIFICATE_TRANSPARENCY",
     category: "cert",
-    pageTitleL10nId: "certerror-page-title",
-    bodyTitleL10nId: "nssBadCert-title",
     introContent: {
       id: "fp-certerror-transparency-intro",
       args: { hostname: null },
@@ -60,8 +56,6 @@ export const PKIX_ERRORS = [
   {
     errorCode: "MOZILLA_PKIX_ERROR_NOT_YET_VALID_CERTIFICATE",
     category: "cert",
-    pageTitleL10nId: "certerror-page-title",
-    bodyTitleL10nId: "nssBadCert-title",
     introContent: {
       id: "fp-certerror-intro",
       args: { hostname: null },
@@ -73,6 +67,13 @@ export const PKIX_ERRORS = [
       showAddException: true,
     },
     advanced: {
+      whyDangerousResolver: context =>
+        context.errorInfo
+          ? {
+              id: "fp-certerror-pkix-not-yet-valid-why-dangerous-body",
+              args: { date: context.errorInfo.validNotBefore },
+            }
+          : null,
       whyDangerousL10nId: "fp-certerror-pkix-not-yet-valid-why-dangerous-body",
       whyDangerousL10nArgs: { date: null },
       whatCanYouDoL10nId:
@@ -88,8 +89,6 @@ export const PKIX_ERRORS = [
   {
     errorCode: "MOZILLA_PKIX_ERROR_INVALID_INTEGER_ENCODING",
     category: "cert",
-    pageTitleL10nId: "certerror-page-title",
-    bodyTitleL10nId: "nssBadCert-title",
     introContent: {
       id: "fp-certerror-intro",
       args: { hostname: null },
@@ -109,8 +108,6 @@ export const PKIX_ERRORS = [
   {
     errorCode: "MOZILLA_PKIX_ERROR_ISSUER_NO_LONGER_TRUSTED",
     category: "cert",
-    pageTitleL10nId: "certerror-page-title",
-    bodyTitleL10nId: "nssBadCert-title",
     introContent: {
       id: "fp-certerror-intro",
       args: { hostname: null },
@@ -130,8 +127,6 @@ export const PKIX_ERRORS = [
   {
     errorCode: "MOZILLA_PKIX_ERROR_KEY_PINNING_FAILURE",
     category: "cert",
-    pageTitleL10nId: "certerror-page-title",
-    bodyTitleL10nId: "nssBadCert-title",
     introContent: {
       id: "fp-certerror-intro",
       args: { hostname: null },
@@ -151,8 +146,6 @@ export const PKIX_ERRORS = [
   {
     errorCode: "MOZILLA_PKIX_ERROR_SIGNATURE_ALGORITHM_MISMATCH",
     category: "cert",
-    pageTitleL10nId: "certerror-page-title",
-    bodyTitleL10nId: "nssBadCert-title",
     introContent: {
       id: "fp-certerror-intro",
       args: { hostname: null },

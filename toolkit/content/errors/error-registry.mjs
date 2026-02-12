@@ -19,7 +19,6 @@ const ERROR_REGISTRY = new Map();
 export const DEFAULT_ERROR_CONFIG = Object.freeze({
   errorCode: "GENERIC",
   category: "net",
-  pageTitleL10nId: "neterror-page-title",
   bodyTitleL10nId: "generic-title",
   shortDescriptionL10nId: null,
   descriptionParts: [{ tag: "p", l10nId: "neterror-generic-error" }],
@@ -33,6 +32,7 @@ export const DEFAULT_ERROR_CONFIG = Object.freeze({
   },
   hasNoUserFix: false,
   learnMoreSupportPage: null,
+  titleL10nId: "fp-certerror-body-title",
 });
 
 /**

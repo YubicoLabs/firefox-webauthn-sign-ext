@@ -116,19 +116,34 @@ add_task(async function resetToDefaultConfig() {
       "Should be showing error page"
     );
 
-    const prefResetButton = doc.getElementById("prefResetButton");
+    const netErrorCard = await ContentTaskUtils.waitForCondition(
+      () => content.document.querySelector("net-error-card")?.wrappedJSObject
+    );
+    netErrorCard.advancedButton.scrollIntoView(true);
+    EventUtils.synthesizeMouseAtCenter(
+      netErrorCard.advancedButton,
+      {},
+      content
+    );
     await ContentTaskUtils.waitForCondition(
-      () => ContentTaskUtils.isVisible(prefResetButton),
+      () => ContentTaskUtils.isVisible(netErrorCard.prefResetButton),
       "prefResetButton is visible"
     );
 
-    if (!Services.focus.focusedElement == prefResetButton) {
-      await ContentTaskUtils.waitForEvent(prefResetButton, "focus");
+    if (!Services.focus.focusedElement == netErrorCard.prefResetButton) {
+      await ContentTaskUtils.waitForEvent(
+        netErrorCard.prefResetButton,
+        "focus"
+      );
     }
 
     Assert.ok(true, "prefResetButton has focus");
 
-    prefResetButton.click();
+    EventUtils.synthesizeMouseAtCenter(
+      netErrorCard.prefResetButton,
+      {},
+      content
+    );
   });
 
   info("Waiting for the page to load after the click");
@@ -169,24 +184,35 @@ add_task(async function checkLearnMoreLink() {
 
   const baseURL = Services.urlFormatter.formatURLPref("app.support.baseURL");
 
-  await SpecialPowers.spawn(browser, [baseURL], function (_baseURL) {
+  await SpecialPowers.spawn(browser, [baseURL], async function (_baseURL) {
     const doc = content.document;
     ok(
       doc.documentURI.startsWith("about:neterror"),
       "Should be showing error page"
     );
 
-    const tlsVersionNotice = doc.getElementById("tlsVersionNotice");
+    const netErrorCard = await ContentTaskUtils.waitForCondition(
+      () => content.document.querySelector("net-error-card")?.wrappedJSObject
+    );
+    netErrorCard.advancedButton.scrollIntoView(true);
+    EventUtils.synthesizeMouseAtCenter(
+      netErrorCard.advancedButton,
+      {},
+      content
+    );
+    const tlsVersionNotice = await ContentTaskUtils.waitForCondition(
+      () => netErrorCard.tlsNotice
+    );
     ok(
       ContentTaskUtils.isVisible(tlsVersionNotice),
       "TLS version notice is visible"
     );
 
-    const learnMoreLink = doc.getElementById("learnMoreLink");
+    const learnMoreLink = netErrorCard.learnMoreLink;
     ok(ContentTaskUtils.isVisible(learnMoreLink), "Learn More link is visible");
     is(learnMoreLink.getAttribute("href"), _baseURL + "connection-not-secure");
 
-    const titleEl = doc.querySelector(".title-text");
+    const titleEl = netErrorCard.certErrorBodyTitle;
     const actualDataL10nID = titleEl.getAttribute("data-l10n-id");
     is(
       actualDataL10nID,
@@ -194,10 +220,10 @@ add_task(async function checkLearnMoreLink() {
       "Correct error page title is set"
     );
 
-    const errorCodeEl = doc.querySelector("#errorShortDesc2");
-    const actualDataL10Args = errorCodeEl.getAttribute("data-l10n-args");
-    ok(
-      actualDataL10Args.includes("SSL_ERROR_PROTOCOL_VERSION_ALERT"),
+    const errorCodeEl = netErrorCard.netErrorIntro.children[0];
+    is(
+      errorCodeEl.getAttribute("data-l10n-id"),
+      "cert-error-ssl-connection-error",
       "Correct error code is set"
     );
   });

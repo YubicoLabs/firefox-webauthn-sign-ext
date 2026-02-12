@@ -18,7 +18,6 @@ export const NET_ERRORS = [
   {
     errorCode: "NS_ERROR_OFFLINE",
     category: "net",
-    pageTitleL10nId: "neterror-page-title",
     bodyTitleL10nId: "neterror-offline-body-title",
     introContent: {
       id: "fp-neterror-offline-intro",
@@ -38,8 +37,6 @@ export const NET_ERRORS = [
   {
     errorCode: "NS_ERROR_DOM_COOP_FAILED",
     category: "blocked",
-    pageTitleL10nId: "neterror-page-title",
-    bodyTitleL10nId: "general-body-title",
     introContent: {
       id: "fp-neterror-coop-coep-intro",
     },
@@ -59,8 +56,6 @@ export const NET_ERRORS = [
   {
     errorCode: "NS_ERROR_DOM_COEP_FAILED",
     category: "blocked",
-    pageTitleL10nId: "neterror-page-title",
-    bodyTitleL10nId: "general-body-title",
     introContent: {
       id: "fp-neterror-coop-coep-intro",
     },
@@ -80,8 +75,6 @@ export const NET_ERRORS = [
   {
     errorCode: "NS_ERROR_BASIC_HTTP_AUTH_DISABLED",
     category: "net",
-    pageTitleL10nId: "neterror-page-title",
-    bodyTitleL10nId: "general-body-title",
     introContent: {
       id: "fp-neterror-http-auth-disabled-intro",
     },
@@ -102,7 +95,6 @@ export const NET_ERRORS = [
   {
     errorCode: "NS_ERROR_NET_EMPTY_RESPONSE",
     category: "net",
-    pageTitleL10nId: "neterror-page-title",
     bodyTitleL10nId: "problem-with-this-site-title",
     introContent: {
       id: "neterror-http-empty-response-description",
@@ -122,8 +114,6 @@ export const NET_ERRORS = [
   {
     errorCode: "connectionFailure",
     category: "net",
-    pageTitleL10nId: "neterror-page-title",
-    bodyTitleL10nId: "connectionFailure-title",
     descriptionParts: "connectionFailureDescription",
     buttons: {
       showTryAgain: true,
@@ -134,8 +124,6 @@ export const NET_ERRORS = [
   {
     errorCode: "netInterrupt",
     category: "net",
-    pageTitleL10nId: "neterror-page-title",
-    bodyTitleL10nId: "netInterrupt-title",
     descriptionParts: "connectionFailureDescription",
     buttons: {
       showTryAgain: true,
@@ -146,8 +134,6 @@ export const NET_ERRORS = [
   {
     errorCode: "netReset",
     category: "net",
-    pageTitleL10nId: "neterror-page-title",
-    bodyTitleL10nId: "netReset-title",
     descriptionParts: "connectionFailureDescription",
     buttons: {
       showTryAgain: true,
@@ -158,8 +144,6 @@ export const NET_ERRORS = [
   {
     errorCode: "netTimeout",
     category: "net",
-    pageTitleL10nId: "neterror-page-title",
-    bodyTitleL10nId: "netTimeout-title",
     descriptionParts: "connectionFailureDescription",
     buttons: {
       showTryAgain: true,
@@ -170,8 +154,6 @@ export const NET_ERRORS = [
   {
     errorCode: "dnsNotFound",
     category: "net",
-    pageTitleL10nId: "neterror-dns-not-found-title",
-    bodyTitleL10nId: "dnsNotFound-title",
     descriptionParts: "dnsNotFoundDescription",
     buttons: {
       showTryAgain: true,
@@ -183,8 +165,6 @@ export const NET_ERRORS = [
   {
     errorCode: "blockedByPolicy",
     category: "blocked",
-    pageTitleL10nId: "neterror-blocked-by-policy-page-title",
-    bodyTitleL10nId: "blockedByPolicy-title",
     descriptionParts: [],
     buttons: {
       showTryAgain: false,
@@ -195,8 +175,6 @@ export const NET_ERRORS = [
   {
     errorCode: "blockedByCOOP",
     category: "blocked",
-    pageTitleL10nId: "neterror-page-title",
-    bodyTitleL10nId: "general-body-title",
     descriptionParts: [
       { tag: "p", l10nId: "certerror-blocked-by-corp-headers-description" },
       { tag: "a", l10nId: "certerror-coop-learn-more", href: COOP_MDN_DOCS },
@@ -210,8 +188,6 @@ export const NET_ERRORS = [
   {
     errorCode: "blockedByCOEP",
     category: "blocked",
-    pageTitleL10nId: "neterror-page-title",
-    bodyTitleL10nId: "general-body-title",
     descriptionParts: [
       { tag: "p", l10nId: "certerror-blocked-by-corp-headers-description" },
       { tag: "a", l10nId: "certerror-coep-learn-more", href: COEP_MDN_DOCS },
@@ -225,8 +201,6 @@ export const NET_ERRORS = [
   {
     errorCode: "basicHttpAuthDisabled",
     category: "net",
-    pageTitleL10nId: "neterror-page-title",
-    bodyTitleL10nId: "general-body-title",
     descriptionParts: [
       {
         tag: "li",
@@ -248,8 +222,6 @@ export const NET_ERRORS = [
   {
     errorCode: "httpErrorPage",
     category: "net",
-    pageTitleL10nId: "neterror-page-title",
-    bodyTitleL10nId: "httpErrorPage-title",
     descriptionParts: [{ tag: "li", l10nId: "neterror-http-error-page" }],
     buttons: {
       showTryAgain: true,
@@ -260,8 +232,6 @@ export const NET_ERRORS = [
   {
     errorCode: "serverError",
     category: "net",
-    pageTitleL10nId: "neterror-page-title",
-    bodyTitleL10nId: "serverError-title",
     descriptionParts: [{ tag: "li", l10nId: "neterror-load-error-try-again" }],
     buttons: {
       showTryAgain: true,
@@ -272,8 +242,6 @@ export const NET_ERRORS = [
   {
     errorCode: "invalidHeaderValue",
     category: "net",
-    pageTitleL10nId: "neterror-page-title",
-    bodyTitleL10nId: "problem-with-this-site-title",
     descriptionParts: [{ tag: "li", l10nId: "neterror-http-error-page" }],
     buttons: {
       showTryAgain: false,
@@ -284,8 +252,6 @@ export const NET_ERRORS = [
   {
     errorCode: "deniedPortAccess",
     category: "blocked",
-    pageTitleL10nId: "neterror-page-title",
-    bodyTitleL10nId: "deniedPortAccess-title",
     descriptionParts: [],
     buttons: {
       showTryAgain: false,
@@ -296,8 +262,6 @@ export const NET_ERRORS = [
   {
     errorCode: "malformedURI",
     category: "net",
-    pageTitleL10nId: "neterror-malformed-uri-page-title",
-    bodyTitleL10nId: "malformedURI-title",
     descriptionParts: [],
     buttons: {
       showTryAgain: false,
@@ -308,8 +272,6 @@ export const NET_ERRORS = [
   {
     errorCode: "captivePortal",
     category: "net",
-    pageTitleL10nId: "neterror-captive-portal-page-title",
-    bodyTitleL10nId: "captivePortal-title",
     descriptionParts: [{ tag: "p", l10nId: "" }],
     buttons: {
       showTryAgain: false,
@@ -322,8 +284,6 @@ export const NET_ERRORS = [
   {
     errorCode: "contentEncodingError",
     category: "net",
-    pageTitleL10nId: "neterror-page-title",
-    bodyTitleL10nId: "contentEncodingError-title",
     descriptionParts: [
       { tag: "li", l10nId: "neterror-content-encoding-error" },
     ],
@@ -336,8 +296,6 @@ export const NET_ERRORS = [
   {
     errorCode: "corruptedContentErrorv2",
     category: "net",
-    pageTitleL10nId: "neterror-page-title",
-    bodyTitleL10nId: "corruptedContentErrorv2-title",
     descriptionParts: [
       { tag: "p", l10nId: "neterror-corrupted-content-intro" },
       { tag: "li", l10nId: "neterror-corrupted-content-contact-website" },
@@ -351,8 +309,6 @@ export const NET_ERRORS = [
   {
     errorCode: "fileAccessDenied",
     category: "net",
-    pageTitleL10nId: "neterror-page-title",
-    bodyTitleL10nId: "fileAccessDenied-title",
     descriptionParts: [{ tag: "li", l10nId: "neterror-access-denied" }],
     buttons: {
       showTryAgain: false,
@@ -363,8 +319,6 @@ export const NET_ERRORS = [
   {
     errorCode: "fileNotFound",
     category: "net",
-    pageTitleL10nId: "neterror-page-title",
-    bodyTitleL10nId: "fileNotFound-title",
     descriptionParts: [
       { tag: "li", l10nId: "neterror-file-not-found-filename" },
       { tag: "li", l10nId: "neterror-file-not-found-moved" },
@@ -378,8 +332,6 @@ export const NET_ERRORS = [
   {
     errorCode: "inadequateSecurityError",
     category: "net",
-    pageTitleL10nId: "neterror-page-title",
-    bodyTitleL10nId: "inadequateSecurityError-title",
     descriptionParts: [
       {
         tag: "p",
@@ -397,8 +349,6 @@ export const NET_ERRORS = [
   {
     errorCode: "mitm",
     category: "cert",
-    pageTitleL10nId: "certerror-page-title",
-    bodyTitleL10nId: "nssBadCert-title",
     descriptionPartsResolver: "mitmDescription",
     buttons: {
       showTryAgain: false,
@@ -411,8 +361,6 @@ export const NET_ERRORS = [
   {
     errorCode: "netOffline",
     category: "net",
-    pageTitleL10nId: "neterror-page-title",
-    bodyTitleL10nId: "netOffline-title",
     descriptionParts: [{ tag: "li", l10nId: "neterror-net-offline" }],
     buttons: {
       showTryAgain: true,
@@ -423,8 +371,6 @@ export const NET_ERRORS = [
   {
     errorCode: "networkProtocolError",
     category: "net",
-    pageTitleL10nId: "neterror-page-title",
-    bodyTitleL10nId: "networkProtocolError-title",
     descriptionParts: [
       { tag: "p", l10nId: "neterror-network-protocol-error-intro" },
       { tag: "li", l10nId: "neterror-network-protocol-error-contact-website" },
@@ -438,8 +384,6 @@ export const NET_ERRORS = [
   {
     errorCode: "notCached",
     category: "net",
-    pageTitleL10nId: "neterror-page-title",
-    bodyTitleL10nId: "notCached-title",
     descriptionParts: [
       { tag: "p", l10nId: "neterror-not-cached-intro" },
       { tag: "li", l10nId: "neterror-not-cached-sensitive" },
@@ -454,8 +398,6 @@ export const NET_ERRORS = [
   {
     errorCode: "nssFailure2",
     category: "cert",
-    pageTitleL10nId: "neterror-page-title",
-    bodyTitleL10nId: "nssFailure2-title",
     descriptionParts: [
       { tag: "li", l10nId: "neterror-nss-failure-not-verified" },
       { tag: "li", l10nId: "neterror-nss-failure-contact-website" },
@@ -471,8 +413,6 @@ export const NET_ERRORS = [
   {
     errorCode: "proxyConnectFailure",
     category: "net",
-    pageTitleL10nId: "neterror-page-title",
-    bodyTitleL10nId: "proxyConnectFailure-title",
     descriptionParts: [
       { tag: "li", l10nId: "neterror-proxy-connect-failure-settings" },
       { tag: "li", l10nId: "neterror-proxy-connect-failure-contact-admin" },
@@ -486,8 +426,6 @@ export const NET_ERRORS = [
   {
     errorCode: "proxyResolveFailure",
     category: "net",
-    pageTitleL10nId: "neterror-page-title",
-    bodyTitleL10nId: "proxyResolveFailure-title",
     descriptionParts: [
       { tag: "li", l10nId: "neterror-proxy-resolve-failure-settings" },
       { tag: "li", l10nId: "neterror-proxy-resolve-failure-connection" },
@@ -502,8 +440,6 @@ export const NET_ERRORS = [
   {
     errorCode: "redirectLoop",
     category: "net",
-    pageTitleL10nId: "neterror-page-title",
-    bodyTitleL10nId: "redirectLoop-title",
     descriptionParts: [{ tag: "li", l10nId: "neterror-redirect-loop" }],
     buttons: {
       showTryAgain: true,
@@ -514,8 +450,6 @@ export const NET_ERRORS = [
   {
     errorCode: "sslv3Used",
     category: "cert",
-    pageTitleL10nId: "neterror-page-title",
-    bodyTitleL10nId: "sslv3Used-title",
     descriptionParts: [{ tag: "span", l10nId: "neterror-sslv3-used" }],
     buttons: {
       showTryAgain: false,
@@ -526,8 +460,6 @@ export const NET_ERRORS = [
   {
     errorCode: "unknownProtocolFound",
     category: "net",
-    pageTitleL10nId: "neterror-page-title",
-    bodyTitleL10nId: "unknownProtocolFound-title",
     descriptionParts: [{ tag: "li", l10nId: "neterror-unknown-protocol" }],
     buttons: {
       showTryAgain: false,
@@ -538,8 +470,6 @@ export const NET_ERRORS = [
   {
     errorCode: "unknownSocketType",
     category: "net",
-    pageTitleL10nId: "neterror-page-title",
-    bodyTitleL10nId: "unknownSocketType-title",
     descriptionParts: [
       { tag: "li", l10nId: "neterror-unknown-socket-type-psm-installed" },
       { tag: "li", l10nId: "neterror-unknown-socket-type-server-config" },
@@ -553,8 +483,6 @@ export const NET_ERRORS = [
   {
     errorCode: "unsafeContentType",
     category: "net",
-    pageTitleL10nId: "neterror-page-title",
-    bodyTitleL10nId: "unsafeContentType-title",
     descriptionParts: [{ tag: "li", l10nId: "neterror-unsafe-content-type" }],
     buttons: {
       showTryAgain: false,
@@ -565,8 +493,6 @@ export const NET_ERRORS = [
   {
     errorCode: "cspBlocked",
     category: "blocked",
-    pageTitleL10nId: "neterror-page-title",
-    bodyTitleL10nId: "csp-xfo-error-title",
     buttons: {
       showTryAgain: false,
       showGoBack: false,
@@ -576,8 +502,6 @@ export const NET_ERRORS = [
   {
     errorCode: "xfoBlocked",
     category: "blocked",
-    pageTitleL10nId: "neterror-page-title",
-    bodyTitleL10nId: "csp-xfo-error-title",
     buttons: {
       showTryAgain: false,
       showGoBack: false,

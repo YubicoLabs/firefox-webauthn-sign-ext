@@ -446,8 +446,9 @@ add_task(async function checkhideAddExceptionButtonViaPref_feltPrivacyToTrue() {
           ? content.document.querySelector("iframe").contentDocument
           : content.document;
 
-        const netErrorCard =
-          doc.querySelector("net-error-card").wrappedJSObject;
+        const netErrorCard = await ContentTaskUtils.waitForCondition(
+          () => doc.querySelector("net-error-card")?.wrappedJSObject
+        );
         await netErrorCard.getUpdateComplete();
 
         // Perform user button click interaction to load exception button
@@ -474,7 +475,9 @@ add_task(
 
     await SpecialPowers.spawn(browser, [], async function () {
       let doc = content.document.querySelector("iframe").contentDocument;
-      const netErrorCard = doc.querySelector("net-error-card").wrappedJSObject;
+      const netErrorCard = await ContentTaskUtils.waitForCondition(
+        () => doc.querySelector("net-error-card")?.wrappedJSObject
+      );
       await netErrorCard.getUpdateComplete();
 
       // Perform user button click interaction to load exception button

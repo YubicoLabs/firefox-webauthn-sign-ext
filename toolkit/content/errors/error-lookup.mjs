@@ -33,7 +33,7 @@ export const CUSTOM_ERROR_CODE_MAP = {
  * @returns {string|null} The supported error code, or null if not supported
  */
 export function findSupportedErrorCode(errorInfo, gErrorCode, isOffline) {
-  const defaultErrorCode = errorInfo?.errorCodeString ?? gErrorCode;
+  const defaultErrorCode = errorInfo?.errorCodeString || gErrorCode;
 
   if (isFeltPrivacySupported(defaultErrorCode)) {
     return defaultErrorCode;
@@ -81,8 +81,27 @@ export function isFeltPrivacySupported(errorCode) {
  * @returns {object | null} Resolved l10n config with args filled in
  */
 export function resolveL10nArgs(l10nConfig, context) {
+  const values = {
+    hostname: context.hostname,
+    date: context.errorInfo?.validNotAfter ?? Date.now(),
+    errorMessage: context.errorInfo?.errorMessage ?? "",
+  };
   if (!l10nConfig) {
     return null;
+  }
+
+  if (Array.isArray(l10nConfig)) {
+    const result = [];
+    for (const conf of l10nConfig) {
+      const resolvedArgs = { ...conf.args };
+      for (const [key, value] of Object.entries(resolvedArgs)) {
+        if (value === null) {
+          resolvedArgs[key] = values[key];
+        }
+      }
+      result.push({ id: conf.id, args: resolvedArgs });
+    }
+    return result;
   }
 
   if (!l10nConfig.args) {
@@ -93,13 +112,7 @@ export function resolveL10nArgs(l10nConfig, context) {
 
   for (const [key, value] of Object.entries(resolvedArgs)) {
     if (value === null) {
-      // Null values are placeholders to be filled from context
-      if (key === "hostname" && context.hostname) {
-        resolvedArgs[key] = context.hostname;
-      } else if (key === "date" && context.errorInfo) {
-        // For date placeholders, determine from cert validity
-        resolvedArgs[key] = context.errorInfo.validNotAfter ?? Date.now();
-      }
+      resolvedArgs[key] = values[key];
     }
   }
 
@@ -192,33 +205,6 @@ const DESCRIPTION_RESOLVERS = {
 };
 
 /**
- * Resolver functions for dynamic advanced section content.
- */
-const ADVANCED_RESOLVERS = {
-  expiredCertWhyDangerous(context) {
-    const { errorInfo } = context;
-    if (!errorInfo) {
-      return null;
-    }
-
-    const isNotYetValid =
-      errorInfo.validNotBefore && Date.now() < errorInfo.validNotBefore;
-
-    if (isNotYetValid) {
-      return {
-        id: "fp-certerror-not-yet-valid-why-dangerous-body",
-        args: { date: errorInfo.validNotBefore },
-      };
-    }
-
-    return {
-      id: "fp-certerror-expired-why-dangerous-body",
-      args: { date: errorInfo.validNotAfter },
-    };
-  },
-};
-
-/**
  * Resolve the advanced section configuration.
  *
  * @param {object | null} advancedConfig - The advanced section config
@@ -234,10 +220,7 @@ export function resolveAdvancedConfig(advancedConfig, context) {
 
   // Handle resolver for whyDangerous
   if (advancedConfig.whyDangerousResolver) {
-    const resolver = ADVANCED_RESOLVERS[advancedConfig.whyDangerousResolver];
-    if (resolver) {
-      resolved.whyDangerous = resolver(context);
-    }
+    resolved.whyDangerous = advancedConfig.whyDangerousResolver(context);
     delete resolved.whyDangerousResolver;
   } else if (advancedConfig.whyDangerous) {
     resolved.whyDangerous = resolveL10nArgs(
@@ -281,5 +264,4 @@ export function getResolvedErrorConfig(errorCode, context) {
 // Export resolvers for testing
 export const _testOnlyResolvers = {
   description: DESCRIPTION_RESOLVERS,
-  advanced: ADVANCED_RESOLVERS,
 };
