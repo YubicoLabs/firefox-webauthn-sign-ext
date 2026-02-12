@@ -33,6 +33,7 @@ export const NET_ERRORS = [
       whatCanYouDoL10nArgs: { hostname: null },
     },
     hasNoUserFix: false,
+    image: "chrome://global/skin/illustrations/no-connection.svg",
   },
   {
     errorCode: "NS_ERROR_DOM_COOP_FAILED",
@@ -109,6 +110,7 @@ export const NET_ERRORS = [
       whatCanYouDoL10nId: "neterror-http-empty-response",
     },
     hasNoUserFix: false,
+    image: "chrome://global/skin/illustrations/no-connection.svg",
   },
   // Legacy URL parameter error codes (used in aboutNetError.mjs)
   {

@@ -160,9 +160,10 @@ export class NetErrorCard extends MozLitElement {
   init() {
     this.errorInfo = this.getErrorInfo();
     this.hideExceptionButton = this.shouldHideExceptionButton();
+    this.hostname = HOST_NAME;
 
     const errorCode = this.errorInfo.errorCodeString;
-    const config = getResolvedErrorConfig(errorCode, {
+    this.errorConfig = getResolvedErrorConfig(errorCode, {
       hostname: this.hostname,
       errorInfo: this.errorInfo,
     });
@@ -173,7 +174,7 @@ export class NetErrorCard extends MozLitElement {
     };
     document.l10n.setAttributes(
       document.querySelector("title"),
-      titles[config.category] ?? "fp-certerror-page-title"
+      titles[this.errorConfig.category] ?? "fp-certerror-page-title"
     );
 
     // Record telemetry when the error page loads
@@ -199,8 +200,6 @@ export class NetErrorCard extends MozLitElement {
     ) {
       RPMSendAsyncMessage("Browser:PrimeMitm");
     }
-
-    this.hostname = HOST_NAME;
 
     // We show an offline support page in case of a system-wide error,
     // when a user cannot connect to the internet and access the SUMO website.
@@ -284,12 +283,7 @@ export class NetErrorCard extends MozLitElement {
   }
 
   introContentTemplate() {
-    const errorCode = this.errorInfo.errorCodeString;
-    const config = getResolvedErrorConfig(errorCode, {
-      hostname: this.hostname,
-      errorInfo: this.errorInfo,
-    });
-
+    const config = this.errorConfig;
     if (!config.introContent) {
       return null;
     }
@@ -312,7 +306,7 @@ export class NetErrorCard extends MozLitElement {
     const { id, args } = config.introContent;
 
     // Handle NS_ERROR_BASIC_HTTP_AUTH_DISABLED special case with additional content
-    if (errorCode === "NS_ERROR_BASIC_HTTP_AUTH_DISABLED") {
+    if (config.errorCode === "NS_ERROR_BASIC_HTTP_AUTH_DISABLED") {
       return html`<p
           id="fp-http-auth-disabled-intro-text"
           data-l10n-id=${id}
@@ -521,12 +515,7 @@ export class NetErrorCard extends MozLitElement {
       return null;
     }
 
-    const errorCode = this.errorInfo.errorCodeString;
-    const config = getResolvedErrorConfig(errorCode, {
-      hostname: this.hostname,
-      errorInfo: this.errorInfo,
-    });
-
+    const config = this.errorConfig;
     if (!config.customNetError) {
       // For errors with advanced sections but no custom net error section
       if (config.buttons?.showAdvanced) {
@@ -885,29 +874,14 @@ export class NetErrorCard extends MozLitElement {
     );
   }
 
-  getErrorImage(errorCode) {
-    switch (errorCode) {
-      case "NS_ERROR_NET_EMPTY_RESPONSE": {
-        return "chrome://global/skin/illustrations/no-connection.svg";
-      }
-      default: {
-        return "chrome://global/skin/illustrations/security-error.svg";
-      }
-    }
-  }
-
   render() {
     if (!this.errorInfo) {
       return null;
     }
 
-    const errorCode = this.errorInfo.errorCodeString;
-    const { bodyTitleL10nId } = getResolvedErrorConfig(errorCode, {
-      hostname: this.hostname,
-      errorInfo: this.errorInfo,
-    });
-
-    const img = this.getErrorImage(this.errorInfo.errorCodeString);
+    const { bodyTitleL10nId, image } = this.errorConfig;
+    const img =
+      image ?? "chrome://global/skin/illustrations/security-error.svg";
     const title = bodyTitleL10nId ?? "fp-certerror-body-title";
 
     return html`<link

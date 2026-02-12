@@ -33,6 +33,7 @@ export const DEFAULT_ERROR_CONFIG = Object.freeze({
   hasNoUserFix: false,
   learnMoreSupportPage: null,
   titleL10nId: "fp-certerror-body-title",
+  image: "chrome://global/skin/illustrations/security-error.svg",
 });
 
 /**
