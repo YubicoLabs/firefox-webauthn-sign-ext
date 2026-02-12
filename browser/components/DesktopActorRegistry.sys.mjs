@@ -255,7 +255,7 @@ let JSWINDOWACTORS = {
     matches: ["chrome://browser/content/aiwindow/aiWindow.html"],
     includeChrome: true,
     allFrames: true,
-    enablePreference: "browser.aiwindow.enabled",
+    enablePreference: "browser.smartwindow.enabled",
   },
 
   BackupUI: {

@@ -647,10 +647,17 @@ export class SmartbarInput extends HTMLElement {
     );
   }
 
+  /**
+   * Set smartbar action.
+   *
+   * @param {SmartbarAction} action
+   */
   set smartbarAction(action) {
-    this.#smartbarAction = action;
-    this.setAttribute("smartbar-action", action);
-    this._inputCta.setAttribute("action", action);
+    if (this.#smartbarAction != action) {
+      this.#smartbarAction = action;
+      this.setAttribute("smartbar-action", action);
+      this._inputCta.setAttribute("action", action);
+    }
   }
 
   blur() {
@@ -1235,6 +1242,8 @@ export class SmartbarInput extends HTMLElement {
       lazy.logger.debug(`commit (${action}): ${committedValue}`);
       this.dispatchEvent(
         new CustomEvent("smartbar-commit", {
+          bubbles: true,
+          composed: true,
           detail: { value: committedValue, event, action },
         })
       );
@@ -2259,6 +2268,10 @@ export class SmartbarInput extends HTMLElement {
     ) {
       this._autofillPlaceholder = null;
       this._setValue(this.userTypedValue);
+    }
+
+    if (this.#isSmartbarMode) {
+      this.#updateSmartbarCTAButton(firstResult);
     }
 
     return false;
@@ -5283,11 +5296,6 @@ export class SmartbarInput extends HTMLElement {
     this.toggleAttribute("usertyping", value);
     this.removeAttribute("actiontype");
 
-    if (this.#isSmartbarMode) {
-      // TODO (Bug 2008926): The initial smartbar action needs to be determined by the intent model.
-      this.smartbarAction = value ? "chat" : "";
-    }
-
     if (
       this.getAttribute("pageproxystate") == "valid" &&
       this.value != this._lastValidURLStr
@@ -5304,6 +5312,10 @@ export class SmartbarInput extends HTMLElement {
         state.persist.shouldPersist = false;
         this.removeAttribute("persistsearchterms");
       }
+    }
+
+    if (!value) {
+      this.#updateSmartbarCTAButton();
     }
 
     if (this.view.isOpen) {
@@ -5970,6 +5982,33 @@ export class SmartbarInput extends HTMLElement {
         event.keyCode == KeyEvent.DOM_VK_META &&
         this._isKeyDownWithMetaAndLeft)
     );
+  }
+
+  /**
+   * Updates the smartbar CTA button based on the type of the first result in
+   * the given query context.
+   *
+   * @param {UrlbarResult} [firstResult] The first result received.
+   */
+  #updateSmartbarCTAButton(firstResult) {
+    if (!firstResult || !firstResult.heuristic) {
+      this.smartbarAction = "";
+      return;
+    }
+    switch (firstResult.type) {
+      case lazy.UrlbarUtils.RESULT_TYPE.URL:
+      case lazy.UrlbarUtils.RESULT_TYPE.KEYWORD:
+        this.smartbarAction = "navigate";
+        break;
+      case lazy.UrlbarUtils.RESULT_TYPE.AI_CHAT:
+        this.smartbarAction = "chat";
+        break;
+      case lazy.UrlbarUtils.RESULT_TYPE.SEARCH:
+        this.smartbarAction = "search";
+        break;
+      default:
+        this.smartbarAction = "";
+    }
   }
 }
 

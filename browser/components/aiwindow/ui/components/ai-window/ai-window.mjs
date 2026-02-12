@@ -414,7 +414,6 @@ export class AIWindow extends MozLitElement {
       smartbar.classList.add("smartbar", "urlbar");
       container.after(smartbar);
 
-      smartbar.addEventListener("smartbar-commit", this.#handleSmartbarCommit);
       smartbar.addEventListener("input", this.#handleSmartbarInput);
       smartbar.addEventListener(
         "aiwindow-memories-toggle:on-change",

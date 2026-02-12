@@ -127,26 +127,25 @@ async function waitForMentionInserted(browser) {
  * @param {string} text - Text to type
  */
 async function typeInEditor(browser, text) {
-  await SpecialPowers.spawn(browser, [], async () => {
+  await SpecialPowers.spawn(browser, [text], async txt => {
     const aiWindowElement = content.document.querySelector("ai-window");
     const smartbar = aiWindowElement.shadowRoot.querySelector(
       "#ai-window-smartbar"
     );
     const editor = smartbar.querySelector("moz-multiline-editor");
     editor.focus();
+    EventUtils.sendString(txt, content);
   });
-  for (const char of text) {
-    await BrowserTestUtils.synthesizeKey(char, {}, browser);
-  }
 }
 
 add_task(async function test_mentions_trigger_zero_prefix() {
   const win = await openAIWindow();
   const browser = win.gBrowser.selectedBrowser;
-
   await BrowserTestUtils.browserLoaded(browser, false, AIWINDOW_URL);
+
+  const mentionsOpen = waitForMentionsOpen(browser);
   await typeInEditor(browser, "@");
-  const mentionsOpen = await waitForMentionsOpen(browser);
+  await mentionsOpen;
 
   Assert.ok(
     mentionsOpen,
@@ -159,10 +158,11 @@ add_task(async function test_mentions_trigger_zero_prefix() {
 add_task(async function test_mentions_trigger_after_text() {
   const win = await openAIWindow();
   const browser = win.gBrowser.selectedBrowser;
-
   await BrowserTestUtils.browserLoaded(browser, false, AIWINDOW_URL);
+
+  const mentionsOpen = waitForMentionsOpen(browser);
   await typeInEditor(browser, "test @");
-  const mentionsOpen = await waitForMentionsOpen(browser);
+  await mentionsOpen;
 
   Assert.ok(
     mentionsOpen,
@@ -175,10 +175,11 @@ add_task(async function test_mentions_trigger_after_text() {
 add_task(async function test_mentions_suggestions_panel_shows() {
   const win = await openAIWindow();
   const browser = win.gBrowser.selectedBrowser;
-
   await BrowserTestUtils.browserLoaded(browser, false, AIWINDOW_URL);
+
+  const panelVisible = waitForPanelOpen(browser);
   await typeInEditor(browser, "@");
-  const panelVisible = await waitForPanelOpen(browser);
+  await panelVisible;
 
   Assert.ok(
     panelVisible,
@@ -191,8 +192,9 @@ add_task(async function test_mentions_suggestions_panel_shows() {
 add_task(async function test_mentions_insert_on_click() {
   const win = await openAIWindow();
   const browser = win.gBrowser.selectedBrowser;
-
   await BrowserTestUtils.browserLoaded(browser, false, AIWINDOW_URL);
+
+  const waitMention = waitForMentionInserted(browser);
   await typeInEditor(browser, "@");
   await SpecialPowers.spawn(browser, [], async () => {
     const aiWindowElement = content.document.querySelector("ai-window");
@@ -208,7 +210,7 @@ add_task(async function test_mentions_insert_on_click() {
     firstItem.click();
   });
 
-  const hasMention = await waitForMentionInserted(browser);
+  const hasMention = await waitMention;
   Assert.ok(
     hasMention,
     "Editor should contain a mention after clicking on a suggestion"
@@ -220,10 +222,9 @@ add_task(async function test_mentions_insert_on_click() {
 add_task(async function test_mentions_insert_on_enter() {
   const win = await openAIWindow();
   const browser = win.gBrowser.selectedBrowser;
-
   await BrowserTestUtils.browserLoaded(browser, false, AIWINDOW_URL);
-  await typeInEditor(browser, "@");
-  await SpecialPowers.spawn(browser, [], async () => {
+
+  const waitPanel = SpecialPowers.spawn(browser, [], async () => {
     const aiWindowElement = content.document.querySelector("ai-window");
     const smartbar = aiWindowElement.shadowRoot.querySelector(
       "#ai-window-smartbar"
@@ -236,6 +237,9 @@ add_task(async function test_mentions_insert_on_enter() {
       "Wait for panel items to be available"
     );
   });
+  await typeInEditor(browser, "@");
+  await waitPanel;
+
   await BrowserTestUtils.synthesizeKey("KEY_ArrowDown", {}, browser);
   await BrowserTestUtils.synthesizeKey("KEY_Enter", {}, browser);
   const hasMention = await waitForMentionInserted(browser);

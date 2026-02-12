@@ -54,6 +54,8 @@ support-files = [
 
 ["browser_aiwindow_transparency.js"]
 
+["browser_aiwindow_urlbar_chat.js"]
+
 ["browser_aiwindow_website_chip.js"]
 
 ["browser_aiwindowui.js"]

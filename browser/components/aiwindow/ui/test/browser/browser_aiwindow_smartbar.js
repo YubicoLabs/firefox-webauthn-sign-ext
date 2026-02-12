@@ -10,6 +10,14 @@
 
 "use strict";
 
+const lazy = {};
+ChromeUtils.defineESModuleGetters(lazy, {
+  IntentClassifier:
+    "moz-src:///browser/components/aiwindow/models/IntentClassifier.sys.mjs",
+});
+
+let gIntentEngineStub;
+
 /**
  * Dispatch a `smartbar-commit` event.
  *
@@ -38,6 +46,41 @@ async function dispatchSmartbarCommit(browser, value, action) {
     smartbar.ownerDocument.dispatchEvent(commitEvent);
   });
 }
+
+add_setup(async function () {
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.search.suggest.enabled", false]],
+  });
+
+  const fakeIntentEngine = {
+    run({ args: [[query]] }) {
+      const searchKeywords = ["search", "hello"];
+      const formattedPrompt = query.toLowerCase();
+      const isSearch = searchKeywords.some(keyword =>
+        formattedPrompt.includes(keyword)
+      );
+
+      // Simulate model confidence scores
+      if (isSearch) {
+        return [
+          { label: "search", score: 0.95 },
+          { label: "chat", score: 0.05 },
+        ];
+      }
+      return [
+        { label: "chat", score: 0.95 },
+        { label: "search", score: 0.05 },
+      ];
+    },
+  };
+
+  gIntentEngineStub = sinon
+    .stub(lazy.IntentClassifier, "_createEngine")
+    .resolves(fakeIntentEngine);
+  registerCleanupFunction(() => {
+    sinon.restore();
+  });
+});
 
 add_task(async function test_smartbar_submit_chat() {
   const sb = this.sinon.createSandbox();
@@ -189,6 +232,48 @@ add_task(async function test_smartbar_cta_default_search_engine_label() {
     `Search with ${defaultSearchEngineInfo.name}`,
     `Search label should include engine name: [${defaultSearchEngineInfo.searchLabel}]`
   );
+
+  await BrowserTestUtils.closeWindow(win);
+});
+
+add_task(async function test_smartbar_cta_intent() {
+  const win = await openAIWindow();
+  const browser = win.gBrowser.selectedBrowser;
+
+  await BrowserTestUtils.browserLoaded(browser, false, AIWINDOW_URL);
+
+  await SpecialPowers.spawn(browser, [], async () => {
+    const aiWindowElement = content.document.querySelector("ai-window");
+    const smartbar = aiWindowElement.shadowRoot.querySelector(
+      "#ai-window-smartbar"
+    );
+    const inputCta = smartbar.querySelector("input-cta");
+    const TEST_QUERIES = [
+      { query: "Search for weather", expectedAction: "search" },
+      { query: "Hello, how are you?", expectedAction: "chat" },
+      { query: "mozilla.com", expectedAction: "navigate" },
+    ];
+    for (const { query, expectedAction } of TEST_QUERIES) {
+      smartbar.focus();
+
+      info("Waiting for action to update to " + expectedAction);
+      let mutate = ContentTaskUtils.waitForMutationCondition(
+        inputCta,
+        { attributes: true, subtree: true },
+        () => inputCta.action == expectedAction
+      );
+      EventUtils.sendString(query, content);
+      info("Backspace the whole string to reset the state for the next query.");
+      smartbar.setSelectionRange(0, query.length);
+      mutate = ContentTaskUtils.waitForMutationCondition(
+        inputCta,
+        { attributes: true, subtree: true },
+        () => inputCta.action == ""
+      );
+      EventUtils.sendKey("BACK_SPACE", content);
+      await mutate;
+    }
+  });
 
   await BrowserTestUtils.closeWindow(win);
 });
