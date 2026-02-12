@@ -469,9 +469,17 @@ export class AIWindow extends MozLitElement {
   #handleSmartbarCommit = event => {
     const { value, action } = event.detail;
     if (action === "chat") {
-      this.#fetchAIResponse(value, this.#createUserRoleOpts());
+      this.submitFollowUp(value);
     }
   };
+
+  submitFollowUp(text) {
+    const trimmed = String(text ?? "").trim();
+    if (!trimmed) {
+      return;
+    }
+    this.#fetchAIResponse(trimmed, this.#createUserRoleOpts());
+  }
 
   #handleMemoriesToggle = event => {
     this.#memoriesToggled = event.detail.pressed;
@@ -700,6 +708,7 @@ export class AIWindow extends MozLitElement {
           currentMessage.tokens = {
             search: [],
             existing_memory: [],
+            followup: [],
           };
         }
 
