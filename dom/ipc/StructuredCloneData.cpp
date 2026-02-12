@@ -35,17 +35,20 @@ void StructuredCloneData::WriteIPCParams(IPC::MessageWriter* aWriter) {
   MOZ_RELEASE_ASSERT(
       CloneScope() == StructuredCloneScope::DifferentProcess,
       "Cannot serialize same-process StructuredCloneData over IPC");
+  AssertAttachmentsMatchFlags();
 
   WriteParam(aWriter, BufferVersion());
   WriteParam(aWriter, BufferData());
+
+  // Write all cloneable attachments directly to IPC.
+  std::apply([&](auto&... member) { WriteParams(aWriter, member...); },
+             CloneableAttachmentArrays());
+
+  // Also write all transferable members, if we support transferring.
   if (SupportsTransferring()) {
-    WriteParam(aWriter, PortIdentifiers());
+    std::apply([&](auto&... member) { WriteParams(aWriter, member...); },
+               TransferableAttachmentArrays());
   }
-  WriteParam(aWriter, BlobImpls());
-  // XXX: Technically this is a change in behaviour from ClonedMessageData, as
-  // that type would specify aAllowLazy = false. This could be changed though it
-  // would require additional code.
-  WriteParam(aWriter, InputStreams());
 }
 
 bool StructuredCloneData::ReadIPCParams(IPC::MessageReader* aReader) {
@@ -59,12 +62,22 @@ bool StructuredCloneData::ReadIPCParams(IPC::MessageReader* aReader) {
 
   Adopt(std::move(data), version);
 
-  if (SupportsTransferring() && !ReadParam(aReader, &PortIdentifiers())) {
+  if (!std::apply(
+          [&](auto&... member) { return ReadParams(aReader, member...); },
+          CloneableAttachmentArrays())) {
     return false;
   }
 
-  return ReadParam(aReader, &BlobImpls()) &&
-         ReadParam(aReader, &InputStreams());
+  if (SupportsTransferring()) {
+    if (!std::apply(
+            [&](auto&... member) { return ReadParams(aReader, member...); },
+            TransferableAttachmentArrays())) {
+      return false;
+    }
+  }
+
+  AssertAttachmentsMatchFlags();
+  return true;
 }
 
 bool StructuredCloneData::CopyExternalData(const char* aData,

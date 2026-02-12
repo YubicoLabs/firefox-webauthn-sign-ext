@@ -435,6 +435,8 @@ void StructuredCloneHolder::Write(JSContext* aCx, JS::Handle<JS::Value> aValue,
   if (aRv.Failed()) {
     return;
   }
+
+  AssertAttachmentsMatchFlags();
 }
 
 void StructuredCloneHolder::Read(JSContext* aCx,
@@ -447,17 +449,15 @@ void StructuredCloneHolder::Read(JSContext* aCx,
                                  JS::MutableHandle<JS::Value> aValue,
                                  const JS::CloneDataPolicy& aCloneDataPolicy,
                                  ErrorResult& aRv) {
+  AssertAttachmentsMatchFlags();
+
   StructuredCloneHolderBase::Read(aCx, aValue, aCloneDataPolicy, aRv);
-  if (aRv.Failed()) {
-    mTransferredPorts.Clear();
-    return;
-  }
 
   // If we are transferring something, we cannot call 'Read()' more than once.
+  // Clear out all serialized data whether or not we succeed.
   if (mSupportsTransferring) {
-#define STMT(_member) (_member).Clear()
-    CLONED_DATA_MEMBERS
-#undef STMT
+    std::apply([](auto&... member) { (member.Clear(), ...); },
+               AttachmentArrays());
 
     Clear();
   }
@@ -2067,5 +2067,28 @@ void StructuredCloneHolder::SameProcessScopeRequired(
     *aSameProcessScopeRequired = true;
   }
 }
+
+// Helper for checking if any array in a tie tuple is non-empty.
+static bool HasAnyOf(const auto& arrays) {
+  return std::apply(
+      [&](const auto&... member) { return (!member.IsEmpty() || ...); },
+      std::forward<decltype(arrays)>(arrays));
+}
+
+bool StructuredCloneHolder::HasClonedDOMObjects() {
+  return HasAnyOf(AttachmentArrays());
+}
+
+#ifdef DEBUG
+void StructuredCloneHolder::AssertAttachmentsMatchFlags() {
+  MOZ_ASSERT(mSupportsCloning || !HasClonedDOMObjects(),
+             "unexpected attachments");
+  MOZ_ASSERT(CloneScope() == StructuredCloneScope::SameProcess ||
+                 !HasAnyOf(InProcessCloneableAttachmentArrays()),
+             "unexpected in-process attachments");
+  MOZ_ASSERT(mSupportsTransferring || !HasAnyOf(TransferableAttachmentArrays()),
+             "unexpected transferable attachments");
+}
+#endif
 
 }  // namespace mozilla::dom
