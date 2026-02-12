@@ -4400,7 +4400,7 @@
       }
       for (const splitView of splitViewWorkingData.values()) {
         if (splitView.node) {
-          splitView.node.addTabs(splitView.tabs, true);
+          splitView.node.addTabs(splitView.tabs, { isSessionRestore: true });
         }
       }
 
@@ -6978,8 +6978,9 @@
      *
      * @param {MozTabbrowserTab} aTab
      * @param {MozTabSplitViewWrapper} aSplitViewWrapper
+     * @param {int} [insertAtIndex=-1] An optional index for a tab to insert into the split view
      */
-    moveTabToSplitView(aTab, aSplitViewWrapper) {
+    moveTabToSplitView(aTab, aSplitViewWrapper, insertAtIndex = -1) {
       if (!this.isTab(aTab)) {
         throw new Error("Can only move a tab into a split view wrapper");
       }
@@ -6993,7 +6994,14 @@
         return;
       }
 
-      this.#handleTabMove(aTab, () => aSplitViewWrapper.appendChild(aTab));
+      this.#handleTabMove(aTab, () =>
+        insertAtIndex > -1
+          ? aSplitViewWrapper.insertBefore(
+              aTab,
+              aSplitViewWrapper.tabs[insertAtIndex]
+            )
+          : aSplitViewWrapper.appendChild(aTab)
+      );
       this.removeFromMultiSelectedTabs(aTab);
       this.tabContainer._notifyBackgroundTab(aTab);
     }
