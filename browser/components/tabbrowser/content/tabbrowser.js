@@ -3830,7 +3830,7 @@
 
       let newTabs = [];
 
-      if (!tabIndex) {
+      if (!tabIndex && elementIndex) {
         tabIndex = this.#elementIndexToTabIndex(elementIndex);
       }
 
