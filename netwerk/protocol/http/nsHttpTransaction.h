@@ -193,6 +193,8 @@ class nsHttpTransaction final : public nsAHttpTransaction,
 
   uint64_t ChannelId() { return mChannelId; }
 
+  void SetIsTRRTransaction() override { mIsTRRTransaction = true; }
+
  private:
   friend class DeleteHttpTransaction;
   virtual ~nsHttpTransaction();
@@ -457,6 +459,7 @@ class nsHttpTransaction final : public nsAHttpTransaction,
   bool mDoNotRemoveAltSvc{false};
   bool mDoNotResetIPFamilyPreference{false};
   bool mIsHttp2Websocket{false};
+  bool mIsTRRTransaction{false};
 
   // mClosed           := transaction has been explicitly closed
   // mTransactionDone  := transaction ran to completion or was interrupted

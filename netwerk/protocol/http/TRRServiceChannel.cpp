@@ -667,6 +667,10 @@ nsresult TRRServiceChannel::SetupTransaction() {
     return rv;
   }
 
+  if (StaticPrefs::network_trr_high_priority_events()) {
+    mTransaction->SetIsTRRTransaction();
+  }
+
   return rv;
 }
 
