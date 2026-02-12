@@ -983,7 +983,7 @@ class TestRecursiveMakeBackend(BackendTester):
             "HOST_RUST_LIBRARY_FILE := x86_64-unknown-linux-gnu/release/libhostrusttool.a",
             "CARGO_FILE := $(srcdir)/Cargo.toml",
             "CARGO_TARGET_DIR := %s" % env.topobjdir,
-            "HOST_RUST_LIBRARY_FEATURES := musthave cantlivewithout",
+            "HOST_RUST_LIBRARY_FEATURES := musthave,cantlivewithout",
         ]
 
         self.assertEqual(lines, expected)
@@ -1004,7 +1004,7 @@ class TestRecursiveMakeBackend(BackendTester):
             "RUST_LIBRARY_FILE := x86_64-unknown-linux-gnu/release/libfeature_library.a",
             "CARGO_FILE := $(srcdir)/Cargo.toml",
             "CARGO_TARGET_DIR := %s" % env.topobjdir,
-            "RUST_LIBRARY_FEATURES := musthave cantlivewithout",
+            "RUST_LIBRARY_FEATURES := musthave,cantlivewithout",
         ]
 
         self.assertEqual(lines, expected)
