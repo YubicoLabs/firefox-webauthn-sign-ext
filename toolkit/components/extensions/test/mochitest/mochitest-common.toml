@@ -92,6 +92,11 @@ prefs = [
 
 ["test_ext_action.html"]
 
+["test_ext_action_openPopup_multiple.html"]
+skip-if = [
+  "os == 'android'", # bug 2016283
+]
+
 ["test_ext_activityLog.html"]
 skip-if = [
   "http2",
