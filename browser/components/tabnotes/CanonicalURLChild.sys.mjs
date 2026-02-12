@@ -46,9 +46,6 @@ export class CanonicalURLChild extends JSWindowActorChild {
    */
   receiveMessage(msg) {
     switch (msg.name) {
-      case "CanonicalURL:Detect":
-        this.#discoverCanonicalUrl();
-        break;
       case "CanonicalURL:DetectFromPushState":
         this.sendAsyncMessage("CanonicalURL:Identified", {
           canonicalUrl: lazy.cleanNoncanonicalUrl(msg.data.pushStateUrl),

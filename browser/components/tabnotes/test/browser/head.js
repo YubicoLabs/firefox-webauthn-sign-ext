@@ -82,27 +82,3 @@ function closeTabNoteMenu() {
   tabNotePanel.hidePopup();
   return menuHidden;
 }
-
-/**
- * @param {MozTabbrowserTab} tab
- * @returns {Promise<void>}
- */
-function tabNoteIndicatorAppears(tab) {
-  return BrowserTestUtils.waitForMutationCondition(
-    tab,
-    { attributeFilter: ["tab-note"] },
-    () => tab.hasTabNote
-  );
-}
-
-/**
- * @param {MozTabbrowserTab} tab
- * @returns {Promise<void>}
- */
-function tabNoteIndicatorDisappears(tab) {
-  return BrowserTestUtils.waitForMutationCondition(
-    tab,
-    { attributeFilter: ["tab-note"] },
-    () => !tab.hasTabNote
-  );
-}
