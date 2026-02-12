@@ -400,22 +400,16 @@ export class NetErrorCard extends MozLitElement {
 
   mapAdvancedConfigToParams(advancedConfig) {
     const params = {
-      whyDangerousL10nId: advancedConfig.whyDangerousL10nId,
-      whyDangerousL10nArgs: advancedConfig.whyDangerousL10nArgs,
-      whatCanYouDoL10nId: advancedConfig.whatCanYouDoL10nId,
-      whatCanYouDoL10nArgs: advancedConfig.whatCanYouDoL10nArgs,
+      whyDangerousL10nId: advancedConfig.whyDangerous?.dataL10nId,
+      whyDangerousL10nArgs: advancedConfig.whyDangerous?.dataL10nArgs,
+      whatCanYouDoL10nId: advancedConfig.whatCanYouDo?.dataL10nId,
+      whatCanYouDoL10nArgs: advancedConfig.whatCanYouDo?.dataL10nArgs,
       importantNote: advancedConfig.importantNote,
-      learnMoreL10nId: advancedConfig.learnMoreL10nId,
-      learnMoreSupportPage: advancedConfig.learnMoreSupportPage,
+      learnMoreL10nId: advancedConfig.learnMore?.dataL10nId,
+      learnMoreSupportPage: advancedConfig.learnMore?.supportPage,
       viewCert: advancedConfig.showViewCertificate,
       viewDateTime: advancedConfig.showDateTime,
     };
-
-    // Handle resolved whyDangerous (from resolver functions)
-    if (advancedConfig.whyDangerous) {
-      params.whyDangerousL10nId = advancedConfig.whyDangerous.id;
-      params.whyDangerousL10nArgs = advancedConfig.whyDangerous.args;
-    }
 
     // Inject hostname into args that need it
     if (params.whyDangerousL10nArgs) {

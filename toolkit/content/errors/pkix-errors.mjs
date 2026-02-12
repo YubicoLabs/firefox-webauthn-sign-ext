@@ -23,8 +23,12 @@ export const PKIX_ERRORS = [
       showAddException: true,
     },
     advanced: {
-      whyDangerousL10nId: "fp-certerror-self-signed-why-dangerous-body",
-      whatCanYouDoL10nId: "fp-certerror-self-signed-what-can-you-do-body",
+      whyDangerous: {
+        dataL10nId: "fp-certerror-self-signed-why-dangerous-body",
+      },
+      whatCanYouDo: {
+        dataL10nId: "fp-certerror-self-signed-what-can-you-do-body",
+      },
       importantNote: "fp-certerror-self-signed-important-note",
       showViewCertificate: true,
       showDateTime: true,
@@ -46,11 +50,17 @@ export const PKIX_ERRORS = [
       showAddException: false,
     },
     advanced: {
-      whyDangerousL10nId: "fp-certerror-transparency-why-dangerous-body",
-      whyDangerousL10nArgs: { hostname: null },
-      whatCanYouDoL10nId: "fp-certerror-transparency-what-can-you-do-body",
-      learnMoreL10nId: "fp-learn-more-about-secure-connection-failures",
-      learnMoreSupportPage: "connection-not-secure",
+      whyDangerous: {
+        dataL10nId: "fp-certerror-transparency-why-dangerous-body",
+        dataL10nArgs: { hostname: null },
+      },
+      whatCanYouDo: {
+        dataL10nId: "fp-certerror-transparency-what-can-you-do-body",
+      },
+      learnMore: {
+        dataL10nId: "fp-learn-more-about-secure-connection-failures",
+        supportPage: "connection-not-secure",
+      },
       showViewCertificate: true,
     },
     hasNoUserFix: true,
@@ -70,20 +80,15 @@ export const PKIX_ERRORS = [
       showAddException: true,
     },
     advanced: {
-      whyDangerousResolver: context =>
-        context.errorInfo
-          ? {
-              dataL10nId: "fp-certerror-pkix-not-yet-valid-why-dangerous-body",
-              dataL10nArgs: { date: context.errorInfo.validNotBefore },
-            }
-          : null,
-      whyDangerousL10nId: "fp-certerror-pkix-not-yet-valid-why-dangerous-body",
-      whyDangerousL10nArgs: { date: null },
-      whatCanYouDoL10nId:
-        "fp-certerror-pkix-not-yet-valid-what-can-you-do-body",
-      whatCanYouDoL10nArgs: { date: null },
-      learnMoreL10nId: "fp-learn-more-about-time-related-errors",
-      learnMoreSupportPage: "time-errors",
+      whyDangerous: "notYetValidWhyDangerous",
+      whatCanYouDo: {
+        dataL10nId: "fp-certerror-pkix-not-yet-valid-what-can-you-do-body",
+        dataL10nArgs: { date: null },
+      },
+      learnMore: {
+        dataL10nId: "fp-learn-more-about-time-related-errors",
+        supportPage: "time-errors",
+      },
       showViewCertificate: true,
     },
     hasNoUserFix: false,
@@ -105,7 +110,9 @@ export const PKIX_ERRORS = [
     },
     advanced: {
       titleL10nId: "fp-certerror-body-title",
-      whyDangerousL10nId: "mozilla-pkix-error-invalid-integer-encoding",
+      whyDangerous: {
+        dataL10nId: "mozilla-pkix-error-invalid-integer-encoding",
+      },
     },
     hasNoUserFix: true,
   },
@@ -125,7 +132,9 @@ export const PKIX_ERRORS = [
     },
     advanced: {
       titleL10nId: "fp-certerror-body-title",
-      whyDangerousL10nId: "mozilla-pkix-error-issuer-no-longer-trusted",
+      whyDangerous: {
+        dataL10nId: "mozilla-pkix-error-issuer-no-longer-trusted",
+      },
     },
     hasNoUserFix: true,
   },
@@ -145,7 +154,9 @@ export const PKIX_ERRORS = [
     },
     advanced: {
       titleL10nId: "fp-certerror-body-title",
-      whyDangerousL10nId: "mozilla-pkix-error-key-pinning-failure",
+      whyDangerous: {
+        dataL10nId: "mozilla-pkix-error-key-pinning-failure",
+      },
     },
     hasNoUserFix: true,
   },
@@ -165,7 +176,9 @@ export const PKIX_ERRORS = [
     },
     advanced: {
       titleL10nId: "fp-certerror-body-title",
-      whyDangerousL10nId: "mozilla-pkix-error-signature-algorithm-mismatch",
+      whyDangerous: {
+        dataL10nId: "mozilla-pkix-error-signature-algorithm-mismatch",
+      },
     },
     hasNoUserFix: true,
   },

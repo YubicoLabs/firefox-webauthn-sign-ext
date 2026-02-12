@@ -23,11 +23,17 @@ export const SSL_ERRORS = [
       showAddException: true,
     },
     advanced: {
-      whyDangerousL10nId: "fp-certerror-bad-domain-why-dangerous-body",
-      whyDangerousL10nArgs: { hostname: null, validHosts: null },
-      whatCanYouDoL10nId: "fp-certerror-bad-domain-what-can-you-do-body",
-      learnMoreL10nId: "fp-learn-more-about-secure-connection-failures",
-      learnMoreSupportPage: "connection-not-secure",
+      whyDangerous: {
+        dataL10nId: "fp-certerror-bad-domain-why-dangerous-body",
+        dataL10nArgs: { hostname: null, validHosts: null },
+      },
+      whatCanYouDo: {
+        dataL10nId: "fp-certerror-bad-domain-what-can-you-do-body",
+      },
+      learnMore: {
+        dataL10nId: "fp-learn-more-about-secure-connection-failures",
+        supportPage: "connection-not-secure",
+      },
       showViewCertificate: true,
       showDateTime: true,
       requiresDomainMismatchNames: true,
@@ -50,10 +56,16 @@ export const SSL_ERRORS = [
       showPrefReset: true,
     },
     advanced: {
-      whyDangerousL10nId: "fp-neterror-cypher-overlap-why-dangerous-body",
-      whatCanYouDoL10nId: "fp-neterror-cypher-overlap-what-can-you-do-body",
-      learnMoreL10nId: "fp-learn-more-about-secure-connection-failures",
-      learnMoreSupportPage: "connection-not-secure",
+      whyDangerous: {
+        dataL10nId: "fp-neterror-cypher-overlap-why-dangerous-body",
+      },
+      whatCanYouDo: {
+        dataL10nId: "fp-neterror-cypher-overlap-what-can-you-do-body",
+      },
+      learnMore: {
+        dataL10nId: "fp-learn-more-about-secure-connection-failures",
+        supportPage: "connection-not-secure",
+      },
     },
     hasNoUserFix: false,
     checkNSSFailure: true,
@@ -78,10 +90,16 @@ export const SSL_ERRORS = [
       showAddException: false,
     },
     advanced: {
-      whyDangerousL10nId: "neterror-nss-failure-not-verified",
-      whatCanYouDoL10nId: "neterror-nss-failure-contact-website",
-      learnMoreL10nId: "fp-learn-more-about-secure-connection-failures",
-      learnMoreSupportPage: "connection-not-secure",
+      whyDangerous: {
+        dataL10nId: "neterror-nss-failure-not-verified",
+      },
+      whatCanYouDo: {
+        dataL10nId: "neterror-nss-failure-contact-website",
+      },
+      learnMore: {
+        dataL10nId: "fp-learn-more-about-secure-connection-failures",
+        supportPage: "connection-not-secure",
+      },
     },
     hasNoUserFix: true,
   },
@@ -106,10 +124,16 @@ export const SSL_ERRORS = [
       showAddException: false,
     },
     advanced: {
-      whyDangerousL10nId: "neterror-nss-failure-not-verified",
-      whatCanYouDoL10nId: "neterror-nss-failure-contact-website",
-      learnMoreL10nId: "fp-learn-more-about-secure-connection-failures",
-      learnMoreSupportPage: "connection-not-secure",
+      whyDangerous: {
+        dataL10nId: "neterror-nss-failure-not-verified",
+      },
+      whatCanYouDo: {
+        dataL10nId: "neterror-nss-failure-contact-website",
+      },
+      learnMore: {
+        dataL10nId: "fp-learn-more-about-secure-connection-failures",
+        supportPage: "connection-not-secure",
+      },
     },
     hasNoUserFix: true,
   },
@@ -134,10 +158,16 @@ export const SSL_ERRORS = [
       showAddException: false,
     },
     advanced: {
-      whyDangerousL10nId: "neterror-nss-failure-not-verified",
-      whatCanYouDoL10nId: "neterror-nss-failure-contact-website",
-      learnMoreL10nId: "fp-learn-more-about-secure-connection-failures",
-      learnMoreSupportPage: "connection-not-secure",
+      whyDangerous: {
+        dataL10nId: "neterror-nss-failure-not-verified",
+      },
+      whatCanYouDo: {
+        dataL10nId: "neterror-nss-failure-contact-website",
+      },
+      learnMore: {
+        dataL10nId: "fp-learn-more-about-secure-connection-failures",
+        supportPage: "connection-not-secure",
+      },
     },
     hasNoUserFix: true,
   },

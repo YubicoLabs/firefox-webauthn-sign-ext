@@ -117,6 +117,65 @@ export function resolveDescriptionParts(descriptionParts, context) {
 }
 
 /**
+ * Resolver functions for dynamic advanced section content.
+ * These handle cases where advanced content varies based on runtime state.
+ */
+const ADVANCED_RESOLVERS = {
+  expiredCertWhyDangerous(context) {
+    const { errorInfo } = context;
+    const isNotYetValid =
+      errorInfo?.validNotBefore && Date.now() < errorInfo?.validNotBefore;
+    return errorInfo
+      ? {
+          dataL10nId: "fp-certerror-expired-why-dangerous-body",
+          dataL10nArgs: {
+            date: isNotYetValid
+              ? errorInfo.validNotBefore
+              : errorInfo.validNotAfter,
+          },
+        }
+      : null;
+  },
+
+  expiredIssuerWhyDangerous(context) {
+    return context.errorInfo
+      ? {
+          dataL10nId: "fp-certerror-expired-why-dangerous-body",
+          dataL10nArgs: { date: context.errorInfo.validNotAfter },
+        }
+      : null;
+  },
+
+  notYetValidWhyDangerous(context) {
+    return context.errorInfo
+      ? {
+          dataL10nId: "fp-certerror-pkix-not-yet-valid-why-dangerous-body",
+          dataL10nArgs: { date: context.errorInfo.validNotBefore },
+        }
+      : null;
+  },
+
+  nssBadCertWhyDangerous(context) {
+    return {
+      dataL10nId: "fp-certerror-bad-cert-why-dangerous-body",
+      dataL10nArgs: { hostname: context.hostname },
+    };
+  },
+
+  nssBadCertWhatCanYouDo(context) {
+    if (context.cssClass === "badStsCert") {
+      return {
+        dataL10nId: "fp-certerror-bad-sts-cert-what-can-you-do-body",
+        dataL10nArgs: { hostname: context.hostname },
+      };
+    }
+    return {
+      dataL10nId: "fp-certerror-bad-cert-what-can-you-do-body",
+    };
+  },
+};
+
+/**
  * Resolver functions for dynamic description content.
  * These handle cases where description varies based on runtime state.
  */
@@ -179,10 +238,10 @@ export function resolveAdvancedConfig(advancedConfig, context) {
 
   const resolved = { ...advancedConfig };
 
-  // Handle resolver for whyDangerous
-  if (advancedConfig.whyDangerousResolver) {
-    resolved.whyDangerous = advancedConfig.whyDangerousResolver(context);
-    delete resolved.whyDangerousResolver;
+  // Handle whyDangerous - named resolver or static l10n config
+  if (typeof advancedConfig.whyDangerous === "string") {
+    const resolver = ADVANCED_RESOLVERS[advancedConfig.whyDangerous];
+    resolved.whyDangerous = resolver ? resolver(context) : null;
   } else if (advancedConfig.whyDangerous) {
     resolved.whyDangerous = resolveL10nArgs(
       advancedConfig.whyDangerous,
@@ -190,15 +249,19 @@ export function resolveAdvancedConfig(advancedConfig, context) {
     );
   }
 
-  // Handle resolver for whatCanYouDo
-  if (advancedConfig.whatCanYouDoResolver) {
-    resolved.whatCanYouDo = advancedConfig.whatCanYouDoResolver?.(context);
-    delete resolved.whatCanYouDoResolver;
+  // Handle whatCanYouDo - named resolver or static l10n config
+  if (typeof advancedConfig.whatCanYouDo === "string") {
+    const resolver = ADVANCED_RESOLVERS[advancedConfig.whatCanYouDo];
+    resolved.whatCanYouDo = resolver ? resolver(context) : null;
   } else if (advancedConfig.whatCanYouDo) {
     resolved.whatCanYouDo = resolveL10nArgs(
       advancedConfig.whatCanYouDo,
       context
     );
+  }
+
+  if (advancedConfig.learnMore) {
+    resolved.learnMore = resolveL10nArgs(advancedConfig.learnMore, context);
   }
 
   return resolved;
@@ -232,4 +295,5 @@ export function getResolvedErrorConfig(id, context) {
 // Export resolvers for testing
 export const _testOnlyResolvers = {
   description: DESCRIPTION_RESOLVERS,
+  advanced: ADVANCED_RESOLVERS,
 };
