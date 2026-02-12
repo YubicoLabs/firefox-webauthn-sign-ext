@@ -860,6 +860,7 @@ async function populateCSSSystemColors() {
     "ButtonFace",
     "ButtonText",
     "ButtonBorder",
+    "ButtonHighlight",
     "Field",
     "FieldText",
     "Highlight",
@@ -876,6 +877,7 @@ async function populateCSSSystemColors() {
     "AppWorkspace",
     "Background",
     "ButtonShadow",
+    "CaptionText",
     "InactiveBorder",
     "InactiveCaption",
     "InactiveCaptionText",
@@ -911,9 +913,15 @@ async function populateCSSSystemColors() {
 
   const results = [];
   for (const colorName of systemColors) {
+    div.style.backgroundColor = "";
     div.style.backgroundColor = colorName;
-    const computed = getComputedStyle(div).backgroundColor;
-    results.push({ [colorName]: rgbToHex(computed) });
+    if (!div.style.backgroundColor) {
+      results.push({ [colorName]: null });
+    } else {
+      results.push({
+        [colorName]: rgbToHex(getComputedStyle(div).backgroundColor),
+      });
+    }
   }
 
   document.body.removeChild(div);
