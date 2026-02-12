@@ -2429,9 +2429,13 @@ mozilla::ipc::IPCResult ContentChild::RecvUpdateL10nFileSources(
 mozilla::ipc::IPCResult ContentChild::RecvUpdateSharedData(
     mozilla::ipc::ReadOnlySharedMemoryHandle&& aMapHandle,
     nsTArray<IPCBlob>&& aBlobs, nsTArray<nsCString>&& aChangedKeys) {
-  nsTArray<RefPtr<BlobImpl>> blobImpls(aBlobs.Length());
+  nsTArray<NotNull<RefPtr<BlobImpl>>> blobImpls(aBlobs.Length());
   for (auto& ipcBlob : aBlobs) {
-    blobImpls.AppendElement(IPCBlobUtils::Deserialize(ipcBlob));
+    RefPtr<BlobImpl> blobImpl = IPCBlobUtils::Deserialize(ipcBlob);
+    if (!blobImpl) {
+      return IPC_FAIL(this, "IPCBlobUtils::Deserialize failed");
+    }
+    blobImpls.AppendElement(WrapNotNull(blobImpl));
   }
 
   if (mSharedData) {

@@ -60,7 +60,7 @@ class SharedMap : public DOMEventTargetHelper {
   SharedMap();
 
   SharedMap(nsIGlobalObject* aGlobal, SharedMemoryHandle&&,
-            nsTArray<RefPtr<BlobImpl>>&& aBlobs);
+            nsTArray<NotNull<RefPtr<BlobImpl>>>&& aBlobs);
 
   // Returns true if the map contains the given (UTF-8) key.
   bool Has(const nsACString& name);
@@ -103,7 +103,7 @@ class SharedMap : public DOMEventTargetHelper {
    * changed (UTF-8-encoded) keys.
    */
   void Update(SharedMemoryHandle&& aMapHandle,
-              nsTArray<RefPtr<BlobImpl>>&& aBlobs,
+              nsTArray<NotNull<RefPtr<BlobImpl>>>&& aBlobs,
               nsTArray<nsCString>&& aChangedKeys);
 
   JSObject* WrapObject(JSContext* aCx,
@@ -199,7 +199,7 @@ class SharedMap : public DOMEventTargetHelper {
     uint16_t BlobOffset() const { return mBlobOffset; }
     uint16_t BlobCount() const { return mBlobCount; }
 
-    Span<const RefPtr<BlobImpl>> Blobs() {
+    Span<const NotNull<RefPtr<BlobImpl>>> Blobs() {
       if (mData.is<RefPtr<StructuredCloneData>>()) {
         return mData.as<RefPtr<StructuredCloneData>>()->BlobImpls();
       }
@@ -243,7 +243,7 @@ class SharedMap : public DOMEventTargetHelper {
 
   const nsTArray<Entry*>& EntryArray() const;
 
-  nsTArray<RefPtr<BlobImpl>> mBlobImpls;
+  nsTArray<NotNull<RefPtr<BlobImpl>>> mBlobImpls;
 
   // Rebuilds the entry hashtable mEntries from the values serialized in the
   // current snapshot, if necessary. The hashtable is rebuilt lazily after

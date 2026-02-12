@@ -683,7 +683,7 @@ bool WriteBlob(JSStructuredCloneWriter* aWriter, Blob* aBlob,
   // We store the position of the blobImpl in the array as index.
   if (JS_WriteUint32Pair(aWriter, SCTAG_DOM_BLOB,
                          aHolder->BlobImpls().Length())) {
-    aHolder->BlobImpls().AppendElement(blobImpl);
+    aHolder->BlobImpls().AppendElement(WrapNotNull(blobImpl));
     return true;
   }
 
@@ -824,11 +824,11 @@ bool WriteFileList(JSStructuredCloneWriter* aWriter, FileList* aFileList,
     return false;
   }
 
-  nsTArray<RefPtr<BlobImpl>> blobImpls;
+  nsTArray<NotNull<RefPtr<BlobImpl>>> blobImpls;
 
   for (uint32_t i = 0; i < aFileList->Length(); ++i) {
     RefPtr<BlobImpl> blobImpl = aFileList->Item(i)->Impl();
-    blobImpls.AppendElement(blobImpl);
+    blobImpls.AppendElement(WrapNotNull(blobImpl));
   }
 
   aHolder->BlobImpls().AppendElements(blobImpls);
@@ -961,7 +961,7 @@ bool WriteFormData(JSStructuredCloneWriter* aWriter, FormData* aFormData,
 
       RefPtr<BlobImpl> blobImpl = aValue.GetAsBlob()->Impl();
 
-      aHolder->BlobImpls().AppendElement(blobImpl);
+      aHolder->BlobImpls().AppendElement(WrapNotNull(blobImpl));
       return true;
     }
 
@@ -1023,7 +1023,8 @@ JSObject* ReadInputStream(JSContext* aCx, uint32_t aIndex,
   MOZ_ASSERT(aIndex < aHolder->InputStreams().Length());
   JS::Rooted<JS::Value> result(aCx);
   {
-    nsCOMPtr<nsIInputStream> inputStream = aHolder->InputStreams()[aIndex];
+    nsCOMPtr<nsIInputStream> inputStream =
+        aHolder->InputStreams()[aIndex].mStream;
 
     nsresult rv = nsContentUtils::WrapNative(
         aCx, inputStream, &NS_GET_IID(nsIInputStream), &result);
@@ -1045,7 +1046,7 @@ bool WriteInputStream(JSStructuredCloneWriter* aWriter,
   // We store the position of the inputStream in the array as index.
   if (JS_WriteUint32Pair(aWriter, SCTAG_DOM_INPUTSTREAM,
                          aHolder->InputStreams().Length())) {
-    aHolder->InputStreams().AppendElement(aInputStream);
+    aHolder->InputStreams().AppendElement(WrapNotNull(aInputStream));
     return true;
   }
 
