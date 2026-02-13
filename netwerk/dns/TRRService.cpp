@@ -29,7 +29,6 @@
 #include "mozilla/net/NeckoParent.h"
 #include "mozilla/net/TRRServiceChild.h"
 #include "mozilla/ProfilerMarkers.h"
-#include "nsSocketTransportService2.h"
 // Put DNSLogging.h at the end to avoid LOG being overwritten by other headers.
 #include "DNSLogging.h"
 
@@ -203,16 +202,14 @@ nsresult TRRService::Init(bool aNativeHTTPSQueryEnabled) {
       RebuildSuffixList(std::move(suffixList));
     }
 
-    if (!StaticPrefs::network_trr_parse_on_socket_thread()) {
-      nsCOMPtr<nsIThread> thread;
-      if (NS_FAILED(
-              NS_NewNamedThread("TRR Background", getter_AddRefs(thread)))) {
-        NS_WARNING("NS_NewNamedThread failed!");
-        return NS_ERROR_FAILURE;
-      }
-
-      sTRRBackgroundThread = thread;
+    nsCOMPtr<nsIThread> thread;
+    if (NS_FAILED(
+            NS_NewNamedThread("TRR Background", getter_AddRefs(thread)))) {
+      NS_WARNING("NS_NewNamedThread failed!");
+      return NS_ERROR_FAILURE;
     }
+
+    sTRRBackgroundThread = thread;
   }
 
   LOG(("Initialized TRRService\n"));
@@ -548,27 +545,11 @@ already_AddRefed<nsIThread> TRRService::TRRThread() {
 }
 
 already_AddRefed<nsIThread> TRRService::TRRThread_locked() {
-  if (StaticPrefs::network_trr_parse_on_socket_thread()) {
-    if (!gSocketTransportService) {
-      return nullptr;
-    }
-
-    return gSocketTransportService->GetSocketThread();
-  }
-
   RefPtr<nsIThread> thread = sTRRBackgroundThread;
   return thread.forget();
 }
 
 bool TRRService::IsOnTRRThread() {
-  if (StaticPrefs::network_trr_parse_on_socket_thread()) {
-    if (!gSocketTransportService) {
-      return false;
-    }
-
-    return OnSocketThread();
-  }
-
   nsCOMPtr<nsIThread> thread;
   {
     MutexAutoLock lock(mLock);
@@ -676,8 +657,8 @@ TRRService::Observe(nsISupports* aSubject, const char* aTopic,
       thread = sTRRBackgroundThread.get();
       sTRRBackgroundThread = nullptr;
       MOZ_ALWAYS_SUCCEEDS(thread->Shutdown());
+      sTRRServicePtr = nullptr;
     }
-    sTRRServicePtr = nullptr;
   }
   return NS_OK;
 }

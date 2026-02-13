@@ -474,8 +474,6 @@ FWD_H3ST_ADDREF(GetScriptableSelfAddr, nsINetAddr);
 FWD_H3ST_PTR(GetConnectionFlags, uint32_t);
 FWD_H3ST(SetConnectionFlags, uint32_t);
 FWD_H3ST(SetIsPrivate, bool);
-FWD_H3ST(SetIsTRRConnection, bool);
-FWD_H3ST_PTR(GetIsTRRConnection, bool);
 FWD_H3ST_PTR(GetTlsFlags, uint32_t);
 FWD_H3ST(SetTlsFlags, uint32_t);
 FWD_H3ST_PTR(GetRecvBufferSize, uint32_t);

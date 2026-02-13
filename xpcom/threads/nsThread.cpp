@@ -720,8 +720,7 @@ nsThread::UnregisterShutdownTask(nsITargetShutdownTask* aTask) {
 }
 
 nsIEventTarget::FeatureFlags nsThread::GetFeatures() {
-  return (mIsMainThread ? SUPPORTS_PRIORITIZATION : SUPPORTS_BASE) |
-         (SUPPORTS_SHUTDOWN_TASKS | SUPPORTS_SHUTDOWN_TASK_DISPATCH);
+  return SUPPORTS_SHUTDOWN_TASKS | SUPPORTS_SHUTDOWN_TASK_DISPATCH;
 }
 
 NS_IMETHODIMP

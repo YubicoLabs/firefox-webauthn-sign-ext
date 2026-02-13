@@ -108,7 +108,6 @@ class nsSocketTransport final : public nsASocketHandler,
 
   uint64_t ByteCountReceived() override;
   uint64_t ByteCountSent() override;
-  bool IsTRRConnection() override;
   static void CloseSocket(PRFileDesc* aFd, bool aTelemetryEnabled);
   static void SendPRBlockingTelemetry(
       PRIntervalTime aStart,
@@ -423,8 +422,6 @@ class nsSocketTransport final : public nsASocketHandler,
 
   bool mExternalDNSResolution = false;
   bool mRetryDnsIfPossible = false;
-
-  bool mIsTRRConnection = false;
 };
 
 class nsSocketInputStream : public nsIAsyncInputStream {

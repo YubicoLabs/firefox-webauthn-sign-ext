@@ -17,7 +17,6 @@
 #include "nsEscape.h"
 #include "nsHttpConnectionMgr.h"
 #include "nsHttpTransaction.h"
-#include "nsThreadUtils.h"
 #include "nsICancelable.h"
 #include "nsICachingChannel.h"
 #include "nsIProtocolProxyService2.h"
@@ -312,15 +311,13 @@ TRRServiceChannel::OnProxyAvailable(nsICancelable* request, nsIChannel* channel,
   if (!mCurrentEventTarget->IsOnCurrentThread()) {
     RefPtr<TRRServiceChannel> self = this;
     nsCOMPtr<nsIProxyInfo> info = pi;
-    nsCOMPtr<nsIRunnable> event = NS_NewRunnableFunction(
-        "TRRServiceChannel::OnProxyAvailable", [self, info, status]() {
-          self->OnProxyAvailable(nullptr, nullptr, info, status);
-        });
-    if (StaticPrefs::network_trr_high_priority_events()) {
-      event = new PrioritizableRunnable(
-          event.forget(), nsIRunnablePriority::PRIORITY_MEDIUMHIGH);
-    }
-    return mCurrentEventTarget->Dispatch(event.forget(), NS_DISPATCH_NORMAL);
+    return mCurrentEventTarget->Dispatch(
+        NS_NewRunnableFunction("TRRServiceChannel::OnProxyAvailable",
+                               [self, info, status]() {
+                                 self->OnProxyAvailable(nullptr, nullptr, info,
+                                                        status);
+                               }),
+        NS_DISPATCH_NORMAL);
   }
 
   MOZ_ASSERT(mCurrentEventTarget->IsOnCurrentThread());
@@ -519,10 +516,8 @@ nsresult TRRServiceChannel::ContinueOnBeforeConnect() {
   if (mLoadFlags & LOAD_FRESH_CONNECTION) {
     glean::networking::trr_connection_cycle_count.Get(TRRService::ProviderKey())
         .Add(1);
-    nsresult rv = gHttpHandler->ConnMgr()->DoSingleConnectionCleanup(
-        mConnectionInfo, StaticPrefs::network_trr_high_priority_events()
-                             ? nsIRunnablePriority::PRIORITY_MEDIUMHIGH
-                             : nsIRunnablePriority::PRIORITY_NORMAL);
+    nsresult rv =
+        gHttpHandler->ConnMgr()->DoSingleConnectionCleanup(mConnectionInfo);
     LOG(
         ("TRRServiceChannel::BeginConnect "
          "DoSingleConnectionCleanup succeeded=%d %08x [this=%p]",
@@ -672,10 +667,6 @@ nsresult TRRServiceChannel::SetupTransaction() {
     return rv;
   }
 
-  if (StaticPrefs::network_trr_high_priority_events()) {
-    mTransaction->SetIsTRRTransaction();
-  }
-
   return rv;
 }
 
@@ -808,17 +799,14 @@ void TRRServiceChannel::AfterApplyContentConversions(
   if (!mCurrentEventTarget->IsOnCurrentThread()) {
     RefPtr<TRRServiceChannel> self = this;
     nsCOMPtr<nsIStreamListener> listener = aListener;
-    nsCOMPtr<nsIRunnable> event = NS_NewRunnableFunction(
-        "TRRServiceChannel::AfterApplyContentConversions",
-        [self, aResult, listener]() {
-          self->Resume();
-          self->AfterApplyContentConversions(aResult, listener);
-        });
-    if (StaticPrefs::network_trr_high_priority_events()) {
-      event = new PrioritizableRunnable(
-          event.forget(), nsIRunnablePriority::PRIORITY_MEDIUMHIGH);
-    }
-    self->mCurrentEventTarget->Dispatch(event.forget(), NS_DISPATCH_NORMAL);
+    self->mCurrentEventTarget->Dispatch(
+        NS_NewRunnableFunction(
+            "TRRServiceChannel::AfterApplyContentConversions",
+            [self, aResult, listener]() {
+              self->Resume();
+              self->AfterApplyContentConversions(aResult, listener);
+            }),
+        NS_DISPATCH_NORMAL);
     return;
   }
 

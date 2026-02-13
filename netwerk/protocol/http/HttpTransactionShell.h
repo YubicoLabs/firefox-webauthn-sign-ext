@@ -181,8 +181,6 @@ class HttpTransactionShell : public nsISupports {
   virtual TimeStamp GetOnStartRequestStartTime() const { return TimeStamp(); }
   virtual TimeStamp GetDataAvailableStartTime() const { return TimeStamp(); }
   virtual TimeStamp GetOnStopRequestStartTime() const { return TimeStamp(); }
-
-  virtual void SetIsTRRTransaction() {}
 };
 
 #define NS_DECL_HTTPTRANSACTIONSHELL                                           \

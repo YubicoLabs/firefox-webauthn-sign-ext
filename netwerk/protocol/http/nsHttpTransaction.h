@@ -193,9 +193,6 @@ class nsHttpTransaction final : public nsAHttpTransaction,
 
   uint64_t ChannelId() { return mChannelId; }
 
-  void SetIsTRRTransaction() override { mIsTRRTransaction = true; }
-  bool IsTRRTransaction() { return mIsTRRTransaction; }
-
  private:
   friend class DeleteHttpTransaction;
   virtual ~nsHttpTransaction();
@@ -315,18 +312,13 @@ class nsHttpTransaction final : public nsAHttpTransaction,
   }
 
  private:
-  class UpdateSecurityCallbacks : public Runnable, public nsIRunnablePriority {
+  class UpdateSecurityCallbacks : public Runnable {
    public:
     UpdateSecurityCallbacks(nsHttpTransaction* aTrans,
-                            nsIInterfaceRequestor* aCallbacks,
-                            uint32_t aPriority)
+                            nsIInterfaceRequestor* aCallbacks)
         : Runnable("net::nsHttpTransaction::UpdateSecurityCallbacks"),
           mTrans(aTrans),
-          mCallbacks(aCallbacks),
-          mPriority(aPriority) {}
-
-    NS_DECL_ISUPPORTS_INHERITED
-    NS_DECL_NSIRUNNABLEPRIORITY
+          mCallbacks(aCallbacks) {}
 
     NS_IMETHOD Run() override {
       if (mTrans->mConnection) {
@@ -336,11 +328,8 @@ class nsHttpTransaction final : public nsAHttpTransaction,
     }
 
    private:
-    virtual ~UpdateSecurityCallbacks() = default;
-
     RefPtr<nsHttpTransaction> mTrans;
     nsCOMPtr<nsIInterfaceRequestor> mCallbacks;
-    uint32_t mPriority;
   };
 
   Mutex mLock MOZ_UNANNOTATED{"transaction lock"};
@@ -468,7 +457,6 @@ class nsHttpTransaction final : public nsAHttpTransaction,
   bool mDoNotRemoveAltSvc{false};
   bool mDoNotResetIPFamilyPreference{false};
   bool mIsHttp2Websocket{false};
-  bool mIsTRRTransaction{false};
 
   // mClosed           := transaction has been explicitly closed
   // mTransactionDone  := transaction ran to completion or was interrupted

@@ -514,12 +514,6 @@ nsresult nsUDPSocket::GetRemoteAddr(NetAddr* addr) {
   return connUDP->GetPeerAddr(addr);
 }
 
-bool nsUDPSocket::IsTRRConnection() { return mIsTRRServiceChannel; }
-
-void nsUDPSocket::MarkAsTRRServiceChannel() { mIsTRRServiceChannel = true; }
-
-bool nsUDPSocket::IsTRRServiceChannel() { return mIsTRRServiceChannel; }
-
 //-----------------------------------------------------------------------------
 // nsSocket::nsISupports
 //-----------------------------------------------------------------------------
@@ -866,29 +860,15 @@ NS_IMPL_ISUPPORTS(SocketListenerProxy, nsIUDPSocketListener)
 NS_IMETHODIMP
 SocketListenerProxy::OnPacketReceived(nsIUDPSocket* aSocket,
                                       nsIUDPMessage* aMessage) {
-  nsCOMPtr<nsIRunnable> r =
+  RefPtr<OnPacketReceivedRunnable> r =
       new OnPacketReceivedRunnable(mListener, aSocket, aMessage);
-
-  if (StaticPrefs::network_trr_high_priority_events() &&
-      aSocket->IsTRRServiceChannel()) {
-    r = new PrioritizableRunnable(r.forget(),
-                                  nsIRunnablePriority::PRIORITY_MEDIUMHIGH);
-  }
-
   return mTarget->Dispatch(r, NS_DISPATCH_NORMAL);
 }
 
 NS_IMETHODIMP
 SocketListenerProxy::OnStopListening(nsIUDPSocket* aSocket, nsresult aStatus) {
-  nsCOMPtr<nsIRunnable> r =
+  RefPtr<OnStopListeningRunnable> r =
       new OnStopListeningRunnable(mListener, aSocket, aStatus);
-
-  if (StaticPrefs::network_trr_high_priority_events() &&
-      aSocket->IsTRRServiceChannel()) {
-    r = new PrioritizableRunnable(r.forget(),
-                                  nsIRunnablePriority::PRIORITY_MEDIUMHIGH);
-  }
-
   return mTarget->Dispatch(r, NS_DISPATCH_NORMAL);
 }
 
@@ -972,30 +952,16 @@ NS_IMPL_ISUPPORTS(SocketListenerProxyBackground, nsIUDPSocketListener)
 NS_IMETHODIMP
 SocketListenerProxyBackground::OnPacketReceived(nsIUDPSocket* aSocket,
                                                 nsIUDPMessage* aMessage) {
-  nsCOMPtr<nsIRunnable> r =
+  RefPtr<OnPacketReceivedRunnable> r =
       new OnPacketReceivedRunnable(mListener, aSocket, aMessage);
-
-  if (StaticPrefs::network_trr_high_priority_events() &&
-      aSocket->IsTRRServiceChannel()) {
-    r = new PrioritizableRunnable(r.forget(),
-                                  nsIRunnablePriority::PRIORITY_MEDIUMHIGH);
-  }
-
   return mTarget->Dispatch(r, NS_DISPATCH_NORMAL);
 }
 
 NS_IMETHODIMP
 SocketListenerProxyBackground::OnStopListening(nsIUDPSocket* aSocket,
                                                nsresult aStatus) {
-  nsCOMPtr<nsIRunnable> r =
+  RefPtr<OnStopListeningRunnable> r =
       new OnStopListeningRunnable(mListener, aSocket, aStatus);
-
-  if (StaticPrefs::network_trr_high_priority_events() &&
-      aSocket->IsTRRServiceChannel()) {
-    r = new PrioritizableRunnable(r.forget(),
-                                  nsIRunnablePriority::PRIORITY_MEDIUMHIGH);
-  }
-
   return mTarget->Dispatch(r, NS_DISPATCH_NORMAL);
 }
 

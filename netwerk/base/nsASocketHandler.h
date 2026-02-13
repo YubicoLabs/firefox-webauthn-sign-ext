@@ -97,11 +97,6 @@ class nsASocketHandler : public nsISupports {
   //
   virtual uint64_t ByteCountSent() = 0;
   virtual uint64_t ByteCountReceived() = 0;
-
-  //
-  // returns true if this socket is used for a TRR service channel connection
-  //
-  virtual bool IsTRRConnection() { return false; }
 };
 
 #endif  // !nsASocketHandler_h_

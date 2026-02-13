@@ -14680,12 +14680,6 @@
   value: true
   mirror: always
 
-# When true, the OnLookupComplete will be dispatched with increased priority
-- name: network.dns.high_priority_dispatch
-  type: RelaxedAtomicBool
-  value: true
-  mirror: always
-
 # This preference specifies a comma seperated list of URL/IPAddress:Port that will be treated as public IPAddressSpace.
 - name: network.lna.address_space.public.override
   type: String
@@ -15197,20 +15191,6 @@
 #else
   value: 30
 #endif
-  mirror: always
-
-# When true, TRR/DoH requests and responses will be issues from and parsed
-# on the socket thread. When false, a dedicated "TRR Background" is used.
-- name: network.trr.parse_on_socket_thread
-  type: RelaxedAtomicBool
-  value: true
-  mirror: always
-
-# When true, the TRR transaction gets marked and runnables
-# dispatched for it get increased priority.
-- name: network.trr.high_priority_events
-  type: RelaxedAtomicBool
-  value: true
   mirror: always
 
 # Allow the network changed event to get sent when a network topology or setup
@@ -16045,13 +16025,6 @@
 - name: network.socket.attach_mock_network_layer
   type: RelaxedAtomicBool
   value: false
-  mirror: always
-
-# When true, the socket transport service will have an additional queue for
-# runnables with increased priority.
-- name: network.socket.prioritize_runnables
-  type: RelaxedAtomicBool
-  value: true
   mirror: always
 
 # Whether to redirect a failing request to an essential domain

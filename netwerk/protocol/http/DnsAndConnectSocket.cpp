@@ -1243,7 +1243,6 @@ nsresult DnsAndConnectSocket::TransportSetup::SetupStreams(
   }
 
   (void)socketTransport->SetIsPrivate(ci->GetPrivate());
-  (void)socketTransport->SetIsTRRConnection(ci->GetIsTrrServiceChannel());
 
   if (dnsAndSock->mCaps & NS_HTTP_DISALLOW_ECH) {
     tmpFlags |= nsISocketTransport::DONT_TRY_ECH;

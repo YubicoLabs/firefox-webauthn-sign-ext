@@ -66,14 +66,6 @@ class nsInputStreamPump final : public nsIInputStreamPump,
    */
   nsresult CallOnStateStop();
 
-  /**
-   * Used by nsPipe to dispatch events with increased priority.
-   */
-  void SetHighPriority(bool aHighPriority) {
-    mHighPriorityStream = aHighPriority;
-  }
-  bool IsHighPriority() { return mHighPriorityStream; }
-
  protected:
   enum { STATE_IDLE, STATE_START, STATE_TRANSFER, STATE_STOP, STATE_DEAD };
 
@@ -126,9 +118,6 @@ class nsInputStreamPump final : public nsIInputStreamPump,
   const bool mOffMainThread;
   // Protects state/member var accesses across multiple threads.
   mozilla::RecursiveMutex mMutex{"nsInputStreamPump"};
-  // Whether events from this input stream should be dispatched
-  // with increased priority
-  mozilla::Atomic<bool, mozilla::Relaxed> mHighPriorityStream{false};
 };
 
 #endif  // !nsInputStreamChannel_h_

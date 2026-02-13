@@ -58,49 +58,6 @@ enum SegmentChangeResult { SegmentNotChanged, SegmentAdvanceBufferRead };
 
 //-----------------------------------------------------------------------------
 
-// Prioritizable runnable for async I/O callbacks
-class PipeCallbackRunnable final : public CancelableRunnable,
-                                   public nsIRunnablePriority {
- public:
-  PipeCallbackRunnable(const char* aName, std::function<void()>&& aFunc,
-                       nsISupports* aCallback, uint32_t aPriority)
-      : CancelableRunnable(aName),
-        mFunc(std::move(aFunc)),
-        mPriority(aPriority) {}
-
-  NS_DECL_ISUPPORTS_INHERITED
-  NS_DECL_NSIRUNNABLEPRIORITY
-
-  NS_IMETHOD Run() override {
-    if (mFunc) {
-      mFunc();
-    }
-    return NS_OK;
-  }
-
-  nsresult Cancel() override {
-    mFunc = nullptr;
-    return NS_OK;
-  }
-
- private:
-  ~PipeCallbackRunnable() = default;
-
-  std::function<void()> mFunc;
-  uint32_t mPriority = nsIRunnablePriority::PRIORITY_NORMAL;
-};
-
-NS_IMPL_ISUPPORTS_INHERITED(PipeCallbackRunnable, CancelableRunnable,
-                            nsIRunnablePriority)
-
-NS_IMETHODIMP
-PipeCallbackRunnable::GetPriority(uint32_t* aPriority) {
-  *aPriority = mPriority;
-  return NS_OK;
-}
-
-//-----------------------------------------------------------------------------
-
 class CallbackHolder {
  public:
   CallbackHolder() = default;
@@ -108,30 +65,26 @@ class CallbackHolder {
 
   CallbackHolder(nsIAsyncInputStream* aStream,
                  nsIInputStreamCallback* aCallback, uint32_t aFlags,
-                 nsIEventTarget* aEventTarget,
-                 uint32_t aPriority = nsIRunnablePriority::PRIORITY_NORMAL)
-      : mRunnable(aCallback ? new PipeCallbackRunnable(
+                 nsIEventTarget* aEventTarget)
+      : mRunnable(aCallback ? NS_NewCancelableRunnableFunction(
                                   "nsPipeInputStream AsyncWait Callback",
                                   [stream = nsCOMPtr{aStream},
                                    callback = nsCOMPtr{aCallback}]() {
                                     callback->OnInputStreamReady(stream);
-                                  },
-                                  aCallback, aPriority)
+                                  })
                             : nullptr),
         mEventTarget(aEventTarget),
         mFlags(aFlags) {}
 
   CallbackHolder(nsIAsyncOutputStream* aStream,
                  nsIOutputStreamCallback* aCallback, uint32_t aFlags,
-                 nsIEventTarget* aEventTarget,
-                 uint32_t aPriority = nsIRunnablePriority::PRIORITY_NORMAL)
-      : mRunnable(aCallback ? new PipeCallbackRunnable(
+                 nsIEventTarget* aEventTarget)
+      : mRunnable(aCallback ? NS_NewCancelableRunnableFunction(
                                   "nsPipeOutputStream AsyncWait Callback",
                                   [stream = nsCOMPtr{aStream},
                                    callback = nsCOMPtr{aCallback}]() {
                                     callback->OnOutputStreamReady(stream);
-                                  },
-                                  aCallback, aPriority)
+                                  })
                             : nullptr),
         mEventTarget(aEventTarget),
         mFlags(aFlags) {}
@@ -1480,7 +1433,7 @@ nsPipeInputStream::AsyncWait(nsIInputStreamCallback* aCallback, uint32_t aFlags,
       return NS_OK;
     }
 
-    CallbackHolder callback(this, aCallback, aFlags, aTarget, mPriority);
+    CallbackHolder callback(this, aCallback, aFlags, aTarget);
 
     if (NS_FAILED(Status(mon)) ||
         (mReadState.mAvailable && !(aFlags & WAIT_CLOSURE_ONLY))) {

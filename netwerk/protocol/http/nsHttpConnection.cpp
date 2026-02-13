@@ -39,7 +39,6 @@
 #include "nsSocketTransport2.h"
 #include "nsSocketTransportService2.h"
 #include "nsStringStream.h"
-#include "nsThreadUtils.h"
 #include "sslerr.h"
 #include "sslt.h"
 
@@ -1362,13 +1361,10 @@ nsresult nsHttpConnection::PushBack(const char* data, uint32_t length) {
   return NS_OK;
 }
 
-class HttpConnectionForceIO : public Runnable, public nsIRunnablePriority {
+class HttpConnectionForceIO : public Runnable {
  public:
   HttpConnectionForceIO(nsHttpConnection* aConn, bool doRecv)
       : Runnable("net::HttpConnectionForceIO"), mConn(aConn), mDoRecv(doRecv) {}
-
-  NS_DECL_ISUPPORTS_INHERITED
-  NS_DECL_NSIRUNNABLEPRIORITY
 
   NS_IMETHOD Run() override {
     MOZ_ASSERT(OnSocketThread(), "not on socket thread");
@@ -1388,26 +1384,9 @@ class HttpConnectionForceIO : public Runnable, public nsIRunnablePriority {
   }
 
  private:
-  virtual ~HttpConnectionForceIO() = default;
-
   RefPtr<nsHttpConnection> mConn;
   bool mDoRecv;
 };
-
-NS_IMPL_ISUPPORTS_INHERITED(HttpConnectionForceIO, Runnable,
-                            nsIRunnablePriority)
-
-NS_IMETHODIMP
-HttpConnectionForceIO::GetPriority(uint32_t* aPriority) {
-  if (StaticPrefs::network_trr_high_priority_events() &&
-      mConn->ConnectionInfo() &&
-      mConn->ConnectionInfo()->GetIsTrrServiceChannel()) {
-    *aPriority = nsIRunnablePriority::PRIORITY_MEDIUMHIGH;
-  } else {
-    *aPriority = nsIRunnablePriority::PRIORITY_NORMAL;
-  }
-  return NS_OK;
-}
 
 nsresult nsHttpConnection::ResumeSend() {
   LOG(("nsHttpConnection::ResumeSend [this=%p]\n", this));

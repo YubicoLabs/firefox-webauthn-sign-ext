@@ -61,7 +61,6 @@
 #include "nsQueryObject.h"
 #include "nsSocketTransportService2.h"
 #include "nsStringStream.h"
-#include "nsThreadUtils.h"
 #include "nsTransportUtils.h"
 #include "sslerr.h"
 #include "SpeculativeTransaction.h"
@@ -76,19 +75,6 @@
 using namespace mozilla::net;
 
 namespace mozilla::net {
-
-//-----------------------------------------------------------------------------
-// nsHttpTransaction::UpdateSecurityCallbacks
-//-----------------------------------------------------------------------------
-
-NS_IMPL_ISUPPORTS_INHERITED(nsHttpTransaction::UpdateSecurityCallbacks,
-                            Runnable, nsIRunnablePriority)
-
-NS_IMETHODIMP
-nsHttpTransaction::UpdateSecurityCallbacks::GetPriority(uint32_t* aPriority) {
-  *aPriority = mPriority;
-  return NS_OK;
-}
 
 //-----------------------------------------------------------------------------
 // nsHttpTransaction <public>
@@ -437,12 +423,6 @@ nsresult nsHttpTransaction::AsyncRead(nsIStreamListener* listener,
       nsInputStreamPump::Create(getter_AddRefs(transactionPump), mPipeIn);
   NS_ENSURE_SUCCESS(rv, rv);
 
-  // If this is for a TRR request, we increase the priority of the
-  // OnInputStreamReady runnables
-  if (mIsTRRTransaction) {
-    transactionPump->SetHighPriority(true);
-  }
-
   rv = transactionPump->AsyncRead(listener);
   NS_ENSURE_SUCCESS(rv, rv);
 
@@ -461,10 +441,6 @@ void nsHttpTransaction::SetH2WSConnRefTaken() {
     nsCOMPtr<nsIRunnable> event =
         NewRunnableMethod("nsHttpTransaction::SetH2WSConnRefTaken", this,
                           &nsHttpTransaction::SetH2WSConnRefTaken);
-    if (mIsTRRTransaction) {
-      event = new PrioritizableRunnable(
-          event.forget(), nsIRunnablePriority::PRIORITY_MEDIUMHIGH);
-    }
     gSocketTransportService->Dispatch(event, NS_DISPATCH_NORMAL);
     return;
   }
@@ -585,10 +561,8 @@ void nsHttpTransaction::SetSecurityCallbacks(
   }
 
   if (gSocketTransportService) {
-    RefPtr<UpdateSecurityCallbacks> event = new UpdateSecurityCallbacks(
-        this, aCallbacks,
-        mIsTRRTransaction ? nsIRunnablePriority::PRIORITY_MEDIUMHIGH
-                          : nsIRunnablePriority::PRIORITY_NORMAL);
+    RefPtr<UpdateSecurityCallbacks> event =
+        new UpdateSecurityCallbacks(this, aCallbacks);
     gSocketTransportService->Dispatch(event, nsIEventTarget::DISPATCH_NORMAL);
   }
 }
@@ -918,10 +892,6 @@ void nsHttpTransaction::DontReuseConnection() {
     nsCOMPtr<nsIRunnable> event =
         NewRunnableMethod("nsHttpTransaction::DontReuseConnection", this,
                           &nsHttpTransaction::DontReuseConnection);
-    if (mIsTRRTransaction) {
-      event = new PrioritizableRunnable(
-          event.forget(), nsIRunnablePriority::PRIORITY_MEDIUMHIGH);
-    }
     gSocketTransportService->Dispatch(event, NS_DISPATCH_NORMAL);
     return;
   }

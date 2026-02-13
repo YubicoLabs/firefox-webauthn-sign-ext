@@ -630,8 +630,6 @@ FWD_TS_PTR(IsAlive, bool);
 FWD_TS_PTR(GetConnectionFlags, uint32_t);
 FWD_TS(SetConnectionFlags, uint32_t);
 FWD_TS(SetIsPrivate, bool);
-FWD_TS(SetIsTRRConnection, bool);
-FWD_TS_PTR(GetIsTRRConnection, bool);
 FWD_TS_PTR(GetTlsFlags, uint32_t);
 FWD_TS(SetTlsFlags, uint32_t);
 FWD_TS_PTR(GetRecvBufferSize, uint32_t);
