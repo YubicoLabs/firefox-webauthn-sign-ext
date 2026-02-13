@@ -198,9 +198,17 @@ class DictionaryCacheEntry final : public nsICacheEntryOpenCallback,
   // SHA-256 hash value ready to put into a header
   nsCString mHash;
   uint32_t mUsers{0};  // active requests using this entry
-  // in-memory copy of the entry to use to decompress incoming data
+
+  // In-memory copy - only accessed on MainThread after validation
+  // Populated on MainThread after hash validation succeeds
   Vector<uint8_t> mDictionaryData;
-  bool mDictionaryDataComplete{false};
+
+  // Atomic flag indicating dictionary data is complete and validated
+  Atomic<bool, Relaxed> mDictionaryDataComplete{false};
+
+  // Temporary buffer for accumulating dictionary data during cache reads
+  // Only accessed by cache I/O thread during stream callbacks (serialized)
+  Vector<uint8_t> mPendingDictionaryData;
 
   // for accumulating SHA-256 hash values for dictionaries
   nsCOMPtr<nsICryptoHash> mCrypto;
@@ -211,8 +219,10 @@ class DictionaryCacheEntry final : public nsICacheEntryOpenCallback,
   // If we need to Write() an entry before we know the hash, remember the origin
   // here (creates a temporary cycle). Clear on StopRequest
   RefPtr<DictionaryOrigin> mOrigin;
-  // Don't store origin for write if we've already received OnStopRequest
-  bool mStopReceived{false};
+
+  // Simple state flags accessed from multiple threads
+  Atomic<bool, Relaxed> mStopReceived{false};
+  Atomic<bool, Relaxed> mNotCached{false};
 
   // If set, a new entry wants to replace us, and we have active decoding users.
   // When we finish reading data into this entry for decoding, do 2 things:
@@ -222,9 +232,6 @@ class DictionaryCacheEntry final : public nsICacheEntryOpenCallback,
 
   // We should suspend until the ond entry has been read
   bool mShouldSuspend{false};
-
-  // The cache entry has been removed
-  bool mNotCached{false};
 
   // We're blocked from taking over for the old entry for now
   bool mBlocked{false};

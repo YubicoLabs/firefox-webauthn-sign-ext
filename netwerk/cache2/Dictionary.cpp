@@ -150,6 +150,7 @@ void DictionaryCacheEntry::ConvertMatchDestToEnumArray(
 bool DictionaryCacheEntry::Match(const nsACString& aFilePath,
                                  ExtContentPolicyType aType, uint32_t aNow,
                                  uint32_t& aLongest) {
+  MOZ_ASSERT(NS_IsMainThread());
   if (mHash.IsEmpty()) {
     // We don't have the file yet
     return false;
@@ -205,6 +206,7 @@ void DictionaryCacheEntry::InUse() {
 }
 
 void DictionaryCacheEntry::UseCompleted() {
+  MOZ_ASSERT(NS_IsMainThread());
   MOZ_ASSERT(mUsers > 0);
   mUsers--;
   // Purge mDictionaryData
@@ -222,6 +224,7 @@ void DictionaryCacheEntry::UseCompleted() {
 nsresult DictionaryCacheEntry::Prefetch(
     nsILoadContextInfo* aLoadContextInfo, bool& aShouldSuspend,
     const std::function<void(nsresult)>& aFunc) {
+  MOZ_ASSERT(NS_IsMainThread());
   DICTIONARY_LOG(("Prefetch for %s", mURI.get()));
   // Start reading the cache entry into memory and call completion
   // function when done
@@ -297,6 +300,9 @@ void DictionaryCacheEntry::AccumulateHash(const char* aBuf, int32_t aCount) {
       // We have data from the cache.... but if we change the hash there will
       // be problems
       // XXX dragons here
+      MOZ_DIAGNOSTIC_ASSERT(
+          false,
+          "Accumulate Dictionary hash when we already have a hash and data");
       return;
     }
     // accumulating a new hash when we have an existing?
@@ -306,6 +312,8 @@ void DictionaryCacheEntry::AccumulateHash(const char* aBuf, int32_t aCount) {
     // is an overwrite?   This is an edge case not discussed in the spec - we
     // could separate out a structure for in-flight requests where the data
     // would be used from, so the Entry could be overwritten as needed
+    MOZ_DIAGNOSTIC_ASSERT(
+        false, "Accumulate Dictionary hash when we already have a hash");
     return;  // XXX
   }
   if (!mCrypto) {
@@ -392,6 +400,7 @@ static void EscapeMetadataString(const nsACString& aInput, nsCString& aOutput) {
 }
 
 void DictionaryCacheEntry::MakeMetadataEntry(nsCString& aNewValue) {
+  MOZ_ASSERT(NS_IsMainThread());
   aNewValue.AppendLiteral("|"), aNewValue.AppendInt(METADATA_VERSION),
       EscapeMetadataString(mHash, aNewValue);
   EscapeMetadataString(mPattern, aNewValue);
@@ -454,6 +463,7 @@ static const char* GetEncodedString(const char* aSrc, nsACString& aOutput) {
 
 // Parse metadata from DictionaryOrigin
 bool DictionaryCacheEntry::ParseMetadata(const char* aSrc) {
+  MOZ_ASSERT(NS_IsMainThread());
   // Using mHash as a temp for version
   aSrc = GetEncodedString(aSrc, mHash);
   const char* tmp = mHash.get();
@@ -527,30 +537,37 @@ nsresult DictionaryCacheEntry::ReadCacheData(
     uint32_t aToOffset, uint32_t aCount, uint32_t* aWriteCount) {
   DictionaryCacheEntry* self = static_cast<DictionaryCacheEntry*>(aClosure);
 
-  (void)self->mDictionaryData.append(aFromSegment, aCount);
+  (void)self->mPendingDictionaryData.append(aFromSegment, aCount);
   DICTIONARY_LOG(("Accumulate %p (%s): %d bytes, total %zu", self,
-                  self->mURI.get(), aCount, self->mDictionaryData.length()));
+                  self->mURI.get(), aCount,
+                  self->mPendingDictionaryData.length()));
   *aWriteCount = aCount;
   return NS_OK;
 }
 
 void DictionaryCacheEntry::CleanupOnCacheData(nsresult result) {
-  DICTIONARY_LOG(("Unsuspending %zu channels, Dictionary len %zu",
-                  mWaitingPrefetch.Length(), mDictionaryData.length()));
+  MOZ_ASSERT(NS_IsMainThread());
+
+  DICTIONARY_LOG(("Unsuspending %zu channels", mWaitingPrefetch.Length()));
+
   // if we suspended, un-suspend the channel(s)
-  for (auto& lambda : mWaitingPrefetch) {
+  nsTArray<std::function<void(nsresult)>> callbacks =
+      std::move(mWaitingPrefetch);
+
+  for (auto& lambda : callbacks) {
     (lambda)(result);
   }
-  mWaitingPrefetch.Clear();
 
   // If we have a replacement entry waiting, unsuspend its channels too
   if (mReplacement) {
     DICTIONARY_LOG(("Unsuspending %zu replacement channels",
                     mReplacement->mWaitingPrefetch.Length()));
-    for (auto& lambda : mReplacement->mWaitingPrefetch) {
+    nsTArray<std::function<void(nsresult)>> replacementCallbacks =
+        std::move(mReplacement->mWaitingPrefetch);
+
+    for (auto& lambda : replacementCallbacks) {
       (lambda)(result);
     }
-    mReplacement->mWaitingPrefetch.Clear();
   }
 
   // If we're being replaced by a new entry, swap now
@@ -572,38 +589,58 @@ NS_IMETHODIMP
 DictionaryCacheEntry::OnStopRequest(nsIRequest* request, nsresult result) {
   DICTIONARY_LOG(("DictionaryCacheEntry %s OnStopRequest", mURI.get()));
 
-  auto cleanup = MakeScopeExit([&] {
-    CleanupOnCacheData(result);
-    mStopReceived = true;
-  });
-  if (NS_FAILED(result)) {
-    return result;
-  }
-  mDictionaryDataComplete = true;
+  Vector<uint8_t> pendingData;
+  nsCString computedHash;
 
-  // Validate that the loaded dictionary data matches the stored hash
-  if (mHash.IsEmpty()) {
-    return NS_OK;
+  if (NS_SUCCEEDED(result)) {
+    // Move pending data for validation
+    pendingData = std::move(mPendingDictionaryData);
   }
-  nsCOMPtr<nsICryptoHash> hasher = do_CreateInstance(NS_CRYPTO_HASH_CONTRACTID);
-  if (!hasher) {
-    return NS_OK;
-  }
-  hasher->Init(nsICryptoHash::SHA256);
-  hasher->Update(mDictionaryData.begin(),
-                 static_cast<uint32_t>(mDictionaryData.length()));
-  nsAutoCString computedHash;
-  MOZ_ALWAYS_SUCCEEDS(hasher->Finish(true, computedHash));
 
-  if (!computedHash.Equals(mHash)) {
-    DICTIONARY_LOG(("Hash mismatch for %s: expected %s, computed %s",
-                    mURI.get(), mHash.get(), computedHash.get()));
-    result = NS_ERROR_CORRUPTED_CONTENT;
-    mDictionaryDataComplete = false;
-    mDictionaryData.clear();
-    // Remove this corrupted dictionary entry
-    DictionaryCache::RemoveDictionaryFor(mURI);
+  // Calculate hash of loaded data (can be done off-thread)
+  if (NS_SUCCEEDED(result) && !pendingData.empty()) {
+    nsCOMPtr<nsICryptoHash> hasher =
+        do_CreateInstance(NS_CRYPTO_HASH_CONTRACTID);
+    if (hasher) {
+      hasher->Init(nsICryptoHash::SHA256);
+      hasher->Update(pendingData.begin(),
+                     static_cast<uint32_t>(pendingData.length()));
+      MOZ_ALWAYS_SUCCEEDS(hasher->Finish(true, computedHash));
+    }
   }
+
+  // Dispatch to main thread to compare hash and install validated data
+  nsCOMPtr<nsIRunnable> runnable = NS_NewRunnableFunction(
+      "DictionaryCacheEntry::OnStopRequest",
+      [self = RefPtr{this}, result, computedHash,
+       pendingData = std::move(pendingData)]() mutable {
+        nsresult finalResult = result;
+        bool shouldRemoveDictionary = false;
+
+        // Compare computed hash with stored hash on MainThread
+        if (NS_SUCCEEDED(finalResult) && !pendingData.empty()) {
+          if (!self->mHash.IsEmpty() && !computedHash.Equals(self->mHash)) {
+            DICTIONARY_LOG(("Hash mismatch for %s: expected %s, computed %s",
+                            self->mURI.get(), self->mHash.get(),
+                            computedHash.get()));
+            finalResult = NS_ERROR_CORRUPTED_CONTENT;
+            pendingData.clear();
+            shouldRemoveDictionary = true;
+          } else {
+            // Hash matches or no hash to check - install the data
+            self->mDictionaryData = std::move(pendingData);
+            self->mDictionaryDataComplete = true;
+          }
+        }
+
+        self->CleanupOnCacheData(finalResult);
+        self->mStopReceived = true;
+        if (shouldRemoveDictionary) {
+          // Already on MainThread
+          DictionaryCache::RemoveDictionary(self->mURI);
+        }
+      });
+  NS_DispatchToMainThread(runnable);
 
   return result;
 }
@@ -643,15 +680,17 @@ void DictionaryCacheEntry::WriteOnHash() {
 NS_IMETHODIMP
 DictionaryCacheEntry::OnCacheEntryCheck(nsICacheEntry* aEntry,
                                         uint32_t* result) {
-  DICTIONARY_LOG(("OnCacheEntryCheck %s", mURI.get()));
+  DICTIONARY_LOG(("OnCacheEntryCheck %p", this));
   *result = nsICacheEntryOpenCallback::ENTRY_WANTED;
   return NS_OK;
 }
 
+// This may be called on a random thread due to
+// nsICacheStorage::CHECK_MULTITHREADED
 NS_IMETHODIMP
 DictionaryCacheEntry::OnCacheEntryAvailable(nsICacheEntry* entry, bool isNew,
                                             nsresult status) {
-  DICTIONARY_LOG(("OnCacheEntryAvailable %s, result %u, entry %p", mURI.get(),
+  DICTIONARY_LOG(("OnCacheEntryAvailable %p, result %u, entry %p", this,
                   (uint32_t)status, entry));
   if (entry) {
     nsCOMPtr<nsIInputStream> stream;
@@ -672,7 +711,7 @@ DictionaryCacheEntry::OnCacheEntryAvailable(nsICacheEntry* entry, bool isNew,
     }
     DICTIONARY_LOG(("Waiting for data"));
   } else {
-    // XXX Error out any channels waiting on this cache entry.  Also,
+    // Error out any channels waiting on this cache entry.  Also,
     // remove the dictionary entry from the origin.
     mNotCached = true;  // For Prefetch()
     DICTIONARY_LOG(("Prefetched cache entry not available!!!"));
@@ -1026,6 +1065,7 @@ void DictionaryCache::RemoveDictionaryFor(const nsACString& aKey) {
 
 // Remove a dictionary if it exists for the key given
 void DictionaryCache::RemoveDictionary(const nsACString& aKey) {
+  MOZ_ASSERT(NS_IsMainThread());
   DICTIONARY_LOG(
       ("Removing dictionary for %s", PromiseFlatCString(aKey).get()));
 
