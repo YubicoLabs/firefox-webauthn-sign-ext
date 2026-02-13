@@ -5079,37 +5079,6 @@ _CollapsibleSection.defaultProps = {
 const CollapsibleSection = (0,external_ReactRedux_namespaceObject.connect)(state => ({
   Prefs: state.Prefs
 }))(_CollapsibleSection);
-;// CONCATENATED MODULE: ./content-src/components/DiscoveryStreamComponents/DSMessage/DSMessage.jsx
-/* This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this file,
- * You can obtain one at http://mozilla.org/MPL/2.0/. */
-
-
-
-
-class DSMessage extends (external_React_default()).PureComponent {
-  render() {
-    return /*#__PURE__*/external_React_default().createElement("div", {
-      className: "ds-message"
-    }, /*#__PURE__*/external_React_default().createElement("header", {
-      className: "title"
-    }, this.props.icon && /*#__PURE__*/external_React_default().createElement("div", {
-      className: "glyph",
-      style: {
-        backgroundImage: `url(${this.props.icon})`
-      }
-    }), this.props.title && /*#__PURE__*/external_React_default().createElement("span", {
-      className: "title-text"
-    }, /*#__PURE__*/external_React_default().createElement(FluentOrText, {
-      message: this.props.title
-    })), this.props.link_text && this.props.link_url && /*#__PURE__*/external_React_default().createElement(SafeAnchor, {
-      className: "link",
-      url: this.props.link_url
-    }, /*#__PURE__*/external_React_default().createElement(FluentOrText, {
-      message: this.props.link_text
-    }))));
-  }
-}
 ;// CONCATENATED MODULE: ./content-src/components/DiscoveryStreamComponents/ReportContent/ReportContent.jsx
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -13584,7 +13553,6 @@ function Widgets() {
 
 
 
-
 const ALLOWED_CSS_URL_PREFIXES = ["chrome://", "resource://", "https://img-getpocket.cdn.mozilla.net/"];
 const DUMMY_CSS_SELECTOR = "DUMMY#CSS.SELECTOR";
 
@@ -13666,14 +13634,6 @@ class _DiscoveryStreamBase extends (external_React_default()).PureComponent {
           isFixed: true,
           title: component.header?.title
         }));
-      case "Message":
-        return /*#__PURE__*/external_React_default().createElement(DSMessage, {
-          title: component.header && component.header.title,
-          subtitle: component.header && component.header.subtitle,
-          link_text: component.header && component.header.link_text,
-          link_url: component.header && component.header.link_url,
-          icon: component.header && component.header.icon
-        });
       case "SectionTitle":
         return /*#__PURE__*/external_React_default().createElement(SectionTitle, {
           header: component.header
@@ -13765,17 +13725,9 @@ class _DiscoveryStreamBase extends (external_React_default()).PureComponent {
       locale
     });
     const sectionsEnabled = this.props.Prefs.values["discoverystream.sections.enabled"];
-    const {
-      config
-    } = this.props.DiscoveryStream;
     const topicSelectionEnabled = this.props.Prefs.values["discoverystream.topicSelection.enabled"];
     const reportAdsEnabled = this.props.Prefs.values["discoverystream.reportAds.enabled"];
     const spocsEnabled = this.props.Prefs.values["unifiedAds.spocs.enabled"];
-
-    // Allow rendering without extracting special components
-    if (!config.collapsible) {
-      return this.renderLayout(layoutRender);
-    }
 
     // Find the first component of a type and remove it from layout
     const extractComponent = type => {

@@ -7875,36 +7875,6 @@ hr {
   background-size: var(--placeholderBackgroundScale);
 }
 
-.ds-message {
-  margin: var(--space-small) 0 0;
-}
-.ds-message .title {
-  display: flex;
-  align-items: center;
-}
-.ds-message .title .glyph {
-  width: 16px;
-  height: 16px;
-  margin: 0 var(--space-small) 0 0;
-  -moz-context-properties: fill;
-  fill: var(--newtab-text-secondary-color);
-  background-position: center center;
-  background-size: 16px;
-  background-repeat: no-repeat;
-}
-.ds-message .title .title-text {
-  font-size: var(--font-size-small);
-  color: var(--newtab-text-secondary-color);
-  font-weight: var(--heading-font-weight);
-  padding-inline-end: var(--space-medium);
-}
-.ds-message .title .link {
-  font-size: var(--font-weight-small);
-}
-.ds-message .title .link:hover, .ds-message .title .link:focus {
-  text-decoration: underline;
-}
-
 .impression-observer {
   position: absolute;
   inset-block-start: 0;
