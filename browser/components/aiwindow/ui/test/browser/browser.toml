@@ -72,6 +72,8 @@ support-files = [
 
 ["browser_smartwindow_prompts.js"]
 
+["browser_smartwindow_shortcut.js"]
+
 ["browser_smartwindow_tab_move.js"]
 
 ["browser_smartwindow_tab_switching.js"]
