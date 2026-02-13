@@ -372,7 +372,7 @@ void js::jit::ResetPerfSpewer(bool enabled) {
 }
 
 static void DisablePerfSpewer(AutoLockPerfSpewer& lock) {
-  fprintf(stderr, "Warning: Disabling PerfSpewer.");
+  fprintf(stderr, "Warning: Disabling PerfSpewer.\n");
 
 #ifdef XP_WIN
   etwCollection = false;
