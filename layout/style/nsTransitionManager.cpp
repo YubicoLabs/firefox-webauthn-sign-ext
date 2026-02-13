@@ -246,7 +246,7 @@ static Maybe<ReplacedTransitionProperties> GetReplacedTransitionProperties(
       keyframeEffect->Properties()[0].mSegments[0];
 
   result.emplace(ReplacedTransitionProperties(
-      {startTime.Value(), aTransition.PlaybackRateInternal(),
+      {startTime.Value(), aTransition.PlaybackRate(),
        keyframeEffect->SpecifiedTiming(), segment.mTimingFunction,
        segment.mFromValue, segment.mToValue}));
 

@@ -56,9 +56,9 @@ bool AnimationEffect::IsCurrent() const {
     return true;
   }
 
-  return (mAnimation->PlaybackRateInternal() > 0 &&
+  return (mAnimation->PlaybackRate() > 0 &&
           computedTiming.mPhase == ComputedTiming::AnimationPhase::Before) ||
-         (mAnimation->PlaybackRateInternal() < 0 &&
+         (mAnimation->PlaybackRate() < 0 &&
           computedTiming.mPhase == ComputedTiming::AnimationPhase::After);
 }
 
@@ -269,8 +269,7 @@ ComputedTiming AnimationEffect::GetComputedTimingAt(
 
 ComputedTiming AnimationEffect::GetComputedTiming(
     const TimingParams* aTiming, EndpointBehavior aEndpointBehavior) const {
-  const double playbackRate =
-      mAnimation ? mAnimation->PlaybackRateInternal() : 1;
+  const double playbackRate = mAnimation ? mAnimation->PlaybackRate() : 1;
   const auto progressTimelinePosition =
       mAnimation ? mAnimation->AtProgressTimelineBoundary()
                  : Animation::ProgressTimelinePosition::NotBoundary;
@@ -308,7 +307,7 @@ void AnimationEffect::GetComputedTimingAsDict(
   GetEffectTimingDictionary(SpecifiedTiming(), aRetVal);
 
   // Computed timing
-  double playbackRate = mAnimation ? mAnimation->PlaybackRateInternal() : 1;
+  double playbackRate = mAnimation ? mAnimation->PlaybackRate() : 1;
   const Nullable<TimeDuration> currentTime = GetLocalTime();
   const auto progressTimelinePosition =
       mAnimation ? mAnimation->AtProgressTimelineBoundary()

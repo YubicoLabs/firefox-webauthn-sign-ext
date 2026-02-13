@@ -1127,8 +1127,6 @@ class nsPresContext : public nsISupports,
 
   void DoForceReflowForFontInfoUpdateFromStyle();
 
-  void UpdateAnimationsPlayBackRateMultiplier(double aMultiplier);
-
  public:
   // Used by the PresShell to force a reflow when some aspect of font info
   // has been updated, potentially affecting font selection and layout.
@@ -1163,10 +1161,6 @@ class nsPresContext : public nsISupports,
   float RubyPositioningFactor() const {
     MOZ_ASSERT(mRubyPositioningFactor > 0.0f);
     return mRubyPositioningFactor;
-  }
-
-  double AnimationsPlayBackRateMultiplier() const {
-    return mAnimationsPlayBackRateMultiplier;
   }
 
  protected:
@@ -1350,12 +1344,6 @@ class nsPresContext : public nsISupports,
   uint16_t mImageAnimationModePref;
 
   nsPresContextType mType;
-
-  // The cache of BrowsingContext.animationsPlayBackRateMultiplier.
-  // We need to cache it since the multiplier needs to be queried off the
-  // main-thread, unfortunately Document::GetBrowsingContext can not be used off
-  // the main-thread.
-  double mAnimationsPlayBackRateMultiplier = 1.0;
 
  public:
   // The following are public member variables so that we can use them

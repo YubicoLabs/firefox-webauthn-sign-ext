@@ -299,7 +299,7 @@ void Animation::SetTimelineNoUpdate(AnimationTimeline* aTimeline) {
 
     ApplyPendingPlaybackRate();
     Nullable<TimeDuration> seekTime;
-    if (PlaybackRateInternal() >= 0.0) {
+    if (mPlaybackRate >= 0.0) {
       seekTime.SetValue(TimeDuration());
     } else {
       seekTime.SetValue(TimeDuration(EffectEnd()));
@@ -378,7 +378,7 @@ void Animation::SetStartTime(const Nullable<TimeDuration>& aNewStartTime) {
   mResetCurrentTimeOnResume = false;
 
   if (!aNewStartTime.IsNull()) {
-    if (PlaybackRateInternal() != 0.0) {
+    if (mPlaybackRate != 0.0) {
       mHoldTime.SetNull();
     }
   } else {
@@ -411,8 +411,8 @@ Nullable<TimeDuration> Animation::GetCurrentTimeForHoldTime(
   if (mTimeline && !mStartTime.IsNull()) {
     Nullable<TimeDuration> timelineTime = mTimeline->GetCurrentTimeAsDuration();
     if (!timelineTime.IsNull()) {
-      result = CurrentTimeFromTimelineTime(
-          timelineTime.Value(), mStartTime.Value(), PlaybackRateInternal());
+      result = CurrentTimeFromTimelineTime(timelineTime.Value(),
+                                           mStartTime.Value(), mPlaybackRate);
     }
   }
   return result;
@@ -717,7 +717,7 @@ void Animation::Finish(ErrorResult& aRv) {
 
   // Seek to the end
   TimeDuration limit =
-      PlaybackRateInternal() > 0 ? TimeDuration(EffectEnd()) : TimeDuration(0);
+      mPlaybackRate > 0 ? TimeDuration(EffectEnd()) : TimeDuration(0);
   bool didChange = GetCurrentTimeAsDuration() != Nullable<TimeDuration>(limit);
   SilentlySetCurrentTime(limit);
 
@@ -730,9 +730,8 @@ void Animation::Finish(ErrorResult& aRv) {
   // a substate of the running state).
   if (mStartTime.IsNull() && mTimeline &&
       !mTimeline->GetCurrentTimeAsDuration().IsNull()) {
-    mStartTime =
-        StartTimeFromTimelineTime(mTimeline->GetCurrentTimeAsDuration().Value(),
-                                  limit, PlaybackRateInternal());
+    mStartTime = StartTimeFromTimelineTime(
+        mTimeline->GetCurrentTimeAsDuration().Value(), limit, mPlaybackRate);
     didChange = true;
   }
 
@@ -774,7 +773,7 @@ void Animation::Reverse(ErrorResult& aRv) {
         "Can't reverse an animation associated with an inactive timeline");
   }
 
-  double effectivePlaybackRate = mPendingPlaybackRate.valueOr(mPlaybackRate);
+  double effectivePlaybackRate = CurrentOrPendingPlaybackRate();
 
   if (effectivePlaybackRate == 0.0) {
     return;
@@ -1013,14 +1012,6 @@ bool Animation::TryTriggerNow() {
   return true;
 }
 
-double Animation::CurrentOrPendingPlaybackRate() const {
-  if (mPendingPlaybackRate.isSome()) {
-    return *mPendingPlaybackRate * AnimationsPlayBackRateMultiplier();
-  }
-
-  return PlaybackRateInternal();
-}
-
 TimeStamp Animation::AnimationTimeToTimeStamp(
     const StickyTimeDuration& aTime) const {
   // Initializes to null. Return the same object every time to benefit from
@@ -1043,7 +1034,7 @@ TimeStamp Animation::AnimationTimeToTimeStamp(
   }
 
   // Check the time is convertible to a timestamp
-  if (aTime == TimeDuration::Forever() || PlaybackRateInternal() == 0.0 ||
+  if (aTime == TimeDuration::Forever() || mPlaybackRate == 0.0 ||
       mStartTime.IsNull()) {
     return result;
   }
@@ -1051,8 +1042,7 @@ TimeStamp Animation::AnimationTimeToTimeStamp(
   // Invert the standard relation:
   //   current time = (timeline time - start time) * playback rate
   TimeDuration timelineTime =
-      TimeDuration(aTime).MultDouble(1.0 / PlaybackRateInternal()) +
-      mStartTime.Value();
+      TimeDuration(aTime).MultDouble(1.0 / mPlaybackRate) + mStartTime.Value();
 
   result = mTimeline->ToTimeStamp(timelineTime);
   return result;
@@ -1071,15 +1061,13 @@ void Animation::SilentlySetCurrentTime(const TimeDuration& aSeekTime) {
   // CSSNumberish time values.
   // https://drafts.csswg.org/web-animations-2/#silently-set-the-current-time
 
-  // Check the time is convertible to a timestamp
   if (!mHoldTime.IsNull() || mStartTime.IsNull() || !mTimeline ||
-      mTimeline->GetCurrentTimeAsDuration().IsNull() ||
-      PlaybackRateInternal() == 0.0) {
+      mTimeline->GetCurrentTimeAsDuration().IsNull() || mPlaybackRate == 0.0) {
     mHoldTime.SetValue(aSeekTime);
   } else {
     mStartTime =
         StartTimeFromTimelineTime(mTimeline->GetCurrentTimeAsDuration().Value(),
-                                  aSeekTime, PlaybackRateInternal());
+                                  aSeekTime, mPlaybackRate);
   }
 
   if (!mTimeline || mTimeline->GetCurrentTimeAsDuration().IsNull()) {
@@ -1373,7 +1361,7 @@ void Animation::ComposeStyle(
       }
       if (!timeToUse.IsNull()) {
         mHoldTime = CurrentTimeFromTimelineTime(
-            timeToUse.Value(), mStartTime.Value(), PlaybackRateInternal());
+            timeToUse.Value(), mStartTime.Value(), mPlaybackRate);
       }
     }
 
@@ -1548,7 +1536,7 @@ void Animation::Pause(ErrorResult& aRv) {
   Nullable<TimeDuration> seekTime;
   // If we are transitioning from idle, fill in the current time
   if (GetCurrentTimeAsDuration().IsNull()) {
-    if (PlaybackRateInternal() >= 0.0) {
+    if (mPlaybackRate >= 0.0) {
       seekTime.SetValue(TimeDuration(0));
     } else {
       if (EffectEnd() == TimeDuration::Forever()) {
@@ -1613,19 +1601,19 @@ void Animation::ResumeAt(const TimeDuration& aReadyTime) {
     // The hold time is set, so we don't need any special handling to preserve
     // the current time.
     ApplyPendingPlaybackRate();
-    mStartTime = StartTimeFromTimelineTime(aReadyTime, mHoldTime.Value(),
-                                           PlaybackRateInternal());
-    if (PlaybackRateInternal() != 0) {
+    mStartTime =
+        StartTimeFromTimelineTime(aReadyTime, mHoldTime.Value(), mPlaybackRate);
+    if (mPlaybackRate != 0) {
       mHoldTime.SetNull();
     }
   } else if (!mStartTime.IsNull() && mPendingPlaybackRate) {
     // Apply any pending playback rate, preserving the current time.
     TimeDuration currentTimeToMatch = CurrentTimeFromTimelineTime(
-        aReadyTime, mStartTime.Value(), PlaybackRateInternal());
+        aReadyTime, mStartTime.Value(), mPlaybackRate);
     ApplyPendingPlaybackRate();
     mStartTime = StartTimeFromTimelineTime(aReadyTime, currentTimeToMatch,
-                                           PlaybackRateInternal());
-    if (PlaybackRateInternal() == 0) {
+                                           mPlaybackRate);
+    if (mPlaybackRate == 0) {
       mHoldTime.SetValue(currentTimeToMatch);
     }
   }
@@ -1651,7 +1639,7 @@ void Animation::PauseAt(const TimeDuration& aReadyTime) {
 
   if (!mStartTime.IsNull() && mHoldTime.IsNull()) {
     mHoldTime = CurrentTimeFromTimelineTime(aReadyTime, mStartTime.Value(),
-                                            PlaybackRateInternal());
+                                            mPlaybackRate);
   }
   ApplyPendingPlaybackRate();
   mStartTime.SetNull();
@@ -1686,8 +1674,7 @@ void Animation::UpdateFinishedState(SeekFlag aSeekFlag,
 
   if (!unconstrainedCurrentTime.IsNull() && !mStartTime.IsNull() &&
       mPendingState == PendingState::NotPending) {
-    if (PlaybackRateInternal() > 0.0 &&
-        unconstrainedCurrentTime.Value() >= effectEnd) {
+    if (mPlaybackRate > 0.0 && unconstrainedCurrentTime.Value() >= effectEnd) {
       if (aSeekFlag == SeekFlag::DidSeek) {
         mHoldTime = unconstrainedCurrentTime;
       } else if (!mPreviousCurrentTime.IsNull()) {
@@ -1695,7 +1682,7 @@ void Animation::UpdateFinishedState(SeekFlag aSeekFlag,
       } else {
         mHoldTime.SetValue(effectEnd);
       }
-    } else if (PlaybackRateInternal() < 0.0 &&
+    } else if (mPlaybackRate < 0.0 &&
                unconstrainedCurrentTime.Value() <= TimeDuration()) {
       if (aSeekFlag == SeekFlag::DidSeek) {
         mHoldTime = unconstrainedCurrentTime;
@@ -1705,12 +1692,12 @@ void Animation::UpdateFinishedState(SeekFlag aSeekFlag,
       } else {
         mHoldTime.SetValue(0);
       }
-    } else if (PlaybackRateInternal() != 0.0 && mTimeline &&
+    } else if (mPlaybackRate != 0.0 && mTimeline &&
                !mTimeline->GetCurrentTimeAsDuration().IsNull()) {
       if (aSeekFlag == SeekFlag::DidSeek && !mHoldTime.IsNull()) {
         mStartTime = StartTimeFromTimelineTime(
             mTimeline->GetCurrentTimeAsDuration().Value(), mHoldTime.Value(),
-            PlaybackRateInternal());
+            mPlaybackRate);
       }
       mHoldTime.SetNull();
     }
@@ -2051,17 +2038,6 @@ StickyTimeDuration Animation::IntervalEndTime(
   return std::max(std::min(effectEnd - mEffect->NormalizedTiming().Delay(),
                            aActiveDuration),
                   zeroDuration);
-}
-
-double Animation::AnimationsPlayBackRateMultiplier() const {
-  if (mEffect && mEffect->AsKeyframeEffect()) {
-    return mEffect->AsKeyframeEffect()->AnimationsPlayBackRateMultiplier();
-  }
-  return 1.0;
-}
-
-double Animation::PlaybackRateInternal() const {
-  return mPlaybackRate * AnimationsPlayBackRateMultiplier();
 }
 
 }  // namespace mozilla::dom

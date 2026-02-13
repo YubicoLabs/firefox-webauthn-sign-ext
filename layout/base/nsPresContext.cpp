@@ -54,7 +54,6 @@
 #include "mozilla/dom/BrowsingContext.h"
 #include "mozilla/dom/Document.h"
 #include "mozilla/dom/DocumentInlines.h"
-#include "mozilla/dom/DocumentTimeline.h"
 #include "mozilla/dom/Element.h"
 #include "mozilla/dom/FontFaceSet.h"
 #include "mozilla/dom/HTMLBodyElement.h"
@@ -891,14 +890,6 @@ void nsPresContext::SetColorSchemeOverride(
   }
 }
 
-void nsPresContext::UpdateAnimationsPlayBackRateMultiplier(double aMultiplier) {
-  if (mAnimationsPlayBackRateMultiplier == aMultiplier) {
-    return;
-  }
-  mAnimationsPlayBackRateMultiplier = aMultiplier;
-  mDocument->Timeline()->PostUpdateForAllAnimations();
-}
-
 void nsPresContext::RecomputeBrowsingContextDependentData() {
   MOZ_ASSERT(mDocument);
   dom::Document* doc = mDocument;
@@ -944,9 +935,6 @@ void nsPresContext::RecomputeBrowsingContextDependentData() {
     }
     EmulateMedium(mediumToEmulate);
   }
-
-  UpdateAnimationsPlayBackRateMultiplier(
-      top->AnimationsPlayBackRateMultiplier());
 
   mDocument->EnumerateExternalResources([](dom::Document& aSubResource) {
     if (nsPresContext* subResourcePc = aSubResource.GetPresContext()) {

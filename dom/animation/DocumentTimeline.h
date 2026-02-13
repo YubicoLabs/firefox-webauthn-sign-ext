@@ -64,8 +64,6 @@ class DocumentTimeline final : public AnimationTimeline,
 
   bool IsMonotonicallyIncreasing() const override { return true; }
 
-  void PostUpdateForAllAnimations();
-
  protected:
   TimeStamp GetCurrentTimeStamp() const;
   nsRefreshDriver* GetRefreshDriver() const;
