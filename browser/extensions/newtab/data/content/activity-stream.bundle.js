@@ -13277,6 +13277,7 @@ function WidgetsFeatureHighlight({
   handleBlock,
   dispatch
 }) {
+  // Extract the strings and feature ID from OMC
   const {
     messageData
   } = (0,external_ReactRedux_namespaceObject.useSelector)(state => state.Messages);
@@ -13286,16 +13287,22 @@ function WidgetsFeatureHighlight({
     openedOverride: true,
     showButtonIcon: false,
     feature: messageData?.content?.feature,
-    modalClassName: "widget-highlight-wrapper",
+    modalClassName: `widget-highlight-wrapper${messageData.content?.hideImage ? " no-image" : ""}`,
     message: /*#__PURE__*/React.createElement("div", {
       className: "widget-highlight"
-    }, /*#__PURE__*/React.createElement("img", {
-      src: "chrome://newtab/content/data/content/assets/widget-message.png",
+    }, !messageData.content?.hideImage && /*#__PURE__*/React.createElement("img", {
+      src: messageData.content?.imageURL || "chrome://newtab/content/data/content/assets/widget-message.png",
       alt: ""
-    }), /*#__PURE__*/React.createElement("h3", {
-      "data-l10n-id": "newtab-widget-message-title"
-    }), /*#__PURE__*/React.createElement("p", {
-      "data-l10n-id": "newtab-widget-message-copy"
+    }), messageData.content?.cardTitle ? /*#__PURE__*/React.createElement("h3", {
+      className: "title"
+    }, messageData.content.cardTitle) : /*#__PURE__*/React.createElement("h3", {
+      className: "title",
+      "data-l10n-id": messageData.content.title || "newtab-widget-message-title"
+    }), messageData.content?.cardMessage ? /*#__PURE__*/React.createElement("p", {
+      className: "subtitle"
+    }, messageData.content.cardMessage) : /*#__PURE__*/React.createElement("p", {
+      className: "subtitle",
+      "data-l10n-id": messageData.content.subtitle || "newtab-widget-message-copy"
     })),
     dispatch: dispatch,
     dismissCallback: () => {

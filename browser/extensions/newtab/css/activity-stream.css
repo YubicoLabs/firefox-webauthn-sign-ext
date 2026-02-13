@@ -4375,6 +4375,14 @@ dialog:dir(rtl)::after {
   position: absolute;
   inset-inline-end: var(--space-medium);
   inset-block-start: var(--space-medium);
+  --button-icon-fill: var(--color-gray-05);
+}
+.feature-highlight .feature-highlight-modal.widget-highlight-wrapper.no-image {
+  min-width: 370px;
+  padding-block-start: var(--space-small);
+}
+.feature-highlight .feature-highlight-modal.widget-highlight-wrapper.no-image moz-button {
+  --button-icon-fill: var(--icon-color);
 }
 
 /* This Source Code Form is subject to the terms of the Mozilla Public
@@ -8059,7 +8067,7 @@ hr {
 .feature-highlight {
   position: relative;
   pointer-events: auto;
-  z-index: 1;
+  z-index: 2;
 }
 .feature-highlight .feature-highlight-modal {
   position: absolute;

@@ -136,9 +136,23 @@
     display: none;
   }
 
+  // The "X" dismiss button overlays the image in the message
   moz-button {
     position: absolute;
     inset-inline-end: var(--space-medium);
     inset-block-start: var(--space-medium);
+    // Custom contrast override
+    --button-icon-fill: var(--color-gray-05);
   }
+
+  // If not image is not included, use the default icon color to maintain proper viz contrast
+  &.no-image {
+    min-width: 370px;
+    padding-block-start: var(--space-small);
+
+    moz-button {
+      --button-icon-fill: var(--icon-color);
+    }
+  }
+
 }

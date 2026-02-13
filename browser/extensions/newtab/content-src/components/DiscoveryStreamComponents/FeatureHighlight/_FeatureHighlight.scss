@@ -3,7 +3,7 @@
   // This is needed because in 1 case this is positioned under a link
   // and in an element that's not clickable.
   pointer-events: auto;
-  z-index: 1;
+  z-index: 2;
 
   .feature-highlight-modal {
     position: absolute;
