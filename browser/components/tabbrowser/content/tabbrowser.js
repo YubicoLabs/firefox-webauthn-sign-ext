@@ -3444,6 +3444,8 @@
         splitview.remove();
       } else {
         aboutOpenTabs.forEach(aboutOpenTab => {
+          // Note: removeTab triggers #observeTabChanges in tabsplitview.js,
+          // which will call unsplitTabs() again.
           gBrowser.removeTab(aboutOpenTab);
         });
       }
@@ -7080,6 +7082,7 @@
      * @property {number} tabIndex
      * @property {number} [elementIndex]
      * @property {string} [tabGroupId]
+     * @property {number} [splitViewId]
      */
 
     /**
@@ -7121,8 +7124,10 @@
         previousTabState.tabIndex != currentTabState.tabIndex;
       let changedTabGroup =
         previousTabState.tabGroupId != currentTabState.tabGroupId;
+      let changedSplitView =
+        previousTabState.splitViewId != currentTabState.splitViewId;
 
-      if (changedPosition || changedTabGroup) {
+      if (changedPosition || changedTabGroup || changedSplitView) {
         tab.dispatchEvent(
           new CustomEvent("TabMove", {
             bubbles: true,
