@@ -34,8 +34,11 @@
     align-items: center;
     gap: var(--space-medium);
 
-    h1 {
+    // Helper class around the <h1> element to position the FeatureHighlight message
+    .widgets-title-container-text {
+      display: inline-block;
       margin-inline-end: auto;
+      position: relative;
     }
   }
 
@@ -108,7 +111,13 @@
 
 .feature-highlight .feature-highlight-modal.widget-highlight-wrapper {
   width: auto;
+  max-width: min-content;
   border-radius: var(--border-radius-medium);
+
+  // Custom Positioning
+  &.inset-block-end {
+    margin-block-start: var(--space-large);
+  }
 
   .content-wrapper {
     margin: 0;

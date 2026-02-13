@@ -4294,8 +4294,10 @@ dialog:dir(rtl)::after {
   align-items: center;
   gap: var(--space-medium);
 }
-.widgets-section-container .widgets-title-container h1 {
+.widgets-section-container .widgets-title-container .widgets-title-container-text {
+  display: inline-block;
   margin-inline-end: auto;
+  position: relative;
 }
 @media (min-width: 1122px) {
   .widgets-section-container {
@@ -4350,7 +4352,11 @@ dialog:dir(rtl)::after {
 
 .feature-highlight .feature-highlight-modal.widget-highlight-wrapper {
   width: auto;
+  max-width: min-content;
   border-radius: var(--border-radius-medium);
+}
+.feature-highlight .feature-highlight-modal.widget-highlight-wrapper.inset-block-end {
+  margin-block-start: var(--space-large);
 }
 .feature-highlight .feature-highlight-modal.widget-highlight-wrapper .content-wrapper {
   margin: 0;
@@ -8165,6 +8171,13 @@ hr {
 .feature-highlight .feature-highlight-modal.arrow-top-center::after {
   inset-block-start: calc(var(--space-small) * -1);
   inset-inline-start: 50%;
+  transform: translateX(-50%) rotate(225deg);
+  height: 16px;
+  width: 16px;
+}
+.feature-highlight .feature-highlight-modal.arrow-top-start::after {
+  inset-block-start: calc(var(--space-small) * -1);
+  inset-inline-start: calc(var(--space-xlarge) * 2);
   transform: translateX(-50%) rotate(225deg);
   height: 16px;
   width: 16px;

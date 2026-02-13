@@ -273,7 +273,15 @@ function Widgets() {
     <div className="widgets-wrapper">
       <div className="widgets-section-container">
         <div className="widgets-title-container">
-          <h1 data-l10n-id="newtab-widget-section-title"></h1>
+          <div className="widgets-title-container-text">
+            <h1 data-l10n-id="newtab-widget-section-title"></h1>
+            {messageData?.content?.messageType === "WidgetMessage" && (
+              <MessageWrapper dispatch={dispatch}>
+                <WidgetsFeatureHighlight dispatch={dispatch} />
+              </MessageWrapper>
+            )}
+          </div>
+
           {(nimbusMaximizedTrainhopEnabled ||
             prefs[PREF_WIDGETS_SYSTEM_MAXIMIZED]) && (
             <moz-button
@@ -330,11 +338,6 @@ function Widgets() {
           )}
         </div>
       </div>
-      {messageData?.content?.messageType === "WidgetMessage" && (
-        <MessageWrapper dispatch={dispatch}>
-          <WidgetsFeatureHighlight dispatch={dispatch} />
-        </MessageWrapper>
-      )}
     </div>
   );
 }

@@ -11,8 +11,8 @@ function WidgetsFeatureHighlight({ handleDismiss, handleBlock, dispatch }) {
 
   return (
     <FeatureHighlight
-      position="inset-inline-center inset-block-end"
-      arrowPosition="arrow-top-center"
+      position="inset-inline-end inset-block-end"
+      arrowPosition="arrow-top-start"
       openedOverride={true}
       showButtonIcon={false}
       feature={messageData?.content?.feature}
