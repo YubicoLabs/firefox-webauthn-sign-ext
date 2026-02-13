@@ -50,8 +50,7 @@ def make_checksums_signing_description(config, jobs):
         treeherder = job.get("treeherder", {})
         treeherder.setdefault("symbol", "css(N)")
         dep_th_platform = (
-            dep_job.task
-            .get("extra", {})
+            dep_job.task.get("extra", {})
             .get("treeherder", {})
             .get("machine", {})
             .get("platform", "")

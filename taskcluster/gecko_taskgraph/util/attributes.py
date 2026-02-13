@@ -85,9 +85,8 @@ RUN_ON_PROJECT_ALIASES = {
     "trunk-only": lambda params: params["project"] in TRUNK_PROJECTS,
     "autoland": lambda params: params["project"] in ("autoland", "toolchains"),
     "autoland-only": lambda params: params["project"] == "autoland",
-    "mozilla-central": lambda params: (
-        params["project"] in ("mozilla-central", "toolchains")
-    ),
+    "mozilla-central": lambda params: params["project"]
+    in ("mozilla-central", "toolchains"),
     "mozilla-central-only": lambda params: params["project"] == "mozilla-central",
 }
 

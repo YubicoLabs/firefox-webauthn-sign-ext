@@ -317,8 +317,7 @@ def setup_regression_detector(config, jobs):
 
             base_project = None
             if (
-                config.params
-                .get("try_task_config", {})
+                config.params.get("try_task_config", {})
                 .get("env", {})
                 .get("PERF_BASE_REVISION", None)
                 is not None

@@ -2919,7 +2919,9 @@ SPECIAL_VARIABLES = {
         """,
     ),
     "CONFIG": (
-        lambda context: ReadOnlyKeyedDefaultDict(context.config.substs.get),
+        lambda context: ReadOnlyKeyedDefaultDict(
+            lambda key: context.config.substs.get(key)
+        ),
         dict,
         """Dictionary containing the current configuration variables.
 

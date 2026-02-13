@@ -60,8 +60,7 @@ def make_beetmover_checksums_description(config, jobs):
             replace_group(dep_job.task["extra"]["treeherder"]["symbol"], "BMcs"),
         )
         dep_th_platform = (
-            dep_job.task
-            .get("extra", {})
+            dep_job.task.get("extra", {})
             .get("treeherder", {})
             .get("machine", {})
             .get("platform", "")

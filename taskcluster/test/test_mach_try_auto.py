@@ -77,9 +77,8 @@ def test_tasks_are_scheduled(optimized_task_graph, filter_tasks, func, min_expec
     "func",
     (
         pytest.param(
-            lambda t: (
-                t.kind == "build" and "shippable" in t.attributes["build_platform"]
-            ),
+            lambda t: t.kind == "build"
+            and "shippable" in t.attributes["build_platform"],
             id="no shippable builds",
         ),
         pytest.param(

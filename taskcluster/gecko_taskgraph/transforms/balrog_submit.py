@@ -80,8 +80,7 @@ def make_task_description(config, jobs):
         treeherder = job.get("treeherder", {})
         treeherder.setdefault("symbol", "c-Up(N)")
         dep_th_platform = (
-            dep_job.task
-            .get("extra", {})
+            dep_job.task.get("extra", {})
             .get("treeherder", {})
             .get("machine", {})
             .get("platform", "")

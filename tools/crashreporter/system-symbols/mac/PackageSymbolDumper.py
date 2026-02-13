@@ -129,10 +129,8 @@ def find_packages(path):
     @param path: root path to search for .pkg, .dmg and .zip files
     """
     return filter_files(
-        lambda filename: (
-            os.path.splitext(filename)[1] in (".pkg", ".dmg", ".zip")
-            and not filename.startswith("._")
-        ),
+        lambda filename: os.path.splitext(filename)[1] in (".pkg", ".dmg", ".zip")
+        and not filename.startswith("._"),
         path,
     )
 

@@ -210,8 +210,7 @@ class VendorRust(MozbuildObject):
 
     def cargo_version(self, cargo):
         out = (
-            subprocess
-            .check_output([cargo, "--version"])
+            subprocess.check_output([cargo, "--version"])
             .splitlines()[0]
             .decode("UTF-8")
         )
