@@ -204,6 +204,8 @@ export class AIWindow extends MozLitElement {
       true
     );
 
+    this.#loadPendingConversation();
+
     this.#dispatchChromeEvent(
       "ai-window:connected",
       this.#getAIWindowEventOptions()
@@ -215,12 +217,7 @@ export class AIWindow extends MozLitElement {
   }
 
   handleEvent(event) {
-    if (event.detail) {
-      this.openConversation(event.detail);
-    } else {
-      // Handle a null conversation reference by starting a new empty conversation
-      this.#onCreateNewChatclick();
-    }
+    this.openConversation(event.detail);
   }
 
   disconnectedCallback() {
@@ -265,7 +262,7 @@ export class AIWindow extends MozLitElement {
 
   /**
    * Loads a conversation if one is set on the data-conversation-id attribute
-   * on firstUpdated()
+   * on connectedCallback()
    */
   async #loadPendingConversation() {
     const conversationId = this.#getPendingConversationId();
@@ -286,7 +283,7 @@ export class AIWindow extends MozLitElement {
     }
   }
 
-  async firstUpdated() {
+  firstUpdated() {
     // Create a real XUL <browser> element from the chrome document
     const doc = this.ownerDocument; // browser.xhtml
     const browser = doc.createXULElement("browser");
@@ -302,12 +299,6 @@ export class AIWindow extends MozLitElement {
     container.appendChild(browser);
 
     this.#browser = browser;
-
-    await this.#loadPendingConversation().catch(error => {
-      console.error(
-        `loadPendingConversation() error: ${error.toString()}, \nstack: ${error.stack}`
-      );
-    });
 
     // Defer Smartbar and conversation starters for preloaded documents
     if (doc.hidden) {
@@ -338,7 +329,8 @@ export class AIWindow extends MozLitElement {
       return;
     }
 
-    if (this.#conversation?.messages?.length) {
+    // Don't load starters if loading a pre-existing conversation
+    if (this.#getPendingConversationId()) {
       return;
     }
 
@@ -854,6 +846,11 @@ export class AIWindow extends MozLitElement {
     this.#conversation.renderState().forEach(message => {
       this.#dispatchMessageToActor(actor, message);
     });
+
+    this.#dispatchChromeEvent(
+      "ai-window:opened-conversation",
+      this.#getAIWindowEventOptions()
+    );
   }
 
   /**
@@ -886,40 +883,27 @@ export class AIWindow extends MozLitElement {
    * @param {ChatConversation} conversation
    */
   openConversation(conversation) {
-    if (conversation.messages?.length) {
-      this.#conversation = conversation;
+    this.#conversation = conversation;
 
-      if (this.#conversation.title) {
-        document.title = this.#conversation.title;
-      }
-      this.#updateTabFavicon();
+    const hostBrowser = window.browsingContext?.embedderElement;
+    hostBrowser?.setAttribute("data-conversation-id", conversation.id);
 
-      const hostBrowser = window.browsingContext?.embedderElement;
-      hostBrowser?.setAttribute("data-conversation-id", this.#conversation.id);
-
-      this.showStarters = false;
-      const actor = this.#getAIChatContentActor();
-      if (this.#browser && actor) {
-        this.#deliverConversationMessages(actor);
-      } else {
-        this.#pendingMessageDelivery = true;
-      }
-    } else {
-      this.#onCreateNewChatclick();
+    if (conversation.title) {
+      document.title = conversation.title;
     }
+    this.#updateTabFavicon();
 
-    this.#dispatchChromeEvent(
-      "ai-window:opened-conversation",
-      this.#getAIWindowEventOptions()
-    );
+    const actor = this.#getAIChatContentActor();
+    if (this.#browser && actor) {
+      this.#deliverConversationMessages(actor);
+    } else {
+      this.#pendingMessageDelivery = true;
+    }
   }
 
   #onCreateNewChatclick() {
     // Clear the conversation state locally
     this.#conversation = new lazy.ChatConversation({});
-
-    const hostBrowser = window.browsingContext?.embedderElement;
-    hostBrowser?.setAttribute("data-conversation-id", this.#conversation.id);
 
     // Reset memories toggle state
     this.#memoriesToggled = null;
@@ -934,10 +918,6 @@ export class AIWindow extends MozLitElement {
 
     // Hide chat-active state
     this.#setBrowserContainerActiveState(false);
-
-    this.showStarters = false;
-
-    this.#loadStarterPrompts();
   }
 
   showSearchingIndicator(isSearching, searchQuery) {

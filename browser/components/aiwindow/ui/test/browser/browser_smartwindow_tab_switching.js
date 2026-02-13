@@ -58,13 +58,6 @@ function createMockConversation(id = "test-conv-id") {
   return conversation;
 }
 
-function createEmptyMockConversation(id = "test-empty-conv-id") {
-  return new ChatConversation({
-    id,
-    pageUrl: new URL("https://example.com/"),
-  });
-}
-
 async function open_ai_window() {
   await SpecialPowers.pushPrefEnv({
     set: [["browser.smartwindow.enabled", true]],
@@ -375,234 +368,35 @@ add_task(async function test_navigate_back_to_aiwindow_closes_sidebar() {
   }
 }).skip();
 
-// Navigating with an empty conversation (no messages) opens the sidebar
-add_task(async function test_navigate_with_empty_conversation_opens_sidebar() {
-  const sb = lazy.sinon.createSandbox();
-
-  let win, tab;
-  try {
-    const emptyConversation = createEmptyMockConversation();
-    sb.stub(ChatStore, "findConversationById").resolves(emptyConversation);
-
-    win = await openAIWindow();
+// Navigating without an active chat keeps the sidebar closed
+add_task(
+  async function test_navigate_without_active_chat_keeps_sidebar_closed() {
+    const win = await openAIWindow();
     const browser = win.gBrowser.selectedBrowser;
-    tab = win.gBrowser.selectedTab;
 
     await BrowserTestUtils.browserLoaded(browser, false, AIWINDOW_URL);
 
-    // Simulate a conversation started in fullpage mode with no messages
-    win.dispatchEvent(
-      new win.CustomEvent("ai-window:opened-conversation", {
-        detail: {
-          mode: "fullpage",
-          conversationId: emptyConversation.id,
-          tab,
-        },
-      })
+    // No conversation started - no ai-window:opened-conversation event dispatched
+
+    Assert.ok(
+      !AIWindowUI.isSidebarOpen(win),
+      "Sidebar should be closed initially"
     );
 
-    // Navigate to a URL
+    // Navigate to external URL without starting a chat
     const loaded = BrowserTestUtils.browserLoaded(browser);
     BrowserTestUtils.startLoadingURIString(browser, "https://example.com/");
     await loaded;
 
-    await TestUtils.waitForCondition(
-      () => AIWindowUI.isSidebarOpen(win),
-      "Sidebar should open after navigating away with empty conversation"
-    );
+    // Give time for any sidebar logic to run
+    await new Promise(resolve => win.setTimeout(resolve, 100));
 
     Assert.ok(
-      AIWindowUI.isSidebarOpen(win),
-      "The sidebar should be open even with an empty conversation"
+      !AIWindowUI.isSidebarOpen(win),
+      "Sidebar should remain closed when navigating without active chat"
     );
-  } finally {
-    await BrowserTestUtils.removeTab(tab);
+
     await BrowserTestUtils.closeWindow(win);
-    sb.restore();
-  }
-});
-
-// Switching between tabs with empty and non-empty conversations
-add_task(async function test_switch_between_empty_and_nonempty_conversations() {
-  const sb = lazy.sinon.createSandbox();
-
-  let tabA, tabB, win;
-  try {
-    const conversationA = createMockConversation("conv-a");
-    const emptyConversationB = createEmptyMockConversation("conv-b-empty");
-
-    const findStub = sb.stub(ChatStore, "findConversationById");
-    findStub.withArgs("conv-a").resolves(conversationA);
-    findStub.withArgs("conv-b-empty").resolves(emptyConversationB);
-
-    win = await openAIWindow();
-    const browserA = win.gBrowser.selectedBrowser;
-    tabA = win.gBrowser.selectedTab;
-
-    await BrowserTestUtils.browserLoaded(browserA, false, AIWINDOW_URL);
-
-    // Set up conversation A (with messages) for tab A
-    win.dispatchEvent(
-      new win.CustomEvent("ai-window:opened-conversation", {
-        detail: {
-          mode: "fullpage",
-          conversationId: "conv-a",
-          tab: tabA,
-        },
-      })
-    );
-
-    // Navigate tab A away from AIWINDOW_URL
-    let loaded = BrowserTestUtils.browserLoaded(browserA);
-    BrowserTestUtils.startLoadingURIString(browserA, "https://example.com/");
-    await loaded;
-
-    Assert.ok(
-      AIWindowUI.isSidebarOpen(win),
-      "Sidebar should be open for tab A with messages"
-    );
-
-    // Open tab B with an empty conversation
-    tabB = await BrowserTestUtils.openNewForegroundTab(
-      win.gBrowser,
-      "https://example.org/"
-    );
-
-    win.dispatchEvent(
-      new win.CustomEvent("ai-window:opened-conversation", {
-        detail: {
-          mode: "fullpage",
-          conversationId: "conv-b-empty",
-          tab: tabB,
-        },
-      })
-    );
-
-    // Open sidebar for tab B (empty conversation)
-    AIWindowUI.openSidebar(win, emptyConversationB);
-    Assert.ok(
-      AIWindowUI.isSidebarOpen(win),
-      "Sidebar should be open for tab B with empty conversation"
-    );
-
-    // Switch to tab A - sidebar should remain open with conversation A
-    await BrowserTestUtils.switchTab(win.gBrowser, tabA);
-
-    Assert.ok(
-      AIWindowUI.isSidebarOpen(win),
-      "Sidebar should remain open when switching to tab A"
-    );
-
-    // Switch back to tab B - sidebar should remain open
-    await BrowserTestUtils.switchTab(win.gBrowser, tabB);
-
-    Assert.ok(
-      AIWindowUI.isSidebarOpen(win),
-      "Sidebar should remain open when switching to tab B with empty conversation"
-    );
-  } finally {
-    await BrowserTestUtils.removeTab(tabA);
-    await BrowserTestUtils.removeTab(tabB);
-    await BrowserTestUtils.closeWindow(win);
-    sb.restore();
-  }
-});
-
-// Switching between non-empty and empty conversations shows/hides starters
-add_task(
-  async function test_tab_switch_shows_starters_for_empty_conversation() {
-    const sb = lazy.sinon.createSandbox();
-
-    let tabA, tabB, win;
-    try {
-      const conversationA = createMockConversation("conv-a");
-
-      const findStub = sb.stub(ChatStore, "findConversationById");
-      findStub.withArgs("conv-a").resolves(conversationA);
-      findStub.withArgs("conv-b-empty").resolves(null);
-
-      win = await openAIWindow();
-      const browserA = win.gBrowser.selectedBrowser;
-      tabA = win.gBrowser.selectedTab;
-
-      await BrowserTestUtils.browserLoaded(browserA, false, AIWINDOW_URL);
-
-      // Set up conversation A (with messages) for tab A
-      win.dispatchEvent(
-        new win.CustomEvent("ai-window:opened-conversation", {
-          detail: {
-            mode: "fullpage",
-            conversationId: "conv-a",
-            tab: tabA,
-          },
-        })
-      );
-
-      // Navigate tab A away from AIWINDOW_URL to open sidebar
-      let loaded = BrowserTestUtils.browserLoaded(browserA);
-      BrowserTestUtils.startLoadingURIString(browserA, "https://example.com/");
-      await loaded;
-
-      await TestUtils.waitForCondition(
-        () => AIWindowUI.isSidebarOpen(win),
-        "Sidebar should open for tab A"
-      );
-
-      // Open tab B with an empty conversation
-      tabB = await BrowserTestUtils.openNewForegroundTab(
-        win.gBrowser,
-        "https://example.org/"
-      );
-
-      win.dispatchEvent(
-        new win.CustomEvent("ai-window:opened-conversation", {
-          detail: {
-            mode: "fullpage",
-            conversationId: "conv-b-empty",
-            tab: tabB,
-          },
-        })
-      );
-
-      AIWindowUI.openSidebar(win);
-
-      const sidebarBrowser = win.document.getElementById(AIWindowUI.BROWSER_ID);
-      const aiWindowEl =
-        sidebarBrowser.contentDocument.querySelector("ai-window");
-
-      // Switch to tab A (with messages) - starters should not show
-      await BrowserTestUtils.switchTab(win.gBrowser, tabA);
-      await TestUtils.waitForCondition(
-        () => !aiWindowEl.showStarters,
-        "Starters should be hidden for conversation with messages"
-      );
-
-      // Switch to tab B (empty) - starters should show
-      await BrowserTestUtils.switchTab(win.gBrowser, tabB);
-      await TestUtils.waitForCondition(
-        () => aiWindowEl.showStarters,
-        "Starters should be displayed for empty conversation"
-      );
-
-      // Switch back to tab A - starters should hide again
-      await BrowserTestUtils.switchTab(win.gBrowser, tabA);
-      await TestUtils.waitForCondition(
-        () => !aiWindowEl.showStarters,
-        "Starters should be hidden again for conversation with messages"
-      );
-
-      // Switch to tab B again - starters should still show (regression test)
-      await BrowserTestUtils.switchTab(win.gBrowser, tabB);
-      await TestUtils.waitForCondition(
-        () => aiWindowEl.showStarters,
-        "Starters should still display on repeated switch to empty conversation"
-      );
-    } finally {
-      await BrowserTestUtils.removeTab(tabA);
-      await BrowserTestUtils.removeTab(tabB);
-      await BrowserTestUtils.closeWindow(win);
-      sb.restore();
-    }
   }
 );
 
