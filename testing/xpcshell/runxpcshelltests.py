@@ -1754,7 +1754,7 @@ class XPCShellTests:
             (release, versioninfo, machine) = platform.mac_ver()
             versionNums = release.split(".")[:2]
             os_version = "%s.%s" % (versionNums[0], versionNums[1].ljust(2, "0"))
-            if os_version.split(".")[0] in ["14", "15"]:
+            if os_version.split(".", 1)[0] in ["14", "15"]:
                 self.mozInfo["crashreporter"] = False
 
         # we default to false for e10s on xpcshell

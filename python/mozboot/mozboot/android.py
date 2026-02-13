@@ -136,7 +136,7 @@ def install_mobile_android_sdk_or_ndk(url: str, path: Path):
         else:
             raise
 
-    file_name = url.split("/")[-1]
+    file_name = url.rsplit("/", 1)[-1]
     download_file_path = download_path / file_name
     download(url, download_file_path)
 
