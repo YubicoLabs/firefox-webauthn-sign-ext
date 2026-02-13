@@ -81,18 +81,9 @@ class DictionaryCacheEntry final : public nsICacheEntryOpenCallback,
   nsresult Prefetch(nsILoadContextInfo* aLoadContextInfo, bool& aShouldSuspend,
                     const std::function<void(nsresult)>& aFunc);
 
-  const nsCString& GetHash() const { return mHash; }
-
-  bool HasHash() {
-    // Hard to statically check since we're called from lambdas in
-    // GetDictionaryFor
-    return !mHash.IsEmpty();
-  }
-
-  void SetHash(const nsACString& aHash) {
-    MOZ_ASSERT(NS_IsMainThread());
-    mHash = aHash;
-  }
+  nsCString GetHash() const;
+  bool HasHash();
+  void SetHash(const nsACString& aHash);
 
   void WriteOnHash();
 
@@ -103,7 +94,7 @@ class DictionaryCacheEntry final : public nsICacheEntryOpenCallback,
   // keep track of requests that may need the data
   void InUse();
   void UseCompleted();
-  bool IsReading() const { return mUsers > 0 && !mWaitingPrefetch.IsEmpty(); }
+  bool IsReading() const;
 
   void SetReplacement(DictionaryCacheEntry* aEntry, DictionaryOrigin* aOrigin) {
     mReplacement = aEntry;
@@ -118,33 +109,24 @@ class DictionaryCacheEntry final : public nsICacheEntryOpenCallback,
 
   // aFunc is called when we have finished reading a dictionary from the
   // cache, or we have no users waiting for cache data (cancelled, etc)
-  void CallbackOnCacheRead(const std::function<void(nsresult)>& aFunc) {
-    // the reasons to call back are identical to Prefetch()
-    mWaitingPrefetch.AppendElement(aFunc);
-  }
+  void CallbackOnCacheRead(const std::function<void(nsresult)>& aFunc);
 
   const nsACString& GetURI() const { return mURI; }
 
-  const Vector<uint8_t>& GetDictionary() const { return mDictionaryData; }
+  const Vector<uint8_t>& GetDictionary() const;
 
   // Clear dictionary data for testing (forces reload from cache on next
   // prefetch)
-  void ClearDataForTesting() {
-    mDictionaryData.clear();
-    mDictionaryDataComplete = false;
-  }
+  void ClearDataForTesting();
 
   // Accumulate a hash while saving a file being received to the cache
   void AccumulateHash(const char* aBuf, int32_t aCount);
   void FinishHash();
 
   // return a pointer to the data and length
-  uint8_t* DictionaryData(size_t* aLength) const {
-    *aLength = mDictionaryData.length();
-    return (uint8_t*)mDictionaryData.begin();
-  }
+  uint8_t* DictionaryData(size_t* aLength) const;
 
-  bool DictionaryReady() const { return mDictionaryDataComplete; }
+  bool DictionaryReady() const;
 
   size_t SizeOfIncludingThis(mozilla::MallocSizeOf mallocSizeOf) const {
     // XXX
@@ -195,8 +177,11 @@ class DictionaryCacheEntry final : public nsICacheEntryOpenCallback,
   // Cached parsed URLPattern for performance
   Maybe<UrlPatternGlue> mCachedPattern;
 
-  // SHA-256 hash value ready to put into a header
+  // SHA-256 hash value - only written/read on MainThread (after
+  // pending->active) Written by FinishHash() on MainThread, immutable after
+  // that
   nsCString mHash;
+
   uint32_t mUsers{0};  // active requests using this entry
 
   // In-memory copy - only accessed on MainThread after validation
@@ -211,9 +196,10 @@ class DictionaryCacheEntry final : public nsICacheEntryOpenCallback,
   Vector<uint8_t> mPendingDictionaryData;
 
   // for accumulating SHA-256 hash values for dictionaries
+  // Only used on main thread (MOZ_ASSERT in AccumulateHash/FinishHash)
   nsCOMPtr<nsICryptoHash> mCrypto;
 
-  // call these when prefetch is complete
+  // Callbacks when prefetch is complete - only accessed on MainThread
   nsTArray<std::function<void(nsresult)>> mWaitingPrefetch;
 
   // If we need to Write() an entry before we know the hash, remember the origin
@@ -353,12 +339,12 @@ class DictionaryCache final {
   already_AddRefed<DictionaryCacheEntry> AddEntry(
       nsIURI* aURI, bool aNewEntry, DictionaryCacheEntry* aDictEntry);
 
-  static void RemoveDictionaryFor(const nsACString& aKey);
+  static void RemoveDictionaryOMT(const nsACString& aKey);
   // remove the entire origin (should be empty!)
   static void RemoveOriginFor(const nsACString& aKey);
 
   // Remove a dictionary if it exists for the key given
-  void RemoveDictionary(const nsACString& aKey);
+  static void RemoveDictionary(const nsACString& aKey);
   // Remove an origin for the origin given
   void RemoveOrigin(const nsACString& aOrigin);
 
