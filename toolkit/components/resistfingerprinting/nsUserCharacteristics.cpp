@@ -1245,9 +1245,6 @@ bool nsUserCharacteristics::ShouldSubmit() {
 
   int32_t currentVersion = GetCurrentVersion();
   int32_t lastSubmissionVersion = Preferences::GetInt(kLastVersionPref, 0);
-  MOZ_ASSERT(lastSubmissionVersion <= currentVersion,
-             "lastSubmissionVersion is somehow greater than currentVersion "
-             "- did you edit prefs improperly?");
 
   if (currentVersion == 0) {
     // Do nothing. We do not want any pings.
