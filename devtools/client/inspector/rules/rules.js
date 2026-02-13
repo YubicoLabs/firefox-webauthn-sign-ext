@@ -720,11 +720,10 @@ class CssRuleView extends EventEmitter {
    * Context menu handler.
    */
   #onContextMenu = event => {
-    if (
-      event.originalTarget.closest("input[type=text]") ||
-      event.originalTarget.closest("input:not([type])") ||
-      event.originalTarget.closest("textarea")
-    ) {
+    const inInput = event.composedTarget.matches(
+      "input:is([type=text], [type=search], :not([type])), textarea"
+    );
+    if (inInput) {
       return;
     }
 

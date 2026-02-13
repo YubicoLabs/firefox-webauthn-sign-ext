@@ -1456,11 +1456,9 @@ class Toolbox extends EventEmitter {
     // Also support for custom input elements using .devtools-input class
     // (e.g. CodeMirror instances).
     const isInInput =
-      e.originalTarget.closest("input[type=text]") ||
-      e.originalTarget.closest("input[type=search]") ||
-      e.originalTarget.closest("input:not([type])") ||
-      e.originalTarget.closest(".devtools-input") ||
-      e.originalTarget.closest("textarea");
+      e.composedTarget.matches(
+        "input:is([type=text], [type=search], :not([type])), textarea"
+      ) || e.composedTarget.closest(".devtools-input");
 
     const doc = e.originalTarget.ownerDocument;
     const isHTMLPanel = doc.documentElement.namespaceURI === HTML_NS;
