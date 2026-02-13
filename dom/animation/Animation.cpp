@@ -774,7 +774,7 @@ void Animation::Reverse(ErrorResult& aRv) {
         "Can't reverse an animation associated with an inactive timeline");
   }
 
-  double effectivePlaybackRate = CurrentOrPendingPlaybackRate();
+  double effectivePlaybackRate = mPendingPlaybackRate.valueOr(mPlaybackRate);
 
   if (effectivePlaybackRate == 0.0) {
     return;
@@ -1011,6 +1011,14 @@ bool Animation::TryTriggerNow() {
   }
   FinishPendingAt(currentTime.Value());
   return true;
+}
+
+double Animation::CurrentOrPendingPlaybackRate() const {
+  if (mPendingPlaybackRate.isSome()) {
+    return *mPendingPlaybackRate * AnimationsPlayBackRateMultiplier();
+  }
+
+  return PlaybackRateInternal();
 }
 
 TimeStamp Animation::AnimationTimeToTimeStamp(
