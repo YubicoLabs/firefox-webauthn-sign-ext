@@ -1992,6 +1992,20 @@ class Editor extends EventEmitter {
   }
 
   /**
+   * Calculates and returns the width of a single character of the input box.
+   * This will be used in opening the popup at the correct offset.
+   *
+   * @returns {number | null}: Width off the "x" char, or null if the input does not exist.
+   */
+  getInputCharWidth() {
+    const cm = editors.get(this);
+    if (this.config.cm6) {
+      return cm.defaultCharacterWidth;
+    }
+    return cm.defaultCharWidth();
+  }
+
+  /**
    * Check that text is selected
    *
    * @returns {boolean}

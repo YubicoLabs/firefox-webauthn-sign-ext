@@ -572,7 +572,7 @@ class JSTerm extends Component {
       this.resizeObserver.observe(this.node);
 
       // Update the character width needed for the popup offset calculations.
-      this._inputCharWidth = this._getInputCharWidth();
+      this._inputCharWidth = this.editor?.getInputCharWidth() || null;
       this.lastInputValue && this._setValue(this.lastInputValue);
     }
   }
@@ -1461,16 +1461,6 @@ class JSTerm extends Component {
     const lineContent = this.editor.getLine(line);
     const textAfterCursor = lineContent.substring(ch);
     return textAfterCursor === "";
-  }
-
-  /**
-   * Calculates and returns the width of a single character of the input box.
-   * This will be used in opening the popup at the correct offset.
-   *
-   * @returns {number | null}: Width off the "x" char, or null if the input does not exist.
-   */
-  _getInputCharWidth() {
-    return this.editor ? this.editor.defaultCharWidth() : null;
   }
 
   onContextMenu(e) {
