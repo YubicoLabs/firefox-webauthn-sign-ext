@@ -15,11 +15,6 @@ reduce the wait, while simultaneously allowing reviewers to do a good
 chunk of hacking themselves. We don't have a perfect system, and we
 never will. It's still evolving, so let us know if you have suggestions.
 
-Mozilla used to have the concept of "super-review", but `a consensus was
-reached in
-2018 <https://groups.google.com/forum/#!topic/mozilla.governance/HHU0h-44NDo>`__
-to retire this process.
-
 Who must review my code?
 ------------------------
 
