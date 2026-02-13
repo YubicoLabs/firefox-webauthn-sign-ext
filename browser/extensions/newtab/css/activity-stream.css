@@ -35,9 +35,6 @@ input {
   --newtab-card-height-small: 133px;
 }
 
-/* stylelint-disable-next-line stylelint-plugin-mozilla/no-non-semantic-token-usage */
-/* stylelint-disable-next-line stylelint-plugin-mozilla/no-non-semantic-token-usage */
-/* stylelint-disable-next-line stylelint-plugin-mozilla/no-non-semantic-token-usage */
 :root {
   color-scheme: light;
   --newtab-background-color: #F9F9FB;
@@ -1564,8 +1561,6 @@ main section {
     grid-template-columns: repeat(auto-fit, 309px);
   }
 }
-/* stylelint-disable-next-line stylelint-plugin-mozilla/no-non-semantic-token-usage */
-/* stylelint-disable-next-line stylelint-plugin-mozilla/no-non-semantic-token-usage */
 .search-wrapper {
   padding: 0;
   margin-block: var(--space-xxlarge);
@@ -7202,8 +7197,6 @@ hr {
   transition-delay: 333ms;
 }
 
-/* stylelint-disable-next-line stylelint-plugin-mozilla/no-non-semantic-token-usage */
-/* stylelint-disable-next-line stylelint-plugin-mozilla/no-non-semantic-token-usage */
 .ds-card {
   display: flex;
   flex-direction: column;
