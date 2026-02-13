@@ -156,9 +156,9 @@ clippy:
     support-files:
         - 'tools/lint/clippy/**'
     # the version of cargo-clippy is:
-    # clippy 0.1.65 (2019147 2022-09-19)
+    # clippy 0.1.92 (ded5c06cf2 2025-12-08)
     # we use the date instead to facilitate the check
     # replacing - by . because Python packaging.version.Version expects this
-    min_clippy_version: 2022.09.19
+    min_clippy_version: 2025.12.08
     type: global
     payload: clippy:lint
