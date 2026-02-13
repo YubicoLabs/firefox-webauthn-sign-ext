@@ -57,13 +57,6 @@ XPCOMUtils.defineLazyPreferenceGetter(
   false
 );
 
-XPCOMUtils.defineLazyPreferenceGetter(
-  lazy,
-  "BANDWIDTH_THRESHOLD",
-  "browser.ipProtection.bandwidthThreshold",
-  0
-);
-
 let hasCustomElements = new WeakSet();
 
 /**
@@ -204,7 +197,7 @@ export class IPProtectionPanel {
       isAlpha: lazy.IPPEnrollAndEntitleManager.isAlpha,
       hasUpgraded: lazy.IPPEnrollAndEntitleManager.hasUpgraded,
       onboardingMessage: "",
-      bandwidthWarning: "",
+      bandwidthWarning: false,
       paused: false,
       isSiteExceptionsEnabled: this.isExceptionsFeatureEnabled,
       siteData: this.#getSiteData(),
@@ -569,6 +562,10 @@ export class IPProtectionPanel {
       "IPPProxyManager:StateChanged",
       this.handleEvent
     );
+    lazy.IPPProxyManager.addEventListener(
+      "IPPProxyManager:UsageChanged",
+      this.handleEvent
+    );
     lazy.IPPEnrollAndEntitleManager.addEventListener(
       "IPPEnrollAndEntitleManager:StateChanged",
       this.handleEvent
@@ -586,6 +583,10 @@ export class IPProtectionPanel {
     );
     lazy.IPPProxyManager.removeEventListener(
       "IPPProxyManager:StateChanged",
+      this.handleEvent
+    );
+    lazy.IPPProxyManager.removeEventListener(
+      "IPPProxyManager:UsageChanged",
       this.handleEvent
     );
     lazy.IPProtectionService.removeEventListener(
@@ -612,15 +613,10 @@ export class IPProtectionPanel {
 
   #addPrefObserver() {
     Services.prefs.addObserver(EGRESS_LOCATION_PREF, this.handlePrefChange);
-    Services.prefs.addObserver(BANDWIDTH_THRESHOLD_PREF, this.handlePrefChange);
   }
 
   #removePrefObserver() {
     Services.prefs.removeObserver(EGRESS_LOCATION_PREF, this.handlePrefChange);
-    Services.prefs.removeObserver(
-      BANDWIDTH_THRESHOLD_PREF,
-      this.handlePrefChange
-    );
   }
 
   #handlePrefChange(subject, topic, data) {
@@ -629,25 +625,6 @@ export class IPProtectionPanel {
       this.setState({
         location: isEnabled ? DEFAULT_EGRESS_LOCATION : null,
       });
-    } else if (data === BANDWIDTH_THRESHOLD_PREF) {
-      const threshold = lazy.BANDWIDTH_THRESHOLD;
-
-      // Reset dismissed warnings when threshold is cleared (e.g., new month)
-      if (threshold === 0) {
-        this.#lastBandwidthWarningMessageDismissed = 0;
-        return;
-      }
-
-      // Only show warning if threshold is 75 or 90
-      if (threshold !== 75 && threshold !== 90) {
-        return;
-      }
-
-      // Show warning only if current threshold is higher than dismissed threshold
-      // This allows warning to reappear when going from 75% → 90%
-      if (threshold > this.#lastBandwidthWarningMessageDismissed) {
-        this.setState({ bandwidthWarning: true });
-      }
     }
   }
 
@@ -773,6 +750,60 @@ export class IPProtectionPanel {
       // Store the dismissed threshold level
       this.#lastBandwidthWarningMessageDismissed = event.detail.threshold;
       this.setState({ bandwidthWarning: false });
+    } else if (event.type == "IPPProxyManager:UsageChanged") {
+      const usage = event.detail.usage;
+      if (!usage || !usage.max || !usage.remaining || !usage.reset) {
+        return;
+      }
+
+      const remainingPercent = Number(usage.remaining) / Number(usage.max);
+      const upsellThreshold = (1 - BANDWIDTH.FIRST_THRESHOLD) * 100;
+      const firstWarning = (1 - BANDWIDTH.SECOND_THRESHOLD) * 100;
+      const secondWarning = (1 - BANDWIDTH.THIRD_THRESHOLD) * 100;
+
+      let threshold = 0;
+      if (
+        remainingPercent <= BANDWIDTH.FIRST_THRESHOLD &&
+        remainingPercent > BANDWIDTH.SECOND_THRESHOLD
+      ) {
+        threshold = upsellThreshold;
+      } else if (
+        remainingPercent <= BANDWIDTH.SECOND_THRESHOLD &&
+        remainingPercent > BANDWIDTH.THIRD_THRESHOLD
+      ) {
+        threshold = firstWarning;
+      } else if (remainingPercent <= BANDWIDTH.THIRD_THRESHOLD) {
+        threshold = secondWarning;
+      }
+
+      Services.prefs.setIntPref(BANDWIDTH_THRESHOLD_PREF, threshold);
+
+      // Reset dismissed warnings when usage is reset
+      if (threshold === 0) {
+        this.#lastBandwidthWarningMessageDismissed = 0;
+      }
+
+      // Update bandwidthUsage state with byte values
+      if (lazy.BANDWIDTH_USAGE_ENABLED) {
+        this.setState({
+          bandwidthUsage: {
+            remaining: Number(usage.remaining),
+            max: Number(usage.max),
+            reset: usage.reset,
+          },
+        });
+      }
+
+      // Show warning only if threshold is 75 or 90 and higher than dismissed threshold
+      if (
+        (threshold === firstWarning || threshold === secondWarning) &&
+        threshold > this.#lastBandwidthWarningMessageDismissed
+      ) {
+        this.setState({ bandwidthWarning: true });
+      } else if (threshold <= this.#lastBandwidthWarningMessageDismissed) {
+        // Keep warning dismissed if threshold hasn't increased
+        this.setState({ bandwidthWarning: false });
+      }
     }
   }
 }
