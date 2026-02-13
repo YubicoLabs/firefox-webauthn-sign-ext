@@ -122,8 +122,6 @@ clippy:
         - tools/profiler/rust-helper/
         - toolkit/library/rust/shared/
         - toolkit/library/gtest/rust/
-        # not_unsafe_ptr_arg_deref
-        - remote/
         - dom/media/webrtc/sdp/rsdparsa_capi/
         - intl/encoding_glue/
         # not_unsafe_ptr_arg_deref
