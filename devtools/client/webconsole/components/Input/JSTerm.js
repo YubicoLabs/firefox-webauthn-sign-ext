@@ -815,7 +815,7 @@ class JSTerm extends Component {
   }
 
   getSelectionStart() {
-    return this.getInputValueBeforeCursor().length;
+    return this.editor.getTextBeforeCursor().length;
   }
 
   getSelectedText() {
@@ -1093,7 +1093,7 @@ class JSTerm extends Component {
       return;
     }
 
-    const inputUntilCursor = this.getInputValueBeforeCursor();
+    const inputUntilCursor = this.editor.getTextBeforeCursor();
 
     const items = matches.map(label => {
       let preLabel = label.substring(0, matchProp.length);
@@ -1192,7 +1192,7 @@ class JSTerm extends Component {
       // If the user is performing an element access, we need to check if we should add
       // starting and ending quotes, as well as a closing bracket.
       if (isElementAccess) {
-        const inputBeforeCursor = this.getInputValueBeforeCursor();
+        const inputBeforeCursor = this.editor.getTextBeforeCursor();
         if (inputBeforeCursor.trim().endsWith("[")) {
           suffix = label;
         }
@@ -1304,7 +1304,7 @@ class JSTerm extends Component {
    *                     quote and/or bracket.
    */
   getInputValueWithCompletionText() {
-    const inputBeforeCursor = this.getInputValueBeforeCursor();
+    const inputBeforeCursor = this.editor.getTextBeforeCursor();
     const inputAfterCursor = this._getValue().substring(
       inputBeforeCursor.length
     );
@@ -1379,14 +1379,6 @@ class JSTerm extends Component {
       numberOfCharsToMoveTheCursorForward,
       numberOfCharsToReplaceCharsBeforeCursor,
     };
-  }
-
-  getInputValueBeforeCursor() {
-    return this.editor
-      ? this.editor
-          .getDoc()
-          .getRange({ line: 0, ch: 0 }, this.editor.getCursor())
-      : null;
   }
 
   /**
