@@ -156,6 +156,11 @@ class SVGViewportElement : public SVGGraphicsElement {
 
   SVGAnimatedViewBox mViewBox;
 
+  enum { ATTR_X, ATTR_Y, ATTR_WIDTH, ATTR_HEIGHT };
+  SVGAnimatedLength mLengthAttributes[4];
+  static LengthInfo sLengthInfo[4];
+  LengthAttributesInfo GetLengthInfo() override;
+
   // The size of the rectangular SVG viewport into which we render. This is
   // not (necessarily) the same as the content area. See:
   //
@@ -168,12 +173,7 @@ class SVGViewportElement : public SVGGraphicsElement {
 
   SVGAnimatedPreserveAspectRatio mPreserveAspectRatio;
 
-  enum { ATTR_X, ATTR_Y, ATTR_WIDTH, ATTR_HEIGHT };
-  SVGAnimatedLength mLengthAttributes[4];
-  static LengthInfo sLengthInfo[4];
-  LengthAttributesInfo GetLengthInfo() override;
-
-  bool mHasChildrenOnlyTransform;
+  bool mHasChildrenOnlyTransform = false;
 };
 
 }  // namespace dom
