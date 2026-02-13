@@ -18,6 +18,33 @@ ChromeUtils.defineESModuleGetters(lazy, {
 
 let gIntentEngineStub;
 
+add_setup(async function () {
+  // Prevent network requests for remote search suggestions during testing.
+  await SpecialPowers.pushPrefEnv({
+    set: [
+      ["browser.search.suggest.enabled", false],
+      ["browser.smartwindow.endpoint", "http://localhost:0/v1"],
+    ],
+  });
+});
+
+/**
+ * Submit the smartbar by pressing Enter.
+ *
+ * @param {MozBrowser} browser - The browser element
+ */
+async function submitSmartbar(browser) {
+  await SpecialPowers.spawn(browser, [], async () => {
+    const aiWindowElement = content.document.querySelector("ai-window");
+    const smartbar = aiWindowElement.shadowRoot.querySelector(
+      "#ai-window-smartbar"
+    );
+    const inputField = smartbar.inputField;
+    inputField.focus();
+    EventUtils.synthesizeKey("KEY_Enter", {}, content);
+  });
+}
+
 /**
  * Dispatch a `smartbar-commit` event.
  *
@@ -33,7 +60,6 @@ async function dispatchSmartbarCommit(browser, value, action) {
       () => aiWindowElement.shadowRoot.querySelector("#ai-window-smartbar"),
       "Wait for Smartbar to be rendered"
     );
-
     const commitEvent = new content.CustomEvent("smartbar-commit", {
       detail: {
         value: val,
@@ -88,7 +114,9 @@ add_task(async function test_smartbar_submit_chat() {
   try {
     const fetchWithHistoryStub = sb.stub(this.Chat, "fetchWithHistory");
     // prevent title generation network requests
-    sb.stub(this.openAIEngine, "build");
+    sb.stub(this.openAIEngine, "build").resolves({
+      loadPrompt: () => Promise.resolve("Mock system prompt"),
+    });
     const win = await openAIWindow();
     const browser = win.gBrowser.selectedBrowser;
 
@@ -276,4 +304,132 @@ add_task(async function test_smartbar_cta_intent() {
   });
 
   await BrowserTestUtils.closeWindow(win);
+});
+
+add_task(
+  async function test_smartbar_shows_suggestions_on_input_below_in_fullpage() {
+    const win = await openAIWindow();
+    const browser = win.gBrowser.selectedBrowser;
+
+    await BrowserTestUtils.browserLoaded(browser, false, AIWINDOW_URL);
+    await promiseSmartbarSuggestionsOpen(browser, () =>
+      typeInSmartbar(browser, "test")
+    );
+    await assertSmartbarSuggestionsVisible(browser, true, "bottom");
+
+    await BrowserTestUtils.closeWindow(win);
+  }
+);
+
+add_task(
+  async function test_smartbar_shows_suggestions_on_input_above_in_sidebar() {
+    const win = await BrowserTestUtils.openNewBrowserWindow();
+    AIWindowUI.toggleSidebar(win);
+    const browser = win.document.getElementById("ai-window-browser");
+
+    await BrowserTestUtils.waitForCondition(() => {
+      const aiWindow = browser.contentDocument.querySelector("ai-window");
+      return aiWindow;
+    }, "Sidebar should be loaded");
+    await promiseSmartbarSuggestionsOpen(browser, () =>
+      typeInSmartbar(browser, "test")
+    );
+    await assertSmartbarSuggestionsVisible(browser, true, "top");
+
+    await BrowserTestUtils.closeWindow(win);
+  }
+);
+
+add_task(
+  async function test_smartbar_hides_suggestions_on_submitting_initial_prompt() {
+    const sb = this.sinon.createSandbox();
+
+    try {
+      sb.stub(this.Chat, "fetchWithHistory");
+      sb.stub(this.openAIEngine, "build");
+
+      const win = await openAIWindow();
+      const browser = win.gBrowser.selectedBrowser;
+
+      await promiseSmartbarSuggestionsOpen(browser, () =>
+        typeInSmartbar(browser, "test")
+      );
+      await assertSmartbarSuggestionsVisible(browser, true);
+      await submitSmartbar(browser);
+      await promiseSmartbarSuggestionsClose(browser);
+      await assertSmartbarSuggestionsVisible(browser, false);
+
+      await BrowserTestUtils.closeWindow(win);
+    } finally {
+      sb.restore();
+    }
+  }
+);
+
+add_task(async function test_smartbar_runs_search_for_initial_prompt() {
+  const sb = this.sinon.createSandbox();
+
+  try {
+    sb.stub(this.Chat, "fetchWithHistory");
+    sb.stub(this.openAIEngine, "build");
+
+    const win = await openAIWindow();
+    const browser = win.gBrowser.selectedBrowser;
+    await BrowserTestUtils.browserLoaded(browser, false, AIWINDOW_URL);
+    const aiWindowElement =
+      browser.contentWindow.document.querySelector("ai-window");
+    const smartbar = aiWindowElement.shadowRoot.querySelector(
+      "#ai-window-smartbar"
+    );
+
+    const lastSearchBefore = smartbar._lastSearchString;
+    await typeInSmartbar(browser, "Initial prompt");
+    const lastSearchAfter = smartbar._lastSearchString;
+
+    Assert.notEqual(
+      lastSearchBefore,
+      lastSearchAfter,
+      "_lastSearchString should change when search runs for initial prompt"
+    );
+
+    await BrowserTestUtils.closeWindow(win);
+  } finally {
+    sb.restore();
+  }
+});
+
+add_task(async function test_smartbar_suppresses_search_for_followup_prompts() {
+  const sb = this.sinon.createSandbox();
+
+  try {
+    sb.stub(this.Chat, "fetchWithHistory");
+    sb.stub(this.openAIEngine, "build");
+
+    const win = await openAIWindow();
+    const browser = win.gBrowser.selectedBrowser;
+    await BrowserTestUtils.browserLoaded(browser, false, AIWINDOW_URL);
+
+    const prompt = "Follow-up prompt";
+    await typeInSmartbar(browser, prompt);
+    await dispatchSmartbarCommit(browser, prompt, "chat");
+    const aiWindowElement =
+      browser.contentWindow.document.querySelector("ai-window");
+    const smartbar = aiWindowElement.shadowRoot.querySelector(
+      "#ai-window-smartbar"
+    );
+
+    const lastSearchBefore = smartbar._lastSearchString;
+    await typeInSmartbar(browser, prompt);
+    const lastSearchAfter = smartbar._lastSearchString;
+
+    Assert.equal(
+      lastSearchBefore,
+      lastSearchAfter,
+      "_lastSearchString should not change when queries are suppressed"
+    );
+
+    await BrowserTestUtils.closeWindow(win);
+  } finally {
+    sb.restore();
+  }
 });

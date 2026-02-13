@@ -155,11 +155,6 @@ export class SmartbarInput extends HTMLElement {
                data-l10n-id="urlbar-go-button"/>
         <moz-urlbar-slot name="page-actions" hidden=""> </moz-urlbar-slot>
       </hbox>
-      <hbox class="smartbar-button-container">
-        <html:context-icon-button></html:context-icon-button>
-        <html:memories-icon-button></html:memories-icon-button>
-        <html:input-cta action=""></html:input-cta>
-      </hbox>
       <vbox class="urlbarView"
             context=""
             role="group"
@@ -176,7 +171,13 @@ export class SmartbarInput extends HTMLElement {
         <hbox class="search-one-offs"
               includecurrentengine="true"
               disabletab="true"/>
-      </vbox>`;
+      </vbox>
+      <hbox class="smartbar-button-container">
+        <html:context-icon-button></html:context-icon-button>
+        <html:memories-icon-button></html:memories-icon-button>
+        <html:input-cta action=""></html:input-cta>
+      </hbox>
+    `;
   }
 
   /**
@@ -238,6 +239,7 @@ export class SmartbarInput extends HTMLElement {
   _lastValidURLStr = "";
   _valueOnLastSearch = "";
   _suppressStartQuery = false;
+  _permanentlySuppressStartQuery = false;
   _suppressPrimaryAdjustment = false;
   _lastSearchString = "";
   // Tracks IME composition.
@@ -2023,6 +2025,7 @@ export class SmartbarInput extends HTMLElement {
     this._autofillPlaceholder = null;
     this._resultForCurrentValue = null;
     this.setSelectionRange(0, 0);
+    this.view.close();
   }
 
   /**
@@ -2275,6 +2278,27 @@ export class SmartbarInput extends HTMLElement {
     }
 
     return false;
+  }
+
+  /**
+   * Suppresses running search queries.
+   *
+   * @param {object} [options]
+   * @param {boolean} [options.permanent] Whether suppression persists until explicitly cleared.
+   */
+  suppressStartQuery({ permanent = false } = {}) {
+    this._suppressStartQuery = true;
+    if (permanent) {
+      this._permanentlySuppressStartQuery = true;
+    }
+  }
+
+  /**
+   * Clears search query suppression.
+   */
+  unsuppressStartQuery() {
+    this._suppressStartQuery = false;
+    this._permanentlySuppressStartQuery = false;
   }
 
   /**
@@ -4489,7 +4513,7 @@ export class SmartbarInput extends HTMLElement {
     pasteAndGo.setAttribute("label", label);
     pasteAndGo.setAttribute("anonid", "paste-and-go");
     pasteAndGo.addEventListener("command", () => {
-      this._suppressStartQuery = true;
+      this.suppressStartQuery();
 
       this.select();
       this.window.goDoCommand("cmd_paste");
@@ -4497,7 +4521,9 @@ export class SmartbarInput extends HTMLElement {
       this.handleCommand();
       this.controller.clearLastQueryContextCache();
 
-      this._suppressStartQuery = false;
+      if (!this._permanentlySuppressStartQuery) {
+        this.unsuppressStartQuery();
+      }
     });
 
     contextMenu.addEventListener("popupshowing", () => {
@@ -5320,7 +5346,7 @@ export class SmartbarInput extends HTMLElement {
 
     if (this.view.isOpen) {
       if (lazy.UrlbarPrefs.get("closeOtherPanelsOnOpen")) {
-        // SmartbarView rolls up all popups when it opens, but we should
+        // UrlbarView rolls up all popups when it opens, but we should
         // do the same for SmartbarInput when it's already open in case
         // a tab preview was opened
         this.window.docShell.treeOwner
@@ -5328,7 +5354,15 @@ export class SmartbarInput extends HTMLElement {
           .getInterface(Ci.nsIAppWindow)
           .rollupAllPopups();
       }
-      if (!value && !lazy.UrlbarPrefs.get("suggest.topsites")) {
+      // Don’t show results when the input is empty unless top sites are enabled.
+      // TODO (bug 2014773): In Smartbar mode, we currently don’t show
+      // results for an empty input.
+      const canShowZeroPrefixResults =
+        !value &&
+        lazy.UrlbarPrefs.get("suggest.topsites") &&
+        !this.#isSmartbarMode;
+      const willShowResults = value || canShowZeroPrefixResults;
+      if (!willShowResults) {
         this.view.clear();
         if (!this.searchMode || !this.view.oneOffSearchButtons?.hasView) {
           this.view.close();
