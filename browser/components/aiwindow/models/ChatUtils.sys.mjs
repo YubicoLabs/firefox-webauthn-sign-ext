@@ -7,8 +7,6 @@
 const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
   BrowserWindowTracker: "resource:///modules/BrowserWindowTracker.sys.mjs",
-  PageDataService:
-    "moz-src:///browser/components/pagedata/PageDataService.sys.mjs",
   MemoriesManager:
     "moz-src:///browser/components/aiwindow/models/memories/MemoriesManager.sys.mjs",
   renderPrompt: "moz-src:///browser/components/aiwindow/models/Utils.sys.mjs",
@@ -38,7 +36,6 @@ function resolveTabMetadataDependencies(overrides = {}) {
   return {
     BrowserWindowTracker:
       overrides.BrowserWindowTracker ?? lazy.BrowserWindowTracker,
-    PageDataService: overrides.PageDataService ?? lazy.PageDataService,
   };
 }
 
@@ -49,8 +46,7 @@ function resolveTabMetadataDependencies(overrides = {}) {
  * @returns {Promise<{url: string, title: string, description: string}>}
  */
 export async function getCurrentTabMetadata(depsOverride) {
-  const { BrowserWindowTracker, PageDataService } =
-    resolveTabMetadataDependencies(depsOverride);
+  const { BrowserWindowTracker } = resolveTabMetadataDependencies(depsOverride);
   const win = BrowserWindowTracker.getTopWindow();
   const browser = win?.gBrowser?.selectedBrowser;
   if (!browser) {
@@ -61,26 +57,10 @@ export async function getCurrentTabMetadata(depsOverride) {
   const title = browser.contentTitle || browser.documentTitle || "";
 
   let description = "";
-  if (url) {
-    const cachedData = PageDataService.getCached(url);
-    if (cachedData?.description) {
-      description = cachedData.description;
-    } else {
-      try {
-        const actor =
-          browser.browsingContext?.currentWindowGlobal?.getActor("PageData");
-        if (actor) {
-          const pageData = await actor.collectPageData();
-          description = pageData?.description || "";
-        }
-      } catch (e) {
-        console.error(
-          "Failed to collect page description data from current tab:",
-          e
-        );
-      }
-    }
-  }
+  /**
+   * TODO: BUG 2015574
+   * Need to extract page description in PageExtractor
+   */
 
   return { url, title, description };
 }

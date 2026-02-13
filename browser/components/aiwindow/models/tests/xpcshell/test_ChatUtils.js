@@ -103,52 +103,38 @@ add_task(function test_getLocalIsoTime_returns_offset_timestamp() {
   }
 });
 
-add_task(async function test_getCurrentTabMetadata_fetch_fallback() {
+add_task(async function test_getCurrentTabMetadata_returns_browser_info() {
   const sb = sinon.createSandbox();
   const tracker = { getTopWindow: sb.stub() };
-  const pageData = {
-    getCached: sb.stub(),
-  };
-  const fakeActor = {
-    collectPageData: sb.stub().resolves({
-      description: "Collected description",
-    }),
-  };
   const fakeBrowser = {
     currentURI: { spec: "https://example.com/article" },
-    contentTitle: "",
-    documentTitle: "Example Article",
-    browsingContext: {
-      currentWindowGlobal: {
-        getActor: sb.stub().returns(fakeActor),
-      },
-    },
+    contentTitle: "Example Article",
+    documentTitle: "Document Title",
   };
 
   tracker.getTopWindow.returns({
     gBrowser: { selectedBrowser: fakeBrowser },
   });
-  pageData.getCached.returns(null);
 
   try {
     const result = await getCurrentTabMetadata({
       BrowserWindowTracker: tracker,
-      PageDataService: pageData,
     });
-    Assert.deepEqual(result, {
-      url: "https://example.com/article",
-      title: "Example Article",
-      description: "Collected description",
-    });
-    Assert.ok(
-      fakeActor.collectPageData.calledOnce,
-      "Should collect page data from actor when not cached"
+
+    Assert.equal(
+      result.url,
+      "https://example.com/article",
+      "Should return URL"
     );
-    Assert.ok(
-      fakeBrowser.browsingContext.currentWindowGlobal.getActor.calledWith(
-        "PageData"
-      ),
-      "Should get PageData actor"
+    Assert.equal(
+      result.title,
+      "Example Article",
+      "Should return title from contentTitle"
+    );
+    Assert.equal(
+      result.description,
+      "",
+      "Description should be empty (not yet implemented)"
     );
   } finally {
     sb.restore();
@@ -156,44 +142,96 @@ add_task(async function test_getCurrentTabMetadata_fetch_fallback() {
 });
 
 add_task(
-  async function test_constructRealTimeInfoInjectionMessage_with_tab_info() {
+  async function test_getCurrentTabMetadata_falls_back_to_documentTitle() {
     const sb = sinon.createSandbox();
     const tracker = { getTopWindow: sb.stub() };
-    const pageData = {
-      getCached: sb.stub(),
-    };
-    const locale = Services.locale.appLocaleAsBCP47;
-    const fakeActor = {
-      collectPageData: sb.stub(),
-    };
     const fakeBrowser = {
-      currentURI: { spec: "https://mozilla.org" },
-      contentTitle: "Mozilla",
-      documentTitle: "Mozilla",
-      browsingContext: {
-        currentWindowGlobal: {
-          getActor: sb.stub().returns(fakeActor),
-        },
-      },
+      currentURI: { spec: "https://example.com/page" },
+      contentTitle: "", // Empty contentTitle
+      documentTitle: "Document Title Fallback",
     };
 
     tracker.getTopWindow.returns({
       gBrowser: { selectedBrowser: fakeBrowser },
     });
-    pageData.getCached.returns({
-      description: "Internet for people",
+
+    try {
+      const result = await getCurrentTabMetadata({
+        BrowserWindowTracker: tracker,
+      });
+
+      Assert.equal(
+        result.title,
+        "Document Title Fallback",
+        "Should fall back to documentTitle when contentTitle is empty"
+      );
+    } finally {
+      sb.restore();
+    }
+  }
+);
+
+add_task(
+  async function test_getCurrentTabMetadata_falls_back_to_documentTitle() {
+    const sb = sinon.createSandbox();
+    const tracker = { getTopWindow: sb.stub() };
+    const fakeBrowser = {
+      currentURI: { spec: "https://example.com/page" },
+      contentTitle: "", // Empty contentTitle
+      documentTitle: "Document Title Fallback",
+    };
+
+    tracker.getTopWindow.returns({
+      gBrowser: { selectedBrowser: fakeBrowser },
     });
-    const clock = sb.useFakeTimers({ now: Date.UTC(2025, 11, 27, 14, 0, 0) });
+
+    try {
+      const result = await getCurrentTabMetadata({
+        BrowserWindowTracker: tracker,
+      });
+
+      Assert.equal(
+        result.title,
+        "Document Title Fallback",
+        "Should fall back to documentTitle when contentTitle is empty"
+      );
+    } finally {
+      sb.restore();
+    }
+  }
+);
+
+add_task(
+  async function test_constructRealTimeInfoInjectionMessage_with_tab_info() {
+    const sb = sinon.createSandbox();
+    const fakeBrowser = {
+      currentURI: { spec: "https://mozilla.org" },
+      contentTitle: "Mozilla",
+      documentTitle: "Mozilla",
+    };
+
+    const tracker = {
+      getTopWindow: sb.stub().returns({
+        gBrowser: { selectedBrowser: fakeBrowser },
+      }),
+    };
+
+    const locale = Services.locale.appLocaleAsBCP47;
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
     try {
       const message = await constructRealTimeInfoInjectionMessage({
         BrowserWindowTracker: tracker,
-        PageDataService: pageData,
       });
+
       Assert.equal(message.role, "system", "Should return system role");
       Assert.ok(
         message.content.includes(`Locale: ${locale}`),
         "Should include locale"
+      );
+      Assert.ok(
+        message.content.includes(`Timezone: ${timezone}`),
+        "Should include timezone"
       );
       Assert.ok(
         message.content.includes("Current active browser tab details:"),
@@ -207,16 +245,12 @@ add_task(
         message.content.includes("- Title: Mozilla"),
         "Should include tab title"
       );
+      // Description is empty in this implementation
       Assert.ok(
-        message.content.includes("- Description: Internet for people"),
-        "Should include tab description"
-      );
-      Assert.ok(
-        fakeActor.collectPageData.notCalled,
-        "Should not collect page data when cached data exists"
+        /Today's date: \d{4}-\d{2}-\d{2}/.test(message.content),
+        `Should include today's date, got: ${message.content}`
       );
     } finally {
-      clock.restore();
       sb.restore();
     }
   }
