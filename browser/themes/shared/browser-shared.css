@@ -1448,10 +1448,10 @@ popupnotificationcontent {
   }
 
   #urlbar-container,
-  #aiwindow-ask-button,
   #nav-bar-customization-target > *:not(#sidebar-button),
   #nav-bar-overflow-button,
-  #PanelUI-button {
+  #PanelUI-button,
+  #smartwindow-ask-button {
     visibility: hidden;
   }
 
