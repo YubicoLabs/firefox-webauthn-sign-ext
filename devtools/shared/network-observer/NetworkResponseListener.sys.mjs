@@ -588,7 +588,11 @@ export class NetworkResponseListener {
     }
 
     response.bodySize = this.#bodySize;
-    response.size = this.#receivedBodySize;
+    response.size = lazy.NetworkUtils.isRedirect(
+      this.#httpActivity.channel.responseStatus
+    )
+      ? 0
+      : this.#receivedBodySize;
     response.headersSize = this.#httpActivity.headersSize;
     response.transferredSize = this.#bodySize + this.#httpActivity.headersSize;
 
