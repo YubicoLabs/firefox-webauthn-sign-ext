@@ -1,5 +1,7 @@
-Telemetry
-=========
+.. _browser-search-telemetry:
+
+Search UI Telemetry
+===================
 
 This section describes existing telemetry probes measuring interaction with
 search engines from the browser UI.
