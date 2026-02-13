@@ -1815,7 +1815,7 @@
     "interventions": [
       {
         "platforms": ["desktop"],
-        "only_channels": ["nightly"],
+        "only_channels": ["nightly", "beta"],
         "ua_string": ["Chrome"]
       }
     ]
