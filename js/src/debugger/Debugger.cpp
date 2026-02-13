@@ -3360,6 +3360,7 @@ static bool UpdateExecutionObservabilityOfScriptsInZone(
   // BaselineScripts. This must be done as a separate phase as we can only
   // discard the BaselineScript on scripts that have no IonScript.
   for (size_t i = 0; i < scripts.length(); i++) {
+    MOZ_ASSERT_IF(scripts[i]->isDebuggee(), observing);
     if (!scripts[i]->jitScript()->icScript()->active()) {
       FinishDiscardBaselineScript(gcx, scripts[i]);
     }
