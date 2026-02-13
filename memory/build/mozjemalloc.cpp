@@ -2099,7 +2099,7 @@ ArenaPurgeResult arena_t::Purge(PurgeCondition aCond, PurgeStats& aStats) {
 #endif
 
     arena_chunk_t* chunk_to_release = nullptr;
-    bool is_dying;
+    bool arena_is_dying;
     {
       // Phase 2: Mark the pages with their final state (madvised or
       // decommitted) and fix up any other bookkeeping.
@@ -2109,7 +2109,7 @@ ArenaPurgeResult arena_t::Purge(PurgeCondition aCond, PurgeStats& aStats) {
       // We can't early exit if the arena is dying, we have to finish the purge
       // (which restores the state so the destructor will check it) and maybe
       // release the old spare arena.
-      is_dying = purge_info.mArena.mMustDeleteAfterPurge;
+      arena_is_dying = purge_info.mArena.mMustDeleteAfterPurge;
 
       auto [cpc, ctr] = purge_info.UpdatePagesAndCounts();
       continue_purge_chunk = cpc;
@@ -2128,7 +2128,7 @@ ArenaPurgeResult arena_t::Purge(PurgeCondition aCond, PurgeStats& aStats) {
     if (chunk_to_release) {
       chunk_dealloc((void*)chunk_to_release, kChunkSize, ARENA_CHUNK);
     }
-    if (is_dying) {
+    if (arena_is_dying) {
       return Dying;
     }
     purged_once = true;
