@@ -145,21 +145,8 @@ export class NetErrorChild extends RemotePageChild {
         });
 
         const shortDesc = doc.getElementById("errorShortDesc");
-        if (shortDesc) {
-          shortDesc.textContent += " ";
-          shortDesc.appendChild(span);
-        }
-
-        // For Felt Privacy experience (net-error-card), also update the learn more link
-        // to point to the corrected domain instead of the SUMO support page
-        const netErrorCard =
-          doc.querySelector("net-error-card").wrappedJSObject;
-        if (netErrorCard) {
-          const learnMoreLink = netErrorCard.netErrorLearnMoreLink;
-          if (learnMoreLink) {
-            learnMoreLink.href = displaySpec;
-          }
-        }
+        shortDesc.textContent += " ";
+        shortDesc.appendChild(span);
       },
     };
 

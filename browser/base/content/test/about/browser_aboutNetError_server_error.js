@@ -25,41 +25,27 @@ add_task(async function test_serverError() {
   info("Loading and waiting for the net error");
   await pageLoaded;
 
-  await SpecialPowers.spawn(browser, [], async function () {
+  await SpecialPowers.spawn(browser, [], function () {
     const doc = content.document;
     ok(
       doc.documentURI.startsWith("about:neterror"),
       "Should be showing error page"
     );
 
-    let titleEl;
-    let actualDataL10nID;
-
-    const netErrorCard = doc.querySelector("net-error-card");
-    if (netErrorCard) {
-      const card = netErrorCard.wrappedJSObject;
-      await card.getUpdateComplete();
-
-      titleEl = card.netErrorTitleText;
-    } else {
-      titleEl = doc.querySelector(".title-text");
-
-      const responseStatusLabel = await ContentTaskUtils.waitForCondition(
-        () => doc.getElementById("response-status-label"),
-        "Waiting for response-status-label"
-      );
-      is(
-        responseStatusLabel.textContent,
-        "Error code: 500 Internal Server Error",
-        "Correct response status message is set"
-      );
-    }
-
-    actualDataL10nID = titleEl.getAttribute("data-l10n-id");
+    const titleEl = doc.querySelector(".title-text");
+    const actualDataL10nID = titleEl.getAttribute("data-l10n-id");
     is(
       actualDataL10nID,
-      "problem-with-this-site-title",
+      "serverError-title",
       "Correct error page title is set"
+    );
+    const responseStatusLabel = doc.getElementById(
+      "response-status-label"
+    ).textContent;
+    is(
+      responseStatusLabel,
+      "Error code: 500 Internal Server Error",
+      "Correct response status message is set"
     );
   });
 
