@@ -2036,7 +2036,8 @@ class Skipfails:
                     if not self.platform_permutations:
                         self._fetch_platform_permutations()
                     permutations = (
-                        self.platform_permutations.get(manifest, {})
+                        self.platform_permutations
+                        .get(manifest, {})
                         .get(os, {})
                         .get(os_version, {})
                         .get(arch, None)

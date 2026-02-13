@@ -472,7 +472,8 @@ def _get_current_version(command_context, clang_paths):
     version_info = None
     try:
         version_info = (
-            subprocess.check_output(cmd, stderr=subprocess.STDOUT)
+            subprocess
+            .check_output(cmd, stderr=subprocess.STDOUT)
             .decode("utf-8")
             .strip()
         )

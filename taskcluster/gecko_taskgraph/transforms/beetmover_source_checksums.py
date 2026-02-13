@@ -57,7 +57,8 @@ def make_beetmover_checksums_description(config, jobs):
         treeherder = job.get("treeherder", {})
         treeherder.setdefault("symbol", "BMcss(N)")
         dep_th_platform = (
-            dep_job.task.get("extra", {})
+            dep_job.task
+            .get("extra", {})
             .get("treeherder", {})
             .get("machine", {})
             .get("platform", "")

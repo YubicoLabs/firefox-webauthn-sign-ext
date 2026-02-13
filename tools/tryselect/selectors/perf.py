@@ -1644,10 +1644,12 @@ def run(**kwargs):
     PerfParser.run_category_checks()
     PerfParser.check_cached_revision([])
     PerfParser.run(
-        profile=kwargs.get("try_config_params", {})
+        profile=kwargs
+        .get("try_config_params", {})
         .get("try_task_config", {})
         .get("gecko-profile", False),
-        rebuild=kwargs.get("try_config_params", {})
+        rebuild=kwargs
+        .get("try_config_params", {})
         .get("try_task_config", {})
         .get("rebuild", 1),
         **kwargs,

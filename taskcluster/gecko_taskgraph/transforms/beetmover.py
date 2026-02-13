@@ -64,7 +64,8 @@ def make_task_description(config, jobs):
             "symbol", replace_group(dep_job.task["extra"]["treeherder"]["symbol"], "BM")
         )
         dep_th_platform = (
-            dep_job.task.get("extra", {})
+            dep_job.task
+            .get("extra", {})
             .get("treeherder", {})
             .get("machine", {})
             .get("platform", "")

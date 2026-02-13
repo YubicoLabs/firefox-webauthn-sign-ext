@@ -58,7 +58,8 @@ def make_task_description(config, tasks):
 
         treeherder = task.get("treeherder", {})
         dep_th_platform = (
-            dep_task.task.get("extra", {})
+            dep_task.task
+            .get("extra", {})
             .get("treeherder", {})
             .get("machine", {})
             .get("platform", "")
