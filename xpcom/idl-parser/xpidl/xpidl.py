@@ -262,6 +262,10 @@ class Location:
         self.resolve()
         return "%s line %s:%s" % (self._file, self._lineno, self._colno)
 
+    def lineno(self):
+        self.resolve()
+        return self._lineno
+
     def __str__(self):
         self.resolve()
         return "%s line %s:%s\n%s\n%s" % (
@@ -464,6 +468,7 @@ class IDL:
 
 class CDATA:
     kind = "cdata"
+    _trailing_spaces_re = re.compile("\n? *$")
 
     def __init__(self, data, location):
         # the '// %{C++' comment generated in the header.py assumes the
@@ -492,6 +497,23 @@ class CDATA:
 
     def count(self):
         return 0
+
+    def data_with_comment(self):
+        # generate a comment for the searchfox analysis.
+        #
+        # self.location.lineno() points the "%{C++" line.
+        # self.data starts from the next line, excluding the "%}" part.
+        #
+        # Normalize the body, by removing the possible newline before the "%}",
+        # and also removing the indent before the "%}" part.
+        body = self._trailing_spaces_re.sub("", self.data)
+
+        # "first" should point the line after the "%{C++" line,
+        # and the "last" should point the line before the "%}" part.
+        first = self.location.lineno() + 1
+        last = first + len(body.split("\n")) - 1
+
+        return "// %%{C++:%d-%d\n%s\n// %%}\n" % (first, last, body)
 
 
 class Typedef:
