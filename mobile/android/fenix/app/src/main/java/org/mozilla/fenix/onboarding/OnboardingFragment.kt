@@ -7,7 +7,6 @@ package org.mozilla.fenix.onboarding
 import android.annotation.SuppressLint
 import android.appwidget.AppWidgetManager
 import android.content.Context
-import android.content.IntentFilter
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.os.Build
@@ -21,7 +20,6 @@ import androidx.compose.runtime.Composable
 import androidx.fragment.app.Fragment
 import androidx.fragment.compose.content
 import androidx.lifecycle.lifecycleScope
-import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import androidx.navigation.fragment.findNavController
 import kotlinx.coroutines.launch
 import mozilla.components.lib.state.helpers.StoreProvider.Companion.fragmentStore
@@ -122,7 +120,6 @@ class OnboardingFragment : Fragment() {
         )
     }
 
-    private val pinAppWidgetReceiver = WidgetPinnedReceiver()
     private val defaultBrowserPromptStorage by lazy { DefaultDefaultBrowserPromptStorage(requireContext()) }
     private val defaultBrowserPromptManager by lazy {
         DefaultBrowserPromptManager(
@@ -147,9 +144,6 @@ class OnboardingFragment : Fragment() {
         if (!isLargeScreenSize()) {
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
-        val filter = IntentFilter(WidgetPinnedReceiver.ACTION)
-        LocalBroadcastManager.getInstance(context)
-            .registerReceiver(pinAppWidgetReceiver, filter)
 
         // We want the prompt to be displayed once per onboarding opening.
         // In case the host got recreated, we don't reset the flag.
@@ -230,7 +224,6 @@ class OnboardingFragment : Fragment() {
         if (!isLargeScreenSize()) {
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
-        LocalBroadcastManager.getInstance(requireContext()).unregisterReceiver(pinAppWidgetReceiver)
     }
 
     @RequiresApi(Build.VERSION_CODES.TIRAMISU)
