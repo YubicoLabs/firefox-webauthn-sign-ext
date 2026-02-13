@@ -1872,8 +1872,8 @@ class IDLParser:
     def t_LCDATA(self, t):
         r"%\{[ ]*C\+\+[ ]*\n(?P<cdata>(\n|.)*?\n?)%\}[ ]*(C\+\+)?"
         t.type = "CDATA"
-        t.value = t.lexer.lexmatch.group("cdata")
         t.lexer.lineno += t.value.count("\n")
+        t.value = t.lexer.lexmatch.group("cdata")
         return t
 
     def t_INCLUDE(self, t):
