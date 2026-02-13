@@ -72,7 +72,7 @@ Reviewers will probably look at the following areas of the code:
    not negatively affecting performance of other code?
 -  License review. Does the code follow the `code licensing
    rules <https://www.mozilla.org/hacking/committer/committers-agreement.pdf>`__?
--  AI-assisted code review. If the patch was authored with the assistance 
+-  AI-assisted code review. If the patch was authored with the assistance
    of AI tools, does the contributor understand and can they explain every change?
    Does the code meet the same standards as any human-written patch?
    See the :doc:`AI Coding Policy <ai-coding>` for more details.
