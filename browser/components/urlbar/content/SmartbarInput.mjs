@@ -1141,16 +1141,18 @@ export class SmartbarInput extends HTMLElement {
    * @param {CustomEvent} event The custom event to handle.
    */
   handleCtaInputEvent(event) {
+    this.smartbarAction = event.detail.action;
     switch (event.type) {
       case "aiwindow-input-cta:on-action-change":
+        this.smartbarActionIsUserInitiated = true;
+        break;
       case "aiwindow-input-cta:on-action":
-        this.smartbarAction = event.detail.action;
+        this.smartbarActionIsUserInitiated = false;
         break;
       default:
         lazy.logger.debug(`Unhandled event ${event.type}`, event);
     }
 
-    // TODO (Bug 2008925): Handle different smartbar actions
     this.handleCommand(event);
   }
 
@@ -1223,6 +1225,86 @@ export class SmartbarInput extends HTMLElement {
    */
 
   /**
+   * Handles user initiated action.
+   *
+   * @param {Event} event - The event that triggered the action.
+   * @param {object} triggeringPrincipal - The principal that the action was triggered from.
+   * @returns {boolean} - True if the action was user initiated handled and false if we fell through.
+   */
+  _handleSmartbarOnChangeAction(event, triggeringPrincipal) {
+    const committedValue = this.untrimmedValue;
+    const action = this.smartbarAction;
+
+    this.dispatchEvent(
+      new CustomEvent("smartbar-commit", {
+        bubbles: true,
+        composed: true,
+        detail: { value: committedValue, event, action },
+      })
+    );
+
+    // Submit chat
+    if (action === "chat") {
+      this.controller.engagementEvent.record(event, {
+        searchString: committedValue,
+        searchSource: this.getSearchSource(event),
+        selType: "ask_button",
+        result: null,
+      });
+      this.#clearSmartbarInput();
+      return true;
+    }
+
+    // Run search
+    if (action === "search" && this.smartbarActionIsUserInitiated) {
+      const engine = lazy.UrlbarSearchUtils.getDefaultEngine();
+      const [url, postData] = lazy.UrlbarUtils.getSearchQueryUrl(
+        engine,
+        committedValue
+      );
+      this.controller.engagementEvent.record(event, {
+        searchString: committedValue,
+        searchSource: this.getSearchSource(event),
+        selType: "search_button",
+        result: null,
+      });
+      this._loadURL(url, event, this._whereToOpen(event), {
+        triggeringPrincipal,
+        postData,
+        allowInheritPrincipal: false,
+      });
+      this._recordSearch(engine, event);
+      return true;
+    }
+
+    // Attempt to navigate to URL
+    if (action === "navigate" && this.smartbarActionIsUserInitiated) {
+      let flags = Ci.nsIURIFixup.FIXUP_FLAG_FIX_SCHEME_TYPOS;
+      if (this.isPrivate) {
+        flags |= Ci.nsIURIFixup.FIXUP_FLAG_PRIVATE_CONTEXT;
+      }
+
+      let fixupInfo = Services.uriFixup.getFixupURIInfo(committedValue, flags);
+      this.controller.engagementEvent.record(event, {
+        searchString: committedValue,
+        searchSource: this.getSearchSource(event),
+        selType: "navigate_button",
+        result: null,
+      });
+      this._loadURL(
+        fixupInfo.preferredURI.spec,
+        event,
+        this._whereToOpen(event),
+        { triggeringPrincipal, allowInheritPrincipal: false }
+      );
+      return true;
+    }
+
+    // Let the handleNavigation logic continue
+    return false;
+  }
+
+  /**
    * Handles an event which would cause a URL or text to be opened.
    *
    * @param {object} options
@@ -1238,23 +1320,11 @@ export class SmartbarInput extends HTMLElement {
    *   The principal that the action was triggered from.
    */
   handleNavigation({ event, oneOffParams, triggeringPrincipal }) {
-    if (this.#isSmartbarMode) {
-      const committedValue = this.untrimmedValue;
-      const action = this.smartbarAction;
-      lazy.logger.debug(`commit (${action}): ${committedValue}`);
-      this.dispatchEvent(
-        new CustomEvent("smartbar-commit", {
-          bubbles: true,
-          composed: true,
-          detail: { value: committedValue, event, action },
-        })
-      );
-
-      // Fall through to default navigation behaviour except for "chat".
-      if (action === "chat") {
-        this.#clearSmartbarInput();
-        return;
-      }
+    if (
+      this.#isSmartbarMode &&
+      this._handleSmartbarOnChangeAction(event, triggeringPrincipal)
+    ) {
+      return;
     }
     let element = this.view.selectedElement;
     let result = this.view.getResultFromElement(element);

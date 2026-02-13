@@ -163,11 +163,9 @@ add_task(async function test_smartbar_action_navigate() {
 
     await SpecialPowers.spawn(browser, [], async () => {
       const aiWindowElement = content.document.querySelector("ai-window");
-      const smartbar = await ContentTaskUtils.waitForCondition(
-        () => aiWindowElement.shadowRoot.querySelector("#ai-window-smartbar"),
-        "Wait for Smartbar to be rendered"
+      const smartbar = aiWindowElement.shadowRoot.querySelector(
+        "#ai-window-smartbar"
       );
-
       smartbar.value = "https://example.com/";
       smartbar.smartbarAction = "navigate";
       smartbar.handleNavigation({});
@@ -190,6 +188,87 @@ add_task(async function test_smartbar_action_navigate() {
   } finally {
     sb.restore();
   }
+});
+
+add_task(async function test_smartbar_explicit_navigate_action() {
+  const win = await openAIWindow();
+  const browser = win.gBrowser.selectedBrowser;
+
+  await BrowserTestUtils.browserLoaded(browser, false, AIWINDOW_URL);
+
+  const testURL = "https://example.org/";
+  const loaded = BrowserTestUtils.browserLoaded(browser, false, testURL);
+  await SpecialPowers.spawn(browser, [testURL], async url => {
+    const aiWindowElement = content.document.querySelector("ai-window");
+    const smartbar = aiWindowElement.shadowRoot.querySelector(
+      "#ai-window-smartbar"
+    );
+
+    smartbar.value = url;
+    smartbar.smartbarAction = "navigate";
+    smartbar.smartbarActionIsUserInitiated = true;
+    smartbar.handleNavigation({});
+  });
+
+  await loaded;
+  Assert.equal(
+    browser.currentURI.spec,
+    testURL,
+    "Browser should navigate to the correct URL with explicit navigation"
+  );
+
+  await BrowserTestUtils.closeWindow(win);
+});
+
+add_task(async function test_smartbar_explicit_search_action() {
+  const win = await openAIWindow();
+  const browser = win.gBrowser.selectedBrowser;
+
+  await BrowserTestUtils.browserLoaded(browser, false, AIWINDOW_URL);
+
+  const searchQuery = "Test";
+  const searchResult = await SpecialPowers.spawn(
+    browser,
+    [searchQuery],
+    async query => {
+      const aiWindowElement = content.document.querySelector("ai-window");
+      const smartbar = await ContentTaskUtils.waitForCondition(
+        () => aiWindowElement.shadowRoot.querySelector("#ai-window-smartbar"),
+        "Wait for Smartbar to be rendered"
+      );
+
+      let loadURLCalled = false;
+      let loadedURL = null;
+      // TODO (Bug 2016696): Ideally, we would use Sinon here to stub `_loadURL`.
+      // I did not have success getting it to work with the Smartbar inside of
+      // `SpecialPowers.spawn` here.
+      smartbar._loadURL = url => {
+        loadURLCalled = true;
+        loadedURL = url;
+      };
+
+      smartbar.value = query;
+      smartbar.smartbarAction = "search";
+      smartbar.smartbarActionIsUserInitiated = true;
+      smartbar.handleNavigation({});
+
+      return {
+        loadURLCalled,
+        loadedURL,
+      };
+    }
+  );
+
+  Assert.ok(
+    searchResult.loadURLCalled,
+    "_loadURL should get called for explicit search action"
+  );
+  Assert.ok(
+    searchResult.loadedURL.includes(searchQuery),
+    `Search URL should contain the query: ${searchResult.loadedURL}`
+  );
+
+  await BrowserTestUtils.closeWindow(win);
 });
 
 add_task(async function test_smartbar_empty_submit() {
