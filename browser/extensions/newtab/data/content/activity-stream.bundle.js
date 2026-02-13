@@ -13020,11 +13020,12 @@ function WeatherForecast({
   const nimbusWeatherForecastTrainhopEnabled = prefs.trainhopConfig?.widgets?.weatherForecastEnabled;
   const weatherForecastWidgetEnabled = nimbusWeatherForecastTrainhopEnabled || prefs["widgets.system.weatherForecast.enabled"];
 
-  // This weather forecast widget will only show when the following:
+  // This weather forecast widget will only show when the following are true:
   // - The weather view is set to "detailed" (can be checked with the weather.display pref)
   // - Weather is displayed on New Tab (system.showWeather)
-  // The weather forecast widget is enabled (system.weatherForecast.enabled)
-  // Note that if the view is set to "detailed" but the weather forecast widget is not enabled, then the mini weather widget will display with the "detailed" view
+  // - The weather forecast widget is enabled (system.weatherForecast.enabled)
+  // Note that if the view is set to "detailed" but the weather forecast widget is not enabled,
+  // then the mini weather widget will display with the "detailed" view
   if (!showDetailedView || !weatherData?.initialized || !weatherForecastWidgetEnabled || !isWeatherEnabled) {
     return null;
   }
@@ -13359,6 +13360,7 @@ function resetTimerToDefaults(dispatch, timerType) {
 }
 function Widgets() {
   const prefs = (0,external_ReactRedux_namespaceObject.useSelector)(state => state.Prefs.values);
+  const weatherData = (0,external_ReactRedux_namespaceObject.useSelector)(state => state.Weather);
   const {
     messageData
   } = (0,external_ReactRedux_namespaceObject.useSelector)(state => state.Messages);
@@ -13375,7 +13377,25 @@ function Widgets() {
   const nimbusMaximizedTrainhopEnabled = prefs.trainhopConfig?.widgets?.maximized;
   const listsEnabled = (nimbusListsTrainhopEnabled || nimbusListsEnabled || prefs[PREF_WIDGETS_SYSTEM_LISTS_ENABLED]) && prefs[PREF_WIDGETS_LISTS_ENABLED];
   const timerEnabled = (nimbusTimerTrainhopEnabled || nimbusTimerEnabled || prefs[PREF_WIDGETS_SYSTEM_TIMER_ENABLED]) && prefs[PREF_WIDGETS_TIMER_ENABLED];
-  const weatherForecastEnabled = nimbusWeatherForecastTrainhopEnabled || prefs[PREF_WIDGETS_SYSTEM_WEATHER_FORECAST_ENABLED];
+
+  // This weather forecast widget will only show when the following are true:
+  // - The weather view is set to "detailed" (can be checked with the weather.display pref)
+  // - Weather is displayed on New Tab (system.showWeather)
+  // - The weather forecast widget is enabled (system.weatherForecast.enabled)
+  // Note that if the view is set to "detailed" but the weather forecast widget is not enabled,
+  // then the mini weather widget will display with the "detailed" view
+  const weatherForecastSystemEnabled = nimbusWeatherForecastTrainhopEnabled || prefs[PREF_WIDGETS_SYSTEM_WEATHER_FORECAST_ENABLED];
+  const nimbusWeatherDisplay = prefs.trainhopConfig?.weather?.display;
+  const showDetailedView = nimbusWeatherDisplay === "detailed" || prefs["weather.display"] === "detailed";
+
+  // Check if weather is enabled (browser.newtabpage.activity-stream.showWeather)
+  const {
+    showWeather
+  } = prefs;
+  const systemShowWeather = prefs["system.showWeather"];
+  const weatherExperimentEnabled = prefs.trainhopConfig?.weather?.enabled;
+  const isWeatherEnabled = showWeather && (systemShowWeather || weatherExperimentEnabled);
+  const weatherForecastEnabled = weatherForecastSystemEnabled && showDetailedView && weatherData?.initialized && isWeatherEnabled;
 
   // Widget size is "small" only when maximize feature is enabled and widgets
   // are currently minimized. Otherwise defaults to "medium".
@@ -13403,6 +13423,10 @@ function Widgets() {
     (0,external_ReactRedux_namespaceObject.batch)(() => {
       dispatch(actionCreators.SetPref(PREF_WIDGETS_LISTS_ENABLED, false));
       dispatch(actionCreators.SetPref(PREF_WIDGETS_TIMER_ENABLED, false));
+      // If weather forecast widget is visible, turn off the weather
+      if (weatherForecastEnabled) {
+        dispatch(actionCreators.SetPref("showWeather", false));
+      }
       const telemetryData = {
         action_type: CONTAINER_ACTION_TYPES.HIDE_ALL,
         widget_size: widgetSize
@@ -13429,6 +13453,19 @@ function Widgets() {
           type: actionTypes.WIDGETS_ENABLED,
           data: {
             widget_name: "focus_timer",
+            widget_source: "widget",
+            enabled: false,
+            widget_size: widgetSize
+          }
+        }));
+      }
+
+      // Send telemetry for weather widget if it was visible when hiding all widgets
+      if (weatherForecastEnabled) {
+        dispatch(actionCreators.OnlyToMain({
+          type: actionTypes.WIDGETS_ENABLED,
+          data: {
+            widget_name: "weather",
             widget_source: "widget",
             enabled: false,
             widget_size: widgetSize
