@@ -1577,14 +1577,16 @@ class Editor extends EventEmitter {
   }
 
   /**
-   * Set event listeners for the line gutter
+   * This enables the gutter and sets up all the
+   * event listeners for the various panels in the gutter.
+   * Currently the panels are the line numbers & code fold gutter.
    *
    * @param {object} domEventHandlers
    *
    * example usage:
    *  const domEventHandlers = { click(event) { console.log(event);} }
    */
-  setGutterEventListeners(domEventHandlers) {
+  enableGutter(domEventHandlers = {}) {
     const cm = editors.get(this);
     const {
       codemirrorView: { lineNumbers },
@@ -1619,6 +1621,19 @@ class Editor extends EventEmitter {
             domEventHandlers: this.#gutterDOMEventHandlers,
           })
         ),
+      ],
+    });
+  }
+
+  /**
+   * This removes the gutter and the panels wthin it
+   */
+  disableGutter() {
+    const cm = editors.get(this);
+    cm.dispatch({
+      effects: [
+        this.#compartments.lineNumberCompartment.reconfigure([]),
+        this.#compartments.foldGutterCompartment.reconfigure([]),
       ],
     });
   }
