@@ -166,3 +166,103 @@ async function assertSmartbarSuggestionsVisible(
     `Suggestions position should be: ${expectedPosition}`
   );
 }
+
+/**
+ * Mock OpenAI server helpers
+ */
+
+const { HttpServer } = ChromeUtils.importESModule(
+  "resource://testing-common/httpd.sys.mjs"
+);
+
+function readRequestBody(request) {
+  const stream = request.bodyInputStream;
+  const available = stream.available();
+  return NetUtil.readInputStreamToString(stream, available, {
+    charset: "UTF-8",
+  });
+}
+
+function startMockOpenAI({
+  streamChunks = ["Hello from mock."],
+  onRequest,
+} = {}) {
+  const server = new HttpServer();
+
+  server.registerPathHandler("/v1/chat/completions", (request, response) => {
+    let bodyText = "";
+    if (request.method === "POST") {
+      try {
+        bodyText = readRequestBody(request);
+      } catch (_) {}
+    }
+
+    let body;
+    try {
+      body = JSON.parse(bodyText || "{}");
+    } catch (_) {
+      body = {};
+    }
+
+    onRequest?.(body);
+
+    const wantsStream = !!body.stream;
+    const streamChunksToUse = streamChunks;
+    const timestamp = Math.floor(Date.now() / 1000);
+
+    if (wantsStream) {
+      response.setStatusLine(request.httpVersion, 200, "OK");
+      response.setHeader(
+        "Content-Type",
+        "text/event-stream; charset=utf-8",
+        false
+      );
+      response.setHeader("Cache-Control", "no-cache", false);
+      response.setHeader("Access-Control-Allow-Origin", "*", false);
+      response.processAsync();
+
+      streamChunksToUse.forEach((chunk, index) => {
+        response.write(
+          `data: ${JSON.stringify({
+            id: `chatcmpl-aiwindow-stream-${index}`,
+            object: "chat.completion.chunk",
+            created: timestamp,
+            model: "aiwindow-mock",
+            choices: [
+              {
+                index: 0,
+                delta: { content: chunk },
+                finish_reason:
+                  index === streamChunksToUse.length - 1 ? "stop" : null,
+              },
+            ],
+          })}\n\n`
+        );
+      });
+
+      response.write("data: [DONE]\n\n");
+      response.finish();
+    }
+  });
+
+  server.start(-1);
+  return { server, port: server.identity.primaryPort };
+}
+
+function stopMockOpenAI(server) {
+  return new Promise(resolve => server.stop(resolve));
+}
+
+async function withServer(serverOptions, task) {
+  const { server, port } = startMockOpenAI(serverOptions);
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.smartwindow.endpoint", `http://localhost:${port}/v1`]],
+  });
+
+  try {
+    await task({ port });
+  } finally {
+    await SpecialPowers.popPrefEnv();
+    await stopMockOpenAI(server);
+  }
+}
