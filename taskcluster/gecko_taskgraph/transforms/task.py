@@ -214,6 +214,7 @@ task_description_schema = LegacySchema({
     Optional("retries"): int,
 })
 
+TREEHERDER_ROOT_URL = "https://treeherder.mozilla.org"
 TC_TREEHERDER_SCHEMA_URL = (
     "https://github.com/taskcluster/taskcluster-treeherder/"
     "blob/master/schemas/task-treeherder-config.yml"
@@ -350,6 +351,24 @@ def get_head_ref_index(config) -> str:
     # Ensure head_ref conforms to TC route schema. The `safe` flag ensures '/'
     # is also quoted.
     return quote(index, safe="")
+
+
+def get_treeherder_link(config) -> str:
+    th_branch_map = resolve_keyed_by(
+        config.graph_config["treeherder"],
+        "branch-map",
+        "Treeherder Link",
+        project=config.params["project"],
+    ).get("branch-map", {})
+
+    branch_rev = get_branch_rev(config)
+    head_ref, _ = get_head_ref(config)
+    if head_ref and head_ref in th_branch_map:
+        th_repo = th_branch_map[head_ref]
+    else:
+        th_repo = get_project_alias(config)
+
+    return f"{TREEHERDER_ROOT_URL}/#/jobs?repo={th_repo}&revision={branch_rev}&selectedTaskRun=<self>"
 
 
 @memoize
@@ -2393,7 +2412,7 @@ def build_task(config, tasks):
 
         if task_th:
             # link back to treeherder in description
-            th_job_link = f"https://treeherder.mozilla.org/#/jobs?repo={get_project_alias(config)}&revision={branch_rev}&selectedTaskRun=<self>"
+            th_job_link = get_treeherder_link(config)
             task_def["metadata"]["description"] = {
                 "task-reference": "{description} ([Treeherder job]({th_job_link}))".format(
                     description=task_def["metadata"]["description"],
