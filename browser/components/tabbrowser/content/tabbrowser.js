@@ -10574,7 +10574,12 @@ var TabContextMenu = {
   moveTabsToNewGroup() {
     let insertBefore = this.contextTab;
     if (insertBefore._tPos < gBrowser.pinnedTabCount) {
-      insertBefore = gBrowser.tabs[gBrowser.pinnedTabCount];
+      let firstUnpinnedTab = gBrowser.tabs[gBrowser.pinnedTabCount];
+      if (firstUnpinnedTab.splitview) {
+        insertBefore = firstUnpinnedTab.splitview;
+      } else {
+        insertBefore = firstUnpinnedTab;
+      }
     } else if (this.contextTab.group) {
       insertBefore = this.contextTab.group;
     } else if (this.contextTab.splitview) {
