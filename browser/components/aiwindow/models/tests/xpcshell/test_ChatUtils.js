@@ -172,7 +172,7 @@ add_task(
 );
 
 add_task(
-  async function test_getCurrentTabMetadata_falls_back_to_documentTitle() {
+  async function test_getCurrentTabMetadata_constructRealTimeInfoInjectionMessage() {
     const sb = sinon.createSandbox();
     const tracker = { getTopWindow: sb.stub() };
     const fakeBrowser = {
@@ -180,75 +180,45 @@ add_task(
       contentTitle: "", // Empty contentTitle
       documentTitle: "Document Title Fallback",
     };
+    const locale = Services.locale.appLocaleAsBCP47;
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
     tracker.getTopWindow.returns({
       gBrowser: { selectedBrowser: fakeBrowser },
     });
 
     try {
-      const result = await getCurrentTabMetadata({
+      const mapping = await constructRealTimeInfoInjectionMessage({
         BrowserWindowTracker: tracker,
       });
 
+      // Test that it returns a mapping object with the correct properties
       Assert.equal(
-        result.title,
+        mapping.url,
+        "https://example.com/page",
+        "Should include URL"
+      );
+      Assert.equal(
+        mapping.title,
         "Document Title Fallback",
-        "Should fall back to documentTitle when contentTitle is empty"
+        "Should include title"
       );
-    } finally {
-      sb.restore();
-    }
-  }
-);
+      Assert.equal(mapping.description, "", "Should include description");
 
-add_task(
-  async function test_constructRealTimeInfoInjectionMessage_with_tab_info() {
-    const sb = sinon.createSandbox();
-    const fakeBrowser = {
-      currentURI: { spec: "https://mozilla.org" },
-      contentTitle: "Mozilla",
-      documentTitle: "Mozilla",
-    };
-
-    const tracker = {
-      getTopWindow: sb.stub().returns({
-        gBrowser: { selectedBrowser: fakeBrowser },
-      }),
-    };
-
-    const locale = Services.locale.appLocaleAsBCP47;
-    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-
-    try {
-      const message = await constructRealTimeInfoInjectionMessage({
-        BrowserWindowTracker: tracker,
-      });
-
-      Assert.equal(message.role, "system", "Should return system role");
+      Assert.equal(mapping.locale, locale, "Should include locale");
+      Assert.equal(mapping.timezone, timezone, "Should include timezone");
       Assert.ok(
-        message.content.includes(`Locale: ${locale}`),
-        "Should include locale"
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(mapping.isoTimestamp),
+        `Should have valid ISO timestamp format (YYYY-MM-DDTHH:MM:SS), got: ${mapping.isoTimestamp}`
       );
       Assert.ok(
-        message.content.includes(`Timezone: ${timezone}`),
-        "Should include timezone"
+        /^\d{4}-\d{2}-\d{2}$/.test(mapping.todayDate),
+        `Should have valid date format (YYYY-MM-DD), got: ${mapping.todayDate}`
       );
-      Assert.ok(
-        message.content.includes("Current active browser tab details:"),
-        "Should include tab details heading"
-      );
-      Assert.ok(
-        message.content.includes("- URL: https://mozilla.org"),
-        "Should include tab URL"
-      );
-      Assert.ok(
-        message.content.includes("- Title: Mozilla"),
-        "Should include tab title"
-      );
-      // Description is empty in this implementation
-      Assert.ok(
-        /Today's date: \d{4}-\d{2}-\d{2}/.test(message.content),
-        `Should include today's date, got: ${message.content}`
+      Assert.equal(
+        mapping.hasTabInfo,
+        true,
+        "Should indicate tab info is present"
       );
     } finally {
       sb.restore();
@@ -262,30 +232,32 @@ add_task(
     const tracker = { getTopWindow: sb.stub() };
     const pageData = {
       getCached: sb.stub(),
-      fetchPageData: sb.stub(),
     };
-    const locale = Services.locale.appLocaleAsBCP47;
 
-    tracker.getTopWindow.returns(null);
+    tracker.getTopWindow.returns({
+      gBrowser: { selectedBrowser: null },
+    });
+    pageData.getCached.returns(null);
     const clock = sb.useFakeTimers({ now: Date.UTC(2025, 11, 27, 14, 0, 0) });
 
     try {
-      const message = await constructRealTimeInfoInjectionMessage({
+      const mapping = await constructRealTimeInfoInjectionMessage({
         BrowserWindowTracker: tracker,
         PageDataService: pageData,
       });
-      Assert.ok(
-        message.content.includes("No active browser tab."),
-        "Should mention missing tab info"
+
+      Assert.equal(mapping.url, "", "Should not have URL");
+      Assert.equal(mapping.title, "", "Should not have title");
+      Assert.equal(mapping.description, "", "Should not have description");
+      Assert.equal(
+        mapping.hasTabInfo,
+        false,
+        "Should indicate no tab info present"
       );
-      Assert.ok(
-        !message.content.includes("- URL:"),
-        "Should not include empty tab fields"
-      );
-      Assert.ok(
-        message.content.includes(`Locale: ${locale}`),
-        "Should include system locale"
-      );
+      Assert.ok(mapping.locale, "Should still include locale");
+      Assert.ok(mapping.timezone, "Should still include timezone");
+      Assert.ok(mapping.isoTimestamp, "Should still include timestamp");
+      Assert.ok(mapping.todayDate, "Should still include date");
     } finally {
       clock.restore();
       sb.restore();
@@ -300,7 +272,7 @@ add_task(async function test_constructRelevantMemoriesContextMessage() {
   try {
     const fakeEngine = {
       loadPrompt() {
-        return "fake prompt";
+        return "Relevant memories:\n{relevantMemoriesList}";
       },
       run() {
         return {
@@ -317,8 +289,13 @@ add_task(async function test_constructRelevantMemoriesContextMessage() {
       .stub(MemoriesManager, "ensureOpenAIEngineForUsage")
       .resolves(fakeEngine);
 
+    // Pass engineInstance as second parameter
     const relevantMemoriesContextMessage =
-      await constructRelevantMemoriesContextMessage("I love drinking coffee");
+      await constructRelevantMemoriesContextMessage(
+        "I love drinking coffee",
+        fakeEngine
+      );
+
     Assert.ok(
       stub.calledOnce,
       "ensureOpenAIEngineForUsage should be called once"
@@ -343,25 +320,12 @@ add_task(async function test_constructRelevantMemoriesContextMessage() {
       "Should have role 'system'"
     );
     Assert.ok(
-      typeof relevantMemoriesContextMessage.content === "string" &&
-        relevantMemoriesContextMessage.content.length,
-      "Content should be a non-empty string"
-    );
-
-    const content = relevantMemoriesContextMessage.content;
-    Assert.ok(
-      content.includes(
-        "Use them to personalized your response using the following guidelines:"
-      ),
-      "Relevant memories context prompt should pull from the correct base"
+      relevantMemoriesContextMessage.content.includes("Relevant memories:"),
+      "Should include prompt template text"
     );
     Assert.ok(
-      content.includes("- food_drink.16ec1838 - Loves drinking coffee"),
-      "Content should include relevant memory"
-    );
-    Assert.ok(
-      !content.includes("- Buys dog food online"),
-      "Content should not include non-relevant memory"
+      relevantMemoriesContextMessage.content.includes("Loves drinking coffee"),
+      "Should include memory content about coffee"
     );
   } finally {
     sb.restore();

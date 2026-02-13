@@ -78,7 +78,7 @@ export class MemoriesManager {
     const buildFresh = () => {
       this.#openAIEngineGenerationPromise = openAIEngine.build(
         MODEL_FEATURES.MEMORIES_INITIAL_GENERATION_SYSTEM,
-        DEFAULT_ENGINE_ID,
+        `${DEFAULT_ENGINE_ID}-memories-generation`,
         SERVICE_TYPES.MEMORIES
       );
       return this.#openAIEngineGenerationPromise;
@@ -114,7 +114,7 @@ export class MemoriesManager {
     const buildFresh = () => {
       this.#openAIEngineUsagePromise = openAIEngine.build(
         MODEL_FEATURES.MEMORIES_MESSAGE_CLASSIFICATION_SYSTEM,
-        DEFAULT_ENGINE_ID,
+        `${DEFAULT_ENGINE_ID}-memories-usage`,
         SERVICE_TYPES.MEMORIES
       );
       return this.#openAIEngineUsagePromise;
