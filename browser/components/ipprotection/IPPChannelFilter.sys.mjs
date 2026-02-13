@@ -38,7 +38,6 @@ const DEFAULT_EXCLUDED_URL_PREFS = [
   "identity.fxaccounts.remote.profile.uri",
   "identity.fxaccounts.auth.uri",
   "identity.fxaccounts.remote.profile.uri",
-  "captivedetect.canonicalURL",
 ];
 
 const ESSENTIAL_URL_PREFS = [
@@ -275,10 +274,6 @@ export class IPPChannelFilter {
         return true;
       }
 
-      if (IPPChannelFilter.isLocal(uri)) {
-        return true;
-      }
-
       const origin = uri.prePath; // scheme://host[:port]
 
       if (!this.proxyInfo && this.#essentialOrigins.has(origin)) {
@@ -299,30 +294,6 @@ export class IPPChannelFilter {
     } catch (_) {
       return true;
     }
-  }
-
-  static isLocal(uri) {
-    if (Services.io.hostnameIsLocalIPAddress(uri)) {
-      return true;
-    }
-
-    const hostname = uri.host;
-    return (
-      /^(.+\.)?localhost$/.test(hostname) ||
-      /^(.+\.)?localhost6$/.test(hostname) ||
-      /^(.+\.)?localhost.localdomain$/.test(hostname) ||
-      /^(.+\.)?localhost6.localdomain6$/.test(hostname) ||
-      // https://tools.ietf.org/html/rfc2606
-      /\.example$/.test(hostname) ||
-      /\.invalid$/.test(hostname) ||
-      /\.test$/.test(hostname) ||
-      // https://tools.ietf.org/html/rfc8375
-      /^(.+\.)?home\.arpa$/.test(hostname) ||
-      // https://tools.ietf.org/html/rfc6762
-      /\.local$/.test(hostname) ||
-      // Loopback
-      /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)
-    );
   }
 
   /**
