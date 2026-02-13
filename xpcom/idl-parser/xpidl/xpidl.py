@@ -464,10 +464,11 @@ class IDL:
 
 class CDATA:
     kind = "cdata"
-    _re = re.compile(r"\n+")
 
     def __init__(self, data, location):
-        self.data = self._re.sub("\n", data)
+        # the '// %{C++' comment generated in the header.py assumes the
+        # text exactly matches the input.
+        self.data = data
         self.location = location
 
     def resolve(self, parent):
