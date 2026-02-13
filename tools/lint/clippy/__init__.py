@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from mozlint import result
 from mozlint.pathutils import expand_exclusions
 
+CLIPPY_FIX_ARGS = ("--fix", "--allow-no-vcs")
+
 
 def in_sorted_list(l, x):
     i = bisect.bisect_left(l, x)
@@ -146,7 +148,7 @@ def lint_gkrust(path_group, config, log, fix, root, lint_results):
         "clippy",
     ]
     if fix:
-        clippy_args.append("--fix")
+        clippy_args.extend(CLIPPY_FIX_ARGS)
     clippy_args.extend(["--", "--message-format=json"])
     log.debug("Run clippy with = {}".format(" ".join(clippy_args)))
     completed_proc = subprocess.run(
@@ -178,7 +180,7 @@ def lint_crate(path_group, config, log, fix, root, cargo_bin, lint_results):
         "--message-format=json",
     ]
     if fix:
-        clippy_args.extend(["--fix", "--allow-dirty"])
+        clippy_args.extend([*CLIPPY_FIX_ARGS, "--allow-dirty"])
     log.debug("Run clippy with = {}".format(" ".join(clippy_args)))
     completed_proc = subprocess.run(
         clippy_args,
