@@ -29,6 +29,13 @@ ChromeUtils.defineESModuleGetters(
 
 const CONTENT_TYPE_REGEXP = /^content-type/i;
 
+const REDIRECT_STATES = [
+  301, // HTTP Moved Permanently
+  302, // HTTP Found
+  303, // HTTP See Other
+  307, // HTTP Temporary Redirect
+];
+
 function isDataChannel(channel) {
   return channel instanceof Ci.nsIDataChannel;
 }
@@ -119,7 +126,6 @@ class NetworkEventActor extends Actor {
     // should be destroyed when a window is destroyed. See network-events.js.
     this._innerWindowId = lazy.NetworkUtils.getChannelInnerWindowId(channel);
     this._isNavigationRequest = lazy.NetworkUtils.isNavigationRequest(channel);
-    this._isRedirect = false;
 
     // Retrieve cookies and headers from the channel
     const { cookies, headers } =
@@ -454,9 +460,7 @@ class NetworkEventActor extends Actor {
     // bug 1462561 - Use "json" type and manually manage/marshall actors to workaround
     // protocol.js performance issue
     this.manage(this._response.contentLongStringActor);
-    content.text = this._discardResponseBody
-      ? ""
-      : this._response.contentLongStringActor.form();
+    content.text = this._response.contentLongStringActor.form();
 
     return {
       content,
@@ -552,7 +556,6 @@ class NetworkEventActor extends Actor {
     // separate variables here to bring some attention to this issue.
     const { responseStatus, responseStatusText } = channel;
 
-    this._isRedirect = lazy.NetworkUtils.isRedirect(responseStatus);
     fromCache = fromCache || lazy.NetworkUtils.isFromCache(channel);
     const isDataOrFile = isDataChannel(channel) || isFileChannel(channel);
 
@@ -584,7 +587,7 @@ class NetworkEventActor extends Actor {
     }
 
     // Discard the response body for known redirect response statuses.
-    if (this._isRedirect) {
+    if (REDIRECT_STATES.includes(responseStatus)) {
       this._discardResponseBody = true;
     }
 
@@ -622,7 +625,6 @@ class NetworkEventActor extends Actor {
       remotePort: fromCache ? "" : channel.remotePort,
       status: isDataOrFile ? "200" : responseStatus + "",
       statusText: isDataOrFile ? "0K" : responseStatusText,
-      isRedirect: this._isRedirect,
       earlyHintsStatus: earlyHintsResponseRawHeaders ? "103" : "",
       waitingTime,
       isResolvedByTRR: channel.isResolvedByTRR,

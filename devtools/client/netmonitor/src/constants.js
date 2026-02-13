@@ -235,7 +235,6 @@ const UPDATE_PROPS = [
   "stacktrace",
   "isThirdPartyTrackingResource",
   "isResolvedByTRR",
-  "isRedirect",
   "referrerPolicy",
   "priority",
   "blockedReason",

@@ -366,7 +366,6 @@ class NetworkEventWatcher {
         resourceUpdates.proxyHttpVersion = updateResource.proxyHttpVersion;
         resourceUpdates.proxyStatus = updateResource.proxyStatus;
         resourceUpdates.proxyStatusText = updateResource.proxyStatusText;
-        resourceUpdates.isRedirect = updateResource.isRedirect;
 
         if (resourceUpdates.earlyHintsStatus.length) {
           networkEventTypes.push(
