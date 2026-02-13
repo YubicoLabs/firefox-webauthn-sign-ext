@@ -652,7 +652,7 @@ export class AIWindow extends MozLitElement {
             pageUrl,
             userOpts
           ),
-          { win: window.browsingContext.topChromeWindow }
+          { browsingContext: window.browsingContext }
         );
 
         // Handle User Prompt
@@ -673,7 +673,7 @@ export class AIWindow extends MozLitElement {
         );
       } else {
         stream = lazy.Chat.fetchWithHistory(this.#conversation, {
-          win: window.browsingContext.topChromeWindow,
+          browsingContext: window.browsingContext,
         });
       }
 

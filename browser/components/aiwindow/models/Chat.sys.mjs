@@ -24,7 +24,6 @@ const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
   AIWindow:
     "moz-src:///browser/components/aiwindow/ui/modules/AIWindow.sys.mjs",
-  BrowserWindowTracker: "resource:///modules/BrowserWindowTracker.sys.mjs",
 });
 
 /**
@@ -56,7 +55,7 @@ Object.assign(Chat, {
    *
    * @param {ChatConversation} conversation
    * @param {object} [context]
-   * @param {Window} [context.win]
+   * @param {BrowsingContext} [context.browsingContext]
    * @yields {string} Assistant text chunks
    */
   async *fetchWithHistory(conversation, context = {}) {
@@ -154,10 +153,13 @@ Object.assign(Chat, {
             throw new Error(`No such tool: ${name}`);
           }
 
-          if (Object.keys(toolParams).length) {
-            result = await toolFunc(toolParams);
+          const hasParams = toolParams && !!Object.keys(toolParams).length;
+          const params = hasParams ? toolParams : undefined;
+
+          if (name === "run_search") {
+            result = await toolFunc(params ?? {}, context);
           } else {
-            result = await toolFunc();
+            result = await (hasParams ? toolFunc(params) : toolFunc());
           }
 
           // Create special tool call log message to show in the UI log panel
@@ -177,10 +179,38 @@ Object.assign(Chat, {
         // run_search navigates away from the AI page; hand off to the sidebar
         // to continue streaming after the search results are captured.
         if (name === "run_search") {
-          const win = context.win || lazy.BrowserWindowTracker.getTopWindow();
-          if (win) {
-            lazy.AIWindow.openSidebarAndContinue(win, conversation);
+          if (!context.browsingContext) {
+            console.error(
+              "run_search: No browsingContext provided, aborting search handoff"
+            );
+            return;
           }
+
+          const win = context.browsingContext.topChromeWindow;
+          if (!win || win.closed) {
+            console.error(
+              "run_search: Associated window not available or closed, aborting search handoff"
+            );
+            return;
+          }
+
+          // Ensure we're on the original tab before sidebar handoff
+          const originalBrowser = context.browsingContext.embedderElement;
+          if (originalBrowser && win.gBrowser) {
+            const originalTab = win.gBrowser.getTabForBrowser(originalBrowser);
+            if (!originalTab) {
+              console.error(
+                "run_search: Original tab no longer exists, aborting search handoff to avoid interfering with existing conversation"
+              );
+              return;
+            }
+            // Switch back to the original tab if user switched away
+            if (!originalTab.selectedTab) {
+              win.gBrowser.selectedTab = originalTab;
+            }
+          }
+
+          lazy.AIWindow.openSidebarAndContinue(win, conversation);
           return;
         }
 
