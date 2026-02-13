@@ -1390,89 +1390,6 @@ static bool Promise_then_impl(JSContext* cx, HandleValue promiseVal,
                               HandleValue onFulfilled, HandleValue onRejected,
                               MutableHandleValue rval, bool rvalExplicitlyUsed);
 
-// This is used to get the 'then' property off of an object, and report some
-// information back for telemetry purposes. When we no longer need this
-// telemetry this function can be removed and replaced with GetProperty
-bool GetThenValue(JSContext* cx, JS::Handle<JSObject*> obj,
-                  JS::Handle<JS::Value> reciever,
-                  JS::MutableHandle<Value> thenVal, bool* isOnProto,
-                  bool* isOnStandardProto, bool* isOnObjectProto) {
-  MOZ_ASSERT(isOnProto && *isOnProto == false);
-  MOZ_ASSERT(isOnStandardProto && *isOnStandardProto == false);
-  MOZ_ASSERT(isOnObjectProto && *isOnObjectProto == false);
-
-  NativeObject* holder;
-  PropertyResult prop;
-
-  // LookupProperty would be observable unforunately. If we can do the lookup,
-  // then we can produce information, but otherwise we're left blind.
-  // Fortunately, since this is purely for the purposes of telemetry, let's just
-  // use Pure.
-  RootedId thenId(cx, NameToId(cx->names().then));
-
-  // If we're doing the lookup on the original promise prototype we want to only
-  // report telemetry if the value is not the original Promise.prototype.then
-  //
-  // We then need to defer until after the lookup to decide this.
-  bool maybeOnPromiseProto = false;
-  do {
-    if (LookupPropertyPure(cx, obj, thenId, &holder, &prop)) {
-      if (prop.isNotFound()) {
-        break;
-      }
-
-      if (holder != obj) {
-        *isOnProto = true;
-
-        auto key = JS::IdentifyStandardPrototype(holder);
-        if (key != JSProto_Null) {
-          if (key == JSProto_Promise) {
-            maybeOnPromiseProto = true;
-          } else {
-            *isOnStandardProto = true;
-            if (key == JSProto_Object) {
-              *isOnObjectProto = true;
-            }
-          }
-        }
-      }
-    }
-  } while (false);
-
-  if (!GetProperty(cx, obj, reciever, cx->names().then, thenVal)) {
-    return false;
-  }
-
-  if (maybeOnPromiseProto) {
-    *isOnStandardProto = !IsNativeFunction(thenVal, Promise_then);
-  }
-
-  return true;
-}
-
-void ReportThenable(JSContext* cx, bool isOnProto, bool isOnStandardProto,
-                    bool isOnObjectProto) {
-  cx->runtime()->setUseCounter(cx->global(), JSUseCounter::THENABLE_USE);
-
-  if (isOnProto) {
-    cx->runtime()->setUseCounter(cx->global(),
-                                 JSUseCounter::THENABLE_USE_PROTO);
-    JS_LOG(thenable, Debug, "Thenable on proto");
-  }
-
-  if (isOnStandardProto) {
-    cx->runtime()->setUseCounter(cx->global(),
-                                 JSUseCounter::THENABLE_USE_STANDARD_PROTO);
-    JS_LOG(thenable, Info, "Thenable on standard proto");
-  }
-
-  if (isOnObjectProto) {
-    cx->runtime()->setUseCounter(cx->global(),
-                                 JSUseCounter::THENABLE_USE_OBJECT_PROTO);
-    JS_LOG(thenable, Info, "Thenable on Object.prototype");
-  }
-}
-
 /**
  * ES2022 draft rev d03c1ec6e235a5180fa772b6178727c17974cb14
  *
@@ -1515,11 +1432,8 @@ void ReportThenable(JSContext* cx, bool isOnProto, bool isOnStandardProto,
 
   // Step 9. Let then be Get(resolution, "then").
   RootedField<Value, 1> thenVal(roots);
-  bool isOnProto = false;
-  bool isOnStandardProto = false;
-  bool isOnObjectProto = false;
-  bool status = GetThenValue(cx, resolution, resolutionVal, &thenVal,
-                             &isOnProto, &isOnStandardProto, &isOnObjectProto);
+  bool status =
+      GetProperty(cx, resolution, resolutionVal, cx->names().then, &thenVal);
 
   RootedField<Value, 3> error(roots);
   RootedField<SavedFrame*, 2> errorStack(roots);
@@ -1577,8 +1491,6 @@ void ReportThenable(JSContext* cx, bool isOnProto, bool isOnStandardProto,
   }
 
   if (!isBuiltinThen) {
-    ReportThenable(cx, isOnProto, isOnStandardProto, isOnObjectProto);
-
     RootedField<Value, 4> promiseVal(roots, ObjectValue(*promise));
     if (!EnqueuePromiseResolveThenableJob(cx, promiseVal, resolutionVal,
                                           thenVal)) {
@@ -3987,15 +3899,12 @@ template <typename GetNextFuncT, typename GetResolveAndRejectFuncT>
     }
 
     bool isBuiltinThen;
-    bool isOnProto = false;
-    bool isOnStandardProto = false;
-    bool isOnObjectProto = false;
     if (getThen) {
       // We don't use the Promise lookup cache here, because this code
       // is only called when we had a lookup cache miss, so it's likely
       // we'd get another cache miss when trying to use the cache here.
-      if (!GetThenValue(cx, nextPromiseObj, nextPromise, &thenVal, &isOnProto,
-                        &isOnStandardProto, &isOnObjectProto)) {
+      if (!GetProperty(cx, nextPromiseObj, nextPromise, cx->names().then,
+                       &thenVal)) {
         return false;
       }
 
@@ -4066,8 +3975,6 @@ template <typename GetNextFuncT, typename GetResolveAndRejectFuncT>
         return false;
       }
     } else {
-      ReportThenable(cx, isOnProto, isOnStandardProto, isOnObjectProto);
-
       RootedValue& ignored = thenVal;
       if (!Call(cx, thenVal, nextPromise, resolveFunVal, rejectFunVal,
                 &ignored)) {
@@ -6403,14 +6310,10 @@ static bool Promise_catch_impl(JSContext* cx, unsigned argc, Value* vp,
   // Step 2. Return ? Invoke(promise, "then", « undefined, onRejected »).
   RootedValue thenVal(cx);
   RootedObject thisObj(cx, ToObject(cx, thisVal));
-  bool isOnProto = false;
-  bool isOnStandardProto = false;
-  bool isOnObjectProto = false;
   if (!thisObj) {
     return false;
   }
-  if (!GetThenValue(cx, thisObj, thisVal, &thenVal, &isOnProto,
-                    &isOnStandardProto, &isOnObjectProto)) {
+  if (!GetProperty(cx, thisObj, thisVal, cx->names().then, &thenVal)) {
     return false;
   }
 
@@ -6420,7 +6323,6 @@ static bool Promise_catch_impl(JSContext* cx, unsigned argc, Value* vp,
                              rvalExplicitlyUsed);
   }
 
-  ReportThenable(cx, isOnProto, isOnStandardProto, isOnObjectProto);
   return Call(cx, thenVal, thisVal, UndefinedHandleValue, onRejected,
               args.rval());
 }
