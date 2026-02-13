@@ -5,11 +5,9 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "Classifier.h"
-#include "ContentClassifierService.h"
 #include "HttpBaseChannel.h"
 #include "mozilla/Components.h"
 #include "mozilla/ErrorNames.h"
-#include "mozilla/Maybe.h"
 #include "mozilla/net/AsyncUrlChannelClassifier.h"
 #include "mozilla/dom/BrowsingContext.h"
 #include "mozilla/dom/CanonicalBrowsingContext.h"
@@ -903,27 +901,16 @@ nsresult AsyncUrlChannelClassifier::CheckChannel(
     }
   }
 
-  RefPtr<CallbackHolder> callbackHolder =
-      new CallbackHolder(std::move(aCallback));
-
   RefPtr<FeatureTask> task;
-  nsresult rv = FeatureTask::Create(
-      aChannel, [callbackHolder]() { callbackHolder->Exec(); },
-      getter_AddRefs(task));
+  nsresult rv =
+      FeatureTask::Create(aChannel, std::move(aCallback), getter_AddRefs(task));
   if (NS_FAILED(rv)) {
     return rv;
   }
 
-  RefPtr<ContentClassifierService> contentClassifier;
-  Maybe<ContentClassifierRequest> contentClassifierRequest;
-  if (ContentClassifierService::IsEnabled()) {
-    contentClassifier = ContentClassifierService::GetInstance();
-    if (contentClassifier) {
-      contentClassifierRequest.emplace(aChannel);
-    }
-  }
-
-  if (!task && !(contentClassifier && contentClassifier->IsInitialized())) {
+  if (!task) {
+    // No task is needed for this channel, return an error so the caller won't
+    // wait for a callback.
     return NS_ERROR_FAILURE;
   }
 
@@ -957,50 +944,14 @@ nsresult AsyncUrlChannelClassifier::CheckChannel(
 
   nsCOMPtr<nsIRunnable> r = NS_NewRunnableFunction(
       "AsyncUrlChannelClassifier::CheckChannel",
-      [task, workerClassifier, eventPriority,
-       contentClassifierRequest = std::move(contentClassifierRequest),
-       contentClassifier, channel = nsCOMPtr<nsIChannel>(aChannel),
-       callbackHolder]() mutable -> void {
+      [task, workerClassifier, eventPriority]() -> void {
         MOZ_ASSERT(!NS_IsMainThread());
-
-        bool shouldCancel = false;
-        bool shouldAnnotate = false;
-
-        if (contentClassifier && contentClassifier->IsInitialized() &&
-            contentClassifierRequest.isSome()) {
-          ContentClassifierResult cancelResult =
-              contentClassifier->ClassifyForCancel(*contentClassifierRequest);
-          ContentClassifierResult annotateResult =
-              contentClassifier->ClassifyForAnnotate(*contentClassifierRequest);
-
-          shouldCancel = cancelResult.Hit();
-          shouldAnnotate = annotateResult.Hit();
-        }
-
-        // If this is going to get cancelled anyway, then don't do all of the
-        // work of the url-classifier
-        if (task && !shouldCancel) {
-          task->DoLookup(workerClassifier);
-        }
+        task->DoLookup(workerClassifier);
 
         NS_DispatchToMainThreadQueue(
             NS_NewRunnableFunction(
                 "AsyncUrlChannelClassifier::CheckChannel - return",
-                [task, channel, shouldCancel, shouldAnnotate, callbackHolder,
-                 contentClassifier]() -> void {
-                  if (shouldAnnotate) {
-                    contentClassifier->AnnotateChannel(channel);
-                  }
-                  if (shouldCancel) {
-                    contentClassifier->CancelChannel(channel);
-                    callbackHolder->Exec();
-                  } else if (task) {
-                    task->CompleteClassification();
-                    // This calls the callbackHolder
-                  } else {
-                    callbackHolder->Exec();
-                  }
-                }),
+                [task]() -> void { task->CompleteClassification(); }),
             eventPriority);
       });
 
