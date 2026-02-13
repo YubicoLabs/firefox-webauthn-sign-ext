@@ -7,7 +7,10 @@
 import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
 
 import { ToolRoleOpts } from "moz-src:///browser/components/aiwindow/ui/modules/ChatMessage.sys.mjs";
-import { openAIEngine } from "moz-src:///browser/components/aiwindow/models/Utils.sys.mjs";
+import {
+  MODEL_FEATURES,
+  openAIEngine,
+} from "moz-src:///browser/components/aiwindow/models/Utils.sys.mjs";
 import {
   toolsConfig,
   getOpenTabs,
@@ -52,19 +55,18 @@ Object.assign(Chat, {
    * streaming the model’s follow-up answer. Repeats until no more tool calls.
    *
    * @param {ChatConversation} conversation
-   * @param {openAIEngine} engineInstance
    * @param {object} [context]
    * @param {Window} [context.win]
-
    * @yields {string} Assistant text chunks
    */
-  async *fetchWithHistory(conversation, engineInstance, context = {}) {
+  async *fetchWithHistory(conversation, context = {}) {
     // Note FXA token fetching disabled for now - this is still in progress
     // We can flip this switch on when more realiable
     const fxAccountToken = await openAIEngine.getFxAccountToken();
 
     const toolRoleOpts = new ToolRoleOpts(this.modelId);
     const currentTurn = conversation.currentTurnIndex();
+    const engineInstance = await openAIEngine.build(MODEL_FEATURES.CHAT);
     const config = engineInstance.getConfig(engineInstance.feature);
     const inferenceParams = config?.parameters || {};
 
@@ -84,21 +86,16 @@ Object.assign(Chat, {
       let pendingToolCalls = null;
 
       // 1) First pass: stream tokens; capture any toolCalls
-      try {
-        for await (const chunk of streamModelResponse()) {
-          // Stream assistant text to the UI
-          if (chunk?.text) {
-            yield chunk.text;
-          }
-
-          // Capture tool calls (do not echo raw tool plumbing to the user)
-          if (chunk?.toolCalls?.length) {
-            pendingToolCalls = chunk.toolCalls;
-          }
+      for await (const chunk of streamModelResponse()) {
+        // Stream assistant text to the UI
+        if (chunk?.text) {
+          yield chunk.text;
         }
-      } catch (err) {
-        console.error("fetchWithHistory streaming error:", err);
-        return;
+
+        // Capture tool calls (do not echo raw tool plumbing to the user)
+        if (chunk?.toolCalls?.length) {
+          pendingToolCalls = chunk.toolCalls;
+        }
       }
 
       // 2) Watch for tool calls; if none, we are done
