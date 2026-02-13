@@ -152,14 +152,9 @@ add_task(async function test_Chat_fetchWithHistory_streams_and_forwards_args() {
     );
     conversation.addUserMessage("Hi there", "https://www.firefox.com", 0);
 
-    // Build engine
-    const engineInstance = await openAIEngine.build(MODEL_FEATURES.CHAT);
     // Collect streamed output
     let acc = "";
-    for await (const chunk of Chat.fetchWithHistory(
-      conversation,
-      engineInstance
-    )) {
+    for await (const chunk of Chat.fetchWithHistory(conversation)) {
       if (typeof chunk === "string") {
         acc += chunk;
       }
@@ -237,13 +232,8 @@ add_task(async function test_Chat_fetchWithHistory_handles_tool_calls() {
       0
     );
 
-    // Build engine
-    const engineInstance = await openAIEngine.build(MODEL_FEATURES.CHAT);
     let textOutput = "";
-    for await (const chunk of Chat.fetchWithHistory(
-      conversation,
-      engineInstance
-    )) {
+    for await (const chunk of Chat.fetchWithHistory(conversation)) {
       if (typeof chunk === "string") {
         textOutput += chunk;
       }
@@ -289,16 +279,7 @@ add_task(
     const sb = sinon.createSandbox();
     try {
       const err = new Error("engine build failed");
-      const fakeEngine = {
-        getConfig() {
-          return {};
-        },
-        runWithGenerator() {
-          throw err; // throwing error in generation
-        },
-      };
-
-      sb.stub(openAIEngine, "build").resolves(fakeEngine);
+      sb.stub(openAIEngine, "build").rejects(err);
       // sb.stub(Chat, "_getFxAccountToken").resolves("mock_token");
 
       const conversation = new ChatConversation({
@@ -309,13 +290,8 @@ add_task(
       });
       conversation.addUserMessage("Hi", "https://www.firefox.com", 0);
 
-      // Build engine
-      const engineInstance = await openAIEngine.build(MODEL_FEATURES.CHAT);
       const consume = async () => {
-        for await (const _chunk of Chat.fetchWithHistory(
-          conversation,
-          engineInstance
-        )) {
+        for await (const _chunk of Chat.fetchWithHistory(conversation)) {
           void _chunk;
         }
       };
@@ -383,12 +359,8 @@ add_task(
         0
       );
 
-      const engineInstance = await openAIEngine.build(MODEL_FEATURES.CHAT);
       let textOutput = "";
-      for await (const chunk of Chat.fetchWithHistory(
-        conversation,
-        engineInstance
-      )) {
+      for await (const chunk of Chat.fetchWithHistory(conversation)) {
         if (typeof chunk === "string") {
           textOutput += chunk;
         }
@@ -460,12 +432,8 @@ add_task(
         0
       );
 
-      const engineInstance = await openAIEngine.build(MODEL_FEATURES.CHAT);
       let textOutput = "";
-      for await (const chunk of Chat.fetchWithHistory(
-        conversation,
-        engineInstance
-      )) {
+      for await (const chunk of Chat.fetchWithHistory(conversation)) {
         if (typeof chunk === "string") {
           textOutput += chunk;
         }
@@ -572,8 +540,7 @@ add_task(async function test_Chat_fetchWithHistory_uses_modelId_from_pref() {
       pageMeta: {},
     });
 
-    const engineInstance = await openAIEngine.build(MODEL_FEATURES.CHAT);
-    const generator = Chat.fetchWithHistory(conversation, engineInstance);
+    const generator = Chat.fetchWithHistory(conversation);
     await generator.next();
 
     Assert.ok(

@@ -3,10 +3,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import {
-  MODEL_FEATURES,
-  renderPrompt,
-} from "moz-src:///browser/components/aiwindow/models/Utils.sys.mjs";
+import { assistantPrompt } from "moz-src:///browser/components/aiwindow/models/prompts/AssistantPrompts.sys.mjs";
 
 import {
   constructRelevantMemoriesContextMessage,
@@ -255,25 +252,33 @@ export class ChatConversation {
    *
    * @param {string} prompt - new user prompt
    * @param {URL} pageUrl - The URL of the page when prompt was submitted
-   * @param {openAIEngine} engineInstance
    * @param {UserRoleOpts} [userOpts]
+   *   Optional user message options
    */
-  async generatePrompt(prompt, pageUrl, engineInstance, userOpts = undefined) {
-    // Remove stale ephemeral messages before adding new user message
-    this.removeSystemTimeMemoriesMessages();
+  async generatePrompt(prompt, pageUrl, userOpts = undefined) {
+    this.#messages = this.#messages.filter(message => {
+      const isRealTimeInjection =
+        message.role === MESSAGE_ROLE.SYSTEM &&
+        message.content.type === SYSTEM_PROMPT_TYPE.REAL_TIME;
 
-    if (!this.messages.length) {
-      const systemPrompt = await engineInstance.loadPrompt(MODEL_FEATURES.CHAT);
-      this.addSystemMessage(SYSTEM_PROMPT_TYPE.TEXT, systemPrompt);
+      const isMemoriesInjection =
+        message.role === MESSAGE_ROLE.SYSTEM &&
+        message.content.type === SYSTEM_PROMPT_TYPE.MEMORIES;
+
+      return !isRealTimeInjection && !isMemoriesInjection;
+    });
+
+    if (!this.#messages.length) {
+      // TODO: Bug 2008865
+      // switch to use remote settings prompt accessed via engine.loadPrompt(feature)
+      this.addSystemMessage(SYSTEM_PROMPT_TYPE.TEXT, assistantPrompt);
     }
 
-    // Add real-time context
-    await this.getRealTimeInfo(engineInstance);
+    await this.getRealTimeInfo();
 
     if (userOpts?.memoriesEnabled) {
-      await this.getMemoriesContext(prompt, engineInstance);
+      await this.getMemoriesContext(prompt);
     }
-
     this.addUserMessage(prompt, pageUrl, userOpts);
 
     return this;
@@ -301,26 +306,8 @@ export class ChatConversation {
       throw new Error("Unrelated message");
     }
 
-    return this.#messages.splice(retryMessageIndex);
-  }
-
-  /**
-   * Removes context system messages (real-time context, memories) that should be
-   * regenerated on each turn. These messages contain time-sensitive data that becomes
-   * stale between conversation turns.
-   */
-  removeSystemTimeMemoriesMessages() {
-    this.messages = this.messages.filter(message => {
-      const isRealTimeInjection =
-        message.role === MESSAGE_ROLE.SYSTEM &&
-        message.content?.type === SYSTEM_PROMPT_TYPE.REAL_TIME;
-
-      const isMemoriesInjection =
-        message.role === MESSAGE_ROLE.SYSTEM &&
-        message.content?.type === SYSTEM_PROMPT_TYPE.MEMORIES;
-
-      return !isRealTimeInjection && !isMemoriesInjection;
-    });
+    const toDeleteMessages = this.#messages.splice(retryMessageIndex);
+    return toDeleteMessages;
   }
 
   /**
@@ -329,39 +316,21 @@ export class ChatConversation {
    * returns content.
    *
    * @typedef {
-   *   (depsOverride?: object) => Promise<{url, title, description, locale, timezone, isoTimestamp, todayDate, hasTabInfo}>
+   *   (depsOverride?: object) => Promise<{ role: string; content: string; }>
    * } RealTimeApiFunction
    *
-   * @param {openAIEngine} engineInstance - The initialized engine instance
-   * @param {RealTimeApiFunction} [getRealTimeMapping=constructRealTimeInfoInjectionMessage]
-   * Function that returns promise that resolves with real time info mapping
+   * @param {RealTimeApiFunction} [constructRealTime=constructRealTimeInfoInjectionMessage]
+   * Function that returns promise that resolves with real time info
    */
   async getRealTimeInfo(
-    engineInstance,
-    getRealTimeMapping = constructRealTimeInfoInjectionMessage
+    constructRealTime = constructRealTimeInfoInjectionMessage
   ) {
-    const realTimeInfoMapping = await getRealTimeMapping();
-    if (!realTimeInfoMapping) {
+    const realTime = await constructRealTime();
+    if (!realTime.content) {
       return;
     }
 
-    let realTimePromptRaw = await engineInstance.loadPrompt(
-      MODEL_FEATURES.REAL_TIME_CONTEXT_DATE
-    );
-    if (realTimeInfoMapping.hasTabInfo) {
-      const realTimeTabPromptRaw = await engineInstance.loadPrompt(
-        MODEL_FEATURES.REAL_TIME_CONTEXT_TAB
-      );
-      realTimePromptRaw += realTimeTabPromptRaw;
-    } else {
-      delete realTimeInfoMapping.url;
-      delete realTimeInfoMapping.title;
-      delete realTimeInfoMapping.description;
-    }
-    delete realTimeInfoMapping.hasTabInfo;
-
-    const realTimePrompt = renderPrompt(realTimePromptRaw, realTimeInfoMapping);
-    this.addSystemMessage(SYSTEM_PROMPT_TYPE.REAL_TIME, realTimePrompt);
+    this.addSystemMessage(SYSTEM_PROMPT_TYPE.REAL_TIME, realTime.content);
   }
 
   /**
@@ -382,17 +351,17 @@ export class ChatConversation {
    *    (message: string) => Promise<null | MemoryApiFunctionReturn>
    *  } MemoriesApiFunction
    *
-   * @param {message} message
-   * @param {openAIEngine} engineInstance
+   * @param {string|null} message
+   *   The text of the user message.
+   *
    * @param {MemoriesApiFunction} [constructMemories=constructRelevantMemoriesContextMessage]
    * Function that returns promise that resolves with memories data
    */
   async getMemoriesContext(
     message,
-    engineInstance,
     constructMemories = constructRelevantMemoriesContextMessage
   ) {
-    const memoriesContext = await constructMemories(message, engineInstance);
+    const memoriesContext = await constructMemories(message);
     if (!memoriesContext?.content) {
       return;
     }
