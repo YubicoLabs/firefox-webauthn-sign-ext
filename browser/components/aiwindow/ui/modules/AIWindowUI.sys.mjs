@@ -123,16 +123,14 @@ export const AIWindowUI = {
 
     if (conversation) {
       aiBrowser.setAttribute("data-conversation-id", conversation.id);
-    } else {
-      aiBrowser.removeAttribute("data-conversation-id");
-    }
 
-    const contentDoc = aiBrowser.contentDocument;
-    contentDoc.dispatchEvent(
-      new aiBrowser.contentWindow.CustomEvent("OpenConversation", {
-        detail: conversation,
-      })
-    );
+      const contentDoc = aiBrowser.contentDocument;
+      contentDoc.dispatchEvent(
+        new aiBrowser.contentWindow.CustomEvent("OpenConversation", {
+          detail: conversation,
+        })
+      );
+    }
   },
 
   /**
