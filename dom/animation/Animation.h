@@ -188,7 +188,7 @@ class Animation : public DOMEventTargetHelper,
             // won't be relevant and hence won't be returned by GetAnimations().
             // We don't want its timeline to keep it alive (which would happen
             // if we return true) since otherwise it will effectively be leaked.
-            PlaybackRate() != 0.0) ||
+            PlaybackRateInternal() != 0.0) ||
            // Always return true for not idle animations attached to not
            // monotonically increasing timelines even if the animation is
            // finished. This is required to accommodate cases where timeline
@@ -209,7 +209,7 @@ class Animation : public DOMEventTargetHelper,
    * producing layer animations.
    */
   double CurrentOrPendingPlaybackRate() const {
-    return mPendingPlaybackRate.valueOr(mPlaybackRate);
+    return mPendingPlaybackRate.valueOr(PlaybackRateInternal());
   }
   bool HasPendingPlaybackRate() const { return mPendingPlaybackRate.isSome(); }
 
@@ -271,7 +271,7 @@ class Animation : public DOMEventTargetHelper,
   bool IsInEffect() const;
 
   bool IsPlaying() const {
-    return mPlaybackRate != 0.0 && mTimeline &&
+    return PlaybackRateInternal() != 0.0 && mTimeline &&
            !mTimeline->GetCurrentTimeAsDuration().IsNull() &&
            PlayState() == AnimationPlayState::Running;
   }
@@ -415,7 +415,7 @@ class Animation : public DOMEventTargetHelper,
         //    animation’s current time
         !currentTime.IsNull() ? currentTime : GetCurrentTimeAsDuration(),
         mStartTime.IsNull() ? TimeDuration() : mStartTime.Value(),
-        mPlaybackRate);
+        PlaybackRateInternal());
   }
 
   void SetHiddenByContentVisibility(bool hidden);
