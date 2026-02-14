@@ -391,6 +391,8 @@ struct BufferChunk
   size_t sizeClassForAvailableLists() const;
 
   bool isPointerWithinAllocation(void* ptr) const;
+
+  void getStats(BufferAllocator::Stats& stats);
 };
 
 constexpr size_t FirstMediumAllocOffset = BufferChunk::firstAllocOffset();

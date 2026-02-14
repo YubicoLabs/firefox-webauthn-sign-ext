@@ -3546,7 +3546,7 @@ void BufferAllocator::printStats(GCRuntime* gc, mozilla::TimeStamp creationTime,
   size_t pid = getpid();
   JSRuntime* runtime = gc->rt;
   mozilla::TimeDuration timestamp = mozilla::TimeStamp::Now() - creationTime;
-  const char* reason = isMajorGC ? "post major slice" : "pre minor GC";
+  const char* reason = isMajorGC ? "post major GC" : "pre minor GC";
 
   size_t zoneCount = 0;
   Stats stats;
@@ -3616,20 +3616,6 @@ void BufferAllocator::addSizeOfExcludingThis(size_t* usedBytesOut,
   *adminBytesOut += stats.adminBytes;
 }
 
-static void GetChunkStats(BufferChunk* chunk, BufferAllocator::Stats& stats) {
-  stats.usedBytes += ChunkSize - FirstMediumAllocOffset;
-  stats.adminBytes += FirstMediumAllocOffset;
-  for (auto iter = chunk->smallRegionIter(); !iter.done(); iter.next()) {
-    SmallBufferRegion* region = iter.get();
-    if (region->hasNurseryOwnedAllocs()) {
-      stats.mixedSmallRegions++;
-    } else {
-      stats.tenuredSmallRegions++;
-    }
-    stats.adminBytes += FirstSmallAllocOffset;
-  }
-}
-
 void BufferAllocator::getStats(Stats& stats) {
   checkMainThread();
 
@@ -3639,21 +3625,21 @@ void BufferAllocator::getStats(Stats& stats) {
 
   for (BufferChunk* chunk : mixedChunks.ref()) {
     stats.mixedChunks++;
-    GetChunkStats(chunk, stats);
+    chunk->getStats(stats);
   }
   for (auto chunk = availableMixedChunks.ref().chunkIter(); !chunk.done();
        chunk.next()) {
     stats.availableMixedChunks++;
-    GetChunkStats(chunk, stats);
+    chunk->getStats(stats);
   }
   for (BufferChunk* chunk : tenuredChunks.ref()) {
     stats.tenuredChunks++;
-    GetChunkStats(chunk, stats);
+    chunk->getStats(stats);
   }
   for (auto chunk = availableTenuredChunks.ref().chunkIter(); !chunk.done();
        chunk.next()) {
     stats.availableTenuredChunks++;
-    GetChunkStats(chunk, stats);
+    chunk->getStats(stats);
   }
   for (const LargeBuffer* buffer : largeNurseryAllocs.ref()) {
     stats.largeNurseryAllocs++;
@@ -3665,8 +3651,30 @@ void BufferAllocator::getStats(Stats& stats) {
     stats.usedBytes += buffer->allocBytes();
     stats.adminBytes += sizeof(LargeBuffer);
   }
-  for (auto region = freeLists.ref().freeRegionIter(); !region.done();
-       region.next()) {
+  freeLists.ref().getStats(stats);
+}
+
+void BufferChunk::getStats(BufferAllocator::Stats& stats) {
+  stats.usedBytes += ChunkSize - FirstMediumAllocOffset;
+  stats.adminBytes += FirstMediumAllocOffset;
+
+  for (auto iter = smallRegionIter(); !iter.done(); iter.next()) {
+    SmallBufferRegion* region = iter.get();
+    if (region->hasNurseryOwnedAllocs()) {
+      stats.mixedSmallRegions++;
+    } else {
+      stats.tenuredSmallRegions++;
+    }
+    stats.adminBytes += FirstSmallAllocOffset;
+  }
+
+  if (ownsFreeLists) {
+    freeLists.ref().getStats(stats);
+  }
+}
+
+void BufferAllocator::FreeLists::getStats(Stats& stats) {
+  for (auto region = freeRegionIter(); !region.done(); region.next()) {
     stats.freeRegions++;
     size_t size = region->size();
     MOZ_ASSERT(stats.usedBytes >= size);

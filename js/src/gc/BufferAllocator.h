@@ -226,6 +226,8 @@ class BufferAllocator : public SlimLinkedListElement<BufferAllocator> {
 
   static constexpr size_t FullChunkSizeClass = AllocSizeClasses;
 
+  struct Stats;
+
   // An RAII guard to lock and unlock the buffer allocator lock.
   class AutoLock : public LockGuard<Mutex> {
    public:
@@ -295,6 +297,8 @@ class BufferAllocator : public SlimLinkedListElement<BufferAllocator> {
     void assertEmpty() const;
     void assertContains(size_t sizeClass, FreeRegion* region) const;
     void checkAvailable() const;
+
+    void getStats(Stats& stats);
   };
 
   class ChunkLists {
