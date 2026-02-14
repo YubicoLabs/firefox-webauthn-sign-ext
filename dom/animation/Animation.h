@@ -208,9 +208,7 @@ class Animation : public DOMEventTargetHelper,
    * As with the start time, we should use the pending playback rate when
    * producing layer animations.
    */
-  double CurrentOrPendingPlaybackRate() const {
-    return mPendingPlaybackRate.valueOr(PlaybackRateInternal());
-  }
+  double CurrentOrPendingPlaybackRate() const;
   bool HasPendingPlaybackRate() const { return mPendingPlaybackRate.isSome(); }
 
   /**
