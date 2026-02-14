@@ -40,7 +40,7 @@ class EmailMaskInfoPrompterTest {
             val mask = EmailMask("test@relay.firefox.com", MaskSource.FREE_TIER_LIMIT)
             val relayStore = RelayEligibilityStore(
                 initialState = RelayState(
-                    eligibilityState = Eligible.Free(remaining = 5),
+                    eligibilityState = Eligible.Free(totalMasksUsed = 5),
                 ),
             )
             val prompter = EmailMaskInfoPrompter(relayStore, appStore, errorMessages, testDispatcher)
@@ -64,7 +64,7 @@ class EmailMaskInfoPrompterTest {
             val mask = EmailMask("test@relay.firefox.com", MaskSource.GENERATED)
             val relayStore = RelayEligibilityStore(
                 initialState = RelayState(
-                    eligibilityState = Eligible.Free(remaining = 5),
+                    eligibilityState = Eligible.Free(totalMasksUsed = 5),
                 ),
             )
             val prompter = EmailMaskInfoPrompter(relayStore, appStore, errorMessages, testDispatcher)
