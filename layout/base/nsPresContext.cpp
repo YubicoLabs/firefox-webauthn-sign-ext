@@ -890,6 +890,13 @@ void nsPresContext::SetColorSchemeOverride(
   }
 }
 
+void nsPresContext::UpdateAnimationsPlayBackRateMultiplier(double aMultiplier) {
+  if (mAnimationsPlayBackRateMultiplier == aMultiplier) {
+    return;
+  }
+  mAnimationsPlayBackRateMultiplier = aMultiplier;
+}
+
 void nsPresContext::RecomputeBrowsingContextDependentData() {
   MOZ_ASSERT(mDocument);
   dom::Document* doc = mDocument;
@@ -935,6 +942,9 @@ void nsPresContext::RecomputeBrowsingContextDependentData() {
     }
     EmulateMedium(mediumToEmulate);
   }
+
+  UpdateAnimationsPlayBackRateMultiplier(
+      top->AnimationsPlayBackRateMultiplier());
 
   mDocument->EnumerateExternalResources([](dom::Document& aSubResource) {
     if (nsPresContext* subResourcePc = aSubResource.GetPresContext()) {
