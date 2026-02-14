@@ -82,15 +82,6 @@ class SnackbarBinding(
             .distinctUntilChanged()
             .collect { state ->
                 when (state) {
-                    is SnackbarState.ShowSnackbar -> {
-                        snackbarDelegate.show(
-                            text = state.title,
-                            duration = state.duration,
-                        )
-
-                        appStore.dispatch(SnackbarAction.SnackbarShown)
-                    }
-
                     is SnackbarState.BookmarkAdded -> {
                         showBookmarkAddedSnackbarFor(state)
                     }

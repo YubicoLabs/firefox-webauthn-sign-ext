@@ -73,7 +73,7 @@ class EmailMaskEngineUpdaterTest {
             RelayEligibilityAction.RelayStatusResult(
                 fetchSucceeded = true,
                 relayPlanTier = RelayPlanTier.FREE,
-                totalMasksUsed = 5,
+                remaining = 5,
                 lastCheckedMs = 123L,
             ),
         )

@@ -1213,11 +1213,9 @@ abstract class BaseBrowserFragment :
         if (context.settings().isEmailMaskFeatureEnabled && context.settings().isEmailMaskSuggestionEnabled) {
             relayFeature.set(
                 feature = RelayFeatureIntegration(
-                    context = requireContext(),
                     engine = requireComponents.core.engine,
                     accountManager = requireComponents.backgroundServices.accountManager,
                     store = requireComponents.relayEligibilityStore,
-                    appStore = requireComponents.appStore,
                 ),
                 owner = this,
                 view = view,
