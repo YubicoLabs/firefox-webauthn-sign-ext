@@ -76,4 +76,8 @@ bool CSSStyleValue::IsCSSNumericValue() const {
   return mStyleValueType == StyleValueType::NumericValue;
 }
 
+bool CSSStyleValue::IsCSSTransformValue() const {
+  return mStyleValueType == StyleValueType::TransformValue;
+}
+
 }  // namespace mozilla::dom

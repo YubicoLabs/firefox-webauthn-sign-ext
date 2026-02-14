@@ -29,6 +29,7 @@ class GlobalObject;
 class CSSKeywordValue;
 class CSSUnsupportedValue;
 class CSSNumericValue;
+class CSSTransformValue;
 
 class CSSStyleValue : public nsISupports, public nsWrapperCache {
  public:
@@ -37,6 +38,7 @@ class CSSStyleValue : public nsISupports, public nsWrapperCache {
     UnsupportedValue,
     KeywordValue,
     NumericValue,
+    TransformValue,
   };
 
   explicit CSSStyleValue(nsCOMPtr<nsISupports> aParent);
@@ -88,6 +90,11 @@ class CSSStyleValue : public nsISupports, public nsWrapperCache {
 
   // Defined in CSSNumericValue.cpp
   CSSNumericValue& GetAsCSSNumericValue();
+
+  bool IsCSSTransformValue() const;
+
+  // Defined in CSSTransformValue.cpp
+  CSSTransformValue& GetAsCSSTransformValue();
 
  protected:
   virtual ~CSSStyleValue() = default;
