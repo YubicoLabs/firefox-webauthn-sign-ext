@@ -25,6 +25,7 @@ import mozilla.components.lib.integrity.googleplay.RequestHashProvider
 import mozilla.components.lib.integrity.googleplay.TokenProviderFactory
 import mozilla.components.lib.publicsuffixlist.PublicSuffixList
 import mozilla.components.service.fxrelay.eligibility.RelayEligibilityStore
+import mozilla.components.service.fxrelay.eligibility.middlewares.ClearLastUsedMiddleware
 import mozilla.components.support.base.android.DefaultProcessInfoProvider
 import mozilla.components.support.base.android.NotificationsDelegate
 import mozilla.components.support.base.worker.Frequency
@@ -386,7 +387,7 @@ class Components(private val context: Context) {
     }
 
     val relayEligibilityStore by lazyMonitored {
-        RelayEligibilityStore()
+        RelayEligibilityStore(middleware = listOf(ClearLastUsedMiddleware))
     }
 }
 
