@@ -236,6 +236,7 @@ struct AllocSpace {
 
   void setAllocated(void* alloc, size_t bytes, bool allocated);
   void updateEndOffset(void* alloc, size_t oldBytes, size_t newBytes);
+  void setDeallocated(void* alloc, size_t bytes);
 
   bool isAllocated(const void* alloc) const {
     size_t bit = ptrToIndex(alloc);

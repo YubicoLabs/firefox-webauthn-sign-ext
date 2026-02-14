@@ -305,6 +305,13 @@ void AllocSpace<D, S, G>::setAllocated(void* alloc, size_t bytes,
 }
 
 template <typename D, size_t S, size_t G>
+void AllocSpace<D, S, G>::setDeallocated(void* alloc, size_t bytes) {
+  MOZ_ASSERT(allocBytes(alloc) == bytes);
+  setNurseryOwned(alloc, false);
+  setAllocated(alloc, bytes, false);
+}
+
+template <typename D, size_t S, size_t G>
 void AllocSpace<D, S, G>::updateEndOffset(void* alloc, size_t oldBytes,
                                           size_t newBytes) {
   MOZ_ASSERT(isAllocated(alloc));
@@ -2498,20 +2505,6 @@ bool BufferAllocator::allocNewChunk(bool inGC) {
   return true;
 }
 
-static void SetDeallocated(BufferChunk* chunk, void* alloc, size_t bytes) {
-  MOZ_ASSERT(!chunk->isSmallBufferRegion(alloc));
-  MOZ_ASSERT(chunk->allocBytes(alloc) == bytes);
-  chunk->setNurseryOwned(alloc, false);
-  chunk->setAllocated(alloc, bytes, false);
-}
-
-static void SetDeallocated(SmallBufferRegion* region, void* alloc,
-                           size_t bytes) {
-  MOZ_ASSERT(region->allocBytes(alloc) == bytes);
-  region->setNurseryOwned(alloc, false);
-  region->setAllocated(alloc, bytes, false);
-}
-
 bool BufferAllocator::sweepChunk(BufferChunk* chunk, SweepKind sweepKind,
                                  bool shouldDecommit) {
   // Find all regions of free space in |chunk| and add them to the swept free
@@ -2548,7 +2541,7 @@ bool BufferAllocator::sweepChunk(BufferChunk* chunk, SweepKind sweepKind,
 
     if (!sweepSmallBufferRegion(chunk, region, sweepKind)) {
       chunk->setSmallBufferRegion(region, false);
-      SetDeallocated(chunk, region, SmallRegionSize);
+      chunk->setDeallocated(region, SmallRegionSize);
       PoisonAlloc(region, JS_SWEPT_TENURED_PATTERN, sizeof(SmallBufferRegion),
                   MemCheckKind::MakeUndefined);
       tenuredBytesFreed += SmallRegionSize;
@@ -2574,7 +2567,8 @@ bool BufferAllocator::sweepChunk(BufferChunk* chunk, SweepKind sweepKind,
       if (!nurseryOwned) {
         tenuredBytesFreed += bytes;
       }
-      SetDeallocated(chunk, alloc, bytes);
+      MOZ_ASSERT(!chunk->isSmallBufferRegion(alloc));
+      chunk->setDeallocated(alloc, bytes);
       PoisonAlloc(alloc, JS_SWEPT_TENURED_PATTERN, bytes,
                   MemCheckKind::MakeUndefined);
       sweptAny = true;
@@ -2704,7 +2698,7 @@ bool BufferAllocator::sweepSmallBufferRegion(BufferChunk* chunk,
     bool shouldSweep = canSweep && !region->isMarked(alloc);
     if (shouldSweep) {
       // Dead. Update allocated bitmap, metadata and heap size accounting.
-      SetDeallocated(region, alloc, bytes);
+      region->setDeallocated(alloc, bytes);
       PoisonAlloc(alloc, JS_SWEPT_TENURED_PATTERN, bytes,
                   MemCheckKind::MakeUndefined);
       sweptAny = true;
@@ -2793,7 +2787,7 @@ void BufferAllocator::freeMedium(void* alloc) {
   chunk->setUnmarked(alloc);
 
   // Set region as not allocated and clear metadata.
-  SetDeallocated(chunk, alloc, bytes);
+  chunk->setDeallocated(alloc, bytes);
 
   FreeLists* freeLists = getChunkFreeLists(chunk);
 
