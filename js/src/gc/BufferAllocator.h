@@ -284,7 +284,6 @@ class BufferAllocator : public SlimLinkedListElement<BufferAllocator> {
     void pushBack(size_t sizeClass, FreeRegion* region);
 
     void append(FreeLists&& other);
-    void prepend(FreeLists&& other);
 
     void remove(size_t sizeClass, FreeRegion* region);
 

@@ -137,17 +137,6 @@ void BufferAllocator::FreeLists::append(FreeLists&& other) {
   other.assertEmpty();
 }
 
-void BufferAllocator::FreeLists::prepend(FreeLists&& other) {
-  for (size_t i = 0; i < AllocSizeClasses; i++) {
-    if (!other.lists[i].isEmpty()) {
-      lists[i].prepend(std::move(other.lists[i]));
-      available[i] = true;
-    }
-  }
-  other.available.ResetAll();
-  other.assertEmpty();
-}
-
 void BufferAllocator::FreeLists::remove(size_t sizeClass, FreeRegion* region) {
   MOZ_ASSERT(sizeClass < AllocSizeClasses);
   lists[sizeClass].remove(region);
