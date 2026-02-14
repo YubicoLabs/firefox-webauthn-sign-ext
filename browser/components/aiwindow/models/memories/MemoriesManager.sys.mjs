@@ -35,6 +35,8 @@ import { MEMORIES_MESSAGE_CLASSIFY_SCHEMA } from "moz-src:///browser/components/
 import { AIWindow } from "moz-src:///browser/components/aiwindow/ui/modules/AIWindow.sys.mjs";
 import { EveryWindow } from "resource:///modules/EveryWindow.sys.mjs";
 import { AIWindowAccountAuth } from "moz-src:///browser/components/aiwindow/ui/modules/AIWindowAccountAuth.sys.mjs";
+import { EmbeddingsGenerator } from "chrome://global/content/ml/EmbeddingsGenerator.sys.mjs";
+import { cosSim } from "chrome://global/content/ml/NLPUtils.sys.mjs";
 
 const K_DOMAINS_FULL = 100;
 const K_TITLES_FULL = 100;
@@ -67,6 +69,11 @@ export class MemoriesManager {
 
   // openAIEngine for memory usage
   static #openAIEngineUsagePromise = null;
+
+  // Embeddings cache for semantic memory search
+  static #embeddingsGenerator = null;
+  static #memoryEmbeddingsCache = null;
+  static #memoryCacheKey = null;
 
   /**
    * Creates and returns an openAIEngine instance for memory generation.
@@ -558,36 +565,109 @@ export class MemoriesManager {
   }
 
   /**
-   * Fetches relevant memories for a given user message.
+   * Clears the embeddings cache. Used for testing.
+   *
+   * @private
+   */
+  static _clearEmbeddingsCache() {
+    this.#memoryEmbeddingsCache = null;
+    this.#memoryCacheKey = null;
+  }
+
+  /**
+   * Computes a hash of memories for cache invalidation.
+   * Uses incremental FNV-1a hashing to avoid allocating large concatenated strings
+   * based on https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function#FNV-1a_hash
+   *
+   * @param {Array} memories  Array of memory objects with id and updated_at fields
+   * @returns {number}        32-bit hash representing the memories state
+   */
+  static #computeMemoriesHash(memories) {
+    // FNV-1a offset basis (32-bit)
+    let hash = 0x811c9dc5;
+
+    for (const m of memories) {
+      const str = `${m.id}-${m.updated_at}`;
+      for (let i = 0; i < str.length; i++) {
+        hash ^= str.charCodeAt(i);
+        // FNV prime, keep 32-bit
+        hash = (hash * 0x01000193) >>> 0;
+      }
+    }
+
+    return hash;
+  }
+
+  /**
+   * Fetches relevant memories for a given user message using semantic similarity.
+   * Uses embeddings and cosine similarity for fast, accurate memory retrieval.
    *
    * @param {string} message                  User message to find relevant memories for
-   * @returns {Promise<Array<Map<{
+   * @param {number} topK                     Number of top relevant memories to return (default: 5)
+   * @param {number} similarityThreshold      Minimum similarity score (0-1) to include (default: 0.3)
+   * @returns {Promise<Array<{
    *  memory_summary: string,
    *  category: string,
    *  intent: string,
    *  score: number,
-   * }>>>}                                    List of relevant memories
+   *  similarity: number,
+   * }>>}                                     List of relevant memories sorted by similarity
    */
-  static async getRelevantMemories(message) {
-    const existingMemories = await MemoriesManager.getAllMemories();
-    // Shortcut: if there aren't any existing memories, return empty list immediately
-    if (existingMemories.length === 0) {
+  static async getRelevantMemories(
+    message,
+    topK = 5,
+    similarityThreshold = 0.3
+  ) {
+    const memories = await MemoriesManager.getAllMemories();
+
+    if (memories.length === 0) {
       return [];
     }
 
-    const messageClassification =
-      await MemoriesManager.memoryClassifyMessage(message);
-    // Shortcut: if the message's category and/or intent is null, return empty list immediately
-    if (!messageClassification.categories || !messageClassification.intents) {
-      return [];
+    // Lazy initialize embeddings generator
+    if (!this.#embeddingsGenerator) {
+      this.#embeddingsGenerator = new EmbeddingsGenerator({
+        backend: "onnx-native",
+        embeddingSize: 384,
+      });
     }
 
-    // Filter existing memories to those that match the message's category
-    const candidateRelevantMemories = existingMemories.filter(memory => {
-      return messageClassification.categories.includes(memory.category);
-    });
+    // Re-embed memories only if cache is invalid
+    const currentCacheKey = this.#computeMemoriesHash(memories);
+    if (
+      !this.#memoryEmbeddingsCache ||
+      this.#memoryCacheKey !== currentCacheKey
+    ) {
+      const memoryTexts = memories.map(m => {
+        const summary = m.memory_summary?.toLowerCase() || "";
+        const reasoning = m.reasoning?.toLowerCase() || "";
+        return reasoning ? `${summary}. ${reasoning}` : summary;
+      });
+      const result = await this.#embeddingsGenerator.embedMany(memoryTexts);
+      this.#memoryEmbeddingsCache = result.output || result;
+      this.#memoryCacheKey = currentCacheKey;
+    }
 
-    return candidateRelevantMemories;
+    const queryResult = await this.#embeddingsGenerator.embed(
+      message.toLowerCase()
+    );
+    let queryEmbedding = queryResult.output || queryResult;
+
+    if (Array.isArray(queryEmbedding) && queryEmbedding.length === 1) {
+      queryEmbedding = queryEmbedding[0];
+    }
+
+    // Calculate cosine similarity
+    const similarities = this.#memoryEmbeddingsCache.map((memEmb, idx) => ({
+      ...memories[idx],
+      similarity: cosSim(queryEmbedding, memEmb),
+    }));
+
+    // Filter by threshold, sort by similarity, and return top K
+    return similarities
+      .filter(m => m.similarity >= similarityThreshold)
+      .sort((a, b) => b.similarity - a.similarity)
+      .slice(0, topK);
   }
 
   /**
