@@ -7,6 +7,7 @@
 #include "mozilla/dom/CSSStyleValue.h"
 
 #include "mozilla/Assertions.h"
+#include "mozilla/CSSPropertyId.h"
 #include "mozilla/ErrorResult.h"
 #include "mozilla/dom/CSSStyleValueBinding.h"
 #include "nsCycleCollectionParticipant.h"
