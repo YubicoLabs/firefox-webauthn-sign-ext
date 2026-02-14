@@ -151,6 +151,7 @@ add_setup(async function () {
       ["browser.smartwindow.enabled", true],
       ["browser.smartwindow.chatHistory.enabled", true],
       ["browser.smartwindow.firstrun.hasCompleted", true],
+      ["browser.smartwindow.endpoint", "http://localhost:0/v1"],
     ],
   });
 
@@ -166,6 +167,7 @@ add_setup(async function () {
     await gChatStore.destroyDatabase();
     if (gAIWindow) {
       await BrowserTestUtils.closeWindow(gAIWindow);
+      gAIWindow = null;
     }
   });
 });

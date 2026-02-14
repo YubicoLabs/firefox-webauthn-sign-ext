@@ -25,6 +25,9 @@ ChromeUtils.defineESModuleGetters(lazy, {
 /**
  * Manages state changes of the tabs in AIWindow to keep both the
  * fullwindow and sidebar chats in sync as tabs are created/selected.
+ *
+ * @todo Bug 2016599
+ * Handle close tab event to manage tabState in case of undo close tab
  */
 export class AIWindowTabStatesManager {
   /**
@@ -54,6 +57,9 @@ export class AIWindowTabStatesManager {
 
   /**
    * Adds event listeners needed to manage tab states
+   *
+   * @todo Bug 2016552
+   * Handle classic/smartwindow switches to toggle event listeners
    *
    * @param {ChromeWindow} win
    *
@@ -107,7 +113,7 @@ export class AIWindowTabStatesManager {
         return;
       }
 
-      this.#addEventListeners(tab);
+      this.#addTabState(tab);
     });
   }
 
@@ -143,7 +149,7 @@ export class AIWindowTabStatesManager {
    * @private
    */
   #onTabOpen(event) {
-    this.#addEventListeners(event.target);
+    this.#addTabState(event.target);
   }
 
   /**
@@ -165,14 +171,13 @@ export class AIWindowTabStatesManager {
       return;
     }
 
+    // @todo Bug 2016545
+    // Track the Ask button clicks to properly determine if a sidebar
+    // needs to be opened/closed for a tab
     const tabUrl = this.#selectedTab.linkedBrowser.currentURI.spec;
-    const conversation = await lazy.ChatStore.findConversationById(convId);
-    const tabNeedsSidebar =
-      conversation &&
-      conversation.messages.length &&
-      tabUrl !== lazy.AIWINDOW_URL;
-
+    const tabNeedsSidebar = tabUrl !== lazy.AIWINDOW_URL;
     if (tabNeedsSidebar) {
+      const conversation = await lazy.ChatStore.findConversationById(convId);
       lazy.AIWindowUI.openSidebar(this.#window, conversation);
     } else {
       lazy.AIWindowUI.closeSidebar(this.#window);
@@ -201,7 +206,7 @@ export class AIWindowTabStatesManager {
    *
    * @private
    */
-  #addEventListeners(tab) {
+  #addTabState(tab) {
     this.#tabStates.set(tab, { state: null });
   }
 
@@ -333,22 +338,17 @@ export class AIWindowTabStatesManager {
         }
 
         const isSidebarOpen = lazy.AIWindowUI.isSidebarOpen(this.#window);
-        const conversation = await lazy.ChatStore.findConversationById(
-          tabState.state.conversationId
-        );
+        const convId = tabState.state.conversationId;
+        const conversation = await lazy.ChatStore.findConversationById(convId);
         const isAiWindowUrl = locationURI.spec === lazy.AIWINDOW_URL;
 
         const needsSidebar =
           !isAiWindowUrl &&
           tabState.state.mode === "fullpage" &&
-          conversation?.messages?.length &&
           !isSidebarOpen;
 
         const needsCloseSidebar =
-          isAiWindowUrl &&
-          tabState.state.mode === "fullpage" &&
-          conversation?.messages.length &&
-          isSidebarOpen;
+          isAiWindowUrl && tabState.state.mode === "fullpage" && isSidebarOpen;
 
         if (needsSidebar) {
           lazy.AIWindowUI.openSidebar(this.#window, conversation);
