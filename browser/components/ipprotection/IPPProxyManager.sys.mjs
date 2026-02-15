@@ -249,7 +249,10 @@ class IPPProxyManagerSingleton extends EventTarget {
         return;
       }
 
-      if (this.#state === IPPProxyStates.ERROR) {
+      if (
+        this.#state === IPPProxyStates.ERROR ||
+        this.#state === IPPProxyStates.PAUSED
+      ) {
         return;
       }
 
@@ -304,7 +307,13 @@ class IPPProxyManagerSingleton extends EventTarget {
       const { pass, usage } = await this.#getPassAndUsage();
       if (usage) {
         this.#setUsage(usage);
+        if (this.#usage.remaining <= 0) {
+          this.#pass == null;
+          this.#setState(IPPProxyStates.PAUSED);
+          return false;
+        }
       }
+
       if (!pass) {
         throw new Error("No valid ProxyPass available");
       }
@@ -356,6 +365,7 @@ class IPPProxyManagerSingleton extends EventTarget {
     }
 
     if (
+      this.#state !== IPPProxyStates.PAUSED &&
       this.#state !== IPPProxyStates.ACTIVE &&
       this.#state !== IPPProxyStates.ERROR
     ) {
@@ -380,8 +390,25 @@ class IPPProxyManagerSingleton extends EventTarget {
       duration: sessionLength,
       enabled: false,
     });
+    if (this.#state === IPPProxyStates.PAUSED) {
+      this.#setState(IPPProxyStates.NOT_READY);
+    } else {
+      this.#setState(IPPProxyStates.READY);
+    }
 
-    this.#setState(IPPProxyStates.READY);
+    if (userAction) {
+      this.#reloadCurrentTab();
+    }
+  }
+
+  /**
+   * Gets the current window and reloads the selected tab.
+   */
+  #reloadCurrentTab() {
+    let win = Services.wm.getMostRecentBrowserWindow();
+    if (win) {
+      win.gBrowser.reloadTab(win.gBrowser.selectedTab);
+    }
   }
 
   /**
@@ -460,27 +487,42 @@ class IPPProxyManagerSingleton extends EventTarget {
         return;
       }
       lazy.logConsole.debug(`Statrting scheduled ProxyPass rotation`);
-      await this.#rotateProxyPass();
+      let newPass = await this.rotateProxyPass();
+      if (newPass) {
+        this.#schedulePassRotation(newPass);
+      }
     }, msUntilRotation);
   }
 
   /**
    * Starts a flow to get a new ProxyPass and replace the current one.
    *
-   * @returns {Promise<void>} - Returns a promise that resolves when the rotation is complete or failed.
+   * @returns {Promise<void|ProxyPass>} - Returns a promise that resolves when the rotation is complete or failed.
    * When it's called again while a rotation is in progress, it will return the existing promise.
    */
-  async #rotateProxyPass() {
+  async rotateProxyPass() {
     if (this.#rotateProxyPassPromise) {
       return this.#rotateProxyPassPromise;
     }
-    this.#rotateProxyPassPromise = this.#getPassAndUsage();
-    const { pass, usage } = await this.#rotateProxyPassPromise;
-    this.#rotateProxyPassPromise = null;
+    let { promise, resolve } = Promise.withResolvers();
+    using scopeGuard = new DisposableStack();
+    scopeGuard.defer(() => {
+      resolve();
+      this.#rotateProxyPassPromise = null;
+    });
+    this.#rotateProxyPassPromise = promise;
+    const { pass, usage } = await this.#getPassAndUsage();
 
     if (usage) {
       this.#setUsage(usage);
+      if (this.#usage.remaining <= 0) {
+        this.#pass = null;
+        this.#connection.uninitialize();
+        this.#setState(IPPProxyStates.PAUSED);
+        return null;
+      }
     }
+
     if (!pass) {
       lazy.logConsole.debug("Failed to rotate token!");
       return null;
@@ -493,8 +535,8 @@ class IPPProxyManagerSingleton extends EventTarget {
     }
     lazy.logConsole.debug("Successfully rotated token!");
     this.#pass = pass;
-    this.#schedulePassRotation(pass);
-    return null;
+    resolve(pass);
+    return promise;
   }
 
   #handleProxyErrorEvent(event) {
@@ -516,7 +558,7 @@ class IPPProxyManagerSingleton extends EventTarget {
 
     if (level == "error" || this.#pass?.shouldRotate()) {
       // If this is a visible top-level error force a rotation
-      return this.#rotateProxyPass();
+      return this.rotateProxyPass();
     }
     return null;
   }

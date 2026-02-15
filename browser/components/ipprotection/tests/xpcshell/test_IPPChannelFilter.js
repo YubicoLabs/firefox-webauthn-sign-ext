@@ -372,3 +372,37 @@ add_task(async function test_serverToProxyInfo_isolation_key_uniqueness() {
     "Each call should generate unique isolation keys"
   );
 });
+
+add_task(async function test_uninitialize_clears_proxyInfo() {
+  const authToken = "Bearer test-token";
+
+  const server = new Server({
+    hostname: "test.example.com",
+    port: 443,
+    protocols: [
+      {
+        name: "connect",
+        host: "test.example.com",
+        port: 443,
+        scheme: "https",
+      },
+    ],
+  });
+
+  const filter = new IPPChannelFilter();
+  filter.initialize(authToken, server);
+
+  Assert.notEqual(
+    filter.proxyInfo,
+    null,
+    "proxyInfo should be set after initialize"
+  );
+
+  filter.uninitialize();
+
+  Assert.equal(
+    filter.proxyInfo,
+    null,
+    "proxyInfo should be null after uninitialize"
+  );
+});

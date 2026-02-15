@@ -174,6 +174,14 @@ export class IPPChannelFilter {
   }
 
   /**
+   * Uninitializes the IPPChannelFilter, removing the proxyInfo and aborting any pending channels.
+   * After this step, the filter will pause channels that should be proxied until a new proxyInfo is set through initialize() again, or the filter is stopped.
+   */
+  uninitialize() {
+    this.proxyInfo = null;
+  }
+
+  /**
    * @param {Array<string>} [excludedPages]
    */
   constructor(excludedPages = []) {
@@ -353,6 +361,9 @@ export class IPPChannelFilter {
    * All ProxyInfo objects related to this Connection will have the same isolation key.
    */
   get isolationKey() {
+    if (!this.proxyInfo) {
+      return null;
+    }
     return this.proxyInfo.connectionIsolationKey;
   }
 

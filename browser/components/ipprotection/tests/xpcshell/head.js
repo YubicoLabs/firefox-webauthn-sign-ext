@@ -62,15 +62,27 @@ async function putServerInRemoteSettings(
 /* exported putServerInRemoteSettings */
 
 /* exported setupStubs */
+
+const defaultStubOptions = {
+  signedIn: true,
+  isLinkedToGuardian: true,
+  validProxyPass: true,
+  entitlement: createTestEntitlement(),
+  proxyUsage: new ProxyUsage(
+    "5368709120",
+    "4294967296",
+    "2026-02-01T00:00:00.000Z"
+  ),
+};
+Object.freeze(defaultStubOptions);
+
 function setupStubs(
   sandbox,
-  options = {
-    signedIn: true,
-    isLinkedToGuardian: true,
-    validProxyPass: true,
-    entitlement: createTestEntitlement(),
+  aOptions = {
+    ...defaultStubOptions,
   }
 ) {
+  const options = { ...defaultStubOptions, ...aOptions };
   sandbox.stub(IPPSignInWatcher, "isSignedIn").get(() => options.signedIn);
   sandbox
     .stub(IPProtectionService.guardian, "isLinkedToGuardian")
@@ -93,11 +105,7 @@ function setupStubs(
         ? createProxyPassToken()
         : createExpiredProxyPassToken()
     ),
-    usage: new ProxyUsage(
-      "5368709120",
-      "4294967296",
-      "2026-02-01T00:00:00.000Z"
-    ),
+    usage: options.proxyUsage,
   });
 }
 

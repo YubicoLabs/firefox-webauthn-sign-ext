@@ -311,14 +311,17 @@ add_task(async function test_IPPProxyManager_quota_exceeded() {
     usageListener
   );
 
-  // Try to start - should fail but still set usage
-  try {
-    await IPPProxyManager.start();
-  } catch (error) {
-    // Expected to fail
-  }
+  // Try to start - should pause due to quota exhaustion
+  const pausedEventPromise = waitForEvent(
+    IPPProxyManager,
+    "IPPProxyManager:StateChanged",
+    () => IPPProxyManager.state === IPPProxyStates.PAUSED
+  );
 
-  // Verify usage was set before error
+  IPPProxyManager.start();
+  await pausedEventPromise;
+
+  // Verify usage was set before pausing
   Assert.ok(usageChanged, "UsageChanged event should have fired");
   Assert.notEqual(capturedUsage, null, "Usage should be captured");
   Assert.equal(
@@ -332,11 +335,11 @@ add_task(async function test_IPPProxyManager_quota_exceeded() {
     "Usage max should be set"
   );
 
-  // Verify the proxy is in ERROR state because no pass was available
+  // Verify the proxy is in PAUSED state because quota is exhausted
   Assert.equal(
     IPPProxyManager.state,
-    IPPProxyStates.ERROR,
-    "Should be in ERROR state"
+    IPPProxyStates.PAUSED,
+    "Should be in PAUSED state"
   );
 
   // Verify usage is still accessible in manager
@@ -510,6 +513,193 @@ add_task(async function test_IPPProxytates_start_stop() {
     IPPProxyManager,
     "IPPProxyManager:StateChanged",
     () => IPPProxyManager.state === IPPProxyStates.READY
+  );
+
+  IPProtectionService.uninit();
+  sandbox.restore();
+});
+
+add_task(
+  async function test_IPPProxyManager_paused_on_activation_with_zero_quota() {
+    let sandbox = sinon.createSandbox();
+    setupStubs(sandbox, {
+      validProxyPass: false,
+      proxyUsage: new ProxyUsage("1000000", "0", "2026-02-05T00:00:00.000Z"),
+    });
+
+    const readyEvent = waitForEvent(
+      IPProtectionService,
+      "IPProtectionService:StateChanged",
+      () => IPProtectionService.state === IPProtectionStates.READY
+    );
+
+    IPProtectionService.init();
+    await readyEvent;
+
+    const pausedEventPromise = waitForEvent(
+      IPPProxyManager,
+      "IPPProxyManager:StateChanged",
+      () => IPPProxyManager.state === IPPProxyStates.PAUSED
+    );
+
+    IPPProxyManager.start();
+
+    await pausedEventPromise;
+
+    Assert.equal(
+      IPPProxyManager.state,
+      IPPProxyStates.PAUSED,
+      "Proxy should be in PAUSED state when quota exhausted during activation"
+    );
+    Assert.equal(
+      IPPProxyManager.isolationKey,
+      null,
+      "Should not have an isolationKey when paused, as the connection is paused"
+    );
+    Assert.notEqual(
+      IPPProxyManager.usageInfo,
+      null,
+      "Usage info should be set even in PAUSED state"
+    );
+    Assert.equal(
+      IPPProxyManager.usageInfo.remaining,
+      BigInt("0"),
+      "Usage remaining should be 0"
+    );
+
+    await IPPProxyManager.start();
+    Assert.equal(
+      IPPProxyManager.state,
+      IPPProxyStates.PAUSED,
+      "Subsequent start should be no-op when in PAUSED state"
+    );
+
+    IPProtectionService.uninit();
+    sandbox.restore();
+  }
+);
+
+add_task(
+  async function test_IPPProxyManager_paused_on_rotation_with_zero_quota() {
+    let sandbox = sinon.createSandbox();
+    setupStubs(sandbox, {
+      validProxyPass: true,
+      proxyUsage: new ProxyUsage(
+        "1000000",
+        "500000",
+        "2026-02-05T00:00:00.000Z"
+      ),
+    });
+
+    const readyEvent = waitForEvent(
+      IPProtectionService,
+      "IPProtectionService:StateChanged",
+      () => IPProtectionService.state === IPProtectionStates.READY
+    );
+
+    IPProtectionService.init();
+    await readyEvent;
+
+    const activeEventPromise = waitForEvent(
+      IPPProxyManager,
+      "IPPProxyManager:StateChanged",
+      () => IPPProxyManager.state === IPPProxyStates.ACTIVE
+    );
+
+    IPPProxyManager.start();
+    await activeEventPromise;
+
+    Assert.equal(
+      IPPProxyManager.state,
+      IPPProxyStates.ACTIVE,
+      "Proxy should be active after initial start"
+    );
+
+    // Replace the Sandbox with a new one that now returns a zero quota to simulate quota exhaustion on rotation
+    sandbox.restore();
+    sandbox = sinon.createSandbox();
+    setupStubs(sandbox, {
+      validProxyPass: false,
+      proxyUsage: new ProxyUsage("1000000", "0", "2026-02-05T00:00:00.000Z"),
+    });
+
+    const pausedEventPromise = waitForEvent(
+      IPPProxyManager,
+      "IPPProxyManager:StateChanged",
+      () => IPPProxyManager.state === IPPProxyStates.PAUSED
+    );
+    IPPProxyManager.rotateProxyPass();
+    await pausedEventPromise;
+
+    Assert.equal(
+      IPPProxyManager.state,
+      IPPProxyStates.PAUSED,
+      "Proxy should be in PAUSED state when quota exhausted during rotation"
+    );
+    Assert.equal(
+      IPPProxyManager.isolationKey,
+      null,
+      "Should not have an isolationKey when paused, as the connection is paused"
+    );
+
+    await IPPProxyManager.stop();
+    Assert.equal(
+      IPPProxyManager.state,
+      IPPProxyStates.NOT_READY,
+      "Proxy should be in NOT_READY state when stopping from PAUSED state"
+    );
+
+    IPProtectionService.uninit();
+    sandbox.restore();
+  }
+);
+
+add_task(async function test_IPPProxyManager_rotateProxyPass_changes_pass() {
+  let sandbox = sinon.createSandbox();
+  setupStubs(sandbox, { validProxyPass: true });
+
+  const readyEvent = waitForEvent(
+    IPProtectionService,
+    "IPProtectionService:StateChanged",
+    () => IPProtectionService.state === IPProtectionStates.READY
+  );
+
+  IPProtectionService.init();
+  await readyEvent;
+
+  const activeEventPromise = waitForEvent(
+    IPPProxyManager,
+    "IPPProxyManager:StateChanged",
+    () => IPPProxyManager.state === IPPProxyStates.ACTIVE
+  );
+
+  IPPProxyManager.start();
+  await activeEventPromise;
+
+  sandbox.restore();
+  sandbox = sinon.createSandbox();
+  setupStubs(sandbox, { validProxyPass: false });
+
+  const firstPass = await IPPProxyManager.rotateProxyPass();
+  Assert.ok(firstPass, "First rotation should return a pass");
+  Assert.ok(!firstPass.isValid(), "First pass should be invalid/expired");
+
+  sandbox.restore();
+  sandbox = sinon.createSandbox();
+  setupStubs(sandbox, { validProxyPass: true });
+
+  const secondPass = await IPPProxyManager.rotateProxyPass();
+  Assert.ok(secondPass, "Second rotation should return a pass");
+  Assert.ok(secondPass.isValid(), "Second pass should be valid");
+
+  Assert.notEqual(
+    firstPass.token,
+    secondPass.token,
+    "Pass tokens should be different after rotation"
+  );
+  Assert.ok(
+    !firstPass.isValid() && secondPass.isValid(),
+    "Pass validity should change from invalid to valid"
   );
 
   IPProtectionService.uninit();
