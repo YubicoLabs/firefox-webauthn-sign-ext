@@ -31,6 +31,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Ignore
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -709,6 +710,7 @@ class DefaultTopSiteControllerTest {
         verify { navController.navigate(R.id.browserFragment) }
     }
 
+    @Ignore("Bug 2016888 - passes on individual test run, fails when running entire app test suite.")
     @Test
     fun `WHEN the provided top site is clicked THEN send a click callback request`() = runTest {
         val controller = spyk(createController(this))
@@ -752,6 +754,7 @@ class DefaultTopSiteControllerTest {
         assertTrue(topSiteImpressionPinged)
     }
 
+    @Ignore("Bug 2016888 - passes on individual test run, fails when running entire app test suite.")
     @Test
     fun `GIVEN Ads client is enabled WHEN the provided top site is clicked THEN send a click callback request`() = runTest {
         every { settings.enableMozillaAdsClient } returns true
@@ -797,6 +800,7 @@ class DefaultTopSiteControllerTest {
         assertTrue(topSiteImpressionPinged)
     }
 
+    @Ignore("Bug 2016888 - passes on individual test run, fails when running entire app test suite.")
     @Test
     fun `WHEN the provided top site is seen THEN send a impression callback request`() = runTest {
         val controller = spyk(createController(this))
@@ -840,6 +844,7 @@ class DefaultTopSiteControllerTest {
         assertTrue(topSiteImpressionSubmitted)
     }
 
+    @Ignore("Bug 2016888 - passes on individual test run, fails when running entire app test suite.")
     @Test
     fun `GIVEN Ads client is enabled WHEN the provided top site is seen THEN send a impression callback request`() = runTest {
         every { settings.enableMozillaAdsClient } returns true
