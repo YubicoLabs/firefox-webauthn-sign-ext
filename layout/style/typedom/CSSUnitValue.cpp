@@ -103,7 +103,12 @@ void CSSUnitValue::ToCssTextWithProperty(const CSSPropertyId& aPropertyId,
   }
 
   aDest.AppendFloat(mValue);
-  aDest.Append(mUnit);
+
+  if (mUnit.Equals("percent"_ns)) {
+    aDest.Append("%"_ns);
+  } else if (!mUnit.Equals("number"_ns)) {
+    aDest.Append(mUnit);
+  }
 
   if (isValueOutOfRange) {
     aDest.Append(")"_ns);
