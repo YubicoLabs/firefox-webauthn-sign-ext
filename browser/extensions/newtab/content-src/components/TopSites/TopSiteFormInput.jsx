@@ -62,6 +62,7 @@ export class TopSiteFormInput extends React.PureComponent {
           className="icon icon-clear-input icon-button-style"
           onClick={this.props.onClear}
           onKeyPress={this.onClearIconPress}
+          data-l10n-id="newtab-topsites-clear-input"
         />
       );
     }
