@@ -670,6 +670,94 @@ add_task(async function test_fetchProxyPass_quotaExceeded() {
     .forEach(test => add_task(test));
 });
 
+add_task(async function test_fetchProxyUsage() {
+  const ok = (headers = {}) => {
+    return (request, r) => {
+      r.setStatusLine(request.httpVersion, 200, "OK");
+      const defaults = {
+        "X-Quota-Limit": "5368709120",
+        "X-Quota-Remaining": "4294967296",
+        "X-Quota-Reset": "2026-02-01T00:00:00.000Z",
+      };
+      const merged = { ...defaults, ...headers };
+      for (const [name, value] of Object.entries(merged)) {
+        if (value !== undefined) {
+          r.setHeader(name, value, false);
+        }
+      }
+    };
+  };
+
+  const noHeaders = () => {
+    return (request, r) => {
+      r.setStatusLine(request.httpVersion, 200, "OK");
+    };
+  };
+
+  const testcases = [
+    {
+      name: "Valid usage headers",
+      sends: ok(),
+      expects: {
+        usage: {
+          max: BigInt("5368709120"),
+          remaining: BigInt("4294967296"),
+        },
+      },
+    },
+    {
+      name: "Missing usage headers returns null",
+      sends: noHeaders(),
+      expects: {
+        usage: null,
+      },
+    },
+    {
+      name: "Zero remaining quota",
+      sends: ok({ "X-Quota-Remaining": "0" }),
+      expects: {
+        usage: {
+          max: BigInt("5368709120"),
+          remaining: BigInt("0"),
+        },
+      },
+    },
+  ];
+
+  testcases
+    .map(({ name, sends, expects }) => {
+      return async () => {
+        const server = makeGuardianServer({ token: sends });
+        const client = new GuardianClient(testGuardianConfig(server));
+
+        const usage = await client.fetchProxyUsage();
+
+        if (expects.usage === null) {
+          Assert.equal(usage, null, `${name}: usage should be null`);
+        } else {
+          Assert.notEqual(usage, null, `${name}: usage should not be null`);
+          Assert.equal(
+            usage.max,
+            expects.usage.max,
+            `${name}: usage.max should match`
+          );
+          Assert.equal(
+            usage.remaining,
+            expects.usage.remaining,
+            `${name}: usage.remaining should match`
+          );
+          Assert.ok(
+            usage.reset && typeof usage.reset.epochMilliseconds === "number",
+            `${name}: usage.reset should be Temporal.Instant`
+          );
+        }
+
+        server.stop();
+      };
+    })
+    .forEach(test => add_task(test));
+});
+
 add_task(async function test_parseGuardianSuccessURL() {
   const testcases = [
     {

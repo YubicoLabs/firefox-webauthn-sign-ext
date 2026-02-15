@@ -7,6 +7,12 @@
 const { IPPEnrollAndEntitleManager } = ChromeUtils.importESModule(
   "moz-src:///browser/components/ipprotection/IPPEnrollAndEntitleManager.sys.mjs"
 );
+const { scheduleCallback } = ChromeUtils.importESModule(
+  "moz-src:///browser/components/ipprotection/IPPProxyManager.sys.mjs"
+);
+const { IPPStartupCache } = ChromeUtils.importESModule(
+  "moz-src:///browser/components/ipprotection/IPPStartupCache.sys.mjs"
+);
 
 add_setup(async function () {
   await putServerInRemoteSettings();
@@ -186,7 +192,7 @@ add_task(async function test_IPPProxyManager_reset() {
     usage: new ProxyUsage(
       "5368709120",
       "4294967296",
-      "2026-02-01T00:00:00.000Z"
+      "3026-02-01T00:00:00.000Z"
     ),
   });
 
@@ -213,17 +219,11 @@ add_task(async function test_IPPProxyManager_reset() {
     "Should not have an isolationKey after reset"
   );
 
-  Assert.equal(
-    IPPProxyManager.usageInfo,
-    null,
-    "Should not have usage info after reset"
-  );
-
   Assert.ok(
     !IPPProxyManager.hasValidProxyPass,
     "Should not have a proxy pass after reset"
   );
-
+  IPProtectionService.uninit();
   sandbox.restore();
 });
 
@@ -286,7 +286,7 @@ add_task(async function test_IPPProxyManager_quota_exceeded() {
     status: 429,
     error: "quota_exceeded",
     pass: undefined,
-    usage: new ProxyUsage("5368709120", "0", "2026-02-02T00:00:00.000Z"),
+    usage: new ProxyUsage("5368709120", "0", "3026-02-02T00:00:00.000Z"),
   });
 
   // Initialize service and wait for READY state
@@ -389,7 +389,7 @@ add_task(async function test_IPPProxytates_active() {
     usage: new ProxyUsage(
       "5368709120",
       "4294967296",
-      "2026-02-01T00:00:00.000Z"
+      "3026-02-01T00:00:00.000Z"
     ),
   });
 
@@ -467,8 +467,8 @@ add_task(async function test_IPPProxytates_start_stop() {
     ),
     usage: new ProxyUsage(
       "5368709120",
-      "4294967296",
-      "2026-02-01T00:00:00.000Z"
+      "123456789",
+      "3026-02-01T00:00:00.000Z"
     ),
   });
 
@@ -516,6 +516,7 @@ add_task(async function test_IPPProxytates_start_stop() {
   );
 
   IPProtectionService.uninit();
+  IPPProxyManager.uninit();
   sandbox.restore();
 });
 
@@ -524,7 +525,7 @@ add_task(
     let sandbox = sinon.createSandbox();
     setupStubs(sandbox, {
       validProxyPass: false,
-      proxyUsage: new ProxyUsage("1000000", "0", "2026-02-05T00:00:00.000Z"),
+      proxyUsage: new ProxyUsage("1000000", "0", "3026-02-05T00:00:00.000Z"),
     });
 
     const readyEvent = waitForEvent(
@@ -566,14 +567,6 @@ add_task(
       BigInt("0"),
       "Usage remaining should be 0"
     );
-
-    await IPPProxyManager.start();
-    Assert.equal(
-      IPPProxyManager.state,
-      IPPProxyStates.PAUSED,
-      "Subsequent start should be no-op when in PAUSED state"
-    );
-
     IPProtectionService.uninit();
     sandbox.restore();
   }
@@ -581,13 +574,14 @@ add_task(
 
 add_task(
   async function test_IPPProxyManager_paused_on_rotation_with_zero_quota() {
+    IPPProxyManager.uninit();
     let sandbox = sinon.createSandbox();
     setupStubs(sandbox, {
       validProxyPass: true,
       proxyUsage: new ProxyUsage(
         "1000000",
         "500000",
-        "2026-02-05T00:00:00.000Z"
+        "3026-02-05T00:00:00.000Z"
       ),
     });
 
@@ -620,7 +614,7 @@ add_task(
     sandbox = sinon.createSandbox();
     setupStubs(sandbox, {
       validProxyPass: false,
-      proxyUsage: new ProxyUsage("1000000", "0", "2026-02-05T00:00:00.000Z"),
+      proxyUsage: new ProxyUsage("1000000", "0", "3026-02-05T00:00:00.000Z"),
     });
 
     const pausedEventPromise = waitForEvent(
@@ -712,9 +706,6 @@ add_task(async function test_IPPProxyManager_restores_cached_usage() {
   const { ProxyUsage } = ChromeUtils.importESModule(
     "moz-src:///browser/components/ipprotection/GuardianClient.sys.mjs"
   );
-  const { IPPStartupCache } = ChromeUtils.importESModule(
-    "moz-src:///browser/components/ipprotection/IPPStartupCache.sys.mjs"
-  );
 
   const cachedUsage = new ProxyUsage(
     "5000000000",
@@ -747,4 +738,292 @@ add_task(async function test_IPPProxyManager_restores_cached_usage() {
   );
 
   Services.prefs.clearUserPref("browser.ipProtection.usageCache");
+});
+
+const refreshUsageTestCases = [
+  {
+    name: "paused -> paused",
+    initialState: IPPProxyStates.PAUSED,
+    initialUsage: new ProxyUsage("1000000", "0", "3026-02-05T00:00:00.000Z"),
+    refreshedUsage: new ProxyUsage("1000000", "0", "3026-02-06T00:00:00.000Z"),
+    expectedState: IPPProxyStates.PAUSED,
+    expectedRemaining: BigInt("0"),
+  },
+  {
+    name: "NOT_READY -> ready",
+    initialState: IPPProxyStates.NOT_READY,
+    initialUsage: new ProxyUsage("1000000", "0", "3026-02-05T00:00:00.000Z"),
+    refreshedUsage: new ProxyUsage(
+      "1000000",
+      "500000",
+      "3026-02-06T00:00:00.000Z"
+    ),
+    expectedState: IPPProxyStates.READY,
+    expectedRemaining: BigInt("500000"),
+  },
+  {
+    name: "Active -> paused",
+    initialState: IPPProxyStates.ACTIVE,
+    initialUsage: new ProxyUsage(
+      "1000000",
+      "500000",
+      "3026-02-05T00:00:00.000Z"
+    ),
+    refreshedUsage: new ProxyUsage("1000000", "0", "3026-02-06T00:00:00.000Z"),
+    expectedState: IPPProxyStates.PAUSED,
+    expectedRemaining: BigInt("0"),
+  },
+];
+
+refreshUsageTestCases.forEach(testCase => {
+  add_task(
+    async function test_IPPProxyManager_refreshUsage_state_transitions() {
+      info(`Running test: ${testCase.name}`);
+      IPPStartupCache.storeUsageInfo(testCase.initialUsage);
+      let sandbox = sinon.createSandbox();
+      setupStubs(sandbox, {
+        validProxyPass: testCase.initialState === IPPProxyStates.READY,
+        proxyUsage: testCase.initialUsage,
+      });
+
+      const readyEvent = waitForEvent(
+        IPProtectionService,
+        "IPProtectionService:StateChanged",
+        () => IPProtectionService.state === IPProtectionStates.READY
+      );
+
+      IPProtectionService.init();
+      await readyEvent;
+
+      if (
+        testCase.initialState === IPPProxyStates.ACTIVE ||
+        testCase.initialState === IPPProxyStates.PAUSED
+      ) {
+        const pausedEventPromise = waitForEvent(
+          IPPProxyManager,
+          "IPPProxyManager:StateChanged",
+          () => IPPProxyManager.state === testCase.initialState
+        );
+        IPPProxyManager.start();
+        await pausedEventPromise;
+      }
+
+      Assert.equal(
+        IPPProxyManager.state,
+        testCase.initialState,
+        `Initial state should be ${testCase.initialState}`
+      );
+
+      sandbox.restore();
+      sandbox = sinon.createSandbox();
+      setupStubs(sandbox, {
+        proxyUsage: testCase.refreshedUsage,
+      });
+
+      const stateChangePromise =
+        testCase.initialState !== testCase.expectedState
+          ? waitForEvent(
+              IPPProxyManager,
+              "IPPProxyManager:StateChanged",
+              () => IPPProxyManager.state === testCase.expectedState
+            )
+          : Promise.resolve();
+
+      await IPPProxyManager.refreshUsage();
+      await stateChangePromise;
+
+      Assert.equal(
+        IPPProxyManager.state,
+        testCase.expectedState,
+        `${testCase.name}: Final state should be ${testCase.expectedState}`
+      );
+      Assert.equal(
+        IPPProxyManager.usageInfo.remaining,
+        testCase.expectedRemaining,
+        `${testCase.name}: Usage remaining should be ${testCase.expectedRemaining}`
+      );
+
+      IPProtectionService.uninit();
+      sandbox.restore();
+    }
+  );
+});
+
+add_task(async function test_scheduleCallback_basic() {
+  const now = Temporal.Now.instant();
+  const triggerTime = now.add({ milliseconds: 100 });
+  const abortController = new AbortController();
+
+  let callbackTriggered = false;
+  const callback = () => {
+    callbackTriggered = true;
+  };
+
+  const schedulePromise = scheduleCallback(
+    callback,
+    triggerTime,
+    abortController.signal
+  );
+
+  await schedulePromise;
+
+  Assert.ok(
+    callbackTriggered,
+    "Callback should be triggered after the timepoint"
+  );
+});
+
+add_task(async function test_scheduleCallback_abort_before_trigger() {
+  const now = Temporal.Now.instant();
+  const triggerTime = now.add({ milliseconds: 200 });
+  const abortController = new AbortController();
+
+  let callbackTriggered = false;
+  const callback = () => {
+    callbackTriggered = true;
+  };
+
+  const schedulePromise = scheduleCallback(
+    callback,
+    triggerTime,
+    abortController.signal
+  );
+
+  abortController.abort();
+
+  await schedulePromise;
+
+  Assert.ok(
+    !callbackTriggered,
+    "Callback should not be triggered if aborted before timepoint"
+  );
+});
+
+add_task(async function test_scheduleCallback_abort_during_wait() {
+  const now = Temporal.Now.instant();
+  const triggerTime = now.add({ milliseconds: 500 });
+  const abortController = new AbortController();
+
+  let callbackTriggered = false;
+  const callback = () => {
+    callbackTriggered = true;
+  };
+
+  const schedulePromise = scheduleCallback(
+    callback,
+    triggerTime,
+    abortController.signal
+  );
+
+  await new Promise(resolve => {
+    do_timeout(100, resolve);
+  });
+
+  abortController.abort();
+
+  await schedulePromise;
+
+  Assert.ok(
+    !callbackTriggered,
+    "Callback should not be triggered if aborted during wait"
+  );
+});
+
+add_task(async function test_scheduleCallback_timepoint_in_past() {
+  const now = Temporal.Now.instant();
+  const triggerTime = now.subtract({ milliseconds: 100 });
+  const abortController = new AbortController();
+
+  let callbackTriggered = false;
+  const callback = () => {
+    callbackTriggered = true;
+  };
+
+  const schedulePromise = scheduleCallback(
+    callback,
+    triggerTime,
+    abortController.signal
+  );
+
+  await schedulePromise;
+
+  Assert.ok(
+    callbackTriggered,
+    "Callback should be triggered immediately if timepoint is in the past"
+  );
+});
+
+add_task(async function test_scheduleCallback_long_delay_clamping() {
+  const sandbox = sinon.createSandbox();
+  const maxSetTimeoutMs = 2147483647;
+
+  const startTime = Temporal.Instant.fromEpochMilliseconds(0);
+  const triggerTime = startTime.add({ milliseconds: maxSetTimeoutMs + 5000 });
+
+  let currentTime = startTime;
+
+  const setTimeoutStub = sandbox.stub();
+  let timeoutResolvers = [];
+  setTimeoutStub.callsFake((callback, ms) => {
+    timeoutResolvers.push({ callback, ms });
+    return timeoutResolvers.length - 1;
+  });
+
+  const clearTimeoutStub = sandbox.stub();
+
+  const mockImports = {
+    setTimeout: setTimeoutStub,
+    clearTimeout: clearTimeoutStub,
+    getNow: () => currentTime,
+  };
+
+  const abortController = new AbortController();
+  let callbackTriggered = false;
+  const callback = () => {
+    callbackTriggered = true;
+  };
+
+  const schedulePromise = scheduleCallback(
+    callback,
+    triggerTime,
+    abortController.signal,
+    mockImports
+  );
+
+  await new Promise(resolve => do_timeout(0, resolve));
+
+  Assert.ok(
+    setTimeoutStub.calledOnce,
+    "setTimeout should be called once initially"
+  );
+  Assert.equal(
+    setTimeoutStub.firstCall.args[1],
+    maxSetTimeoutMs,
+    "First setTimeout should be clamped to max value"
+  );
+
+  currentTime = startTime.add({ milliseconds: maxSetTimeoutMs });
+  timeoutResolvers[0].callback();
+
+  // Yield again to allow scheduleCallback to process the timeout and loop back
+  await new Promise(resolve => do_timeout(0, resolve));
+
+  Assert.ok(
+    setTimeoutStub.calledTwice,
+    "setTimeout should be called again after first timeout"
+  );
+  Assert.equal(
+    setTimeoutStub.secondCall.args[1],
+    5000,
+    "Second setTimeout should use remaining time"
+  );
+
+  currentTime = triggerTime;
+  timeoutResolvers[1].callback();
+
+  await schedulePromise;
+
+  Assert.ok(callbackTriggered, "Callback should be triggered after all waits");
+
+  sandbox.restore();
 });

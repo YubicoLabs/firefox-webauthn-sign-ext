@@ -71,7 +71,7 @@ const defaultStubOptions = {
   proxyUsage: new ProxyUsage(
     "5368709120",
     "4294967296",
-    "2026-02-01T00:00:00.000Z"
+    "3026-02-01T00:00:00.000Z"
   ),
 };
 Object.freeze(defaultStubOptions);
@@ -107,6 +107,9 @@ function setupStubs(
     ),
     usage: options.proxyUsage,
   });
+  sandbox
+    .stub(IPProtectionService.guardian, "fetchProxyUsage")
+    .resolves(options.proxyUsage);
 }
 
 /**
