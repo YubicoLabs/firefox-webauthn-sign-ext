@@ -124,3 +124,68 @@ addAccessibleTask(
     iframeAttrs: { allow: "aria-notify none" },
   }
 );
+
+/**
+ * Test that announcements don't fire if the tab or window is in the background.
+ */
+addAccessibleTask(
+  ``,
+  async function testActive(browser, docAcc) {
+    const events = [[EVENT_ANNOUNCEMENT, docAcc]];
+    const expected = { expected: events };
+    const unexpected = { unexpected: events };
+
+    function ariaNotify(waitFor) {
+      return contentSpawnMutation(browser, waitFor, async function () {
+        content.document.ariaNotify("test");
+      });
+    }
+
+    async function waitForDocVisibilityChange() {
+      // It can take some time for the BrowsingContext's isActive state to
+      // change, even after we've received the DOM and accessibility focus
+      // events.
+      // We use SpecialPowers.spawn directly here so the linter doesn't
+      // complain about ContentTaskUtils being undefined.
+      await SpecialPowers.spawn(docAcc.browsingContext, [], async function () {
+        await ContentTaskUtils.waitForEvent(
+          content.document,
+          "visibilitychange"
+        );
+      });
+    }
+
+    info("ariaNotify when tab in foreground");
+    await ariaNotify(expected);
+
+    info("Opening new tab");
+    let visibilityChanged = waitForDocVisibilityChange();
+    await BrowserTestUtils.withNewTab(
+      "https://example.com/",
+      async function () {
+        await visibilityChanged;
+        info("ariaNotify when tab in background");
+        await ariaNotify(unexpected);
+        info("Closing new tab");
+        visibilityChanged = waitForDocVisibilityChange();
+      }
+    );
+    await visibilityChanged;
+    info("ariaNotify with tab in foreground");
+    await ariaNotify(expected);
+
+    info("Minimizing window");
+    visibilityChanged = waitForDocVisibilityChange();
+    window.minimize();
+    await visibilityChanged;
+    info("ariaNotify with window in background");
+    await ariaNotify(unexpected);
+    info("Restoring window");
+    visibilityChanged = waitForDocVisibilityChange();
+    window.restore();
+    await visibilityChanged;
+    info("ariaNotify when tab in foreground");
+    await ariaNotify(expected);
+  },
+  { chrome: true, topLevel: true }
+);
