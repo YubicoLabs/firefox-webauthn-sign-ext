@@ -1201,6 +1201,10 @@ NS_IMETHODIMP DispatchEventOnMainThread<MouseInput, WidgetMouseEvent>::Run() {
       "Please use DispatchEventOnMainThread<MouseInput, WidgetPointerEvent>");
   WidgetMouseEvent event = mInput.ToWidgetEvent<WidgetMouseEvent>(mWidget);
   mWidget->ProcessUntransformedAPZEvent(&event, mAPZResult);
+  if (event.mCallbackId.isSome()) {
+    mozilla::widget::AutoSynthesizedEventCallbackNotifier::NotifySavedCallback(
+        event.mCallbackId.ref());
+  }
   return NS_OK;
 }
 
@@ -1211,6 +1215,24 @@ NS_IMETHODIMP DispatchEventOnMainThread<MouseInput, WidgetPointerEvent>::Run() {
       "Please use DispatchEventOnMainThread<MouseInput, WidgetMouseEvent>");
   WidgetPointerEvent event = mInput.ToWidgetEvent<WidgetPointerEvent>(mWidget);
   mWidget->ProcessUntransformedAPZEvent(&event, mAPZResult);
+  if (event.mCallbackId.isSome()) {
+    mozilla::widget::AutoSynthesizedEventCallbackNotifier::NotifySavedCallback(
+        event.mCallbackId.ref());
+  }
+  return NS_OK;
+}
+
+// XXX: This can be remove once callback is also supported sythesized Touch
+// event (bug 1968861).
+template <>
+NS_IMETHODIMP
+DispatchEventOnMainThread<ScrollWheelInput, WidgetWheelEvent>::Run() {
+  WidgetWheelEvent event = mInput.ToWidgetEvent(mWidget);
+  mWidget->ProcessUntransformedAPZEvent(&event, mAPZResult);
+  if (event.mCallbackId.isSome()) {
+    mozilla::widget::AutoSynthesizedEventCallbackNotifier::NotifySavedCallback(
+        event.mCallbackId.ref());
+  }
   return NS_OK;
 }
 
@@ -1232,6 +1254,10 @@ class DispatchInputOnControllerThread : public Runnable {
     APZEventResult result = mAPZC->InputBridge()->ReceiveInputEvent(mInput);
     if (mAPZOnly == APZOnly::Yes ||
         result.GetStatus() == nsEventStatus_eConsumeNoDefault) {
+      if (mInput.mCallbackId.isSome()) {
+        mozilla::widget::AutoSynthesizedEventCallbackNotifier::
+            NotifySavedCallback(mInput.mCallbackId.ref());
+      }
       return NS_OK;
     }
     RefPtr<Runnable> r = new DispatchEventOnMainThread<InputType, EventType>(
@@ -1331,6 +1357,7 @@ nsIWidget::ContentAndAPZEventStatus nsIWidget::DispatchInputEvent(
             new DispatchInputOnControllerThread<ScrollWheelInput,
                                                 WidgetWheelEvent>(*wheelEvent,
                                                                   mAPZC, this);
+        wheelEvent->mCallbackId.reset();
         APZThreadUtils::RunOnControllerThread(std::move(r));
         status.mContentStatus = nsEventStatus_eConsumeDoDefault;
         return status;
@@ -1340,6 +1367,7 @@ nsIWidget::ContentAndAPZEventStatus nsIWidget::DispatchInputEvent(
         RefPtr<Runnable> r =
             new DispatchInputOnControllerThread<MouseInput, WidgetPointerEvent>(
                 *pointerEvent, mAPZC, this);
+        pointerEvent->mCallbackId.reset();
         APZThreadUtils::RunOnControllerThread(std::move(r));
         status.mContentStatus = nsEventStatus_eConsumeDoDefault;
         return status;
@@ -1348,6 +1376,7 @@ nsIWidget::ContentAndAPZEventStatus nsIWidget::DispatchInputEvent(
         RefPtr<Runnable> r =
             new DispatchInputOnControllerThread<MouseInput, WidgetMouseEvent>(
                 *mouseEvent, mAPZC, this);
+        mouseEvent->mCallbackId.reset();
         APZThreadUtils::RunOnControllerThread(std::move(r));
         status.mContentStatus = nsEventStatus_eConsumeDoDefault;
         return status;
