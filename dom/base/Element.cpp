@@ -1451,9 +1451,7 @@ already_AddRefed<ShadowRoot> Element::AttachShadowWithoutNameChecks(
   nsAutoScriptBlocker scriptBlocker;
 
   auto* nim = mNodeInfo->NodeInfoManager();
-  RefPtr<mozilla::dom::NodeInfo> nodeInfo =
-      nim->GetNodeInfo(nsGkAtoms::documentFragmentNodeName, nullptr,
-                       kNameSpaceID_None, DOCUMENT_FRAGMENT_NODE);
+  RefPtr<mozilla::dom::NodeInfo> nodeInfo = nim->GetDocumentFragmentNodeInfo();
 
   // If there are no children, the flat tree is not changing due to the presence
   // of the shadow root, so we don't need to invalidate style / layout.

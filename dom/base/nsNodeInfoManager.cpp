@@ -42,14 +42,7 @@ static const uint32_t kInitialNodeInfoHashSize = 32;
 
 nsNodeInfoManager::nsNodeInfoManager(mozilla::dom::Document* aDocument,
                                      nsIPrincipal* aPrincipal)
-    : mNodeInfoHash(kInitialNodeInfoHashSize),
-      mDocument(aDocument),
-      mNonDocumentNodeInfos(0),
-      mTextNodeInfo(nullptr),
-      mCommentNodeInfo(nullptr),
-      mDocumentNodeInfo(nullptr),
-      mRecentlyUsedNodeInfos(),
-      mArena(nullptr) {
+    : mNodeInfoHash(kInitialNodeInfoHashSize), mDocument(aDocument) {
   nsLayoutStatics::AddRef();
 
   if (aPrincipal) {
@@ -223,6 +216,16 @@ already_AddRefed<NodeInfo> nsNodeInfoManager::GetTextNodeInfo() {
   return nodeInfo.forget();
 }
 
+already_AddRefed<NodeInfo> nsNodeInfoManager::GetDocumentFragmentNodeInfo() {
+  RefPtr<NodeInfo> nodeInfo = mDocumentFragmentNodeInfo;
+  if (!nodeInfo) {
+    nodeInfo = GetNodeInfo(nsGkAtoms::documentFragmentNodeName, nullptr,
+                           kNameSpaceID_None, nsINode::DOCUMENT_FRAGMENT_NODE);
+    mDocumentFragmentNodeInfo = nodeInfo;
+  }
+  return nodeInfo.forget();
+}
+
 already_AddRefed<NodeInfo> nsNodeInfoManager::GetCommentNodeInfo() {
   RefPtr<NodeInfo> nodeInfo;
 
@@ -335,6 +338,8 @@ void nsNodeInfoManager::RemoveNodeInfo(NodeInfo* aNodeInfo) {
       mTextNodeInfo = nullptr;
     } else if (aNodeInfo == mCommentNodeInfo) {
       mCommentNodeInfo = nullptr;
+    } else if (aNodeInfo == mDocumentFragmentNodeInfo) {
+      mDocumentFragmentNodeInfo = nullptr;
     }
   }
 

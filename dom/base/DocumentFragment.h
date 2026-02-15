@@ -48,9 +48,7 @@ class DocumentFragment : public FragmentOrElement {
   }
 
   explicit DocumentFragment(nsNodeInfoManager* aNodeInfoManager)
-      : FragmentOrElement(aNodeInfoManager->GetNodeInfo(
-            nsGkAtoms::documentFragmentNodeName, nullptr, kNameSpaceID_None,
-            DOCUMENT_FRAGMENT_NODE)),
+      : FragmentOrElement(aNodeInfoManager->GetDocumentFragmentNodeInfo()),
         mHost(nullptr) {
     Init();
   }
