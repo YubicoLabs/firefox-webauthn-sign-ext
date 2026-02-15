@@ -12,6 +12,7 @@
 #include "mozilla/dom/BindingDeclarations.h"
 #include "mozilla/dom/CSSTransformComponent.h"
 #include "mozilla/dom/CSSTransformValueBinding.h"
+#include "nsString.h"
 
 namespace mozilla::dom {
 
@@ -85,7 +86,22 @@ void CSSTransformValue::IndexedSetter(uint32_t aIndex,
 
 void CSSTransformValue::ToCssTextWithProperty(const CSSPropertyId& aPropertyId,
                                               nsACString& aDest) const {
-  // TODO: Implement me
+  bool written = false;
+
+  for (const RefPtr<CSSTransformComponent>& value : mValues) {
+    if (written) {
+      aDest.Append(" "_ns);
+    }
+
+    value->ToCssTextWithProperty(aPropertyId, aDest);
+    written = true;
+  }
+}
+
+const CSSTransformValue& CSSStyleValue::GetAsCSSTransformValue() const {
+  MOZ_DIAGNOSTIC_ASSERT(mStyleValueType == StyleValueType::TransformValue);
+
+  return *static_cast<const CSSTransformValue*>(this);
 }
 
 CSSTransformValue& CSSStyleValue::GetAsCSSTransformValue() {

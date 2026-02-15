@@ -8,6 +8,7 @@
 
 #include "mozilla/AlreadyAddRefed.h"
 #include "mozilla/Assertions.h"
+#include "mozilla/CSSPropertyId.h"
 #include "mozilla/ErrorResult.h"
 #include "mozilla/dom/CSSMatrixComponent.h"
 #include "mozilla/dom/CSSPerspective.h"
@@ -55,7 +56,13 @@ already_AddRefed<DOMMatrix> CSSTransformComponent::ToMatrix(ErrorResult& aRv) {
   return nullptr;
 }
 
-void CSSTransformComponent::Stringify(nsString& aRetVal) {}
+void CSSTransformComponent::Stringify(nsString& aRetVal) {
+  nsAutoCString cssText;
+  ToCssTextWithProperty(CSSPropertyId(eCSSProperty_UNKNOWN), cssText);
+
+  // TODO: We shouldn't need to do the conversion. See bug 2016390.
+  CopyUTF8toUTF16(cssText, aRetVal);
+}
 
 // end of CSSTransformComponent Web IDL implementation
 

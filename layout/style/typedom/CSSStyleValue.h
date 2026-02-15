@@ -73,15 +73,24 @@ class CSSStyleValue : public nsISupports, public nsWrapperCache {
   bool IsCSSUnsupportedValue() const;
 
   // Defined in CSSUnsupportedValue.cpp
+  const CSSUnsupportedValue& GetAsCSSUnsupportedValue() const;
+
+  // Defined in CSSUnsupportedValue.cpp
   CSSUnsupportedValue& GetAsCSSUnsupportedValue();
 
   // Returns nullptr if this value is not a CSSUnsupportedValue, caller must
   // null check.
   //
   // Defined in CSSUnsupportedValue.cpp
-  const CSSPropertyId* GetPropertyId();
+  const CSSPropertyId* GetPropertyId() const;
+
+  // Defined in CSSUnsupportedValue.cpp
+  CSSPropertyId* GetPropertyId();
 
   bool IsCSSKeywordValue() const;
+
+  // Defined in CSSKeywordValue.cpp
+  const CSSKeywordValue& GetAsCSSKeywordValue() const;
 
   // Defined in CSSKeywordValue.cpp
   CSSKeywordValue& GetAsCSSKeywordValue();
@@ -89,12 +98,21 @@ class CSSStyleValue : public nsISupports, public nsWrapperCache {
   bool IsCSSNumericValue() const;
 
   // Defined in CSSNumericValue.cpp
+  const CSSNumericValue& GetAsCSSNumericValue() const;
+
+  // Defined in CSSNumericValue.cpp
   CSSNumericValue& GetAsCSSNumericValue();
 
   bool IsCSSTransformValue() const;
 
   // Defined in CSSTransformValue.cpp
+  const CSSTransformValue& GetAsCSSTransformValue() const;
+
+  // Defined in CSSTransformValue.cpp
   CSSTransformValue& GetAsCSSTransformValue();
+
+  void ToCssTextWithProperty(const CSSPropertyId& aPropertyId,
+                             nsACString& aDest) const;
 
  protected:
   virtual ~CSSStyleValue() = default;

@@ -220,6 +220,12 @@ StyleNumericValueResult CSSNumericValue::ToStyleNumericValue() const {
   MOZ_MAKE_COMPILER_ASSUME_IS_UNREACHABLE("Bad numeric value type!");
 }
 
+const CSSNumericValue& CSSStyleValue::GetAsCSSNumericValue() const {
+  MOZ_DIAGNOSTIC_ASSERT(mStyleValueType == StyleValueType::NumericValue);
+
+  return *static_cast<const CSSNumericValue*>(this);
+}
+
 CSSNumericValue& CSSStyleValue::GetAsCSSNumericValue() {
   MOZ_DIAGNOSTIC_ASSERT(mStyleValueType == StyleValueType::NumericValue);
 
