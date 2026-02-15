@@ -1105,10 +1105,10 @@ nsresult PrototypeDocumentContentSink::CreateElementFromPrototype(
     if (aPrototype->mIsAtom &&
         newNodeInfo->NamespaceID() == kNameSpaceID_XHTML) {
       rv = NS_NewHTMLElement(getter_AddRefs(result), newNodeInfo.forget(),
-                             NOT_FROM_PARSER, aPrototype->mIsAtom);
+                             FROM_PARSER_NETWORK, aPrototype->mIsAtom);
     } else {
       rv = NS_NewElement(getter_AddRefs(result), newNodeInfo.forget(),
-                         NOT_FROM_PARSER);
+                         FROM_PARSER_NETWORK);
     }
     if (NS_FAILED(rv)) return rv;
 
